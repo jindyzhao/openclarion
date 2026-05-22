@@ -22,3 +22,9 @@ node_modules/
 
 # OS
 .DS_Store
+
+# Private agent workspace (separate git repository, must never enter the
+# main OpenClarion repository). The directory may exist physically inside
+# the working tree but its contents (including any nested .git/) are
+# managed independently.
+ai-code/

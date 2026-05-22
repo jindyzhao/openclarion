@@ -1,14 +1,84 @@
 name: ci
 
+# CI must call repository-owned `make` targets (see docs/design/ci/README.md
+# "Workflow Policy"). Inline shell is forbidden and enforced by the
+# `workflow-parity` job below.
+#
+# Action pinning: third-party actions are pinned to a full commit SHA
+# rather than a mutable tag, with the human-readable version in a
+# trailing comment. See docs/design/DEPENDENCIES.md for the policy.
+
 on:
   pull_request:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
-  docs-hygiene:
-    runs-on: ubuntu-latest
+  workflow-parity:
+    name: Workflow / Makefile parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - name: Check non-English literals
-        run: bash scripts/check_no_non_english_chars.sh
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - run: make workflow-parity
+
+  docs-hygiene:
+    name: Docs hygiene
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - run: make docs-hygiene
+
+  forbidden-methods:
+    name: Forbidden methods
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - run: make forbidden
+
+  adr-check:
+    name: ADR index
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - run: make adr-check
+
+  links-check:
+    name: Markdown links
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - run: make links-check
+
+  dco-check:
+    name: DCO sign-off
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+    env:
+      DCO_BASE_REF: ${{ github.base_ref }}
+      DCO_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+      - run: make dco-check
