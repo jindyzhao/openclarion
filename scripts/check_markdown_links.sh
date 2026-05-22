@@ -4,7 +4,7 @@
 # Scope:
 #   - All *.md files under docs/, plus the top-level governance files:
 #     README.md, CONTRIBUTING.md, GOVERNANCE.md, SECURITY.md,
-#     CODE_OF_CONDUCT.md, DCO.md, MAINTAINERS.md, ADOPTERS.md, QA.md,
+#     CODE_OF_CONDUCT.md, DCO.md, MAINTAINERS.md,
 #     DEVELOPMENT_WORKFLOW.md.
 #
 # Rules:
@@ -34,8 +34,8 @@ ROOT = Path(".").resolve()
 
 GOVERNANCE_TOP = [
     "README.md", "CONTRIBUTING.md", "GOVERNANCE.md", "SECURITY.md",
-    "CODE_OF_CONDUCT.md", "DCO.md", "MAINTAINERS.md", "ADOPTERS.md",
-    "QA.md", "DEVELOPMENT_WORKFLOW.md",
+    "CODE_OF_CONDUCT.md", "DCO.md", "MAINTAINERS.md",
+    "DEVELOPMENT_WORKFLOW.md",
 ]
 
 files = []
