@@ -12,7 +12,7 @@ informed: []
 
 ## Context and Problem Statement
 
-Alert governance requires timers, retries, human signals, long-running sessions,
+Alert governance requires timers, retries, human interaction, long-running sessions,
 fan-out/fan-in report generation, and durable failure handling. A hand-written
 state machine would be fragile.
 
@@ -20,9 +20,10 @@ state machine would be fragile.
 
 * durable workflow state
 * retry and timeout support
-* human-in-the-loop signals (M5 short-conversation diagnosis)
+* synchronous human-in-the-loop Updates (M5 short-conversation diagnosis)
 * deterministic workflow replay
 * clear separation between orchestration and activities
+* SDK must support Workflow Update (>= 1.21)
 
 ## Why Not a Simpler Job Queue
 
@@ -31,7 +32,8 @@ M0-M2 (alert grouping, evidence build, headless report fan-out/fan-in). It
 would not satisfy M5 short-conversation interactive diagnosis without
 reimplementing core workflow primitives:
 
-* signals from a human user delivered into a running session
+* synchronous Updates from a human user delivered into a running session
+  (request-response semantics; caller blocks until workflow handler completes)
 * queries against in-flight session state
 * durable timers for session lifetime and idle timeout
 * deterministic replay across crash recovery
@@ -51,25 +53,52 @@ cross-check.
 ## Decision Outcome
 
 **Chosen option**: use Temporal for durable workflow orchestration. Go services
-own business decisions, Temporal owns orchestration, retry, timer, signal, and
-activity execution semantics.
+own business decisions, Temporal owns orchestration, retry, timer, Update,
+Signal, and activity execution semantics.
+
+### Communication Mechanisms
+
+| Mechanism | Purpose | M5 Usage |
+|-----------|---------|----------|
+| **Update** (primary) | synchronous request-response into running workflow | user message → per-turn Activity → response returned to WS handler |
+| **Signal** (secondary) | fire-and-forget notification | close/cancel session, fallback when Update unavailable |
+| **Query** | read-only state inspection | retrieve missed turns on reconnect |
+
+Workflow Update (Temporal SDK >= 1.21) provides the synchronous push semantics
+required by M5 interactive diagnosis: the WS handler sends an Update and blocks
+until the per-turn Activity completes, then pushes the result to the browser.
 
 ### Consequences
 
 * Good, because retries and timers are explicit and testable.
 * Good, because headless report fan-out/fan-in maps cleanly to workflows.
 * Good, because M5 short-conversation diagnosis lands on the same engine
-  through signals and queries (no engine migration).
+  through Updates, Signals, and Queries (no engine migration).
 * Neutral, because Temporal adds an operational dependency.
 * Bad, because developers must respect deterministic workflow restrictions.
 * Bad, because M0-M2 carries more orchestration weight than a simple job
   queue would require.
 
+### SDK Version Constraint
+
+Temporal Go SDK must be pinned to >= 1.21 (Workflow Update support). The
+Temporal Server must also support Update (>= 1.21). This is validated during
+M0 bootstrap integration tests.
+
 ### Confirmation
 
 * no hand-written distributed state machine for diagnosis lifecycle
-* workflow tests cover timeout, retry, and signal paths
+* workflow tests cover timeout, retry, Update, and Signal paths
 * activities contain external I/O, workflows contain orchestration
+* M0 integration test validates Update round-trip (send Update → handler
+  executes Activity → result returned to caller)
+
+## More Information
+
+### Related Decisions
+
+* ADR-0013 — per-turn container invocation model (uses Update for synchronous turn dispatch)
+* ADR-0002 — agent black-box boundary (Temporal mediates, never exposes agent internals)
 
 ## Changelog
 
@@ -77,3 +106,4 @@ activity execution semantics.
 |------|--------|--------|
 | 2026-05-18 | jindyzhao | Initial proposal |
 | 2026-05-19 | jindyzhao | Document River+sqlc alternative; tie selection to M5 V1 commitment; add re-evaluation trigger |
+| 2026-05-19 | jindyzhao | Signal → Update as primary M5 path; add SDK version constraint (>= 1.21); add communication mechanisms table |

@@ -29,10 +29,19 @@ internal/     private runtime code
 pkg/          public extension interfaces
 ent/          Ent schemas and generated code
 migrations/   Atlas migrations
+agents/       agent workspace configs (NOT read by Go)
 web/          frontend application
 docs/         documentation and ADRs
 scripts/      repository checks
 ```
+
+### agents/ Directory
+
+The `agents/` directory contains version-controlled agent workspace
+configurations (role definitions, skills, prompts, tool endpoints). These are
+mounted into sandbox containers as read-only bind mounts. Go never reads or
+interprets their contents (see ADR-0002). Agent developers iterate on these
+configs independently of Go code changes.
 
 ### Confirmation
 
@@ -45,3 +54,4 @@ scripts/      repository checks
 | Date | Author | Change |
 |------|--------|--------|
 | 2026-05-18 | jindyzhao | Initial proposal |
+| 2026-05-19 | jindyzhao | Add agents/ directory for agent workspace configs |
