@@ -79,8 +79,8 @@ with evidence traceability links.
 - [ ] evidence injection via mounted files
 - [ ] tool scripts (metric query, topology lookup)
 - [ ] timeout and cleanup logic
-- [ ] stdout JSON extraction
-- [ ] minimum sandbox baseline for M5 (auditable stdin/stdout, cleanup, limits)
+- [ ] output extraction via /workspace/out/output.json (file-based contract)
+- [ ] minimum sandbox baseline for M5 (auditable file-based I/O, cleanup, limits)
 - [ ] quality comparison: sandbox report vs direct LLM report
 - [ ] decision gate: report-enhancement track proceeds, iterates, or stays deferred
 
@@ -89,6 +89,9 @@ enhanced report with measurable quality delta vs M2 output; minimum sandbox
 baseline is ready for M5 short-conversation diagnosis.
 
 ## M5: Short-Conversation Interactive Diagnosis (V1 Required)
+
+> Implements the per-turn container invocation contract from
+> [ADR-0013](../adr/ADR-0013-per-turn-container-invocation.md).
 
 Delivered as part of V1 with intentionally minimal scope. See
 [phases/05-interactive-diagnosis.md](../design/phases/05-interactive-diagnosis.md)

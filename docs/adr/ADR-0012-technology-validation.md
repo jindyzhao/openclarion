@@ -31,7 +31,7 @@ alignment with industry best practices as of mid-2026.
 |-----------|---------|--------------|--------|------|
 | Go | 1.25+ | 2025-08-12 | maintenance (1.26 released 2026-02) | low |
 | PostgreSQL | 18 | 2025-09-25 | current stable | low |
-| Temporal Go SDK | TBD pinned at M0 | continuous | active | low |
+| Temporal Go SDK | >= 1.21 pinned at M0 | continuous | active | low |
 | Ent ORM | TBD pinned at M0 | continuous | active (Linux Foundation, maintained by Atlas Team) | low |
 | Atlas | TBD pinned at M0 | continuous | active (Ariga) | low |
 | oapi-codegen-exp | V3 pre-release (pinned commit) | experimental | pre-v1, based on libopenapi | medium |
@@ -102,6 +102,18 @@ Rather than binding to a specific agent runtime, the project defines a generic
 This preserves maximum flexibility while eliminating a pre-MVP dependency on an
 emerging project with uncertain headless-integration ergonomics.
 
+### Amendment 5: Temporal Go SDK Minimum Version
+
+**Rationale**: M5 interactive diagnosis requires Workflow Update for synchronous
+request-response semantics between the WebSocket handler and running workflows
+(see ADR-0004). Workflow Update is available in Temporal Go SDK >= 1.21 and
+requires a compatible Temporal Server version.
+
+* Pin SDK to >= 1.21 in `go.mod`
+* Validate Update round-trip in M0 integration test
+* Temporal Server (via temporalite in dev, self-hosted in prod) must also
+  support Update; version verified during M0 bootstrap
+
 ### Consequences
 
 * Good, because all dependencies are confirmed released and maintained.
@@ -110,12 +122,15 @@ emerging project with uncertain headless-integration ergonomics.
 * Good, because generic sandbox interface preserves runtime flexibility.
 * Good, because Temporal selection is now explicitly tied to M5 short-
   conversation diagnosis (see ADR-0004 re-evaluation trigger).
+* Good, because Temporal Update requirement is explicitly version-constrained.
 * Neutral, because oapi-codegen-exp requires version pinning discipline.
 * Neutral, because M5 is V1 required at minimum-viable scope; long-session
   features are deferred.
 
 ### Confirmation
 
+* Temporal Go SDK is pinned to >= 1.21 in `go.mod`
+* M0 integration test validates Temporal Update round-trip
 * `go.mod` does not import Gin, Echo, or Fiber
 * `package.json` specifies Node.js 24.x LTS engine requirement
 * `oapi-codegen-exp` is pinned to a commit hash, not `@latest`
@@ -151,3 +166,4 @@ This validation should be re-assessed:
 | 2026-05-19 | jindyzhao | Initial validation |
 | 2026-05-19 | jindyzhao | Replace OpenClaw binding with generic agent sandbox |
 | 2026-05-19 | jindyzhao | Tie Temporal selection to M5 V1 commitment; soften Structured Outputs language; reword OpenClaw integration cost |
+| 2026-05-19 | jindyzhao | Add Temporal SDK >= 1.21 constraint for Workflow Update support |
