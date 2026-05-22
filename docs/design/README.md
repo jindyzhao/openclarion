@@ -38,6 +38,7 @@ Application Services
 | [architecture.md](architecture.md) | layering contract and orchestrator ports |
 | [CURRENT_STATE.md](CURRENT_STATE.md) | implementation status snapshot |
 | [DEFERRED_FOLLOWUPS.md](DEFERRED_FOLLOWUPS.md) | intentionally deferred items with re-evaluation triggers |
+| [END_TO_END_VERIFICATION.md](END_TO_END_VERIFICATION.md) | chain-by-chain technical feasibility verification |
 | [interaction-flows/master-flow.md](interaction-flows/master-flow.md) | product interaction outcomes |
 | [database/schema-catalog.md](database/schema-catalog.md) | data model authority |
 | [phases/00-prerequisites.md](phases/00-prerequisites.md) | bootstrap plan |
