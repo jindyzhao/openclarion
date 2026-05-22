@@ -29,6 +29,7 @@ amend or supersede an accepted decision.
 | [ADR-0009](ADR-0009-go-control-plane-scheduling.md) | Go Control Plane Scheduling | Proposed |
 | [ADR-0010](ADR-0010-frontend-architecture.md) | Frontend Architecture | Proposed |
 | [ADR-0011](ADR-0011-ci-governance.md) | CI Governance and Quality Gates | Proposed |
+| [ADR-0012](ADR-0012-technology-validation.md) | Technology Stack Validation | Proposed |
 
 ## Reading Order
 
@@ -39,6 +40,7 @@ amend or supersede an accepted decision.
 5. ADR-0004 - workflow execution
 6. ADR-0002 and ADR-0005 - AI runtime boundaries
 7. ADR-0007, ADR-0008, ADR-0010, ADR-0011 - engineering governance
+8. ADR-0012 - technology validation and risk assessment
 
 ## Creating ADRs
 

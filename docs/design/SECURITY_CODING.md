@@ -13,9 +13,10 @@
 
 ## AI Runtime Safety
 
-OpenClaw and other agent runtimes must not receive host privileges. The Go
+Agent runtimes (sandboxed containers) must not receive host privileges. The Go
 control plane owns sandbox creation, prompt injection, output capture, timeout,
-cleanup, and lifecycle-end compression.
+cleanup, session close handling, and final notification. Automatic conversation
+compression is out of scope for V1 short-conversation diagnosis.
 
 ## Review Checklist
 

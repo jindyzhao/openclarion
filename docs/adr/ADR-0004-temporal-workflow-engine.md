@@ -20,9 +20,33 @@ state machine would be fragile.
 
 * durable workflow state
 * retry and timeout support
-* human-in-the-loop signals
+* human-in-the-loop signals (M5 short-conversation diagnosis)
 * deterministic workflow replay
 * clear separation between orchestration and activities
+
+## Why Not a Simpler Job Queue
+
+A PostgreSQL-native job queue (e.g. River + sqlc) would be sufficient for
+M0-M2 (alert grouping, evidence build, headless report fan-out/fan-in). It
+would not satisfy M5 short-conversation interactive diagnosis without
+reimplementing core workflow primitives:
+
+* signals from a human user delivered into a running session
+* queries against in-flight session state
+* durable timers for session lifetime and idle timeout
+* deterministic replay across crash recovery
+
+Because M5 is a V1 commitment (see ADR-0006), introducing two engines or
+migrating later costs more than carrying Temporal from M0. The trade-off is
+more operational weight in M0-M2 in exchange for a single coherent engine
+through M5.
+
+## Re-evaluation Trigger
+
+If the V1 scope ever drops M5, this ADR must be revisited. River + sqlc would
+then become the more proportionate choice for the report-only path. The 1-week
+spike comparison documented in DEFERRED_FOLLOWUPS.md remains a useful
+cross-check.
 
 ## Decision Outcome
 
@@ -34,8 +58,12 @@ activity execution semantics.
 
 * Good, because retries and timers are explicit and testable.
 * Good, because headless report fan-out/fan-in maps cleanly to workflows.
+* Good, because M5 short-conversation diagnosis lands on the same engine
+  through signals and queries (no engine migration).
 * Neutral, because Temporal adds an operational dependency.
 * Bad, because developers must respect deterministic workflow restrictions.
+* Bad, because M0-M2 carries more orchestration weight than a simple job
+  queue would require.
 
 ### Confirmation
 
@@ -48,3 +76,4 @@ activity execution semantics.
 | Date | Author | Change |
 |------|--------|--------|
 | 2026-05-18 | jindyzhao | Initial proposal |
+| 2026-05-19 | jindyzhao | Document River+sqlc alternative; tie selection to M5 V1 commitment; add re-evaluation trigger |

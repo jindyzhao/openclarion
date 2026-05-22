@@ -34,15 +34,15 @@ timeouts, retries, audit, and lifecycle. It does not modify agent internals.
 ### Consequences
 
 * Good, because agent upgrades do not require a fork.
-* Good, because direct LLM providers can validate the reporting loop before the
-  OpenClaw sandbox is stable.
+* Good, because direct LLM providers can validate the reporting loop before any
+  agent sandbox runtime is stable.
 * Neutral, because prompt and output contracts become first-class artifacts.
 * Bad, because black-box behavior can vary; golden prompt tests and structured
   output validation are mandatory mitigations.
 
 ### Confirmation
 
-* core packages do not import OpenClaw internals
+* core packages do not import agent runtime internals
 * report generation goes through `LLMProvider` or `ContainerProvider`
 * all AI output is parsed and validated before persistence
 

@@ -1,7 +1,8 @@
 # Frontend Architecture
 
 The frontend will live under `web/` in the monorepo. The first UI target is a
-readonly report viewer. The interactive diagnosis room is a later track.
+readonly report viewer. The short-conversation diagnosis room ships later in V1
+as M5.
 
 ## Layering
 

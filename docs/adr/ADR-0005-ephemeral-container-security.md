@@ -12,7 +12,7 @@ informed: []
 
 ## Context and Problem Statement
 
-OpenClaw and similar agent runtimes can use tools and generate commands. Running
+AI agent runtimes can use tools and generate commands. Running
 an agent directly on the host is not acceptable for production alert governance.
 
 ## Decision Drivers

@@ -5,15 +5,15 @@
 The first frontend milestone renders persisted `FinalReport` and
 `EvidenceSnapshot` data. It does not require a live AI container.
 
-## Interactive Diagnosis Later
+## Interactive Diagnosis in M5
 
-The diagnosis room requires:
+The short-conversation diagnosis room is a V1-required M5 milestone. It requires:
 
 - identity bootstrap
 - RBAC checks
 - WebSocket proxy
 - sandbox lifecycle coordination
 - audit logging
-- lifecycle-end compression
 
-This work must not block P0/P1.
+It does not include automatic conversation compression, long sessions, or
+streaming token-level partial responses in V1. This work must not block M0-M3.
