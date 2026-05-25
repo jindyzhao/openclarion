@@ -31,14 +31,14 @@ alignment with industry best practices as of mid-2026.
 |-----------|---------|--------------|--------|------|
 | Go | 1.25+ | 2025-08-12 | maintenance (1.26 released 2026-02) | low |
 | PostgreSQL | 18 | 2025-09-25 | current stable | low |
-| Temporal Go SDK | >= 1.21 pinned at M0 | continuous | active | low |
-| Ent ORM | TBD pinned at M0 | continuous | active (Linux Foundation, maintained by Atlas Team) | low |
-| Atlas | TBD pinned at M0 | continuous | active (Ariga) | low |
-| oapi-codegen-exp | V3 pre-release (pinned commit) | experimental | pre-v1, based on libopenapi | medium |
+| Temporal Go SDK | >= 1.21 (pinned at M1 first-import per DEPENDENCIES.md) | continuous | active | low |
+| Ent ORM | pinned at M1 first-import | continuous | active (Linux Foundation, maintained by Atlas Team) | low |
+| Atlas | pinned at M1 first-import | continuous | active (Ariga) | low |
+| oapi-codegen-exp | V3 pre-release (`v0.1.0` pinned in `go.mod`) | experimental | pre-v1, based on libopenapi | medium |
 | Node.js | 24.x LTS | 2025-05 (LTS Oct 2025) | Active LTS | low |
 | React | 19 | 2024-12 | current stable | low |
 | Next.js | 16 | 2025 | current stable | low |
-| OpenTelemetry Go | TBD pinned at M0 | continuous | CNCF graduated | low |
+| OpenTelemetry Go | pinned at M3 first-import | continuous | CNCF graduated | low |
 | pgvector | 0.7+ | 2024 | active | low (future, not MVP) |
 
 ## Decision Outcome
@@ -74,7 +74,7 @@ non-LTS odd-numbered releases.
 OpenAPI 3.1 support. However, it is pre-v1 and explicitly experimental. The risk
 is acceptable because:
 
-* the project pins to a specific commit hash
+* the project pins to a tested released module version (`v0.1.0` in `go.mod`)
 * CI validates generated code compiles on every PR
 * a documented fallback path exists (v2 + compatibility bridge)
 * the experimental version is maintained by the same team as stable v2
@@ -109,10 +109,14 @@ request-response semantics between the WebSocket handler and running workflows
 (see ADR-0004). Workflow Update is available in Temporal Go SDK >= 1.21 and
 requires a compatible Temporal Server version.
 
-* Pin SDK to >= 1.21 in `go.mod`
-* Validate Update round-trip in M0 integration test
-* Temporal Server (via temporalite in dev, self-hosted in prod) must also
-  support Update; version verified during M0 bootstrap
+* Pin SDK to >= 1.21 in `go.mod` when first imported (M1 deliverable, per
+  the "first-import pin" rule in DEPENDENCIES.md)
+* Validate Update round-trip in M1 integration test (the first milestone that
+  introduces a real Temporal workflow; an isolated round-trip test in M0
+  with no business workflow would be artificial)
+* Temporal Server (via `temporalio/auto-setup` in dev compose, self-hosted
+  in prod) must support Update; the dev image (`temporalio/auto-setup:1.25.2`)
+  enables it via `frontend.enableUpdateWorkflowExecution` dynamic config
 
 ### Consequences
 
@@ -129,11 +133,11 @@ requires a compatible Temporal Server version.
 
 ### Confirmation
 
-* Temporal Go SDK is pinned to >= 1.21 in `go.mod`
-* M0 integration test validates Temporal Update round-trip
+* Temporal Go SDK is pinned to >= 1.21 in `go.mod` when first imported (M1)
+* M1 integration test validates Temporal Update round-trip
 * `go.mod` does not import Gin, Echo, or Fiber
 * `package.json` specifies Node.js 24.x LTS engine requirement
-* `oapi-codegen-exp` is pinned to a commit hash, not `@latest`
+* `oapi-codegen-exp` is pinned to `v0.1.0` in `go.mod`, not `latest`
 * generated server code uses std `net/http`
 * no specific agent runtime is imported for M0-M2 code paths
 * `ContainerProvider` interface accepts any OCI-compliant runtime
@@ -167,3 +171,5 @@ This validation should be re-assessed:
 | 2026-05-19 | jindyzhao | Replace OpenClaw binding with generic agent sandbox |
 | 2026-05-19 | jindyzhao | Tie Temporal selection to M5 V1 commitment; soften Structured Outputs language; reword OpenClaw integration cost |
 | 2026-05-19 | jindyzhao | Add Temporal SDK >= 1.21 constraint for Workflow Update support |
+| 2026-05-22 | jindyzhao | Move Temporal SDK pin and Update round-trip validation from M0 to M1 (first-import pin rule); record `oapi-codegen-exp v0.1.0` as the actual pin |
+| 2026-05-22 | jindyzhao | Amendment 3: replace "specific commit hash" wording with "tested released module version (`v0.1.0`)" to align with the project-wide first-import `module@version` rule |

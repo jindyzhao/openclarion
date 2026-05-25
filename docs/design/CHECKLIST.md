@@ -8,13 +8,33 @@
 - [x] documentation contains no non-English governed text
 - [x] forbidden-method gates landed (imports / latest / oapi-v2 / sqlite-in-tests)
 - [x] `make pr` entry point exists and runs all M0 gates
-- [ ] Go module initialized
-- [ ] Docker Compose starts PostgreSQL and Temporal
-- [ ] oapi-codegen-exp generation chain works
-- [ ] `make pr` passes against committed Go module
-- [ ] health endpoint returns 200
+- [x] Go module initialized
+- [x] Docker Compose starts PostgreSQL and Temporal (tag-pinned; digest only at M4)
+- [x] oapi-codegen-exp generation chain works (`v0.1.0` pinned in `go.mod`)
+- [x] `make pr` passes against committed Go module
+- [x] health endpoint returns 200
+- [x] `vacuum` OpenAPI lint runs as a real blocking gate (not soft skip)
+- [ ] Ent / Atlas / Temporal SDK pinned (deferred to M1 per first-import rule)
 
 ## M1: Control Plane
+
+### M1-PR1: Persistence Foundation
+
+- [x] `entgo.io/ent v0.14.6` pinned in `go.mod` (direct require + Go 1.24+ `tool` directive)
+- [x] Atlas CLI pinned via `arigaio/atlas:1.2.0` Docker image (`ATLAS_IMAGE` in `Makefile`); `latest` and rolling tags forbidden
+- [x] `internal/persistence/ent/generate.go` wires `go tool entgo.io/ent/cmd/ent generate ./schema`
+- [x] `AlertEvent` Ent schema landed (source / source_fingerprint / canonical_fingerprint / labels (JSONB+GIN) / annotations (JSONB) / raw_payload (JSONB) / status / starts_at / ends_at / created_at; UNIQUE (source, canonical_fingerprint, starts_at))
+- [x] `make ent-generate` / `make ent-fresh` / `make atlas-migrate-diff` / `make atlas-drift` / `make atlas-smoke` targets exist
+- [x] `make ent-fresh` and `make atlas-drift` are CI-blocking jobs (`ent-checks` and `atlas-drift` in `.github/workflows/ci.yml`); `atlas-drift` job uses `actions/setup-go`; `workflow-parity` passes
+- [x] `docs/design/DEPENDENCIES.md` records concrete Ent / Atlas pins and the Atlas CLI Integration Policy
+- [x] `docs/design/database/migrations.md` documents the toolchain, drift gate, smoke protocol, and the redesigned wrapper contract (with the empirical findings that drove the redesign)
+- [x] **Atlas wrapper redesign**: original `--dev-url docker://...` + mounted Docker socket attempt is unusable (image lacks Docker CLI and Go runtime); redesigned wrapper (`scripts/lib_atlas.sh` plus three thin entry scripts) launches per-invocation `postgres:18-alpine` from host on a dedicated Docker network, mounts host Go toolchain read-only into Atlas container at `/usr/local/go`, runs as `$(id -u):$(id -g)`, uses plain `postgres://` dev-url
+- [x] AlertEvent uses Ent default `bigserial` primary key (UUID is reserved for security-sensitive single-use tokens such as the WS ticket per `docs/design/SECURITY_CODING.md`; switching entity primary keys to UUID/ULID is deferred and is gated on a concrete need such as sharding or client-side ID generation)
+- [x] `make atlas-smoke` passes on host docker (manual one-shot acceptance gate; runs the redesigned wrapper end-to-end; verified locally 2026-05-22, produced 2 files; cleanup clean -- no residual `.atlas-*` directories, `atlas-pg-*` containers, or `atlas-net-*` networks)
+- [x] `AlertGroup`, `EvidenceSnapshot`, `DiagnosisTask`, `DiagnosisTaskEvent` Ent schemas land after smoke passes (landed 2026-05-22; AlertEvent <-M2N-> AlertGroup, AlertGroup -1:N-> EvidenceSnapshot, EvidenceSnapshot -1:N-> DiagnosisTask, DiagnosisTask -1:N-> DiagnosisTaskEvent; all bigserial PKs; FK columns surfaced as explicit `field.Int` so index column ordering is `(parent_id, secondary)` per docs intent)
+- [x] First migration cut via `make atlas-migrate-diff NAME=initial_schema`; `atlas.sum` committed (5 entity tables + 1 M2N join table; `make atlas-drift` reports synced)
+
+### M1-PR2 onward
 
 - [ ] MetricsProvider interface and Prometheus implementation compile
 - [ ] fake providers support workflow tests

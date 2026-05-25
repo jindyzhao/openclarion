@@ -32,12 +32,12 @@ non-existent code is a maintenance burden, not a quality boundary.
 | Forbidden SQLite in Go tests | M0 | landed | `make forbidden-sqlite`; activates when tests land |
 | DCO sign-off validation | M0 | landed | `ci.yml` job `dco-check` (PR-only) calls `make dco-check`; rejects PR commits without `Signed-off-by:` |
 | Workflow / Makefile parity | M0 | landed | `make workflow-parity`; rejects inline shell, undeclared `make` targets, mutable action refs, and missing job permissions/timeouts |
-| Go module: `go vet`, `go build`, `go test ./...` | M0 | pending | wired once Go skeleton lands |
-| OpenAPI lint (e.g. `vacuum lint`) | M0 | pending | wired with healthz spec |
-| OpenAPI generation freshness (`make generate` no diff) | M0 | pending | enforces contract-first |
-| `oapi-codegen-exp` commit-hash pin check | M0 | pending | rejects mutable refs for first-party deps |
-| Ent generation freshness | M1 | pending | once Ent schema exists |
-| Atlas migration drift check | M1 | pending | once first migration lands |
+| Go module: `go vet`, `go build`, `go test ./...` | M0 | landed | `make go-checks` (composite of `generate go-vet go-build go-test`); CI job `go-checks` |
+| OpenAPI lint (`vacuum lint --fail-severity error`) | M0 | landed | `make openapi-lint`; vacuum is a `go tool` dependency so the gate is hermetic |
+| OpenAPI generation freshness (`make generate` no diff) | M0 | landed | `make openapi-fresh` runs `go generate ./api/...` and rejects any working-tree diff in `api/openapi.gen.go` |
+| `oapi-codegen-exp` released-version pin check | M0 | landed | covered by `make forbidden-latest` (rejects `latest` in `go.mod` / `package.json`); concrete pin recorded in `go.mod` (`v0.1.0`) and DEPENDENCIES.md |
+| Ent generation freshness | M1-PR1 | landed | `make ent-fresh`; runs `go generate ./internal/persistence/ent/...` and rejects any working-tree diff under `internal/persistence/ent/` |
+| Atlas migration drift check | M1-PR1 | landed | `make atlas-drift`; copies `internal/persistence/migrations/` into `.atlas-drift-tmp/` and runs `atlas migrate diff drift_check` via the pinned `arigaio/atlas:1.2.0` Docker image; no-op until the first migration is cut. Companion gate `make atlas-smoke` is a manual one-shot acceptance check (not in `make ci`) - see [database/migrations.md](../database/migrations.md) |
 | Temporal workflow tests (replay, signal, timer) | M1 | pending | once first workflow lands |
 | Provider boundary lint (forbidden imports) | M2 | pending | once provider layer is real |
 | LLM golden prompt structural tests | M2 | pending | once LLMProvider exists |
@@ -170,7 +170,7 @@ plus a row in the Schedule table above.
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| Require commit-hash pin for `oapi-codegen-exp`; require concrete version pins for Temporal SDK references | M0 (already on Schedule, recorded here for completeness) | scan `go.mod` for known module paths; require an `oapi-codegen-exp` pseudo-version with commit SHA and reject `latest` / `TBD` for Temporal |
+| Require concrete `module@version` pins for first-import-tracked Go modules (Temporal SDK, Ent, Atlas, OTel); reject `replace` directives for these without an entry in DEPENDENCIES.md | M1 (when these modules first land in `go.mod`) | scan `go.mod` for known module paths; require a non-`latest` version; cross-reference DEPENDENCIES.md allow-list. The `oapi-codegen-exp` `v0.1.0` pin (M0) is the prototype pattern. |
 | Reject indirect dependencies older than N months without an `indirect` allow-list | M2 | query Go module proxy or OSV metadata for module release dates; cross-reference an expiry-based allow-list |
 | Reject `replace` directives pointing at forks not listed in `docs/design/DEPENDENCIES.md` allow-list | M1 | parse `go.mod` `replace` block; cross-reference allow-list |
 | Reject `package.json` entries with `^` or `~` ranges for first-party packages | M3 (with `web/`) | regex scan; allow ranges only for transitive dev tooling |
@@ -203,7 +203,7 @@ plus a row in the Schedule table above.
 | `make generate` must produce zero git diff (already on Schedule) | M0 with first generator | run `make generate && git diff --exit-code` in CI |
 | Generated files must carry a `// Code generated ... DO NOT EDIT.` header; reject hand edits | M0 | regex check on known generated paths |
 | Generation idempotence: running `make generate` twice yields identical output | M1 | second run + diff in CI |
-| Generator binaries themselves must be commit-hash-pinned in `go.mod` `// +build tools` block | M0 | combine with the dependency-pinning rule above |
+| Generator binaries pinned via the Go 1.24+ `tool` directive in `go.mod` (e.g. `oapi-codegen-exp`, `vacuum`); reject `latest` for any tool entry | M0 (landed implicitly via `forbidden-latest` + the `tool (...)` block in `go.mod`) | combine with the dependency-pinning rule above |
 
 ### Supply-chain & secrets
 

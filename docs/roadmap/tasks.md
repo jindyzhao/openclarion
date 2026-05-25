@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-05-19
+> Last updated: 2026-05-22
 > Author: jindyzhao
 > Status: private incubation
 
@@ -12,19 +12,28 @@ M0 Bootstrap  ->  M1 Control Plane  ->  M2 Report Loop  ->  M3 Frontend+Ops  -> 
 
 ## M0: Bootstrap
 
-- [ ] governance files
-- [ ] GitHub issue and PR templates
-- [ ] CI documentation hygiene check
-- [ ] Go module skeleton
-- [ ] Docker Compose for PostgreSQL and Temporal
-- [ ] OpenAPI 3.1 skeleton (`api/openapi.yaml` with healthz)
-- [ ] oapi-codegen-exp generation chain verified
-- [ ] Ent and Atlas toolchain
-- [ ] `make generate`, `make test`, `make lint`, `make pr`
-- [ ] health endpoint compiles and returns 200
+- [x] governance files
+- [x] GitHub issue and PR templates
+- [x] CI documentation hygiene check
+- [x] Go module skeleton
+- [x] Docker Compose for PostgreSQL and Temporal
+- [x] OpenAPI 3.1 skeleton (`api/openapi.yaml` with healthz)
+- [x] oapi-codegen-exp generation chain verified
+- [ ] Ent and Atlas toolchain (deferred to M1: pinned at first import per
+      DEPENDENCIES.md "first-import pin" rule)
+- [x] `make generate`, `make test`, `make lint`, `make pr`
+- [x] health endpoint compiles and returns 200
+- [x] `vacuum` OpenAPI lint as a real blocking gate
 
-**Acceptance**: `make pr` passes; `docker compose up` starts PG+Temporal;
-healthz returns 200.
+**Acceptance**: `make pr` passes; `docker compose up -d --wait` starts
+PostgreSQL+Temporal+Temporal UI; `curl http://localhost:8080/healthz` returns
+`{"status":"ok"}`.
+
+> **Scope note**: Ent/Atlas/Temporal SDK pins are intentionally deferred to M1.
+> Per the "first-import pin" rule (DEPENDENCIES.md), Go modules enter `go.mod`
+> only when production code first imports them. ADR-0012 was amended on
+> 2026-05-22 to move the Temporal Workflow Update round-trip validation to M1
+> (the first milestone with a real Temporal workflow).
 
 ## M1: Go Control Plane
 

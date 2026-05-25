@@ -1,0 +1,48 @@
+openapi: "3.1.0"
+info:
+  title: OpenClarion API
+  description: |
+    Natural-language-driven alert governance platform.
+    This specification is the single source of truth for all API contracts.
+  version: 0.1.0
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: system
+    description: System-level endpoints such as health checks and readiness probes.
+
+paths:
+  /healthz:
+    get:
+      operationId: getHealthz
+      summary: Health check endpoint
+      description: Returns service health status. Used by orchestrators and load balancers.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      description: Health check response payload.
+      properties:
+        status:
+          type: string
+          description: Current service status.
+          examples:
+            - "ok"
+      required:
+        - status
