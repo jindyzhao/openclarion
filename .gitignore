@@ -7,6 +7,13 @@
 bin/
 dist/
 coverage/
+/openclarion
+
+# Atlas drift / smoke gate scratch directories (recreated per run; never
+# committed). See Makefile (`atlas-drift`, `atlas-smoke`) and
+# scripts/check_atlas_drift.sh / scripts/check_atlas_smoke.sh.
+/.atlas-drift-tmp/
+/.atlas-smoke-tmp/
 
 # Go
 *.test

@@ -37,7 +37,9 @@ The generated HTTP server target is std `net/http` (not Gin, Echo, or Chi).
 4. `api/openapi.compat.yaml` must not exist unless a superseding ADR accepts a bridge.
 5. Frontend generated types must derive from the canonical spec.
 6. Generated server code must use std `net/http` with `ServerInterface`.
-7. The `oapi-codegen-exp` version must be pinned to a specific commit hash in `go.mod`.
+7. The `oapi-codegen-exp` version must be pinned to a specific
+   `module@version` in `go.mod` (currently `v0.1.0`). The literal `latest`
+   is rejected by the `forbidden-latest` CI gate.
 
 ### Risk: oapi-codegen-exp is Pre-v1
 
@@ -47,7 +49,7 @@ support without a compatibility layer.
 
 **Mitigation**:
 
-* Pin to a tested commit hash; do not use `@latest` in CI.
+* Pin to a tested released version (`v0.1.0`); do not use `@latest` in CI.
 * CI must compile generated code on every PR to detect upstream breakage early.
 * Maintain awareness of the `oapi-codegen/v2` + `openapi.compat.yaml` fallback
   path documented in DEPENDENCIES.md.
@@ -70,3 +72,4 @@ spec and switch to `oapi-codegen/v2`. This requires a superseding ADR.
 | Date | Author | Change |
 |------|--------|--------|
 | 2026-05-18 | jindyzhao | Initial proposal |
+| 2026-05-22 | jindyzhao | Replace "commit-hash pin" wording with `module@version` pin (`v0.1.0`); rely on `forbidden-latest` gate for enforcement |

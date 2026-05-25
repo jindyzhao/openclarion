@@ -1,0 +1,107 @@
+# OpenClarion Development Services
+#
+# Image pinning policy (see docs/design/DEPENDENCIES.md):
+#   - This file is for LOCAL DEVELOPMENT ONLY. Tag-based pinning is the
+#     baseline; @sha256 digest is NOT required here.
+#   - The literal `latest` is forbidden; every image MUST use a concrete,
+#     non-`latest` tag. A rolling major-line tag such as `postgres:18-alpine`
+#     is acceptable for local dev (it tracks the latest patch within a major
+#     line, which is the right reproducibility/maintenance trade-off for
+#     contributor laptops); pin to `major.minor` or `major.minor.patch` when
+#     a specific patch level matters (e.g. `temporalio/auto-setup:1.25.2`).
+#   - Production deployments and the M4 sandbox runtime MUST pin to digest;
+#     that policy is enforced by a separate CI gate introduced at M4.
+#
+# Usage:
+#   docker compose up -d          # start all services
+#   docker compose down -v        # stop and remove volumes
+#   docker compose logs temporal  # view temporal logs
+#
+# Port overrides (for hosts where the default port is occupied):
+#   POSTGRES_PORT=25432 TEMPORAL_PORT=27233 TEMPORAL_UI_PORT=28233 \
+#       docker compose up -d --wait
+#
+# Prerequisites:
+#   Docker Engine 24+ with Compose V2
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: openclarion
+      POSTGRES_PASSWORD: openclarion_dev
+      POSTGRES_DB: openclarion
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PostgreSQL 18 stores data in a major-version-specific subdirectory
+      # under /var/lib/postgresql; mount the parent so future pg_upgrade --link
+      # can stay within a single volume boundary.
+      - postgres_data:/var/lib/postgresql
+      - ./scripts/init-temporal-db.sql:/docker-entrypoint-initdb.d/01-temporal.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openclarion"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  temporal:
+    image: temporalio/auto-setup:1.25.2
+    environment:
+      - DB=postgres12
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal_dev
+      - POSTGRES_SEEDS=postgres
+      # The temporal/temporal_visibility databases are pre-created by
+      # scripts/init-temporal-db.sql; the temporal user has no CREATEDB
+      # privilege, so tell auto-setup to skip its CREATE DATABASE step.
+      - SKIP_DB_CREATE=true
+      - DBNAME=temporal
+      - VISIBILITY_DBNAME=temporal_visibility
+      # Bind on all interfaces so the in-container healthcheck CLI
+      # (which defaults to 127.0.0.1:7233) can reach the gRPC frontend.
+      - BIND_ON_IP=0.0.0.0
+      - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
+    ports:
+      - "${TEMPORAL_PORT:-7233}:7233"
+    volumes:
+      - ./deploy/temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "temporal", "workflow", "list", "--namespace", "default"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+  temporal-ui:
+    image: temporalio/ui:2.34.0
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_CORS_ORIGINS=http://localhost:3000
+    ports:
+      - "${TEMPORAL_UI_PORT:-8233}:8080"
+    depends_on:
+      temporal:
+        condition: service_healthy
+    healthcheck:
+      # The UI image is Alpine-based; wget is present. A 200 on the root
+      # path indicates the UI HTTP server is up and serving the SPA shell.
+      # This does NOT prove the UI has successfully connected to the
+      # Temporal frontend; that is covered by the temporal service's own
+      # healthcheck (`temporal workflow list`) which runs against the
+      # gRPC frontend, plus the depends_on `service_healthy` ordering.
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8080/ || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

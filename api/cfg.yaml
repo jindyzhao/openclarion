@@ -1,0 +1,11 @@
+# oapi-codegen-exp V3 configuration for OpenClarion.
+# Generates std net/http ServerInterface from the canonical OpenAPI 3.1 spec.
+#
+# Usage:
+#   go generate ./api/...
+
+package: api
+output: openapi.gen.go
+
+generation:
+  server: std-http

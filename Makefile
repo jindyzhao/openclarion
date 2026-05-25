@@ -22,6 +22,41 @@ SHELL := /usr/bin/env bash
 .DEFAULT_GOAL := help
 
 # ---------------------------------------------------------------------------
+# Pinned external tooling
+# ---------------------------------------------------------------------------
+#
+# Atlas CLI ships as a self-contained binary, not a `go install`able module.
+# We invoke it via a pinned Docker image so that local and CI runs use the
+# same binary. The `latest` tag is forbidden by docs/design/DEPENDENCIES.md;
+# upgrades require updating ATLAS_IMAGE here AND the corresponding row in
+# DEPENDENCIES.md.
+#
+# Atlas wrapper shape (see scripts/lib_atlas.sh for the full contract):
+#
+#   - The host script (scripts/lib_atlas.sh::atlas::start_dev_pg) launches
+#     an ephemeral postgres:18-alpine on a per-invocation Docker network.
+#     Atlas is then run on the same network and talks to the dev DB via a
+#     plain postgres:// URL. Atlas does NOT mount the host Docker socket
+#     and the `docker://...` dev-url form is intentionally NOT used (the
+#     Atlas image does not ship a Docker CLI).
+#
+#   - The host Go toolchain is mounted read-only into the Atlas container
+#     at /usr/local/go because the Atlas image does not ship Go, and the
+#     Ent loader Atlas invokes for `--to ent://...` requires `go run`.
+#
+#   - The Atlas container runs as $(id -u):$(id -g) so generated migration
+#     files are owned by the invoking user, not root.
+#
+# The Makefile invokes the wrapper via thin bash entry scripts to keep
+# this complex Docker invocation in one place.
+ATLAS_IMAGE ?= arigaio/atlas:1.2.0
+
+# Ent schema and migration paths (canonical layout per docs/design/database/).
+ENT_PKG := ./internal/persistence/ent
+ENT_SCHEMA_URL := ent://internal/persistence/ent/schema
+MIGRATIONS_DIR := internal/persistence/migrations
+
+# ---------------------------------------------------------------------------
 # Top-level entry points
 # ---------------------------------------------------------------------------
 
@@ -33,7 +68,7 @@ help: ## Show this help
 
 pr: ci ## Alias for the workflow-equivalent PR validation bundle
 
-ci: workflow-parity docs-hygiene forbidden adr-check links-check ## Full CI bundle (must mirror GitHub Actions)
+ci: workflow-parity docs-hygiene forbidden adr-check links-check generate go-vet go-build go-test openapi-lint openapi-fresh ent-fresh atlas-drift ## Full CI bundle (must mirror GitHub Actions)
 	@echo ""
 	@echo "[ci] all gates passed."
 
@@ -90,20 +125,88 @@ forbidden-sqlite: ## Reject SQLite usage in Go tests (ADR-0001)
 	@bash scripts/check_no_sqlite_in_tests.sh
 
 # ---------------------------------------------------------------------------
+# Go gates (activated at M0 bootstrap)
+# ---------------------------------------------------------------------------
+
+.PHONY: generate go-vet go-build go-test openapi-lint openapi-fresh go-checks openapi-checks
+
+generate: ## Run all code generators (go generate ./...)
+	@go generate ./...
+
+go-vet: ## Run go vet
+	@go vet ./...
+
+go-build: ## Compile all packages
+	@go build ./...
+
+go-test: ## Run all tests
+	@go test -race -count=1 ./...
+
+go-checks: generate go-vet go-build go-test ## Combined Go validation gate
+
+openapi-lint: ## Lint OpenAPI spec with vacuum (mandatory gate)
+	@go tool github.com/daveshanley/vacuum lint --details --fail-severity error api/openapi.yaml
+
+openapi-fresh: ## Ensure generated code is up-to-date with OpenAPI spec
+	@go generate ./api/...
+	@if ! git diff --quiet -- api/openapi.gen.go; then \
+		echo "[openapi-fresh] FAIL: api/openapi.gen.go is stale. Run 'go generate ./api/...' and commit."; \
+		git diff api/openapi.gen.go; \
+		exit 1; \
+	fi
+	@echo "[openapi-fresh] generated code is up-to-date."
+
+openapi-checks: openapi-lint openapi-fresh ## Combined OpenAPI validation gate
+
+# ---------------------------------------------------------------------------
+# Ent / Atlas gates (activated at M1-PR1: persistence foundation)
+# ---------------------------------------------------------------------------
+#
+# Ent is the canonical schema definition; Atlas is the canonical migration
+# producer. Generation freshness is enforced via `ent-fresh`; schema /
+# migration alignment is enforced via `atlas-drift` (which copies the
+# committed migrations into a temp dir, runs `atlas migrate diff` against
+# the live ent schema, and fails if Atlas wants to write a new migration).
+#
+# Atlas runs inside the pinned Docker image (ATLAS_IMAGE). The full
+# wrapper contract (per-invocation dev Postgres, host Go toolchain mount,
+# non-root user, scoped Docker network) lives in scripts/lib_atlas.sh.
+# See ADR-0001 (PostgreSQL single source of truth) and
+# docs/design/database/migrations.md.
+
+.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke
+
+ent-generate: ## Regenerate ent client + entity code from schemas under internal/persistence/ent/schema
+	@go generate $(ENT_PKG)/...
+
+ent-fresh: ent-generate ## Reject stale ent-generated code (M1)
+	@if ! git diff --quiet -- $(ENT_PKG); then \
+		echo "[ent-fresh] FAIL: ent-generated code is stale. Run 'make ent-generate' and commit."; \
+		git diff --stat -- $(ENT_PKG); \
+		exit 1; \
+	fi
+	@echo "[ent-fresh] generated code is up-to-date."
+
+atlas-migrate-diff: ## Generate a new Atlas migration from ent schema diff (usage: make atlas-migrate-diff NAME=add_alert_status)
+	@if [ -z "$(NAME)" ]; then \
+		echo "[atlas-migrate-diff] usage: make atlas-migrate-diff NAME=<migration_name>"; \
+		exit 2; \
+	fi
+	@ATLAS_IMAGE="$(ATLAS_IMAGE)" ENT_SCHEMA_URL="$(ENT_SCHEMA_URL)" bash scripts/atlas_migrate_diff.sh "$(NAME)"
+
+atlas-drift: ## Reject ent-schema vs migrations drift; runs in a temp copy so the real dir is never mutated (M1)
+	@ATLAS_IMAGE="$(ATLAS_IMAGE)" ENT_SCHEMA_URL="$(ENT_SCHEMA_URL)" bash scripts/check_atlas_drift.sh
+
+atlas-smoke: ## One-shot smoke: verify Dockerized Atlas can read the ent schema (M1-PR1 acceptance gate)
+	@ATLAS_IMAGE="$(ATLAS_IMAGE)" ENT_SCHEMA_URL="$(ENT_SCHEMA_URL)" bash scripts/check_atlas_smoke.sh
+
+# ---------------------------------------------------------------------------
 # Future targets (introduced progressively as code lands)
 # ---------------------------------------------------------------------------
 #
 # Per docs/design/ci/README.md, the targets below are placeholders for
 # upcoming milestones. They will be wired into `ci` once the underlying
-# code (Go module, OpenAPI spec, Ent schema, etc.) is committed.
+# code (provider boundaries, sandbox security) is committed.
 #
-#   generate           - run all code generators (M0 once Go skeleton lands)
-#   go-vet             - go vet ./... (M0)
-#   go-build           - go build ./... (M0)
-#   go-test            - go test ./... (M0)
-#   openapi-lint       - vacuum lint api/openapi.yaml (M0)
-#   openapi-fresh      - make generate must produce zero diff (M0)
-#   ent-fresh          - ent generation freshness (M1)
-#   atlas-drift        - Atlas migration drift check (M1)
 #   provider-boundary  - forbidden cross-layer imports (M2, Go analyzer)
 #   sandbox-security   - container non-root / limits gate (M4)
