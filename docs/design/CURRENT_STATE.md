@@ -6,17 +6,17 @@
 > done live in [DEFERRED_FOLLOWUPS.md](DEFERRED_FOLLOWUPS.md).
 
 > Last updated: 2026-05-25
-> Stage: M1-PR2 in progress (domain layer + persistence repository
-> contracts + `UnitOfWork` + DI wiring on top of the M1-PR1 foundation,
-> which shipped post-merge as `b7233c7` -- 5 Ent schemas (`AlertEvent`,
+> Stage: M1-PR3 in progress (Temporal Go SDK first-import pin +
+> `DiagnosisWorkflow` shell + `RecordDiagnosisEvent` activity +
+> Update round-trip integration tests on top of the M1-PR2 foundation,
+> which shipped post-merge as `d0c67bb` -- domain types, persistence
+> ports, Ent-backed repository, `UnitOfWork`, and DI wiring). M1-PR2
+> landed domain constructors with cross-field invariants (`AlertEvent`,
 > `AlertGroup`, `EvidenceSnapshot`, `DiagnosisTask`,
-> `DiagnosisTaskEvent`), the first migration
-> `20260525060310_initial_schema.sql`, the redesigned Atlas wrapper,
-> and the `cmd/openclarion` + `/healthz` service surface). The
-> Temporal Go SDK first-import pin and `DiagnosisWorkflow` shell are
-> scoped to M1-PR3 per the first-import rule: dependencies enter
-> `go.mod` only when production code first requires them, not to
-> satisfy roadmap dates.)
+> `DiagnosisTaskEvent`), three aggregate-root repository contracts
+> (`AlertRepository`, `EvidenceRepository`, `DiagnosisRepository`)
+> behind `UnitOfWork`, and the Ent-backed implementations with full
+> integration tests.)
 
 ## Implementation Status
 
@@ -38,7 +38,7 @@
 | Ent toolchain | shipped (M1-PR1) | `entgo.io/ent v0.14.6` direct require + `tool` directive; `make ent-generate` / `make ent-fresh` |
 | Atlas toolchain | shipped (M1-PR1) | `arigaio/atlas:1.2.0` Docker image pin; wrapper landed in `scripts/lib_atlas.sh` plus three thin entry scripts: host launches per-invocation `postgres:18-alpine` on a dedicated Docker network, Atlas container mounts host Go toolchain read-only at `/usr/local/go`, runs as `$(id -u):$(id -g)`, talks to dev DB via plain `postgres://`. `make atlas-migrate-diff` / `make atlas-drift` / `make atlas-smoke` targets shipped; `make atlas-smoke` verified locally 2026-05-22 (produced 2 files, clean cleanup); `make atlas-drift` runs in CI with `actions/setup-go` so the host Go toolchain is mounted into the Atlas container. |
 | Ent schemas | shipped (M1-PR1) | 5 entities landed: `AlertEvent`, `AlertGroup`, `EvidenceSnapshot`, `DiagnosisTask`, `DiagnosisTaskEvent`. AlertEvent <-M2N-> AlertGroup; AlertGroup -1:N-> EvidenceSnapshot; EvidenceSnapshot -1:N-> DiagnosisTask; DiagnosisTask -1:N-> DiagnosisTaskEvent. All entities use bigserial PK; FK columns are surfaced as explicit `field.Int` (`alert_group_id` / `evidence_snapshot_id` / `task_id`) so composite-index column ordering matches docs intent. Constraint set after 2026-05-22 review: `EvidenceSnapshot.digest` is **per-group** unique on `(alert_group_id, digest)` (NOT cross-row global, since two distinct groups MAY produce identical canonical payloads); `DiagnosisTask` natural identity is `(workflow_id, run_id)` (NOT `workflow_id` alone), with `run_id` NOT NULL + immutable, so Temporal retries that spawn a new `run_id` are NEW rows. First migration `20260525060310_initial_schema.sql` committed; `make atlas-drift` reports synced. |
-| Temporal Go SDK / workflows | not started | M1-PR3 deliverable (`DiagnosisWorkflow` shell + Update round-trip integration test, per ADR-0012 amendment); SDK enters `go.mod` only when that PR's production code first imports it (first-import rule) |
+| Temporal Go SDK / workflows | shipped (M1-PR3) | `go.temporal.io/sdk v1.44.0` pinned via first-import rule. `DiagnosisWorkflow` shell in `internal/orchestrator/temporal/` rejects zero `input.TaskID` at workflow entry, then registers a `"record-event"` Update (validator pre-history rejects empty Kind / empty `dedupe_key`; `RecordEventRequest` has no TaskID field so writes are bound to the workflow's own task) and a `"complete"` Signal. The `RecordDiagnosisEvent` activity runs a three-transaction idempotent producer chain (pre-check via `FindEventByTaskAndDedupeKey` -> attempt insert -> on `ErrAlreadyExists` re-fetch in a fresh tx). Permanent failures use `temporalsdk.NewNonRetryableApplicationError` with `RetryPolicy.NonRetryableErrorTypes={InvalidInput,InvariantViolation}`. `NewWorker` wires workflow + activities on the `"openclarion"` task queue; `cmd/openclarion/main.go` starts the Temporal client + worker alongside the HTTP server. Integration tests via `testsuite.StartDevServer` + testcontainers Postgres cover: happy-path Update round-trip writes a `DiagnosisTaskEvent` row; validator rejects empty Kind / empty `dedupe_key` with no DB write (errors asserted by substring); workflow-bound task isolation (Update on workflow A never writes events on a peer task B); same-`dedupe_key` idempotency (returns the original EventID, single DB row); `input.TaskID == 0` is rejected at workflow start. |
 | LLMProvider | not started | M2 deliverable |
 | IMProvider Webhook | not started | M2 deliverable |
 | Frontend (Next.js) | not started | M3 deliverable |
@@ -83,10 +83,16 @@
   and `DiagnosisTask` to `(workflow_id, run_id)` natural identity);
   `make atlas-drift` reports
   synced.
-* Temporal Go SDK first-import pin (>= 1.21) and Update round-trip integration
-  test -- planned for **M1-PR3** (`DiagnosisWorkflow` shell), per ADR-0012
-  amendment. The dependency enters `go.mod` only when M1-PR3 production code
-  first imports it; not earlier.
+* Temporal Go SDK first-import pin (`go.temporal.io/sdk v1.44.0`) and Update
+  round-trip integration test landed in **M1-PR3** as the `DiagnosisWorkflow`
+  shell + `RecordDiagnosisEvent` activity (three-transaction idempotent
+  producer chain). Workflow integration tests via `testsuite.StartDevServer`
+  + testcontainers Postgres cover: happy-path Update writes
+  `DiagnosisTaskEvent` to DB; validator rejects empty Kind / empty
+  `dedupe_key` with no DB write; Update on workflow A never produces events
+  on a peer task B (workflow-bound task isolation); duplicate Update with
+  the same `dedupe_key` returns the original EventID and leaves a single
+  DB row (idempotency); zero `input.TaskID` is rejected at workflow start.
 
 ## Non-Blocking Cross-Checks
 
@@ -113,3 +119,4 @@
 | 2026-05-22 | jindyzhao | M1-PR1 schemas + first migration landed: `AlertGroup`, `EvidenceSnapshot`, `DiagnosisTask`, `DiagnosisTaskEvent` Ent schemas committed (M2N AlertEvent<->AlertGroup; 1:N down the chain; all bigserial PKs); FK columns surfaced as explicit `field.Int` so composite-index column ordering matches docs intent (`(alert_group_id, created_at)`, `(task_id, dedupe_key) UNIQUE`, `(task_id, occurred_at)`); first migration cut via `make atlas-migrate-diff NAME=initial_schema`; `make atlas-drift` reports synced. |
 | 2026-05-22 | jindyzhao | M1-PR1 schema review fixes pre-baseline: (1) `EvidenceSnapshot.digest` no longer table-wide UNIQUE -- replaced with composite `UNIQUE (alert_group_id, digest)` because the model is `AlertGroup -1:N-> EvidenceSnapshot` and two groups MAY produce identical canonical payloads; (2) `DiagnosisTask` identity changed from `UNIQUE(workflow_id)` + optional latest-`run_id` to natural `UNIQUE(workflow_id, run_id)` with `run_id` NOT NULL + immutable, plus a non-unique `workflow_id` chain index, so Temporal retries that spawn a new `run_id` are NEW rows (matches Temporal's own `(workflow_id, run_id)` event-history boundary); (3) `docs/design/DEPENDENCIES.md` and `DEFERRED_FOLLOWUPS.md` cleaned of leftover `--dev-url docker://...` / mounted-Docker-socket descriptions (those describe a plan that was abandoned during the same-day wrapper redesign); (4) `ATLAS_IMAGE` and `ENT_SCHEMA_URL` are now propagated explicitly from `Makefile` to wrapper scripts via per-target `ATLAS_IMAGE="$(ATLAS_IMAGE)" bash ...` recipes -- the lib_atlas.sh defaults are now an explicit fallback for direct script debugging only. Initial migration recut as `20260525060310_initial_schema.sql`; `make atlas-drift` reports synced; `make pr` all gates passed. |
 | 2026-05-22 | jindyzhao | M1-PR1 shipped post-merge as `b7233c7`. Stage moves to **M1-PR2** (domain layer + persistence repository contracts + `UnitOfWork` + DI wiring). Temporal Go SDK first-import pin (>= 1.21) and Update round-trip integration test scoped to **M1-PR3** with the `DiagnosisWorkflow` shell, per ADR-0012 amendment and the first-import rule (dependencies enter `go.mod` only when production code first imports them). `DEPENDENCIES.md`, `ADR-0004`, and `END_TO_END_VERIFICATION.md` aligned with this scope split. |
+| 2026-05-25 | jindyzhao | M1-PR2 shipped post-merge as `d0c67bb`. M1-PR3 ships Temporal Go SDK (`go.temporal.io/sdk v1.44.0`) via first-import pin, `DiagnosisWorkflow` shell with workflow-entry zero-TaskID rejection + `"record-event"` Update handler (validator rejects empty Kind / empty `dedupe_key` pre-history) + `"complete"` Signal, `RecordDiagnosisEvent` activity (three-transaction idempotent producer chain backed by `DiagnosisRepository.FindEventByTaskAndDedupeKey`), explicit `RetryPolicy.NonRetryableErrorTypes` aligned with `temporalsdk.NewNonRetryableApplicationError`, `NewWorker` factory, and `cmd/openclarion/main.go` Temporal client + worker wiring. Integration tests cover happy-path Update round-trip, validator-rejects-empty-Kind / -empty-DedupeKey (no DB write, error text asserted by substring), workflow-bound task isolation, same-`dedupe_key` idempotency, and zero-TaskID workflow-start rejection. D6 Temporal SDK portion closed. |

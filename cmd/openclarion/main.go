@@ -11,7 +11,11 @@ import (
 	"syscall"
 	"time"
 
+	temporalclient "go.temporal.io/sdk/client"
+	temporallog "go.temporal.io/sdk/log"
+
 	"github.com/openclarion/openclarion/api"
+	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
 	"github.com/openclarion/openclarion/internal/persistence/repository"
 	transporthttp "github.com/openclarion/openclarion/internal/transport/http"
 )
@@ -54,6 +58,22 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}()
 
 	uowFactory := repository.NewFactory(client)
+
+	temporalAddr := envOrDefault("TEMPORAL_HOST_PORT", "localhost:7233")
+	tc, err := temporalclient.Dial(temporalclient.Options{
+		HostPort: temporalAddr,
+		Logger:   temporallog.NewStructuredLogger(logger),
+	})
+	if err != nil {
+		return fmt.Errorf("dial temporal: %w", err)
+	}
+	defer tc.Close()
+
+	w := temporalpkg.NewWorker(tc, uowFactory)
+	if err := w.Start(); err != nil {
+		return fmt.Errorf("start temporal worker: %w", err)
+	}
+	defer w.Stop()
 
 	addr := envOrDefault("LISTEN_ADDR", ":8080")
 

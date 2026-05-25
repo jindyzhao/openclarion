@@ -180,6 +180,18 @@ type DiagnosisRepository interface {
 	// write path: events are immutable once persisted.
 	AppendEvent(ctx context.Context, e domain.DiagnosisTaskEvent) (domain.DiagnosisTaskEvent, error)
 
+	// FindEventByTaskAndDedupeKey returns the DiagnosisTaskEvent
+	// matching the per-task idempotency key (task_id, dedupe_key),
+	// or domain.ErrNotFound. dedupeKey MUST be non-empty: the
+	// (task_id, dedupe_key) UNIQUE index has Postgres multi-NULL
+	// semantics, so the empty string would be a misuse, not a
+	// lookup. Required for the Update-driven idempotent producer
+	// pattern: a duplicate AppendEvent (23505) is recovered by
+	// looking up the original row in a fresh transaction (the
+	// failed insert tx is poisoned and cannot be reused for the
+	// SELECT).
+	FindEventByTaskAndDedupeKey(ctx context.Context, taskID domain.DiagnosisTaskID, dedupeKey string) (domain.DiagnosisTaskEvent, error)
+
 	// ListEvents returns the events for a task ordered by
 	// occurred_at ascending, capped by limit. limit MUST be > 0.
 	ListEvents(ctx context.Context, taskID domain.DiagnosisTaskID, limit int) ([]domain.DiagnosisTaskEvent, error)

@@ -222,3 +222,107 @@ func TestDiagnosisRepository_AppendEventAndList(t *testing.T) {
 		}
 	})
 }
+
+// TestDiagnosisRepository_FindEventByTaskAndDedupeKey covers the
+// idempotent producer pattern relied on by the Temporal Activity:
+// hit, miss, cross-task isolation, and the two invariant guards.
+func TestDiagnosisRepository_FindEventByTaskAndDedupeKey(t *testing.T) {
+	resetDB(t)
+	snapAID := makeSnapshotForDiagnosis(t, "find-a")
+	snapBID := makeSnapshotForDiagnosis(t, "find-b")
+
+	var taskA, taskB domain.DiagnosisTaskID
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		tA, err := uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapAID, "wf-find-a", "run-find-a"))
+		if err != nil {
+			t.Fatalf("SaveTask A: %v", err)
+		}
+		tB, err := uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapBID, "wf-find-b", "run-find-b"))
+		if err != nil {
+			t.Fatalf("SaveTask B: %v", err)
+		}
+		taskA, taskB = tA.ID, tB.ID
+	})
+
+	occurred := time.Date(2026, 5, 22, 16, 0, 0, 0, time.UTC)
+	sharedKey := "shared-key"
+	onlyOnA := "only-on-a"
+
+	// Same dedupe_key on both tasks must coexist: the UNIQUE index
+	// is (task_id, dedupe_key), not dedupe_key alone.
+	var idA, idB domain.DiagnosisTaskEventID
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		evA, err := domain.NewDiagnosisTaskEvent(taskA, "shared-on-a", json.RawMessage(`{}`), &sharedKey, occurred)
+		if err != nil {
+			t.Fatalf("NewDiagnosisTaskEvent A: %v", err)
+		}
+		savedA, err := uow.Diagnosis().AppendEvent(ctx, evA)
+		if err != nil {
+			t.Fatalf("AppendEvent A: %v", err)
+		}
+		idA = savedA.ID
+
+		evB, err := domain.NewDiagnosisTaskEvent(taskB, "shared-on-b", json.RawMessage(`{}`), &sharedKey, occurred)
+		if err != nil {
+			t.Fatalf("NewDiagnosisTaskEvent B: %v", err)
+		}
+		savedB, err := uow.Diagnosis().AppendEvent(ctx, evB)
+		if err != nil {
+			t.Fatalf("AppendEvent B: %v", err)
+		}
+		idB = savedB.ID
+
+		onlyEv, err := domain.NewDiagnosisTaskEvent(taskA, "only-a", json.RawMessage(`{}`), &onlyOnA, occurred.Add(time.Second))
+		if err != nil {
+			t.Fatalf("NewDiagnosisTaskEvent only-a: %v", err)
+		}
+		if _, err := uow.Diagnosis().AppendEvent(ctx, onlyEv); err != nil {
+			t.Fatalf("AppendEvent only-a: %v", err)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		// Hit on task A returns the A row, not the B row.
+		gotA, err := uow.Diagnosis().FindEventByTaskAndDedupeKey(ctx, taskA, sharedKey)
+		if err != nil {
+			t.Fatalf("FindEventByTaskAndDedupeKey A: %v", err)
+		}
+		if gotA.ID != idA || gotA.Kind != "shared-on-a" {
+			t.Fatalf("hit A returned %+v, want id=%d kind=shared-on-a", gotA, idA)
+		}
+
+		// Hit on task B returns the B row even though they share key.
+		gotB, err := uow.Diagnosis().FindEventByTaskAndDedupeKey(ctx, taskB, sharedKey)
+		if err != nil {
+			t.Fatalf("FindEventByTaskAndDedupeKey B: %v", err)
+		}
+		if gotB.ID != idB || gotB.Kind != "shared-on-b" {
+			t.Fatalf("hit B returned %+v, want id=%d kind=shared-on-b", gotB, idB)
+		}
+
+		// Cross-task lookup must miss: the only-on-a key must not
+		// resolve under task B.
+		_, err = uow.Diagnosis().FindEventByTaskAndDedupeKey(ctx, taskB, onlyOnA)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("cross-task lookup: want ErrNotFound, got %v", err)
+		}
+
+		// Plain miss.
+		_, err = uow.Diagnosis().FindEventByTaskAndDedupeKey(ctx, taskA, "never-inserted")
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("miss: want ErrNotFound, got %v", err)
+		}
+
+		// Empty dedupe_key is a misuse, not a lookup.
+		_, err = uow.Diagnosis().FindEventByTaskAndDedupeKey(ctx, taskA, "")
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("empty dedupe_key: want ErrInvariantViolation, got %v", err)
+		}
+
+		// Zero task id is a misuse.
+		_, err = uow.Diagnosis().FindEventByTaskAndDedupeKey(ctx, 0, sharedKey)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("zero task id: want ErrInvariantViolation, got %v", err)
+		}
+	})
+}
