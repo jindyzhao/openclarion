@@ -8,7 +8,7 @@
 | HTTP | std `net/http` (Go 1.22+ enhanced routing) | 2026-05-19 |
 | API | OpenAPI 3.1, `oapi-codegen-exp` V3 (pinned in `go.mod` at M0) | 2026-05-22 |
 | Database | PostgreSQL 18, Ent `v0.14.6` (`go.mod` direct require + `tool` directive at M1-PR1), Atlas CLI `arigaio/atlas:1.2.0` (Docker image pin) | 2026-05-22 |
-| Workflow | Temporal Go SDK >= 1.21 (pinned at M1-PR2 first-import) | 2026-05-22 |
+| Workflow | Temporal Go SDK >= 1.21 (planned M1-PR3, first-import when `DiagnosisWorkflow` shell lands per ADR-0012 amendment) | 2026-05-22 |
 | Frontend | Node.js 24.x LTS, React 19, Next.js 16 | 2026-05-19 |
 | Observability | OpenTelemetry Go (pinned at M3 first-import), Prometheus client (pinned at M3 first-import) | 2026-05-22 |
 | Future vector | pgvector 0.7+ (not MVP) | 2026-05-19 |

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/api"
+	"github.com/openclarion/openclarion/internal/persistence/repository"
 	transporthttp "github.com/openclarion/openclarion/internal/transport/http"
 )
 
@@ -30,12 +32,35 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Database wiring is mandatory: the binary refuses to start
+	// without DATABASE_URL so misconfiguration fails fast at boot
+	// rather than at the first persistence call. OpenPostgres pings
+	// the server with a 5s timeout to make that promise true (a bad
+	// DSN, unreachable host, or wrong credentials all surface here
+	// rather than on the first request).
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		return fmt.Errorf("DATABASE_URL is required")
+	}
+
+	client, err := repository.OpenPostgres(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("open postgres: %w", err)
+	}
+	defer func() {
+		if cerr := client.Close(); cerr != nil {
+			logger.Warn("close ent client", "error", cerr)
+		}
+	}()
+
+	uowFactory := repository.NewFactory(client)
+
 	addr := envOrDefault("LISTEN_ADDR", ":8080")
 
 	mux := http.NewServeMux()
 
 	// Wire the generated ServerInterface handler.
-	server := transporthttp.NewServer(logger)
+	server := transporthttp.NewServer(logger, uowFactory)
 	handler := api.HandlerFromMux(server, mux)
 
 	srv := &http.Server{

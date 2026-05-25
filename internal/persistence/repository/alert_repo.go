@@ -1,0 +1,284 @@
+package repository
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"sync/atomic"
+	"time"
+
+	entsql "entgo.io/ent/dialect/sql"
+
+	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/persistence/ent"
+	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
+	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
+	"github.com/openclarion/openclarion/internal/usecases/ports"
+)
+
+// alertRepo is the Ent-backed implementation of ports.AlertRepository.
+// All methods run inside the parent UoW's *ent.Tx; closure of the
+// parent UoW is detected via the shared atomic flag.
+type alertRepo struct {
+	tx     *ent.Tx
+	closed *atomic.Int32
+}
+
+// Compile-time assertion that the implementation satisfies the port.
+var _ ports.AlertRepository = (*alertRepo)(nil)
+
+// SaveEvent inserts a new AlertEvent. ID and CreatedAt are populated
+// on success. Schema defaults (Status="firing", CreatedAt=time.Now)
+// fire when the domain entity has the zero value for those fields,
+// so this method respects domain semantics regardless of whether the
+// caller explicitly set them.
+func (r *alertRepo) SaveEvent(ctx context.Context, e domain.AlertEvent) (domain.AlertEvent, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.AlertEvent{}, err
+	}
+	builder := r.tx.AlertEvent.Create().
+		SetSource(e.Source).
+		SetSourceFingerprint(e.SourceFingerprint).
+		SetCanonicalFingerprint(e.CanonicalFingerprint).
+		SetLabels(e.Labels).
+		SetAnnotations(e.Annotations).
+		SetRawPayload(e.RawPayload).
+		SetStartsAt(e.StartsAt)
+	if e.Status != "" {
+		builder = builder.SetStatus(string(e.Status))
+	}
+	if e.EndsAt != nil {
+		builder = builder.SetEndsAt(*e.EndsAt)
+	}
+	if !e.CreatedAt.IsZero() {
+		builder = builder.SetCreatedAt(e.CreatedAt)
+	}
+	saved, err := builder.Save(ctx)
+	if err != nil {
+		return domain.AlertEvent{}, asAlreadyExists(err)
+	}
+	return alertEventToDomain(saved), nil
+}
+
+// UpdateEventResolution writes Status + EndsAt for an existing event.
+// Per the port contract, all other fields on `e` are ignored.
+func (r *alertRepo) UpdateEventResolution(ctx context.Context, e domain.AlertEvent) (domain.AlertEvent, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.AlertEvent{}, err
+	}
+	if e.ID == 0 {
+		return domain.AlertEvent{}, fmt.Errorf("update event resolution: id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	builder := r.tx.AlertEvent.UpdateOneID(int(e.ID)).
+		SetStatus(string(e.Status))
+	if e.EndsAt != nil {
+		builder = builder.SetEndsAt(*e.EndsAt)
+	} else {
+		builder = builder.ClearEndsAt()
+	}
+	saved, err := builder.Save(ctx)
+	if err != nil {
+		return domain.AlertEvent{}, asNotFound(err)
+	}
+	return alertEventToDomain(saved), nil
+}
+
+// FindEventByID returns the AlertEvent or domain.ErrNotFound.
+func (r *alertRepo) FindEventByID(ctx context.Context, id domain.AlertEventID) (domain.AlertEvent, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.AlertEvent{}, err
+	}
+	row, err := r.tx.AlertEvent.Get(ctx, int(id))
+	if err != nil {
+		return domain.AlertEvent{}, asNotFound(err)
+	}
+	return alertEventToDomain(row), nil
+}
+
+// FindEventByNaturalKey looks up by (source, canonical_fingerprint,
+// starts_at). startsAt is normalised before the lookup so callers do
+// not need to pre-truncate.
+func (r *alertRepo) FindEventByNaturalKey(ctx context.Context, source, canonicalFingerprint string, startsAt time.Time) (domain.AlertEvent, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.AlertEvent{}, err
+	}
+	normalised := domain.NormalizeUTCMicro(startsAt)
+	row, err := r.tx.AlertEvent.Query().
+		Where(
+			alertevent.SourceEQ(source),
+			alertevent.CanonicalFingerprintEQ(canonicalFingerprint),
+			alertevent.StartsAtEQ(normalised),
+		).
+		Only(ctx)
+	if err != nil {
+		return domain.AlertEvent{}, asNotFound(err)
+	}
+	return alertEventToDomain(row), nil
+}
+
+// SaveGroup inserts a new AlertGroup HEADER (no event link). Use
+// LinkEventsToGroup separately to materialise the M2N edge.
+func (r *alertRepo) SaveGroup(ctx context.Context, g domain.AlertGroup) (domain.AlertGroup, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.AlertGroup{}, err
+	}
+	builder := r.tx.AlertGroup.Create().
+		SetGroupKey(g.GroupKey).
+		SetDimensions(g.Dimensions).
+		SetFirstSeenAt(g.FirstSeenAt).
+		SetLastSeenAt(g.LastSeenAt)
+	if g.Severity != "" {
+		builder = builder.SetSeverity(string(g.Severity))
+	}
+	if g.EventCount > 0 {
+		builder = builder.SetEventCount(g.EventCount)
+	}
+	if g.Status != "" {
+		builder = builder.SetStatus(string(g.Status))
+	}
+	if !g.CreatedAt.IsZero() {
+		builder = builder.SetCreatedAt(g.CreatedAt)
+	}
+	if !g.UpdatedAt.IsZero() {
+		builder = builder.SetUpdatedAt(g.UpdatedAt)
+	}
+	saved, err := builder.Save(ctx)
+	if err != nil {
+		return domain.AlertGroup{}, asAlreadyExists(err)
+	}
+	return alertGroupToDomain(saved), nil
+}
+
+// UpdateGroup writes mutable fields (severity, event_count, status,
+// last_seen_at). Immutable fields are ignored. updated_at is stamped
+// automatically by the Ent UpdateDefault hook.
+func (r *alertRepo) UpdateGroup(ctx context.Context, g domain.AlertGroup) (domain.AlertGroup, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.AlertGroup{}, err
+	}
+	if g.ID == 0 {
+		return domain.AlertGroup{}, fmt.Errorf("update group: id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	builder := r.tx.AlertGroup.UpdateOneID(int(g.ID)).
+		SetSeverity(string(g.Severity)).
+		SetEventCount(g.EventCount).
+		SetStatus(string(g.Status)).
+		SetLastSeenAt(g.LastSeenAt)
+	saved, err := builder.Save(ctx)
+	if err != nil {
+		return domain.AlertGroup{}, asNotFound(err)
+	}
+	return alertGroupToDomain(saved), nil
+}
+
+// FindGroupByID returns the AlertGroup or domain.ErrNotFound.
+// EventIDs is left nil; callers materialise it via
+// ListEventIDsForGroup when needed.
+func (r *alertRepo) FindGroupByID(ctx context.Context, id domain.AlertGroupID) (domain.AlertGroup, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.AlertGroup{}, err
+	}
+	row, err := r.tx.AlertGroup.Get(ctx, int(id))
+	if err != nil {
+		return domain.AlertGroup{}, asNotFound(err)
+	}
+	return alertGroupToDomain(row), nil
+}
+
+// LinkEventsToGroup attaches AlertEventIDs to the AlertGroup via the
+// M2N edge. Re-linking an existing pair is a no-op (Ent's
+// AddEventIDs translates to ON CONFLICT DO NOTHING for the join
+// table). Empty eventIDs returns nil.
+//
+// The M2N join row write is the failure surface most likely to hit
+// FK violations (event or group missing). We propagate the raw error
+// in that case because it indicates a programming bug, not an
+// idempotency boundary.
+func (r *alertRepo) LinkEventsToGroup(ctx context.Context, groupID domain.AlertGroupID, eventIDs []domain.AlertEventID) error {
+	if err := checkOpen(r.closed); err != nil {
+		return err
+	}
+	if len(eventIDs) == 0 {
+		return nil
+	}
+	if groupID == 0 {
+		return fmt.Errorf("link events to group: group id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	entIDs := alertEventIDsToEnt(eventIDs)
+	_, err := r.tx.AlertGroup.UpdateOneID(int(groupID)).
+		AddEventIDs(entIDs...).
+		Save(ctx)
+	if err != nil {
+		// A unique-violation here means the (group, event) pair
+		// already exists; treat as a no-op for idempotency.
+		// FK violations and other errors propagate.
+		var pgErr error = asAlreadyExists(err)
+		if errors.Is(pgErr, domain.ErrAlreadyExists) {
+			return nil
+		}
+		return asNotFound(err)
+	}
+	return nil
+}
+
+// ListEventIDsForGroup returns the AlertEventIDs linked to the
+// AlertGroup ordered by AlertEvent.starts_at ascending.
+//
+// Implementation note: we cannot use Ent's IDs(ctx) shortcut here.
+// On an M2N traversal, Ent emits SELECT DISTINCT id ... ORDER BY
+// starts_at, which Postgres rejects (SQLSTATE 42P10) because the
+// ORDER BY column must also appear in the select list when DISTINCT
+// is present. The (alert_event_id, alert_group_id) link row already
+// carries a uniqueness invariant, so the DISTINCT pass would be a
+// no-op anyway. Materialising the rows and projecting their IDs is
+// both correct and equivalent in cost given the bounded fan-out of
+// events per group.
+func (r *alertRepo) ListEventIDsForGroup(ctx context.Context, groupID domain.AlertGroupID) ([]domain.AlertEventID, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if groupID == 0 {
+		return nil, fmt.Errorf("list event ids for group: group id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if _, err := r.tx.AlertGroup.Get(ctx, int(groupID)); err != nil {
+		return nil, asNotFound(err)
+	}
+	rows, err := r.tx.AlertGroup.Query().
+		Where(alertgroup.IDEQ(int(groupID))).
+		QueryEvents().
+		Order(alertevent.ByStartsAt()).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list event ids for group %d: %w", groupID, err)
+	}
+	out := make([]domain.AlertEventID, len(rows))
+	for i, row := range rows {
+		out[i] = domain.AlertEventID(row.ID)
+	}
+	return out, nil
+}
+
+// ListActiveGroups returns groups whose status == "active", ordered
+// by last_seen_at descending. limit MUST be > 0; we surface that as
+// a domain invariant error so callers see a consistent message.
+func (r *alertRepo) ListActiveGroups(ctx context.Context, limit int) ([]domain.AlertGroup, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list active groups: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.AlertGroup.Query().
+		Where(alertgroup.StatusEQ(string(domain.AlertGroupStatusActive))).
+		Order(alertgroup.ByLastSeenAt(entsql.OrderDesc())).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list active groups: %w", err)
+	}
+	out := make([]domain.AlertGroup, len(rows))
+	for i, row := range rows {
+		out[i] = alertGroupToDomain(row)
+	}
+	return out, nil
+}

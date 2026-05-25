@@ -109,11 +109,13 @@ request-response semantics between the WebSocket handler and running workflows
 (see ADR-0004). Workflow Update is available in Temporal Go SDK >= 1.21 and
 requires a compatible Temporal Server version.
 
-* Pin SDK to >= 1.21 in `go.mod` when first imported (M1 deliverable, per
-  the "first-import pin" rule in DEPENDENCIES.md)
-* Validate Update round-trip in M1 integration test (the first milestone that
-  introduces a real Temporal workflow; an isolated round-trip test in M0
-  with no business workflow would be artificial)
+* Pin SDK to >= 1.21 in `go.mod` when first imported (planned for **M1-PR3**
+  first real workflow, per the "first-import pin" rule in DEPENDENCIES.md)
+* Validate Update round-trip in the M1-PR3 first-real-workflow integration
+  test (the milestone PR that introduces a real Temporal workflow; an
+  isolated round-trip test in M0 with no business workflow would be
+  artificial, and an M1-PR2 placeholder import would also violate the
+  first-import rule)
 * Temporal Server (via `temporalio/auto-setup` in dev compose, self-hosted
   in prod) must support Update; the dev image (`temporalio/auto-setup:1.25.2`)
   enables it via `frontend.enableUpdateWorkflowExecution` dynamic config
@@ -133,8 +135,8 @@ requires a compatible Temporal Server version.
 
 ### Confirmation
 
-* Temporal Go SDK is pinned to >= 1.21 in `go.mod` when first imported (M1)
-* M1 integration test validates Temporal Update round-trip
+* Temporal Go SDK is pinned to >= 1.21 in `go.mod` when first imported (M1-PR3)
+* M1-PR3 first-real-workflow integration test validates Temporal Update round-trip
 * `go.mod` does not import Gin, Echo, or Fiber
 * `package.json` specifies Node.js 24.x LTS engine requirement
 * `oapi-codegen-exp` is pinned to `v0.1.0` in `go.mod`, not `latest`
@@ -173,3 +175,4 @@ This validation should be re-assessed:
 | 2026-05-19 | jindyzhao | Add Temporal SDK >= 1.21 constraint for Workflow Update support |
 | 2026-05-22 | jindyzhao | Move Temporal SDK pin and Update round-trip validation from M0 to M1 (first-import pin rule); record `oapi-codegen-exp v0.1.0` as the actual pin |
 | 2026-05-22 | jindyzhao | Amendment 3: replace "specific commit hash" wording with "tested released module version (`v0.1.0`)" to align with the project-wide first-import `module@version` rule |
+| 2026-05-22 | jindyzhao | Refine Amendment 5 from "M1" to "M1-PR3": Temporal Go SDK first-import pin and Update round-trip integration test land with the `DiagnosisWorkflow` shell in M1-PR3, not earlier; an M1-PR2 placeholder import would violate the first-import rule |

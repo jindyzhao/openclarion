@@ -336,7 +336,7 @@ This is a standard Dockerfile + CI build pipeline concern.
 
 For V1 (single-binary monolith):
 - Go binary hosts HTTP server, WS server, and Temporal worker in one process
-- Temporal dev-server (temporalite) runs via Docker Compose
+- Temporal dev server (`temporalio/auto-setup`) runs via Docker Compose
 
 This colocation is the simplest deployment model. Post-V1 can separate workers
 if scaling demands it. The Update-based C13 design works regardless of whether
@@ -400,7 +400,7 @@ Constraints are documented and resolvable within existing tool ecosystems.
 
 | Phase | Must-Resolve Before | Items |
 |-------|--------------------|---------|
-| **M0/M1** | First code lands | Verify Temporal Update SDK/server version compatibility; pin `oapi-codegen-exp` commit; `docker-compose.yml` (PostgreSQL 18 + temporalite); validate Update round-trip in integration test |
+| **M0/M1** | First code lands | `oapi-codegen-exp v0.1.0` pinned (M0); `docker-compose.yml` (PostgreSQL 18 + Temporal `auto-setup` 1.25.2) shipped (M0); Ent `v0.14.6` and Atlas `arigaio/atlas:1.2.0` pinned, 5 Ent schemas + first migration shipped (M1-PR1); Temporal Go SDK `>= 1.21` first-import pin and Update round-trip integration test planned for **M1-PR3** when the `DiagnosisWorkflow` shell lands (per ADR-0012 amendment and first-import rule) |
 | **M2** | LLM Activity ships | LLMProvider capability detection (strict vs json_object); JSON Schema subset validation; idempotency key design for LLM + Webhook Activities; confirm `finish_reason` / refusal handling |
 | **M4** | Sandbox ships | Egress allowlist scheme tested (iptables or egress proxy); image digest pin in CI; short-lived credential injection; Docker daemon privilege boundary; `/workspace/out/` tmpfs mount validated |
 | **M5** | Diagnosis room ships | WS ticket storage/consumption; Temporal Update timeout + reconnect + Query fallback; concurrent-turn rejection (Validator); context byte/token budget enforcement + truncation strategy |
