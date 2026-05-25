@@ -82,16 +82,19 @@ until the per-turn Activity completes, then pushes the result to the browser.
 ### SDK Version Constraint
 
 Temporal Go SDK must be pinned to >= 1.21 (Workflow Update support). The
-Temporal Server must also support Update (>= 1.21). This is validated during
-M0 bootstrap integration tests.
+Temporal Server must also support Update (>= 1.21). This is validated by
+the first real workflow that lands during M1-PR3 (the `DiagnosisWorkflow`
+shell), per the ADR-0012 amendment that moved this validation out of M0
+(the Go SDK enters `go.mod` only at that PR per the first-import rule).
 
 ### Confirmation
 
 * no hand-written distributed state machine for diagnosis lifecycle
 * workflow tests cover timeout, retry, Update, and Signal paths
 * activities contain external I/O, workflows contain orchestration
-* M0 integration test validates Update round-trip (send Update → handler
-  executes Activity → result returned to caller)
+* M1-PR3 first-real-workflow integration test validates Update round-trip
+  (send Update -> handler executes Activity -> result returned to caller);
+  the Go SDK itself enters `go.mod` only at that PR per the first-import rule
 
 ## More Information
 
@@ -107,3 +110,4 @@ M0 bootstrap integration tests.
 | 2026-05-18 | jindyzhao | Initial proposal |
 | 2026-05-19 | jindyzhao | Document River+sqlc alternative; tie selection to M5 V1 commitment; add re-evaluation trigger |
 | 2026-05-19 | jindyzhao | Signal → Update as primary M5 path; add SDK version constraint (>= 1.21); add communication mechanisms table |
+| 2026-05-22 | jindyzhao | Update round-trip validation home moved from M0 to M1-PR3 first real workflow (`DiagnosisWorkflow` shell), aligning with the ADR-0012 amendment and the first-import rule (Temporal Go SDK enters `go.mod` only when M1-PR3 production code first imports it) |

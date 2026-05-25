@@ -5,18 +5,18 @@
 > [../roadmap/tasks.md](../roadmap/tasks.md). Decisions intentionally not
 > done live in [DEFERRED_FOLLOWUPS.md](DEFERRED_FOLLOWUPS.md).
 
-> Last updated: 2026-05-22
-> Stage: M1-PR1 in progress (persistence foundation: 5 Ent schemas
-> landed -- `AlertEvent`, `AlertGroup`, `EvidenceSnapshot`,
-> `DiagnosisTask`, `DiagnosisTaskEvent`. First migration
-> `20260525060310_initial_schema.sql` committed via the redesigned
-> Atlas wrapper; `make atlas-drift` reports synced. Atlas Docker
-> wrapper (`scripts/lib_atlas.sh` plus three thin entry scripts) is in
-> place: host launches per-invocation `postgres:18-alpine` on a
-> dedicated Docker network, Atlas container mounts the host Go
-> toolchain read-only at `/usr/local/go` and runs as
-> `$(id -u):$(id -g)`, dev-url is plain `postgres://`. Remaining
-> M1-PR1 work is to commit + push.)
+> Last updated: 2026-05-25
+> Stage: M1-PR2 in progress (domain layer + persistence repository
+> contracts + `UnitOfWork` + DI wiring on top of the M1-PR1 foundation,
+> which shipped post-merge as `b7233c7` -- 5 Ent schemas (`AlertEvent`,
+> `AlertGroup`, `EvidenceSnapshot`, `DiagnosisTask`,
+> `DiagnosisTaskEvent`), the first migration
+> `20260525060310_initial_schema.sql`, the redesigned Atlas wrapper,
+> and the `cmd/openclarion` + `/healthz` service surface). The
+> Temporal Go SDK first-import pin and `DiagnosisWorkflow` shell are
+> scoped to M1-PR3 per the first-import rule: dependencies enter
+> `go.mod` only when production code first requires them, not to
+> satisfy roadmap dates.)
 
 ## Implementation Status
 
@@ -36,9 +36,9 @@
 | Docker Compose (PostgreSQL + Temporal) | shipped | tag-pinned (`postgres:18-alpine`, `temporalio/auto-setup:1.25.2`); digest pin deferred to M4 sandbox |
 | Health endpoint | shipped | `GET /healthz` returns 200 with `{"status":"ok"}` |
 | Ent toolchain | shipped (M1-PR1) | `entgo.io/ent v0.14.6` direct require + `tool` directive; `make ent-generate` / `make ent-fresh` |
-| Atlas toolchain | in progress (M1-PR1) | `arigaio/atlas:1.2.0` Docker image pin retained; wrapper landed in `scripts/lib_atlas.sh` plus three thin entry scripts: host launches per-invocation `postgres:18-alpine` on a dedicated Docker network, Atlas container mounts host Go toolchain read-only at `/usr/local/go`, runs as `$(id -u):$(id -g)`, talks to dev DB via plain `postgres://`. `make atlas-migrate-diff` / `make atlas-drift` / `make atlas-smoke` targets exist; `make atlas-smoke` verified locally 2026-05-22 (produced 2 files, clean cleanup). |
+| Atlas toolchain | shipped (M1-PR1) | `arigaio/atlas:1.2.0` Docker image pin; wrapper landed in `scripts/lib_atlas.sh` plus three thin entry scripts: host launches per-invocation `postgres:18-alpine` on a dedicated Docker network, Atlas container mounts host Go toolchain read-only at `/usr/local/go`, runs as `$(id -u):$(id -g)`, talks to dev DB via plain `postgres://`. `make atlas-migrate-diff` / `make atlas-drift` / `make atlas-smoke` targets shipped; `make atlas-smoke` verified locally 2026-05-22 (produced 2 files, clean cleanup); `make atlas-drift` runs in CI with `actions/setup-go` so the host Go toolchain is mounted into the Atlas container. |
 | Ent schemas | shipped (M1-PR1) | 5 entities landed: `AlertEvent`, `AlertGroup`, `EvidenceSnapshot`, `DiagnosisTask`, `DiagnosisTaskEvent`. AlertEvent <-M2N-> AlertGroup; AlertGroup -1:N-> EvidenceSnapshot; EvidenceSnapshot -1:N-> DiagnosisTask; DiagnosisTask -1:N-> DiagnosisTaskEvent. All entities use bigserial PK; FK columns are surfaced as explicit `field.Int` (`alert_group_id` / `evidence_snapshot_id` / `task_id`) so composite-index column ordering matches docs intent. Constraint set after 2026-05-22 review: `EvidenceSnapshot.digest` is **per-group** unique on `(alert_group_id, digest)` (NOT cross-row global, since two distinct groups MAY produce identical canonical payloads); `DiagnosisTask` natural identity is `(workflow_id, run_id)` (NOT `workflow_id` alone), with `run_id` NOT NULL + immutable, so Temporal retries that spawn a new `run_id` are NEW rows. First migration `20260525060310_initial_schema.sql` committed; `make atlas-drift` reports synced. |
-| Temporal Go SDK / workflows | not started | M1 deliverable (Update round-trip validation moved here per ADR-0012 amendment) |
+| Temporal Go SDK / workflows | not started | M1-PR3 deliverable (`DiagnosisWorkflow` shell + Update round-trip integration test, per ADR-0012 amendment); SDK enters `go.mod` only when that PR's production code first imports it (first-import rule) |
 | LLMProvider | not started | M2 deliverable |
 | IMProvider Webhook | not started | M2 deliverable |
 | Frontend (Next.js) | not started | M3 deliverable |
@@ -84,12 +84,14 @@
   `make atlas-drift` reports
   synced.
 * Temporal Go SDK first-import pin (>= 1.21) and Update round-trip integration
-  test (per ADR-0012 amendment, validated when DiagnosisWorkflow shell lands)
+  test -- planned for **M1-PR3** (`DiagnosisWorkflow` shell), per ADR-0012
+  amendment. The dependency enters `go.mod` only when M1-PR3 production code
+  first imports it; not earlier.
 
 ## Non-Blocking Cross-Checks
 
 * optional spike comparing Temporal vs River+sqlc on M2 fan-out/fan-in
-  (cross-check ADR-0004 if M0 Temporal setup feels disproportionate)
+  (cross-check ADR-0004 if the M1-PR3 Temporal setup feels disproportionate)
 
 ## Update Discipline
 
@@ -110,3 +112,4 @@
 | 2026-05-22 | jindyzhao | M1-PR1 Atlas smoke gate verified on host docker: `make atlas-smoke` produced 2 files end-to-end via the redesigned wrapper; cleanup left no residual `.atlas-*` dirs, `atlas-pg-*` containers, or `atlas-net-*` networks. Remaining four Ent schemas and the first migration are next. |
 | 2026-05-22 | jindyzhao | M1-PR1 schemas + first migration landed: `AlertGroup`, `EvidenceSnapshot`, `DiagnosisTask`, `DiagnosisTaskEvent` Ent schemas committed (M2N AlertEvent<->AlertGroup; 1:N down the chain; all bigserial PKs); FK columns surfaced as explicit `field.Int` so composite-index column ordering matches docs intent (`(alert_group_id, created_at)`, `(task_id, dedupe_key) UNIQUE`, `(task_id, occurred_at)`); first migration cut via `make atlas-migrate-diff NAME=initial_schema`; `make atlas-drift` reports synced. |
 | 2026-05-22 | jindyzhao | M1-PR1 schema review fixes pre-baseline: (1) `EvidenceSnapshot.digest` no longer table-wide UNIQUE -- replaced with composite `UNIQUE (alert_group_id, digest)` because the model is `AlertGroup -1:N-> EvidenceSnapshot` and two groups MAY produce identical canonical payloads; (2) `DiagnosisTask` identity changed from `UNIQUE(workflow_id)` + optional latest-`run_id` to natural `UNIQUE(workflow_id, run_id)` with `run_id` NOT NULL + immutable, plus a non-unique `workflow_id` chain index, so Temporal retries that spawn a new `run_id` are NEW rows (matches Temporal's own `(workflow_id, run_id)` event-history boundary); (3) `docs/design/DEPENDENCIES.md` and `DEFERRED_FOLLOWUPS.md` cleaned of leftover `--dev-url docker://...` / mounted-Docker-socket descriptions (those describe a plan that was abandoned during the same-day wrapper redesign); (4) `ATLAS_IMAGE` and `ENT_SCHEMA_URL` are now propagated explicitly from `Makefile` to wrapper scripts via per-target `ATLAS_IMAGE="$(ATLAS_IMAGE)" bash ...` recipes -- the lib_atlas.sh defaults are now an explicit fallback for direct script debugging only. Initial migration recut as `20260525060310_initial_schema.sql`; `make atlas-drift` reports synced; `make pr` all gates passed. |
+| 2026-05-22 | jindyzhao | M1-PR1 shipped post-merge as `b7233c7`. Stage moves to **M1-PR2** (domain layer + persistence repository contracts + `UnitOfWork` + DI wiring). Temporal Go SDK first-import pin (>= 1.21) and Update round-trip integration test scoped to **M1-PR3** with the `DiagnosisWorkflow` shell, per ADR-0012 amendment and the first-import rule (dependencies enter `go.mod` only when production code first imports them). `DEPENDENCIES.md`, `ADR-0004`, and `END_TO_END_VERIFICATION.md` aligned with this scope split. |

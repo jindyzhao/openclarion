@@ -8,16 +8,26 @@ import (
 	"net/http"
 
 	"github.com/openclarion/openclarion/api"
+	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
 // Server implements api.ServerInterface.
+//
+// uowFactory is held for use by future ingestion / diagnosis
+// endpoints (M1-PR3 onward). The current /healthz handler does not
+// touch the database; intentionally not used yet so that the DI
+// graph is stable before workflow code lands.
 type Server struct {
-	logger *slog.Logger
+	logger     *slog.Logger
+	uowFactory ports.UnitOfWorkFactory
 }
 
-// NewServer creates a new Server with the given dependencies.
-func NewServer(logger *slog.Logger) *Server {
-	return &Server{logger: logger}
+// NewServer creates a new Server with the given dependencies. The
+// UnitOfWorkFactory MUST be non-nil; transports that legitimately do
+// not need persistence (e.g. trivial smoke binaries) should construct
+// their own narrower struct rather than pass nil here.
+func NewServer(logger *slog.Logger, uowFactory ports.UnitOfWorkFactory) *Server {
+	return &Server{logger: logger, uowFactory: uowFactory}
 }
 
 // GetHealthz implements api.ServerInterface.
