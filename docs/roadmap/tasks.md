@@ -40,7 +40,7 @@ PostgreSQL+Temporal+Temporal UI; `curl http://localhost:8080/healthz` returns
 - [x] MetricsProvider interface and Prometheus implementation
 - [x] AlertEvent Ent schema and migrations
 - [ ] alert window replay harness
-- [ ] deterministic grouping algorithm
+- [x] deterministic grouping algorithm
 - [ ] EvidenceSnapshot schema and builder
 - [x] Temporal workflow bootstrap (DiagnosisWorkflow shell)
 - [ ] fake providers for all other interfaces
@@ -143,3 +143,4 @@ sessions, leader-tier approval, streaming partial responses.
 | 2026-05-19 | jindyzhao | Restructure to M0-M5; remove OpenClaw binding; add acceptance criteria |
 | 2026-05-19 | jindyzhao | M5 reclassified as V1 required (short-conversation scope); defer compression and long sessions |
 | 2026-05-26 | jindyzhao | M1-PR4 lands `MetricsProvider` interface + Prometheus implementation + in-memory fake provider + `alertingest.IngestOnce` library. Item ticked: `MetricsProvider interface and Prometheus implementation`. `AlertEvent Ent schema and migrations` and `Temporal workflow bootstrap (DiagnosisWorkflow shell)` were already shipped in M1-PR1 and M1-PR3 respectively and are now ticked retroactively to keep this checklist in sync with `CURRENT_STATE.md`. Remaining M1 items (`alert window replay harness`, `deterministic grouping algorithm`, `EvidenceSnapshot schema and builder`, `fake providers for all other interfaces`, `API endpoints`) are explicitly out of scope for M1-PR4. |
+| 2026-05-26 | jindyzhao | M1-PR5 lands deterministic grouping algorithm (`GroupEvents` pure function in `internal/usecases/alertgrouping/`). Item ticked: `deterministic grouping algorithm`. |
