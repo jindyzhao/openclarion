@@ -71,12 +71,12 @@
 
 | Field | Value |
 |-------|-------|
-| Status | partially closed (Ent + Atlas pinned at M1-PR1; Temporal + OTel still open) |
+| Status | partially closed (Ent + Atlas pinned at M1-PR1; Temporal pinned at M1-PR3; OTel still open) |
 | Decided | 2026-05-19 |
-| Updated | 2026-05-22 (M0 review), 2026-05-22 (M1-PR1 start) |
-| Reason | Original deferral assumed M0 would replace `TBD pinned at M0` placeholders for these modules. Post-M0 review (2026-05-22) replaced that policy with the `first-import pin` rule in DEPENDENCIES.md: a Go module enters `go.mod` only when production code first imports it, and is pinned to a concrete `module@version` at that moment. ADR-0012 was amended (2026-05-22) so the Temporal SDK pin and Update round-trip validation move from M0 to M1. The `forbidden-latest` CI gate keeps enforcing the no-`latest` rule throughout. **M1-PR1 (2026-05-22)** lands the Ent and Atlas pins: `entgo.io/ent v0.14.6` (direct require + `tool` directive in `go.mod`) and Atlas CLI `arigaio/atlas:1.2.0` (Docker image pin). The Atlas wrapper redesign (2026-05-22) replaced the original Docker-socket plan with a host-launched ephemeral `postgres:18-alpine` on a per-invocation dedicated Docker network, with Atlas reaching the dev DB via a plain `postgres://` URL; no host Docker socket is mounted, and the `docker://...` dev-url form is not used. Atlas is **not** added to `go.mod` because it is invoked as a CLI via the pinned image rather than imported as a Go library; the pin lives in `Makefile` (`ATLAS_IMAGE`) and `docs/design/DEPENDENCIES.md`. Temporal Go SDK and OpenTelemetry Go remain unpinned per the first-import rule. |
-| Trigger | Temporal Go SDK pin lands at M1-PR2+ (DiagnosisWorkflow shell). OTel pin lands at M3. |
-| Target | M1-PR2+ (Temporal SDK) and M3 (OpenTelemetry Go) |
+| Updated | 2026-05-22 (M0 review), 2026-05-22 (M1-PR1 start), 2026-05-25 (M1-PR3 Temporal SDK pin) |
+| Reason | Original deferral assumed M0 would replace `TBD pinned at M0` placeholders for these modules. Post-M0 review (2026-05-22) replaced that policy with the `first-import pin` rule in DEPENDENCIES.md: a Go module enters `go.mod` only when production code first imports it, and is pinned to a concrete `module@version` at that moment. ADR-0012 was amended (2026-05-22) so the Temporal SDK pin and Update round-trip validation move from M0 to M1. The `forbidden-latest` CI gate keeps enforcing the no-`latest` rule throughout. **M1-PR1 (2026-05-22)** lands the Ent and Atlas pins: `entgo.io/ent v0.14.6` (direct require + `tool` directive in `go.mod`) and Atlas CLI `arigaio/atlas:1.2.0` (Docker image pin). The Atlas wrapper redesign (2026-05-22) replaced the original Docker-socket plan with a host-launched ephemeral `postgres:18-alpine` on a per-invocation dedicated Docker network, with Atlas reaching the dev DB via a plain `postgres://` URL; no host Docker socket is mounted, and the `docker://...` dev-url form is not used. Atlas is **not** added to `go.mod` because it is invoked as a CLI via the pinned image rather than imported as a Go library; the pin lives in `Makefile` (`ATLAS_IMAGE`) and `docs/design/DEPENDENCIES.md`. **M1-PR3 (2026-05-25)** lands the Temporal Go SDK pin: `go.temporal.io/sdk v1.44.0` (direct require in `go.mod`), entering via the first-import rule when `internal/orchestrator/temporal/` production code first imports it. OpenTelemetry Go remains unpinned per the first-import rule. |
+| Trigger | OTel pin lands at M3. |
+| Target | M3 (OpenTelemetry Go) |
 
 ### D7: pgvector / RAG Retrieval
 
@@ -129,3 +129,4 @@
 | 2026-05-19 | jindyzhao | Initial set of deferrals: spike, Strict adapter, M5 long-session features, version pinning, future providers |
 | 2026-05-22 | jindyzhao | Update D6: replace "must pin at M0" policy with the `first-import pin` rule (DEPENDENCIES.md). Temporal/Ent/Atlas pinning targets shift to M1; OTel to M3. ADR-0012 amended in the same window. |
 | 2026-05-22 | jindyzhao | D6 partially closed at M1-PR1 start: Ent v0.14.6 pinned (direct require + tool directive); Atlas pinned via `arigaio/atlas:1.2.0` Docker image under the original Plan A draft (Dockerized Atlas with mounted Docker socket; later superseded by the wrapper redesign in the same milestone window). Temporal SDK and OTel remain open. |
+| 2026-05-25 | jindyzhao | D6 Temporal SDK portion closed at M1-PR3: `go.temporal.io/sdk v1.44.0` pinned via first-import rule. Only OTel remains open for M3. |

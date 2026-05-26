@@ -148,6 +148,33 @@ func (r *diagnosisRepo) AppendEvent(ctx context.Context, e domain.DiagnosisTaskE
 	return diagnosisTaskEventToDomain(saved), nil
 }
 
+// FindEventByTaskAndDedupeKey returns the DiagnosisTaskEvent matching
+// the per-task idempotency key (task_id, dedupe_key), or
+// domain.ErrNotFound. The (task_id, dedupe_key) UNIQUE index uses
+// Postgres multi-NULL semantics; an empty dedupeKey is therefore an
+// invariant violation, not a lookup, and rejected up front.
+func (r *diagnosisRepo) FindEventByTaskAndDedupeKey(ctx context.Context, taskID domain.DiagnosisTaskID, dedupeKey string) (domain.DiagnosisTaskEvent, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.DiagnosisTaskEvent{}, err
+	}
+	if taskID == 0 {
+		return domain.DiagnosisTaskEvent{}, fmt.Errorf("find diagnosis event by dedupe key: task id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if dedupeKey == "" {
+		return domain.DiagnosisTaskEvent{}, fmt.Errorf("find diagnosis event by dedupe key: dedupe_key must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	row, err := r.tx.DiagnosisTaskEvent.Query().
+		Where(
+			diagnosistaskevent.TaskIDEQ(int(taskID)),
+			diagnosistaskevent.DedupeKeyEQ(dedupeKey),
+		).
+		Only(ctx)
+	if err != nil {
+		return domain.DiagnosisTaskEvent{}, asNotFound(err)
+	}
+	return diagnosisTaskEventToDomain(row), nil
+}
+
 // ListEvents returns the events for a task ordered by occurred_at
 // ascending, capped by limit.
 func (r *diagnosisRepo) ListEvents(ctx context.Context, taskID domain.DiagnosisTaskID, limit int) ([]domain.DiagnosisTaskEvent, error) {
