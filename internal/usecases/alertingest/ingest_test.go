@@ -1,0 +1,174 @@
+package alertingest_test
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/providers/metrics/fake"
+	"github.com/openclarion/openclarion/internal/usecases/alertingest"
+	"github.com/openclarion/openclarion/internal/usecases/ports"
+)
+
+// firingSeed builds a deterministic batch of N firing-like
+// ActiveAlerts whose label sets differ (so the canonical fingerprint
+// + starts_at + source natural key is unique per alert and the
+// unique constraint does not collapse them).
+//
+// The base timestamp is fixed so test failures point to a stable
+// "expected vs actual" rather than a moving wall-clock value.
+func firingSeed(n int) []ports.ActiveAlert {
+	base := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
+	out := make([]ports.ActiveAlert, n)
+	for i := 0; i < n; i++ {
+		out[i] = ports.ActiveAlert{
+			Source: "prometheus",
+			Labels: map[string]string{
+				"alertname": "HighCPU",
+				"instance":  itoaInstance(i),
+			},
+			Annotations: map[string]string{"summary": "cpu high"},
+			StartsAt:    base.Add(time.Duration(i) * time.Minute),
+			RawPayload:  json.RawMessage(`{"raw":1}`),
+		}
+	}
+	return out
+}
+
+// itoaInstance keeps the helper dependency-free; strconv.Itoa would
+// work equally well but the import noise is not worth it for a
+// two-digit counter.
+func itoaInstance(i int) string {
+	const digits = "0123456789"
+	if i < 10 {
+		return string(digits[i])
+	}
+	return string(digits[i/10]) + string(digits[i%10])
+}
+
+// countAlertEvents reads the row count directly through the Ent
+// client. We bypass the repository so the test asserts on the
+// "ground truth" (what landed in the table) rather than re-using
+// the code path under test.
+func countAlertEvents(t *testing.T, ctx context.Context) int {
+	t.Helper()
+	n, err := integration.client.AlertEvent.Query().Count(ctx)
+	if err != nil {
+		t.Fatalf("count alert_event rows: %v", err)
+	}
+	return n
+}
+
+// TestIngestOnce_SavesAllFiringAlerts covers the happy path: every
+// alert returned by the provider becomes one AlertEvent row and the
+// Stats add up to Saved=N.
+func TestIngestOnce_SavesAllFiringAlerts(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+	const n = 3
+
+	provider := fake.New(firingSeed(n))
+	stats, err := alertingest.IngestOnce(ctx, provider, integration.factory)
+	if err != nil {
+		t.Fatalf("IngestOnce: %v", err)
+	}
+	if stats != (alertingest.Stats{Total: n, Saved: n}) {
+		t.Errorf("stats = %+v, want {Total:%d,Saved:%d,Duplicate:0,Failed:0}", stats, n, n)
+	}
+	if got := countAlertEvents(t, ctx); got != n {
+		t.Errorf("alert_event row count = %d, want %d", got, n)
+	}
+}
+
+// TestIngestOnce_DuplicateRunCountsAsDuplicate runs the same seed
+// through IngestOnce twice. The second pass MUST collapse every
+// alert into the Duplicate counter via the natural unique key, and
+// the row count MUST stay at N. This is the regression guard for
+// the "duplicate must propagate out of WithinTx so the tx rolls
+// back" rule documented in ingest.go.
+func TestIngestOnce_DuplicateRunCountsAsDuplicate(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+	const n = 3
+
+	provider := fake.New(firingSeed(n))
+
+	first, err := alertingest.IngestOnce(ctx, provider, integration.factory)
+	if err != nil {
+		t.Fatalf("first IngestOnce: %v", err)
+	}
+	if first.Saved != n {
+		t.Fatalf("first.Saved = %d, want %d", first.Saved, n)
+	}
+
+	second, err := alertingest.IngestOnce(ctx, provider, integration.factory)
+	if err != nil {
+		t.Fatalf("second IngestOnce: %v", err)
+	}
+	if second != (alertingest.Stats{Total: n, Duplicate: n}) {
+		t.Errorf("second stats = %+v, want {Total:%d,Saved:0,Duplicate:%d,Failed:0}", second, n, n)
+	}
+	if got := countAlertEvents(t, ctx); got != n {
+		t.Errorf("alert_event row count after duplicate run = %d, want %d (a leaked save means tx did not roll back)", got, n)
+	}
+}
+
+// TestIngestOnce_InvariantViolationCountsAsFailedAndDoesNotBlockOthers
+// seeds a batch where one alert is invalid (Source==""), and
+// verifies:
+//
+//   - the invalid alert is counted as Failed (not Saved, not
+//     Duplicate);
+//   - the surrounding valid alerts still land as Saved;
+//   - the returned error unwraps to domain.ErrInvariantViolation
+//     via errors.Is, which is what tests / callers MUST rely on
+//     instead of pattern-matching error strings.
+//
+// Source="" is the chosen invalid surface because empty labels are
+// explicitly NOT invalid (domain.NewAlertEvent normalises nil
+// labels to an empty map; the resulting sha1/sha256 of `{}` are
+// non-empty fingerprints).
+func TestIngestOnce_InvariantViolationCountsAsFailedAndDoesNotBlockOthers(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	seed := firingSeed(2)
+	bad := ports.ActiveAlert{
+		Source: "", // invariant violation: Source must be non-empty
+		Labels: map[string]string{"alertname": "Invalid"},
+		// StartsAt deliberately set so that, were Source valid, the
+		// alert would be syntactically fine; this isolates the
+		// "Source rejected" failure mode.
+		StartsAt: time.Date(2026, 5, 26, 13, 0, 0, 0, time.UTC),
+	}
+	// Inject the bad alert in the middle to prove the loop keeps
+	// going past a failure.
+	batch := []ports.ActiveAlert{seed[0], bad, seed[1]}
+	provider := fake.New(batch)
+
+	stats, err := alertingest.IngestOnce(ctx, provider, integration.factory)
+	if err == nil {
+		t.Fatalf("IngestOnce: want non-nil error, got nil")
+	}
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("IngestOnce error: want errors.Is ErrInvariantViolation, got %v", err)
+	}
+	if stats.Total != 3 {
+		t.Errorf("stats.Total = %d, want 3", stats.Total)
+	}
+	if stats.Saved != 2 {
+		t.Errorf("stats.Saved = %d, want 2 (failure on one alert must not block others)", stats.Saved)
+	}
+	if stats.Failed < 1 {
+		t.Errorf("stats.Failed = %d, want >= 1", stats.Failed)
+	}
+	if stats.Duplicate != 0 {
+		t.Errorf("stats.Duplicate = %d, want 0", stats.Duplicate)
+	}
+	if got := countAlertEvents(t, ctx); got != 2 {
+		t.Errorf("alert_event row count = %d, want 2 (only the two valid alerts should have been persisted)", got)
+	}
+}

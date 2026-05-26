@@ -1,14 +1,16 @@
-// Package ports defines the persistence contracts owned by the
-// usecase layer. Usecase code depends on these interfaces; concrete
-// implementations live in `internal/persistence/repository`. Following
+// Package ports defines the persistence and provider contracts
+// owned by the usecase layer. Usecase code depends on these
+// interfaces; concrete implementations live under
+// `internal/persistence/repository` (persistence) and
+// `internal/providers/<kind>/<impl>` (providers). Following
 // architecture.md's layering rules, this package:
 //
 //   - depends ONLY on `internal/domain` and the Go standard library
 //   - MUST NOT import the generated Ent client, Temporal SDK, or any
 //     transport package
-//   - is the sole place where repository signatures evolve; adding a
-//     method here is a deliberate contract change reviewed alongside
-//     the usecase that needs it
+//   - is the sole place where repository and provider signatures
+//     evolve; adding a method here is a deliberate contract change
+//     reviewed alongside the usecase that needs it
 //
 // Aggregate-root boundaries (per the M1-PR2 design decision):
 //
@@ -22,6 +24,10 @@
 // Five entity-level repositories were rejected because they would
 // project the Ent table layout into the usecase layer, encouraging
 // CRUD orchestration over aggregate behaviour.
+//
+// Provider ports (e.g. MetricsProvider) live in providers.go and
+// follow the same layering rules: concrete implementations must
+// import this package, never the other way around.
 //
 // UnitOfWork groups the three repositories under one Postgres
 // transaction. Two entry points are provided:
