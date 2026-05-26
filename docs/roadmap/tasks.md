@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-05-22
+> Last updated: 2026-05-26
 > Author: jindyzhao
 > Status: private incubation
 
@@ -37,12 +37,12 @@ PostgreSQL+Temporal+Temporal UI; `curl http://localhost:8080/healthz` returns
 
 ## M1: Go Control Plane
 
-- [ ] MetricsProvider interface and Prometheus implementation
-- [ ] AlertEvent Ent schema and migrations
+- [x] MetricsProvider interface and Prometheus implementation
+- [x] AlertEvent Ent schema and migrations
 - [ ] alert window replay harness
 - [ ] deterministic grouping algorithm
 - [ ] EvidenceSnapshot schema and builder
-- [ ] Temporal workflow bootstrap (DiagnosisWorkflow shell)
+- [x] Temporal workflow bootstrap (DiagnosisWorkflow shell)
 - [ ] fake providers for all other interfaces
 - [ ] API endpoints: list alerts, list snapshots
 
@@ -142,3 +142,4 @@ sessions, leader-tier approval, streaming partial responses.
 | 2026-05-18 | jindyzhao | English roadmap reset and MVP cutline |
 | 2026-05-19 | jindyzhao | Restructure to M0-M5; remove OpenClaw binding; add acceptance criteria |
 | 2026-05-19 | jindyzhao | M5 reclassified as V1 required (short-conversation scope); defer compression and long sessions |
+| 2026-05-26 | jindyzhao | M1-PR4 lands `MetricsProvider` interface + Prometheus implementation + in-memory fake provider + `alertingest.IngestOnce` library. Item ticked: `MetricsProvider interface and Prometheus implementation`. `AlertEvent Ent schema and migrations` and `Temporal workflow bootstrap (DiagnosisWorkflow shell)` were already shipped in M1-PR1 and M1-PR3 respectively and are now ticked retroactively to keep this checklist in sync with `CURRENT_STATE.md`. Remaining M1 items (`alert window replay harness`, `deterministic grouping algorithm`, `EvidenceSnapshot schema and builder`, `fake providers for all other interfaces`, `API endpoints`) are explicitly out of scope for M1-PR4. |

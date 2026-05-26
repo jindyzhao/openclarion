@@ -8,9 +8,10 @@
 | HTTP | std `net/http` (Go 1.22+ enhanced routing) | 2026-05-19 |
 | API | OpenAPI 3.1, `oapi-codegen-exp` V3 (pinned in `go.mod` at M0) | 2026-05-22 |
 | Database | PostgreSQL 18, Ent `v0.14.6` (`go.mod` direct require + `tool` directive at M1-PR1), Atlas CLI `arigaio/atlas:1.2.0` (Docker image pin) | 2026-05-22 |
-| Workflow | Temporal Go SDK `v1.44.0` (pinned at M1-PR3 via first-import rule, per ADR-0012 amendment) | 2026-05-25 |
+| Workflow | Temporal Go SDK `go.temporal.io/sdk v1.44.0` pinned via first-import rule at M1-PR3 (`DiagnosisWorkflow` shell shipped per ADR-0012 amendment) | 2026-05-25 |
 | Frontend | Node.js 24.x LTS, React 19, Next.js 16 | 2026-05-19 |
-| Observability | OpenTelemetry Go (pinned at M3 first-import), Prometheus client (pinned at M3 first-import) | 2026-05-22 |
+| Observability | OpenTelemetry Go (pinned at M3 first-import) | 2026-05-22 |
+| Metrics ingest | Prometheus client `github.com/prometheus/client_golang v1.23.2` + `github.com/prometheus/common v0.67.5` (direct require since `internal/providers/metrics/prometheus/client.go` imports both `common/config` for the Bearer-auth round-tripper and `common/model` for `LabelSet`; pinned via first-import rule at M1-PR4) | 2026-05-26 |
 | Future vector | pgvector 0.7+ (not MVP) | 2026-05-19 |
 
 > **First-import pin rule**: a Go dependency is added to `go.mod` only when
