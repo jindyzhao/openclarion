@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -288,4 +289,203 @@ func TestAlertRepository_ListEventIDsForGroup_ExistingEmptyGroupReturnsEmptySlic
 			t.Errorf("ListEventIDsForGroup len = %d, want 0", len(ids))
 		}
 	})
+}
+
+// seedEventAt is a tiny helper that inserts one event with a unique
+// fingerprint at the given starts_at and returns the persisted event.
+// Used by ListEventsByStartsAtRange tests where what matters is just
+// where the event lands on the timeline.
+func seedEventAt(t *testing.T, ctx context.Context, uow ports.UnitOfWork, suffix string, startsAt time.Time) domain.AlertEvent {
+	t.Helper()
+	e := mustNewAlertEvent(t, "prom", "fp-"+suffix, "canon-"+suffix, startsAt)
+	saved, err := uow.Alerts().SaveEvent(ctx, e)
+	if err != nil {
+		t.Fatalf("SaveEvent %s: %v", suffix, err)
+	}
+	return saved
+}
+
+func TestAlertRepository_ListEventsByStartsAtRange_HalfOpenIntervalAndOrder(t *testing.T) {
+	resetDB(t)
+	windowStart := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+	windowEnd := windowStart.Add(time.Hour) // exclusive
+
+	var before, atStart, mid, atEndMinus1, atEnd domain.AlertEvent
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		// Five events laid out across the window boundary:
+		//   before     -> windowStart - 1m  (excluded by GTE)
+		//   atStart    -> windowStart        (included, GTE)
+		//   mid        -> windowStart + 30m  (included)
+		//   atEndMinus1-> windowEnd - 1us    (included)
+		//   atEnd      -> windowEnd          (excluded, LT)
+		before = seedEventAt(t, ctx, uow, "before", windowStart.Add(-time.Minute))
+		atStart = seedEventAt(t, ctx, uow, "start", windowStart)
+		mid = seedEventAt(t, ctx, uow, "mid", windowStart.Add(30*time.Minute))
+		atEndMinus1 = seedEventAt(t, ctx, uow, "endm1", windowEnd.Add(-time.Microsecond))
+		atEnd = seedEventAt(t, ctx, uow, "end", windowEnd)
+	})
+	_ = before
+	_ = atEnd
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Alerts().ListEventsByStartsAtRange(ctx, windowStart, windowEnd, 100)
+		if err != nil {
+			t.Fatalf("ListEventsByStartsAtRange: %v", err)
+		}
+		if len(got) != 3 {
+			t.Fatalf("len(got) = %d, want 3 (atStart, mid, atEndMinus1)", len(got))
+		}
+		wantIDs := []domain.AlertEventID{atStart.ID, mid.ID, atEndMinus1.ID}
+		for i, w := range wantIDs {
+			if got[i].ID != w {
+				t.Errorf("got[%d].ID = %d, want %d (order should be starts_at ASC)", i, got[i].ID, w)
+			}
+		}
+	})
+}
+
+func TestAlertRepository_ListEventsByStartsAtRange_LimitTruncates(t *testing.T) {
+	resetDB(t)
+	windowStart := time.Date(2026, 5, 26, 11, 0, 0, 0, time.UTC)
+	windowEnd := windowStart.Add(time.Hour)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for i := 0; i < 5; i++ {
+			seedEventAt(t, ctx, uow, fmt.Sprintf("l%d", i), windowStart.Add(time.Duration(i)*time.Minute))
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Alerts().ListEventsByStartsAtRange(ctx, windowStart, windowEnd, 3)
+		if err != nil {
+			t.Fatalf("ListEventsByStartsAtRange: %v", err)
+		}
+		if len(got) != 3 {
+			t.Errorf("len(got) = %d, want 3 (capped by limit)", len(got))
+		}
+	})
+}
+
+func TestAlertRepository_ListEventsByStartsAtRange_EmptyWindowReturnsEmptyResult(t *testing.T) {
+	resetDB(t)
+	t0 := time.Date(2026, 5, 26, 12, 0, 0, 0, time.UTC)
+
+	// Seed one event well outside the test window so the table is
+	// not empty; the query should still return a zero-length result.
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		seedEventAt(t, ctx, uow, "out", t0.Add(2*time.Hour))
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Alerts().ListEventsByStartsAtRange(ctx, t0, t0.Add(time.Hour), 10)
+		if err != nil {
+			t.Fatalf("ListEventsByStartsAtRange: %v", err)
+		}
+		// The Ent generated client typically returns an empty slice
+		// rather than nil for empty result sets; we accept either by
+		// asserting on len, not on nil-ness.
+		if len(got) != 0 {
+			t.Errorf("len(got) = %d, want 0", len(got))
+		}
+	})
+}
+
+func TestAlertRepository_ListEventsByStartsAtRange_RejectsBadInput(t *testing.T) {
+	resetDB(t)
+	t0 := time.Date(2026, 5, 26, 13, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name  string
+		start time.Time
+		end   time.Time
+		limit int
+	}{
+		{"zero start", time.Time{}, t0, 10},
+		{"zero end", t0, time.Time{}, 10},
+		{"limit zero", t0, t0.Add(time.Hour), 0},
+		{"limit negative", t0, t0.Add(time.Hour), -1},
+		{"end equals start (after normalisation)", t0, t0, 10},
+		{"end before start", t0.Add(time.Hour), t0, 10},
+		{"normalised collapse", t0.Add(500 * time.Nanosecond), t0.Add(800 * time.Nanosecond), 10},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+				_, err := uow.Alerts().ListEventsByStartsAtRange(ctx, tc.start, tc.end, tc.limit)
+				if !errors.Is(err, domain.ErrInvariantViolation) {
+					t.Fatalf("want errors.Is ErrInvariantViolation, got %v", err)
+				}
+			})
+		})
+	}
+}
+
+func TestAlertRepository_FindGroupByNaturalKey_FoundAndNotFound(t *testing.T) {
+	resetDB(t)
+	first := time.Date(2026, 5, 26, 14, 0, 0, 0, time.UTC)
+	last := first.Add(10 * time.Minute)
+
+	var saved domain.AlertGroup
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		g, err := uow.Alerts().SaveGroup(ctx, mustNewAlertGroup(t, "natural-A", first, last))
+		if err != nil {
+			t.Fatalf("SaveGroup: %v", err)
+		}
+		saved = g
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Alerts().FindGroupByNaturalKey(ctx, "natural-A", first)
+		if err != nil {
+			t.Fatalf("FindGroupByNaturalKey (found): %v", err)
+		}
+		if got.ID != saved.ID {
+			t.Errorf("got.ID = %d, want %d", got.ID, saved.ID)
+		}
+		if got.GroupKey != "natural-A" {
+			t.Errorf("got.GroupKey = %q, want %q", got.GroupKey, "natural-A")
+		}
+		// EventIDs is intentionally left nil; callers materialise via
+		// ListEventIDsForGroup when needed.
+		if got.EventIDs != nil {
+			t.Errorf("got.EventIDs = %v, want nil (mapper does not materialise M2N)", got.EventIDs)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		// Different group_key, same first_seen_at -> NotFound.
+		_, err := uow.Alerts().FindGroupByNaturalKey(ctx, "natural-Z", first)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("FindGroupByNaturalKey wrong key: want errors.Is ErrNotFound, got %v", err)
+		}
+		// Same group_key, different first_seen_at -> NotFound.
+		_, err = uow.Alerts().FindGroupByNaturalKey(ctx, "natural-A", first.Add(time.Hour))
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("FindGroupByNaturalKey wrong first_seen_at: want errors.Is ErrNotFound, got %v", err)
+		}
+	})
+}
+
+func TestAlertRepository_FindGroupByNaturalKey_RejectsBadInput(t *testing.T) {
+	resetDB(t)
+	t0 := time.Date(2026, 5, 26, 15, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name  string
+		key   string
+		first time.Time
+	}{
+		{"empty key", "", t0},
+		{"zero first_seen_at", "some-key", time.Time{}},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+				_, err := uow.Alerts().FindGroupByNaturalKey(ctx, tc.key, tc.first)
+				if !errors.Is(err, domain.ErrInvariantViolation) {
+					t.Fatalf("want errors.Is ErrInvariantViolation, got %v", err)
+				}
+			})
+		})
+	}
 }

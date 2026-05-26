@@ -116,6 +116,58 @@ func (r *alertRepo) FindEventByNaturalKey(ctx context.Context, source, canonical
 	return alertEventToDomain(row), nil
 }
 
+// ListEventsByStartsAtRange returns AlertEvents whose StartsAt falls
+// in the half-open interval [startInclusive, endExclusive), ordered
+// by (starts_at ASC, id ASC), capped by limit.
+//
+// The half-open interval is what callers (notably the replay harness)
+// need so adjacent windows do not double-count boundary events. Both
+// bounds are normalised via domain.NormalizeUTCMicro before the
+// predicate is built so the comparison happens at the same precision
+// as the persisted column. We reject zero bounds, non-positive limit,
+// and a non-strictly-after end bound here as boundary self-defence:
+// the same constraints are validated by the usecase layer, but a
+// repository invariant violation is a bug regardless of who called us.
+func (r *alertRepo) ListEventsByStartsAtRange(ctx context.Context, startInclusive, endExclusive time.Time, limit int) ([]domain.AlertEvent, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if startInclusive.IsZero() {
+		return nil, fmt.Errorf("list events by starts_at range: start_inclusive must be set: %w", domain.ErrInvariantViolation)
+	}
+	if endExclusive.IsZero() {
+		return nil, fmt.Errorf("list events by starts_at range: end_exclusive must be set: %w", domain.ErrInvariantViolation)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list events by starts_at range: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	nStart := domain.NormalizeUTCMicro(startInclusive)
+	nEnd := domain.NormalizeUTCMicro(endExclusive)
+	// Compare on the normalised values so that sub-microsecond
+	// differences in the raw inputs (which are erased by
+	// NormalizeUTCMicro) cannot smuggle through an effectively-empty
+	// or inverted window.
+	if !nEnd.After(nStart) {
+		return nil, fmt.Errorf("list events by starts_at range: end_exclusive %s must be strictly after start_inclusive %s (after normalisation): %w", nEnd, nStart, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.AlertEvent.Query().
+		Where(
+			alertevent.StartsAtGTE(nStart),
+			alertevent.StartsAtLT(nEnd),
+		).
+		Order(alertevent.ByStartsAt(), alertevent.ByID()).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list events by starts_at range: %w", err)
+	}
+	out := make([]domain.AlertEvent, len(rows))
+	for i, row := range rows {
+		out[i] = alertEventToDomain(row)
+	}
+	return out, nil
+}
+
 // SaveGroup inserts a new AlertGroup HEADER (no event link). Use
 // LinkEventsToGroup separately to materialise the M2N edge.
 func (r *alertRepo) SaveGroup(ctx context.Context, g domain.AlertGroup) (domain.AlertGroup, error) {
@@ -179,6 +231,46 @@ func (r *alertRepo) FindGroupByID(ctx context.Context, id domain.AlertGroupID) (
 		return domain.AlertGroup{}, err
 	}
 	row, err := r.tx.AlertGroup.Get(ctx, int(id))
+	if err != nil {
+		return domain.AlertGroup{}, asNotFound(err)
+	}
+	return alertGroupToDomain(row), nil
+}
+
+// FindGroupByNaturalKey looks up an AlertGroup by (group_key,
+// first_seen_at). firstSeenAt is normalised before the lookup so
+// callers do not need to pre-truncate. EventIDs on the returned row
+// is left nil; callers materialise it via ListEventIDsForGroup when
+// needed.
+//
+// This is the pre-check the replay harness runs at the start of each
+// per-group transaction to decide whether the next step is a SaveGroup
+// (NotFound branch) or an UpdateGroup (Found branch). Doing the
+// pre-check matters because a SQLSTATE 23505 raised inside a
+// multi-step transaction aborts the entire transaction (Ent does not
+// wrap inserts in their own SAVEPOINT), so an insert-fail-recover
+// pattern in the same tx is not viable.
+//
+// Empty groupKey or zero firstSeenAt is a programmer error; we surface
+// it as a wrapped domain.ErrInvariantViolation rather than letting the
+// query degenerate into an unintended match.
+func (r *alertRepo) FindGroupByNaturalKey(ctx context.Context, groupKey string, firstSeenAt time.Time) (domain.AlertGroup, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.AlertGroup{}, err
+	}
+	if groupKey == "" {
+		return domain.AlertGroup{}, fmt.Errorf("find group by natural key: group_key must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if firstSeenAt.IsZero() {
+		return domain.AlertGroup{}, fmt.Errorf("find group by natural key: first_seen_at must be set: %w", domain.ErrInvariantViolation)
+	}
+	normalised := domain.NormalizeUTCMicro(firstSeenAt)
+	row, err := r.tx.AlertGroup.Query().
+		Where(
+			alertgroup.GroupKeyEQ(groupKey),
+			alertgroup.FirstSeenAtEQ(normalised),
+		).
+		Only(ctx)
 	if err != nil {
 		return domain.AlertGroup{}, asNotFound(err)
 	}

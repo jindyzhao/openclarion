@@ -43,11 +43,18 @@ PostgreSQL+Temporal+Temporal UI; `curl http://localhost:8080/healthz` returns
 - [x] deterministic grouping algorithm
 - [x] EvidenceSnapshot schema and builder
 - [x] Temporal workflow bootstrap (DiagnosisWorkflow shell)
-- [ ] fake providers for all other interfaces
 - [ ] API endpoints: list alerts, list snapshots
 
 **Acceptance**: import 20 historical alerts -> auto-group -> persist
 EvidenceSnapshot -> queryable via API.
+
+> **Scope note**: Provider fake policy -- each provider port ships with its
+> own fake in the same first-import PR (M1-PR4 already shipped fake
+> `MetricsProvider`). The previously listed standalone "fake providers for
+> all other interfaces" checklist item has been removed because there is no
+> standalone milestone task for it; subsequent provider ports (LLM in M2,
+> IM in M2, Container in M4, Auth in M5) bring their own fakes alongside
+> the port definition.
 
 ## M2: Headless Report Loop
 
@@ -145,3 +152,4 @@ sessions, leader-tier approval, streaming partial responses.
 | 2026-05-26 | jindyzhao | M1-PR4 lands `MetricsProvider` interface + Prometheus implementation + in-memory fake provider + `alertingest.IngestOnce` library. Item ticked: `MetricsProvider interface and Prometheus implementation`. `AlertEvent Ent schema and migrations` and `Temporal workflow bootstrap (DiagnosisWorkflow shell)` were already shipped in M1-PR1 and M1-PR3 respectively and are now ticked retroactively to keep this checklist in sync with `CURRENT_STATE.md`. Remaining M1 items (`alert window replay harness`, `deterministic grouping algorithm`, `EvidenceSnapshot schema and builder`, `fake providers for all other interfaces`, `API endpoints`) are explicitly out of scope for M1-PR4. |
 | 2026-05-26 | jindyzhao | M1-PR5 lands deterministic grouping algorithm (`GroupEvents` pure function in `internal/usecases/alertgrouping/`). Item ticked: `deterministic grouping algorithm`. |
 | 2026-05-26 | jindyzhao | M1-PR6 lands EvidenceSnapshot deterministic builder (`BuildSnapshot` pure function in `internal/usecases/evidencebuild/`). Item ticked: `EvidenceSnapshot schema and builder` (schema shipped in M1-PR1, builder in M1-PR6). |
+| 2026-05-26 | jindyzhao | M1-PR6 shipped post-merge as `22428fb`. M1-PR7 in progress: alert window replay harness in `internal/usecases/alertreplay/` (`ReplayWindow(ctx, provider, factory, Request) (Stats, error)` orchestrator that ingests via `alertingest.IngestOnce`, re-reads the half-open `[WindowStart, WindowEnd)` window with `Limit+1` as a safety valve, runs deterministic grouping, then a per-group pipeline transaction covering save / refresh / existing diff -> link events -> `BuildSnapshot` -> save snapshot when not duplicate -> close group when previously active). `AlertRepository` ports gained `ListEventsByStartsAtRange(start, end, limit)` and `FindGroupByNaturalKey(groupKey, firstSeenAt)`; both reject zero/blank inputs and the range method compares `end > start` after `NormalizeUTCMicro` so sub-microsecond windows the normaliser collapses are rejected. D7 closed->refresh tension: refresh updates mutable fields of an already-closed group when the same `(group_key, first_seen_at)` natural key recurs, but status is preserved (no reopen); a window whose `first_seen_at` differs creates a NEW row by design. M1 checklist `alert window replay harness` will be ticked when the PR merges; the previously listed standalone `fake providers for all other interfaces` checklist item is removed and replaced by a scope note above. |
