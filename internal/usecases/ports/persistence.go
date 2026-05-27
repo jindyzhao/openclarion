@@ -93,6 +93,24 @@ type AlertRepository interface {
 	// domain.ErrNotFound when no such row exists.
 	FindEventByNaturalKey(ctx context.Context, source, canonicalFingerprint string, startsAt time.Time) (domain.AlertEvent, error)
 
+	// ListEventsByStartsAtRange returns AlertEvents whose StartsAt
+	// falls in the half-open interval [startInclusive, endExclusive),
+	// ordered by (starts_at ASC, id ASC) for replay determinism, and
+	// capped by limit. The interval bounds are normalised via
+	// domain.NormalizeUTCMicro before the predicate is built so callers
+	// do not need to pre-truncate.
+	//
+	// As a boundary self-defence (callers higher up are expected to
+	// validate too) the implementation MUST reject:
+	//   - zero startInclusive or zero endExclusive
+	//   - limit <= 0
+	//   - normalised endExclusive not strictly after normalised
+	//     startInclusive (avoids spurious "empty" or "overlap"
+	//     windows when sub-microsecond differences are erased by
+	//     the normaliser)
+	// with a wrapped domain.ErrInvariantViolation.
+	ListEventsByStartsAtRange(ctx context.Context, startInclusive, endExclusive time.Time, limit int) ([]domain.AlertEvent, error)
+
 	// SaveGroup inserts a new AlertGroup header (without the M2N
 	// link). A duplicate (group_key, first_seen_at) returns a
 	// wrapped domain.ErrAlreadyExists. Use LinkEventsToGroup to
@@ -109,6 +127,23 @@ type AlertRepository interface {
 	// domain.ErrNotFound. EventIDs is left nil; use
 	// ListEventIDsForGroup to materialise the M2N link if needed.
 	FindGroupByID(ctx context.Context, id domain.AlertGroupID) (domain.AlertGroup, error)
+
+	// FindGroupByNaturalKey looks up an AlertGroup by its natural
+	// unique key (group_key, first_seen_at) and returns it, or a
+	// wrapped domain.ErrNotFound. firstSeenAt is normalised via
+	// domain.NormalizeUTCMicro before the lookup. Used by the alert
+	// window replay harness as the pre-check that decides whether to
+	// SaveGroup or UpdateGroup; pre-checking is required because a
+	// SQLSTATE 23505 raised inside a multi-step transaction aborts
+	// the entire transaction and Ent does not wrap inserts in their
+	// own SAVEPOINT.
+	//
+	// As a boundary self-defence the implementation MUST reject
+	// empty groupKey or zero firstSeenAt with a wrapped
+	// domain.ErrInvariantViolation. EventIDs on the returned group
+	// is left nil; callers materialise it via ListEventIDsForGroup
+	// when needed.
+	FindGroupByNaturalKey(ctx context.Context, groupKey string, firstSeenAt time.Time) (domain.AlertGroup, error)
 
 	// LinkEventsToGroup attaches the given AlertEventIDs to the
 	// AlertGroup via the M2N edge. Re-linking an existing
