@@ -205,9 +205,19 @@ func validateSubReport(out SubReport) error {
 	if len(out.EvidenceRefs) > maxEvidenceRefs {
 		return reportSchemaViolation(fmt.Errorf("evidence_refs contains %d items, max %d", len(out.EvidenceRefs), maxEvidenceRefs))
 	}
+	evidenceRefs := make(map[string]struct{}, len(out.EvidenceRefs))
 	for i, ref := range out.EvidenceRefs {
 		if err := validateRequiredString(fmt.Sprintf("evidence_refs[%d]", i), ref, maxEvidenceIDRunes); err != nil {
 			return reportSchemaViolation(err)
+		}
+		if _, ok := evidenceRefs[ref]; ok {
+			return reportSchemaViolation(fmt.Errorf("evidence_refs[%d] duplicates evidence ref %q", i, ref))
+		}
+		evidenceRefs[ref] = struct{}{}
+	}
+	for i, finding := range out.Findings {
+		if _, ok := evidenceRefs[finding.EvidenceID]; !ok {
+			return reportSchemaViolation(fmt.Errorf("findings[%d].evidence_id %q must be listed in evidence_refs", i, finding.EvidenceID))
 		}
 	}
 	return nil
