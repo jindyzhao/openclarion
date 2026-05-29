@@ -100,6 +100,86 @@ func TestForbiddenLatestNPMRangeStillFails(t *testing.T) {
 	}
 }
 
+func TestForbiddenLatestNodeTypesMajorMatchesCINodeMajor(t *testing.T) {
+	tests := []struct {
+		name   string
+		files  map[string]string
+		wantOK bool
+		want   []string
+	}{
+		{
+			name: "node types match setup node major",
+			files: map[string]string{
+				".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: actions/setup-node@v6\n        with:\n          node-version: \"24\"\n",
+				"web/package.json":         `{"devDependencies":{"@types/node":"24.12.4"}}`,
+			},
+			wantOK: true,
+			want:   []string{"[forbidden-latest] OK"},
+		},
+		{
+			name: "multiple setup node jobs on same major are allowed",
+			files: map[string]string{
+				".github/workflows/ci.yml":       "jobs:\n  test:\n    steps:\n      - uses: actions/setup-node@v6\n        with:\n          node-version: \"24\"\n",
+				".github/workflows/frontend.yml": "jobs:\n  lint:\n    steps:\n      - uses: actions/setup-node@v6\n        with:\n          node-version: 24.12.0\n",
+				"web/package.json":               `{"devDependencies":{"@types/node":"24.12.4"}}`,
+			},
+			wantOK: true,
+			want:   []string{"[forbidden-latest] OK"},
+		},
+		{
+			name: "multiple setup node majors are rejected",
+			files: map[string]string{
+				".github/workflows/ci.yml":       "jobs:\n  test:\n    steps:\n      - uses: actions/setup-node@v6\n        with:\n          node-version: \"24\"\n",
+				".github/workflows/frontend.yml": "jobs:\n  lint:\n    steps:\n      - uses: actions/setup-node@v6\n        with:\n          node-version: \"25\"\n",
+				"web/package.json":               `{"devDependencies":{"@types/node":"24.12.4"}}`,
+			},
+			want: []string{"requires exactly one numeric actions/setup-node node-version major"},
+		},
+		{
+			name: "node types ahead of setup node major",
+			files: map[string]string{
+				".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: actions/setup-node@v6\n        with:\n          node-version: \"24\"\n",
+				"web/package.json":         `{"devDependencies":{"@types/node":"25.9.1"}}`,
+			},
+			want: []string{"@types/node major 25 must match CI Node.js major 24"},
+		},
+		{
+			name: "node types require workflow node major",
+			files: map[string]string{
+				"web/package.json": `{"devDependencies":{"@types/node":"24.12.4"}}`,
+			},
+			want: []string{"requires exactly one numeric actions/setup-node node-version major"},
+		},
+		{
+			name: "node types require concrete semantic version",
+			files: map[string]string{
+				".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - uses: actions/setup-node@v6\n        with:\n          node-version: \"24\"\n",
+				"web/package.json":         `{"devDependencies":{"@types/node":"24"}}`,
+			},
+			want: []string{"@types/node must use a concrete semantic version"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newNoLatestRepo(t, tc.files)
+
+			out, err := runNoLatestCheck(t, root)
+			if tc.wantOK && err != nil {
+				t.Fatalf("forbidden-latest failed: %v\n%s", err, out)
+			}
+			if !tc.wantOK && err == nil {
+				t.Fatalf("forbidden-latest passed unexpectedly:\n%s", out)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Fatalf("forbidden-latest output = %q, want substring %q", out, want)
+				}
+			}
+		})
+	}
+}
+
 func TestForbiddenLatestCriticalGoModulePins(t *testing.T) {
 	tests := []struct {
 		name   string

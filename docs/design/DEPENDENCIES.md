@@ -12,7 +12,7 @@
 | API diff | `oasdiff v1.11.7` via pinned `go run github.com/oasdiff/oasdiff@v1.11.7` in `make openapi-breaking` | 2026-05-27 |
 | Database | PostgreSQL 18, Ent `v0.14.6` (`go.mod` direct require + `tool` directive at M1-PR1), Atlas CLI `arigaio/atlas:1.2.0` (Docker image pin) | 2026-05-22 |
 | Workflow | Temporal Go SDK `go.temporal.io/sdk v1.44.0` pinned via first-import rule at M1-PR3 (`DiagnosisWorkflow` shell shipped per ADR-0012 amendment) | 2026-05-25 |
-| Frontend / Node tooling | Node.js 24.x LTS in CI, Next.js `16.2.6`, React / React DOM `19.2.6`, TypeScript `5.9.3`, ESLint `9.39.4` + `eslint-config-next 16.2.6`, Vitest `4.1.7`, Playwright `1.58.2`, Knip `6.14.2`, OpenAPI TypeScript `7.13.0`, Markdownlint CLI2 `0.22.1`; `postcss` is overridden to `8.5.15` to stay above the advisory floor while Next's dependency graph catches up | 2026-05-29 |
+| Frontend / Node tooling | Node.js 24.x LTS in CI, Next.js `16.2.6`, React / React DOM `19.2.6`, TypeScript `5.9.3`, ESLint `9.39.4` + `eslint-config-next 16.2.6`, Vitest `4.1.7`, Playwright `1.60.0`, `@types/node 24.12.4`, Knip `6.14.2`, OpenAPI TypeScript `7.13.0`, Markdownlint CLI2 `0.22.1`; `postcss` is overridden to `8.5.15` to stay above the advisory floor while Next's dependency graph catches up | 2026-05-30 |
 | Observability | OpenTelemetry Go `go.opentelemetry.io/otel v1.44.0`, `go.opentelemetry.io/otel/sdk v1.44.0`, OTLP HTTP trace exporter `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0`, HTTP server/client instrumentation `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.68.0`, and Temporal OTel interceptor `go.temporal.io/sdk/contrib/opentelemetry v0.7.0` (direct requires since `internal/observability/tracing` initializes W3C propagation, no-op/OTLP tracer providers, resource service attributes, generated API HTTP span middleware, outbound HTTP transport instrumentation, Temporal workflow/activity tracing, and an OTLP HTTP collector smoke; exporter pin is above the `GO-2026-4985` fixed-in floor reported by `govulncheck`) | 2026-05-28 |
 | Metrics ingest + exposition | Prometheus client `github.com/prometheus/client_golang v1.23.2` + `github.com/prometheus/common v0.67.5` (direct require since `internal/providers/metrics/prometheus/client.go` imports both `common/config` for the Bearer-auth round-tripper and `common/model` for `LabelSet`; M3 `/metrics` exposition also uses `prometheus`, `collectors`, and `promhttp` from the same pinned module) | 2026-05-28 |
 | LLM output validation | `github.com/santhosh-tekuri/jsonschema/v6 v6.0.2` (direct require since `internal/usecases/llmoutput` validates provider JSON against report schemas before persistence; default draft 2020-12) | 2026-05-28 |
@@ -38,6 +38,10 @@
 > critical direct Go module pins, verifies Go `tool` directive backing pins,
 > rejects undocumented Go `replace` directives, and rejects external
 > Dockerfile base images that are not pinned to an immutable `@sha256:` digest.
+> Frontend Node type definitions must track the CI Node.js runtime major:
+> `@types/node` major bumps are coordinated with the workflow Node.js baseline
+> instead of being accepted as standalone dependency updates, and
+> `forbidden-latest` rejects mismatched `@types/node` / `setup-node` majors.
 
 > **Custom analyzer lockstep rule**: `tools/openclarion-linter` must keep
 > `golang.org/x/tools` on the exact version embedded in the pinned
