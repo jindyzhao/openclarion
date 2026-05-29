@@ -55,6 +55,19 @@ func TestRunLiveChecksExternalLinks(t *testing.T) {
 	}
 }
 
+func TestRunLiveSkipsReservedExampleLinks(t *testing.T) {
+	root := t.TempDir()
+	writeExternalLinkFile(t, root, "README.md", "Example runbook: https://runbooks.example/payments\n")
+
+	var stdout bytes.Buffer
+	if err := run(config{Root: root, Live: true, Timeout: time.Second}, &stdout); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "[external-links] OK (0 unique external links checked across 1 files; 1 reserved example links skipped)") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
 func TestRunLiveRejectsMissingExternalLink(t *testing.T) {
 	server := httptest.NewServer(http.NotFoundHandler())
 	defer server.Close()
