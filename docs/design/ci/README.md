@@ -73,6 +73,7 @@ non-existent code is a maintenance burden, not a quality boundary.
 | Go toolchain version consistency | M3 hardening | landed | `make go-toolchain-check`; verifies every first-party `go.mod` uses the root patch-pinned Go directive, `.golangci.yml` uses the matching major.minor language version, and every `actions/setup-go` step reads `go-version-file: go.mod` instead of a hard-coded version |
 | Allowlist discipline | M3 hardening | landed | `make allowlist-discipline`; validates repository allowlist entries carry adjacent `Owner`, `Expires`, and `Removal trigger` comments so false-positive suppressions remain reviewable and temporary. `make allowlist-discipline-test` covers missing metadata, detached metadata, expired entries, and read-error handling. |
 | Workflow change isolation | M3 hardening | landed / PR-only | `make workflow-change-guard`; PR-only CI job rejects pull requests that change more than one `.github/workflows/*.yml` / `.yaml` file. Companion script/docs/Makefile changes may land with the single workflow file so the standard gate-introduction three-piece remains possible, but multi-workflow edits must be split for focused review. `make workflow-change-guard-test` covers path normalization, duplicate handling, CI diff-range fetching, local fallback, and violation reporting. |
+| PR changed-file count cap | M3 hardening | landed / PR-only | `make pr-file-count-check`; PR-only CI job rejects pull requests changing more than 50 files unless the maintainer-applied `allow-large-pr` label is present in the GitHub event payload. `make pr-file-count-check-test` covers diff-range fetching, duplicate path normalization, missing env pairs, max parsing, over-budget rejection, and label-based opt-out. |
 | PR wall-clock budget | M3 hardening | landed | `make pr` runs `scripts/pr_budget` around `make ci` with `PR_BUDGET` defaulting to 15 minutes and `PR_BUDGET_MODE=enforce`; enforced runs terminate the child command on timeout, while `PR_BUDGET_MODE=warn` is available for temporary local diagnostics. CI runs `make pr-budget-test` so the wrapper's parsing, exit-code preservation, warn mode, timeout termination, and over-budget enforcement stay covered without recursively running the whole PR bundle inside CI. |
 | Temporal workflow tests (snapshot-bound start + replay + signal completion) | M1 | landed | `make temporal-workflow-tests`; focused CI job runs `internal/orchestrator/temporal` integration tests with race detector, verifies the workflow starts from an `EvidenceSnapshot`-bound task, and replays a completed workflow history via `worker.NewWorkflowReplayer` |
 | LLM golden prompt structural tests | M2 | landed | `go test ./internal/usecases/reportprompt`; covers single-alert, cascade, alert-storm, and FinalReport request shape, JSON-only fallback instructions, schema selection, idempotency-key shape, invalid input rejection, and schema-compatible fixture outputs without calling a real provider |
@@ -139,6 +140,7 @@ make doc-claims-check # shipped CURRENT_STATE.md path claims
 make gate-hardening-check # CI gate maturity checklist coverage
 make allowlist-discipline # allowlist owner / expiry / removal metadata
 make workflow-change-guard # PR-only workflow-file change isolation
+make pr-file-count-check # PR-only changed-file count cap
 make pr-budget-test # make pr wall-clock budget wrapper tests
 PR_TITLE='feat: concise title' make pr-title-check # PR title policy
 PR_BODY="$(gh pr view --json body --jq .body)" make pr-description-check # PR body policy
@@ -339,7 +341,6 @@ plus a row in the Schedule table above.
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| PR file count cap (default: 50; opt-out with maintainer label) | M2 | API call from a dedicated workflow |
 | Squash-merge enforced as the only allowed merge strategy | M1 | repo setting + a guard workflow that warns on merge-commit shape |
 | Branch protection: require all M0 jobs as required checks | M1 | configured in repo settings, recorded here as the policy source |
 | Negative-test fixture per gate (`tests/ci/negative/<gate>.sh`) committed alongside the gate | M2 | repository convention; the existing `parity_neg_v2.sh` is the prototype |

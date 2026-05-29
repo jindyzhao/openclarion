@@ -15,6 +15,7 @@
 #   make gate-hardening-check # validate gate maturity checklist coverage
 #   make allowlist-discipline # validate allowlist owner / expiry / removal metadata
 #   make workflow-change-guard # validate PR workflow-file change isolation
+#   make pr-file-count-check # validate PR changed-file count cap
 #   make pr-budget-test   # validate the make pr wall-clock budget wrapper
 #   make go-coverage # enforce handwritten Go package coverage floor
 #   make pr-title-check   # validate PR title Conventional Commit shape
@@ -124,7 +125,7 @@ help: ## Show this help
 pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
 	@go run ./scripts/pr_budget --budget "$(PR_BUDGET)" --mode "$(PR_BUDGET_MODE)" -- $(MAKE) ci
 
-ci: workflow-parity docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test workflow-change-guard-test pr-impact-reference-check-test pr-budget-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
+ci: workflow-parity docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test workflow-change-guard-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
 	@echo ""
 	@echo "[ci] all gates passed."
 
@@ -143,13 +144,16 @@ ci: workflow-parity docs-hygiene forbidden adr-check links-check markdownlint do
 # - workflow-change-guard is excluded because its authoritative changed-file
 #   range exists only on pull_request; run it locally with:
 #   WORKFLOW_CHANGE_BASE_REF=main WORKFLOW_CHANGE_HEAD_SHA=HEAD make workflow-change-guard
+# - pr-file-count-check is excluded because it depends on PR changed-file
+#   range and labels; run it locally with:
+#   PR_FILE_COUNT_BASE_REF=main PR_FILE_COUNT_HEAD_SHA=HEAD make pr-file-count-check
 # The CI jobs in .github/workflows/ci.yml provide binding checks on every PR.
 
 # ---------------------------------------------------------------------------
 # Documentation gates
 # ---------------------------------------------------------------------------
 
-.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test workflow-change-guard workflow-change-guard-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test pr-title-check pr-description-check dco-check workflow-parity
+.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test workflow-change-guard workflow-change-guard-test pr-file-count-check pr-file-count-check-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test pr-title-check pr-description-check dco-check workflow-parity
 
 docs-hygiene: ## Reject non-English CJK literals and terminology drift in governed documentation
 	@bash scripts/check_no_non_english_chars.sh
@@ -190,6 +194,12 @@ workflow-change-guard: ## Validate PR workflow-file change isolation
 
 workflow-change-guard-test: ## Validate workflow change guard behavior
 	@go test -race -count=1 ./scripts/workflow_change_guard
+
+pr-file-count-check: ## Validate PR changed-file count cap
+	@go run ./scripts/pr_file_count
+
+pr-file-count-check-test: ## Validate PR changed-file count checker behavior
+	@go test -race -count=1 ./scripts/pr_file_count
 
 pr-impact-reference-check: ## Validate high-impact PRs link an issue or ADR
 	@go run ./scripts/pr_impact_reference
