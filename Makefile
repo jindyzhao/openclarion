@@ -413,7 +413,7 @@ ci-frontend-build: frontend-install ## Build the Next.js frontend
 	@cd web && $(NPM) run build
 
 ci-frontend-smoke: ci-frontend-build ## Run Playwright route smoke with a mocked API
-	@cd web && npx playwright install --with-deps chromium
+	@cd web && npx playwright install --with-deps --only-shell chromium
 	@cd web && $(NPM) run smoke
 
 diagnosis-live-browser-smoke: ## Manual M5 smoke: browser diagnosis room against a real backend/worker stack
