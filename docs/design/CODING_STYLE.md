@@ -68,4 +68,4 @@ import (
 ## Comments
 
 Use comments to explain non-obvious invariants. Avoid comments that repeat the
-code. TODO comments must reference an issue.
+code. TODO, FIXME, HACK, and XXX comments must reference an issue or ADR.
