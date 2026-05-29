@@ -80,6 +80,54 @@ func TestDCOFallbackWithoutUpstreamValidatesHead(t *testing.T) {
 	}
 }
 
+func TestDCORejectsGitHubNoreplyAuthorEmail(t *testing.T) {
+	tests := []struct {
+		name        string
+		authorEmail string
+	}{
+		{
+			name:        "numeric github noreply",
+			authorEmail: "123456+author@users.noreply.github.com",
+		},
+		{
+			name:        "case insensitive domain",
+			authorEmail: "AUTHOR@USERS.NOREPLY.GITHUB.COM",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newDCORepo(t)
+			base := dcoCommit(t, root, "base.txt", "base\n", "base@example.com", "Signed-off-by: Base <base@example.com>")
+			head := dcoCommit(
+				t,
+				root,
+				"head.txt",
+				"head\n",
+				tc.authorEmail,
+				"Signed-off-by: Author <"+tc.authorEmail+">",
+			)
+
+			out, err := runDCOCheck(t, root, map[string]string{
+				"DCO_BASE_REF": base,
+				"DCO_HEAD_SHA": head,
+			})
+			if err == nil {
+				t.Fatalf("dco check passed unexpectedly:\n%s", out)
+			}
+			for _, want := range []string{
+				"GitHub noreply author email is not allowed",
+				tc.authorEmail,
+				"use GitHub noreply author email",
+			} {
+				if !strings.Contains(out, want) {
+					t.Fatalf("dco output = %q, want substring %q", out, want)
+				}
+			}
+		})
+	}
+}
+
 func TestDCORejectsAIToolBranding(t *testing.T) {
 	tests := []struct {
 		name string

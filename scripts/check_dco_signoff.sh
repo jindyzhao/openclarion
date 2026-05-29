@@ -12,9 +12,9 @@
 #                         otherwise fall back to validating only HEAD.
 #
 # Exit non-zero if any non-merge commit in the range is missing a
-# `Signed-off-by:` trailer whose email matches the commit author email, or if
-# any commit message includes AI tool branding that would weaken authorship
-# accountability.
+# `Signed-off-by:` trailer whose email matches the commit author email, if the
+# author email is a GitHub noreply address, or if any commit message includes
+# AI tool branding that would weaken authorship accountability.
 # See DCO.md for the policy and docs/design/DEPENDENCIES.md for the
 # dependency-pinning policy this gate is paired with.
 
@@ -67,13 +67,16 @@ fi
 
 missing=0
 mismatched=0
+noreply=0
 branded=0
 signoff_re='^Signed-off-by:[[:space:]]+.*<([^<>[:space:]]+@[^<>[:space:]]+)>[[:space:]]*$'
+noreply_re='@users\.noreply\.github\.com$'
 ai_branding_re='(^|[[:space:]])(claude|chatgpt|gpt-[0-9][[:alnum:].-]*|codex|github[[:space:]-]*copilot|copilot|gemini)([[:space:][:punct:]]|$)'
 while IFS= read -r sha; do
   [[ -z "$sha" ]] && continue
   msg="$(git show -s --format=%B "$sha")"
   author_email="$(git show -s --format=%ae "$sha")"
+  author_email_lc="${author_email,,}"
   signoff_emails=()
   branded_lines=()
   shopt -s nocasematch
@@ -98,6 +101,15 @@ while IFS= read -r sha; do
     branded=$((branded + 1))
   fi
 
+  if [[ "$author_email_lc" =~ $noreply_re ]]; then
+    if [[ "$noreply" -eq 0 ]]; then
+      echo "[dco-check] GitHub noreply author email is not allowed:"
+    fi
+    git show -s --format='  %h %s (author: %an <%ae>)' "$sha"
+    echo "    configure git author email away from GitHub noreply before signing off."
+    noreply=$((noreply + 1))
+  fi
+
   if [[ "${#signoff_emails[@]}" -eq 0 ]]; then
     if [[ "$missing" -eq 0 ]]; then
       echo "[dco-check] missing Signed-off-by trailer:"
@@ -107,7 +119,6 @@ while IFS= read -r sha; do
     continue
   fi
 
-  author_email_lc="${author_email,,}"
   matched=0
   for email in "${signoff_emails[@]}"; do
     if [[ "${email,,}" == "$author_email_lc" ]]; then
@@ -125,7 +136,7 @@ while IFS= read -r sha; do
   fi
 done <<<"$commits"
 
-if [[ "$missing" -gt 0 || "$mismatched" -gt 0 || "$branded" -gt 0 ]]; then
+if [[ "$missing" -gt 0 || "$mismatched" -gt 0 || "$noreply" -gt 0 || "$branded" -gt 0 ]]; then
   echo ""
   if [[ "$missing" -gt 0 ]]; then
     echo "[dco-check] $missing commit(s) missing sign-off."
@@ -133,10 +144,13 @@ if [[ "$missing" -gt 0 || "$mismatched" -gt 0 || "$branded" -gt 0 ]]; then
   if [[ "$mismatched" -gt 0 ]]; then
     echo "[dco-check] $mismatched commit(s) have sign-off emails that do not match the author email."
   fi
+  if [[ "$noreply" -gt 0 ]]; then
+    echo "[dco-check] $noreply commit(s) use GitHub noreply author email."
+  fi
   if [[ "$branded" -gt 0 ]]; then
     echo "[dco-check] $branded commit(s) contain AI tool branding."
   fi
-  echo "[dco-check] Fix with: git commit --amend -s   (or  git rebase --signoff <base>)"
+  echo "[dco-check] Fix author email first if needed, then: git commit --amend -s   (or  git rebase --signoff <base>)"
   exit 1
 fi
 

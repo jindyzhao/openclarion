@@ -11,6 +11,10 @@ Every commit must include:
 Signed-off-by: Your Name <your.email@example.com>
 ```
 
+The sign-off email must match the commit author email. GitHub
+`users.noreply.github.com` author addresses are rejected because they weaken
+contributor accountability.
+
 Use:
 
 ```bash
