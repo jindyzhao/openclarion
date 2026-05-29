@@ -233,7 +233,7 @@ forbidden-oapi-v2: ## Reject oapi-codegen/v2 and openapi.compat.yaml (ADR-0007)
 forbidden-sqlite: ## Reject SQLite usage in Go tests (ADR-0001)
 	@bash scripts/check_no_sqlite_in_tests.sh
 
-forbidden-agent-runtime: ## Reject control-plane agent-framework deps and hardcoded runtime names before M4 acceptance
+forbidden-agent-runtime: ## Reject structured control-plane agent-framework deps and hardcoded runtime names before M4 acceptance
 	@bash scripts/check_no_control_plane_agent_runtime_deps.sh
 
 # ---------------------------------------------------------------------------

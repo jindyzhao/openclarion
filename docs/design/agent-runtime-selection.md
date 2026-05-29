@@ -229,10 +229,15 @@ retained review packets, and sandbox image build contexts until the runtime
 selection gate accepts a baseline and the policy table is updated
 intentionally.
 
-`make forbidden-agent-runtime` enforces these rules for first-party dependency
-manifests and non-test Go control-plane source by reading
-`docs/design/ci/agent-runtime-forbidden.tsv`. This keeps framework-specific
-names in an auditable governance policy instead of embedding them in the gate
-script or production code. The policy table itself is validated by the gate:
-rows must have `manifest` or `code` scope, non-empty unpadded patterns, at
-least one entry for each scope, and no duplicate scope/pattern pairs.
+`make forbidden-agent-runtime` enforces these rules for structured first-party
+manifest dependency entries and non-test Go control-plane source by reading
+`docs/design/ci/agent-runtime-forbidden.tsv`. For manifests, it inspects
+`package.json` dependency maps and parses `go.mod` with
+`golang.org/x/mod/modfile` for `require` / `tool` directives rather than
+arbitrary metadata text, so candidate names can still appear in scripts,
+descriptions, docs, and retained evidence without becoming product bindings.
+This keeps framework-specific names in an auditable governance policy instead
+of embedding them in the gate script or production code. The policy table
+itself is validated by the gate: rows must have `manifest` or `code` scope,
+non-empty unpadded patterns, at least one entry for each scope, and no
+duplicate scope/pattern pairs.

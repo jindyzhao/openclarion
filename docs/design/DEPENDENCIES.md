@@ -5,6 +5,7 @@
 | Area | Dependency | Validated |
 |------|------------|----------|
 | Go | Go 1.25+ (toolchain pinned in `go.mod` at M0) | 2026-05-19 |
+| Go module parsing tooling | `golang.org/x/mod v0.35.0` (direct require since `scripts/agent_runtime_policy` uses `modfile.Parse` to inspect first-party `go.mod` `require` / `tool` directives without hand-parsing module syntax) | 2026-05-30 |
 | Custom analyzer tooling | `golangci-lint v2.12.2` plus `tools/openclarion-linter` `golang.org/x/tools v0.44.0`; the versions must match exactly because `make go-lint` builds a custom golangci-lint module plugin | 2026-05-30 |
 | HTTP | std `net/http` (Go 1.22+ enhanced routing) | 2026-05-19 |
 | WebSocket transport | `github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674` (direct require since `internal/transport/http` upgrades authenticated diagnosis-room connections with explicit same-origin checks and `httptest`/Dialer coverage) | 2026-05-28 |
@@ -161,5 +162,7 @@ exact same binary.
   [agent-runtime-forbidden.tsv](ci/agent-runtime-forbidden.tsv), or similar
   framework dependencies, must remain inside candidate sandbox images until
   [agent-runtime-selection.md](agent-runtime-selection.md) accepts a runtime
-  baseline; the root Go module and first-party frontend manifests are guarded by
-  the config-driven `make forbidden-agent-runtime` policy.
+  baseline; the root Go module and first-party frontend dependency manifests
+  are guarded by the config-driven `make forbidden-agent-runtime` policy, which
+  inspects structured dependency entries rather than arbitrary manifest
+  metadata.
