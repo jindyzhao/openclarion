@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+
+	"github.com/openclarion/openclarion/internal/strictjson"
 )
 
 const (
@@ -86,6 +88,9 @@ func ParseTurnOutput(raw json.RawMessage) (TurnOutput, error) {
 	if len(raw) == 0 {
 		return TurnOutput{}, fmt.Errorf("diagnosis turn output: raw output must be non-empty JSON")
 	}
+	if err := strictjson.RejectDuplicateObjectKeys(raw); err != nil {
+		return TurnOutput{}, fmt.Errorf("diagnosis turn output: output must be strict JSON: %w", err)
+	}
 	schema, err := compileTurnOutputSchema()
 	if err != nil {
 		return TurnOutput{}, err
@@ -108,7 +113,11 @@ func ParseTurnOutput(raw json.RawMessage) (TurnOutput, error) {
 }
 
 func compileTurnOutputSchema() (*jsonschema.Schema, error) {
-	parsed, err := jsonschema.UnmarshalJSON(bytes.NewReader(json.RawMessage(turnOutputSchemaJSON)))
+	schemaJSON := json.RawMessage(turnOutputSchemaJSON)
+	if err := strictjson.RejectDuplicateObjectKeys(schemaJSON); err != nil {
+		return nil, fmt.Errorf("diagnosis turn output: schema must be strict JSON: %w", err)
+	}
+	parsed, err := jsonschema.UnmarshalJSON(bytes.NewReader(schemaJSON))
 	if err != nil {
 		return nil, fmt.Errorf("diagnosis turn output: parse schema: %w", err)
 	}

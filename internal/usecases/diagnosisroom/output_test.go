@@ -43,7 +43,17 @@ func TestParseTurnOutput_RejectsSchemaViolations(t *testing.T) {
 		{
 			name: "invalid json",
 			raw:  `{`,
-			want: "invalid JSON",
+			want: "strict JSON",
+		},
+		{
+			name: "duplicate output key",
+			raw:  `{"schema_version":"diagnosis_turn.v1","message":"stale","message":"ok","confidence":"medium","requires_human_review":true}`,
+			want: "duplicate object key",
+		},
+		{
+			name: "trailing output value",
+			raw:  `{"schema_version":"diagnosis_turn.v1","message":"ok","confidence":"medium","requires_human_review":true} {"extra":true}`,
+			want: "trailing JSON",
 		},
 		{
 			name: "wrong schema version",
