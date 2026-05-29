@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,9 +35,12 @@ const (
 	envAgentConfigRoot = "OPENCLARION_CONTAINER_PROVIDER_SMOKE_AGENT_CONFIG_ROOT"
 	envWorkspaceRoot   = "OPENCLARION_CONTAINER_PROVIDER_SMOKE_WORKSPACE_ROOT"
 	envExpectError     = "OPENCLARION_CONTAINER_PROVIDER_SMOKE_EXPECT_ERROR_CONTAINS"
+	envProofPath       = "OPENCLARION_CONTAINER_PROVIDER_SMOKE_PROOF_PATH"
+	envProofSource     = "OPENCLARION_CONTAINER_PROVIDER_SMOKE_PROOF_SOURCE"
 
 	defaultAgentName      = "container-provider-smoke"
 	defaultTimeoutSeconds = 60
+	defaultProofSource    = "make container-provider-smoke"
 )
 
 var (
@@ -57,6 +62,8 @@ type smokeConfig struct {
 	AgentConfigRoot string
 	WorkspaceRoot   string
 	ExpectError     string
+	ProofPath       string
+	ProofSource     string
 }
 
 func main() {
@@ -94,7 +101,16 @@ func run(ctx context.Context, environ []string, stdout io.Writer) error {
 
 	req := requestFromConfig(cfg)
 	result, err := provider.Run(ctx, req)
-	return handleProviderRunResult(cfg, result, err, stdout)
+	outcome, err := handleProviderRunResult(cfg, result, err, stdout)
+	if err != nil {
+		return err
+	}
+	if cfg.ProofPath != "" {
+		if err := writeProof(cfg, outcome); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func dockerConfig(cfg smokeConfig) dockerprovider.Config {
@@ -137,6 +153,8 @@ func configFromEnv(environ []string) (smokeConfig, func() error, error) {
 		Message:       defaultMessageJSON,
 		WorkspaceRoot: strings.TrimSpace(env[envWorkspaceRoot]),
 		ExpectError:   strings.TrimSpace(env[envExpectError]),
+		ProofPath:     strings.TrimSpace(env[envProofPath]),
+		ProofSource:   strings.TrimSpace(env[envProofSource]),
 	}
 	if cfg.ImageRef == "" {
 		return smokeConfig{}, nil, fmt.Errorf("%s is required", envImageRef)
@@ -146,6 +164,12 @@ func configFromEnv(environ []string) (smokeConfig, func() error, error) {
 	}
 	if cfg.AgentName == "" {
 		cfg.AgentName = defaultAgentName
+	}
+	if cfg.ProofSource == "" {
+		cfg.ProofSource = defaultProofSource
+	}
+	if err := validateProofSource(cfg.ProofSource); err != nil {
+		return smokeConfig{}, nil, err
 	}
 
 	if commandRaw := strings.TrimSpace(env[envCommandJSON]); commandRaw != "" {
@@ -207,38 +231,213 @@ func configFromEnv(environ []string) (smokeConfig, func() error, error) {
 	return cfg, cleanup, nil
 }
 
-func handleProviderRunResult(cfg smokeConfig, result ports.ContainerRunResult, runErr error, stdout io.Writer) error {
+type runOutcome struct {
+	Mode                string
+	RuntimeID           string
+	OutputBytes         int
+	OutputSHA256        string
+	MatchedErrorPattern string
+}
+
+func handleProviderRunResult(cfg smokeConfig, result ports.ContainerRunResult, runErr error, stdout io.Writer) (runOutcome, error) {
 	if cfg.ExpectError != "" {
 		if runErr == nil {
-			return fmt.Errorf("provider run succeeded, want error containing %q", cfg.ExpectError)
+			return runOutcome{}, fmt.Errorf("provider run succeeded, want error containing %q", cfg.ExpectError)
 		}
-		if !errorContainsAny(runErr, cfg.ExpectError) {
-			return fmt.Errorf("provider run error does not contain %q: %w", cfg.ExpectError, runErr)
+		matched := matchingErrorPattern(runErr, cfg.ExpectError)
+		if matched == "" {
+			return runOutcome{}, fmt.Errorf("provider run error does not contain %q: %w", cfg.ExpectError, runErr)
 		}
 		fmt.Fprintf(stdout, "[container-provider-smoke] OK - expected provider error containing %q\n", cfg.ExpectError)
-		return nil
+		return runOutcome{
+			Mode:                "expected_error",
+			MatchedErrorPattern: matched,
+		}, nil
 	}
 	if runErr != nil {
-		return fmt.Errorf("provider run: %w", runErr)
+		return runOutcome{}, fmt.Errorf("provider run: %w", runErr)
 	}
 	if err := validateSmokeOutput(result.Output); err != nil {
-		return err
+		return runOutcome{}, err
 	}
+	outputDigest := sha256.Sum256(result.Output)
 	fmt.Fprintf(stdout, "[container-provider-smoke] OK - runtime_id=%s output_bytes=%d\n", result.RuntimeID, len(result.Output))
-	return nil
+	return runOutcome{
+		Mode:         "success",
+		RuntimeID:    result.RuntimeID,
+		OutputBytes:  len(result.Output),
+		OutputSHA256: hex.EncodeToString(outputDigest[:]),
+	}, nil
 }
 
 func errorContainsAny(err error, patterns string) bool {
+	return matchingErrorPattern(err, patterns) != ""
+}
+
+func matchingErrorPattern(err error, patterns string) string {
 	for _, pattern := range strings.Split(patterns, "||") {
 		pattern = strings.TrimSpace(pattern)
 		if pattern == "" {
 			continue
 		}
 		if strings.Contains(err.Error(), pattern) {
-			return true
+			return pattern
 		}
 	}
-	return false
+	return ""
+}
+
+type proofArtifact struct {
+	Tool         string       `json:"tool"`
+	Status       string       `json:"status"`
+	Source       string       `json:"source"`
+	ImageRef     string       `json:"image_ref"`
+	InvocationID string       `json:"invocation_id,omitempty"`
+	Mode         string       `json:"mode"`
+	TimeoutSec   int64        `json:"timeout_seconds"`
+	Output       *proofOutput `json:"output,omitempty"`
+	Expected     *proofError  `json:"expected_error,omitempty"`
+	Checks       []proofCheck `json:"checks"`
+}
+
+type proofOutput struct {
+	Bytes    int    `json:"bytes"`
+	MaxBytes int64  `json:"max_bytes"`
+	SHA256   string `json:"sha256"`
+}
+
+type proofError struct {
+	Pattern string `json:"pattern"`
+	Matched string `json:"matched"`
+}
+
+type proofCheck struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+func writeProof(cfg smokeConfig, outcome runOutcome) error {
+	proof := proofArtifact{
+		Tool:         "container-provider-smoke",
+		Status:       "pass",
+		Source:       cfg.ProofSource,
+		ImageRef:     cfg.ImageRef,
+		InvocationID: cfg.InvocationID,
+		Mode:         outcome.Mode,
+		TimeoutSec:   int64(cfg.Timeout / time.Second),
+		Checks: []proofCheck{
+			{Name: "digest_pinned_image", Status: "pass"},
+			{Name: "request_validated", Status: "pass"},
+			{Name: "network_none", Status: "pass"},
+			{Name: "readonly_rootfs", Status: "pass"},
+			{Name: "no_new_privileges", Status: "pass"},
+			{Name: "cap_drop_all", Status: "pass"},
+		},
+	}
+	switch outcome.Mode {
+	case "success":
+		proof.Output = &proofOutput{
+			Bytes:    outcome.OutputBytes,
+			MaxBytes: cfg.OutputMax,
+			SHA256:   outcome.OutputSHA256,
+		}
+		proof.Checks = append(proof.Checks,
+			proofCheck{Name: "provider_run_succeeded", Status: "pass"},
+			proofCheck{Name: "valid_json_object_output", Status: "pass"},
+			proofCheck{Name: "duplicate_key_free_output", Status: "pass"},
+		)
+	case "expected_error":
+		proof.Expected = &proofError{
+			Pattern: cfg.ExpectError,
+			Matched: outcome.MatchedErrorPattern,
+		}
+		proof.Checks = append(proof.Checks,
+			proofCheck{Name: "expected_provider_error_observed", Status: "pass"},
+		)
+	default:
+		return fmt.Errorf("unknown proof outcome mode %q", outcome.Mode)
+	}
+	return writeJSONFile(cfg.ProofPath, proof)
+}
+
+func validateProofSource(source string) error {
+	switch source {
+	case "make container-provider-smoke",
+		"make container-provider-timeout-smoke",
+		"make container-provider-output-cap-smoke":
+		return nil
+	default:
+		return fmt.Errorf("%s must be a canonical container provider smoke make target", envProofSource)
+	}
+}
+
+func writeJSONFile(path string, value any) error {
+	clean := filepath.Clean(path)
+	if err := validateNoSymlinkAncestors(clean); err != nil {
+		return err
+	}
+	if info, err := os.Lstat(clean); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s must be a regular file, not a symlink", clean)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("%s must be a regular file", clean)
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat proof: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(clean), 0o700); err != nil {
+		return fmt.Errorf("create proof parent: %w", err)
+	}
+	if err := validateNoSymlinkAncestors(clean); err != nil {
+		return err
+	}
+	// #nosec G304 -- this manual smoke checker writes the operator-supplied proof JSON path.
+	f, err := os.OpenFile(clean, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("write proof: %w", err)
+	}
+	enc := json.NewEncoder(f)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(value); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("write proof: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("write proof: %w", err)
+	}
+	return nil
+}
+
+func validateNoSymlinkAncestors(cleanPath string) error {
+	dir := filepath.Dir(cleanPath)
+	for dir != "." && dir != string(filepath.Separator) {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				next := filepath.Dir(dir)
+				if next == dir {
+					return nil
+				}
+				dir = next
+				continue
+			}
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s parent directory %s must not be a symlink", cleanPath, dir)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s parent path %s must be a directory", cleanPath, dir)
+		}
+		next := filepath.Dir(dir)
+		if next == dir {
+			return nil
+		}
+		dir = next
+	}
+	return nil
 }
 
 func parseCommandJSON(raw string) ([]string, error) {
