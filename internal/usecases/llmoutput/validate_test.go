@@ -104,6 +104,37 @@ func TestValidate_RejectsInvalidJSONAsRetryable(t *testing.T) {
 	assertReason(t, err, ReasonInvalidJSON, true)
 }
 
+func TestValidate_RejectsAmbiguousProviderJSONAsRetryable(t *testing.T) {
+	tests := []struct {
+		name    string
+		content json.RawMessage
+		want    string
+	}{
+		{
+			name:    "duplicate content key",
+			content: json.RawMessage(`{"title":"stale","title":"CPU saturation","severity":"warning","findings":["cpu above threshold"]}`),
+			want:    "duplicate object key",
+		},
+		{
+			name:    "trailing content value",
+			content: json.RawMessage(`{"title":"CPU saturation","severity":"warning","findings":["cpu above threshold"]} {"extra":true}`),
+			want:    "trailing JSON",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := validResponse()
+			resp.Content = tt.content
+
+			err := validateErr(t, validRequest(), resp)
+			assertReason(t, err, ReasonInvalidJSON, true)
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %q, want %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
 func TestValidate_RejectsSchemaViolationAsRetryable(t *testing.T) {
 	resp := validResponse()
 	resp.Content = json.RawMessage(`{"title":"","severity":"page","findings":[]}`)
@@ -118,6 +149,37 @@ func TestValidate_RejectsInvalidRequestAsNonRetryable(t *testing.T) {
 
 	err := validateErr(t, req, validResponse())
 	assertReason(t, err, ReasonInvalidRequest, false)
+}
+
+func TestValidate_RejectsAmbiguousOutputSchemaAsNonRetryable(t *testing.T) {
+	tests := []struct {
+		name   string
+		schema json.RawMessage
+		want   string
+	}{
+		{
+			name:   "duplicate schema key",
+			schema: json.RawMessage(`{"type":"object","type":"object"}`),
+			want:   "duplicate object key",
+		},
+		{
+			name:   "trailing schema value",
+			schema: json.RawMessage(`{"type":"object"} {"type":"string"}`),
+			want:   "trailing JSON",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := validRequest()
+			req.OutputSchema = tt.schema
+
+			err := validateErr(t, req, validResponse())
+			assertReason(t, err, ReasonInvalidRequest, false)
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %q, want %q", err.Error(), tt.want)
+			}
+		})
+	}
 }
 
 func TestValidate_RejectsUnsupportedOutputModeAsNonRetryable(t *testing.T) {
