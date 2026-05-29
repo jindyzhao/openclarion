@@ -129,7 +129,16 @@ func runMain(m *testing.M) int {
 	tc := server.Client()
 	defer tc.Close()
 
-	w := temporalpkg.NewWorker(tc, factory)
+	w := temporalpkg.NewWorker(
+		tc,
+		factory,
+		temporalpkg.WithLLMProvider(newReportLLMProvider()),
+		temporalpkg.WithIMProvider(&recordingIMProvider{delivery: ports.IMDelivery{
+			ProviderMessageID: "msg-devserver",
+			Status:            "accepted",
+			Raw:               json.RawMessage(`{"message_id":"msg-devserver","status":"accepted"}`),
+		}}),
+	)
 	if err := w.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "start temporal worker: %v\n", err)
 		return 1
@@ -292,9 +301,16 @@ func TestDiagnosisWorkflow_UpdateRecordEvent(t *testing.T) {
 
 func replayWorkflowHistory(ctx context.Context, t *testing.T, workflowID, runID string) {
 	t.Helper()
+	replayWorkflowHistoryWithRegistrations(ctx, t, workflowID, runID, temporalpkg.DiagnosisWorkflow)
+}
+
+func replayWorkflowHistoryWithRegistrations(ctx context.Context, t *testing.T, workflowID, runID string, workflows ...any) {
+	t.Helper()
 	history := collectWorkflowHistory(ctx, t, workflowID, runID)
 	replayer := worker.NewWorkflowReplayer()
-	replayer.RegisterWorkflow(temporalpkg.DiagnosisWorkflow)
+	for _, wf := range workflows {
+		replayer.RegisterWorkflow(wf)
+	}
 	if err := replayer.ReplayWorkflowHistory(nil, history); err != nil {
 		t.Fatalf("replay workflow history: %v", err)
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/testsuite"
 
 	"github.com/openclarion/openclarion/internal/domain"
@@ -358,6 +359,92 @@ func TestReportActivities_SendReportNotificationPersistsFailure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("verify failed delivery log: %v", err)
 	}
+}
+
+func TestReportWorkflows_ReplayCompletedHistories(t *testing.T) {
+	ctx := context.Background()
+
+	fanoutSeed := seedDiagnosisTask(t, "report-replay-fanout")
+	fanoutWorkflowID := "test-report-fanout-" + strconv.FormatInt(int64(fanoutSeed.SnapshotID), 10)
+	fanoutRun, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        fanoutWorkflowID,
+		TaskQueue: temporalpkg.TaskQueue,
+	}, temporalpkg.ReportFanOutWorkflow, temporalpkg.ReportFanOutWorkflowInput{
+		EvidenceSnapshotID: int64(fanoutSeed.SnapshotID),
+		Scenario:           "single_alert",
+		GroupIndex:         0,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteWorkflow fanout: %v", err)
+	}
+	var fanoutResult temporalpkg.ReportFanOutWorkflowResult
+	if err := fanoutRun.Get(ctx, &fanoutResult); err != nil {
+		t.Fatalf("fanout workflow result: %v", err)
+	}
+	if fanoutResult.SubReportID == 0 {
+		t.Fatal("fanout workflow returned zero SubReportID")
+	}
+	replayWorkflowHistoryWithRegistrations(ctx, t, fanoutWorkflowID, fanoutRun.GetRunID(), temporalpkg.ReportFanOutWorkflow)
+
+	finalWorkflowID := "test-report-final-" + strconv.FormatInt(fanoutResult.SubReportID, 10)
+	finalRun, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        finalWorkflowID,
+		TaskQueue: temporalpkg.TaskQueue,
+	}, temporalpkg.FinalReportWorkflow, temporalpkg.FinalReportWorkflowInput{
+		CorrelationKey: finalWorkflowID,
+		SubReportIDs:   []int64{fanoutResult.SubReportID},
+	})
+	if err != nil {
+		t.Fatalf("ExecuteWorkflow final: %v", err)
+	}
+	var finalResult temporalpkg.FinalReportWorkflowResult
+	if err := finalRun.Get(ctx, &finalResult); err != nil {
+		t.Fatalf("final workflow result: %v", err)
+	}
+	if finalResult.FinalReportID == 0 ||
+		finalResult.NotificationIdempotencyKey == "" ||
+		finalResult.NotificationStatus == "" {
+		t.Fatalf("final workflow returned incomplete result: %+v", finalResult)
+	}
+	replayWorkflowHistoryWithRegistrations(ctx, t, finalWorkflowID, finalRun.GetRunID(), temporalpkg.FinalReportWorkflow)
+
+	firstBatchSeed := seedDiagnosisTask(t, "report-replay-batch-a")
+	secondBatchSeed := seedDiagnosisTask(t, "report-replay-batch-b")
+	batchWorkflowID := "test-report-batch-" +
+		strconv.FormatInt(int64(firstBatchSeed.SnapshotID), 10) + "-" +
+		strconv.FormatInt(int64(secondBatchSeed.SnapshotID), 10)
+	batchRun, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        batchWorkflowID,
+		TaskQueue: temporalpkg.TaskQueue,
+	}, temporalpkg.ReportBatchWorkflow, temporalpkg.ReportBatchWorkflowInput{
+		CorrelationKey: batchWorkflowID,
+		Items: []temporalpkg.ReportBatchItem{
+			{EvidenceSnapshotID: int64(firstBatchSeed.SnapshotID), Scenario: "single_alert", GroupIndex: 0},
+			{EvidenceSnapshotID: int64(secondBatchSeed.SnapshotID), Scenario: "cascade", GroupIndex: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExecuteWorkflow batch: %v", err)
+	}
+	var batchResult temporalpkg.ReportBatchWorkflowResult
+	if err := batchRun.Get(ctx, &batchResult); err != nil {
+		t.Fatalf("batch workflow result: %v", err)
+	}
+	if len(batchResult.SubReportIDs) != 2 ||
+		batchResult.FinalReportID == 0 ||
+		batchResult.NotificationIdempotencyKey == "" ||
+		batchResult.NotificationStatus == "" {
+		t.Fatalf("batch workflow returned incomplete result: %+v", batchResult)
+	}
+	replayWorkflowHistoryWithRegistrations(
+		ctx,
+		t,
+		batchWorkflowID,
+		batchRun.GetRunID(),
+		temporalpkg.ReportBatchWorkflow,
+		temporalpkg.ReportFanOutWorkflow,
+		temporalpkg.FinalReportWorkflow,
+	)
 }
 
 func TestReportFanOutWorkflow_ExecutesGenerateSubReportActivity(t *testing.T) {
