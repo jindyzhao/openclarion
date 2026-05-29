@@ -78,6 +78,7 @@ non-existent code is a maintenance burden, not a quality boundary.
 | Allowlist discipline | M3 hardening | landed | `make allowlist-discipline`; validates repository allowlist entries carry adjacent `Owner`, `Expires`, and `Removal trigger` comments so false-positive suppressions remain reviewable and temporary. `make allowlist-discipline-test` covers missing metadata, detached metadata, expired entries, and read-error handling. |
 | Workflow change isolation | M3 hardening | landed / PR-only | `make workflow-change-guard`; PR-only CI job rejects pull requests that change more than one `.github/workflows/*.yml` / `.yaml` file. Companion script/docs/Makefile changes may land with the single workflow file so the standard gate-introduction three-piece remains possible, but multi-workflow edits must be split for focused review. `make workflow-change-guard-test` covers path normalization, duplicate handling, CI diff-range fetching, local fallback, and violation reporting. |
 | PR wall-clock budget | M3 hardening | landed | `make pr` runs `scripts/pr_budget` around `make ci` with `PR_BUDGET` defaulting to 15 minutes and `PR_BUDGET_MODE=enforce`; enforced runs terminate the child command on timeout, while `PR_BUDGET_MODE=warn` is available for temporary local diagnostics. CI runs `make pr-budget-test` so the wrapper's parsing, exit-code preservation, warn mode, timeout termination, and over-budget enforcement stay covered without recursively running the whole PR bundle inside CI. |
+| Repository size budget | M3 hardening | landed | `make repo-size-check`; scans Git-visible tracked and non-ignored untracked working-tree files through `git ls-files`, rejects symlink/non-regular paths, and enforces the default 1 MiB per-file / 25 MiB total budget before large retained evidence, generated blobs, or accidental binary files enter review. `make repo-size-check-test` covers sorting, unsafe paths, symlinks, per-file failures, total failures, and invalid budgets. CI runs these targets in the existing PR budget job instead of adding another top-level workflow check. |
 | Temporal workflow tests (snapshot-bound start + replay + signal completion) | M1 | landed | `make temporal-workflow-tests`; focused CI job runs `internal/orchestrator/temporal` integration tests with race detector, verifies the workflow starts from an `EvidenceSnapshot`-bound task, and replays a completed workflow history via `worker.NewWorkflowReplayer` |
 | LLM golden prompt structural tests | M2 | landed | `go test ./internal/usecases/reportprompt`; covers single-alert, cascade, alert-storm, and FinalReport request shape, JSON-only fallback instructions, schema selection, idempotency-key shape, invalid input rejection, and schema-compatible fixture outputs without calling a real provider |
 | LLM output acceptance tests | M2 | landed | `go test ./internal/usecases/llmoutput`; covers refusal, truncation / non-`stop` finish reasons, invalid JSON, JSON Schema violations, unsupported output modes, and `json_object` fallback validation |
@@ -146,6 +147,7 @@ make allowlist-discipline # allowlist owner / expiry / removal metadata
 make dependabot-policy-check # Dependabot policy invariants
 make workflow-change-guard # PR-only workflow-file change isolation
 make pr-budget-test # make pr wall-clock budget wrapper tests
+make repo-size-check # Git-visible file size budget
 PR_TITLE='feat: concise title' make pr-title-check # PR title policy
 PR_BODY="$(gh pr view --json body --jq .body)" make pr-description-check # PR body policy
 PR_BODY="$(gh pr view --json body --jq .body)" IMPACT_REFERENCE_BASE_REF=main IMPACT_REFERENCE_HEAD_SHA=HEAD make pr-impact-reference-check # PR issue/ADR reference policy
@@ -339,7 +341,7 @@ plus a row in the Schedule table above.
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
 | Workflow run-time alerting (median + p95 dashboard) | M3 | scheduled report job; not PR-blocking |
-| CI artifact size cap (per artifact, total per PR) | M3 | post-job inventory; surfaces accidental binary commits |
+| CI uploaded-artifact size cap (per artifact, total per PR) | when workflows start uploading retained proof bundles or release artifacts | post-job inventory through GitHub artifact metadata; complements `make repo-size-check`, which only covers Git-visible files |
 | Cache hit rate floor for module / npm caches | M3 | observability only; informs cache key tuning |
 
 ### PR / commit governance
