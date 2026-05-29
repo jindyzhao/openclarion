@@ -236,10 +236,7 @@ func TestDiagnosisRoomWorkflow_UpdateValidatorRejectsConcurrentTurn(t *testing.T
 	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
 	assertRoomWorkflowCompleted(t, env)
 
-	if first.rejected != nil || first.completeErr != nil {
-		t.Fatalf("first update rejected=%v completeErr=%v", first.rejected, first.completeErr)
-	}
-	assertUpdateRejected(t, concurrent, "turn already in progress")
+	assertOneUpdateSucceededAndOneRejected(t, first, concurrent, "turn already in progress")
 }
 
 func TestDiagnosisRoomWorkflow_DurableIdleTimerClosesRoom(t *testing.T) {
@@ -367,18 +364,44 @@ func assertRoomWorkflowCompleted(t *testing.T, env *testsuite.TestWorkflowEnviro
 
 func assertUpdateRejected(t *testing.T, update captureSubmitTurnUpdate, wantSubstr string) {
 	t.Helper()
-	if update.rejected == nil {
-		if update.completeErr != nil {
-			if strings.Contains(update.completeErr.Error(), wantSubstr) {
-				return
-			}
-			t.Fatalf("update complete err = %v, want substring %q", update.completeErr, wantSubstr)
-		}
+	if updateErrorContains(update, wantSubstr) {
+		return
+	}
+	if update.rejected == nil && update.completeErr == nil {
 		t.Fatalf("update was not rejected; accepted=%v result=%+v", update.accepted, update.result)
 	}
-	if !strings.Contains(update.rejected.Error(), wantSubstr) {
-		t.Fatalf("update rejection = %v, want substring %q", update.rejected, wantSubstr)
+	t.Fatalf("update rejected=%v completeErr=%v, want substring %q", update.rejected, update.completeErr, wantSubstr)
+}
+
+func assertOneUpdateSucceededAndOneRejected(t *testing.T, first, second captureSubmitTurnUpdate, wantRejectSubstr string) {
+	t.Helper()
+	updates := []captureSubmitTurnUpdate{first, second}
+	successes := 0
+	rejections := 0
+	for i, update := range updates {
+		switch {
+		case update.rejected == nil && update.completeErr == nil:
+			successes++
+			if !update.accepted ||
+				update.result.MessageID == "" ||
+				update.result.AssistantMessageID == "" ||
+				update.result.TurnCount != 1 {
+				t.Fatalf("update[%d] success = accepted=%v result=%+v", i, update.accepted, update.result)
+			}
+		case updateErrorContains(update, wantRejectSubstr):
+			rejections++
+		default:
+			t.Fatalf("update[%d] rejected=%v completeErr=%v, want success or substring %q", i, update.rejected, update.completeErr, wantRejectSubstr)
+		}
 	}
+	if successes != 1 || rejections != 1 {
+		t.Fatalf("successes=%d rejections=%d, want exactly one success and one rejection", successes, rejections)
+	}
+}
+
+func updateErrorContains(update captureSubmitTurnUpdate, wantSubstr string) bool {
+	return update.rejected != nil && strings.Contains(update.rejected.Error(), wantSubstr) ||
+		update.completeErr != nil && strings.Contains(update.completeErr.Error(), wantSubstr)
 }
 
 func registerDiagnosisTurnActivity(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
