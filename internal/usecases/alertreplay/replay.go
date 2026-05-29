@@ -73,6 +73,21 @@ type Request struct {
 	Limit             int
 }
 
+// Result is the replay output needed by downstream report dispatch.
+// Stats keeps the existing counter-only summary; Snapshots records the
+// persisted EvidenceSnapshot rows in deterministic group order.
+type Result struct {
+	Stats     Stats
+	Snapshots []SnapshotRef
+}
+
+// SnapshotRef identifies one snapshot produced or found by replay.
+type SnapshotRef struct {
+	ID         domain.EvidenceSnapshotID
+	GroupIndex int
+	EventCount int
+}
+
 // Stats summarises one ReplayWindow invocation. The intent is that
 // every counter answers a different question and downstream callers
 // (CLI, Temporal, future HTTP) can render a self-explanatory report
@@ -143,6 +158,7 @@ type groupResult struct {
 	savedSnapshot     bool
 	duplicateSnapshot bool
 	closedGroup       bool
+	snapshotID        domain.EvidenceSnapshotID
 }
 
 // ReplayWindow runs one end-to-end replay over the configured
@@ -175,16 +191,30 @@ func ReplayWindow(
 	factory ports.UnitOfWorkFactory,
 	req Request,
 ) (Stats, error) {
-	var stats Stats
+	result, err := ReplayWindowForReport(ctx, provider, factory, req)
+	return result.Stats, err
+}
+
+// ReplayWindowForReport runs ReplayWindow and also returns the
+// persisted EvidenceSnapshot identities needed to start report
+// generation. It is intentionally separate from ReplayWindow so
+// existing counter-only callers keep comparable Stats values.
+func ReplayWindowForReport(
+	ctx context.Context,
+	provider ports.MetricsProvider,
+	factory ports.UnitOfWorkFactory,
+	req Request,
+) (Result, error) {
+	var result Result
 	if err := validateRequest(provider, factory, req); err != nil {
-		return stats, err
+		return result, err
 	}
 
 	// Step 1: ingest.
 	ingested, err := alertingest.IngestOnce(ctx, provider, factory)
-	stats.Ingested = ingested
+	result.Stats.Ingested = ingested
 	if err != nil {
-		return stats, fmt.Errorf("alertreplay: ingest: %w", err)
+		return result, fmt.Errorf("alertreplay: ingest: %w", err)
 	}
 
 	// Step 2: short read tx for the window.
@@ -199,11 +229,11 @@ func ReplayWindow(
 		events = rows
 		return nil
 	}); err != nil {
-		return stats, fmt.Errorf("alertreplay: list events by window: %w", err)
+		return result, fmt.Errorf("alertreplay: list events by window: %w", err)
 	}
-	stats.EventsLoaded = len(events)
+	result.Stats.EventsLoaded = len(events)
 	if len(events) > req.Limit {
-		return stats, fmt.Errorf(
+		return result, fmt.Errorf(
 			"alertreplay: window contains more than limit (%d) events: %w",
 			req.Limit, domain.ErrInvariantViolation,
 		)
@@ -212,11 +242,11 @@ func ReplayWindow(
 	// Step 3: deterministic grouping.
 	drafts, err := alertgrouping.GroupEvents(events, req.Grouping)
 	if err != nil {
-		return stats, fmt.Errorf("alertreplay: group events: %w", err)
+		return result, fmt.Errorf("alertreplay: group events: %w", err)
 	}
-	stats.GroupsBuilt = len(drafts)
+	result.Stats.GroupsBuilt = len(drafts)
 	if len(drafts) == 0 {
-		return stats, nil
+		return result, nil
 	}
 
 	// Step 4: reconstruct per-draft events.
@@ -234,7 +264,7 @@ func ReplayWindow(
 		for _, id := range draft.EventIDs {
 			ev, ok := eventByID[id]
 			if !ok {
-				return stats, fmt.Errorf(
+				return result, fmt.Errorf(
 					"alertreplay: draft group_key=%q references event id %d not present in window: %w",
 					draft.GroupKey, id, domain.ErrInvariantViolation,
 				)
@@ -242,9 +272,9 @@ func ReplayWindow(
 			eventsForGroup = append(eventsForGroup, ev)
 		}
 
-		result, perr := processGroup(ctx, factory, draft, eventsForGroup, req.CreatedByWorkflow)
+		groupOutcome, perr := processGroup(ctx, factory, draft, eventsForGroup, req.CreatedByWorkflow)
 		if perr != nil {
-			stats.Failed++
+			result.Stats.Failed++
 			slog.WarnContext(ctx, "alertreplay: per-group pipeline failed",
 				slog.String("group_key", draft.GroupKey),
 				slog.Any("error", perr),
@@ -253,13 +283,20 @@ func ReplayWindow(
 			continue
 		}
 
-		mergeGroupResult(&stats, result)
+		mergeGroupResult(&result.Stats, groupOutcome)
+		if groupOutcome.snapshotID != 0 {
+			result.Snapshots = append(result.Snapshots, SnapshotRef{
+				ID:         groupOutcome.snapshotID,
+				GroupIndex: i,
+				EventCount: len(draft.EventIDs),
+			})
+		}
 	}
 
 	if len(failures) > 0 {
-		return stats, errors.Join(failures...)
+		return result, errors.Join(failures...)
 	}
-	return stats, nil
+	return result, nil
 }
 
 // validateRequest enforces orchestration-level invariants. Each
@@ -385,14 +422,17 @@ func processGroup(
 
 		// Decide saved vs duplicate via the per-group
 		// idempotency key (group_id, digest).
-		_, lookupErr := evidence.FindByGroupAndDigest(ctx, snapshotGroup.ID, snapshot.Digest)
+		existingSnapshot, lookupErr := evidence.FindByGroupAndDigest(ctx, snapshotGroup.ID, snapshot.Digest)
 		switch {
 		case lookupErr == nil:
+			result.snapshotID = existingSnapshot.ID
 			result.duplicateSnapshot = true
 		case errors.Is(lookupErr, domain.ErrNotFound):
-			if _, sErr := evidence.Save(ctx, snapshot); sErr != nil {
+			savedSnapshot, sErr := evidence.Save(ctx, snapshot)
+			if sErr != nil {
 				return fmt.Errorf("save snapshot: %w", sErr)
 			}
+			result.snapshotID = savedSnapshot.ID
 			result.savedSnapshot = true
 		default:
 			return fmt.Errorf("find snapshot by digest: %w", lookupErr)

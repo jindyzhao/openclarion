@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/openclarion/openclarion/internal/observability/correlation"
 )
 
 // alertsEnvelope is the shape Prometheus's /api/v1/alerts actually
@@ -71,7 +73,7 @@ func newAlertsServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 // (i.e. without raising an error) so callers do not have to defend
 // against pending/inactive leaking through.
 func TestProvider_ListActiveAlerts_FiltersFiringOnly(t *testing.T) {
-	srv := newAlertsServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv := newAlertsServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(alertsEnvelope))
 	})
@@ -168,12 +170,60 @@ func TestProvider_WithBearer_EmptyTokenIsNoop(t *testing.T) {
 	}
 }
 
+func TestProvider_PropagatesRequestID(t *testing.T) {
+	var seen string
+	srv := newAlertsServer(t, func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Get(correlation.RequestIDHeader)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"alerts":[]}}`))
+	})
+
+	p, err := NewProvider(srv.URL)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	ctx := correlation.ContextWithRequestID(context.Background(), "request-1")
+	if _, err := p.ListActiveAlerts(ctx); err != nil {
+		t.Fatalf("ListActiveAlerts: %v", err)
+	}
+	if seen != "request-1" {
+		t.Errorf("%s = %q, want request-1", correlation.RequestIDHeader, seen)
+	}
+}
+
+func TestProvider_RoundTripperDecoratorWrapsDefaultTransport(t *testing.T) {
+	var seen string
+	srv := newAlertsServer(t, func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Get("X-Test-Decorator")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"alerts":[]}}`))
+	})
+
+	p, err := NewProvider(srv.URL, WithRoundTripperDecorator(func(base http.RoundTripper) http.RoundTripper {
+		return roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			clone := req.Clone(req.Context())
+			clone.Header = req.Header.Clone()
+			clone.Header.Set("X-Test-Decorator", "applied")
+			return base.RoundTrip(clone)
+		})
+	}))
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	if _, err := p.ListActiveAlerts(context.Background()); err != nil {
+		t.Fatalf("ListActiveAlerts: %v", err)
+	}
+	if seen != "applied" {
+		t.Fatalf("X-Test-Decorator = %q, want applied", seen)
+	}
+}
+
 // TestProvider_ListActiveAlerts_WrapsServerError asserts that 5xx
 // responses from Prometheus surface as wrapped errors with the
 // package prefix, so log lines / error matching can identify the
 // failing layer.
 func TestProvider_ListActiveAlerts_WrapsServerError(t *testing.T) {
-	srv := newAlertsServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv := newAlertsServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "prometheus down", http.StatusServiceUnavailable)
 	})
 
@@ -195,7 +245,7 @@ func TestProvider_ListActiveAlerts_WrapsServerError(t *testing.T) {
 // decoder rejects. The library returns an error from Alerts() and
 // we wrap it identically to the network-error path.
 func TestProvider_ListActiveAlerts_WrapsMalformedJSON(t *testing.T) {
-	srv := newAlertsServer(t, func(w http.ResponseWriter, r *http.Request) {
+	srv := newAlertsServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"success","data":{"alerts":[ not json `))
 	})
@@ -228,3 +278,8 @@ func mapsEqual(a, b map[string]string) bool {
 	return true
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}

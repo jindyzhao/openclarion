@@ -1,4 +1,6 @@
 ---
+id: ADR-0013
+title: "Per-Turn Container Invocation and File-Based Data Contract"
 status: "proposed"
 date: 2026-05-19
 deciders: ["jindyzhao"]
@@ -52,7 +54,7 @@ container:
 ```text
 Turn N:
   Go prepares input files (readonly bind mounts)
-  Go creates container with input mounts + writable tmpfs for output
+  Go creates container with input mounts + writable capped output mount
   Container starts -> agent reads inputs -> reasons -> writes output
   Container exits
   Go reads /workspace/out/output.json -> validates -> persists
@@ -74,16 +76,21 @@ Input (mounted readonly by Go):
   /workspace/message.json          # latest user message (M5 only)
   /workspace/agent_config/         # agent role, skills, tool endpoints
 
-Output (writable tmpfs, read by Go after container exits):
+Output (writable capped mount, read by Go after container exits):
   /workspace/out/output.json       # structured response (schema-validated by Go)
 ```
 
 Invariants:
 * Go prepares input files and mounts them as `:ro` (read-only bind mounts).
-* `/workspace/out/` is a writable tmpfs with size cap (`--tmpfs /workspace/out:size=10m`).
+* `/workspace/out/` is the only writable mount and is capped by container
+  `fsize` ulimit plus Go's output read limit.
 * Agent writes ONLY to `/workspace/out/output.json`.
 * Go validates `output.json` against the expected JSON Schema before accepting it.
 * Go never reads `agent_config/` contents — it mounts the directory opaquely.
+
+Docker Engine implementation note: the provider uses a private per-invocation
+host bind mount for `/workspace/out` because Docker archive copy cannot extract
+files from container tmpfs mounts reliably after execution.
 
 ### M5 Turn-by-Turn Mechanics
 
@@ -110,6 +117,8 @@ Turn 2:
   (no framework-specific protocol required).
 * Good, because conversation state lives in Temporal workflow (durable), not
   container memory (ephemeral).
+* Good, because OpenClaw, Hermes Agent, or a custom thin runner can be evaluated
+  as sandbox-image adapters without changing the Go control-plane contract.
 * Neutral, because each turn pays ~1-3s container startup cost.
 * Bad, because per-turn startup latency is higher than a persistent container.
 
@@ -171,6 +180,8 @@ becomes a concern post-V1:
 * ADR-0002 — agent black-box boundary (this ADR implements the concrete IPC mechanism)
 * ADR-0004 — Temporal workflow engine (Updates dispatch turns to per-turn Activities)
 * ADR-0005 — ephemeral container security (mount scoping and egress control apply here)
+* [Agent Runtime Selection Gate](../design/agent-runtime-selection.md) — M4
+  OpenClaw/Hermes/custom thin runner acceptance criteria
 
 ### Re-evaluation Trigger
 
@@ -184,3 +195,4 @@ implementation change within the existing contract.
 | Date | Author | Change |
 |------|--------|--------|
 | 2026-05-19 | jindyzhao | Initial proposal |
+| 2026-05-28 | jindyzhao | Link M4 runtime selection gate and clarify that OpenClaw/Hermes/custom thin runner adoption is an image-adapter decision, not a control-plane contract change |

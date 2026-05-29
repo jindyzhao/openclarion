@@ -1,4 +1,6 @@
 ---
+id: ADR-0008
+title: "Monorepo Repository Structure"
 status: "proposed"
 date: 2026-05-18
 deciders: ["jindyzhao"]
@@ -42,6 +44,17 @@ configurations (role definitions, skills, prompts, tool endpoints). These are
 mounted into sandbox containers as read-only bind mounts. Go never reads or
 interprets their contents (see ADR-0002). Agent developers iterate on these
 configs independently of Go code changes.
+
+### Consequences
+
+* Good, because API, backend, frontend, schema, migration, and documentation
+  changes can land atomically.
+* Good, because sandbox agent configuration remains versioned without becoming
+  control-plane source code.
+* Neutral, because CI must stay disciplined enough to keep unrelated package
+  changes from making every PR expensive.
+* Bad, because repository growth can make ownership boundaries less obvious
+  unless docs and gates keep the layout current.
 
 ### Confirmation
 

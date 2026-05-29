@@ -11,7 +11,6 @@ package alertingest
 
 import (
 	"context"
-	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -84,12 +83,20 @@ func IngestOnce(ctx context.Context, provider ports.MetricsProvider, factory por
 			stats.Duplicate++
 		default:
 			stats.Failed++
-			slog.WarnContext(ctx, "alertingest: per-alert ingest failed",
+			canonical, fingerprintErr := canonicalFingerprint(a.Labels)
+			if fingerprintErr != nil {
+				canonical = "<unavailable>"
+			}
+			logArgs := []any{
 				slog.String("source", a.Source),
 				slog.Time("starts_at", a.StartsAt),
-				slog.String("canonical_fingerprint", canonicalFingerprint(a.Labels)),
-				slog.Any("error", err),
-			)
+				slog.String("canonical_fingerprint", canonical),
+			}
+			if fingerprintErr != nil {
+				logArgs = append(logArgs, slog.Any("canonical_fingerprint_error", fingerprintErr))
+			}
+			logArgs = append(logArgs, slog.Any("error", err))
+			slog.WarnContext(ctx, "alertingest: per-alert ingest failed", logArgs...)
 			failures = append(failures, err)
 		}
 	}
@@ -107,10 +114,14 @@ func IngestOnce(ctx context.Context, provider ports.MetricsProvider, factory por
 // Duplicate counter.
 func ingestOne(ctx context.Context, factory ports.UnitOfWorkFactory, a ports.ActiveAlert) error {
 	return factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		sourceFP, canonicalFP, err := fingerprints(a.Labels)
+		if err != nil {
+			return fmt.Errorf("build alert fingerprints: %w", err)
+		}
 		evt, err := domain.NewAlertEvent(
 			a.Source,
-			sourceFingerprint(a.Labels),
-			canonicalFingerprint(a.Labels),
+			sourceFP,
+			canonicalFP,
 			a.Labels,
 			a.Annotations,
 			a.RawPayload,
@@ -138,37 +149,47 @@ func ingestOne(ctx context.Context, factory ports.UnitOfWorkFactory, a ports.Act
 //     despite being semantically identical.
 //  2. encoding/json's Marshal sorts map keys lexicographically since
 //     Go 1.12, so we do not need to pre-sort the input ourselves.
-//
-// json.Marshal of map[string]string cannot return an error (no value
-// in the map is unrepresentable), so the err branch is a defensive
-// panic rather than a returned error: there is no plausible recovery
-// at the call site.
-func canonicalLabelsJSON(labels map[string]string) []byte {
+func canonicalLabelsJSON(labels map[string]string) ([]byte, error) {
 	if labels == nil {
 		labels = map[string]string{}
 	}
-	b, err := json.Marshal(labels)
-	if err != nil {
-		panic(fmt.Sprintf("alertingest: canonical label marshal: %v", err))
-	}
-	return b
+	return json.Marshal(labels)
 }
 
 // sourceFingerprint is the provider-local fingerprint stored in
-// AlertEvent.SourceFingerprint. The current implementation uses
-// sha1; the dual-track scheme (sha1 source + sha256 canonical) is
-// designed so the two can evolve independently if upstream providers
-// eventually expose their own fingerprint format we want to mirror.
-func sourceFingerprint(labels map[string]string) string {
-	sum := sha1.Sum(canonicalLabelsJSON(labels))
-	return hex.EncodeToString(sum[:])
+// AlertEvent.SourceFingerprint. Prometheus alerts do not expose a
+// stable provider fingerprint through client_golang, so the current
+// fallback hashes the canonical label JSON with SHA-256. The separate
+// helper is retained so we can mirror upstream provider fingerprints
+// later without changing CanonicalFingerprint semantics.
+func sourceFingerprint(labels map[string]string) (string, error) {
+	b, err := canonicalLabelsJSON(labels)
+	if err != nil {
+		return "", fmt.Errorf("canonical labels json: %w", err)
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // canonicalFingerprint is the global cross-source fingerprint stored
 // in AlertEvent.CanonicalFingerprint and participates in the natural
 // unique key. sha256 keeps the collision probability astronomically
 // low across providers.
-func canonicalFingerprint(labels map[string]string) string {
-	sum := sha256.Sum256(canonicalLabelsJSON(labels))
-	return hex.EncodeToString(sum[:])
+func canonicalFingerprint(labels map[string]string) (string, error) {
+	b, err := canonicalLabelsJSON(labels)
+	if err != nil {
+		return "", fmt.Errorf("canonical labels json: %w", err)
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func fingerprints(labels map[string]string) (string, string, error) {
+	b, err := canonicalLabelsJSON(labels)
+	if err != nil {
+		return "", "", fmt.Errorf("canonical labels json: %w", err)
+	}
+	sum := sha256.Sum256(b)
+	fingerprint := hex.EncodeToString(sum[:])
+	return fingerprint, fingerprint, nil
 }

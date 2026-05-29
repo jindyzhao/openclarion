@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
@@ -124,6 +125,21 @@ func (_u *DiagnosisTaskUpdate) AddEvents(v ...*DiagnosisTaskEvent) *DiagnosisTas
 	return _u.AddEventIDs(ids...)
 }
 
+// AddChatSessionIDs adds the "chat_sessions" edge to the ChatSession entity by IDs.
+func (_u *DiagnosisTaskUpdate) AddChatSessionIDs(ids ...int) *DiagnosisTaskUpdate {
+	_u.mutation.AddChatSessionIDs(ids...)
+	return _u
+}
+
+// AddChatSessions adds the "chat_sessions" edges to the ChatSession entity.
+func (_u *DiagnosisTaskUpdate) AddChatSessions(v ...*ChatSession) *DiagnosisTaskUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddChatSessionIDs(ids...)
+}
+
 // Mutation returns the DiagnosisTaskMutation object of the builder.
 func (_u *DiagnosisTaskUpdate) Mutation() *DiagnosisTaskMutation {
 	return _u.mutation
@@ -148,6 +164,27 @@ func (_u *DiagnosisTaskUpdate) RemoveEvents(v ...*DiagnosisTaskEvent) *Diagnosis
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveEventIDs(ids...)
+}
+
+// ClearChatSessions clears all "chat_sessions" edges to the ChatSession entity.
+func (_u *DiagnosisTaskUpdate) ClearChatSessions() *DiagnosisTaskUpdate {
+	_u.mutation.ClearChatSessions()
+	return _u
+}
+
+// RemoveChatSessionIDs removes the "chat_sessions" edge to ChatSession entities by IDs.
+func (_u *DiagnosisTaskUpdate) RemoveChatSessionIDs(ids ...int) *DiagnosisTaskUpdate {
+	_u.mutation.RemoveChatSessionIDs(ids...)
+	return _u
+}
+
+// RemoveChatSessions removes "chat_sessions" edges to ChatSession entities.
+func (_u *DiagnosisTaskUpdate) RemoveChatSessions(v ...*ChatSession) *DiagnosisTaskUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveChatSessionIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -285,6 +322,51 @@ func (_u *DiagnosisTaskUpdate) sqlSave(ctx context.Context) (_node int, err erro
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.ChatSessionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   diagnosistask.ChatSessionsTable,
+			Columns: []string{diagnosistask.ChatSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsession.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedChatSessionsIDs(); len(nodes) > 0 && !_u.mutation.ChatSessionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   diagnosistask.ChatSessionsTable,
+			Columns: []string{diagnosistask.ChatSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsession.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChatSessionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   diagnosistask.ChatSessionsTable,
+			Columns: []string{diagnosistask.ChatSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsession.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{diagnosistask.Label}
@@ -400,6 +482,21 @@ func (_u *DiagnosisTaskUpdateOne) AddEvents(v ...*DiagnosisTaskEvent) *Diagnosis
 	return _u.AddEventIDs(ids...)
 }
 
+// AddChatSessionIDs adds the "chat_sessions" edge to the ChatSession entity by IDs.
+func (_u *DiagnosisTaskUpdateOne) AddChatSessionIDs(ids ...int) *DiagnosisTaskUpdateOne {
+	_u.mutation.AddChatSessionIDs(ids...)
+	return _u
+}
+
+// AddChatSessions adds the "chat_sessions" edges to the ChatSession entity.
+func (_u *DiagnosisTaskUpdateOne) AddChatSessions(v ...*ChatSession) *DiagnosisTaskUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddChatSessionIDs(ids...)
+}
+
 // Mutation returns the DiagnosisTaskMutation object of the builder.
 func (_u *DiagnosisTaskUpdateOne) Mutation() *DiagnosisTaskMutation {
 	return _u.mutation
@@ -424,6 +521,27 @@ func (_u *DiagnosisTaskUpdateOne) RemoveEvents(v ...*DiagnosisTaskEvent) *Diagno
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveEventIDs(ids...)
+}
+
+// ClearChatSessions clears all "chat_sessions" edges to the ChatSession entity.
+func (_u *DiagnosisTaskUpdateOne) ClearChatSessions() *DiagnosisTaskUpdateOne {
+	_u.mutation.ClearChatSessions()
+	return _u
+}
+
+// RemoveChatSessionIDs removes the "chat_sessions" edge to ChatSession entities by IDs.
+func (_u *DiagnosisTaskUpdateOne) RemoveChatSessionIDs(ids ...int) *DiagnosisTaskUpdateOne {
+	_u.mutation.RemoveChatSessionIDs(ids...)
+	return _u
+}
+
+// RemoveChatSessions removes "chat_sessions" edges to ChatSession entities.
+func (_u *DiagnosisTaskUpdateOne) RemoveChatSessions(v ...*ChatSession) *DiagnosisTaskUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveChatSessionIDs(ids...)
 }
 
 // Where appends a list predicates to the DiagnosisTaskUpdate builder.
@@ -584,6 +702,51 @@ func (_u *DiagnosisTaskUpdateOne) sqlSave(ctx context.Context) (_node *Diagnosis
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(diagnosistaskevent.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ChatSessionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   diagnosistask.ChatSessionsTable,
+			Columns: []string{diagnosistask.ChatSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsession.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedChatSessionsIDs(); len(nodes) > 0 && !_u.mutation.ChatSessionsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   diagnosistask.ChatSessionsTable,
+			Columns: []string{diagnosistask.ChatSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsession.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ChatSessionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   diagnosistask.ChatSessionsTable,
+			Columns: []string{diagnosistask.ChatSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsession.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

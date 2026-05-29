@@ -13,11 +13,17 @@ Deliverables:
 - `LLMProvider` interface
 - fake provider (deterministic output for tests)
 - OpenAI-compatible provider (direct HTTP, no agent framework)
+- runtime provider injection from env into Temporal Activities
 - provider-capability detection at initialization (strict schema vs json_object)
 - prompt templates (single alert, cascade, alert storm)
 - JSON output parser with schema validation
 - retry mechanism: 3 attempts with validation error fed back to LLM
 - `finish_reason` / refusal / truncation checked before accepting output
+- SubReport and FinalReport persistence schemas + repository
+- ReportFanOutWorkflow, ReportBatchWorkflow, and FinalReportWorkflow
+- IMProvider interface and Webhook implementation
+- report notification flow after FinalReport persistence
+- report read APIs: list FinalReports and get detail with linked SubReports
 - golden prompt tests (validate structure, not content)
 
 ### Idempotency and Ordering
@@ -33,19 +39,22 @@ Deliverables:
 
 ```go
 type LLMProvider interface {
-    GenerateReport(ctx context.Context, req ReportRequest) (*SubReport, error)
+    GenerateJSON(ctx context.Context, req LLMRequest) (LLMResponse, error)
 }
 
-type ReportRequest struct {
-    Evidence       EvidenceSnapshot
-    PromptTemplate string
-    OutputSchema   json.RawMessage // JSON Schema for validation
+type LLMRequest struct {
+    Messages       []LLMMessage
+    OutputSchema   json.RawMessage
+    OutputSchemaID string
+    IdempotencyKey string
 }
 ```
 
 The implementation is a thin HTTP client calling an OpenAI-compatible
 `/chat/completions` endpoint. No agent framework, no tool calling, no multi-turn
-conversation at this stage.
+conversation at this stage. Prompt construction is owned by
+`internal/usecases/reportprompt/`; provider implementations only execute the
+request and return raw JSON plus completion metadata.
 
 ### Output Structuring Strategy
 
@@ -83,21 +92,34 @@ This section does not block M2 or M3. It has two parts:
 - an exploratory quality track that compares sandbox-augmented reports with the
   M2 direct LLM baseline
 
+M4 sandbox augmentation belongs to the Insight Pipeline only when it produces a
+schema-validated report artifact for the report workflow. It must not absorb
+M5 diagnosis-room conversation state or workspace action authority. The
+boundary between the automated pipeline and the human Agent Workspace is
+defined in
+[insight-pipeline-agent-workspace.md](../insight-pipeline-agent-workspace.md).
+
 Deliverables:
 
 - `ContainerProvider` interface
-- self-built Docker sandbox (non-root, readonly fs, network allowlist, CPU/memory
-  limits, fixed timeout)
+- agent runtime selection gate for operator-supplied runtime candidates
+- runtime-agnostic Docker sandbox (non-root, readonly fs, network allowlist,
+  CPU/memory/PID limits, fixed timeout)
 - evidence injection via mounted workspace files
 - tool scripts: metric query helper, topology lookup helper
 - output extraction via /workspace/out/output.json (file-based contract)
 - cleanup on success, failure, and timeout
+- live Docker Provider smoke (`make container-provider-smoke`)
 - quality comparison: sandbox-augmented report vs direct LLM report (M2 baseline)
 
 ### Sandbox Architecture
 
 The Go control plane owns the full lifecycle. The agent framework owns
 reasoning. See [architecture.md](../architecture.md) for the complete boundary.
+The concrete runtime is chosen by
+[agent-runtime-selection.md](../agent-runtime-selection.md); M4 implementation
+must not grow a custom agent framework before runtime candidates are evaluated
+against the same sandbox smoke.
 
 ```text
 Go control plane (Activity in Temporal workflow)
@@ -145,7 +167,100 @@ Agent Config Structure.
 ```
 
 Each step uses existing Docker Engine API (no custom protocol). Container image
-is pre-built with the agent runtime (Python/Go/OpenClaw/any framework).
+is pre-built with the selected runtime adapter for an operator-supplied
+candidate and referenced by digest. The local `make
+container-provider-smoke` gate proves the Go `ContainerProvider.Run` path
+against a real Docker daemon before a candidate runtime is selected.
+
+### Runtime Selection Gate
+
+Before implementing tool orchestration inside the sandbox, M4 must prove at
+least one candidate runtime against the ADR-0013 file contract:
+
+Current named candidates are evaluation examples, not platform enums:
+
+- OpenClaw candidate: embedded run or SDK/Gateway path can run in a short-lived
+  container with channel/gateway tools disabled and output normalized to
+  `/workspace/out/output.json`
+- Hermes Agent candidate: one-shot CLI or equivalent path can run with memory
+  scoped to tmpfs, dangerous tools denied, and strict JSON emitted to the file
+  contract
+- custom thin runner candidate: limited to file reading, provider/tool calls,
+  and JSON normalization; no custom planning, persistent memory, approval
+  system, or multi-agent orchestration without a new decision
+
+The first candidate that passes security/lifecycle smoke and shows acceptable
+quality delta becomes the M4/M5 baseline.
+
+Current contract proof: `make custom-thin-runner-smoke` builds the local
+scratch-based custom runner, pushes it to an ephemeral localhost registry to
+obtain a real `repo@sha256` image reference, and runs it through both
+`make agent-runtime-smoke` and `make container-provider-smoke`. This proves the
+file contract and lifecycle path; it does not replace external framework
+candidate evaluation or the quality-delta decision. The same smoke packages the
+metric/topology helper binaries and proves the topology helper inside the
+digest-pinned image with an alternate entrypoint.
+
+Tool helper proof: `make agent-tool-scripts-test` covers the first read-only
+metric and topology helper contracts. `scripts/agent_tool_metric_query` calls
+Prometheus `/api/v1/query` with bounded response parsing and JSON-object output.
+`scripts/agent_tool_topology_lookup` reads a bounded static JSON topology file
+and returns a service-centered JSON object. Packaging those helpers into a
+candidate runtime image is proven by the custom thin runner smoke.
+
+Minimum baseline audit: `make sandbox-baseline-audit` covers the code-level
+M4/M5 sandbox baseline. It emits a JSON proof for ADR-0013 file paths,
+network-none batch defaults, M5 read-only turn input mounts, Docker runtime
+security posture, resource limits, allowlist subset enforcement, and bounded
+strict request/raw-output JSON validation. It is not a live Docker smoke;
+manual smoke targets remain the evidence for daemon cleanup behavior.
+
+M5 minimum sandbox baseline: accepted locally on 2026-05-28 and revalidated on
+2026-05-29 after `make sandbox-baseline-audit`,
+`make custom-thin-runner-smoke`, `make container-provider-smoke`,
+`make container-provider-timeout-smoke`,
+`make container-provider-output-cap-smoke`, and
+`make egress-allowdeny-smoke` passed against the current tree. This closes the
+file-I/O, helper-packaging, cleanup, output-cap, and egress allow/deny
+foundation for M5 short-conversation implementation. It also closes the
+runtime-agnostic Docker sandbox baseline. It does not close the M4
+report-quality comparison or runtime framework decision.
+
+Quality comparison harness: `make sandbox-quality-compare-test` covers the
+offline direct-vs-sandbox SubReport comparator in
+`scripts/sandbox_quality_compare`. The comparator validates both candidate
+outputs with the production `reportdraft.ParseSubReport` path, emits
+machine-readable metric deltas, supports manifest-mode batches of
+representative direct/sandbox sample pairs, records `sample_basis` plus
+per-case alert scenario labels, emits `scenario_coverage`, and can fail on
+conservative structural regression. This does not close the M4 quality-delta
+decision; real direct and sandbox outputs from representative alert evidence
+are still required.
+
+M4 decision gate: `make sandbox-m4-decision-test` covers the offline
+proceed/iterate/defer decision helper in `scripts/sandbox_m4_decision`. The
+manual `make sandbox-m4-decision` target requires three evidence files: the
+baseline audit JSON, the manifest-mode quality comparison JSON, and a human
+review evidence JSON that records representative sample basis plus runtime
+smoke results. The quality comparison must cover `single_alert`, `cascade`, and
+`alert_storm` before the decision can proceed, and the review evidence
+`sample_basis` must match the quality comparison `sample_basis` so an operator
+cannot attach stale review evidence to a different sample. Candidate runtime
+IDs remain evidence-supplied values; any selected pass candidate must bind its
+digest-pinned runtime ref and cite every required runtime smoke name through
+`runtime_smoke_refs`, keeping the control plane generic. See
+[../sandbox-m4-decision.md](../sandbox-m4-decision.md).
+
+Evidence packet assembly: `make sandbox-m4-evidence-packet-test` covers the
+manual packet helper in `scripts/sandbox_m4_evidence_packet`. The manual
+`make sandbox-m4-evidence-packet` target runs the baseline audit and quality
+comparison, copies the review evidence, runs the decision gate, and writes all
+outputs into one empty directory for audit. It rejects weak generated helper
+artifacts before writing them, including missing baseline pass checks, missing
+quality sample/scenario evidence, review evidence whose `sample_basis` does not
+match the generated quality comparison, weak review evidence, and invalid
+decision outputs. See
+[../sandbox-m4-evidence-packet.md](../sandbox-m4-evidence-packet.md).
 
 ### Sandbox Security Constraints
 
@@ -155,12 +270,18 @@ is pre-built with the agent runtime (Python/Go/OpenClaw/any framework).
   Go issues short-lived tokens (TTL <= container timeout) via environment
   variable injection. No long-lived secrets inside container.
 - **Docker daemon access**: V1 uses host Docker socket. Post-V1 considers
-  rootless Docker or dedicated sandbox host with mTLS-protected API.
+  rootless Docker or dedicated sandbox host with mTLS-protected API. The
+  boundary is documented in
+  [../docker-daemon-boundary.md](../docker-daemon-boundary.md).
 - **Egress control prerequisite**: egress allowlist design (iptables or egress
   proxy) must be tested before M4 acceptance, not just documented. SaaS LLM
   targets with rotating IPs require domain-based egress proxy even in V1.
-- **Writable mount**: only `/workspace/out/` (writable tmpfs, capped 10MB);
-  all other mounts are read-only.
+  Allowlist requests use exact `host[:port]` targets and must pass the Docker
+  provider's subset enforcer before container creation. `make
+  egress-allowdeny-smoke` proves the Docker internal-network + proxy topology;
+  production wiring into the accepted candidate runtime remains pending.
+- **Writable mount**: only `/workspace/out/` (private writable output mount
+  capped by `fsize` ulimit and Go read limit); all other mounts are read-only.
 
 ### Decision Gate
 
@@ -168,6 +289,9 @@ After M4 delivery, evaluate:
 - Does sandbox-augmented analysis measurably improve report quality?
 - Is the operational overhead justified?
 - Should the report-enhancement track proceed, iterate, or stay deferred?
+
+The decision must be recorded through `scripts/sandbox_m4_decision` once real
+candidate runtime evidence exists. Until then, the decision remains pending.
 
 M5 does not depend on the quality-comparison outcome. It depends on the minimum
 sandbox baseline: non-root execution, resource limits, authenticated control-

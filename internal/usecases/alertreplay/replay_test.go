@@ -66,7 +66,7 @@ func defaultRequest(start, end time.Time) alertreplay.Request {
 // countAlertEvents reads the alert_event row count via the Ent
 // client directly so the assertion targets ground truth rather than
 // the production code path under test.
-func countAlertEvents(t *testing.T, ctx context.Context) int {
+func countAlertEvents(ctx context.Context, t *testing.T) int {
 	t.Helper()
 	n, err := integration.client.AlertEvent.Query().Count(ctx)
 	if err != nil {
@@ -75,7 +75,7 @@ func countAlertEvents(t *testing.T, ctx context.Context) int {
 	return n
 }
 
-func countAlertGroups(t *testing.T, ctx context.Context) int {
+func countAlertGroups(ctx context.Context, t *testing.T) int {
 	t.Helper()
 	n, err := integration.client.AlertGroup.Query().Count(ctx)
 	if err != nil {
@@ -84,7 +84,7 @@ func countAlertGroups(t *testing.T, ctx context.Context) int {
 	return n
 }
 
-func countEvidenceSnapshots(t *testing.T, ctx context.Context) int {
+func countEvidenceSnapshots(ctx context.Context, t *testing.T) int {
 	t.Helper()
 	n, err := integration.client.EvidenceSnapshot.Query().Count(ctx)
 	if err != nil {
@@ -97,7 +97,7 @@ func countEvidenceSnapshots(t *testing.T, ctx context.Context) int {
 // M2N join table by summing each group's eager-loaded events edge.
 // We do not have a generated Count() helper for the join table, so
 // the proxy is exact rather than approximate.
-func countEventGroupLinks(t *testing.T, ctx context.Context) int {
+func countEventGroupLinks(ctx context.Context, t *testing.T) int {
 	t.Helper()
 	groups, err := integration.client.AlertGroup.Query().WithEvents().All(ctx)
 	if err != nil {
@@ -112,7 +112,7 @@ func countEventGroupLinks(t *testing.T, ctx context.Context) int {
 
 // countClosedGroups isolates the "all groups must be closed by the
 // time replay returns" assertion that several tests share.
-func countClosedGroups(t *testing.T, ctx context.Context) int {
+func countClosedGroups(ctx context.Context, t *testing.T) int {
 	t.Helper()
 	n, err := integration.client.AlertGroup.Query().Where(alertgroup.StatusEQ(string(domain.AlertGroupStatusClosed))).Count(ctx)
 	if err != nil {
@@ -163,19 +163,19 @@ func TestReplayWindow_TwentyAlertsHappyPath(t *testing.T) {
 		t.Errorf("stats = %+v\nwant   %+v", stats, want)
 	}
 
-	if got := countAlertEvents(t, ctx); got != 20 {
+	if got := countAlertEvents(ctx, t); got != 20 {
 		t.Errorf("alert_event count = %d, want 20", got)
 	}
-	if got := countAlertGroups(t, ctx); got != 4 {
+	if got := countAlertGroups(ctx, t); got != 4 {
 		t.Errorf("alert_group count = %d, want 4", got)
 	}
-	if got := countClosedGroups(t, ctx); got != 4 {
+	if got := countClosedGroups(ctx, t); got != 4 {
 		t.Errorf("closed alert_group count = %d, want 4", got)
 	}
-	if got := countEvidenceSnapshots(t, ctx); got != 4 {
+	if got := countEvidenceSnapshots(ctx, t); got != 4 {
 		t.Errorf("evidence_snapshot count = %d, want 4", got)
 	}
-	if got := countEventGroupLinks(t, ctx); got != 20 {
+	if got := countEventGroupLinks(ctx, t); got != 20 {
 		t.Errorf("alert_event_groups (M2N) count = %d, want 20", got)
 	}
 }
@@ -223,17 +223,78 @@ func TestReplayWindow_RerunIsIdempotent(t *testing.T) {
 		t.Errorf("second stats = %+v\nwant         %+v", stats, want)
 	}
 
-	if got := countAlertEvents(t, ctx); got != 20 {
+	if got := countAlertEvents(ctx, t); got != 20 {
 		t.Errorf("alert_event count after rerun = %d, want 20", got)
 	}
-	if got := countAlertGroups(t, ctx); got != 4 {
+	if got := countAlertGroups(ctx, t); got != 4 {
 		t.Errorf("alert_group count after rerun = %d, want 4", got)
 	}
-	if got := countEvidenceSnapshots(t, ctx); got != 4 {
+	if got := countEvidenceSnapshots(ctx, t); got != 4 {
 		t.Errorf("evidence_snapshot count after rerun = %d, want 4", got)
 	}
-	if got := countEventGroupLinks(t, ctx); got != 20 {
+	if got := countEventGroupLinks(ctx, t); got != 20 {
 		t.Errorf("alert_event_groups count after rerun = %d, want 20", got)
+	}
+}
+
+// TestReplayWindowForReport_ReturnsSnapshotRefsForSavedAndDuplicateSnapshots
+// proves the report-trigger API exposes the persisted snapshot IDs
+// for both first-run saves and idempotent duplicate reruns. ReplayWindow
+// remains the counter-only compatibility API.
+func TestReplayWindowForReport_ReturnsSnapshotRefsForSavedAndDuplicateSnapshots(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+
+	var batch []ports.ActiveAlert
+	batch = append(batch, seedAlerts("AlertA", 2, windowStart, 0, time.Minute, "warning")...)
+	batch = append(batch, seedAlerts("AlertB", 1, windowStart, 30*time.Minute, time.Minute, "critical")...)
+	provider := fake.New(batch)
+	req := defaultRequest(windowStart, windowEnd)
+
+	first, err := alertreplay.ReplayWindowForReport(ctx, provider, integration.factory, req)
+	if err != nil {
+		t.Fatalf("first ReplayWindowForReport: %v", err)
+	}
+	if first.Stats.SnapshotsSaved != 2 || first.Stats.SnapshotsDuplicate != 0 {
+		t.Fatalf("first snapshot stats = %+v, want saved=2 duplicate=0", first.Stats)
+	}
+	if len(first.Snapshots) != 2 {
+		t.Fatalf("first snapshots len = %d, want 2", len(first.Snapshots))
+	}
+	firstIDs := make([]domain.EvidenceSnapshotID, len(first.Snapshots))
+	for i, ref := range first.Snapshots {
+		if ref.ID == 0 {
+			t.Fatalf("first snapshots[%d].ID is zero", i)
+		}
+		if ref.GroupIndex != i {
+			t.Fatalf("first snapshots[%d].GroupIndex = %d, want %d", i, ref.GroupIndex, i)
+		}
+		if ref.EventCount <= 0 {
+			t.Fatalf("first snapshots[%d].EventCount = %d, want > 0", i, ref.EventCount)
+		}
+		firstIDs[i] = ref.ID
+	}
+
+	second, err := alertreplay.ReplayWindowForReport(ctx, provider, integration.factory, req)
+	if err != nil {
+		t.Fatalf("second ReplayWindowForReport: %v", err)
+	}
+	if second.Stats.SnapshotsSaved != 0 || second.Stats.SnapshotsDuplicate != 2 {
+		t.Fatalf("second snapshot stats = %+v, want saved=0 duplicate=2", second.Stats)
+	}
+	if len(second.Snapshots) != len(firstIDs) {
+		t.Fatalf("second snapshots len = %d, want %d", len(second.Snapshots), len(firstIDs))
+	}
+	for i, ref := range second.Snapshots {
+		if ref.ID != firstIDs[i] {
+			t.Fatalf("second snapshots[%d].ID = %d, want existing ID %d", i, ref.ID, firstIDs[i])
+		}
+		if ref.GroupIndex != i {
+			t.Fatalf("second snapshots[%d].GroupIndex = %d, want %d", i, ref.GroupIndex, i)
+		}
 	}
 }
 
@@ -280,16 +341,16 @@ func TestReplayWindow_OutOfWindowEventsExcluded(t *testing.T) {
 		t.Errorf("Failed = %d, want 0", stats.Failed)
 	}
 
-	if got := countAlertEvents(t, ctx); got != 30 {
+	if got := countAlertEvents(ctx, t); got != 30 {
 		t.Errorf("alert_event count = %d, want 30 (every provider alert persists)", got)
 	}
-	if got := countAlertGroups(t, ctx); got != 4 {
+	if got := countAlertGroups(ctx, t); got != 4 {
 		t.Errorf("alert_group count = %d, want 4 (only in-window groups)", got)
 	}
-	if got := countEvidenceSnapshots(t, ctx); got != 4 {
+	if got := countEvidenceSnapshots(ctx, t); got != 4 {
 		t.Errorf("evidence_snapshot count = %d, want 4", got)
 	}
-	if got := countEventGroupLinks(t, ctx); got != 20 {
+	if got := countEventGroupLinks(ctx, t); got != 20 {
 		t.Errorf("alert_event_groups count = %d, want 20 (only in-window events linked)", got)
 	}
 }
@@ -375,7 +436,7 @@ func TestReplayWindow_GroupClosedAfterSnapshot(t *testing.T) {
 		t.Errorf("group.UpdatedAt %s is Before CreatedAt %s", row.UpdatedAt, row.CreatedAt)
 	}
 
-	if got := countEvidenceSnapshots(t, ctx); got != 1 {
+	if got := countEvidenceSnapshots(ctx, t); got != 1 {
 		t.Errorf("evidence_snapshot count = %d, want 1", got)
 	}
 }
@@ -400,7 +461,7 @@ func TestReplayWindow_RefreshOnNewEventInExistingGroup(t *testing.T) {
 	}
 
 	// Sanity: group is closed after run 1.
-	if got := countClosedGroups(t, ctx); got != 1 {
+	if got := countClosedGroups(ctx, t); got != 1 {
 		t.Fatalf("after run 1: closed groups = %d, want 1", got)
 	}
 
@@ -454,19 +515,19 @@ func TestReplayWindow_RefreshOnNewEventInExistingGroup(t *testing.T) {
 
 	// DB checks: 4 events, still 1 group, 2 snapshot rows
 	// (run1 + run2 with different digests), 4 M2N links.
-	if got := countAlertEvents(t, ctx); got != 4 {
+	if got := countAlertEvents(ctx, t); got != 4 {
 		t.Errorf("alert_event count = %d, want 4", got)
 	}
-	if got := countAlertGroups(t, ctx); got != 1 {
+	if got := countAlertGroups(ctx, t); got != 1 {
 		t.Errorf("alert_group count = %d, want 1", got)
 	}
-	if got := countClosedGroups(t, ctx); got != 1 {
+	if got := countClosedGroups(ctx, t); got != 1 {
 		t.Errorf("closed group count = %d, want 1 (status preserved across refresh)", got)
 	}
-	if got := countEvidenceSnapshots(t, ctx); got != 2 {
+	if got := countEvidenceSnapshots(ctx, t); got != 2 {
 		t.Errorf("evidence_snapshot count = %d, want 2 (run1 + run2 keep both rows)", got)
 	}
-	if got := countEventGroupLinks(t, ctx); got != 4 {
+	if got := countEventGroupLinks(ctx, t); got != 4 {
 		t.Errorf("alert_event_groups count = %d, want 4", got)
 	}
 
@@ -537,16 +598,16 @@ func TestReplayWindow_LimitSafetyValve(t *testing.T) {
 
 	// AlertEvents from Step 1 persist (their per-event tx already
 	// committed); the safety valve only protects Step 3+.
-	if got := countAlertEvents(t, ctx); got != 5 {
+	if got := countAlertEvents(ctx, t); got != 5 {
 		t.Errorf("alert_event count = %d, want 5", got)
 	}
-	if got := countAlertGroups(t, ctx); got != 0 {
+	if got := countAlertGroups(ctx, t); got != 0 {
 		t.Errorf("alert_group count = %d, want 0", got)
 	}
-	if got := countEvidenceSnapshots(t, ctx); got != 0 {
+	if got := countEvidenceSnapshots(ctx, t); got != 0 {
 		t.Errorf("evidence_snapshot count = %d, want 0", got)
 	}
-	if got := countEventGroupLinks(t, ctx); got != 0 {
+	if got := countEventGroupLinks(ctx, t); got != 0 {
 		t.Errorf("alert_event_groups count = %d, want 0", got)
 	}
 }
@@ -652,13 +713,13 @@ func TestReplayWindow_RequestValidationRejected(t *testing.T) {
 			// No side effects allowed for any validation
 			// failure: the function must reject before
 			// reaching IngestOnce.
-			if got := countAlertEvents(t, ctx); got != 0 {
+			if got := countAlertEvents(ctx, t); got != 0 {
 				t.Errorf("alert_event count = %d, want 0 (validation must short-circuit before ingest)", got)
 			}
-			if got := countAlertGroups(t, ctx); got != 0 {
+			if got := countAlertGroups(ctx, t); got != 0 {
 				t.Errorf("alert_group count = %d, want 0", got)
 			}
-			if got := countEvidenceSnapshots(t, ctx); got != 0 {
+			if got := countEvidenceSnapshots(ctx, t); got != 0 {
 				t.Errorf("evidence_snapshot count = %d, want 0", got)
 			}
 		})
@@ -728,16 +789,16 @@ func TestReplayWindow_EmptyGroupingConfigRejectedWhenEventsExist(t *testing.T) {
 
 	// Ingest persisted 1 event in its own tx; nothing past Step 3
 	// must touch the database.
-	if got := countAlertEvents(t, ctx); got != 1 {
+	if got := countAlertEvents(ctx, t); got != 1 {
 		t.Errorf("alert_event count = %d, want 1", got)
 	}
-	if got := countAlertGroups(t, ctx); got != 0 {
+	if got := countAlertGroups(ctx, t); got != 0 {
 		t.Errorf("alert_group count = %d, want 0", got)
 	}
-	if got := countEvidenceSnapshots(t, ctx); got != 0 {
+	if got := countEvidenceSnapshots(ctx, t); got != 0 {
 		t.Errorf("evidence_snapshot count = %d, want 0", got)
 	}
-	if got := countEventGroupLinks(t, ctx); got != 0 {
+	if got := countEventGroupLinks(ctx, t); got != 0 {
 		t.Errorf("alert_event_groups count = %d, want 0", got)
 	}
 }
@@ -781,13 +842,13 @@ func TestReplayWindow_EmptyWindowReturnsZeroStats(t *testing.T) {
 		t.Errorf("Failed = %d, want 0", stats.Failed)
 	}
 
-	if got := countAlertEvents(t, ctx); got != 0 {
+	if got := countAlertEvents(ctx, t); got != 0 {
 		t.Errorf("alert_event count = %d, want 0", got)
 	}
-	if got := countAlertGroups(t, ctx); got != 0 {
+	if got := countAlertGroups(ctx, t); got != 0 {
 		t.Errorf("alert_group count = %d, want 0", got)
 	}
-	if got := countEvidenceSnapshots(t, ctx); got != 0 {
+	if got := countEvidenceSnapshots(ctx, t); got != 0 {
 		t.Errorf("evidence_snapshot count = %d, want 0", got)
 	}
 }

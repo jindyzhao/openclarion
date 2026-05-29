@@ -1,4 +1,6 @@
 ---
+id: ADR-0012
+title: "Technology Stack Validation"
 status: "proposed"
 date: 2026-05-19
 deciders: ["jindyzhao"]
@@ -102,6 +104,27 @@ Rather than binding to a specific agent runtime, the project defines a generic
 This preserves maximum flexibility while eliminating a pre-MVP dependency on an
 emerging project with uncertain headless-integration ergonomics.
 
+### Amendment 4A: Add M4 Agent Runtime Selection Gate
+
+**Rationale**: By M4 the project must choose how the sandbox image actually
+executes agent work. OpenClaw and Hermes Agent both provide useful runtime
+surfaces, but both also include session, tool, memory, gateway, or CLI behavior
+that must be proven compatible with OpenClarion's short-lived, file-based,
+network-restricted sandbox contract before adoption.
+
+The M4 rule is adapter-first:
+
+* candidate runtime dependencies live inside digest-pinned sandbox images, not
+  in the Go control plane
+* the root Go module and first-party frontend packages must not import
+  OpenClaw, Hermes Agent, LangChain, CrewAI, AutoGen, or similar frameworks
+  until the runtime selection gate accepts a baseline
+* a custom runner may be used only as a thin file-contract adapter unless a
+  later decision explicitly accepts custom planning, memory, approvals, or
+  multi-agent orchestration
+
+See [agent-runtime-selection.md](../design/agent-runtime-selection.md).
+
 ### Amendment 5: Temporal Go SDK Minimum Version
 
 **Rationale**: M5 interactive diagnosis requires Workflow Update for synchronous
@@ -143,6 +166,8 @@ requires a compatible Temporal Server version.
 * generated server code uses std `net/http`
 * no specific agent runtime is imported for M0-M2 code paths
 * `ContainerProvider` interface accepts any OCI-compliant runtime
+* `make forbidden-agent-runtime` rejects control-plane agent-framework
+  dependencies before the M4 runtime gate accepts a baseline
 
 ## Best Practices Alignment
 
@@ -176,3 +201,4 @@ This validation should be re-assessed:
 | 2026-05-22 | jindyzhao | Move Temporal SDK pin and Update round-trip validation from M0 to M1 (first-import pin rule); record `oapi-codegen-exp v0.1.0` as the actual pin |
 | 2026-05-22 | jindyzhao | Amendment 3: replace "specific commit hash" wording with "tested released module version (`v0.1.0`)" to align with the project-wide first-import `module@version` rule |
 | 2026-05-22 | jindyzhao | Refine Amendment 5 from "M1" to "M1-PR3": Temporal Go SDK first-import pin and Update round-trip integration test land with the `DiagnosisWorkflow` shell in M1-PR3, not earlier; an M1-PR2 placeholder import would violate the first-import rule |
+| 2026-05-28 | jindyzhao | Add M4 agent runtime selection gate so OpenClaw/Hermes/custom runner adoption is proven inside the sandbox image before control-plane dependencies are allowed |

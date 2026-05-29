@@ -144,7 +144,10 @@ func GroupEvents(events []domain.AlertEvent, cfg Config) ([]domain.AlertGroup, e
 
 	for i := range events {
 		dims := dimensionSubset(events[i].Labels, ncfg.dimensionKeys)
-		dj := canonicalDimensionsJSON(dims)
+		dj, err := canonicalDimensionsJSON(dims)
+		if err != nil {
+			return nil, fmt.Errorf("alertgrouping: canonical dimensions json: %w", err)
+		}
 		key := string(dj)
 		if b, ok := buckets[key]; ok {
 			b.events = append(b.events, events[i])
@@ -238,16 +241,11 @@ func dimensionSubset(labels map[string]string, keys []string) map[string]string 
 // the group key hash. The nil -> {} guard mirrors alertingest's
 // canonicalLabelsJSON for consistency, although dimensionSubset always
 // returns a non-nil map.
-func canonicalDimensionsJSON(dims map[string]string) []byte {
+func canonicalDimensionsJSON(dims map[string]string) ([]byte, error) {
 	if dims == nil {
 		dims = map[string]string{}
 	}
-	b, err := json.Marshal(dims)
-	if err != nil {
-		// map[string]string cannot fail to marshal; defensive panic.
-		panic(fmt.Sprintf("alertgrouping: canonical dimensions marshal: %v", err))
-	}
-	return b
+	return json.Marshal(dims)
 }
 
 // sha256Hex returns the lowercase hex-encoded SHA-256 digest of data.

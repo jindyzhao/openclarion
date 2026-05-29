@@ -14,6 +14,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
+	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
 
 // EvidenceSnapshotCreate is the builder for creating a EvidenceSnapshot entity.
@@ -119,6 +120,21 @@ func (_c *EvidenceSnapshotCreate) AddTasks(v ...*DiagnosisTask) *EvidenceSnapsho
 		ids[i] = v[i].ID
 	}
 	return _c.AddTaskIDs(ids...)
+}
+
+// AddSubReportIDs adds the "sub_reports" edge to the SubReport entity by IDs.
+func (_c *EvidenceSnapshotCreate) AddSubReportIDs(ids ...int) *EvidenceSnapshotCreate {
+	_c.mutation.AddSubReportIDs(ids...)
+	return _c
+}
+
+// AddSubReports adds the "sub_reports" edges to the SubReport entity.
+func (_c *EvidenceSnapshotCreate) AddSubReports(v ...*SubReport) *EvidenceSnapshotCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddSubReportIDs(ids...)
 }
 
 // Mutation returns the EvidenceSnapshotMutation object of the builder.
@@ -284,6 +300,22 @@ func (_c *EvidenceSnapshotCreate) createSpec() (*EvidenceSnapshot, *sqlgraph.Cre
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(diagnosistask.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.SubReportsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   evidencesnapshot.SubReportsTable,
+			Columns: []string{evidencesnapshot.SubReportsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subreport.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

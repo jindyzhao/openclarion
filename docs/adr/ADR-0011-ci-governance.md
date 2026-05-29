@@ -1,4 +1,6 @@
 ---
+id: ADR-0011
+title: "CI Governance and Quality Gates"
 status: "proposed"
 date: 2026-05-18
 deciders: ["jindyzhao"]
@@ -31,6 +33,17 @@ backend, frontend, API, security, docs, and generated artifacts.
 | docs hygiene | English-only governed docs and valid markdown links |
 | API contract | OpenAPI lint, generation freshness, diff checks |
 | architecture checks | forbidden imports, provider layering, transaction boundaries |
+
+### Consequences
+
+* Good, because local `make` targets and GitHub Actions stay aligned as gates
+  are introduced.
+* Good, because generated artifacts, dependency pins, and architecture
+  boundaries become reviewable before runtime code depends on them.
+* Neutral, because each new gate must ship with documentation and fixture-backed
+  negative coverage to justify its maintenance cost.
+* Bad, because strict gates can slow early iteration if they are added before
+  the protected code exists.
 
 ### Confirmation
 

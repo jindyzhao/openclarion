@@ -15,6 +15,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
+	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
 
 // EvidenceSnapshotUpdate is the builder for updating EvidenceSnapshot entities.
@@ -109,6 +110,21 @@ func (_u *EvidenceSnapshotUpdate) AddTasks(v ...*DiagnosisTask) *EvidenceSnapsho
 	return _u.AddTaskIDs(ids...)
 }
 
+// AddSubReportIDs adds the "sub_reports" edge to the SubReport entity by IDs.
+func (_u *EvidenceSnapshotUpdate) AddSubReportIDs(ids ...int) *EvidenceSnapshotUpdate {
+	_u.mutation.AddSubReportIDs(ids...)
+	return _u
+}
+
+// AddSubReports adds the "sub_reports" edges to the SubReport entity.
+func (_u *EvidenceSnapshotUpdate) AddSubReports(v ...*SubReport) *EvidenceSnapshotUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSubReportIDs(ids...)
+}
+
 // Mutation returns the EvidenceSnapshotMutation object of the builder.
 func (_u *EvidenceSnapshotUpdate) Mutation() *EvidenceSnapshotMutation {
 	return _u.mutation
@@ -133,6 +149,27 @@ func (_u *EvidenceSnapshotUpdate) RemoveTasks(v ...*DiagnosisTask) *EvidenceSnap
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTaskIDs(ids...)
+}
+
+// ClearSubReports clears all "sub_reports" edges to the SubReport entity.
+func (_u *EvidenceSnapshotUpdate) ClearSubReports() *EvidenceSnapshotUpdate {
+	_u.mutation.ClearSubReports()
+	return _u
+}
+
+// RemoveSubReportIDs removes the "sub_reports" edge to SubReport entities by IDs.
+func (_u *EvidenceSnapshotUpdate) RemoveSubReportIDs(ids ...int) *EvidenceSnapshotUpdate {
+	_u.mutation.RemoveSubReportIDs(ids...)
+	return _u
+}
+
+// RemoveSubReports removes "sub_reports" edges to SubReport entities.
+func (_u *EvidenceSnapshotUpdate) RemoveSubReports(v ...*SubReport) *EvidenceSnapshotUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSubReportIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -265,6 +302,51 @@ func (_u *EvidenceSnapshotUpdate) sqlSave(ctx context.Context) (_node int, err e
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.SubReportsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   evidencesnapshot.SubReportsTable,
+			Columns: []string{evidencesnapshot.SubReportsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subreport.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSubReportsIDs(); len(nodes) > 0 && !_u.mutation.SubReportsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   evidencesnapshot.SubReportsTable,
+			Columns: []string{evidencesnapshot.SubReportsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subreport.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SubReportsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   evidencesnapshot.SubReportsTable,
+			Columns: []string{evidencesnapshot.SubReportsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subreport.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{evidencesnapshot.Label}
@@ -364,6 +446,21 @@ func (_u *EvidenceSnapshotUpdateOne) AddTasks(v ...*DiagnosisTask) *EvidenceSnap
 	return _u.AddTaskIDs(ids...)
 }
 
+// AddSubReportIDs adds the "sub_reports" edge to the SubReport entity by IDs.
+func (_u *EvidenceSnapshotUpdateOne) AddSubReportIDs(ids ...int) *EvidenceSnapshotUpdateOne {
+	_u.mutation.AddSubReportIDs(ids...)
+	return _u
+}
+
+// AddSubReports adds the "sub_reports" edges to the SubReport entity.
+func (_u *EvidenceSnapshotUpdateOne) AddSubReports(v ...*SubReport) *EvidenceSnapshotUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSubReportIDs(ids...)
+}
+
 // Mutation returns the EvidenceSnapshotMutation object of the builder.
 func (_u *EvidenceSnapshotUpdateOne) Mutation() *EvidenceSnapshotMutation {
 	return _u.mutation
@@ -388,6 +485,27 @@ func (_u *EvidenceSnapshotUpdateOne) RemoveTasks(v ...*DiagnosisTask) *EvidenceS
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTaskIDs(ids...)
+}
+
+// ClearSubReports clears all "sub_reports" edges to the SubReport entity.
+func (_u *EvidenceSnapshotUpdateOne) ClearSubReports() *EvidenceSnapshotUpdateOne {
+	_u.mutation.ClearSubReports()
+	return _u
+}
+
+// RemoveSubReportIDs removes the "sub_reports" edge to SubReport entities by IDs.
+func (_u *EvidenceSnapshotUpdateOne) RemoveSubReportIDs(ids ...int) *EvidenceSnapshotUpdateOne {
+	_u.mutation.RemoveSubReportIDs(ids...)
+	return _u
+}
+
+// RemoveSubReports removes "sub_reports" edges to SubReport entities.
+func (_u *EvidenceSnapshotUpdateOne) RemoveSubReports(v ...*SubReport) *EvidenceSnapshotUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSubReportIDs(ids...)
 }
 
 // Where appends a list predicates to the EvidenceSnapshotUpdate builder.
@@ -543,6 +661,51 @@ func (_u *EvidenceSnapshotUpdateOne) sqlSave(ctx context.Context) (_node *Eviden
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(diagnosistask.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SubReportsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   evidencesnapshot.SubReportsTable,
+			Columns: []string{evidencesnapshot.SubReportsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subreport.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSubReportsIDs(); len(nodes) > 0 && !_u.mutation.SubReportsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   evidencesnapshot.SubReportsTable,
+			Columns: []string{evidencesnapshot.SubReportsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subreport.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SubReportsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   evidencesnapshot.SubReportsTable,
+			Columns: []string{evidencesnapshot.SubReportsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(subreport.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

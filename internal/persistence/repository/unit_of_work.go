@@ -149,7 +149,7 @@ func (f *factory) WithinTx(ctx context.Context, fn func(context.Context, ports.U
 	}()
 	if err := fn(innerCtx, uow); err != nil {
 		if rerr := uow.rollbackInternal(); rerr != nil {
-			return fmt.Errorf("%w (additionally, rollback failed: %v)", err, rerr)
+			return fmt.Errorf("%w (additionally, rollback failed: %w)", err, rerr)
 		}
 		return err
 	}
@@ -174,7 +174,7 @@ const (
 // unitOfWork is the Ent-backed implementation of ports.UnitOfWork.
 // Repository instances are constructed lazily on first access so a
 // transaction that uses only one aggregate-root does not pay for the
-// other two.
+// others.
 type unitOfWork struct {
 	tx     *ent.Tx
 	closed atomic.Int32
@@ -182,6 +182,7 @@ type unitOfWork struct {
 	alerts    *alertRepo
 	evidence  *evidenceRepo
 	diagnosis *diagnosisRepo
+	reports   *reportRepo
 }
 
 func newUnitOfWork(tx *ent.Tx) *unitOfWork {
@@ -189,6 +190,7 @@ func newUnitOfWork(tx *ent.Tx) *unitOfWork {
 	uow.alerts = &alertRepo{tx: tx, closed: &uow.closed}
 	uow.evidence = &evidenceRepo{tx: tx, closed: &uow.closed}
 	uow.diagnosis = &diagnosisRepo{tx: tx, closed: &uow.closed}
+	uow.reports = &reportRepo{tx: tx, closed: &uow.closed}
 	return uow
 }
 
@@ -196,9 +198,10 @@ func newUnitOfWork(tx *ent.Tx) *unitOfWork {
 // repositories) after Commit or Rollback has been called.
 var errUoWClosed = errors.New("repository: unit of work is closed")
 
-func (u *unitOfWork) Alerts() ports.AlertRepository       { return u.alerts }
-func (u *unitOfWork) Evidence() ports.EvidenceRepository  { return u.evidence }
+func (u *unitOfWork) Alerts() ports.AlertRepository        { return u.alerts }
+func (u *unitOfWork) Evidence() ports.EvidenceRepository   { return u.evidence }
 func (u *unitOfWork) Diagnosis() ports.DiagnosisRepository { return u.diagnosis }
+func (u *unitOfWork) Reports() ports.ReportRepository      { return u.reports }
 
 // Commit finalises the transaction. After a successful Commit the
 // UoW is closed; subsequent Commit / Rollback calls return

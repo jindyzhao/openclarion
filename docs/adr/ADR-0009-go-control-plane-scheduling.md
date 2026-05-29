@@ -1,4 +1,6 @@
 ---
+id: ADR-0009
+title: "Go Control Plane Scheduling"
 status: "proposed"
 date: 2026-05-18
 deciders: ["jindyzhao"]
@@ -32,6 +34,17 @@ providers only analyze prepared evidence.
 * workflow dispatch
 * retry and failure marking
 * report distribution handoff
+
+### Consequences
+
+* Good, because alert ingestion, grouping, idempotency, and workflow lifecycle
+  decisions stay deterministic and testable.
+* Good, because AI providers operate only on prepared evidence rather than
+  deciding routing or persistence behavior.
+* Neutral, because adding new signal sources requires provider adapters and
+  control-plane mapping instead of agent-only prompt changes.
+* Bad, because the Go control plane must carry more orchestration code than a
+  prompt-driven prototype would.
 
 ### Confirmation
 

@@ -1,0 +1,7 @@
+extends: [[vacuum:oas, recommended]]
+
+rules:
+  # OpenClarion uses snake_case JSON field names to match persisted
+  # column names and generated Go JSON tags. Keep this convention
+  # explicit so lint output reports actionable contract issues only.
+  camel-case-properties: false

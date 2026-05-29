@@ -5,11 +5,19 @@ package api
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // #/components/schemas/HealthResponse
@@ -23,18 +31,874 @@ type HealthResponse struct {
 func (s *HealthResponse) ApplyDefaults() {
 }
 
+// #/components/schemas/DashboardSummary
+// Operational summary for the web dashboard.
+type DashboardSummary struct {
+	GeneratedAt time.Time               `form:"generated_at" json:"generated_at"`
+	Alerts      DashboardSummaryAlerts  `form:"alerts" json:"alerts"`
+	Reports     DashboardSummaryReports `form:"reports" json:"reports"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DashboardSummary) ApplyDefaults() {
+}
+
+// #/components/schemas/DashboardSummary/properties/alerts
+type DashboardSummaryAlerts struct {
+	TotalRecent int64 `form:"total_recent" json:"total_recent"`
+	Firing      int64 `form:"firing" json:"firing"`
+	Resolved    int64 `form:"resolved" json:"resolved"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DashboardSummaryAlerts) ApplyDefaults() {
+}
+
+// #/components/schemas/DashboardSummary/properties/reports
+type DashboardSummaryReports struct {
+	TotalRecent     int64 `form:"total_recent" json:"total_recent"`
+	Delivered       int64 `form:"delivered" json:"delivered"`
+	Failed          int64 `form:"failed" json:"failed"`
+	Pending         int64 `form:"pending" json:"pending"`
+	MissingDelivery int64 `form:"missing_delivery" json:"missing_delivery"`
+	// Ratio of recent final reports whose latest notification delivery is delivered; null when there are no recent reports.
+	SuccessRate Nullable[float64]            `form:"success_rate" json:"success_rate"`
+	Severity    DashboardReportSeverityStats `form:"severity" json:"severity"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DashboardSummaryReports) ApplyDefaults() {
+}
+
+// #/components/schemas/DashboardAlertStats
+// Alert counters from the recent alert-event window.
+type DashboardAlertStats struct {
+	TotalRecent int64 `form:"total_recent" json:"total_recent"`
+	Firing      int64 `form:"firing" json:"firing"`
+	Resolved    int64 `form:"resolved" json:"resolved"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DashboardAlertStats) ApplyDefaults() {
+}
+
+// #/components/schemas/DashboardReportStats
+// Final report and latest notification delivery counters from the recent report window.
+type DashboardReportStats struct {
+	TotalRecent     int64 `form:"total_recent" json:"total_recent"`
+	Delivered       int64 `form:"delivered" json:"delivered"`
+	Failed          int64 `form:"failed" json:"failed"`
+	Pending         int64 `form:"pending" json:"pending"`
+	MissingDelivery int64 `form:"missing_delivery" json:"missing_delivery"`
+	// Ratio of recent final reports whose latest notification delivery is delivered; null when there are no recent reports.
+	SuccessRate Nullable[float64]            `form:"success_rate" json:"success_rate"`
+	Severity    DashboardReportSeverityStats `form:"severity" json:"severity"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DashboardReportStats) ApplyDefaults() {
+}
+
+// #/components/schemas/DashboardReportSeverityStats
+// Recent final report severity counters.
+type DashboardReportSeverityStats struct {
+	Info     int64 `form:"info" json:"info"`
+	Warning  int64 `form:"warning" json:"warning"`
+	Critical int64 `form:"critical" json:"critical"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DashboardReportSeverityStats) ApplyDefaults() {
+}
+
+// #/components/schemas/AlertListResponse
+// List response for recent alert events.
+type AlertListResponse struct {
+	Items []AlertEventSummary `form:"items" json:"items"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *AlertListResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/AlertListResponse/properties/items
+type AlertListResponseItem = []AlertEventSummary
+
+// #/components/schemas/AlertEventSummary
+// Alert event summary.
+type AlertEventSummary struct {
+	ID                   int64               `form:"id" json:"id"`
+	Source               string              `form:"source" json:"source"`
+	SourceFingerprint    string              `form:"source_fingerprint" json:"source_fingerprint"`
+	CanonicalFingerprint string              `form:"canonical_fingerprint" json:"canonical_fingerprint"`
+	Labels               map[string]string   `form:"labels" json:"labels"`
+	Annotations          map[string]string   `form:"annotations" json:"annotations"`
+	Status               string              `form:"status" json:"status"`
+	StartsAt             time.Time           `form:"starts_at" json:"starts_at"`
+	EndsAt               Nullable[time.Time] `form:"ends_at" json:"ends_at"`
+	CreatedAt            time.Time           `form:"created_at" json:"created_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *AlertEventSummary) ApplyDefaults() {
+}
+
+// #/components/schemas/AlertEventSummary/properties/labels
+type AlertEventSummaryLabels = map[string]string
+
+// #/components/schemas/AlertEventSummary/properties/annotations
+type AlertEventSummaryAnnotations = map[string]string
+
+// #/components/schemas/AlertEventSummary/properties/status
+type AlertEventSummaryStatus string
+
+const (
+	Firing   AlertEventSummaryStatus = "firing"
+	Resolved AlertEventSummaryStatus = "resolved"
+)
+
+// #/components/schemas/EvidenceSnapshotListResponse
+// List response for recent evidence snapshots.
+type EvidenceSnapshotListResponse struct {
+	Items []EvidenceSnapshotSummary `form:"items" json:"items"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *EvidenceSnapshotListResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/EvidenceSnapshotListResponse/properties/items
+type EvidenceSnapshotListResponseItem = []EvidenceSnapshotSummary
+
+// #/components/schemas/EvidenceSnapshotSummary
+// Evidence snapshot summary.
+type EvidenceSnapshotSummary struct {
+	ID                int64          `form:"id" json:"id"`
+	AlertGroupID      int64          `form:"alert_group_id" json:"alert_group_id"`
+	Digest            string         `form:"digest" json:"digest"`
+	Payload           map[string]any `form:"payload" json:"payload"`
+	Provenance        map[string]any `form:"provenance" json:"provenance"`
+	Status            string         `form:"status" json:"status"`
+	MissingFields     []string       `form:"missing_fields" json:"missing_fields"`
+	CreatedByWorkflow string         `form:"created_by_workflow" json:"created_by_workflow"`
+	CreatedAt         time.Time      `form:"created_at" json:"created_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *EvidenceSnapshotSummary) ApplyDefaults() {
+}
+
+// #/components/schemas/EvidenceSnapshotSummary/properties/payload
+type EvidenceSnapshotSummaryPayload = map[string]any
+
+// #/components/schemas/EvidenceSnapshotSummary/properties/provenance
+type EvidenceSnapshotSummaryProvenance = map[string]any
+
+// #/components/schemas/EvidenceSnapshotSummary/properties/status
+type EvidenceSnapshotSummaryStatus string
+
+const (
+	Complete EvidenceSnapshotSummaryStatus = "complete"
+	Partial  EvidenceSnapshotSummaryStatus = "partial"
+	Failed   EvidenceSnapshotSummaryStatus = "failed"
+)
+
+// #/components/schemas/ReportListResponse
+// List response for recent final reports.
+type ReportListResponse struct {
+	Items []FinalReportSummary `form:"items" json:"items"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportListResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportListResponse/properties/items
+type ReportListResponseItem = []FinalReportSummary
+
+// #/components/schemas/DiagnosisRoomCreateRequest
+// Request to create a short-conversation diagnosis room from a frozen EvidenceSnapshot.
+type DiagnosisRoomCreateRequest struct {
+	EvidenceSnapshotID   int64          `form:"evidence_snapshot_id" json:"evidence_snapshot_id"`
+	AdditionalProperties map[string]any `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a DiagnosisRoomCreateRequest) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *DiagnosisRoomCreateRequest) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *DiagnosisRoomCreateRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["evidence_snapshot_id"]; found {
+		if err := json.Unmarshal(raw, &a.EvidenceSnapshotID); err != nil {
+			return fmt.Errorf("error reading 'evidence_snapshot_id': %w", err)
+		}
+		delete(object, "evidence_snapshot_id")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a DiagnosisRoomCreateRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["evidence_snapshot_id"], err = json.Marshal(a.EvidenceSnapshotID)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'evidence_snapshot_id': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisRoomCreateRequest) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisRoomCreateResponse
+// Created diagnosis room identity and workflow handle.
+type DiagnosisRoomCreateResponse struct {
+	// External diagnosis room session key used for WebSocket ticket issuance.
+	SessionID string `form:"session_id" json:"session_id"`
+	// EvidenceSnapshot that backs the room.
+	EvidenceSnapshotID int64 `form:"evidence_snapshot_id" json:"evidence_snapshot_id"`
+	// Persistent DiagnosisTask created for the room workflow.
+	DiagnosisTaskID int64 `form:"diagnosis_task_id" json:"diagnosis_task_id"`
+	// Persistent ChatSession created for the room transcript.
+	ChatSessionID int64 `form:"chat_session_id" json:"chat_session_id"`
+	// Temporal workflow ID for the room.
+	WorkflowID string `form:"workflow_id" json:"workflow_id"`
+	// Temporal run ID for the room.
+	RunID string `form:"run_id" json:"run_id"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisRoomCreateResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisWSTicketRequest
+// Request to issue a short-lived WebSocket ticket for a diagnosis session.
+type DiagnosisWSTicketRequest struct {
+	SessionID            string         `form:"session_id" json:"session_id"`
+	AdditionalProperties map[string]any `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a DiagnosisWSTicketRequest) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *DiagnosisWSTicketRequest) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *DiagnosisWSTicketRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["session_id"]; found {
+		if err := json.Unmarshal(raw, &a.SessionID); err != nil {
+			return fmt.Errorf("error reading 'session_id': %w", err)
+		}
+		delete(object, "session_id")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a DiagnosisWSTicketRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["session_id"], err = json.Marshal(a.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'session_id': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisWSTicketRequest) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisWSTicketResponse
+// Short-lived single-use WebSocket ticket. The ticket is returned only once and is never stored in raw form.
+type DiagnosisWSTicketResponse struct {
+	// URL-safe opaque single-use ticket for the WebSocket query string.
+	Ticket string `form:"ticket" json:"ticket"`
+	// Diagnosis session the ticket authorizes.
+	SessionID string `form:"session_id" json:"session_id"`
+	// Ticket expiry time; V1 hard cap is 30 seconds after issuance.
+	ExpiresAt time.Time `form:"expires_at" json:"expires_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisWSTicketResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportReplayTriggerRequest
+// Request to replay an alert window and trigger report generation.
+type ReportReplayTriggerRequest struct {
+	WindowStart          time.Time      `form:"window_start" json:"window_start"`
+	WindowEnd            time.Time      `form:"window_end" json:"window_end"`
+	Limit                *int32         `form:"limit,omitempty" json:"limit,omitempty"`
+	CorrelationKey       *string        `form:"correlation_key,omitempty" json:"correlation_key,omitempty"`
+	WorkflowID           *string        `form:"workflow_id,omitempty" json:"workflow_id,omitempty"`
+	Scenario             *string        `form:"scenario,omitempty" json:"scenario,omitempty"`
+	AdditionalProperties map[string]any `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a ReportReplayTriggerRequest) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *ReportReplayTriggerRequest) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *ReportReplayTriggerRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["window_start"]; found {
+		if err := json.Unmarshal(raw, &a.WindowStart); err != nil {
+			return fmt.Errorf("error reading 'window_start': %w", err)
+		}
+		delete(object, "window_start")
+	}
+
+	if raw, found := object["window_end"]; found {
+		if err := json.Unmarshal(raw, &a.WindowEnd); err != nil {
+			return fmt.Errorf("error reading 'window_end': %w", err)
+		}
+		delete(object, "window_end")
+	}
+
+	if raw, found := object["limit"]; found {
+		var val int32
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'limit': %w", err)
+		}
+		a.Limit = &val
+		delete(object, "limit")
+	}
+
+	if raw, found := object["correlation_key"]; found {
+		var val string
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'correlation_key': %w", err)
+		}
+		a.CorrelationKey = &val
+		delete(object, "correlation_key")
+	}
+
+	if raw, found := object["workflow_id"]; found {
+		var val string
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'workflow_id': %w", err)
+		}
+		a.WorkflowID = &val
+		delete(object, "workflow_id")
+	}
+
+	if raw, found := object["scenario"]; found {
+		var val string
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'scenario': %w", err)
+		}
+		a.Scenario = &val
+		delete(object, "scenario")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a ReportReplayTriggerRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["window_start"], err = json.Marshal(a.WindowStart)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'window_start': %w", err)
+	}
+
+	object["window_end"], err = json.Marshal(a.WindowEnd)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'window_end': %w", err)
+	}
+
+	if a.Limit != nil {
+		object["limit"], err = json.Marshal(a.Limit)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'limit': %w", err)
+		}
+	}
+
+	if a.CorrelationKey != nil {
+		object["correlation_key"], err = json.Marshal(a.CorrelationKey)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'correlation_key': %w", err)
+		}
+	}
+
+	if a.WorkflowID != nil {
+		object["workflow_id"], err = json.Marshal(a.WorkflowID)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'workflow_id': %w", err)
+		}
+	}
+
+	if a.Scenario != nil {
+		object["scenario"], err = json.Marshal(a.Scenario)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scenario': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportReplayTriggerRequest) ApplyDefaults() {
+	if s.Limit == nil {
+		v := int32(10000)
+		s.Limit = &v
+	}
+}
+
+// #/components/schemas/ReportReplayTriggerRequest/properties/scenario
+// Report prompt scenario used for generated SubReports.
+type ReportReplayTriggerRequestScenario string
+
+const (
+	SingleAlert ReportReplayTriggerRequestScenario = "single_alert"
+	Cascade     ReportReplayTriggerRequestScenario = "cascade"
+	AlertStorm  ReportReplayTriggerRequestScenario = "alert_storm"
+)
+
+// #/components/schemas/ReportReplayTriggerResponse
+// Result of replaying an alert window and optionally starting report generation.
+type ReportReplayTriggerResponse struct {
+	// True when at least one EvidenceSnapshot was available and workflow start was accepted.
+	Started bool `form:"started" json:"started"`
+	// Started workflow ID, or empty when no snapshots were available.
+	WorkflowID string `form:"workflow_id" json:"workflow_id"`
+	// Started workflow run ID, or empty when no snapshots were available.
+	RunID     string                    `form:"run_id" json:"run_id"`
+	Stats     ReportReplayStats         `form:"stats" json:"stats"`
+	Snapshots []ReportReplaySnapshotRef `form:"snapshots" json:"snapshots"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportReplayTriggerResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportReplayTriggerResponse/properties/snapshots
+type ReportReplayTriggerResponseSnapshots = []ReportReplaySnapshotRef
+
+// #/components/schemas/ReportReplayStats
+// Counter summary from alert replay.
+type ReportReplayStats struct {
+	Ingested           ReportReplayIngestStats `form:"ingested" json:"ingested"`
+	EventsLoaded       int64                   `form:"events_loaded" json:"events_loaded"`
+	GroupsBuilt        int64                   `form:"groups_built" json:"groups_built"`
+	GroupsSaved        int64                   `form:"groups_saved" json:"groups_saved"`
+	GroupsRefreshed    int64                   `form:"groups_refreshed" json:"groups_refreshed"`
+	GroupsExisting     int64                   `form:"groups_existing" json:"groups_existing"`
+	SnapshotsSaved     int64                   `form:"snapshots_saved" json:"snapshots_saved"`
+	SnapshotsDuplicate int64                   `form:"snapshots_duplicate" json:"snapshots_duplicate"`
+	GroupsClosed       int64                   `form:"groups_closed" json:"groups_closed"`
+	Failed             int64                   `form:"failed" json:"failed"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportReplayStats) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportReplayIngestStats
+// Counter summary from alert ingestion.
+type ReportReplayIngestStats struct {
+	Total     int64 `form:"total" json:"total"`
+	Saved     int64 `form:"saved" json:"saved"`
+	Duplicate int64 `form:"duplicate" json:"duplicate"`
+	Failed    int64 `form:"failed" json:"failed"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportReplayIngestStats) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportReplaySnapshotRef
+// EvidenceSnapshot reference returned by replay.
+type ReportReplaySnapshotRef struct {
+	ID         int64 `form:"id" json:"id"`
+	GroupIndex int64 `form:"group_index" json:"group_index"`
+	EventCount int64 `form:"event_count" json:"event_count"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportReplaySnapshotRef) ApplyDefaults() {
+}
+
+// #/components/schemas/FinalReportSummary
+// Final report summary for list views.
+type FinalReportSummary struct {
+	ID                int64            `form:"id" json:"id"`
+	CorrelationKey    string           `form:"correlation_key" json:"correlation_key"`
+	Title             string           `form:"title" json:"title"`
+	ExecutiveSummary  string           `form:"executive_summary" json:"executive_summary"`
+	Severity          ReportSeverity   `form:"severity" json:"severity"`
+	Confidence        ReportConfidence `form:"confidence" json:"confidence"`
+	NotificationText  string           `form:"notification_text" json:"notification_text"`
+	CreatedByWorkflow string           `form:"created_by_workflow" json:"created_by_workflow"`
+	CreatedAt         time.Time        `form:"created_at" json:"created_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *FinalReportSummary) ApplyDefaults() {
+}
+
+// #/components/schemas/FinalReportDetail
+// Final report detail with linked SubReports.
+type FinalReportDetail struct {
+	ID                 int64                         `form:"id" json:"id"`
+	CorrelationKey     string                        `form:"correlation_key" json:"correlation_key"`
+	Title              string                        `form:"title" json:"title"`
+	ExecutiveSummary   string                        `form:"executive_summary" json:"executive_summary"`
+	Severity           ReportSeverity                `form:"severity" json:"severity"`
+	Confidence         ReportConfidence              `form:"confidence" json:"confidence"`
+	SubReports         []FinalReportSubReportSummary `form:"sub_reports" json:"sub_reports"`
+	RecommendedActions []ReportAction                `form:"recommended_actions" json:"recommended_actions"`
+	NotificationText   string                        `form:"notification_text" json:"notification_text"`
+	Content            map[string]any                `form:"content" json:"content"`
+	Model              string                        `form:"model" json:"model"`
+	OutputMode         string                        `form:"output_mode" json:"output_mode"`
+	CreatedByWorkflow  string                        `form:"created_by_workflow" json:"created_by_workflow"`
+	CreatedAt          time.Time                     `form:"created_at" json:"created_at"`
+	LinkedSubReports   []SubReportDetail             `form:"linked_sub_reports" json:"linked_sub_reports"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *FinalReportDetail) ApplyDefaults() {
+}
+
+// #/components/schemas/FinalReportDetail/properties/sub_reports
+type FinalReportDetailSubReports = []FinalReportSubReportSummary
+
+// #/components/schemas/FinalReportDetail/properties/recommended_actions
+type FinalReportDetailRecommendedActions = []ReportAction
+
+// #/components/schemas/FinalReportDetail/properties/content
+type FinalReportDetailContent = map[string]any
+
+// #/components/schemas/FinalReportDetail/properties/linked_sub_reports
+type FinalReportDetailLinkedSubReports = []SubReportDetail
+
+// #/components/schemas/SubReportDetail
+// Persisted subreport linked to a final report.
+type SubReportDetail struct {
+	ID                 int64            `form:"id" json:"id"`
+	EvidenceSnapshotID int64            `form:"evidence_snapshot_id" json:"evidence_snapshot_id"`
+	Scenario           string           `form:"scenario" json:"scenario"`
+	Title              string           `form:"title" json:"title"`
+	Summary            string           `form:"summary" json:"summary"`
+	Severity           ReportSeverity   `form:"severity" json:"severity"`
+	Confidence         ReportConfidence `form:"confidence" json:"confidence"`
+	Findings           []ReportFinding  `form:"findings" json:"findings"`
+	RecommendedActions []ReportAction   `form:"recommended_actions" json:"recommended_actions"`
+	EvidenceRefs       []string         `form:"evidence_refs" json:"evidence_refs"`
+	Content            map[string]any   `form:"content" json:"content"`
+	Model              string           `form:"model" json:"model"`
+	OutputMode         string           `form:"output_mode" json:"output_mode"`
+	CreatedByWorkflow  string           `form:"created_by_workflow" json:"created_by_workflow"`
+	CreatedAt          time.Time        `form:"created_at" json:"created_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *SubReportDetail) ApplyDefaults() {
+}
+
+// #/components/schemas/SubReportDetail/properties/findings
+type SubReportDetailFindings = []ReportFinding
+
+// #/components/schemas/SubReportDetail/properties/recommended_actions
+type SubReportDetailRecommendedActions = []ReportAction
+
+// #/components/schemas/SubReportDetail/properties/content
+type SubReportDetailContent = map[string]any
+
+// #/components/schemas/FinalReportSubReportSummary
+// SubReport summary embedded in the final report content.
+type FinalReportSubReportSummary struct {
+	Title    string         `form:"title" json:"title"`
+	Severity ReportSeverity `form:"severity" json:"severity"`
+	Summary  string         `form:"summary" json:"summary"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *FinalReportSubReportSummary) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportFinding
+// Evidence-backed report finding.
+type ReportFinding struct {
+	Label      string `form:"label" json:"label"`
+	Detail     string `form:"detail" json:"detail"`
+	EvidenceID string `form:"evidence_id" json:"evidence_id"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportFinding) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportAction
+// Operator action recommended by a report.
+type ReportAction struct {
+	Label    string `form:"label" json:"label"`
+	Detail   string `form:"detail" json:"detail"`
+	Priority string `form:"priority" json:"priority"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportAction) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportAction/properties/priority
+type ReportActionPriority string
+
+const (
+	ReportActionPriorityLow    ReportActionPriority = "low"
+	ReportActionPriorityMedium ReportActionPriority = "medium"
+	ReportActionPriorityHigh   ReportActionPriority = "high"
+)
+
+// #/components/schemas/ReportSeverity
+// Report-facing severity vocabulary.
+type ReportSeverity string
+
+const (
+	Info     ReportSeverity = "info"
+	Warning  ReportSeverity = "warning"
+	Critical ReportSeverity = "critical"
+)
+
+// #/components/schemas/ReportConfidence
+// Strength of evidence supporting the report.
+type ReportConfidence string
+
+const (
+	ReportConfidenceLow    ReportConfidence = "low"
+	ReportConfidenceMedium ReportConfidence = "medium"
+	ReportConfidenceHigh   ReportConfidence = "high"
+)
+
+// #/components/schemas/ErrorResponse
+// Error response payload.
+type ErrorResponse struct {
+	Error string `form:"error" json:"error"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ErrorResponse) ApplyDefaults() {
+}
+
 // Base64-encoded, gzip-compressed OpenAPI spec.
 var openAPISpecJSON = []string{
-	"H4sIAAAAAAAC/3SST2/bOBDF7/oUD9q9+s9mL4FuQS4JsNgWafsBxtTYYkKR7MzIqIt++IKSnEhp65PF",
-	"efPm8TdMmSNl36D+d/vPdl9XPh5TUwHmLXCDD5njfSDxKeLu42MFtKxOfDafYoMfFQD8TzYIhU2geBro",
-	"xJtW/JkjKLAYTunMEik6Rg5kxyT9dmz73HmFZnb+6B0VQ3iFdQz18RQYmgZxjHSEyWAdjklAIZQgcCma",
-	"kDMtXmcWHfPsyyUqIHjHUbkZ50TqucFdJtfx5masA77laP7oWValSlmKW+ncYJDQoDPLzW4XkqPQJbXm",
-	"dn87eaxQ/FfqaPnMIeWeo1WV0Wk2miLoRY37X1s/jeebUHrBsc3JR1Po4DqQomMK1sF17F4UFFsIU+sj",
-	"qyJLOrBuqyqTdeOw3ST/Pt39xDb9AVJmGSk/tk05f5h0c1WHvie5NHhYTHsNM4tWqZ/YBomKQsw7vsZU",
-	"Ixt0iy/KLQ4XJHEdqwlZkil9SNTiQKE8CdHt7H2FNf02S1iAsOYUlReK+ma/r98+3yOdQ/krvstCWd4O",
-	"R1s2A5RzmJ/h7llTXFcBdR339P4U+Fv42KD+a+dSn1PkaLqbtLqbWD7N4euqetMUo1k2ea611zl2ydwg",
-	"HZ7Z/XYJq21dKSHTpUC+os1Sdm9+iW9a0/I60yg18fH0J6z3gwhHe935vOyFnL9RnwPrGtQGdXqpX5f5",
-	"dfDC7Wrbo1H1MwAA///QVdnCjwQAAA==",
+	"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",
 }
 
 // decodeOpenAPISpec decodes and decompresses the embedded spec.
@@ -78,9 +942,51 @@ func GetOpenAPISpecJSON() ([]byte, error) {
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
+	// List alert events
+	// (GET /api/v1/alerts)
+	ListAlerts(w http.ResponseWriter, r *http.Request, params ListAlertsParams)
+	// Get operational dashboard summary
+	// (GET /api/v1/dashboard)
+	GetDashboard(w http.ResponseWriter, r *http.Request)
+	// Create a diagnosis room
+	// (POST /api/v1/diagnosis/rooms)
+	CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request)
+	// Issue a diagnosis WebSocket ticket
+	// (POST /api/v1/diagnosis/ws-ticket)
+	IssueDiagnosisWSTicket(w http.ResponseWriter, r *http.Request)
+	// List evidence snapshots
+	// (GET /api/v1/evidence-snapshots)
+	ListEvidenceSnapshots(w http.ResponseWriter, r *http.Request, params ListEvidenceSnapshotsParams)
+	// Replay an alert window and start report generation
+	// (POST /api/v1/report-triggers/replay-window)
+	TriggerReportReplay(w http.ResponseWriter, r *http.Request)
+	// List final reports
+	// (GET /api/v1/reports)
+	ListReports(w http.ResponseWriter, r *http.Request, params ListReportsParams)
+	// Get final report detail
+	// (GET /api/v1/reports/{report_id})
+	GetReport(w http.ResponseWriter, r *http.Request, reportId int64)
 	// Health check endpoint
 	// (GET /healthz)
 	GetHealthz(w http.ResponseWriter, r *http.Request)
+}
+
+// ListAlertsParams defines parameters for ListAlerts.
+type ListAlertsParams struct {
+	// limit (optional)
+	Limit *int32 `form:"limit" json:"limit"`
+}
+
+// ListEvidenceSnapshotsParams defines parameters for ListEvidenceSnapshots.
+type ListEvidenceSnapshotsParams struct {
+	// limit (optional)
+	Limit *int32 `form:"limit" json:"limit"`
+}
+
+// ListReportsParams defines parameters for ListReports.
+type ListReportsParams struct {
+	// limit (optional)
+	Limit *int32 `form:"limit" json:"limit"`
 }
 
 // ServerInterfaceWrapper converts HTTP requests to parameters.
@@ -92,6 +998,165 @@ type ServerInterfaceWrapper struct {
 
 // MiddlewareFunc is a middleware function type.
 type MiddlewareFunc func(http.Handler) http.Handler
+
+// ListAlerts operation middleware
+func (siw *ServerInterfaceWrapper) ListAlerts(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListAlertsParams
+
+	// ------------- Optional query parameter "limit" -------------
+	err = BindQueryParameter("limit", r.URL.Query(), &params.Limit, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "integer", Format: "int32", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListAlerts(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDashboard operation middleware
+func (siw *ServerInterfaceWrapper) GetDashboard(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDashboard(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateDiagnosisRoom operation middleware
+func (siw *ServerInterfaceWrapper) CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateDiagnosisRoom(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// IssueDiagnosisWSTicket operation middleware
+func (siw *ServerInterfaceWrapper) IssueDiagnosisWSTicket(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.IssueDiagnosisWSTicket(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListEvidenceSnapshots operation middleware
+func (siw *ServerInterfaceWrapper) ListEvidenceSnapshots(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListEvidenceSnapshotsParams
+
+	// ------------- Optional query parameter "limit" -------------
+	err = BindQueryParameter("limit", r.URL.Query(), &params.Limit, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "integer", Format: "int32", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListEvidenceSnapshots(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// TriggerReportReplay operation middleware
+func (siw *ServerInterfaceWrapper) TriggerReportReplay(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TriggerReportReplay(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListReports operation middleware
+func (siw *ServerInterfaceWrapper) ListReports(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListReportsParams
+
+	// ------------- Optional query parameter "limit" -------------
+	err = BindQueryParameter("limit", r.URL.Query(), &params.Limit, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "integer", Format: "int32", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListReports(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetReport operation middleware
+func (siw *ServerInterfaceWrapper) GetReport(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// ------------- Path parameter "report_id" -------------
+	var reportId int64
+
+	err = BindParameter("report_id", r.PathValue("report_id"), &reportId, ParameterOptions{Style: "simple", ParamLocation: ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "report_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetReport(w, r, reportId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
 
 // GetHealthz operation middleware
 func (siw *ServerInterfaceWrapper) GetHealthz(w http.ResponseWriter, r *http.Request) {
@@ -160,6 +1225,14 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 		ErrorHandlerFunc:   options.ErrorHandlerFunc,
 	}
 
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/alerts", wrapper.ListAlerts)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/dashboard", wrapper.GetDashboard)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/diagnosis/rooms", wrapper.CreateDiagnosisRoom)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/diagnosis/ws-ticket", wrapper.IssueDiagnosisWSTicket)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/evidence-snapshots", wrapper.ListEvidenceSnapshots)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/report-triggers/replay-window", wrapper.TriggerReportReplay)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/reports", wrapper.ListReports)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/reports/{report_id}", wrapper.GetReport)
 	m.HandleFunc("GET "+options.BaseURL+"/healthz", wrapper.GetHealthz)
 	return m
 }
@@ -239,13 +1312,1010 @@ func (e *TooManyValuesForParamError) Error() string {
 	return fmt.Sprintf("Expected one value for %s, got %d", e.ParamName, e.Count)
 }
 
+const DateFormat = "2006-01-02"
+
+type Date struct {
+	time.Time
+}
+
+func (d Date) MarshalJSON() ([]byte, error) {
+	return json.Marshal(d.Format(DateFormat))
+}
+
+func (d *Date) UnmarshalJSON(data []byte) error {
+	var dateStr string
+	err := json.Unmarshal(data, &dateStr)
+	if err != nil {
+		return err
+	}
+	parsed, err := time.Parse(DateFormat, dateStr)
+	if err != nil {
+		return err
+	}
+	d.Time = parsed
+	return nil
+}
+
+func (d Date) String() string {
+	return d.Format(DateFormat)
+}
+
+func (d *Date) UnmarshalText(data []byte) error {
+	parsed, err := time.Parse(DateFormat, string(data))
+	if err != nil {
+		return err
+	}
+	d.Time = parsed
+	return nil
+}
+
+// MarshalText implements encoding.TextMarshaler for Date.
+func (d Date) MarshalText() ([]byte, error) {
+	return []byte(d.Format(DateFormat)), nil
+}
+
+// Format returns the date formatted according to layout.
+func (d Date) Format(layout string) string {
+	return d.Time.Format(layout)
+}
+
+// Nullable is a generic type that can distinguish between:
+// - Field not provided (unspecified)
+// - Field explicitly set to null
+// - Field has a value
+//
+// This is implemented as a map[bool]T where:
+// - Empty map: unspecified
+// - map[false]T: explicitly null
+// - map[true]T: has a value
+type Nullable[T any] map[bool]T
+
+// Get returns the value if set, or an error if null or unspecified.
+func (n Nullable[T]) Get() (T, error) {
+	if v, ok := n[true]; ok {
+		return v, nil
+	}
+	var zero T
+	if n.IsNull() {
+		return zero, ErrNullableIsNull
+	}
+	return zero, ErrNullableNotSpecified
+}
+
+// MustGet returns the value or panics if null or unspecified.
+func (n Nullable[T]) MustGet() T {
+	v, err := n.Get()
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+// Set assigns a value.
+func (n *Nullable[T]) Set(value T) {
+	*n = Nullable[T]{true: value}
+}
+
+// SetNull marks the field as explicitly null.
+func (n *Nullable[T]) SetNull() {
+	*n = Nullable[T]{false: *new(T)}
+}
+
+// SetUnspecified clears the field (as if it was never set).
+func (n *Nullable[T]) SetUnspecified() {
+	*n = nil
+}
+
+// IsNull returns true if the field is explicitly null.
+func (n Nullable[T]) IsNull() bool {
+	if n == nil {
+		return false
+	}
+	_, ok := n[false]
+	return ok
+}
+
+// IsSpecified returns true if the field was provided (either null or a value).
+func (n Nullable[T]) IsSpecified() bool {
+	return len(n) > 0
+}
+
+// MarshalJSON implements json.Marshaler.
+func (n Nullable[T]) MarshalJSON() ([]byte, error) {
+	if n.IsNull() {
+		return []byte("null"), nil
+	}
+	if v, ok := n[true]; ok {
+		return json.Marshal(v)
+	}
+	// Unspecified - this shouldn't be called if omitempty is used correctly
+	return []byte("null"), nil
+}
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (n *Nullable[T]) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		n.SetNull()
+		return nil
+	}
+	var v T
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	n.Set(v)
+	return nil
+}
+
+// ErrNullableIsNull is returned when trying to get a value from a null Nullable.
+var ErrNullableIsNull = errors.New("nullable value is null")
+
+// ErrNullableNotSpecified is returned when trying to get a value from an unspecified Nullable.
+var ErrNullableNotSpecified = errors.New("nullable value is not specified")
+
+// BindParameter binds a styled parameter from a single string value to a Go
+// object. This is the entry point for path, header, and cookie parameters
+// where the HTTP framework has already extracted the raw value.
+//
+// The Style field in opts selects how the value is split into parts (simple,
+// label, matrix, form). If Style is empty, "simple" is assumed.
+func BindParameter(paramName string, value string, dest any, opts ParameterOptions) error {
+	style := opts.Style
+	if style == "" {
+		style = "simple"
+	}
+
+	if value == "" {
+		if opts.Required {
+			return &MissingRequiredParameterError{ParamName: paramName}
+		}
+		return nil
+	}
+
+	// Unescape based on parameter location.
+	var err error
+	value, err = unescapeParameterString(value, opts.ParamLocation)
+	if err != nil {
+		return fmt.Errorf("error unescaping parameter '%s': %w", paramName, err)
+	}
+
+	// If the destination implements encoding.TextUnmarshaler, use it directly.
+	if tu, ok := dest.(encoding.TextUnmarshaler); ok {
+		if err := tu.UnmarshalText([]byte(value)); err != nil {
+			return fmt.Errorf("error unmarshaling '%s' text as %T: %w", value, dest, err)
+		}
+		return nil
+	}
+
+	v := reflect.Indirect(reflect.ValueOf(dest))
+	t := v.Type()
+
+	if t.Kind() == reflect.Struct || t.Kind() == reflect.Map {
+		parts, err := splitStyledParameter(style, opts.Explode, true, paramName, value)
+		if err != nil {
+			return err
+		}
+		return bindSplitPartsToDestinationStruct(paramName, parts, opts.Explode, dest)
+	}
+
+	if t.Kind() == reflect.Slice {
+		if opts.Format == "byte" && isByteSlice(t) {
+			parts, err := splitStyledParameter(style, opts.Explode, false, paramName, value)
+			if err != nil {
+				return fmt.Errorf("error splitting input '%s' into parts: %w", value, err)
+			}
+			if len(parts) != 1 {
+				return fmt.Errorf("expected single base64 value for byte slice parameter '%s', got %d parts", paramName, len(parts))
+			}
+			decoded, err := base64Decode(parts[0])
+			if err != nil {
+				return fmt.Errorf("error decoding base64 parameter '%s': %w", paramName, err)
+			}
+			v.SetBytes(decoded)
+			return nil
+		}
+
+		parts, err := splitStyledParameter(style, opts.Explode, false, paramName, value)
+		if err != nil {
+			return fmt.Errorf("error splitting input '%s' into parts: %w", value, err)
+		}
+		return bindSplitPartsToDestinationArray(parts, dest)
+	}
+
+	// Primitive types need style-specific prefix stripping before binding.
+	// Label and matrix use splitStyledParameter for their prefix formats.
+	// Form style adds a "name=" prefix (e.g. "p=5") which is meaningful in
+	// query strings but must be stripped for cookie/header values. We use
+	// TrimPrefix instead of splitStyledParameter to avoid splitting on commas,
+	// which would break string primitives containing literal commas.
+	switch style {
+	case "label", "matrix":
+		parts, err := splitStyledParameter(style, opts.Explode, false, paramName, value)
+		if err != nil {
+			return fmt.Errorf("error splitting parameter '%s': %w", paramName, err)
+		}
+		if len(parts) != 1 {
+			return fmt.Errorf("parameter '%s': expected single value, got %d parts", paramName, len(parts))
+		}
+		value = parts[0]
+	case "form":
+		value = strings.TrimPrefix(value, paramName+"=")
+	}
+	return BindStringToObject(value, dest)
+}
+
+// BindQueryParameter binds a query parameter from pre-parsed url.Values.
+// The Style field in opts selects parsing behavior. If Style is empty, "form"
+// is assumed. Supports form, spaceDelimited, pipeDelimited, and deepObject.
+func BindQueryParameter(paramName string, queryParams url.Values, dest any, opts ParameterOptions) error {
+	style := opts.Style
+	if style == "" {
+		style = "form"
+	}
+
+	// Destination value management for optional (pointer) parameters.
+	dv := reflect.Indirect(reflect.ValueOf(dest))
+	v := dv
+	var output any
+	extraIndirect := !opts.Required && v.Kind() == reflect.Pointer
+	if !extraIndirect {
+		output = dest
+	} else {
+		if v.IsNil() {
+			t := v.Type()
+			newValue := reflect.New(t.Elem())
+			output = newValue.Interface()
+		} else {
+			output = v.Interface()
+		}
+		v = reflect.Indirect(reflect.ValueOf(output))
+	}
+
+	t := v.Type()
+	k := t.Kind()
+
+	switch style {
+	case "form", "spaceDelimited", "pipeDelimited":
+		if opts.Explode {
+			// Exploded: each value is a separate key=value pair.
+			// spaceDelimited and pipeDelimited with explode=true are
+			// serialized identically to form explode=true.
+			values, found := queryParams[paramName]
+			var err error
+
+			switch k {
+			case reflect.Slice:
+				if !found {
+					if opts.Required {
+						return &MissingRequiredParameterError{ParamName: paramName}
+					}
+					return nil
+				}
+				if opts.Format == "byte" && isByteSlice(t) {
+					if len(values) != 1 {
+						return fmt.Errorf("expected single base64 value for byte slice parameter '%s', got %d values", paramName, len(values))
+					}
+					decoded, decErr := base64Decode(values[0])
+					if decErr != nil {
+						return fmt.Errorf("error decoding base64 parameter '%s': %w", paramName, decErr)
+					}
+					v.SetBytes(decoded)
+				} else {
+					err = bindSplitPartsToDestinationArray(values, output)
+				}
+			case reflect.Struct:
+				var fieldsPresent bool
+				fieldsPresent, err = bindParamsToExplodedObject(paramName, queryParams, output)
+				if !fieldsPresent {
+					return nil
+				}
+			default:
+				if len(values) == 0 {
+					if opts.Required {
+						return &MissingRequiredParameterError{ParamName: paramName}
+					}
+					return nil
+				}
+				if len(values) != 1 {
+					return fmt.Errorf("multiple values for single value parameter '%s'", paramName)
+				}
+				if !found {
+					if opts.Required {
+						return &MissingRequiredParameterError{ParamName: paramName}
+					}
+					return nil
+				}
+				err = BindStringToObject(values[0], output)
+			}
+			if err != nil {
+				return err
+			}
+			if extraIndirect {
+				dv.Set(reflect.ValueOf(output))
+			}
+			return nil
+		}
+
+		// Non-exploded: single value, delimiter-separated.
+		values, found := queryParams[paramName]
+		if !found {
+			if opts.Required {
+				return &MissingRequiredParameterError{ParamName: paramName}
+			}
+			return nil
+		}
+		if len(values) != 1 {
+			return fmt.Errorf("parameter '%s' is not exploded, but is specified multiple times", paramName)
+		}
+
+		// Primitive types: use the raw value as-is without splitting.
+		if k != reflect.Slice && k != reflect.Struct && k != reflect.Map {
+			err := BindStringToObject(values[0], output)
+			if err != nil {
+				return err
+			}
+			if extraIndirect {
+				dv.Set(reflect.ValueOf(output))
+			}
+			return nil
+		}
+
+		var parts []string
+		switch style {
+		case "spaceDelimited":
+			parts = strings.Split(values[0], " ")
+		case "pipeDelimited":
+			parts = strings.Split(values[0], "|")
+		default:
+			parts = strings.Split(values[0], ",")
+		}
+
+		var err error
+		switch k {
+		case reflect.Slice:
+			if opts.Format == "byte" && isByteSlice(t) {
+				raw := strings.Join(parts, ",")
+				decoded, decErr := base64Decode(raw)
+				if decErr != nil {
+					return fmt.Errorf("error decoding base64 parameter '%s': %w", paramName, decErr)
+				}
+				v.SetBytes(decoded)
+			} else {
+				err = bindSplitPartsToDestinationArray(parts, output)
+			}
+		case reflect.Struct, reflect.Map:
+			// Some struct types (e.g. Date, time.Time) are scalar values
+			// that should be bound from a single string, not decomposed as
+			// key-value objects.
+			switch bv := output.(type) {
+			case Binder:
+				if len(parts) != 1 {
+					return fmt.Errorf("multiple values for single value parameter '%s'", paramName)
+				}
+				err = bv.Bind(parts[0])
+			case encoding.TextUnmarshaler:
+				if len(parts) != 1 {
+					return fmt.Errorf("multiple values for single value parameter '%s'", paramName)
+				}
+				err = bv.UnmarshalText([]byte(parts[0]))
+			default:
+				err = bindSplitPartsToDestinationStruct(paramName, parts, opts.Explode, output)
+			}
+		}
+		if err != nil {
+			return err
+		}
+		if extraIndirect {
+			dv.Set(reflect.ValueOf(output))
+		}
+		return nil
+
+	case "deepObject":
+		if !opts.Explode {
+			return errors.New("deepObjects must be exploded")
+		}
+		return unmarshalDeepObject(dest, paramName, queryParams, opts.Required)
+
+	default:
+		return fmt.Errorf("style '%s' on parameter '%s' is invalid", style, paramName)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Deep object internals
 // ---------------------------------------------------------------------------
 
+// unmarshalDeepObject is the internal implementation of deep object
+// unmarshaling that supports the required parameter.
+func unmarshalDeepObject(dst any, paramName string, params url.Values, required bool) error {
+	var fieldNames []string
+	var fieldValues []string
+	searchStr := paramName + "["
+
+	for pName, pValues := range params {
+		if strings.HasPrefix(pName, searchStr) {
+			pName = pName[len(paramName):]
+			if len(pValues) == 1 {
+				fieldNames = append(fieldNames, pName)
+				fieldValues = append(fieldValues, pValues[0])
+			} else {
+				for i, value := range pValues {
+					fieldNames = append(fieldNames, pName+"["+strconv.Itoa(i)+"]")
+					fieldValues = append(fieldValues, value)
+				}
+			}
+		}
+	}
+
+	if len(fieldNames) == 0 {
+		if required {
+			return &MissingRequiredParameterError{ParamName: paramName}
+		}
+		return nil
+	}
+
+	paths := make([][]string, len(fieldNames))
+	for i, path := range fieldNames {
+		path = strings.TrimLeft(path, "[")
+		path = strings.TrimRight(path, "]")
+		paths[i] = strings.Split(path, "][")
+	}
+
+	fieldPaths := makeFieldOrValue(paths, fieldValues)
+	err := assignPathValues(dst, fieldPaths)
+	if err != nil {
+		return fmt.Errorf("error assigning value to destination: %w", err)
+	}
+	return nil
+}
+
+type fieldOrValue struct {
+	fields map[string]fieldOrValue
+	value  string
+}
+
+func (f *fieldOrValue) appendPathValue(path []string, value string) {
+	fieldName := path[0]
+	if len(path) == 1 {
+		f.fields[fieldName] = fieldOrValue{value: value}
+		return
+	}
+
+	pv, found := f.fields[fieldName]
+	if !found {
+		pv = fieldOrValue{
+			fields: make(map[string]fieldOrValue),
+		}
+		f.fields[fieldName] = pv
+	}
+	pv.appendPathValue(path[1:], value)
+}
+
+func makeFieldOrValue(paths [][]string, values []string) fieldOrValue {
+	f := fieldOrValue{
+		fields: make(map[string]fieldOrValue),
+	}
+	for i := range paths {
+		f.appendPathValue(paths[i], values[i])
+	}
+	return f
+}
+
+func getFieldName(f reflect.StructField) string {
+	n := f.Name
+	tag, found := f.Tag.Lookup("json")
+	if found {
+		parts := strings.Split(tag, ",")
+		if parts[0] != "" {
+			n = parts[0]
+		}
+	}
+	return n
+}
+
+func fieldIndicesByJsonTag(i any) (map[string]int, error) {
+	t := reflect.TypeOf(i)
+	if t.Kind() != reflect.Struct {
+		return nil, errors.New("expected a struct as input")
+	}
+
+	n := t.NumField()
+	fieldMap := make(map[string]int)
+	for i := 0; i < n; i++ {
+		field := t.Field(i)
+		fieldName := getFieldName(field)
+		fieldMap[fieldName] = i
+	}
+	return fieldMap, nil
+}
+
+func assignPathValues(dst any, pathValues fieldOrValue) error {
+	v := reflect.ValueOf(dst)
+	iv := reflect.Indirect(v)
+	it := iv.Type()
+
+	switch it.Kind() {
+	case reflect.Map:
+		dstMap := reflect.MakeMap(iv.Type())
+		for key, value := range pathValues.fields {
+			dstKey := reflect.ValueOf(key)
+			dstVal := reflect.New(iv.Type().Elem())
+			err := assignPathValues(dstVal.Interface(), value)
+			if err != nil {
+				return fmt.Errorf("error binding map: %w", err)
+			}
+			dstMap.SetMapIndex(dstKey, dstVal.Elem())
+		}
+		iv.Set(dstMap)
+		return nil
+
+	case reflect.Slice:
+		sliceLength := len(pathValues.fields)
+		dstSlice := reflect.MakeSlice(it, sliceLength, sliceLength)
+		err := assignDeepObjectSlice(dstSlice, pathValues)
+		if err != nil {
+			return fmt.Errorf("error assigning slice: %w", err)
+		}
+		iv.Set(dstSlice)
+		return nil
+
+	case reflect.Struct:
+		if dst, isBinder := v.Interface().(Binder); isBinder {
+			return dst.Bind(pathValues.value)
+		}
+
+		if it.ConvertibleTo(reflect.TypeOf(Date{})) {
+			var date Date
+			var err error
+			date.Time, err = time.Parse(DateFormat, pathValues.value)
+			if err != nil {
+				return fmt.Errorf("invalid date format: %w", err)
+			}
+			dst := iv
+			if it != reflect.TypeOf(Date{}) {
+				ivPtr := iv.Addr()
+				aPtr := ivPtr.Convert(reflect.TypeOf(&Date{}))
+				dst = reflect.Indirect(aPtr)
+			}
+			dst.Set(reflect.ValueOf(date))
+			return nil
+		}
+
+		if it.ConvertibleTo(reflect.TypeOf(time.Time{})) {
+			tm, err := time.Parse(time.RFC3339Nano, pathValues.value)
+			if err != nil {
+				tm, err = time.Parse(DateFormat, pathValues.value)
+				if err != nil {
+					return fmt.Errorf("error parsing '%s' as RFC3339 or date: %w", pathValues.value, err)
+				}
+			}
+			dst := iv
+			if it != reflect.TypeOf(time.Time{}) {
+				ivPtr := iv.Addr()
+				aPtr := ivPtr.Convert(reflect.TypeOf(&time.Time{}))
+				dst = reflect.Indirect(aPtr)
+			}
+			dst.Set(reflect.ValueOf(tm))
+			return nil
+		}
+
+		fieldMap, err := fieldIndicesByJsonTag(iv.Interface())
+		if err != nil {
+			return fmt.Errorf("failed enumerating fields: %w", err)
+		}
+		for _, fieldName := range sortedFieldOrValueKeys(pathValues.fields) {
+			fieldValue := pathValues.fields[fieldName]
+			fieldIndex, found := fieldMap[fieldName]
+			if !found {
+				return fmt.Errorf("field [%s] is not present in destination object", fieldName)
+			}
+			field := iv.Field(fieldIndex)
+			err = assignPathValues(field.Addr().Interface(), fieldValue)
+			if err != nil {
+				return fmt.Errorf("error assigning field [%s]: %w", fieldName, err)
+			}
+		}
+		return nil
+
+	case reflect.Ptr:
+		dstVal := reflect.New(it.Elem())
+		dstPtr := dstVal.Interface()
+		err := assignPathValues(dstPtr, pathValues)
+		iv.Set(dstVal)
+		return err
+
+	case reflect.Bool:
+		val, err := strconv.ParseBool(pathValues.value)
+		if err != nil {
+			return fmt.Errorf("expected a valid bool, got %s", pathValues.value)
+		}
+		iv.SetBool(val)
+		return nil
+
+	case reflect.Float32:
+		val, err := strconv.ParseFloat(pathValues.value, 32)
+		if err != nil {
+			return fmt.Errorf("expected a valid float, got %s", pathValues.value)
+		}
+		iv.SetFloat(val)
+		return nil
+
+	case reflect.Float64:
+		val, err := strconv.ParseFloat(pathValues.value, 64)
+		if err != nil {
+			return fmt.Errorf("expected a valid float, got %s", pathValues.value)
+		}
+		iv.SetFloat(val)
+		return nil
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		val, err := strconv.ParseInt(pathValues.value, 10, 64)
+		if err != nil {
+			return fmt.Errorf("expected a valid int, got %s", pathValues.value)
+		}
+		iv.SetInt(val)
+		return nil
+
+	case reflect.String:
+		iv.SetString(pathValues.value)
+		return nil
+
+	default:
+		return errors.New("unhandled type: " + it.String())
+	}
+}
+
+func assignDeepObjectSlice(dst reflect.Value, pathValues fieldOrValue) error {
+	nValues := len(pathValues.fields)
+	values := make([]string, nValues)
+	for i := 0; i < nValues; i++ {
+		indexStr := strconv.Itoa(i)
+		fv, found := pathValues.fields[indexStr]
+		if !found {
+			return errors.New("array deepObjects must have consecutive indices")
+		}
+		values[i] = fv.value
+	}
+
+	for i := 0; i < nValues; i++ {
+		dstElem := dst.Index(i).Addr()
+		err := assignPathValues(dstElem.Interface(), fieldOrValue{value: values[i]})
+		if err != nil {
+			return fmt.Errorf("error binding array: %w", err)
+		}
+	}
+	return nil
+}
+
+func sortedFieldOrValueKeys(m map[string]fieldOrValue) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
 // ---------------------------------------------------------------------------
 // Exploded object binding
 // ---------------------------------------------------------------------------
+
+// bindParamsToExplodedObject reflects the destination structure and pulls the
+// value for each settable field from the given query parameters. Returns
+// whether any fields were bound.
+func bindParamsToExplodedObject(paramName string, values url.Values, dest any) (bool, error) {
+	binder, v, t := indirectBinder(dest)
+	if binder != nil {
+		_, found := values[paramName]
+		if !found {
+			return false, nil
+		}
+		return true, BindStringToObject(values.Get(paramName), dest)
+	}
+	if t.Kind() != reflect.Struct {
+		return false, fmt.Errorf("unmarshaling query arg '%s' into wrong type", paramName)
+	}
+
+	fieldsPresent := false
+	for i := 0; i < t.NumField(); i++ {
+		fieldT := t.Field(i)
+		if !v.Field(i).CanSet() {
+			continue
+		}
+
+		tag := fieldT.Tag.Get("json")
+		fieldName := fieldT.Name
+		if tag != "" {
+			tagParts := strings.Split(tag, ",")
+			if tagParts[0] != "" {
+				fieldName = tagParts[0]
+			}
+		}
+
+		fieldVal, found := values[fieldName]
+		if found {
+			if len(fieldVal) != 1 {
+				return false, fmt.Errorf("field '%s' specified multiple times for param '%s'", fieldName, paramName)
+			}
+			err := BindStringToObject(fieldVal[0], v.Field(i).Addr().Interface())
+			if err != nil {
+				return false, fmt.Errorf("could not bind query arg '%s': %w", paramName, err)
+			}
+			fieldsPresent = true
+		}
+	}
+	return fieldsPresent, nil
+}
+
+// indirectBinder checks if dest implements Binder and returns reflect values.
+func indirectBinder(dest any) (any, reflect.Value, reflect.Type) {
+	v := reflect.ValueOf(dest)
+	if v.Type().NumMethod() > 0 && v.CanInterface() {
+		if u, ok := v.Interface().(Binder); ok {
+			return u, reflect.Value{}, nil
+		}
+	}
+	v = reflect.Indirect(v)
+	t := v.Type()
+	if t.ConvertibleTo(reflect.TypeOf(time.Time{})) {
+		return dest, reflect.Value{}, nil
+	}
+	if t.ConvertibleTo(reflect.TypeOf(Date{})) {
+		return dest, reflect.Value{}, nil
+	}
+	return nil, v, t
+}
+
+// ParamLocation indicates where a parameter is located in an HTTP request.
+type ParamLocation int
+
+const (
+	ParamLocationUndefined ParamLocation = iota
+	ParamLocationQuery
+	ParamLocationPath
+	ParamLocationHeader
+	ParamLocationCookie
+)
+
+// Binder is an interface for types that can bind themselves from a string value.
+type Binder interface {
+	Bind(value string) error
+}
+
+// MissingRequiredParameterError is returned when a required parameter is not
+// present in the request. Upper layers can use errors.As to detect this and
+// produce an appropriate HTTP error response.
+type MissingRequiredParameterError struct {
+	ParamName string
+}
+
+func (e *MissingRequiredParameterError) Error() string {
+	return fmt.Sprintf("parameter '%s' is required", e.ParamName)
+}
+
+// unescapeParameterString unescapes a parameter value based on its location.
+func unescapeParameterString(value string, paramLocation ParamLocation) (string, error) {
+	switch paramLocation {
+	case ParamLocationQuery, ParamLocationUndefined:
+		return url.QueryUnescape(value)
+	case ParamLocationPath:
+		return url.PathUnescape(value)
+	default:
+		return value, nil
+	}
+}
+
+// BindStringToObject binds a string value to a destination object.
+// It handles primitives, encoding.TextUnmarshaler, and the Binder interface.
+func BindStringToObject(src string, dst any) error {
+	// Check for TextUnmarshaler
+	if tu, ok := dst.(encoding.TextUnmarshaler); ok {
+		return tu.UnmarshalText([]byte(src))
+	}
+
+	// Check for Binder interface
+	if b, ok := dst.(Binder); ok {
+		return b.Bind(src)
+	}
+
+	v := reflect.ValueOf(dst)
+	if v.Kind() != reflect.Ptr {
+		return fmt.Errorf("dst must be a pointer, got %T", dst)
+	}
+	v = v.Elem()
+
+	switch v.Kind() {
+	case reflect.String:
+		v.SetString(src)
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		i, err := strconv.ParseInt(src, 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse int: %w", err)
+		}
+		v.SetInt(i)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		u, err := strconv.ParseUint(src, 10, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse uint: %w", err)
+		}
+		v.SetUint(u)
+	case reflect.Float32, reflect.Float64:
+		f, err := strconv.ParseFloat(src, 64)
+		if err != nil {
+			return fmt.Errorf("failed to parse float: %w", err)
+		}
+		v.SetFloat(f)
+	case reflect.Bool:
+		b, err := strconv.ParseBool(src)
+		if err != nil {
+			return fmt.Errorf("failed to parse bool: %w", err)
+		}
+		v.SetBool(b)
+	default:
+		// Try JSON unmarshal as a fallback
+		return json.Unmarshal([]byte(src), dst)
+	}
+	return nil
+}
+
+// bindSplitPartsToDestinationArray binds a slice of string parts to a destination slice.
+func bindSplitPartsToDestinationArray(parts []string, dest any) error {
+	v := reflect.Indirect(reflect.ValueOf(dest))
+	t := v.Type()
+
+	newArray := reflect.MakeSlice(t, len(parts), len(parts))
+	for i, p := range parts {
+		err := BindStringToObject(p, newArray.Index(i).Addr().Interface())
+		if err != nil {
+			return fmt.Errorf("error setting array element: %w", err)
+		}
+	}
+	v.Set(newArray)
+	return nil
+}
+
+// bindSplitPartsToDestinationStruct binds string parts to a destination struct via JSON.
+func bindSplitPartsToDestinationStruct(paramName string, parts []string, explode bool, dest any) error {
+	var fields []string
+	if explode {
+		fields = make([]string, len(parts))
+		for i, property := range parts {
+			propertyParts := strings.Split(property, "=")
+			if len(propertyParts) != 2 {
+				return fmt.Errorf("parameter '%s' has invalid exploded format", paramName)
+			}
+			fields[i] = "\"" + propertyParts[0] + "\":\"" + propertyParts[1] + "\""
+		}
+	} else {
+		if len(parts)%2 != 0 {
+			return fmt.Errorf("parameter '%s' has invalid format, property/values need to be pairs", paramName)
+		}
+		fields = make([]string, len(parts)/2)
+		for i := 0; i < len(parts); i += 2 {
+			key := parts[i]
+			value := parts[i+1]
+			fields[i/2] = "\"" + key + "\":\"" + value + "\""
+		}
+	}
+	jsonParam := "{" + strings.Join(fields, ",") + "}"
+	return json.Unmarshal([]byte(jsonParam), dest)
+}
+
+// splitStyledParameter splits a styled parameter string value into parts based
+// on the OpenAPI style. The object flag indicates whether the destination is a
+// struct/map (affects matrix explode handling).
+func splitStyledParameter(style string, explode bool, object bool, paramName string, value string) ([]string, error) {
+	switch style {
+	case "simple":
+		// In the simple case, we always split on comma
+		return strings.Split(value, ","), nil
+	case "label":
+		if explode {
+			// Exploded: .a.b.c or .key=value.key=value
+			parts := strings.Split(value, ".")
+			if parts[0] != "" {
+				return nil, fmt.Errorf("invalid format for label parameter '%s', should start with '.'", paramName)
+			}
+			return parts[1:], nil
+		}
+		// Unexploded: .a,b,c
+		if value[0] != '.' {
+			return nil, fmt.Errorf("invalid format for label parameter '%s', should start with '.'", paramName)
+		}
+		return strings.Split(value[1:], ","), nil
+	case "matrix":
+		if explode {
+			// Exploded: ;a;b;c or ;key=value;key=value
+			parts := strings.Split(value, ";")
+			if parts[0] != "" {
+				return nil, fmt.Errorf("invalid format for matrix parameter '%s', should start with ';'", paramName)
+			}
+			parts = parts[1:]
+			if !object {
+				prefix := paramName + "="
+				for i := range parts {
+					parts[i] = strings.TrimPrefix(parts[i], prefix)
+				}
+			}
+			return parts, nil
+		}
+		// Unexploded: ;paramName=a,b,c
+		prefix := ";" + paramName + "="
+		if !strings.HasPrefix(value, prefix) {
+			return nil, fmt.Errorf("expected parameter '%s' to start with %s", paramName, prefix)
+		}
+		return strings.Split(strings.TrimPrefix(value, prefix), ","), nil
+	case "form":
+		if explode {
+			parts := strings.Split(value, "&")
+			if !object {
+				prefix := paramName + "="
+				for i := range parts {
+					parts[i] = strings.TrimPrefix(parts[i], prefix)
+				}
+			}
+			return parts, nil
+		}
+		parts := strings.Split(value, ",")
+		prefix := paramName + "="
+		for i := range parts {
+			parts[i] = strings.TrimPrefix(parts[i], prefix)
+		}
+		return parts, nil
+	}
+
+	return nil, fmt.Errorf("unhandled parameter style: %s", style)
+}
+
+// isByteSlice reports whether t is []byte (or equivalently []uint8).
+func isByteSlice(t reflect.Type) bool {
+	return t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Uint8
+}
+
+// base64Decode decodes s as base64.
+//
+// Per OpenAPI 3.0, format: byte uses RFC 4648 Section 4 (standard alphabet,
+// padded). We use padding presence to select the right decoder, rather than
+// blindly cascading (which can produce corrupt output when RawStdEncoding
+// silently accepts padded input and treats '=' as data).
+func base64Decode(s string) ([]byte, error) {
+	if s == "" {
+		return []byte{}, nil
+	}
+
+	if strings.ContainsRune(s, '=') {
+		if strings.ContainsAny(s, "-_") {
+			return base64Decode1(base64.URLEncoding, s)
+		}
+		return base64Decode1(base64.StdEncoding, s)
+	}
+
+	if strings.ContainsAny(s, "-_") {
+		return base64Decode1(base64.RawURLEncoding, s)
+	}
+	return base64Decode1(base64.RawStdEncoding, s)
+}
+
+func base64Decode1(enc *base64.Encoding, s string) ([]byte, error) {
+	b, err := enc.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("failed to base64-decode string %q: %w", s, err)
+	}
+	return b, nil
+}
+
+// ParameterOptions carries OpenAPI parameter metadata to bind and style
+// functions so they can handle style dispatch, explode, required,
+// type-aware coercions, and location-aware escaping from a single
+// uniform call site. All fields have sensible zero-value defaults.
+type ParameterOptions struct {
+	Style         string        // OpenAPI style: "simple", "form", "label", "matrix", "deepObject", "pipeDelimited", "spaceDelimited"
+	ParamLocation ParamLocation // Where the parameter appears: query, path, header, cookie
+	Explode       bool
+	Required      bool
+	Type          string // OpenAPI type: "string", "integer", "array", "object"
+	Format        string // OpenAPI format: "int32", "date-time", etc.
+	AllowReserved bool   // When true, reserved characters in query values are not percent-encoded
+}
 
 // ---------------------------------------------------------------------------
 // Internal style helpers

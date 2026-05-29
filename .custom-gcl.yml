@@ -1,0 +1,4 @@
+version: v2.12.2
+plugins:
+  - module: github.com/openclarion/openclarion/tools/openclarion-linter
+    path: ./tools/openclarion-linter

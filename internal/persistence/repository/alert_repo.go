@@ -168,6 +168,29 @@ func (r *alertRepo) ListEventsByStartsAtRange(ctx context.Context, startInclusiv
 	return out, nil
 }
 
+// ListEvents returns the most recent events, ordered by starts_at
+// descending with id as the deterministic tie-breaker.
+func (r *alertRepo) ListEvents(ctx context.Context, limit int) ([]domain.AlertEvent, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list events: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.AlertEvent.Query().
+		Order(alertevent.ByStartsAt(entsql.OrderDesc()), alertevent.ByID(entsql.OrderDesc())).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list events: %w", err)
+	}
+	out := make([]domain.AlertEvent, len(rows))
+	for i, row := range rows {
+		out[i] = alertEventToDomain(row)
+	}
+	return out, nil
+}
+
 // SaveGroup inserts a new AlertGroup HEADER (no event link). Use
 // LinkEventsToGroup separately to materialise the M2N edge.
 func (r *alertRepo) SaveGroup(ctx context.Context, g domain.AlertGroup) (domain.AlertGroup, error) {
@@ -304,7 +327,7 @@ func (r *alertRepo) LinkEventsToGroup(ctx context.Context, groupID domain.AlertG
 		// A unique-violation here means the (group, event) pair
 		// already exists; treat as a no-op for idempotency.
 		// FK violations and other errors propagate.
-		var pgErr error = asAlreadyExists(err)
+		pgErr := asAlreadyExists(err)
 		if errors.Is(pgErr, domain.ErrAlreadyExists) {
 			return nil
 		}

@@ -616,6 +616,29 @@ func HasEventsWith(preds ...predicate.DiagnosisTaskEvent) predicate.DiagnosisTas
 	})
 }
 
+// HasChatSessions applies the HasEdge predicate on the "chat_sessions" edge.
+func HasChatSessions() predicate.DiagnosisTask {
+	return predicate.DiagnosisTask(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ChatSessionsTable, ChatSessionsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasChatSessionsWith applies the HasEdge predicate on the "chat_sessions" edge with a given conditions (other predicates).
+func HasChatSessionsWith(preds ...predicate.ChatSession) predicate.DiagnosisTask {
+	return predicate.DiagnosisTask(func(s *sql.Selector) {
+		step := newChatSessionsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.DiagnosisTask) predicate.DiagnosisTask {
 	return predicate.DiagnosisTask(sql.AndPredicates(predicates...))

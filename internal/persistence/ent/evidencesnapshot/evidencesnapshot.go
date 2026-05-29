@@ -34,6 +34,8 @@ const (
 	EdgeGroup = "group"
 	// EdgeTasks holds the string denoting the tasks edge name in mutations.
 	EdgeTasks = "tasks"
+	// EdgeSubReports holds the string denoting the sub_reports edge name in mutations.
+	EdgeSubReports = "sub_reports"
 	// Table holds the table name of the evidencesnapshot in the database.
 	Table = "evidence_snapshots"
 	// GroupTable is the table that holds the group relation/edge.
@@ -50,6 +52,13 @@ const (
 	TasksInverseTable = "diagnosis_tasks"
 	// TasksColumn is the table column denoting the tasks relation/edge.
 	TasksColumn = "evidence_snapshot_id"
+	// SubReportsTable is the table that holds the sub_reports relation/edge.
+	SubReportsTable = "sub_reports"
+	// SubReportsInverseTable is the table name for the SubReport entity.
+	// It exists in this package in order to avoid circular dependency with the "subreport" package.
+	SubReportsInverseTable = "sub_reports"
+	// SubReportsColumn is the table column denoting the sub_reports relation/edge.
+	SubReportsColumn = "evidence_snapshot_id"
 )
 
 // Columns holds all SQL columns for evidencesnapshot fields.
@@ -141,6 +150,20 @@ func ByTasks(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newTasksStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// BySubReportsCount orders the results by sub_reports count.
+func BySubReportsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newSubReportsStep(), opts...)
+	}
+}
+
+// BySubReports orders the results by sub_reports terms.
+func BySubReports(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newSubReportsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newGroupStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -153,5 +176,12 @@ func newTasksStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(TasksInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, TasksTable, TasksColumn),
+	)
+}
+func newSubReportsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(SubReportsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, SubReportsTable, SubReportsColumn),
 	)
 }

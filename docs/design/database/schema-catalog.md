@@ -15,10 +15,12 @@ workflow.
 | `DiagnosisTask` | shipped at M1-PR1 | workflow-bound lifecycle record |
 | `DiagnosisTaskEvent` | shipped at M1-PR1 | append-only lifecycle event log for `DiagnosisTask`; `dedupe_key` UNIQUE per task allows idempotent producers |
 | `AlertWindow` | M1-PR3 | replayable polling window and active alert snapshot |
-| `SubReport` | M2 | per-group AI report |
-| `ResolutionReport` | M2 | final report and closure outcome |
-| `ChatSession` | M5 | interactive session lifecycle |
-| `ChatTurn` | M5 | append-only human, assistant, system, and tool messages |
+| `SubReport` | shipped at M2 local | per-snapshot AI report; `(evidence_snapshot_id, idempotency_key)` is the retry-safe producer key |
+| `FinalReport` | shipped at M2 local | incident/window reduction of validated SubReports; persisted before notification |
+| `ReportNotificationDelivery` | shipped at M2 local | one delivery audit row per notification idempotency key; tracks pending/delivered/failed state and provider metadata |
+| `DiagnosisAuthTicket` | shipped at M5 local | short-lived WebSocket ticket metadata; stores `sha256(token)`, never the raw token |
+| `ChatSession` | shipped at M5 local | interactive diagnosis-room lifecycle anchored to `DiagnosisTask` |
+| `ChatTurn` | shipped at M5 local | append-only human, assistant, system, and tool messages |
 | `AuditLog` | M2+ | security and lifecycle audit trail |
 
 ## Fingerprint Discipline (M1)
@@ -40,10 +42,10 @@ database.
 ## Primary Keys
 
 All business entities use the Ent default `int` primary key, which Ent
-maps to PostgreSQL `bigserial`. UUID is reserved for security-sensitive
-single-use tokens (see the WS ticket described in
-[../SECURITY_CODING.md](../SECURITY_CODING.md)), where unguessability is
-the dominant property and the row is short-lived.
+maps to PostgreSQL `bigserial`. Security-sensitive single-use credentials
+use random opaque token material outside the primary key; persistence stores
+only a cryptographic digest of that token (see the WS ticket described in
+[../SECURITY_CODING.md](../SECURITY_CODING.md)).
 
 Switching entity primary keys to UUID or ULID is deferred and is gated
 on a concrete need (sharding, multi-region writes without a coordinator,
@@ -108,6 +110,50 @@ on `DiagnosisTask`). Per the M1 design decision (option 2A):
   key; producers that do (e.g. Temporal Activity retries) supply a
   stable key and the second insert is rejected.
 
+## DiagnosisAuthTicket
+
+`DiagnosisAuthTicket` is the persistence backing for the M5 WebSocket ticket
+handshake. The raw ticket token is returned only at issuance time and is never
+stored. The table stores `token_hash = sha256(raw_token)` with a UNIQUE index.
+
+The row is append-mostly:
+
+* identity and authorization metadata (`subject`, `roles`, `session_id`,
+  `scope`, `issued_at`, `expires_at`) are immutable
+* `consumed_at` is nullable and is set once by a conditional update requiring
+  `consumed_at IS NULL` and `expires_at > now`
+* concurrent consumers racing for the same ticket produce exactly one
+  successful update; the rest observe `ErrTicketConsumed`
+* expired tickets are not consumed, so replay attempts remain auditable
+
+## ChatSession and ChatTurn
+
+`ChatSession` and `ChatTurn` are the M5 short-conversation persistence
+boundary. They remain tied to the intelligent alert diagnosis path: every
+`ChatSession` belongs to exactly one `DiagnosisTask`, while `session_key` is
+the external room id used by WebSocket tickets and reconnect flows.
+
+The V1 model is intentionally small:
+
+* `chat_sessions.session_key` is globally UNIQUE and immutable
+* `chat_sessions.diagnosis_task_id` is UNIQUE, enforcing one diagnosis-room
+  session per workflow execution in V1
+* `owner_subject` is immutable and backs owner/admin RBAC resolution
+* `status` is text (`open` / `closed`), not a database enum
+* close metadata is explicit (`closed_at`, `close_reason`) so lifecycle
+  ending is queryable
+
+`ChatTurn` rows are append-only. The two persistence idempotency boundaries are:
+
+* `UNIQUE (chat_session_id, message_id)` rejects browser retry / Temporal
+  replay duplicates
+* `UNIQUE (chat_session_id, sequence)` preserves one canonical transcript
+  order for `/workspace/conversation.json`
+
+Each turn records `role`, `actor_subject`, `content`, `metadata`, and
+`occurred_at`. Workflow and WebSocket relay code still need to call this
+repository boundary before the full M5 room is accepted.
+
 ## Foreign Keys and Composite Indexes
 
 All inter-entity foreign keys are surfaced as explicit `field.Int`
@@ -125,7 +171,7 @@ deliberate so that:
   produces the columns in the reverse order, which silently degrades
   these queries to a full index scan.
 
-The relations at M1-PR1 are:
+The relations covered by the current schema are:
 
 * `AlertEvent` <-many-to-many-> `AlertGroup` (join table
   `alert_event_groups`, cascade-delete on both sides)
@@ -137,6 +183,11 @@ The relations at M1-PR1 are:
   `(workflow_id, run_id)`, NOT `workflow_id` alone)
 * `DiagnosisTask` -one-to-many-> `DiagnosisTaskEvent` (FK
   `diagnosis_task_events.task_id`)
+* `DiagnosisTask` -one-to-one-> `ChatSession` (FK
+  `chat_sessions.diagnosis_task_id`, UNIQUE in V1)
+* `ChatSession` -one-to-many-> `ChatTurn` (FK
+  `chat_turns.chat_session_id`; per-session unique keys on
+  `message_id` and `sequence`)
 
 ## JSONB Usage
 

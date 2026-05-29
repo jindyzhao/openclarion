@@ -14,9 +14,15 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
+	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
+	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
+	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
 
 // ent aliases to avoid import conflicts in user's code.
@@ -77,11 +83,17 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			alertevent.Table:         alertevent.ValidColumn,
-			alertgroup.Table:         alertgroup.ValidColumn,
-			diagnosistask.Table:      diagnosistask.ValidColumn,
-			diagnosistaskevent.Table: diagnosistaskevent.ValidColumn,
-			evidencesnapshot.Table:   evidencesnapshot.ValidColumn,
+			alertevent.Table:                 alertevent.ValidColumn,
+			alertgroup.Table:                 alertgroup.ValidColumn,
+			chatsession.Table:                chatsession.ValidColumn,
+			chatturn.Table:                   chatturn.ValidColumn,
+			diagnosisauthticket.Table:        diagnosisauthticket.ValidColumn,
+			diagnosistask.Table:              diagnosistask.ValidColumn,
+			diagnosistaskevent.Table:         diagnosistaskevent.ValidColumn,
+			evidencesnapshot.Table:           evidencesnapshot.ValidColumn,
+			finalreport.Table:                finalreport.ValidColumn,
+			reportnotificationdelivery.Table: reportnotificationdelivery.ValidColumn,
+			subreport.Table:                  subreport.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

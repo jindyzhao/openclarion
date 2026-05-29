@@ -1,4 +1,6 @@
 ---
+id: ADR-0004
+title: "Temporal Workflow Engine"
 status: "proposed"
 date: 2026-05-18
 deciders: ["jindyzhao"]

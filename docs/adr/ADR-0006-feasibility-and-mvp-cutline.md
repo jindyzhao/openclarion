@@ -1,4 +1,6 @@
 ---
+id: ADR-0006
+title: "Feasibility and MVP Cutline"
 status: "proposed"
 date: 2026-05-18
 deciders: ["jindyzhao"]
@@ -36,6 +38,17 @@ scope is intentionally minimal: a short-conversation diagnosis room with a
 bounded number of turns and a fixed session lifetime. Long-session features
 (automatic compression, multi-day rooms, complex RBAC tiers) are explicitly
 deferred.
+
+### Consequences
+
+* Good, because M0-M2 can prove the alert-to-evidence-to-report loop without
+  waiting for an agent runtime decision.
+* Good, because M4 and M5 still have explicit delivery slots, so sandbox and
+  diagnosis work remains planned rather than open-ended exploration.
+* Neutral, because provider breadth and long-session features move behind the
+  V1 boundary until the core alert-analysis workflow is stable.
+* Bad, because some stakeholders may expect interactive diagnosis before the
+  headless report loop has produced representative evidence.
 
 ## Milestone Delivery Strategy
 

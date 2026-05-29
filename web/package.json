@@ -1,0 +1,43 @@
+{
+  "name": "@openclarion/web",
+  "version": "0.0.0",
+  "private": true,
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "smoke": "playwright test",
+    "smoke:live": "playwright test --config playwright.live.config.ts",
+    "deadcode": "knip --config knip.json",
+    "audit": "npm audit --audit-level=high",
+    "markdownlint": "markdownlint-cli2 --config ../docs/design/ci/markdownlint/.markdownlint-cli2.jsonc",
+    "api:generate": "openapi-typescript ../api/openapi.yaml -o src/lib/api/openapi.ts"
+  },
+  "dependencies": {
+    "next": "16.2.6",
+    "react": "19.2.6",
+    "react-dom": "19.2.6"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.58.2",
+    "@types/node": "24.12.4",
+    "@types/react": "19.2.15",
+    "@types/react-dom": "19.2.3",
+    "eslint": "9.39.4",
+    "eslint-config-next": "16.2.6",
+    "knip": "6.14.2",
+    "markdownlint-cli2": "0.22.1",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.7"
+  },
+  "overrides": {
+    "postcss": "8.5.15"
+  }
+}

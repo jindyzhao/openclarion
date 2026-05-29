@@ -7,6 +7,8 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/persistence/ent"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -198,6 +200,169 @@ func (r *diagnosisRepo) ListEvents(ctx context.Context, taskID domain.DiagnosisT
 	out := make([]domain.DiagnosisTaskEvent, len(rows))
 	for i, row := range rows {
 		out[i] = diagnosisTaskEventToDomain(row)
+	}
+	return out, nil
+}
+
+// SaveChatSession inserts a new M5 diagnosis-room ChatSession. The
+// unique session_key and diagnosis_task_id constraints are both
+// surfaced as domain.ErrAlreadyExists.
+func (r *diagnosisRepo) SaveChatSession(ctx context.Context, s domain.ChatSession) (domain.ChatSession, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.ChatSession{}, err
+	}
+	builder := r.tx.ChatSession.Create().
+		SetDiagnosisTaskID(int(s.DiagnosisTaskID)).
+		SetSessionKey(s.SessionKey).
+		SetOwnerSubject(s.OwnerSubject).
+		SetStartedAt(s.StartedAt).
+		SetLastActivityAt(s.LastActivityAt)
+	if s.Status != "" {
+		builder = builder.SetStatus(string(s.Status))
+	}
+	if s.TurnCount != 0 {
+		builder = builder.SetTurnCount(s.TurnCount)
+	}
+	if s.ClosedAt != nil {
+		builder = builder.SetClosedAt(*s.ClosedAt)
+	}
+	if s.CloseReason != "" {
+		builder = builder.SetCloseReason(s.CloseReason)
+	}
+	saved, err := builder.Save(ctx)
+	if err != nil {
+		return domain.ChatSession{}, asAlreadyExists(err)
+	}
+	return chatSessionToDomain(saved), nil
+}
+
+// UpdateChatSession writes mutable lifecycle fields. Immutable fields
+// are intentionally ignored.
+func (r *diagnosisRepo) UpdateChatSession(ctx context.Context, s domain.ChatSession) (domain.ChatSession, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.ChatSession{}, err
+	}
+	if s.ID == 0 {
+		return domain.ChatSession{}, fmt.Errorf("update chat session: id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	builder := r.tx.ChatSession.UpdateOneID(int(s.ID)).
+		SetStatus(string(s.Status)).
+		SetTurnCount(s.TurnCount).
+		SetLastActivityAt(s.LastActivityAt).
+		SetCloseReason(s.CloseReason)
+	if s.ClosedAt != nil {
+		builder = builder.SetClosedAt(*s.ClosedAt)
+	} else {
+		builder = builder.ClearClosedAt()
+	}
+	saved, err := builder.Save(ctx)
+	if err != nil {
+		return domain.ChatSession{}, asNotFound(err)
+	}
+	return chatSessionToDomain(saved), nil
+}
+
+// FindChatSessionByID returns the ChatSession or domain.ErrNotFound.
+func (r *diagnosisRepo) FindChatSessionByID(ctx context.Context, id domain.ChatSessionID) (domain.ChatSession, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.ChatSession{}, err
+	}
+	if id == 0 {
+		return domain.ChatSession{}, fmt.Errorf("find chat session by id: id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	row, err := r.tx.ChatSession.Get(ctx, int(id))
+	if err != nil {
+		return domain.ChatSession{}, asNotFound(err)
+	}
+	return chatSessionToDomain(row), nil
+}
+
+// FindChatSessionByKey returns the ChatSession matching the external
+// WebSocket/session key.
+func (r *diagnosisRepo) FindChatSessionByKey(ctx context.Context, sessionKey string) (domain.ChatSession, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.ChatSession{}, err
+	}
+	if sessionKey == "" {
+		return domain.ChatSession{}, fmt.Errorf("find chat session by key: session_key must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	row, err := r.tx.ChatSession.Query().
+		Where(chatsession.SessionKeyEQ(sessionKey)).
+		Only(ctx)
+	if err != nil {
+		return domain.ChatSession{}, asNotFound(err)
+	}
+	return chatSessionToDomain(row), nil
+}
+
+// SaveChatTurn appends one immutable transcript row.
+func (r *diagnosisRepo) SaveChatTurn(ctx context.Context, turn domain.ChatTurn) (domain.ChatTurn, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.ChatTurn{}, err
+	}
+	builder := r.tx.ChatTurn.Create().
+		SetChatSessionID(int(turn.SessionID)).
+		SetMessageID(turn.MessageID).
+		SetSequence(turn.Sequence).
+		SetRole(string(turn.Role)).
+		SetActorSubject(turn.ActorSubject).
+		SetContent(turn.Content).
+		SetOccurredAt(turn.OccurredAt)
+	if len(turn.Metadata) > 0 {
+		builder = builder.SetMetadata(turn.Metadata)
+	}
+	saved, err := builder.Save(ctx)
+	if err != nil {
+		return domain.ChatTurn{}, asAlreadyExists(err)
+	}
+	return chatTurnToDomain(saved), nil
+}
+
+// FindChatTurnBySessionAndMessageID returns the per-session idempotency hit.
+func (r *diagnosisRepo) FindChatTurnBySessionAndMessageID(ctx context.Context, sessionID domain.ChatSessionID, messageID string) (domain.ChatTurn, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.ChatTurn{}, err
+	}
+	if sessionID == 0 {
+		return domain.ChatTurn{}, fmt.Errorf("find chat turn by message id: session_id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if messageID == "" {
+		return domain.ChatTurn{}, fmt.Errorf("find chat turn by message id: message_id must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	row, err := r.tx.ChatTurn.Query().
+		Where(
+			chatturn.ChatSessionIDEQ(int(sessionID)),
+			chatturn.MessageIDEQ(messageID),
+		).
+		Only(ctx)
+	if err != nil {
+		return domain.ChatTurn{}, asNotFound(err)
+	}
+	return chatTurnToDomain(row), nil
+}
+
+// ListChatTurnsBySession returns turns ordered by transcript sequence.
+func (r *diagnosisRepo) ListChatTurnsBySession(ctx context.Context, sessionID domain.ChatSessionID, limit int) ([]domain.ChatTurn, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if sessionID == 0 {
+		return nil, fmt.Errorf("list chat turns: session_id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list chat turns: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.ChatTurn.Query().
+		Where(chatturn.ChatSessionIDEQ(int(sessionID))).
+		Order(chatturn.BySequence()).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list chat turns: %w", err)
+	}
+	out := make([]domain.ChatTurn, len(rows))
+	for i, row := range rows {
+		out[i] = chatTurnToDomain(row)
 	}
 	return out, nil
 }

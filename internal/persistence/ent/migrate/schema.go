@@ -92,6 +92,143 @@ var (
 			},
 		},
 	}
+	// ChatSessionsColumns holds the columns for the "chat_sessions" table.
+	ChatSessionsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "session_key", Type: field.TypeString, Unique: true, Size: 128},
+		{Name: "owner_subject", Type: field.TypeString, Size: 256},
+		{Name: "status", Type: field.TypeString, Size: 32, Default: "open"},
+		{Name: "turn_count", Type: field.TypeInt, Default: 0},
+		{Name: "started_at", Type: field.TypeTime},
+		{Name: "last_activity_at", Type: field.TypeTime},
+		{Name: "closed_at", Type: field.TypeTime, Nullable: true},
+		{Name: "close_reason", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "diagnosis_task_id", Type: field.TypeInt},
+	}
+	// ChatSessionsTable holds the schema information for the "chat_sessions" table.
+	ChatSessionsTable = &schema.Table{
+		Name:       "chat_sessions",
+		Columns:    ChatSessionsColumns,
+		PrimaryKey: []*schema.Column{ChatSessionsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "chat_sessions_diagnosis_tasks_chat_sessions",
+				Columns:    []*schema.Column{ChatSessionsColumns[11]},
+				RefColumns: []*schema.Column{DiagnosisTasksColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "chatsession_diagnosis_task_id",
+				Unique:  true,
+				Columns: []*schema.Column{ChatSessionsColumns[11]},
+			},
+			{
+				Name:    "chatsession_owner_subject_status",
+				Unique:  false,
+				Columns: []*schema.Column{ChatSessionsColumns[2], ChatSessionsColumns[3]},
+			},
+			{
+				Name:    "chatsession_status_last_activity_at",
+				Unique:  false,
+				Columns: []*schema.Column{ChatSessionsColumns[3], ChatSessionsColumns[6]},
+			},
+			{
+				Name:    "chatsession_started_at",
+				Unique:  false,
+				Columns: []*schema.Column{ChatSessionsColumns[5]},
+			},
+		},
+	}
+	// ChatTurnsColumns holds the columns for the "chat_turns" table.
+	ChatTurnsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "message_id", Type: field.TypeString, Size: 128},
+		{Name: "sequence", Type: field.TypeInt},
+		{Name: "role", Type: field.TypeString, Size: 16},
+		{Name: "actor_subject", Type: field.TypeString, Size: 256},
+		{Name: "content", Type: field.TypeString, Size: 2147483647},
+		{Name: "metadata", Type: field.TypeJSON, Nullable: true},
+		{Name: "occurred_at", Type: field.TypeTime},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "chat_session_id", Type: field.TypeInt},
+	}
+	// ChatTurnsTable holds the schema information for the "chat_turns" table.
+	ChatTurnsTable = &schema.Table{
+		Name:       "chat_turns",
+		Columns:    ChatTurnsColumns,
+		PrimaryKey: []*schema.Column{ChatTurnsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "chat_turns_chat_sessions_turns",
+				Columns:    []*schema.Column{ChatTurnsColumns[9]},
+				RefColumns: []*schema.Column{ChatSessionsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "chatturn_chat_session_id_message_id",
+				Unique:  true,
+				Columns: []*schema.Column{ChatTurnsColumns[9], ChatTurnsColumns[1]},
+			},
+			{
+				Name:    "chatturn_chat_session_id_sequence",
+				Unique:  true,
+				Columns: []*schema.Column{ChatTurnsColumns[9], ChatTurnsColumns[2]},
+			},
+			{
+				Name:    "chatturn_chat_session_id_occurred_at",
+				Unique:  false,
+				Columns: []*schema.Column{ChatTurnsColumns[9], ChatTurnsColumns[7]},
+			},
+			{
+				Name:    "chatturn_chat_session_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{ChatTurnsColumns[9], ChatTurnsColumns[8]},
+			},
+		},
+	}
+	// DiagnosisAuthTicketsColumns holds the columns for the "diagnosis_auth_tickets" table.
+	DiagnosisAuthTicketsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "token_hash", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "subject", Type: field.TypeString, Size: 256},
+		{Name: "roles", Type: field.TypeJSON},
+		{Name: "session_id", Type: field.TypeString, Size: 128},
+		{Name: "scope", Type: field.TypeString, Size: 64},
+		{Name: "issued_at", Type: field.TypeTime},
+		{Name: "expires_at", Type: field.TypeTime},
+		{Name: "consumed_at", Type: field.TypeTime, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+	}
+	// DiagnosisAuthTicketsTable holds the schema information for the "diagnosis_auth_tickets" table.
+	DiagnosisAuthTicketsTable = &schema.Table{
+		Name:       "diagnosis_auth_tickets",
+		Columns:    DiagnosisAuthTicketsColumns,
+		PrimaryKey: []*schema.Column{DiagnosisAuthTicketsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "diagnosisauthticket_session_id_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{DiagnosisAuthTicketsColumns[4], DiagnosisAuthTicketsColumns[7]},
+			},
+			{
+				Name:    "diagnosisauthticket_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{DiagnosisAuthTicketsColumns[7]},
+			},
+			{
+				Name:    "diagnosisauthticket_consumed_at_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{DiagnosisAuthTicketsColumns[8], DiagnosisAuthTicketsColumns[7]},
+			},
+		},
+	}
 	// DiagnosisTasksColumns holds the columns for the "diagnosis_tasks" table.
 	DiagnosisTasksColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -210,6 +347,132 @@ var (
 			},
 		},
 	}
+	// FinalReportsColumns holds the columns for the "final_reports" table.
+	FinalReportsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "correlation_key", Type: field.TypeString, Size: 256},
+		{Name: "idempotency_key", Type: field.TypeString, Unique: true, Size: 256},
+		{Name: "title", Type: field.TypeString, Size: 160},
+		{Name: "executive_summary", Type: field.TypeString, Size: 4000},
+		{Name: "severity", Type: field.TypeString, Size: 32},
+		{Name: "confidence", Type: field.TypeString, Size: 32},
+		{Name: "subreport_summaries", Type: field.TypeJSON},
+		{Name: "recommended_actions", Type: field.TypeJSON},
+		{Name: "notification_text", Type: field.TypeString, Size: 2000},
+		{Name: "content", Type: field.TypeJSON},
+		{Name: "model", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "output_mode", Type: field.TypeString, Nullable: true, Size: 32},
+		{Name: "created_by_workflow", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "created_at", Type: field.TypeTime},
+	}
+	// FinalReportsTable holds the schema information for the "final_reports" table.
+	FinalReportsTable = &schema.Table{
+		Name:       "final_reports",
+		Columns:    FinalReportsColumns,
+		PrimaryKey: []*schema.Column{FinalReportsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "finalreport_correlation_key_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{FinalReportsColumns[1], FinalReportsColumns[14]},
+			},
+			{
+				Name:    "finalreport_severity_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{FinalReportsColumns[5], FinalReportsColumns[14]},
+			},
+		},
+	}
+	// ReportNotificationDeliveriesColumns holds the columns for the "report_notification_deliveries" table.
+	ReportNotificationDeliveriesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "idempotency_key", Type: field.TypeString, Unique: true, Size: 256},
+		{Name: "provider_message_id", Type: field.TypeString, Nullable: true, Size: 256},
+		{Name: "provider_status", Type: field.TypeString, Nullable: true, Size: 64},
+		{Name: "status", Type: field.TypeString, Size: 32, Default: "pending"},
+		{Name: "raw", Type: field.TypeJSON},
+		{Name: "failure_reason", Type: field.TypeString, Nullable: true, Size: 2000},
+		{Name: "delivered_at", Type: field.TypeTime, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "final_report_id", Type: field.TypeInt},
+	}
+	// ReportNotificationDeliveriesTable holds the schema information for the "report_notification_deliveries" table.
+	ReportNotificationDeliveriesTable = &schema.Table{
+		Name:       "report_notification_deliveries",
+		Columns:    ReportNotificationDeliveriesColumns,
+		PrimaryKey: []*schema.Column{ReportNotificationDeliveriesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "report_notification_deliveries_final_reports_notification_deliveries",
+				Columns:    []*schema.Column{ReportNotificationDeliveriesColumns[10]},
+				RefColumns: []*schema.Column{FinalReportsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "reportnotificationdelivery_final_report_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{ReportNotificationDeliveriesColumns[10], ReportNotificationDeliveriesColumns[8]},
+			},
+			{
+				Name:    "reportnotificationdelivery_status_updated_at",
+				Unique:  false,
+				Columns: []*schema.Column{ReportNotificationDeliveriesColumns[4], ReportNotificationDeliveriesColumns[9]},
+			},
+		},
+	}
+	// SubReportsColumns holds the columns for the "sub_reports" table.
+	SubReportsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "idempotency_key", Type: field.TypeString, Size: 256},
+		{Name: "scenario", Type: field.TypeString, Size: 64},
+		{Name: "title", Type: field.TypeString, Size: 160},
+		{Name: "summary", Type: field.TypeString, Size: 4000},
+		{Name: "severity", Type: field.TypeString, Size: 32},
+		{Name: "confidence", Type: field.TypeString, Size: 32},
+		{Name: "findings", Type: field.TypeJSON},
+		{Name: "recommended_actions", Type: field.TypeJSON},
+		{Name: "evidence_refs", Type: field.TypeJSON},
+		{Name: "content", Type: field.TypeJSON},
+		{Name: "model", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "output_mode", Type: field.TypeString, Nullable: true, Size: 32},
+		{Name: "created_by_workflow", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "evidence_snapshot_id", Type: field.TypeInt},
+	}
+	// SubReportsTable holds the schema information for the "sub_reports" table.
+	SubReportsTable = &schema.Table{
+		Name:       "sub_reports",
+		Columns:    SubReportsColumns,
+		PrimaryKey: []*schema.Column{SubReportsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "sub_reports_evidence_snapshots_sub_reports",
+				Columns:    []*schema.Column{SubReportsColumns[15]},
+				RefColumns: []*schema.Column{EvidenceSnapshotsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "subreport_evidence_snapshot_id_idempotency_key",
+				Unique:  true,
+				Columns: []*schema.Column{SubReportsColumns[15], SubReportsColumns[1]},
+			},
+			{
+				Name:    "subreport_evidence_snapshot_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{SubReportsColumns[15], SubReportsColumns[14]},
+			},
+			{
+				Name:    "subreport_severity_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{SubReportsColumns[5], SubReportsColumns[14]},
+			},
+		},
+	}
 	// AlertEventGroupsColumns holds the columns for the "alert_event_groups" table.
 	AlertEventGroupsColumns = []*schema.Column{
 		{Name: "alert_event_id", Type: field.TypeInt},
@@ -235,21 +498,59 @@ var (
 			},
 		},
 	}
+	// FinalReportSubReportsColumns holds the columns for the "final_report_sub_reports" table.
+	FinalReportSubReportsColumns = []*schema.Column{
+		{Name: "final_report_id", Type: field.TypeInt},
+		{Name: "sub_report_id", Type: field.TypeInt},
+	}
+	// FinalReportSubReportsTable holds the schema information for the "final_report_sub_reports" table.
+	FinalReportSubReportsTable = &schema.Table{
+		Name:       "final_report_sub_reports",
+		Columns:    FinalReportSubReportsColumns,
+		PrimaryKey: []*schema.Column{FinalReportSubReportsColumns[0], FinalReportSubReportsColumns[1]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "final_report_sub_reports_final_report_id",
+				Columns:    []*schema.Column{FinalReportSubReportsColumns[0]},
+				RefColumns: []*schema.Column{FinalReportsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+			{
+				Symbol:     "final_report_sub_reports_sub_report_id",
+				Columns:    []*schema.Column{FinalReportSubReportsColumns[1]},
+				RefColumns: []*schema.Column{SubReportsColumns[0]},
+				OnDelete:   schema.Cascade,
+			},
+		},
+	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		AlertEventsTable,
 		AlertGroupsTable,
+		ChatSessionsTable,
+		ChatTurnsTable,
+		DiagnosisAuthTicketsTable,
 		DiagnosisTasksTable,
 		DiagnosisTaskEventsTable,
 		EvidenceSnapshotsTable,
+		FinalReportsTable,
+		ReportNotificationDeliveriesTable,
+		SubReportsTable,
 		AlertEventGroupsTable,
+		FinalReportSubReportsTable,
 	}
 )
 
 func init() {
+	ChatSessionsTable.ForeignKeys[0].RefTable = DiagnosisTasksTable
+	ChatTurnsTable.ForeignKeys[0].RefTable = ChatSessionsTable
 	DiagnosisTasksTable.ForeignKeys[0].RefTable = EvidenceSnapshotsTable
 	DiagnosisTaskEventsTable.ForeignKeys[0].RefTable = DiagnosisTasksTable
 	EvidenceSnapshotsTable.ForeignKeys[0].RefTable = AlertGroupsTable
+	ReportNotificationDeliveriesTable.ForeignKeys[0].RefTable = FinalReportsTable
+	SubReportsTable.ForeignKeys[0].RefTable = EvidenceSnapshotsTable
 	AlertEventGroupsTable.ForeignKeys[0].RefTable = AlertEventsTable
 	AlertEventGroupsTable.ForeignKeys[1].RefTable = AlertGroupsTable
+	FinalReportSubReportsTable.ForeignKeys[0].RefTable = FinalReportsTable
+	FinalReportSubReportsTable.ForeignKeys[1].RefTable = SubReportsTable
 }

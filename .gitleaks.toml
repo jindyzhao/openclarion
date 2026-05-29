@@ -1,0 +1,49 @@
+# .gitleaks.toml - OpenClarion secret scanning configuration.
+#
+# Extends gitleaks' built-in ruleset (useDefault = true). Custom rules
+# are intentionally absent: the default rule bank is comprehensive and
+# maintained upstream. This file exists to define allowlists that prevent
+# false positives on governed example values and test fixtures without
+# creating blanket directory exclusions.
+#
+# Policy: any allowlist entry MUST include an owner and removal trigger.
+
+title = "OpenClarion secret scanner"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+# Owner: openclarion CI maintainers.
+# Expires: 2026-08-31.
+# Removal trigger: replace the evidencebuild GroupKey fixture with a
+# non-secret-like value, then delete this allowlist. This entry is scoped to
+# the default generic-api-key rule and only matches the exact fixture value in
+# the exact test file that generated the false positive. The path pattern
+# accepts an optional absolute-prefix because the current-source snapshot gate
+# scans a temporary directory.
+  [[rules.allowlists]]
+  description = "Evidence snapshot test fixture uses a deterministic fake GroupKey"
+  condition = "AND"
+  paths = [
+    '''(^|/)internal/usecases/evidencebuild/build_test\.go$''',
+  ]
+  regexTarget = "secret"
+  regexes = [
+    '''^abc123def456$''',
+  ]
+
+# Owner: openclarion CI maintainers.
+# Expires: 2026-08-31.
+# Removal trigger: if Atlas replaces atlas.sum with a checksum format that no
+# longer trips generic-api-key, remove this path-scoped allowlist. Atlas checksums
+# are migration integrity metadata, not credentials. This entry is scoped to the
+# single checksum file and does not exclude migration SQL.
+  [[rules.allowlists]]
+  description = "Atlas migration checksum file stores h1 integrity hashes"
+  condition = "AND"
+  paths = [
+    '''(^|/)internal/persistence/migrations/atlas\.sum$''',
+  ]

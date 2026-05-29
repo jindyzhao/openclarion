@@ -151,3 +151,57 @@ func TestEvidenceRepository_ListByGroup_OrdersByCreatedAtDesc(t *testing.T) {
 		}
 	})
 }
+
+func TestEvidenceRepository_List_OrdersByCreatedAtDescAndLimit(t *testing.T) {
+	resetDB(t)
+	groupA := makeGroupForEvidence(t, "evi-list-all-A")
+	groupB := makeGroupForEvidence(t, "evi-list-all-B")
+	t0 := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+
+	var middle, newest domain.EvidenceSnapshot
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		oldest := mustNewSnapshot(t, groupA, "all-d-1")
+		oldest.CreatedAt = t0.Add(10 * time.Minute)
+		if _, err := uow.Evidence().Save(ctx, oldest); err != nil {
+			t.Fatalf("Save oldest: %v", err)
+		}
+
+		middle = mustNewSnapshot(t, groupB, "all-d-2")
+		middle.CreatedAt = t0.Add(20 * time.Minute)
+		var err error
+		middle, err = uow.Evidence().Save(ctx, middle)
+		if err != nil {
+			t.Fatalf("Save middle: %v", err)
+		}
+
+		newest = mustNewSnapshot(t, groupA, "all-d-3")
+		newest.CreatedAt = t0.Add(30 * time.Minute)
+		newest, err = uow.Evidence().Save(ctx, newest)
+		if err != nil {
+			t.Fatalf("Save newest: %v", err)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		out, err := uow.Evidence().List(ctx, 2)
+		if err != nil {
+			t.Fatalf("List: %v", err)
+		}
+		if len(out) != 2 {
+			t.Fatalf("List len = %d, want 2", len(out))
+		}
+		if out[0].ID != newest.ID || out[1].ID != middle.ID {
+			t.Errorf("List order = [%d,%d], want [%d,%d]", out[0].ID, out[1].ID, newest.ID, middle.ID)
+		}
+	})
+}
+
+func TestEvidenceRepository_List_RejectsBadLimit(t *testing.T) {
+	resetDB(t)
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		_, err := uow.Evidence().List(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("want errors.Is ErrInvariantViolation, got %v", err)
+		}
+	})
+}

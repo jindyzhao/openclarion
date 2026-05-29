@@ -1,6 +1,6 @@
 package domain
 
-// Typed identifiers for the five M1 entities. Using distinct named
+// Typed identifiers for persisted entities. Using distinct named
 // types prevents accidental cross-entity ID confusion at compile time
 // (e.g. passing an AlertEventID where a DiagnosisTaskID is expected)
 // and documents the FK target right at the field type.
@@ -25,3 +25,21 @@ type DiagnosisTaskID int64
 // DiagnosisTaskEventID is the surrogate identifier of a
 // DiagnosisTaskEvent row.
 type DiagnosisTaskEventID int64
+
+// SubReportID is the surrogate identifier of a SubReport row.
+type SubReportID int64
+
+// FinalReportID is the surrogate identifier of a FinalReport row.
+type FinalReportID int64
+
+// ReportNotificationDeliveryID is the surrogate identifier of a
+// report notification delivery row.
+type ReportNotificationDeliveryID int64
+
+// ChatSessionID is the surrogate identifier of an M5 diagnosis-room
+// chat session row.
+type ChatSessionID int64
+
+// ChatTurnID is the surrogate identifier of an append-only
+// diagnosis-room chat turn row.
+type ChatTurnID int64

@@ -98,6 +98,10 @@ func (DiagnosisTask) Edges() []ent.Edge {
 		// Append-only lifecycle log. Tasks are the durability anchor;
 		// events are derivative.
 		edge.To("events", DiagnosisTaskEvent.Type),
+		// M5 interactive diagnosis room attached to this workflow
+		// execution. A unique index on chat_sessions.diagnosis_task_id
+		// enforces the one-session-per-task V1 model.
+		edge.To("chat_sessions", ChatSession.Type),
 	}
 }
 

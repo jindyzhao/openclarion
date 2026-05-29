@@ -1,4 +1,6 @@
 ---
+id: ADR-0001
+title: "PostgreSQL as the Single Source of Truth"
 status: "proposed"
 date: 2026-05-18
 deciders: ["jindyzhao"]

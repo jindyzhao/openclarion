@@ -16,9 +16,13 @@ it can move to a public repository when the position is mature.
 
 ## What OpenClarion Does
 
-OpenClarion turns alert response into a governed, auditable workflow:
+OpenClarion turns alert response into a governed, auditable workflow. The
+current product direction is intelligent alert analysis; the architecture keeps
+the alert pipeline extensible enough to accept future signal sources through
+provider interfaces without changing the control plane.
 
-1. Read active alerts from Prometheus-compatible systems or Alertmanager.
+1. Read active alerts from Prometheus-compatible systems, Alertmanager, or
+   compatible alert-source providers.
 2. Deduplicate and group alerts by deterministic dimensions.
 3. Build an `EvidenceSnapshot` with alert labels, metrics, topology, ownership,
    and recent context.
@@ -27,6 +31,18 @@ OpenClarion turns alert response into a governed, auditable workflow:
 5. Distribute concise reports through IM providers.
 6. Persist evidence, tasks, chat turns, and reports in PostgreSQL for review,
    weekly/monthly summaries, and future retrieval.
+
+The product has two logical subsystems inside the same repository and product
+surface:
+
+- **Insight Pipeline**: the automatic alert-to-evidence-to-report path.
+- **Agent Workspace**: the human-initiated diagnosis room for report follow-up,
+  explanation, action drafting, and audit handoff.
+
+They intentionally share evidence, reports, providers, auth/audit primitives,
+OpenAPI, PostgreSQL, Temporal infrastructure, and observability. They do not
+share workflow lifecycle, output schemas, conversation state, or
+production-changing operation authority.
 
 OpenClarion does **not** replace realtime paging, silencing, inhibition, or on-call
 routing. Existing realtime alert channels remain the source of immediate human
@@ -37,32 +53,34 @@ review, and accountability.
 
 The project is feasible, but the work must be sequenced carefully. The Go
 control plane and headless LLM report loop are deterministic enough to implement
-first. Interactive OpenClaw sessions are valuable but substantially harder.
+first. The sandboxed Agent Workspace is valuable, but it must stay logically
+separate from the automated report pipeline and behind explicit identity,
+runtime, audit, and approval boundaries.
 
 | Priority | Scope | Risk | Delivery intent |
 |----------|-------|------|-----------------|
 | P0 | Go control plane: alert reading, sharding, grouping, evidence snapshots, Temporal workflows | Medium | First implementation target |
 | P1 | Headless LLM reports: structured `SubReport` and `FinalReport`, persistence, notification | Medium | First value proof |
-| P2 | OpenClaw headless sandbox: readonly skills, fixed timeout, stdout JSON, cleanup | Medium-high | Parallel proof-of-concept |
-| P3 | OpenClaw interactive diagnosis room: WebSocket/PTY, identity, RBAC, audit, lifecycle compression | High | Later track, after P0/P1 are stable |
+| P2 | Sandboxed report enhancement: readonly tools, fixed timeout, file-contract JSON, cleanup | Medium-high | Parallel proof-of-concept |
+| P3 | Agent Workspace diagnosis room: WebSocket, identity, RBAC, audit, bounded turns | High | Later track, after P0/P1 are stable |
 
 ## Architecture
 
 ```text
-Prometheus / Alertmanager
-        |
-        v
-Go Control Plane  ----> PostgreSQL
-        |                  ^
-        |                  |
-        v                  |
-Temporal Workflows --------+
-        |
-        +--> Headless LLMProvider reports
-        |
-        +--> OpenClaw sandbox proof-of-concept
-        |
-        +--> IM Provider distribution
+OpenClarion product
+|-- Insight Pipeline
+|   Prometheus / Alertmanager / alert-source providers
+|           |
+|           v
+|   Go Control Plane -> Temporal report workflows -> PostgreSQL
+|           |                         |
+|           |                         +--> IM Provider distribution
+|           +--> Headless LLMProvider reports
+|           +--> Sandboxed report-enhancement runtime candidate
+`-- Agent Workspace
+    Browser / WebSocket -> DiagnosisRoomWorkflow -> per-turn sandbox
+            |                    |
+            +--------------------+--> PostgreSQL audit and chat history
 ```
 
 ### Core Principles
@@ -71,24 +89,26 @@ Temporal Workflows --------+
   retries, escalation, and lifecycle decisions.
 - **PostgreSQL as the source of truth**: business state, evidence, reports, and
   audit records live in PostgreSQL.
-- **Provider extension seams**: Metrics, CMDB, IM, Auth, Approval, Container,
-  and LLM integrations are interfaces, not hard-coded systems.
-- **Agent as a sandboxed worker**: OpenClaw is used as a black-box runtime behind
-  strict sandbox, tool, network, timeout, and output boundaries.
+- **Provider extension seams**: Metrics, alert-source, CMDB, IM, Auth,
+  Approval, Container, and LLM integrations are interfaces, not hard-coded
+  systems.
+- **Agent as a sandboxed worker**: Candidate agent runtimes are evaluated as
+  black-box sandbox adapters behind strict tool, network, timeout, and output
+  boundaries before any baseline is accepted.
 - **Contract-first API**: OpenAPI 3.1 is the canonical API contract.
-- **Frontend in the monorepo**: the future web console lives under `web/` so API,
+- **Frontend in the monorepo**: the web console lives under `web/` so API,
   generated types, backend, and UI changes stay atomic.
 
 ## Technology Baseline
 
 | Area | Baseline |
 |------|----------|
-| Backend | Go 1.25+, Gin |
+| Backend | Go 1.25+, std `net/http` |
 | Database | PostgreSQL 18, Ent, Atlas migrations |
 | Workflow | Temporal Go SDK |
 | API | OpenAPI 3.1, `oapi-codegen-exp` |
-| Frontend | React, Next.js, generated API types |
-| AI runtime | Headless LLMProvider first; OpenClaw sandbox later |
+| Frontend | React 19, Next.js 16, generated API types |
+| AI runtime | Headless LLMProvider first; sandboxed runtime selected by M4 gate later |
 | Observability | OpenTelemetry, Prometheus metrics |
 | CI | license, DCO, lint, tests, API generation, docs checks, no non-English literals outside approved paths |
 
@@ -98,10 +118,9 @@ Temporal Workflows --------+
 api/                 OpenAPI contracts
 cmd/                 service entrypoints
 internal/            private application code
-pkg/                 public extension interfaces and SDK surfaces
 web/                 frontend application
-ent/                 Ent schemas and generated code
-migrations/          Atlas migrations
+internal/persistence/ent/         Ent schemas and generated code
+internal/persistence/migrations/  Atlas migrations
 docs/                project documentation, ADRs, design specs
 .github/             issue templates, pull request template, workflows
 scripts/             repository maintenance checks
@@ -121,8 +140,9 @@ scripts/             repository maintenance checks
 ## Project Status
 
 OpenClarion is in private incubation. The current goal is to validate the P0/P1
-cutline with replayed alert windows before moving interactive OpenClaw sessions
-onto the critical path.
+intelligent alert analysis cutline with replayed alert windows while keeping
+sandboxed report enhancement and Agent Workspace diagnosis behind explicit M4/M5
+quality, runtime, identity, and audit gates.
 
 ## Community and Governance
 

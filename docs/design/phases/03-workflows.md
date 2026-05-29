@@ -11,6 +11,7 @@ notifications, retries, and failure marking.
 |----------|---------|
 | DiagnosisWorkflow | process one evidence snapshot |
 | ReportFanOutWorkflow | generate per-group subreports |
+| ReportBatchWorkflow | fan out subreports and fan in to a final report |
 | FinalReportWorkflow | reduce subreports and persist final report |
 | WeeklyReportWorkflow | future scheduled summary |
 
@@ -20,6 +21,8 @@ notifications, retries, and failure marking.
 - workflows contain deterministic orchestration only
 - retries and timeouts are explicit
 - workflow IDs include stable business identifiers
+- usecases start workflows through ports; Temporal client types stay outside
+  `internal/usecases`
 
 ## Acceptance
 

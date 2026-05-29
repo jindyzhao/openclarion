@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
@@ -21,12 +22,13 @@ import (
 // DiagnosisTaskQuery is the builder for querying DiagnosisTask entities.
 type DiagnosisTaskQuery struct {
 	config
-	ctx          *QueryContext
-	order        []diagnosistask.OrderOption
-	inters       []Interceptor
-	predicates   []predicate.DiagnosisTask
-	withSnapshot *EvidenceSnapshotQuery
-	withEvents   *DiagnosisTaskEventQuery
+	ctx              *QueryContext
+	order            []diagnosistask.OrderOption
+	inters           []Interceptor
+	predicates       []predicate.DiagnosisTask
+	withSnapshot     *EvidenceSnapshotQuery
+	withEvents       *DiagnosisTaskEventQuery
+	withChatSessions *ChatSessionQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -100,6 +102,28 @@ func (_q *DiagnosisTaskQuery) QueryEvents() *DiagnosisTaskEventQuery {
 			sqlgraph.From(diagnosistask.Table, diagnosistask.FieldID, selector),
 			sqlgraph.To(diagnosistaskevent.Table, diagnosistaskevent.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, diagnosistask.EventsTable, diagnosistask.EventsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryChatSessions chains the current query on the "chat_sessions" edge.
+func (_q *DiagnosisTaskQuery) QueryChatSessions() *ChatSessionQuery {
+	query := (&ChatSessionClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(diagnosistask.Table, diagnosistask.FieldID, selector),
+			sqlgraph.To(chatsession.Table, chatsession.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, diagnosistask.ChatSessionsTable, diagnosistask.ChatSessionsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -294,13 +318,14 @@ func (_q *DiagnosisTaskQuery) Clone() *DiagnosisTaskQuery {
 		return nil
 	}
 	return &DiagnosisTaskQuery{
-		config:       _q.config,
-		ctx:          _q.ctx.Clone(),
-		order:        append([]diagnosistask.OrderOption{}, _q.order...),
-		inters:       append([]Interceptor{}, _q.inters...),
-		predicates:   append([]predicate.DiagnosisTask{}, _q.predicates...),
-		withSnapshot: _q.withSnapshot.Clone(),
-		withEvents:   _q.withEvents.Clone(),
+		config:           _q.config,
+		ctx:              _q.ctx.Clone(),
+		order:            append([]diagnosistask.OrderOption{}, _q.order...),
+		inters:           append([]Interceptor{}, _q.inters...),
+		predicates:       append([]predicate.DiagnosisTask{}, _q.predicates...),
+		withSnapshot:     _q.withSnapshot.Clone(),
+		withEvents:       _q.withEvents.Clone(),
+		withChatSessions: _q.withChatSessions.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -326,6 +351,17 @@ func (_q *DiagnosisTaskQuery) WithEvents(opts ...func(*DiagnosisTaskEventQuery))
 		opt(query)
 	}
 	_q.withEvents = query
+	return _q
+}
+
+// WithChatSessions tells the query-builder to eager-load the nodes that are connected to
+// the "chat_sessions" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *DiagnosisTaskQuery) WithChatSessions(opts ...func(*ChatSessionQuery)) *DiagnosisTaskQuery {
+	query := (&ChatSessionClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withChatSessions = query
 	return _q
 }
 
@@ -407,9 +443,10 @@ func (_q *DiagnosisTaskQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([
 	var (
 		nodes       = []*DiagnosisTask{}
 		_spec       = _q.querySpec()
-		loadedTypes = [2]bool{
+		loadedTypes = [3]bool{
 			_q.withSnapshot != nil,
 			_q.withEvents != nil,
+			_q.withChatSessions != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -440,6 +477,13 @@ func (_q *DiagnosisTaskQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([
 		if err := _q.loadEvents(ctx, query, nodes,
 			func(n *DiagnosisTask) { n.Edges.Events = []*DiagnosisTaskEvent{} },
 			func(n *DiagnosisTask, e *DiagnosisTaskEvent) { n.Edges.Events = append(n.Edges.Events, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withChatSessions; query != nil {
+		if err := _q.loadChatSessions(ctx, query, nodes,
+			func(n *DiagnosisTask) { n.Edges.ChatSessions = []*ChatSession{} },
+			func(n *DiagnosisTask, e *ChatSession) { n.Edges.ChatSessions = append(n.Edges.ChatSessions, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -500,6 +544,36 @@ func (_q *DiagnosisTaskQuery) loadEvents(ctx context.Context, query *DiagnosisTa
 		node, ok := nodeids[fk]
 		if !ok {
 			return fmt.Errorf(`unexpected referenced foreign-key "task_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *DiagnosisTaskQuery) loadChatSessions(ctx context.Context, query *ChatSessionQuery, nodes []*DiagnosisTask, init func(*DiagnosisTask), assign func(*DiagnosisTask, *ChatSession)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*DiagnosisTask)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(chatsession.FieldDiagnosisTaskID)
+	}
+	query.Where(predicate.ChatSession(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(diagnosistask.ChatSessionsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.DiagnosisTaskID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "diagnosis_task_id" returned %v for node %v`, fk, n.ID)
 		}
 		assign(node, n)
 	}

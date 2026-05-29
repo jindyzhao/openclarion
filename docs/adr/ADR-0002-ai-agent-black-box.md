@@ -1,4 +1,6 @@
 ---
+id: ADR-0002
+title: "AI Agent Black-Box Runtime Boundary"
 status: "proposed"
 date: 2026-05-18
 deciders: ["jindyzhao"]

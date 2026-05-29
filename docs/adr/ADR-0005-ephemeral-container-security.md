@@ -1,4 +1,6 @@
 ---
+id: ADR-0005
+title: "Ephemeral AI Container Security Model"
 status: "proposed"
 date: 2026-05-18
 deciders: ["jindyzhao"]
@@ -77,10 +79,14 @@ containers. The Go control plane owns lifecycle, input injection, output capture
 | `/workspace/conversation.json` | bind mount | readonly (M5 only) |
 | `/workspace/message.json` | bind mount | readonly (M5 only) |
 | `/workspace/agent_config/` | bind mount | readonly |
-| `/workspace/out/` | tmpfs | writable, size-capped (`--tmpfs /workspace/out:size=10m`) |
+| `/workspace/out/` | output mount | writable, capped by container `fsize` ulimit plus Go read limit |
 
 Agent writes ONLY to `/workspace/out/output.json`. All other filesystem paths
 are read-only or inaccessible. Agent cannot write outside `/workspace/out/`.
+The Docker Engine provider uses a private per-invocation host bind mount for
+`/workspace/out` because Docker archive copy does not read files from container
+tmpfs mounts after execution; future runtimes may use tmpfs/volume mechanisms
+if they preserve output extraction and the same cap.
 
 ### Network Egress Control
 

@@ -117,3 +117,26 @@ func (r *evidenceRepo) ListByGroup(ctx context.Context, groupID domain.AlertGrou
 	}
 	return out, nil
 }
+
+// List returns the most recent snapshots across groups, ordered by
+// created_at descending with id as the deterministic tie-breaker.
+func (r *evidenceRepo) List(ctx context.Context, limit int) ([]domain.EvidenceSnapshot, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list evidence: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.EvidenceSnapshot.Query().
+		Order(evidencesnapshot.ByCreatedAt(entsql.OrderDesc()), evidencesnapshot.ByID(entsql.OrderDesc())).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list evidence: %w", err)
+	}
+	out := make([]domain.EvidenceSnapshot, len(rows))
+	for i, row := range rows {
+		out[i] = evidenceSnapshotToDomain(row)
+	}
+	return out, nil
+}

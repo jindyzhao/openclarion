@@ -295,7 +295,7 @@ func TestAlertRepository_ListEventIDsForGroup_ExistingEmptyGroupReturnsEmptySlic
 // fingerprint at the given starts_at and returns the persisted event.
 // Used by ListEventsByStartsAtRange tests where what matters is just
 // where the event lands on the timeline.
-func seedEventAt(t *testing.T, ctx context.Context, uow ports.UnitOfWork, suffix string, startsAt time.Time) domain.AlertEvent {
+func seedEventAt(ctx context.Context, t *testing.T, uow ports.UnitOfWork, suffix string, startsAt time.Time) domain.AlertEvent {
 	t.Helper()
 	e := mustNewAlertEvent(t, "prom", "fp-"+suffix, "canon-"+suffix, startsAt)
 	saved, err := uow.Alerts().SaveEvent(ctx, e)
@@ -318,11 +318,11 @@ func TestAlertRepository_ListEventsByStartsAtRange_HalfOpenIntervalAndOrder(t *t
 		//   mid        -> windowStart + 30m  (included)
 		//   atEndMinus1-> windowEnd - 1us    (included)
 		//   atEnd      -> windowEnd          (excluded, LT)
-		before = seedEventAt(t, ctx, uow, "before", windowStart.Add(-time.Minute))
-		atStart = seedEventAt(t, ctx, uow, "start", windowStart)
-		mid = seedEventAt(t, ctx, uow, "mid", windowStart.Add(30*time.Minute))
-		atEndMinus1 = seedEventAt(t, ctx, uow, "endm1", windowEnd.Add(-time.Microsecond))
-		atEnd = seedEventAt(t, ctx, uow, "end", windowEnd)
+		before = seedEventAt(ctx, t, uow, "before", windowStart.Add(-time.Minute))
+		atStart = seedEventAt(ctx, t, uow, "start", windowStart)
+		mid = seedEventAt(ctx, t, uow, "mid", windowStart.Add(30*time.Minute))
+		atEndMinus1 = seedEventAt(ctx, t, uow, "endm1", windowEnd.Add(-time.Microsecond))
+		atEnd = seedEventAt(ctx, t, uow, "end", windowEnd)
 	})
 	_ = before
 	_ = atEnd
@@ -344,6 +344,46 @@ func TestAlertRepository_ListEventsByStartsAtRange_HalfOpenIntervalAndOrder(t *t
 	})
 }
 
+func TestAlertRepository_ListEvents_OrdersByStartsAtDescAndLimit(t *testing.T) {
+	resetDB(t)
+	t0 := time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
+
+	var earlier, laterA, middle, laterB domain.AlertEvent
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		earlier = seedEventAt(ctx, t, uow, "recent-10", t0.Add(10*time.Minute))
+		laterA = seedEventAt(ctx, t, uow, "recent-30a", t0.Add(30*time.Minute))
+		middle = seedEventAt(ctx, t, uow, "recent-20", t0.Add(20*time.Minute))
+		laterB = seedEventAt(ctx, t, uow, "recent-30b", t0.Add(30*time.Minute))
+	})
+	_, _ = earlier, middle
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Alerts().ListEvents(ctx, 2)
+		if err != nil {
+			t.Fatalf("ListEvents: %v", err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("len(got) = %d, want 2", len(got))
+		}
+		wantIDs := []domain.AlertEventID{laterB.ID, laterA.ID}
+		for i, want := range wantIDs {
+			if got[i].ID != want {
+				t.Errorf("got[%d].ID = %d, want %d (order should be starts_at DESC, id DESC)", i, got[i].ID, want)
+			}
+		}
+	})
+}
+
+func TestAlertRepository_ListEvents_RejectsBadLimit(t *testing.T) {
+	resetDB(t)
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		_, err := uow.Alerts().ListEvents(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("want errors.Is ErrInvariantViolation, got %v", err)
+		}
+	})
+}
+
 func TestAlertRepository_ListEventsByStartsAtRange_LimitTruncates(t *testing.T) {
 	resetDB(t)
 	windowStart := time.Date(2026, 5, 26, 11, 0, 0, 0, time.UTC)
@@ -351,7 +391,7 @@ func TestAlertRepository_ListEventsByStartsAtRange_LimitTruncates(t *testing.T) 
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
 		for i := 0; i < 5; i++ {
-			seedEventAt(t, ctx, uow, fmt.Sprintf("l%d", i), windowStart.Add(time.Duration(i)*time.Minute))
+			seedEventAt(ctx, t, uow, fmt.Sprintf("l%d", i), windowStart.Add(time.Duration(i)*time.Minute))
 		}
 	})
 
@@ -373,7 +413,7 @@ func TestAlertRepository_ListEventsByStartsAtRange_EmptyWindowReturnsEmptyResult
 	// Seed one event well outside the test window so the table is
 	// not empty; the query should still return a zero-length result.
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
-		seedEventAt(t, ctx, uow, "out", t0.Add(2*time.Hour))
+		seedEventAt(ctx, t, uow, "out", t0.Add(2*time.Hour))
 	})
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
