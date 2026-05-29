@@ -67,6 +67,15 @@ updates:
         applies-to: "security-updates"
         patterns:
           - "*"
+    ignore:
+      # The custom analyzer module must use the exact golang.org/x/tools
+      # version embedded in the pinned golangci-lint binary. Normal
+      # minor/major x/tools bumps are coordinated with GOLANGCI_LINT_VERSION;
+      # security updates still use Dependabot's security-update path.
+      - dependency-name: "golang.org/x/tools"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-major"
 
   - package-ecosystem: "npm"
     directory: "/web"

@@ -5,6 +5,7 @@
 | Area | Dependency | Validated |
 |------|------------|----------|
 | Go | Go 1.25+ (toolchain pinned in `go.mod` at M0) | 2026-05-19 |
+| Custom analyzer tooling | `golangci-lint v2.12.2` plus `tools/openclarion-linter` `golang.org/x/tools v0.44.0`; the versions must match exactly because `make go-lint` builds a custom golangci-lint module plugin | 2026-05-30 |
 | HTTP | std `net/http` (Go 1.22+ enhanced routing) | 2026-05-19 |
 | WebSocket transport | `github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674` (direct require since `internal/transport/http` upgrades authenticated diagnosis-room connections with explicit same-origin checks and `httptest`/Dialer coverage) | 2026-05-28 |
 | API | OpenAPI 3.1, `oapi-codegen-exp` V3 (pinned in `go.mod` at M0) | 2026-05-22 |
@@ -37,6 +38,15 @@
 > critical direct Go module pins, verifies Go `tool` directive backing pins,
 > rejects undocumented Go `replace` directives, and rejects external
 > Dockerfile base images that are not pinned to an immutable `@sha256:` digest.
+
+> **Custom analyzer lockstep rule**: `tools/openclarion-linter` must keep
+> `golang.org/x/tools` on the exact version embedded in the pinned
+> `GOLANGCI_LINT_VERSION` binary. `scripts/check_lint_version.sh` enforces this
+> before `golangci-lint custom` runs. Dependabot therefore suppresses ordinary
+> minor/major `golang.org/x/tools` version-update PRs for the linter submodule;
+> those updates must land only with a coordinated `GOLANGCI_LINT_VERSION` bump.
+> Security updates are still handled by Dependabot security-update PRs and must
+> either preserve parity or carry an explicit coordinated tooling update.
 
 ## License Compliance Policy
 
