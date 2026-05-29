@@ -30,6 +30,8 @@ var gitleaksSpec = allowlistSpec{
 	Name:        "gitleaks allowlist",
 }
 
+const allowlistExpiryHorizonDays = 120
+
 var (
 	ownerRe          = regexp.MustCompile(`(?i)^#\s*Owner:\s*\S`)
 	expiresRe        = regexp.MustCompile(`(?i)^#\s*Expires:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\.?\s*$`)
@@ -67,6 +69,7 @@ func run(specs []allowlistSpec, now time.Time, readFile func(string) ([]byte, er
 		fmt.Fprintln(stderr, "  # Owner: <team or person>.")
 		fmt.Fprintln(stderr, "  # Expires: YYYY-MM-DD.")
 		fmt.Fprintln(stderr, "  # Removal trigger: <specific condition for deletion>.")
+		fmt.Fprintf(stderr, "Expires must be no more than %d days in the future.\n", allowlistExpiryHorizonDays)
 		return 1
 	}
 	fmt.Fprintf(stderr, "[allowlist-discipline] OK (%d allowlist entries checked)\n", checkedEntries)
@@ -146,6 +149,10 @@ func validateExpiry(value string, now time.Time) error {
 	today := time.Date(now.UTC().Year(), now.UTC().Month(), now.UTC().Day(), 0, 0, 0, 0, time.UTC)
 	if parsed.Before(today) {
 		return fmt.Errorf("%s is expired", value)
+	}
+	latest := today.AddDate(0, 0, allowlistExpiryHorizonDays)
+	if parsed.After(latest) {
+		return fmt.Errorf("%s is more than %d days in the future", value, allowlistExpiryHorizonDays)
 	}
 	return nil
 }

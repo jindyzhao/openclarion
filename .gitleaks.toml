@@ -6,7 +6,8 @@
 # false positives on governed example values and test fixtures without
 # creating blanket directory exclusions.
 #
-# Policy: any allowlist entry MUST include an owner and removal trigger.
+# Policy: any allowlist entry MUST include an owner, an expiry date no more than
+# 120 days in the future, and a removal trigger.
 
 title = "OpenClarion secret scanner"
 
