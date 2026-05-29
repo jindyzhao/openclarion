@@ -14,6 +14,8 @@ import (
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	enumspb "go.temporal.io/api/enums/v1"
+	historypb "go.temporal.io/api/history/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
@@ -42,6 +44,11 @@ type testEnv struct {
 }
 
 var env *testEnv
+
+type seededDiagnosisTask struct {
+	TaskID     domain.DiagnosisTaskID
+	SnapshotID domain.EvidenceSnapshotID
+}
 
 func TestMain(m *testing.M) {
 	os.Exit(runMain(m))
@@ -141,12 +148,12 @@ func runMain(m *testing.M) int {
 	return m.Run()
 }
 
-func seedDiagnosisTask(t *testing.T, label string) domain.DiagnosisTaskID {
+func seedDiagnosisTask(t *testing.T, label string) seededDiagnosisTask {
 	t.Helper()
 	ctx := context.Background()
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
-	var taskID domain.DiagnosisTaskID
+	var seeded seededDiagnosisTask
 	err := env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
 		g, err := domain.NewAlertGroup(
 			"wf-grp-"+label,
@@ -180,6 +187,7 @@ func seedDiagnosisTask(t *testing.T, label string) domain.DiagnosisTaskID {
 		if err != nil {
 			return err
 		}
+		seeded.SnapshotID = savedSnap.ID
 
 		task, err := domain.NewDiagnosisTask(savedSnap.ID, "wf-"+label, "run-"+label)
 		if err != nil {
@@ -189,27 +197,32 @@ func seedDiagnosisTask(t *testing.T, label string) domain.DiagnosisTaskID {
 		if err != nil {
 			return err
 		}
-		taskID = savedTask.ID
+		seeded.TaskID = savedTask.ID
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("seedDiagnosisTask(%s): %v", label, err)
 	}
-	return taskID
+	return seeded
+}
+
+func diagnosisWorkflowInput(seed seededDiagnosisTask) temporalpkg.DiagnosisWorkflowInput {
+	return temporalpkg.DiagnosisWorkflowInput{
+		TaskID:             int64(seed.TaskID),
+		EvidenceSnapshotID: int64(seed.SnapshotID),
+	}
 }
 
 func TestDiagnosisWorkflow_UpdateRecordEvent(t *testing.T) {
-	taskID := seedDiagnosisTask(t, "update-record")
+	seed := seedDiagnosisTask(t, "update-record")
 
 	ctx := context.Background()
-	workflowID := fmt.Sprintf("test-diag-%d", taskID)
+	workflowID := fmt.Sprintf("test-diag-%d", seed.TaskID)
 
 	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: temporalpkg.TaskQueue,
-	}, temporalpkg.DiagnosisWorkflow, temporalpkg.DiagnosisWorkflowInput{
-		TaskID: int64(taskID),
-	})
+	}, temporalpkg.DiagnosisWorkflow, diagnosisWorkflowInput(seed))
 	if err != nil {
 		t.Fatalf("ExecuteWorkflow: %v", err)
 	}
@@ -234,7 +247,21 @@ func TestDiagnosisWorkflow_UpdateRecordEvent(t *testing.T) {
 	}
 
 	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
-		events, err := uow.Diagnosis().ListEvents(ctx, taskID, 100)
+		task, err := uow.Diagnosis().FindTaskByID(ctx, seed.TaskID)
+		if err != nil {
+			return err
+		}
+		if task.EvidenceSnapshotID != seed.SnapshotID {
+			t.Fatalf("task evidence_snapshot_id = %d, want %d", task.EvidenceSnapshotID, seed.SnapshotID)
+		}
+		if task.Status != domain.DiagnosisStatusRunning {
+			t.Fatalf("task status = %q, want running", task.Status)
+		}
+		if task.StartedAt == nil {
+			t.Fatal("task StartedAt is nil after workflow start")
+		}
+
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 100)
 		if err != nil {
 			return err
 		}
@@ -260,20 +287,46 @@ func TestDiagnosisWorkflow_UpdateRecordEvent(t *testing.T) {
 	if err := run.Get(ctx, nil); err != nil {
 		t.Fatalf("workflow did not complete cleanly: %v", err)
 	}
+	replayWorkflowHistory(ctx, t, workflowID, run.GetRunID())
+}
+
+func replayWorkflowHistory(ctx context.Context, t *testing.T, workflowID, runID string) {
+	t.Helper()
+	history := collectWorkflowHistory(ctx, t, workflowID, runID)
+	replayer := worker.NewWorkflowReplayer()
+	replayer.RegisterWorkflow(temporalpkg.DiagnosisWorkflow)
+	if err := replayer.ReplayWorkflowHistory(nil, history); err != nil {
+		t.Fatalf("replay workflow history: %v", err)
+	}
+}
+
+func collectWorkflowHistory(ctx context.Context, t *testing.T, workflowID, runID string) *historypb.History {
+	t.Helper()
+	iter := env.tc.GetWorkflowHistory(ctx, workflowID, runID, false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+	var events []*historypb.HistoryEvent
+	for iter.HasNext() {
+		event, err := iter.Next()
+		if err != nil {
+			t.Fatalf("workflow history next: %v", err)
+		}
+		events = append(events, event)
+	}
+	if len(events) == 0 {
+		t.Fatalf("workflow history for %s/%s is empty", workflowID, runID)
+	}
+	return &historypb.History{Events: events}
 }
 
 func TestDiagnosisWorkflow_UpdateValidation_RejectsEmptyKind(t *testing.T) {
-	taskID := seedDiagnosisTask(t, "validate-kind")
+	seed := seedDiagnosisTask(t, "validate-kind")
 
 	ctx := context.Background()
-	workflowID := fmt.Sprintf("test-validate-kind-%d", taskID)
+	workflowID := fmt.Sprintf("test-validate-kind-%d", seed.TaskID)
 
 	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: temporalpkg.TaskQueue,
-	}, temporalpkg.DiagnosisWorkflow, temporalpkg.DiagnosisWorkflowInput{
-		TaskID: int64(taskID),
-	})
+	}, temporalpkg.DiagnosisWorkflow, diagnosisWorkflowInput(seed))
 	if err != nil {
 		t.Fatalf("ExecuteWorkflow: %v", err)
 	}
@@ -285,10 +338,11 @@ func TestDiagnosisWorkflow_UpdateValidation_RejectsEmptyKind(t *testing.T) {
 		Args:         []any{temporalpkg.RecordEventRequest{Kind: "", DedupeKey: &dedupeKey}},
 		WaitForStage: client.WorkflowUpdateStageCompleted,
 	})
-	requireUpdateError(t, ctx, handle, updErr, "kind must be non-empty")
+	requireUpdateError(ctx, t, handle, updErr, "kind must be non-empty")
 
-	// Validator runs pre-history: no Activity, no DB write.
-	assertNoDiagnosisEvents(t, taskID)
+	// Validator runs pre-history for the Update: no
+	// RecordDiagnosisEvent activity and no event row.
+	assertNoDiagnosisEvents(t, seed.TaskID)
 
 	if err := env.tc.SignalWorkflow(ctx, workflowID, run.GetRunID(), "complete", nil); err != nil {
 		t.Fatalf("SignalWorkflow(complete): %v", err)
@@ -299,17 +353,15 @@ func TestDiagnosisWorkflow_UpdateValidation_RejectsEmptyKind(t *testing.T) {
 }
 
 func TestDiagnosisWorkflow_UpdateValidation_RejectsEmptyDedupeKey(t *testing.T) {
-	taskID := seedDiagnosisTask(t, "validate-dedupe")
+	seed := seedDiagnosisTask(t, "validate-dedupe")
 
 	ctx := context.Background()
-	workflowID := fmt.Sprintf("test-validate-dedupe-%d", taskID)
+	workflowID := fmt.Sprintf("test-validate-dedupe-%d", seed.TaskID)
 
 	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: temporalpkg.TaskQueue,
-	}, temporalpkg.DiagnosisWorkflow, temporalpkg.DiagnosisWorkflowInput{
-		TaskID: int64(taskID),
-	})
+	}, temporalpkg.DiagnosisWorkflow, diagnosisWorkflowInput(seed))
 	if err != nil {
 		t.Fatalf("ExecuteWorkflow: %v", err)
 	}
@@ -321,7 +373,7 @@ func TestDiagnosisWorkflow_UpdateValidation_RejectsEmptyDedupeKey(t *testing.T) 
 		Args:         []any{temporalpkg.RecordEventRequest{Kind: "workflow_bootstrapped", DedupeKey: nil}},
 		WaitForStage: client.WorkflowUpdateStageCompleted,
 	})
-	requireUpdateError(t, ctx, handle, updErr, "dedupe_key must be non-empty")
+	requireUpdateError(ctx, t, handle, updErr, "dedupe_key must be non-empty")
 
 	// Empty-string DedupeKey must also be rejected with the same message.
 	empty := ""
@@ -331,9 +383,9 @@ func TestDiagnosisWorkflow_UpdateValidation_RejectsEmptyDedupeKey(t *testing.T) 
 		Args:         []any{temporalpkg.RecordEventRequest{Kind: "workflow_bootstrapped", DedupeKey: &empty}},
 		WaitForStage: client.WorkflowUpdateStageCompleted,
 	})
-	requireUpdateError(t, ctx, handle, updErr, "dedupe_key must be non-empty")
+	requireUpdateError(ctx, t, handle, updErr, "dedupe_key must be non-empty")
 
-	assertNoDiagnosisEvents(t, taskID)
+	assertNoDiagnosisEvents(t, seed.TaskID)
 
 	if err := env.tc.SignalWorkflow(ctx, workflowID, run.GetRunID(), "complete", nil); err != nil {
 		t.Fatalf("SignalWorkflow(complete): %v", err)
@@ -370,6 +422,65 @@ func TestDiagnosisWorkflow_RejectsZeroTaskIDOnStart(t *testing.T) {
 	}
 }
 
+func TestDiagnosisWorkflow_RejectsZeroEvidenceSnapshotIDOnStart(t *testing.T) {
+	seed := seedDiagnosisTask(t, "zero-snapshot")
+
+	ctx := context.Background()
+	workflowID := fmt.Sprintf("test-zero-snapshot-%d", seed.TaskID)
+
+	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        workflowID,
+		TaskQueue: temporalpkg.TaskQueue,
+	}, temporalpkg.DiagnosisWorkflow, temporalpkg.DiagnosisWorkflowInput{
+		TaskID:             int64(seed.TaskID),
+		EvidenceSnapshotID: 0,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteWorkflow: %v", err)
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	runErr := run.Get(waitCtx, nil)
+	if runErr == nil {
+		t.Fatal("expected workflow to fail on zero EvidenceSnapshotID, got nil")
+	}
+	if !strings.Contains(runErr.Error(), "evidence_snapshot_id must be non-zero") {
+		t.Fatalf("workflow error = %q, want substring %q", runErr.Error(), "evidence_snapshot_id must be non-zero")
+	}
+	assertDiagnosisTaskPending(t, seed.TaskID)
+}
+
+func TestDiagnosisWorkflow_RejectsMismatchedEvidenceSnapshotIDOnStart(t *testing.T) {
+	taskA := seedDiagnosisTask(t, "snapshot-mismatch-a")
+	taskB := seedDiagnosisTask(t, "snapshot-mismatch-b")
+
+	ctx := context.Background()
+	workflowID := fmt.Sprintf("test-snapshot-mismatch-%d", taskA.TaskID)
+
+	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID:        workflowID,
+		TaskQueue: temporalpkg.TaskQueue,
+	}, temporalpkg.DiagnosisWorkflow, temporalpkg.DiagnosisWorkflowInput{
+		TaskID:             int64(taskA.TaskID),
+		EvidenceSnapshotID: int64(taskB.SnapshotID),
+	})
+	if err != nil {
+		t.Fatalf("ExecuteWorkflow: %v", err)
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	runErr := run.Get(waitCtx, nil)
+	if runErr == nil {
+		t.Fatal("expected workflow to fail on mismatched EvidenceSnapshotID, got nil")
+	}
+	if !strings.Contains(runErr.Error(), "does not match input evidence_snapshot_id") {
+		t.Fatalf("workflow error = %q, want snapshot mismatch substring", runErr.Error())
+	}
+	assertDiagnosisTaskPending(t, taskA.TaskID)
+}
+
 // TestDiagnosisWorkflow_UpdateBoundToWorkflowTask verifies the
 // workflow input.TaskID is the only task an Update can write to:
 // even when two workflows are running for two different tasks, an
@@ -381,20 +492,20 @@ func TestDiagnosisWorkflow_UpdateBoundToWorkflowTask(t *testing.T) {
 	taskB := seedDiagnosisTask(t, "bound-b")
 
 	ctx := context.Background()
-	wfA := fmt.Sprintf("test-bound-a-%d", taskA)
-	wfB := fmt.Sprintf("test-bound-b-%d", taskB)
+	wfA := fmt.Sprintf("test-bound-a-%d", taskA.TaskID)
+	wfB := fmt.Sprintf("test-bound-b-%d", taskB.TaskID)
 
 	runA, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:        wfA,
 		TaskQueue: temporalpkg.TaskQueue,
-	}, temporalpkg.DiagnosisWorkflow, temporalpkg.DiagnosisWorkflowInput{TaskID: int64(taskA)})
+	}, temporalpkg.DiagnosisWorkflow, diagnosisWorkflowInput(taskA))
 	if err != nil {
 		t.Fatalf("ExecuteWorkflow A: %v", err)
 	}
 	runB, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:        wfB,
 		TaskQueue: temporalpkg.TaskQueue,
-	}, temporalpkg.DiagnosisWorkflow, temporalpkg.DiagnosisWorkflowInput{TaskID: int64(taskB)})
+	}, temporalpkg.DiagnosisWorkflow, diagnosisWorkflowInput(taskB))
 	if err != nil {
 		t.Fatalf("ExecuteWorkflow B: %v", err)
 	}
@@ -417,11 +528,11 @@ func TestDiagnosisWorkflow_UpdateBoundToWorkflowTask(t *testing.T) {
 		t.Fatal("expected non-zero EventID")
 	}
 
-	eventsA := listDiagnosisEvents(t, taskA)
+	eventsA := listDiagnosisEvents(t, taskA.TaskID)
 	if len(eventsA) != 1 {
 		t.Fatalf("task A: expected 1 event, got %d", len(eventsA))
 	}
-	eventsB := listDiagnosisEvents(t, taskB)
+	eventsB := listDiagnosisEvents(t, taskB.TaskID)
 	if len(eventsB) != 0 {
 		t.Fatalf("task B: expected 0 events (workflow B never received an Update), got %d", len(eventsB))
 	}
@@ -444,15 +555,15 @@ func TestDiagnosisWorkflow_UpdateBoundToWorkflowTask(t *testing.T) {
 // Update with the same dedupe_key returns the original EventID and
 // produces no second row in the DB.
 func TestDiagnosisWorkflow_UpdateIdempotent_SameDedupeKey(t *testing.T) {
-	taskID := seedDiagnosisTask(t, "idempotent")
+	seed := seedDiagnosisTask(t, "idempotent")
 
 	ctx := context.Background()
-	workflowID := fmt.Sprintf("test-idempotent-%d", taskID)
+	workflowID := fmt.Sprintf("test-idempotent-%d", seed.TaskID)
 
 	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID:        workflowID,
 		TaskQueue: temporalpkg.TaskQueue,
-	}, temporalpkg.DiagnosisWorkflow, temporalpkg.DiagnosisWorkflowInput{TaskID: int64(taskID)})
+	}, temporalpkg.DiagnosisWorkflow, diagnosisWorkflowInput(seed))
 	if err != nil {
 		t.Fatalf("ExecuteWorkflow: %v", err)
 	}
@@ -494,7 +605,7 @@ func TestDiagnosisWorkflow_UpdateIdempotent_SameDedupeKey(t *testing.T) {
 		t.Fatalf("idempotent EventID mismatch: first=%d second=%d", firstResult.EventID, secondResult.EventID)
 	}
 
-	events := listDiagnosisEvents(t, taskID)
+	events := listDiagnosisEvents(t, seed.TaskID)
 	if len(events) != 1 {
 		t.Fatalf("expected 1 event after idempotent re-Update, got %d", len(events))
 	}
@@ -532,6 +643,27 @@ func assertNoDiagnosisEvents(t *testing.T, taskID domain.DiagnosisTaskID) {
 	}
 }
 
+func assertDiagnosisTaskPending(t *testing.T, taskID domain.DiagnosisTaskID) {
+	t.Helper()
+	ctx := context.Background()
+	err := env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		task, err := uow.Diagnosis().FindTaskByID(ctx, taskID)
+		if err != nil {
+			return err
+		}
+		if task.Status != domain.DiagnosisStatusPending {
+			t.Fatalf("task status = %q, want pending", task.Status)
+		}
+		if task.StartedAt != nil {
+			t.Fatalf("task StartedAt = %v, want nil", task.StartedAt)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("load task %d: %v", taskID, err)
+	}
+}
+
 // requireUpdateError asserts the Update produced a non-nil error
 // whose message contains wantSubstr. The validator's rejection may
 // surface either as the synchronous UpdateWorkflow error or as the
@@ -539,7 +671,7 @@ func assertNoDiagnosisEvents(t *testing.T, taskID domain.DiagnosisTaskID) {
 // on, so we accept either path but require the substring match. This
 // guards against silently passing tests when the validator is
 // removed but the activity still rejects on the same condition.
-func requireUpdateError(t *testing.T, ctx context.Context, handle client.WorkflowUpdateHandle, updateErr error, wantSubstr string) {
+func requireUpdateError(ctx context.Context, t *testing.T, handle client.WorkflowUpdateHandle, updateErr error, wantSubstr string) {
 	t.Helper()
 	if updateErr != nil {
 		if !strings.Contains(updateErr.Error(), wantSubstr) {

@@ -16,17 +16,19 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
+	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
 
 // EvidenceSnapshotQuery is the builder for querying EvidenceSnapshot entities.
 type EvidenceSnapshotQuery struct {
 	config
-	ctx        *QueryContext
-	order      []evidencesnapshot.OrderOption
-	inters     []Interceptor
-	predicates []predicate.EvidenceSnapshot
-	withGroup  *AlertGroupQuery
-	withTasks  *DiagnosisTaskQuery
+	ctx            *QueryContext
+	order          []evidencesnapshot.OrderOption
+	inters         []Interceptor
+	predicates     []predicate.EvidenceSnapshot
+	withGroup      *AlertGroupQuery
+	withTasks      *DiagnosisTaskQuery
+	withSubReports *SubReportQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -100,6 +102,28 @@ func (_q *EvidenceSnapshotQuery) QueryTasks() *DiagnosisTaskQuery {
 			sqlgraph.From(evidencesnapshot.Table, evidencesnapshot.FieldID, selector),
 			sqlgraph.To(diagnosistask.Table, diagnosistask.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, evidencesnapshot.TasksTable, evidencesnapshot.TasksColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QuerySubReports chains the current query on the "sub_reports" edge.
+func (_q *EvidenceSnapshotQuery) QuerySubReports() *SubReportQuery {
+	query := (&SubReportClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(evidencesnapshot.Table, evidencesnapshot.FieldID, selector),
+			sqlgraph.To(subreport.Table, subreport.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, evidencesnapshot.SubReportsTable, evidencesnapshot.SubReportsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -294,13 +318,14 @@ func (_q *EvidenceSnapshotQuery) Clone() *EvidenceSnapshotQuery {
 		return nil
 	}
 	return &EvidenceSnapshotQuery{
-		config:     _q.config,
-		ctx:        _q.ctx.Clone(),
-		order:      append([]evidencesnapshot.OrderOption{}, _q.order...),
-		inters:     append([]Interceptor{}, _q.inters...),
-		predicates: append([]predicate.EvidenceSnapshot{}, _q.predicates...),
-		withGroup:  _q.withGroup.Clone(),
-		withTasks:  _q.withTasks.Clone(),
+		config:         _q.config,
+		ctx:            _q.ctx.Clone(),
+		order:          append([]evidencesnapshot.OrderOption{}, _q.order...),
+		inters:         append([]Interceptor{}, _q.inters...),
+		predicates:     append([]predicate.EvidenceSnapshot{}, _q.predicates...),
+		withGroup:      _q.withGroup.Clone(),
+		withTasks:      _q.withTasks.Clone(),
+		withSubReports: _q.withSubReports.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -326,6 +351,17 @@ func (_q *EvidenceSnapshotQuery) WithTasks(opts ...func(*DiagnosisTaskQuery)) *E
 		opt(query)
 	}
 	_q.withTasks = query
+	return _q
+}
+
+// WithSubReports tells the query-builder to eager-load the nodes that are connected to
+// the "sub_reports" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *EvidenceSnapshotQuery) WithSubReports(opts ...func(*SubReportQuery)) *EvidenceSnapshotQuery {
+	query := (&SubReportClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withSubReports = query
 	return _q
 }
 
@@ -407,9 +443,10 @@ func (_q *EvidenceSnapshotQuery) sqlAll(ctx context.Context, hooks ...queryHook)
 	var (
 		nodes       = []*EvidenceSnapshot{}
 		_spec       = _q.querySpec()
-		loadedTypes = [2]bool{
+		loadedTypes = [3]bool{
 			_q.withGroup != nil,
 			_q.withTasks != nil,
+			_q.withSubReports != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -440,6 +477,13 @@ func (_q *EvidenceSnapshotQuery) sqlAll(ctx context.Context, hooks ...queryHook)
 		if err := _q.loadTasks(ctx, query, nodes,
 			func(n *EvidenceSnapshot) { n.Edges.Tasks = []*DiagnosisTask{} },
 			func(n *EvidenceSnapshot, e *DiagnosisTask) { n.Edges.Tasks = append(n.Edges.Tasks, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withSubReports; query != nil {
+		if err := _q.loadSubReports(ctx, query, nodes,
+			func(n *EvidenceSnapshot) { n.Edges.SubReports = []*SubReport{} },
+			func(n *EvidenceSnapshot, e *SubReport) { n.Edges.SubReports = append(n.Edges.SubReports, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -490,6 +534,36 @@ func (_q *EvidenceSnapshotQuery) loadTasks(ctx context.Context, query *Diagnosis
 	}
 	query.Where(predicate.DiagnosisTask(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(evidencesnapshot.TasksColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.EvidenceSnapshotID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "evidence_snapshot_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *EvidenceSnapshotQuery) loadSubReports(ctx context.Context, query *SubReportQuery, nodes []*EvidenceSnapshot, init func(*EvidenceSnapshot), assign func(*EvidenceSnapshot, *SubReport)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*EvidenceSnapshot)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(subreport.FieldEvidenceSnapshotID)
+	}
+	query.Where(predicate.SubReport(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(evidencesnapshot.SubReportsColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

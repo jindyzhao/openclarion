@@ -91,6 +91,11 @@ func (EvidenceSnapshot) Edges() []ent.Edge {
 		// workflow attempt; retries with a fresh workflow id are
 		// additional rows, not updates).
 		edge.To("tasks", DiagnosisTask.Type),
+		// One snapshot may produce zero-or-more SubReports. Normal
+		// operation writes one accepted SubReport per snapshot, while
+		// future explicit regenerations may append additional rows with
+		// distinct idempotency keys.
+		edge.To("sub_reports", SubReport.Type),
 	}
 }
 

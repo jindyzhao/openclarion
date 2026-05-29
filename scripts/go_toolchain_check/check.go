@@ -1,0 +1,323 @@
+// Command go_toolchain_check keeps first-party Go version declarations aligned.
+package main
+
+import (
+	"fmt"
+	"io"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"go/version"
+
+	"go.yaml.in/yaml/v3"
+)
+
+const (
+	rootGoModPath      = "go.mod"
+	golangCIConfigPath = ".golangci.yml"
+	workflowDir        = ".github/workflows"
+)
+
+type finding struct {
+	Path string
+	Msg  string
+}
+
+type moduleVersion struct {
+	Path    string
+	Version string
+}
+
+type golangCIConfig struct {
+	Run struct {
+		Go string `yaml:"go"`
+	} `yaml:"run"`
+}
+
+type workflowFile struct {
+	Jobs map[string]workflowJob `yaml:"jobs"`
+}
+
+type workflowJob struct {
+	Steps []workflowStep `yaml:"steps"`
+}
+
+type workflowStep struct {
+	Uses string         `yaml:"uses"`
+	With map[string]any `yaml:"with"`
+}
+
+func main() {
+	if err := run(".", os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "[go-toolchain-check] %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func run(root string, out io.Writer) error {
+	modules, findings := checkGoModules(root)
+	if len(modules) == 0 {
+		return fmt.Errorf("no go.mod files found")
+	}
+	rootVersion := modules[0].Version
+	languageVersion, err := languageVersion(rootVersion)
+	if err != nil {
+		findings = append(findings, finding{Path: rootGoModPath, Msg: err.Error()})
+	}
+	findings = append(findings, checkGolangCI(root, languageVersion)...)
+	setupGoSteps, workflowFindings := checkWorkflows(root)
+	findings = append(findings, workflowFindings...)
+
+	if len(findings) > 0 {
+		sortFindings(findings)
+		fmt.Fprintln(out, "[go-toolchain-check] Go toolchain version drift:")
+		for _, f := range findings {
+			fmt.Fprintf(out, "  %s: %s\n", f.Path, f.Msg)
+		}
+		return fmt.Errorf("found %d drift issue(s)", len(findings))
+	}
+
+	fmt.Fprintf(out, "[go-toolchain-check] OK (%d go.mod files, %d setup-go steps)\n", len(modules), setupGoSteps)
+	return nil
+}
+
+func checkGoModules(root string) ([]moduleVersion, []finding) {
+	paths, err := findGoModFiles(root)
+	if err != nil {
+		return nil, []finding{{Path: root, Msg: err.Error()}}
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+
+	modules := make([]moduleVersion, 0, len(paths))
+	var findings []finding
+	var rootVersion string
+	for _, path := range paths {
+		versionValue, err := readGoDirective(filepath.Join(root, path))
+		if err != nil {
+			findings = append(findings, finding{Path: path, Msg: err.Error()})
+			continue
+		}
+		toolchainVersion := "go" + versionValue
+		if !version.IsValid(toolchainVersion) {
+			findings = append(findings, finding{Path: path, Msg: fmt.Sprintf("go directive %q is not a valid Go version", versionValue)})
+			continue
+		}
+		if !strings.Contains(versionValue, ".") || strings.Count(versionValue, ".") < 2 {
+			findings = append(findings, finding{Path: path, Msg: fmt.Sprintf("go directive %q must include an explicit patch version for reproducible setup-go installs", versionValue)})
+		}
+		modules = append(modules, moduleVersion{Path: path, Version: versionValue})
+		if path == rootGoModPath {
+			rootVersion = versionValue
+		}
+	}
+	if rootVersion == "" {
+		findings = append(findings, finding{Path: rootGoModPath, Msg: "root go.mod is required as the Go toolchain source of truth"})
+		return modules, findings
+	}
+	for _, module := range modules {
+		if module.Path == rootGoModPath {
+			continue
+		}
+		if module.Version != rootVersion {
+			findings = append(findings, finding{
+				Path: module.Path,
+				Msg:  fmt.Sprintf("go directive %q must match root go.mod %q", module.Version, rootVersion),
+			})
+		}
+	}
+	return modules, findings
+}
+
+func findGoModFiles(root string) ([]string, error) {
+	var paths []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		name := entry.Name()
+		if entry.IsDir() && shouldSkipDir(name) && path != root {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() || name != "go.mod" {
+			return nil
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		paths = append(paths, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(paths, func(i, j int) bool {
+		if paths[i] == rootGoModPath {
+			return true
+		}
+		if paths[j] == rootGoModPath {
+			return false
+		}
+		return paths[i] < paths[j]
+	})
+	return paths, nil
+}
+
+func shouldSkipDir(name string) bool {
+	switch name {
+	case ".git", "bin", "node_modules":
+		return true
+	default:
+		return strings.HasPrefix(name, ".atlas-drift-tmp")
+	}
+}
+
+func readGoDirective(path string) (string, error) {
+	raw, err := os.ReadFile(path) // #nosec G304 -- repository-owned checker input.
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		line = strings.TrimSpace(stripLineComment(line))
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "go" {
+			return fields[1], nil
+		}
+	}
+	return "", fmt.Errorf("missing go directive")
+}
+
+func stripLineComment(line string) string {
+	if idx := strings.Index(line, "//"); idx >= 0 {
+		return line[:idx]
+	}
+	return line
+}
+
+func languageVersion(goDirective string) (string, error) {
+	if goDirective == "" {
+		return "", fmt.Errorf("cannot derive language version from empty go directive")
+	}
+	toolchainVersion := "go" + goDirective
+	if !version.IsValid(toolchainVersion) {
+		return "", fmt.Errorf("go directive %q is not a valid Go version", goDirective)
+	}
+	return strings.TrimPrefix(version.Lang(toolchainVersion), "go"), nil
+}
+
+func checkGolangCI(root, expectedLanguageVersion string) []finding {
+	path := filepath.Join(root, golangCIConfigPath)
+	raw, err := os.ReadFile(path) // #nosec G304 -- repository-owned checker input.
+	if err != nil {
+		return []finding{{Path: golangCIConfigPath, Msg: err.Error()}}
+	}
+	var cfg golangCIConfig
+	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+		return []finding{{Path: golangCIConfigPath, Msg: fmt.Sprintf("invalid YAML: %v", err)}}
+	}
+	actual := strings.TrimSpace(cfg.Run.Go)
+	if actual == "" {
+		return []finding{{Path: golangCIConfigPath, Msg: "run.go must be set to the root Go language version"}}
+	}
+	if expectedLanguageVersion != "" && actual != expectedLanguageVersion {
+		return []finding{{Path: golangCIConfigPath, Msg: fmt.Sprintf("run.go %q must match root Go language version %q", actual, expectedLanguageVersion)}}
+	}
+	if strings.Count(actual, ".") != 1 {
+		return []finding{{Path: golangCIConfigPath, Msg: fmt.Sprintf("run.go %q must be a major.minor language version, not a patch/toolchain version", actual)}}
+	}
+	return nil
+}
+
+func checkWorkflows(root string) (int, []finding) {
+	paths, err := workflowFiles(root)
+	if err != nil {
+		return 0, []finding{{Path: workflowDir, Msg: err.Error()}}
+	}
+	var findings []finding
+	setupGoSteps := 0
+	for _, path := range paths {
+		count, pathFindings := checkWorkflowFile(filepath.Join(root, path), path)
+		setupGoSteps += count
+		findings = append(findings, pathFindings...)
+	}
+	return setupGoSteps, findings
+}
+
+func workflowFiles(root string) ([]string, error) {
+	dir := filepath.Join(root, workflowDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var paths []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml") {
+			paths = append(paths, filepath.ToSlash(filepath.Join(workflowDir, name)))
+		}
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+func checkWorkflowFile(absPath, displayPath string) (int, []finding) {
+	raw, err := os.ReadFile(absPath) // #nosec G304 -- repository-owned checker input.
+	if err != nil {
+		return 0, []finding{{Path: displayPath, Msg: err.Error()}}
+	}
+	var wf workflowFile
+	if err := yaml.Unmarshal(raw, &wf); err != nil {
+		return 0, []finding{{Path: displayPath, Msg: fmt.Sprintf("invalid YAML: %v", err)}}
+	}
+	var findings []finding
+	setupGoSteps := 0
+	for jobName, job := range wf.Jobs {
+		for stepIndex, step := range job.Steps {
+			if !isSetupGoStep(step.Uses) {
+				continue
+			}
+			setupGoSteps++
+			stepPath := fmt.Sprintf("%s jobs.%s.steps[%d]", displayPath, jobName, stepIndex)
+			if _, exists := step.With["go-version"]; exists {
+				findings = append(findings, finding{Path: stepPath, Msg: "actions/setup-go must not use hard-coded go-version; use go-version-file: go.mod"})
+			}
+			value, ok := step.With["go-version-file"]
+			if !ok {
+				findings = append(findings, finding{Path: stepPath, Msg: "actions/setup-go must set go-version-file: go.mod"})
+				continue
+			}
+			versionFile, ok := value.(string)
+			if !ok || strings.TrimSpace(versionFile) != rootGoModPath {
+				findings = append(findings, finding{Path: stepPath, Msg: fmt.Sprintf("actions/setup-go go-version-file must be %q", rootGoModPath)})
+			}
+		}
+	}
+	return setupGoSteps, findings
+}
+
+func isSetupGoStep(uses string) bool {
+	return strings.HasPrefix(strings.TrimSpace(uses), "actions/setup-go@")
+}
+
+func sortFindings(findings []finding) {
+	sort.Slice(findings, func(i, j int) bool {
+		if findings[i].Path == findings[j].Path {
+			return findings[i].Msg < findings[j].Msg
+		}
+		return findings[i].Path < findings[j].Path
+	})
+}

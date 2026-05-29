@@ -1,4 +1,6 @@
 ---
+id: ADR-0003
+title: "Provider Extension Interfaces"
 status: "proposed"
 date: 2026-05-18
 deciders: ["jindyzhao"]

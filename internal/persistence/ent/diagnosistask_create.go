@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
@@ -148,6 +149,21 @@ func (_c *DiagnosisTaskCreate) AddEvents(v ...*DiagnosisTaskEvent) *DiagnosisTas
 		ids[i] = v[i].ID
 	}
 	return _c.AddEventIDs(ids...)
+}
+
+// AddChatSessionIDs adds the "chat_sessions" edge to the ChatSession entity by IDs.
+func (_c *DiagnosisTaskCreate) AddChatSessionIDs(ids ...int) *DiagnosisTaskCreate {
+	_c.mutation.AddChatSessionIDs(ids...)
+	return _c
+}
+
+// AddChatSessions adds the "chat_sessions" edges to the ChatSession entity.
+func (_c *DiagnosisTaskCreate) AddChatSessions(v ...*ChatSession) *DiagnosisTaskCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddChatSessionIDs(ids...)
 }
 
 // Mutation returns the DiagnosisTaskMutation object of the builder.
@@ -326,6 +342,22 @@ func (_c *DiagnosisTaskCreate) createSpec() (*DiagnosisTask, *sqlgraph.CreateSpe
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(diagnosistaskevent.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ChatSessionsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   diagnosistask.ChatSessionsTable,
+			Columns: []string{diagnosistask.ChatSessionsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsession.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

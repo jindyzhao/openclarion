@@ -1,4 +1,6 @@
 ---
+id: ADR-0010
+title: "Frontend Architecture"
 status: "proposed"
 date: 2026-05-18
 deciders: ["jindyzhao"]
@@ -31,6 +33,16 @@ diagnosis room.
 | components | reusable presentational UI |
 | generated API types | OpenAPI-derived request and response contracts |
 | stores | session and view state only |
+
+### Consequences
+
+* Good, because report viewing and diagnosis-room workflows can share generated
+  API contracts without duplicating DTOs.
+* Good, because route shells stay thin while feature modules own workflow UI
+  behavior and WebSocket state.
+* Neutral, because the frontend must wait for generated OpenAPI types before
+  consuming new backend response shapes.
+* Bad, because Next.js build and smoke gates add CI cost once `web/` lands.
 
 ### Confirmation
 

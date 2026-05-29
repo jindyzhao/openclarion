@@ -28,8 +28,8 @@ packages, interfaces, and dependencies are arranged.
 |   - implementation lives in Temporal workflows + activities |
 +-------------------------------------------------------------+
 | Provider Interfaces                                         |
-|   - MetricsProvider, CMDBProvider, IMProvider,              |
-|     AuthProvider, ContainerProvider, LLMProvider            |
+|   - MetricsProvider, AlertSource adapters, CMDBProvider,    |
+|     IMProvider, AuthProvider, ContainerProvider, LLMProvider|
 |   - one capability per interface                            |
 +--------------- external systems (real or fake) -------------+
 | Persistence: PostgreSQL via Ent + Atlas                     |
@@ -45,6 +45,45 @@ packages, interfaces, and dependencies are arranged.
   interfaces.
 * Orchestrator implementations and provider implementations live in adapter
   packages and are wired in `cmd/` only.
+
+## Alert-First, Signal-Capable Boundary
+
+The current product and public language stay focused on intelligent alert
+analysis. `AlertEvent` and `AlertGroup` remain the implementation and contract
+names for the MVP. Architecture discussions may use `SignalEvent`,
+`SignalGroup`, or `CaseGroup` as aliases for future extension, but those names
+are not code rename targets until OpenAPI compatibility, database migrations,
+dashboard copy, and operator documentation are planned together.
+
+New code should keep alert behavior first while avoiding hard binding to one
+monitoring system. Provider interfaces should describe capabilities, not vendor
+products. Evidence building should accept frozen inputs from providers and
+produce `EvidenceSnapshot` records that downstream AI can analyze without
+calling untracked external systems.
+
+For the detailed extension boundary, see
+[alert-first-signal-extension.md](alert-first-signal-extension.md).
+
+## Insight Pipeline vs Agent Workspace
+
+OpenClarion has two logical subsystems inside one product:
+
+- **Insight Pipeline**: the automatic alert-to-evidence-to-report path. It owns
+  ingestion, grouping, `EvidenceSnapshot` creation, report workflows,
+  `SubReport` / `FinalReport` persistence, and report notification.
+- **Agent Workspace**: the user-initiated follow-up path. It owns diagnosis
+  rooms, authenticated WebSocket interaction, `ChatSession` / `ChatTurn`
+  persistence, per-turn sandbox calls, action proposals, and audit handoff.
+
+They share `EvidenceSnapshot`, `FinalReport`, provider interfaces, auth/audit
+primitives, OpenAPI, PostgreSQL, Temporal infrastructure, and observability.
+They must not share workflow lifecycle, output schemas, conversation state, or
+production-changing operation authority.
+
+This is a logical boundary, not a deployment split. Keep one repository and
+one product surface until runtime scale, team ownership, or isolation evidence
+requires a worker or service split. See
+[insight-pipeline-agent-workspace.md](insight-pipeline-agent-workspace.md).
 
 ## Business-Level Orchestrator Ports
 
@@ -79,6 +118,10 @@ above this line.
   responsibilities section in its godoc.
 * Real and fake implementations live in sibling packages and are selected
   through composition in `cmd/`.
+* Future non-monitoring signal providers, such as claims, policy, document,
+  weather, GIS, fraud, customer-service, or vendor data providers, must follow
+  the same one-capability rule and feed the evidence pipeline instead of
+  bypassing it.
 
 ## Control Plane vs Agent Framework Boundary
 
@@ -104,6 +147,12 @@ strictly separated responsibilities. Neither should attempt the other's job.
 * **reasoning strategy** (ReAct, plan-and-execute, multi-Agent, etc.)
 * **sub-Agent composition** (analysis Agent, verification Agent, etc.)
 * **internal state** between tool calls within a single invocation
+
+The concrete runtime is selected by the M4
+[agent runtime selection gate](agent-runtime-selection.md). Named candidates
+are examples until they prove the same file-contract, lifecycle, and
+sandbox-security requirements. Runtime dependencies belong inside the sandbox
+image, not in the Go control plane.
 
 ### Go Does NOT Own
 
@@ -131,7 +180,7 @@ Input (mounted readonly by Go):
   /workspace/message.json          # latest user message (M5 only)
   /workspace/agent_config/         # agent role, skills, tool endpoints
 
-Output (writable tmpfs, read by Go after container exits):
+Output (writable capped output mount, read by Go after container exits):
   /workspace/out/output.json       # structured response (schema-validated by Go)
 ```
 
@@ -197,6 +246,8 @@ the workflow contract.
 * Domain types depending on generated code.
 * `internal/temporal/` packages reaching into `internal/usecases/`.
 * Go code reading or interpreting agent config files.
+* Go control-plane manifests importing agent-framework dependencies before the
+  M4 runtime selection gate accepts a baseline.
 * Agent containers accessing network endpoints not in their allowlist.
 * Agent containers writing outside `/workspace/`.
 
@@ -215,6 +266,7 @@ internal/
     temporal/                     # Temporal-backed implementation
   providers/
     metrics/, cmdb/, im/, auth/, container/, llm/
+    # future extension examples: claims/, policy/, documents/, fraud/
   transport/
     http/                         # generated server + handler adapters
     ws/                           # WebSocket proxy
@@ -237,4 +289,5 @@ web/                              # Next.js frontend
 - [adr/ADR-0007-openapi-31-native-toolchain.md](../adr/ADR-0007-openapi-31-native-toolchain.md)
 - [adr/ADR-0009-go-control-plane-scheduling.md](../adr/ADR-0009-go-control-plane-scheduling.md)
 - [adr/ADR-0013-per-turn-container-invocation.md](../adr/ADR-0013-per-turn-container-invocation.md)
+- [alert-first-signal-extension.md](alert-first-signal-extension.md)
 - [CODING_STYLE.md](CODING_STYLE.md)

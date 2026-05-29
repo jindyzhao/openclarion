@@ -5,7 +5,7 @@
 > prevents deferred items from being silently lost and prevents past
 > discussions from being re-litigated without new information.
 
-> Last updated: 2026-05-22
+> Last updated: 2026-05-27
 
 ## How To Use This File
 
@@ -71,11 +71,11 @@
 
 | Field | Value |
 |-------|-------|
-| Status | partially closed (Ent + Atlas pinned at M1-PR1; Temporal pinned at M1-PR3; OTel still open) |
+| Status | closed (Ent + Atlas pinned at M1-PR1; Temporal pinned at M1-PR3; OTel pinned at M3 backend observability first import) |
 | Decided | 2026-05-19 |
-| Updated | 2026-05-22 (M0 review), 2026-05-22 (M1-PR1 start), 2026-05-25 (M1-PR3 Temporal SDK pin) |
-| Reason | Original deferral assumed M0 would replace `TBD pinned at M0` placeholders for these modules. Post-M0 review (2026-05-22) replaced that policy with the `first-import pin` rule in DEPENDENCIES.md: a Go module enters `go.mod` only when production code first imports it, and is pinned to a concrete `module@version` at that moment. ADR-0012 was amended (2026-05-22) so the Temporal SDK pin and Update round-trip validation move from M0 to M1. The `forbidden-latest` CI gate keeps enforcing the no-`latest` rule throughout. **M1-PR1 (2026-05-22)** lands the Ent and Atlas pins: `entgo.io/ent v0.14.6` (direct require + `tool` directive in `go.mod`) and Atlas CLI `arigaio/atlas:1.2.0` (Docker image pin). The Atlas wrapper redesign (2026-05-22) replaced the original Docker-socket plan with a host-launched ephemeral `postgres:18-alpine` on a per-invocation dedicated Docker network, with Atlas reaching the dev DB via a plain `postgres://` URL; no host Docker socket is mounted, and the `docker://...` dev-url form is not used. Atlas is **not** added to `go.mod` because it is invoked as a CLI via the pinned image rather than imported as a Go library; the pin lives in `Makefile` (`ATLAS_IMAGE`) and `docs/design/DEPENDENCIES.md`. **M1-PR3 (2026-05-25)** lands the Temporal Go SDK pin: `go.temporal.io/sdk v1.44.0` (direct require in `go.mod`), entering via the first-import rule when `internal/orchestrator/temporal/` production code first imports it. OpenTelemetry Go remains unpinned per the first-import rule. |
-| Trigger | OTel pin lands at M3. |
+| Updated | 2026-05-22 (M0 review), 2026-05-22 (M1-PR1 start), 2026-05-25 (M1-PR3 Temporal SDK pin), 2026-05-28 (M3 OTel HTTP tracing pin) |
+| Reason | Original deferral assumed M0 would replace `TBD pinned at M0` placeholders for these modules. Post-M0 review (2026-05-22) replaced that policy with the `first-import pin` rule in DEPENDENCIES.md: a Go module enters `go.mod` only when production code first imports it, and is pinned to a concrete `module@version` at that moment. ADR-0012 was amended (2026-05-22) so the Temporal SDK pin and Update round-trip validation move from M0 to M1. The `forbidden-latest` CI gate keeps enforcing the no-`latest` rule throughout. **M1-PR1 (2026-05-22)** lands the Ent and Atlas pins: `entgo.io/ent v0.14.6` (direct require + `tool` directive in `go.mod`) and Atlas CLI `arigaio/atlas:1.2.0` (Docker image pin). The Atlas wrapper redesign (2026-05-22) replaced the original Docker-socket plan with a host-launched ephemeral `postgres:18-alpine` on a per-invocation dedicated Docker network, with Atlas reaching the dev DB via a plain `postgres://` URL; no host Docker socket is mounted, and the `docker://...` dev-url form is not used. Atlas is **not** added to `go.mod` because it is invoked as a CLI via the pinned image rather than imported as a Go library; the pin lives in `Makefile` (`ATLAS_IMAGE`) and `docs/design/DEPENDENCIES.md`. **M1-PR3 (2026-05-25)** lands the Temporal Go SDK pin: `go.temporal.io/sdk v1.44.0` (direct require in `go.mod`), entering via the first-import rule when `internal/orchestrator/temporal/` production code first imports it. **M3 backend observability (2026-05-28)** lands OpenTelemetry Go direct pins through `internal/observability/tracing`: `go.opentelemetry.io/otel v1.44.0`, `go.opentelemetry.io/otel/sdk v1.44.0`, OTLP HTTP trace exporter `v1.44.0`, and `otelhttp v0.68.0`; this version family is above the `GO-2026-4985` fixed-in floor reported by `govulncheck`. |
+| Trigger | Closed by M3 OpenTelemetry HTTP tracing first import. |
 | Target | M3 (OpenTelemetry Go) |
 
 ### D7: pgvector / RAG Retrieval
@@ -118,9 +118,19 @@
 | Trigger | re-evaluate after M2 if checklist length harms readability |
 | Target | M2 review |
 
+### D11: Legacy Forbidden-Imports Bash Deletion
+
+| Field | Value |
+|-------|-------|
+| Status | closed |
+| Decided | 2026-05-27 |
+| Reason | W3-2a originally landed the `openclarion-arch` forbidden-imports analyzer in parallel with the existing `scripts/check_no_forbidden_imports.sh` gate. The plan was revised on 2026-05-27 to allow immediate retirement after rigorous local equivalence verification: analyzer fixtures cover legacy forbidden modules, concrete provider boundaries, fake-provider test exemptions, and the analyzer retains a unit test pinning the retired legacy deny-list. |
+| Trigger | closed on 2026-05-27 by W3-2b |
+| Target | W3-2b |
+
 ## Closed Deferrals
 
-(none yet)
+* D11: Legacy Forbidden-Imports Bash Deletion
 
 ## Changelog
 
@@ -130,3 +140,6 @@
 | 2026-05-22 | jindyzhao | Update D6: replace "must pin at M0" policy with the `first-import pin` rule (DEPENDENCIES.md). Temporal/Ent/Atlas pinning targets shift to M1; OTel to M3. ADR-0012 amended in the same window. |
 | 2026-05-22 | jindyzhao | D6 partially closed at M1-PR1 start: Ent v0.14.6 pinned (direct require + tool directive); Atlas pinned via `arigaio/atlas:1.2.0` Docker image under the original Plan A draft (Dockerized Atlas with mounted Docker socket; later superseded by the wrapper redesign in the same milestone window). Temporal SDK and OTel remain open. |
 | 2026-05-25 | jindyzhao | D6 Temporal SDK portion closed at M1-PR3: `go.temporal.io/sdk v1.44.0` pinned via first-import rule. Only OTel remains open for M3. |
+| 2026-05-27 | jindyzhao | Add D11 for W3-2b: legacy forbidden-imports bash deletion is deferred until the two-week analyzer equivalence window completes. |
+| 2026-05-27 | jindyzhao | Close D11 after revising the plan to permit immediate retirement on rigorous local equivalence proof; analyzer tests now pin the retired legacy deny-list and cover red/green fixtures. |
+| 2026-05-28 | jindyzhao | D6 closed: M3 OpenTelemetry HTTP tracing first import pins `go.opentelemetry.io/otel v1.44.0`, `go.opentelemetry.io/otel/sdk v1.44.0`, OTLP HTTP trace exporter `v1.44.0`, and `otelhttp v0.68.0`; collector smoke and broader tracing coverage are tracked as M3 implementation work, not dependency-pin deferral. |

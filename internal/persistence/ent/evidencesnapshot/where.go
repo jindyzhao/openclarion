@@ -401,6 +401,29 @@ func HasTasksWith(preds ...predicate.DiagnosisTask) predicate.EvidenceSnapshot {
 	})
 }
 
+// HasSubReports applies the HasEdge predicate on the "sub_reports" edge.
+func HasSubReports() predicate.EvidenceSnapshot {
+	return predicate.EvidenceSnapshot(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, SubReportsTable, SubReportsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasSubReportsWith applies the HasEdge predicate on the "sub_reports" edge with a given conditions (other predicates).
+func HasSubReportsWith(preds ...predicate.SubReport) predicate.EvidenceSnapshot {
+	return predicate.EvidenceSnapshot(func(s *sql.Selector) {
+		step := newSubReportsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // And groups predicates with the AND operator between them.
 func And(predicates ...predicate.EvidenceSnapshot) predicate.EvidenceSnapshot {
 	return predicate.EvidenceSnapshot(sql.AndPredicates(predicates...))

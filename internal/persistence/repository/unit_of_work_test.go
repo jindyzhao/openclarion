@@ -122,7 +122,7 @@ func TestWithinTx_NestedRejected(t *testing.T) {
 			return nil
 		})
 		if !errors.Is(nerr, ports.ErrNestedTransaction) {
-			return fmt.Errorf("nested WithinTx err = %v, want errors.Is ErrNestedTransaction", nerr)
+			return fmt.Errorf("nested WithinTx err = %w, want errors.Is ErrNestedTransaction", nerr)
 		}
 		return nil
 	})

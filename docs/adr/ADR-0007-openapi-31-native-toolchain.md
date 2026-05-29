@@ -1,4 +1,6 @@
 ---
+id: ADR-0007
+title: "OpenAPI 3.1 Native Toolchain"
 status: "proposed"
 date: 2026-05-18
 deciders: ["jindyzhao"]
@@ -58,6 +60,17 @@ support without a compatibility layer.
 **Fallback path**: if `oapi-codegen-exp` becomes unmaintained or introduces
 breaking changes that cannot be pinned around, reintroduce a 3.0 compatibility
 spec and switch to `oapi-codegen/v2`. This requires a superseding ADR.
+
+### Consequences
+
+* Good, because backend handlers and frontend types derive from one OpenAPI 3.1
+  source of truth.
+* Good, because generated-code freshness and breaking-change checks can reason
+  about one canonical contract.
+* Neutral, because the project accepts a pinned pre-v1 Go generator while the
+  ecosystem catches up to OpenAPI 3.1.
+* Bad, because generator instability may require a deliberate fallback ADR if
+  pinning cannot contain future breakage.
 
 ### Confirmation
 

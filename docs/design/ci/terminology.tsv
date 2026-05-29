@@ -1,0 +1,7 @@
+# kind	pattern	allowed_files	message
+# Patterns are POSIX extended regular expressions evaluated case-insensitively.
+forbidden	\bintelligent alert-analysis\b	*	Use "intelligent alert analysis" without a hyphen.
+forbidden	\bbusiness[- ]signal governance platform\b	*	OpenClarion must remain positioned as intelligent alert analysis; keep broader signal language as architecture extension context only.
+forbidden	\bgeneric business[- ]signal[- ]platform\b	*	OpenClarion must remain positioned as intelligent alert analysis; keep broader signal language as architecture extension context only.
+restricted	\bSignal(Event|Group)\b	docs/design/architecture.md,docs/design/alert-first-signal-extension.md,docs/design/ci/README.md,docs/design/CURRENT_STATE.md,docs/roadmap/tasks.md	SignalEvent/SignalGroup are architecture aliases only; public/product docs must keep AlertEvent/AlertGroup during the MVP.
+restricted	\bCaseGroup\b	docs/design/architecture.md,docs/design/alert-first-signal-extension.md,docs/design/ci/README.md,docs/design/CURRENT_STATE.md,docs/roadmap/tasks.md	CaseGroup is an architecture alias only; public/product docs must keep AlertGroup during the MVP.

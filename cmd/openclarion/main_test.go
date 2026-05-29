@@ -1,0 +1,509 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/alertingest"
+	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
+	"github.com/openclarion/openclarion/internal/usecases/ports"
+	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
+	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
+)
+
+func TestReportActivityOptionsFromEnv_ConfiguresProviders(t *testing.T) {
+	var gotAuth string
+	llmServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("LLM path = %q, want /v1/chat/completions", r.URL.Path)
+		}
+		gotAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"gpt-test","choices":[{"message":{"content":"{\"ok\":true}"},"finish_reason":"stop"}]}`))
+	}))
+	defer llmServer.Close()
+
+	// #nosec G101 -- test-only env fixture uses non-secret placeholder values.
+	env := map[string]string{
+		"OPENCLARION_LLM_MODEL":               "gpt-test",
+		"OPENCLARION_LLM_BASE_URL":            llmServer.URL + "/v1",
+		"OPENCLARION_LLM_API_KEY":             "test-api-value",
+		"OPENCLARION_IM_WEBHOOK_URL":          "https://example.invalid/report-hook",
+		"OPENCLARION_IM_WEBHOOK_BEARER_TOKEN": "webhook-bearer-value",
+	}
+	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(env), nil)
+	if err != nil {
+		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 2 {
+		t.Fatalf("len(opts) = %d, want 2", len(opts))
+	}
+	if gotAuth != "Bearer test-api-value" {
+		t.Fatalf("Authorization = %q, want Bearer test-api-value", gotAuth)
+	}
+}
+
+func TestReportActivityOptionsFromEnv_AllowsUnconfiguredProviders(t *testing.T) {
+	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(nil), nil)
+	if err != nil {
+		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 0 {
+		t.Fatalf("len(opts) = %d, want 0", len(opts))
+	}
+}
+
+func TestReportActivityOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        map[string]string
+		wantSubstr string
+	}{
+		{
+			name: "llm base without model",
+			env: map[string]string{
+				"OPENCLARION_LLM_BASE_URL": "https://example.invalid/v1",
+			},
+			wantSubstr: "OPENCLARION_LLM_MODEL",
+		},
+		{
+			name: "webhook token without url",
+			// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+			env: map[string]string{
+				"OPENCLARION_IM_WEBHOOK_BEARER_TOKEN": "test-bearer-value",
+			},
+			wantSubstr: "OPENCLARION_IM_WEBHOOK_URL",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(tc.env), nil)
+			if err == nil {
+				t.Fatalf("expected error containing %q, got nil", tc.wantSubstr)
+			}
+			if !strings.Contains(err.Error(), tc.wantSubstr) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tc.wantSubstr)
+			}
+		})
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_ConfiguresReportTrigger(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_PROMETHEUS_URL":          "http://prometheus.example",
+		"OPENCLARION_PROMETHEUS_BEARER_TOKEN": "test-bearer-value",
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_AllowsUnconfiguredTrigger(t *testing.T) {
+	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(nil), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 0 {
+		t.Fatalf("len(opts) = %d, want 0", len(opts))
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_PROMETHEUS_BEARER_TOKEN": "test-bearer-value",
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected OPENCLARION_PROMETHEUS_URL error, got nil")
+	}
+	if !strings.Contains(err.Error(), "OPENCLARION_PROMETHEUS_URL") {
+		t.Fatalf("error = %q, want OPENCLARION_PROMETHEUS_URL", err.Error())
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoom(t *testing.T) {
+	oidcServer := newOIDCDiscoveryServer(t)
+	opts, originPolicy, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL": " " + oidcServer.URL + " ",
+		"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID":  "openclarion-web",
+		"OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS": "http://127.0.0.1:32101",
+	}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv diagnosis: %v", err)
+	}
+	if len(opts) != 4 {
+		t.Fatalf("len(opts) = %d, want 4", len(opts))
+	}
+	if originPolicy == nil {
+		t.Fatal("originPolicy is nil")
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://127.0.0.1:8080/ws/diagnosis", nil)
+	req.Header.Set("Origin", "http://127.0.0.1:32101")
+	if !originPolicy.CheckWebSocketOrigin(req) {
+		t.Fatal("expected configured origin to be allowed")
+	}
+	req.Header.Set("Origin", "http://127.0.0.1:9999")
+	if originPolicy.CheckWebSocketOrigin(req) {
+		t.Fatal("expected unconfigured origin to be rejected")
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_RejectsIncompleteDiagnosisConfig(t *testing.T) {
+	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID": "openclarion-web",
+	}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil)
+	if err == nil {
+		t.Fatal("expected diagnosis OIDC issuer error, got nil")
+	}
+	if !strings.Contains(err.Error(), "issuer url") {
+		t.Fatalf("error = %q, want issuer url", err.Error())
+	}
+}
+
+func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) {
+	opts, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
+		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/runner"]`,
+	}))
+	if err != nil {
+		t.Fatalf("diagnosisActivityOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	}
+}
+
+func TestDiagnosisActivityOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
+	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_SANDBOX_COMMAND_JSON": `["/runner"]`,
+	}))
+	if err == nil {
+		t.Fatal("expected sandbox image error, got nil")
+	}
+	if !strings.Contains(err.Error(), "OPENCLARION_SANDBOX_IMAGE_REF") {
+		t.Fatalf("error = %q, want OPENCLARION_SANDBOX_IMAGE_REF", err.Error())
+	}
+}
+
+func TestParseReportReplayCLIArgs(t *testing.T) {
+	cfg, err := parseReportReplayCLIArgs([]string{
+		"--window-start", "2026-05-28T10:00:00Z",
+		"--window-end", "2026-05-28T11:00:00Z",
+		"--limit", "25",
+		"--correlation-key", "incident-1",
+		"--workflow-id", "report-batch-incident-1",
+		"--scenario", "cascade",
+		"--wait",
+		"--wait-timeout", "5m",
+	})
+	if err != nil {
+		t.Fatalf("parseReportReplayCLIArgs: %v", err)
+	}
+	if !cfg.WindowStart.Equal(time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)) ||
+		!cfg.WindowEnd.Equal(time.Date(2026, 5, 28, 11, 0, 0, 0, time.UTC)) ||
+		cfg.Limit != 25 ||
+		cfg.CorrelationKey != "incident-1" ||
+		cfg.WorkflowID != "report-batch-incident-1" ||
+		cfg.Scenario != reportprompt.ScenarioCascade ||
+		!cfg.Wait ||
+		cfg.WaitTimeout != 5*time.Minute {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+}
+
+func TestParseReportReplayCLIArgsRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing start",
+			args: []string{"--window-end", "2026-05-28T11:00:00Z"},
+			want: "--window-start",
+		},
+		{
+			name: "invalid end",
+			args: []string{"--window-start", "2026-05-28T10:00:00Z", "--window-end", "not-time"},
+			want: "parse --window-end",
+		},
+		{
+			name: "bad limit",
+			args: []string{"--window-start", "2026-05-28T10:00:00Z", "--window-end", "2026-05-28T11:00:00Z", "--limit", "0"},
+			want: "--limit",
+		},
+		{
+			name: "bad scenario",
+			args: []string{"--window-start", "2026-05-28T10:00:00Z", "--window-end", "2026-05-28T11:00:00Z", "--scenario", "freeform"},
+			want: "--scenario",
+		},
+		{
+			name: "bad wait timeout",
+			args: []string{"--window-start", "2026-05-28T10:00:00Z", "--window-end", "2026-05-28T11:00:00Z", "--wait", "--wait-timeout", "0s"},
+			want: "--wait-timeout",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseReportReplayCLIArgs(tc.args)
+			if err == nil {
+				t.Fatalf("parseReportReplayCLIArgs: want error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %q, want substring %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestRunReportReplayCLITriggerMapsRequestAndWritesJSON(t *testing.T) {
+	windowStart := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	windowEnd := windowStart.Add(time.Hour)
+	checkedAt := time.Date(2026, 5, 29, 1, 2, 3, 456000000, time.UTC)
+	previousNow := reportReplayCLINowUTC
+	reportReplayCLINowUTC = func() time.Time { return checkedAt }
+	t.Cleanup(func() { reportReplayCLINowUTC = previousNow })
+	trigger := &recordingReportReplayCLITrigger{
+		result: reporttrigger.Result{
+			Replay: alertreplay.Result{
+				Stats: alertreplay.Stats{
+					Ingested:       alertingest.Stats{Total: 1, Saved: 1},
+					EventsLoaded:   1,
+					GroupsBuilt:    1,
+					GroupsSaved:    1,
+					SnapshotsSaved: 1,
+					GroupsClosed:   1,
+				},
+				Snapshots: []alertreplay.SnapshotRef{
+					{ID: domain.EvidenceSnapshotID(7), GroupIndex: 0, EventCount: 1},
+				},
+			},
+			Workflow: ports.WorkflowHandle{WorkflowID: "report-batch-1", RunID: "run-1"},
+			Started:  true,
+		},
+	}
+	var out bytes.Buffer
+	err := runReportReplayCLITrigger(context.Background(), trigger, nil, reportReplayCLIConfig{
+		WindowStart:    windowStart,
+		WindowEnd:      windowEnd,
+		Limit:          5,
+		CorrelationKey: "incident-1",
+		WorkflowID:     "report-batch-1",
+		Scenario:       reportprompt.ScenarioSingleAlert,
+		WaitTimeout:    defaultReportReplayCLIWait,
+	}, &out)
+	if err != nil {
+		t.Fatalf("runReportReplayCLITrigger: %v", err)
+	}
+	if trigger.req.Replay.WindowStart != windowStart ||
+		trigger.req.Replay.WindowEnd != windowEnd ||
+		trigger.req.Replay.Limit != 5 ||
+		trigger.req.Replay.CreatedByWorkflow != reportReplayCLICreatedByWorkflow ||
+		trigger.req.CorrelationKey != "incident-1" ||
+		trigger.req.WorkflowID != "report-batch-1" ||
+		trigger.req.Scenario != reportprompt.ScenarioSingleAlert {
+		t.Fatalf("trigger req = %+v", trigger.req)
+	}
+
+	var got reportReplayCLIOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode output: %v; raw=%s", err, out.String())
+	}
+	if !got.Started || got.WorkflowID != "report-batch-1" || got.RunID != "run-1" {
+		t.Fatalf("output workflow = %+v", got)
+	}
+	if got.CheckedAt != checkedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("output checked_at = %q, want %q", got.CheckedAt, checkedAt.Format(time.RFC3339Nano))
+	}
+	if got.Request.WindowStart != windowStart.Format(time.RFC3339Nano) ||
+		got.Request.WindowEnd != windowEnd.Format(time.RFC3339Nano) ||
+		got.Request.Limit != 5 ||
+		got.Request.CorrelationKey != "incident-1" ||
+		got.Request.WorkflowID != "report-batch-1" ||
+		got.Request.Scenario != string(reportprompt.ScenarioSingleAlert) ||
+		got.Request.Wait ||
+		got.Request.WaitTimeout != defaultReportReplayCLIWait.String() {
+		t.Fatalf("output request = %+v", got.Request)
+	}
+	if got.Waited || got.WorkflowResult != nil {
+		t.Fatalf("output wait = waited %v result %+v, want no wait result", got.Waited, got.WorkflowResult)
+	}
+	if got.Stats.Ingested.Saved != 1 || got.Stats.SnapshotsSaved != 1 {
+		t.Fatalf("output stats = %+v", got.Stats)
+	}
+	if len(got.Snapshots) != 1 || got.Snapshots[0].ID != 7 {
+		t.Fatalf("output snapshots = %+v", got.Snapshots)
+	}
+}
+
+func TestRunReportReplayCLITriggerWaitsForCompletion(t *testing.T) {
+	windowStart := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	windowEnd := windowStart.Add(time.Hour)
+	checkedAt := time.Date(2026, 5, 29, 1, 2, 3, 456000000, time.UTC)
+	previousNow := reportReplayCLINowUTC
+	reportReplayCLINowUTC = func() time.Time { return checkedAt }
+	t.Cleanup(func() { reportReplayCLINowUTC = previousNow })
+	trigger := &recordingReportReplayCLITrigger{
+		result: reporttrigger.Result{
+			Replay: alertreplay.Result{
+				Snapshots: []alertreplay.SnapshotRef{
+					{ID: domain.EvidenceSnapshotID(7), GroupIndex: 0, EventCount: 1},
+				},
+			},
+			Workflow: ports.WorkflowHandle{WorkflowID: "report-batch-1", RunID: "run-1"},
+			Started:  true,
+		},
+	}
+	waiter := &recordingReportReplayCLIWaiter{
+		result: reportReplayCLIWorkflowResult{
+			SubReportIDs:               []int64{11, 12},
+			FinalReportID:              99,
+			NotificationIdempotencyKey: "final_report:99/notification",
+			ProviderMessageID:          "message-1",
+			NotificationStatus:         "delivered",
+		},
+	}
+
+	var out bytes.Buffer
+	err := runReportReplayCLITrigger(context.Background(), trigger, waiter, reportReplayCLIConfig{
+		WindowStart: windowStart,
+		WindowEnd:   windowEnd,
+		Limit:       5,
+		Scenario:    reportprompt.ScenarioSingleAlert,
+		Wait:        true,
+		WaitTimeout: time.Minute,
+	}, &out)
+	if err != nil {
+		t.Fatalf("runReportReplayCLITrigger: %v", err)
+	}
+	if waiter.handle.WorkflowID != "report-batch-1" || waiter.handle.RunID != "run-1" {
+		t.Fatalf("waiter handle = %+v", waiter.handle)
+	}
+	var got reportReplayCLIOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode output: %v; raw=%s", err, out.String())
+	}
+	if !got.Waited || got.WorkflowResult == nil {
+		t.Fatalf("output wait = waited %v result %+v", got.Waited, got.WorkflowResult)
+	}
+	if got.CheckedAt != checkedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("output checked_at = %q, want %q", got.CheckedAt, checkedAt.Format(time.RFC3339Nano))
+	}
+	if got.Request.WindowStart != windowStart.Format(time.RFC3339Nano) ||
+		got.Request.WindowEnd != windowEnd.Format(time.RFC3339Nano) ||
+		got.Request.Limit != 5 ||
+		got.Request.Scenario != string(reportprompt.ScenarioSingleAlert) ||
+		!got.Request.Wait ||
+		got.Request.WaitTimeout != time.Minute.String() {
+		t.Fatalf("output request = %+v", got.Request)
+	}
+	if got.WorkflowResult.FinalReportID != 99 ||
+		got.WorkflowResult.NotificationIdempotencyKey != "final_report:99/notification" ||
+		got.WorkflowResult.ProviderMessageID != "message-1" ||
+		got.WorkflowResult.NotificationStatus != "delivered" ||
+		len(got.WorkflowResult.SubReportIDs) != 2 {
+		t.Fatalf("workflow result = %+v", got.WorkflowResult)
+	}
+}
+
+func mapGetenv(env map[string]string) getenvFunc {
+	return func(key string) string {
+		return env[key]
+	}
+}
+
+func discardLogger() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
+func newOIDCDiscoveryServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	var issuer string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                 issuer,
+				"jwks_uri":               issuer + "/keys",
+				"authorization_endpoint": issuer + "/auth",
+				"token_endpoint":         issuer + "/token",
+			})
+		case "/keys":
+			_ = json.NewEncoder(w).Encode(map[string]any{"keys": []any{}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	issuer = server.URL
+	t.Cleanup(server.Close)
+	return server
+}
+
+type emptyFactory struct{}
+
+func (emptyFactory) Begin(context.Context) (ports.UnitOfWork, error) {
+	return nil, nil
+}
+
+func (emptyFactory) WithinTx(context.Context, func(context.Context, ports.UnitOfWork) error) error {
+	return nil
+}
+
+type emptyStarter struct{}
+
+func (emptyStarter) StartReportBatch(context.Context, ports.ReportBatchStartRequest) (ports.WorkflowHandle, error) {
+	return ports.WorkflowHandle{}, nil
+}
+
+type noopDiagnosisRoomWorkflowClient struct{}
+
+func (noopDiagnosisRoomWorkflowClient) SubmitDiagnosisTurn(context.Context, ports.DiagnosisRoomSubmitTurnRequest) (ports.DiagnosisRoomSubmitTurnResult, error) {
+	return ports.DiagnosisRoomSubmitTurnResult{}, nil
+}
+
+func (noopDiagnosisRoomWorkflowClient) QueryDiagnosisRoom(context.Context, string) (ports.DiagnosisRoomState, error) {
+	return ports.DiagnosisRoomState{}, nil
+}
+
+type noopDiagnosisRoomStarter struct{}
+
+func (noopDiagnosisRoomStarter) StartDiagnosisRoom(context.Context, ports.DiagnosisRoomStartRequest) (ports.DiagnosisRoomStartResult, error) {
+	return ports.DiagnosisRoomStartResult{}, nil
+}
+
+type recordingReportReplayCLITrigger struct {
+	req    reporttrigger.Request
+	result reporttrigger.Result
+}
+
+func (t *recordingReportReplayCLITrigger) ReplayAndStart(_ context.Context, req reporttrigger.Request) (reporttrigger.Result, error) {
+	t.req = req
+	return t.result, nil
+}
+
+type recordingReportReplayCLIWaiter struct {
+	handle ports.WorkflowHandle
+	result reportReplayCLIWorkflowResult
+}
+
+func (w *recordingReportReplayCLIWaiter) WaitReportBatch(_ context.Context, handle ports.WorkflowHandle) (reportReplayCLIWorkflowResult, error) {
+	w.handle = handle
+	return w.result, nil
+}

@@ -90,7 +90,7 @@ does not bundle a Docker CLI, so Atlas cannot spawn the dev DB itself.
 | Target | When to run | What it does |
 |--------|-------------|--------------|
 | `make ent-generate` | after editing any file under `ent/schema/` | regenerates the ent client + entity code |
-| `make ent-fresh` | CI gate (and manual sanity check) | runs `ent-generate` and fails if it produces an unstaged diff under `internal/persistence/ent/` (i.e. the committed / staged ent client is out of sync with the schema; mirrors `openapi-fresh`'s `git diff --name-only` semantics so first-time `git add` of generated code does not trip the gate) |
+| `make ent-fresh` | CI gate (and manual sanity check) | snapshots `internal/persistence/ent/`, runs `ent-generate`, and fails only if generation changes that snapshot. This mirrors `openapi-fresh` semantics and allows an in-progress branch to pass after schema and generated code are updated together. |
 | `make atlas-smoke` | once at the start of M1-PR1 (manual) | proves the pinned Atlas image can read `ent://...` and spawn the dev Postgres; throwaway output |
 | `make atlas-migrate-diff NAME=<name>` | after schema changes (manual) | writes a new migration to `internal/persistence/migrations/` |
 | `make atlas-drift` | CI gate | copies migrations to a temp dir, runs `atlas migrate diff drift_check`, fails if Atlas wants to write a new migration |

@@ -6,13 +6,37 @@ persistence artifact. The MVP implements the headless report path (S0-S4).
 Short-conversation interactive diagnosis (S6) is V1 required at minimum-viable
 scope.
 
+## Vocabulary Boundary
+
+OpenClarion's MVP is intelligent alert analysis, so this flow intentionally
+uses `AlertEvent` and `AlertGroup`. These names are also the current OpenAPI
+and persistence contract names. Future architecture work may generalize the
+same pattern to other business signals, but that extension must preserve the
+current alert workflow and pass through a compatibility plan before any public
+rename.
+
+## Flow Families
+
+The stages below belong to two logical subsystems:
+
+- **Insight Pipeline**: S0-S4, plus optional S5 report augmentation. This is
+  the automatic alert-to-evidence-to-report path.
+- **Agent Workspace**: S6. This is the human-initiated diagnosis room for
+  report follow-up, explanation, action drafting, and audit handoff.
+
+The two families share evidence, reports, provider interfaces, auth/audit
+primitives, OpenAPI, PostgreSQL, and Temporal infrastructure. They do not share
+workflow lifecycle, output schemas, conversation state, or operation authority.
+The detailed boundary lives in
+[../insight-pipeline-agent-workspace.md](../insight-pipeline-agent-workspace.md).
+
 ## Stage S0: Alert State Ingestion
 
 | Aspect | Value |
 |--------|-------|
 | Authority | [phases/02-providers.md](../phases/02-providers.md), MetricsProvider |
 | Owner | Go control plane |
-| Trigger | poll cycle or webhook from Alertmanager |
+| Trigger | poll cycle or webhook from Alertmanager or another alert-source provider |
 | Success | active alerts pulled and normalized into AlertEvent records |
 | Failure | provider error -> backoff and retry; partial pull marks the cycle as `incomplete` for replay |
 | Persistence | `AlertEvent` rows in PostgreSQL |
@@ -46,9 +70,9 @@ scope.
 
 | Aspect | Value |
 |--------|-------|
-| Authority | [phases/03-workflows.md](../phases/03-workflows.md), `ReportFanOutWorkflow` |
+| Authority | [phases/03-workflows.md](../phases/03-workflows.md), `ReportBatchWorkflow` + `ReportFanOutWorkflow` |
 | Owner | Temporal workflow + LLMProvider |
-| Trigger | EvidenceSnapshot ready in S2 |
+| Trigger | `POST /api/v1/report-triggers/replay-window` maps replayed EvidenceSnapshot refs into a `ReportBatchWorkflow` start request |
 | Success | one `SubReport` per logical group, each schema-validated |
 | Failure | individual SubReport failure does not block siblings; fan-in tolerates partial success up to a configured threshold; failed SubReport is retryable |
 | Persistence | `SubReport` rows linked to snapshot |
@@ -58,7 +82,7 @@ scope.
 
 | Aspect | Value |
 |--------|-------|
-| Authority | [phases/03-workflows.md](../phases/03-workflows.md), `FinalReportWorkflow` |
+| Authority | [phases/03-workflows.md](../phases/03-workflows.md), `ReportBatchWorkflow` + `FinalReportWorkflow` |
 | Owner | Temporal workflow + IMProvider |
 | Trigger | SubReport set complete in S3 (or threshold met) |
 | Success | `FinalReport` persisted; notification delivered through IMProvider |

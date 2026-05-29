@@ -22,10 +22,16 @@ coverage/
 # Node
 node_modules/
 .next/
+*.tsbuildinfo
+playwright-report/
+playwright-report-live/
+test-results/
+test-results-live/
 
 # IDE
 .idea/
 .vscode/
+.qoder/
 
 # OS
 .DS_Store

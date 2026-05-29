@@ -48,8 +48,8 @@ OpenClarion security work is governed by these defaults:
 - authentication and authorization are required for all non-public APIs
 - Provider implementations must fail closed
 - secrets must not be committed or logged
-- OpenClaw and other agent runtimes must run as short-lived, non-root,
-  restricted containers
+- candidate agent runtimes must run as short-lived, non-root, restricted
+  containers
 - AI skills are readonly by default
 - production-impacting actions require human approval
 - audit logs must be append-only from the application perspective

@@ -17,9 +17,15 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
+	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
+	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
+	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
 
 // Client is the client that holds all ent builders.
@@ -31,12 +37,24 @@ type Client struct {
 	AlertEvent *AlertEventClient
 	// AlertGroup is the client for interacting with the AlertGroup builders.
 	AlertGroup *AlertGroupClient
+	// ChatSession is the client for interacting with the ChatSession builders.
+	ChatSession *ChatSessionClient
+	// ChatTurn is the client for interacting with the ChatTurn builders.
+	ChatTurn *ChatTurnClient
+	// DiagnosisAuthTicket is the client for interacting with the DiagnosisAuthTicket builders.
+	DiagnosisAuthTicket *DiagnosisAuthTicketClient
 	// DiagnosisTask is the client for interacting with the DiagnosisTask builders.
 	DiagnosisTask *DiagnosisTaskClient
 	// DiagnosisTaskEvent is the client for interacting with the DiagnosisTaskEvent builders.
 	DiagnosisTaskEvent *DiagnosisTaskEventClient
 	// EvidenceSnapshot is the client for interacting with the EvidenceSnapshot builders.
 	EvidenceSnapshot *EvidenceSnapshotClient
+	// FinalReport is the client for interacting with the FinalReport builders.
+	FinalReport *FinalReportClient
+	// ReportNotificationDelivery is the client for interacting with the ReportNotificationDelivery builders.
+	ReportNotificationDelivery *ReportNotificationDeliveryClient
+	// SubReport is the client for interacting with the SubReport builders.
+	SubReport *SubReportClient
 }
 
 // NewClient creates a new client configured with the given options.
@@ -50,9 +68,15 @@ func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
 	c.AlertEvent = NewAlertEventClient(c.config)
 	c.AlertGroup = NewAlertGroupClient(c.config)
+	c.ChatSession = NewChatSessionClient(c.config)
+	c.ChatTurn = NewChatTurnClient(c.config)
+	c.DiagnosisAuthTicket = NewDiagnosisAuthTicketClient(c.config)
 	c.DiagnosisTask = NewDiagnosisTaskClient(c.config)
 	c.DiagnosisTaskEvent = NewDiagnosisTaskEventClient(c.config)
 	c.EvidenceSnapshot = NewEvidenceSnapshotClient(c.config)
+	c.FinalReport = NewFinalReportClient(c.config)
+	c.ReportNotificationDelivery = NewReportNotificationDeliveryClient(c.config)
+	c.SubReport = NewSubReportClient(c.config)
 }
 
 type (
@@ -143,13 +167,19 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:                ctx,
-		config:             cfg,
-		AlertEvent:         NewAlertEventClient(cfg),
-		AlertGroup:         NewAlertGroupClient(cfg),
-		DiagnosisTask:      NewDiagnosisTaskClient(cfg),
-		DiagnosisTaskEvent: NewDiagnosisTaskEventClient(cfg),
-		EvidenceSnapshot:   NewEvidenceSnapshotClient(cfg),
+		ctx:                        ctx,
+		config:                     cfg,
+		AlertEvent:                 NewAlertEventClient(cfg),
+		AlertGroup:                 NewAlertGroupClient(cfg),
+		ChatSession:                NewChatSessionClient(cfg),
+		ChatTurn:                   NewChatTurnClient(cfg),
+		DiagnosisAuthTicket:        NewDiagnosisAuthTicketClient(cfg),
+		DiagnosisTask:              NewDiagnosisTaskClient(cfg),
+		DiagnosisTaskEvent:         NewDiagnosisTaskEventClient(cfg),
+		EvidenceSnapshot:           NewEvidenceSnapshotClient(cfg),
+		FinalReport:                NewFinalReportClient(cfg),
+		ReportNotificationDelivery: NewReportNotificationDeliveryClient(cfg),
+		SubReport:                  NewSubReportClient(cfg),
 	}, nil
 }
 
@@ -167,13 +197,19 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:                ctx,
-		config:             cfg,
-		AlertEvent:         NewAlertEventClient(cfg),
-		AlertGroup:         NewAlertGroupClient(cfg),
-		DiagnosisTask:      NewDiagnosisTaskClient(cfg),
-		DiagnosisTaskEvent: NewDiagnosisTaskEventClient(cfg),
-		EvidenceSnapshot:   NewEvidenceSnapshotClient(cfg),
+		ctx:                        ctx,
+		config:                     cfg,
+		AlertEvent:                 NewAlertEventClient(cfg),
+		AlertGroup:                 NewAlertGroupClient(cfg),
+		ChatSession:                NewChatSessionClient(cfg),
+		ChatTurn:                   NewChatTurnClient(cfg),
+		DiagnosisAuthTicket:        NewDiagnosisAuthTicketClient(cfg),
+		DiagnosisTask:              NewDiagnosisTaskClient(cfg),
+		DiagnosisTaskEvent:         NewDiagnosisTaskEventClient(cfg),
+		EvidenceSnapshot:           NewEvidenceSnapshotClient(cfg),
+		FinalReport:                NewFinalReportClient(cfg),
+		ReportNotificationDelivery: NewReportNotificationDeliveryClient(cfg),
+		SubReport:                  NewSubReportClient(cfg),
 	}, nil
 }
 
@@ -202,21 +238,25 @@ func (c *Client) Close() error {
 // Use adds the mutation hooks to all the entity clients.
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
-	c.AlertEvent.Use(hooks...)
-	c.AlertGroup.Use(hooks...)
-	c.DiagnosisTask.Use(hooks...)
-	c.DiagnosisTaskEvent.Use(hooks...)
-	c.EvidenceSnapshot.Use(hooks...)
+	for _, n := range []interface{ Use(...Hook) }{
+		c.AlertEvent, c.AlertGroup, c.ChatSession, c.ChatTurn, c.DiagnosisAuthTicket,
+		c.DiagnosisTask, c.DiagnosisTaskEvent, c.EvidenceSnapshot, c.FinalReport,
+		c.ReportNotificationDelivery, c.SubReport,
+	} {
+		n.Use(hooks...)
+	}
 }
 
 // Intercept adds the query interceptors to all the entity clients.
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
-	c.AlertEvent.Intercept(interceptors...)
-	c.AlertGroup.Intercept(interceptors...)
-	c.DiagnosisTask.Intercept(interceptors...)
-	c.DiagnosisTaskEvent.Intercept(interceptors...)
-	c.EvidenceSnapshot.Intercept(interceptors...)
+	for _, n := range []interface{ Intercept(...Interceptor) }{
+		c.AlertEvent, c.AlertGroup, c.ChatSession, c.ChatTurn, c.DiagnosisAuthTicket,
+		c.DiagnosisTask, c.DiagnosisTaskEvent, c.EvidenceSnapshot, c.FinalReport,
+		c.ReportNotificationDelivery, c.SubReport,
+	} {
+		n.Intercept(interceptors...)
+	}
 }
 
 // Mutate implements the ent.Mutator interface.
@@ -226,12 +266,24 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.AlertEvent.mutate(ctx, m)
 	case *AlertGroupMutation:
 		return c.AlertGroup.mutate(ctx, m)
+	case *ChatSessionMutation:
+		return c.ChatSession.mutate(ctx, m)
+	case *ChatTurnMutation:
+		return c.ChatTurn.mutate(ctx, m)
+	case *DiagnosisAuthTicketMutation:
+		return c.DiagnosisAuthTicket.mutate(ctx, m)
 	case *DiagnosisTaskMutation:
 		return c.DiagnosisTask.mutate(ctx, m)
 	case *DiagnosisTaskEventMutation:
 		return c.DiagnosisTaskEvent.mutate(ctx, m)
 	case *EvidenceSnapshotMutation:
 		return c.EvidenceSnapshot.mutate(ctx, m)
+	case *FinalReportMutation:
+		return c.FinalReport.mutate(ctx, m)
+	case *ReportNotificationDeliveryMutation:
+		return c.ReportNotificationDelivery.mutate(ctx, m)
+	case *SubReportMutation:
+		return c.SubReport.mutate(ctx, m)
 	default:
 		return nil, fmt.Errorf("ent: unknown mutation type %T", m)
 	}
@@ -551,6 +603,453 @@ func (c *AlertGroupClient) mutate(ctx context.Context, m *AlertGroupMutation) (V
 	}
 }
 
+// ChatSessionClient is a client for the ChatSession schema.
+type ChatSessionClient struct {
+	config
+}
+
+// NewChatSessionClient returns a client for the ChatSession from the given config.
+func NewChatSessionClient(c config) *ChatSessionClient {
+	return &ChatSessionClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `chatsession.Hooks(f(g(h())))`.
+func (c *ChatSessionClient) Use(hooks ...Hook) {
+	c.hooks.ChatSession = append(c.hooks.ChatSession, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `chatsession.Intercept(f(g(h())))`.
+func (c *ChatSessionClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ChatSession = append(c.inters.ChatSession, interceptors...)
+}
+
+// Create returns a builder for creating a ChatSession entity.
+func (c *ChatSessionClient) Create() *ChatSessionCreate {
+	mutation := newChatSessionMutation(c.config, OpCreate)
+	return &ChatSessionCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ChatSession entities.
+func (c *ChatSessionClient) CreateBulk(builders ...*ChatSessionCreate) *ChatSessionCreateBulk {
+	return &ChatSessionCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ChatSessionClient) MapCreateBulk(slice any, setFunc func(*ChatSessionCreate, int)) *ChatSessionCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ChatSessionCreateBulk{err: fmt.Errorf("calling to ChatSessionClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ChatSessionCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ChatSessionCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ChatSession.
+func (c *ChatSessionClient) Update() *ChatSessionUpdate {
+	mutation := newChatSessionMutation(c.config, OpUpdate)
+	return &ChatSessionUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ChatSessionClient) UpdateOne(_m *ChatSession) *ChatSessionUpdateOne {
+	mutation := newChatSessionMutation(c.config, OpUpdateOne, withChatSession(_m))
+	return &ChatSessionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ChatSessionClient) UpdateOneID(id int) *ChatSessionUpdateOne {
+	mutation := newChatSessionMutation(c.config, OpUpdateOne, withChatSessionID(id))
+	return &ChatSessionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ChatSession.
+func (c *ChatSessionClient) Delete() *ChatSessionDelete {
+	mutation := newChatSessionMutation(c.config, OpDelete)
+	return &ChatSessionDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ChatSessionClient) DeleteOne(_m *ChatSession) *ChatSessionDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ChatSessionClient) DeleteOneID(id int) *ChatSessionDeleteOne {
+	builder := c.Delete().Where(chatsession.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ChatSessionDeleteOne{builder}
+}
+
+// Query returns a query builder for ChatSession.
+func (c *ChatSessionClient) Query() *ChatSessionQuery {
+	return &ChatSessionQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeChatSession},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ChatSession entity by its id.
+func (c *ChatSessionClient) Get(ctx context.Context, id int) (*ChatSession, error) {
+	return c.Query().Where(chatsession.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ChatSessionClient) GetX(ctx context.Context, id int) *ChatSession {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryTask queries the task edge of a ChatSession.
+func (c *ChatSessionClient) QueryTask(_m *ChatSession) *DiagnosisTaskQuery {
+	query := (&DiagnosisTaskClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsession.Table, chatsession.FieldID, id),
+			sqlgraph.To(diagnosistask.Table, diagnosistask.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, chatsession.TaskTable, chatsession.TaskColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryTurns queries the turns edge of a ChatSession.
+func (c *ChatSessionClient) QueryTurns(_m *ChatSession) *ChatTurnQuery {
+	query := (&ChatTurnClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsession.Table, chatsession.FieldID, id),
+			sqlgraph.To(chatturn.Table, chatturn.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, chatsession.TurnsTable, chatsession.TurnsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ChatSessionClient) Hooks() []Hook {
+	return c.hooks.ChatSession
+}
+
+// Interceptors returns the client interceptors.
+func (c *ChatSessionClient) Interceptors() []Interceptor {
+	return c.inters.ChatSession
+}
+
+func (c *ChatSessionClient) mutate(ctx context.Context, m *ChatSessionMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ChatSessionCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ChatSessionUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ChatSessionUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ChatSessionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ChatSession mutation op: %q", m.Op())
+	}
+}
+
+// ChatTurnClient is a client for the ChatTurn schema.
+type ChatTurnClient struct {
+	config
+}
+
+// NewChatTurnClient returns a client for the ChatTurn from the given config.
+func NewChatTurnClient(c config) *ChatTurnClient {
+	return &ChatTurnClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `chatturn.Hooks(f(g(h())))`.
+func (c *ChatTurnClient) Use(hooks ...Hook) {
+	c.hooks.ChatTurn = append(c.hooks.ChatTurn, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `chatturn.Intercept(f(g(h())))`.
+func (c *ChatTurnClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ChatTurn = append(c.inters.ChatTurn, interceptors...)
+}
+
+// Create returns a builder for creating a ChatTurn entity.
+func (c *ChatTurnClient) Create() *ChatTurnCreate {
+	mutation := newChatTurnMutation(c.config, OpCreate)
+	return &ChatTurnCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ChatTurn entities.
+func (c *ChatTurnClient) CreateBulk(builders ...*ChatTurnCreate) *ChatTurnCreateBulk {
+	return &ChatTurnCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ChatTurnClient) MapCreateBulk(slice any, setFunc func(*ChatTurnCreate, int)) *ChatTurnCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ChatTurnCreateBulk{err: fmt.Errorf("calling to ChatTurnClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ChatTurnCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ChatTurnCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ChatTurn.
+func (c *ChatTurnClient) Update() *ChatTurnUpdate {
+	mutation := newChatTurnMutation(c.config, OpUpdate)
+	return &ChatTurnUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ChatTurnClient) UpdateOne(_m *ChatTurn) *ChatTurnUpdateOne {
+	mutation := newChatTurnMutation(c.config, OpUpdateOne, withChatTurn(_m))
+	return &ChatTurnUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ChatTurnClient) UpdateOneID(id int) *ChatTurnUpdateOne {
+	mutation := newChatTurnMutation(c.config, OpUpdateOne, withChatTurnID(id))
+	return &ChatTurnUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ChatTurn.
+func (c *ChatTurnClient) Delete() *ChatTurnDelete {
+	mutation := newChatTurnMutation(c.config, OpDelete)
+	return &ChatTurnDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ChatTurnClient) DeleteOne(_m *ChatTurn) *ChatTurnDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ChatTurnClient) DeleteOneID(id int) *ChatTurnDeleteOne {
+	builder := c.Delete().Where(chatturn.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ChatTurnDeleteOne{builder}
+}
+
+// Query returns a query builder for ChatTurn.
+func (c *ChatTurnClient) Query() *ChatTurnQuery {
+	return &ChatTurnQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeChatTurn},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ChatTurn entity by its id.
+func (c *ChatTurnClient) Get(ctx context.Context, id int) (*ChatTurn, error) {
+	return c.Query().Where(chatturn.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ChatTurnClient) GetX(ctx context.Context, id int) *ChatTurn {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QuerySession queries the session edge of a ChatTurn.
+func (c *ChatTurnClient) QuerySession(_m *ChatTurn) *ChatSessionQuery {
+	query := (&ChatSessionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatturn.Table, chatturn.FieldID, id),
+			sqlgraph.To(chatsession.Table, chatsession.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, chatturn.SessionTable, chatturn.SessionColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ChatTurnClient) Hooks() []Hook {
+	return c.hooks.ChatTurn
+}
+
+// Interceptors returns the client interceptors.
+func (c *ChatTurnClient) Interceptors() []Interceptor {
+	return c.inters.ChatTurn
+}
+
+func (c *ChatTurnClient) mutate(ctx context.Context, m *ChatTurnMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ChatTurnCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ChatTurnUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ChatTurnUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ChatTurnDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ChatTurn mutation op: %q", m.Op())
+	}
+}
+
+// DiagnosisAuthTicketClient is a client for the DiagnosisAuthTicket schema.
+type DiagnosisAuthTicketClient struct {
+	config
+}
+
+// NewDiagnosisAuthTicketClient returns a client for the DiagnosisAuthTicket from the given config.
+func NewDiagnosisAuthTicketClient(c config) *DiagnosisAuthTicketClient {
+	return &DiagnosisAuthTicketClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `diagnosisauthticket.Hooks(f(g(h())))`.
+func (c *DiagnosisAuthTicketClient) Use(hooks ...Hook) {
+	c.hooks.DiagnosisAuthTicket = append(c.hooks.DiagnosisAuthTicket, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `diagnosisauthticket.Intercept(f(g(h())))`.
+func (c *DiagnosisAuthTicketClient) Intercept(interceptors ...Interceptor) {
+	c.inters.DiagnosisAuthTicket = append(c.inters.DiagnosisAuthTicket, interceptors...)
+}
+
+// Create returns a builder for creating a DiagnosisAuthTicket entity.
+func (c *DiagnosisAuthTicketClient) Create() *DiagnosisAuthTicketCreate {
+	mutation := newDiagnosisAuthTicketMutation(c.config, OpCreate)
+	return &DiagnosisAuthTicketCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of DiagnosisAuthTicket entities.
+func (c *DiagnosisAuthTicketClient) CreateBulk(builders ...*DiagnosisAuthTicketCreate) *DiagnosisAuthTicketCreateBulk {
+	return &DiagnosisAuthTicketCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *DiagnosisAuthTicketClient) MapCreateBulk(slice any, setFunc func(*DiagnosisAuthTicketCreate, int)) *DiagnosisAuthTicketCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &DiagnosisAuthTicketCreateBulk{err: fmt.Errorf("calling to DiagnosisAuthTicketClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*DiagnosisAuthTicketCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &DiagnosisAuthTicketCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for DiagnosisAuthTicket.
+func (c *DiagnosisAuthTicketClient) Update() *DiagnosisAuthTicketUpdate {
+	mutation := newDiagnosisAuthTicketMutation(c.config, OpUpdate)
+	return &DiagnosisAuthTicketUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *DiagnosisAuthTicketClient) UpdateOne(_m *DiagnosisAuthTicket) *DiagnosisAuthTicketUpdateOne {
+	mutation := newDiagnosisAuthTicketMutation(c.config, OpUpdateOne, withDiagnosisAuthTicket(_m))
+	return &DiagnosisAuthTicketUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *DiagnosisAuthTicketClient) UpdateOneID(id int) *DiagnosisAuthTicketUpdateOne {
+	mutation := newDiagnosisAuthTicketMutation(c.config, OpUpdateOne, withDiagnosisAuthTicketID(id))
+	return &DiagnosisAuthTicketUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for DiagnosisAuthTicket.
+func (c *DiagnosisAuthTicketClient) Delete() *DiagnosisAuthTicketDelete {
+	mutation := newDiagnosisAuthTicketMutation(c.config, OpDelete)
+	return &DiagnosisAuthTicketDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *DiagnosisAuthTicketClient) DeleteOne(_m *DiagnosisAuthTicket) *DiagnosisAuthTicketDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *DiagnosisAuthTicketClient) DeleteOneID(id int) *DiagnosisAuthTicketDeleteOne {
+	builder := c.Delete().Where(diagnosisauthticket.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &DiagnosisAuthTicketDeleteOne{builder}
+}
+
+// Query returns a query builder for DiagnosisAuthTicket.
+func (c *DiagnosisAuthTicketClient) Query() *DiagnosisAuthTicketQuery {
+	return &DiagnosisAuthTicketQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeDiagnosisAuthTicket},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a DiagnosisAuthTicket entity by its id.
+func (c *DiagnosisAuthTicketClient) Get(ctx context.Context, id int) (*DiagnosisAuthTicket, error) {
+	return c.Query().Where(diagnosisauthticket.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *DiagnosisAuthTicketClient) GetX(ctx context.Context, id int) *DiagnosisAuthTicket {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *DiagnosisAuthTicketClient) Hooks() []Hook {
+	return c.hooks.DiagnosisAuthTicket
+}
+
+// Interceptors returns the client interceptors.
+func (c *DiagnosisAuthTicketClient) Interceptors() []Interceptor {
+	return c.inters.DiagnosisAuthTicket
+}
+
+func (c *DiagnosisAuthTicketClient) mutate(ctx context.Context, m *DiagnosisAuthTicketMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&DiagnosisAuthTicketCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&DiagnosisAuthTicketUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&DiagnosisAuthTicketUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&DiagnosisAuthTicketDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown DiagnosisAuthTicket mutation op: %q", m.Op())
+	}
+}
+
 // DiagnosisTaskClient is a client for the DiagnosisTask schema.
 type DiagnosisTaskClient struct {
 	config
@@ -684,6 +1183,22 @@ func (c *DiagnosisTaskClient) QueryEvents(_m *DiagnosisTask) *DiagnosisTaskEvent
 			sqlgraph.From(diagnosistask.Table, diagnosistask.FieldID, id),
 			sqlgraph.To(diagnosistaskevent.Table, diagnosistaskevent.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, diagnosistask.EventsTable, diagnosistask.EventsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryChatSessions queries the chat_sessions edge of a DiagnosisTask.
+func (c *DiagnosisTaskClient) QueryChatSessions(_m *DiagnosisTask) *ChatSessionQuery {
+	query := (&ChatSessionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(diagnosistask.Table, diagnosistask.FieldID, id),
+			sqlgraph.To(chatsession.Table, chatsession.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, diagnosistask.ChatSessionsTable, diagnosistask.ChatSessionsColumn),
 		)
 		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
 		return fromV, nil
@@ -1005,6 +1520,22 @@ func (c *EvidenceSnapshotClient) QueryTasks(_m *EvidenceSnapshot) *DiagnosisTask
 	return query
 }
 
+// QuerySubReports queries the sub_reports edge of a EvidenceSnapshot.
+func (c *EvidenceSnapshotClient) QuerySubReports(_m *EvidenceSnapshot) *SubReportQuery {
+	query := (&SubReportClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(evidencesnapshot.Table, evidencesnapshot.FieldID, id),
+			sqlgraph.To(subreport.Table, subreport.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, evidencesnapshot.SubReportsTable, evidencesnapshot.SubReportsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *EvidenceSnapshotClient) Hooks() []Hook {
 	return c.hooks.EvidenceSnapshot
@@ -1030,14 +1561,495 @@ func (c *EvidenceSnapshotClient) mutate(ctx context.Context, m *EvidenceSnapshot
 	}
 }
 
+// FinalReportClient is a client for the FinalReport schema.
+type FinalReportClient struct {
+	config
+}
+
+// NewFinalReportClient returns a client for the FinalReport from the given config.
+func NewFinalReportClient(c config) *FinalReportClient {
+	return &FinalReportClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `finalreport.Hooks(f(g(h())))`.
+func (c *FinalReportClient) Use(hooks ...Hook) {
+	c.hooks.FinalReport = append(c.hooks.FinalReport, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `finalreport.Intercept(f(g(h())))`.
+func (c *FinalReportClient) Intercept(interceptors ...Interceptor) {
+	c.inters.FinalReport = append(c.inters.FinalReport, interceptors...)
+}
+
+// Create returns a builder for creating a FinalReport entity.
+func (c *FinalReportClient) Create() *FinalReportCreate {
+	mutation := newFinalReportMutation(c.config, OpCreate)
+	return &FinalReportCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of FinalReport entities.
+func (c *FinalReportClient) CreateBulk(builders ...*FinalReportCreate) *FinalReportCreateBulk {
+	return &FinalReportCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *FinalReportClient) MapCreateBulk(slice any, setFunc func(*FinalReportCreate, int)) *FinalReportCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &FinalReportCreateBulk{err: fmt.Errorf("calling to FinalReportClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*FinalReportCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &FinalReportCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for FinalReport.
+func (c *FinalReportClient) Update() *FinalReportUpdate {
+	mutation := newFinalReportMutation(c.config, OpUpdate)
+	return &FinalReportUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *FinalReportClient) UpdateOne(_m *FinalReport) *FinalReportUpdateOne {
+	mutation := newFinalReportMutation(c.config, OpUpdateOne, withFinalReport(_m))
+	return &FinalReportUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *FinalReportClient) UpdateOneID(id int) *FinalReportUpdateOne {
+	mutation := newFinalReportMutation(c.config, OpUpdateOne, withFinalReportID(id))
+	return &FinalReportUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for FinalReport.
+func (c *FinalReportClient) Delete() *FinalReportDelete {
+	mutation := newFinalReportMutation(c.config, OpDelete)
+	return &FinalReportDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *FinalReportClient) DeleteOne(_m *FinalReport) *FinalReportDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *FinalReportClient) DeleteOneID(id int) *FinalReportDeleteOne {
+	builder := c.Delete().Where(finalreport.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &FinalReportDeleteOne{builder}
+}
+
+// Query returns a query builder for FinalReport.
+func (c *FinalReportClient) Query() *FinalReportQuery {
+	return &FinalReportQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeFinalReport},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a FinalReport entity by its id.
+func (c *FinalReportClient) Get(ctx context.Context, id int) (*FinalReport, error) {
+	return c.Query().Where(finalreport.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *FinalReportClient) GetX(ctx context.Context, id int) *FinalReport {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QuerySubReports queries the sub_reports edge of a FinalReport.
+func (c *FinalReportClient) QuerySubReports(_m *FinalReport) *SubReportQuery {
+	query := (&SubReportClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(finalreport.Table, finalreport.FieldID, id),
+			sqlgraph.To(subreport.Table, subreport.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, false, finalreport.SubReportsTable, finalreport.SubReportsPrimaryKey...),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryNotificationDeliveries queries the notification_deliveries edge of a FinalReport.
+func (c *FinalReportClient) QueryNotificationDeliveries(_m *FinalReport) *ReportNotificationDeliveryQuery {
+	query := (&ReportNotificationDeliveryClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(finalreport.Table, finalreport.FieldID, id),
+			sqlgraph.To(reportnotificationdelivery.Table, reportnotificationdelivery.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, finalreport.NotificationDeliveriesTable, finalreport.NotificationDeliveriesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *FinalReportClient) Hooks() []Hook {
+	return c.hooks.FinalReport
+}
+
+// Interceptors returns the client interceptors.
+func (c *FinalReportClient) Interceptors() []Interceptor {
+	return c.inters.FinalReport
+}
+
+func (c *FinalReportClient) mutate(ctx context.Context, m *FinalReportMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&FinalReportCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&FinalReportUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&FinalReportUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&FinalReportDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown FinalReport mutation op: %q", m.Op())
+	}
+}
+
+// ReportNotificationDeliveryClient is a client for the ReportNotificationDelivery schema.
+type ReportNotificationDeliveryClient struct {
+	config
+}
+
+// NewReportNotificationDeliveryClient returns a client for the ReportNotificationDelivery from the given config.
+func NewReportNotificationDeliveryClient(c config) *ReportNotificationDeliveryClient {
+	return &ReportNotificationDeliveryClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `reportnotificationdelivery.Hooks(f(g(h())))`.
+func (c *ReportNotificationDeliveryClient) Use(hooks ...Hook) {
+	c.hooks.ReportNotificationDelivery = append(c.hooks.ReportNotificationDelivery, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `reportnotificationdelivery.Intercept(f(g(h())))`.
+func (c *ReportNotificationDeliveryClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ReportNotificationDelivery = append(c.inters.ReportNotificationDelivery, interceptors...)
+}
+
+// Create returns a builder for creating a ReportNotificationDelivery entity.
+func (c *ReportNotificationDeliveryClient) Create() *ReportNotificationDeliveryCreate {
+	mutation := newReportNotificationDeliveryMutation(c.config, OpCreate)
+	return &ReportNotificationDeliveryCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ReportNotificationDelivery entities.
+func (c *ReportNotificationDeliveryClient) CreateBulk(builders ...*ReportNotificationDeliveryCreate) *ReportNotificationDeliveryCreateBulk {
+	return &ReportNotificationDeliveryCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ReportNotificationDeliveryClient) MapCreateBulk(slice any, setFunc func(*ReportNotificationDeliveryCreate, int)) *ReportNotificationDeliveryCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ReportNotificationDeliveryCreateBulk{err: fmt.Errorf("calling to ReportNotificationDeliveryClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ReportNotificationDeliveryCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ReportNotificationDeliveryCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ReportNotificationDelivery.
+func (c *ReportNotificationDeliveryClient) Update() *ReportNotificationDeliveryUpdate {
+	mutation := newReportNotificationDeliveryMutation(c.config, OpUpdate)
+	return &ReportNotificationDeliveryUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ReportNotificationDeliveryClient) UpdateOne(_m *ReportNotificationDelivery) *ReportNotificationDeliveryUpdateOne {
+	mutation := newReportNotificationDeliveryMutation(c.config, OpUpdateOne, withReportNotificationDelivery(_m))
+	return &ReportNotificationDeliveryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ReportNotificationDeliveryClient) UpdateOneID(id int) *ReportNotificationDeliveryUpdateOne {
+	mutation := newReportNotificationDeliveryMutation(c.config, OpUpdateOne, withReportNotificationDeliveryID(id))
+	return &ReportNotificationDeliveryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ReportNotificationDelivery.
+func (c *ReportNotificationDeliveryClient) Delete() *ReportNotificationDeliveryDelete {
+	mutation := newReportNotificationDeliveryMutation(c.config, OpDelete)
+	return &ReportNotificationDeliveryDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ReportNotificationDeliveryClient) DeleteOne(_m *ReportNotificationDelivery) *ReportNotificationDeliveryDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ReportNotificationDeliveryClient) DeleteOneID(id int) *ReportNotificationDeliveryDeleteOne {
+	builder := c.Delete().Where(reportnotificationdelivery.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ReportNotificationDeliveryDeleteOne{builder}
+}
+
+// Query returns a query builder for ReportNotificationDelivery.
+func (c *ReportNotificationDeliveryClient) Query() *ReportNotificationDeliveryQuery {
+	return &ReportNotificationDeliveryQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeReportNotificationDelivery},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ReportNotificationDelivery entity by its id.
+func (c *ReportNotificationDeliveryClient) Get(ctx context.Context, id int) (*ReportNotificationDelivery, error) {
+	return c.Query().Where(reportnotificationdelivery.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ReportNotificationDeliveryClient) GetX(ctx context.Context, id int) *ReportNotificationDelivery {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryFinalReport queries the final_report edge of a ReportNotificationDelivery.
+func (c *ReportNotificationDeliveryClient) QueryFinalReport(_m *ReportNotificationDelivery) *FinalReportQuery {
+	query := (&FinalReportClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(reportnotificationdelivery.Table, reportnotificationdelivery.FieldID, id),
+			sqlgraph.To(finalreport.Table, finalreport.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, reportnotificationdelivery.FinalReportTable, reportnotificationdelivery.FinalReportColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ReportNotificationDeliveryClient) Hooks() []Hook {
+	return c.hooks.ReportNotificationDelivery
+}
+
+// Interceptors returns the client interceptors.
+func (c *ReportNotificationDeliveryClient) Interceptors() []Interceptor {
+	return c.inters.ReportNotificationDelivery
+}
+
+func (c *ReportNotificationDeliveryClient) mutate(ctx context.Context, m *ReportNotificationDeliveryMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ReportNotificationDeliveryCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ReportNotificationDeliveryUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ReportNotificationDeliveryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ReportNotificationDeliveryDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ReportNotificationDelivery mutation op: %q", m.Op())
+	}
+}
+
+// SubReportClient is a client for the SubReport schema.
+type SubReportClient struct {
+	config
+}
+
+// NewSubReportClient returns a client for the SubReport from the given config.
+func NewSubReportClient(c config) *SubReportClient {
+	return &SubReportClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `subreport.Hooks(f(g(h())))`.
+func (c *SubReportClient) Use(hooks ...Hook) {
+	c.hooks.SubReport = append(c.hooks.SubReport, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `subreport.Intercept(f(g(h())))`.
+func (c *SubReportClient) Intercept(interceptors ...Interceptor) {
+	c.inters.SubReport = append(c.inters.SubReport, interceptors...)
+}
+
+// Create returns a builder for creating a SubReport entity.
+func (c *SubReportClient) Create() *SubReportCreate {
+	mutation := newSubReportMutation(c.config, OpCreate)
+	return &SubReportCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of SubReport entities.
+func (c *SubReportClient) CreateBulk(builders ...*SubReportCreate) *SubReportCreateBulk {
+	return &SubReportCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *SubReportClient) MapCreateBulk(slice any, setFunc func(*SubReportCreate, int)) *SubReportCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &SubReportCreateBulk{err: fmt.Errorf("calling to SubReportClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*SubReportCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &SubReportCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for SubReport.
+func (c *SubReportClient) Update() *SubReportUpdate {
+	mutation := newSubReportMutation(c.config, OpUpdate)
+	return &SubReportUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *SubReportClient) UpdateOne(_m *SubReport) *SubReportUpdateOne {
+	mutation := newSubReportMutation(c.config, OpUpdateOne, withSubReport(_m))
+	return &SubReportUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *SubReportClient) UpdateOneID(id int) *SubReportUpdateOne {
+	mutation := newSubReportMutation(c.config, OpUpdateOne, withSubReportID(id))
+	return &SubReportUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for SubReport.
+func (c *SubReportClient) Delete() *SubReportDelete {
+	mutation := newSubReportMutation(c.config, OpDelete)
+	return &SubReportDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *SubReportClient) DeleteOne(_m *SubReport) *SubReportDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *SubReportClient) DeleteOneID(id int) *SubReportDeleteOne {
+	builder := c.Delete().Where(subreport.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &SubReportDeleteOne{builder}
+}
+
+// Query returns a query builder for SubReport.
+func (c *SubReportClient) Query() *SubReportQuery {
+	return &SubReportQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeSubReport},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a SubReport entity by its id.
+func (c *SubReportClient) Get(ctx context.Context, id int) (*SubReport, error) {
+	return c.Query().Where(subreport.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *SubReportClient) GetX(ctx context.Context, id int) *SubReport {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QuerySnapshot queries the snapshot edge of a SubReport.
+func (c *SubReportClient) QuerySnapshot(_m *SubReport) *EvidenceSnapshotQuery {
+	query := (&EvidenceSnapshotClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(subreport.Table, subreport.FieldID, id),
+			sqlgraph.To(evidencesnapshot.Table, evidencesnapshot.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, subreport.SnapshotTable, subreport.SnapshotColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// QueryFinalReports queries the final_reports edge of a SubReport.
+func (c *SubReportClient) QueryFinalReports(_m *SubReport) *FinalReportQuery {
+	query := (&FinalReportClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(subreport.Table, subreport.FieldID, id),
+			sqlgraph.To(finalreport.Table, finalreport.FieldID),
+			sqlgraph.Edge(sqlgraph.M2M, true, subreport.FinalReportsTable, subreport.FinalReportsPrimaryKey...),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *SubReportClient) Hooks() []Hook {
+	return c.hooks.SubReport
+}
+
+// Interceptors returns the client interceptors.
+func (c *SubReportClient) Interceptors() []Interceptor {
+	return c.inters.SubReport
+}
+
+func (c *SubReportClient) mutate(ctx context.Context, m *SubReportMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&SubReportCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&SubReportUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&SubReportUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&SubReportDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown SubReport mutation op: %q", m.Op())
+	}
+}
+
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		AlertEvent, AlertGroup, DiagnosisTask, DiagnosisTaskEvent,
-		EvidenceSnapshot []ent.Hook
+		AlertEvent, AlertGroup, ChatSession, ChatTurn, DiagnosisAuthTicket,
+		DiagnosisTask, DiagnosisTaskEvent, EvidenceSnapshot, FinalReport,
+		ReportNotificationDelivery, SubReport []ent.Hook
 	}
 	inters struct {
-		AlertEvent, AlertGroup, DiagnosisTask, DiagnosisTaskEvent,
-		EvidenceSnapshot []ent.Interceptor
+		AlertEvent, AlertGroup, ChatSession, ChatTurn, DiagnosisAuthTicket,
+		DiagnosisTask, DiagnosisTaskEvent, EvidenceSnapshot, FinalReport,
+		ReportNotificationDelivery, SubReport []ent.Interceptor
 	}
 )

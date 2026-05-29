@@ -33,6 +33,42 @@ func (f AlertGroupFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, 
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AlertGroupMutation", m)
 }
 
+// The ChatSessionFunc type is an adapter to allow the use of ordinary
+// function as ChatSession mutator.
+type ChatSessionFunc func(context.Context, *ent.ChatSessionMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ChatSessionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ChatSessionMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChatSessionMutation", m)
+}
+
+// The ChatTurnFunc type is an adapter to allow the use of ordinary
+// function as ChatTurn mutator.
+type ChatTurnFunc func(context.Context, *ent.ChatTurnMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ChatTurnFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ChatTurnMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChatTurnMutation", m)
+}
+
+// The DiagnosisAuthTicketFunc type is an adapter to allow the use of ordinary
+// function as DiagnosisAuthTicket mutator.
+type DiagnosisAuthTicketFunc func(context.Context, *ent.DiagnosisAuthTicketMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f DiagnosisAuthTicketFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.DiagnosisAuthTicketMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DiagnosisAuthTicketMutation", m)
+}
+
 // The DiagnosisTaskFunc type is an adapter to allow the use of ordinary
 // function as DiagnosisTask mutator.
 type DiagnosisTaskFunc func(context.Context, *ent.DiagnosisTaskMutation) (ent.Value, error)
@@ -67,6 +103,42 @@ func (f EvidenceSnapshotFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.V
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.EvidenceSnapshotMutation", m)
+}
+
+// The FinalReportFunc type is an adapter to allow the use of ordinary
+// function as FinalReport mutator.
+type FinalReportFunc func(context.Context, *ent.FinalReportMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f FinalReportFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.FinalReportMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.FinalReportMutation", m)
+}
+
+// The ReportNotificationDeliveryFunc type is an adapter to allow the use of ordinary
+// function as ReportNotificationDelivery mutator.
+type ReportNotificationDeliveryFunc func(context.Context, *ent.ReportNotificationDeliveryMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ReportNotificationDeliveryFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ReportNotificationDeliveryMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ReportNotificationDeliveryMutation", m)
+}
+
+// The SubReportFunc type is an adapter to allow the use of ordinary
+// function as SubReport mutator.
+type SubReportFunc func(context.Context, *ent.SubReportMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f SubReportFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.SubReportMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.SubReportMutation", m)
 }
 
 // Condition is a hook condition function.

@@ -1,0 +1,44 @@
+import { defineConfig, devices } from "@playwright/test";
+
+const host = "127.0.0.1";
+const webPort = process.env.OPENCLARION_PLAYWRIGHT_WEB_PORT ?? "32100";
+const apiPort = process.env.OPENCLARION_PLAYWRIGHT_API_PORT ?? "38280";
+const baseURL = `http://${host}:${webPort}`;
+const apiBaseURL = `http://${host}:${apiPort}`;
+const isCI = Boolean(process.env.CI);
+
+export default defineConfig({
+  testDir: "./tests/e2e",
+  fullyParallel: true,
+  forbidOnly: isCI,
+  retries: isCI ? 1 : 0,
+  workers: isCI ? 1 : undefined,
+  reporter: [["list"], ["html", { open: "never" }]],
+  outputDir: "test-results",
+  use: {
+    baseURL,
+    trace: "on-first-retry"
+  },
+  projects: [
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] }
+    }
+  ],
+  webServer: [
+    {
+      name: "mock-api",
+      command: `OPENCLARION_MOCK_API_PORT=${apiPort} node tests/e2e/mock-api.mjs`,
+      url: `${apiBaseURL}/healthz`,
+      reuseExistingServer: !isCI,
+      timeout: 30_000
+    },
+    {
+      name: "next",
+      command: `OPENCLARION_API_BASE_URL=${apiBaseURL} npm run start -- --hostname ${host} --port ${webPort}`,
+      url: baseURL,
+      reuseExistingServer: !isCI,
+      timeout: 120_000
+    }
+  ]
+});

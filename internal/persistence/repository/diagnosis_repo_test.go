@@ -36,6 +36,30 @@ func mustNewTask(t *testing.T, snapID domain.EvidenceSnapshotID, wfID, runID str
 	return task
 }
 
+func makeDiagnosisTaskForChat(t *testing.T, label string) domain.DiagnosisTaskID {
+	t.Helper()
+	snapID := makeSnapshotForDiagnosis(t, "chat-"+label)
+	var taskID domain.DiagnosisTaskID
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		task, err := uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapID, "wf-chat-"+label, "run-chat-"+label))
+		if err != nil {
+			t.Fatalf("SaveTask: %v", err)
+		}
+		taskID = task.ID
+	})
+	return taskID
+}
+
+func makeChatSessionForDiagnosis(t *testing.T, taskID domain.DiagnosisTaskID, sessionKey string) domain.ChatSession {
+	t.Helper()
+	startedAt := time.Date(2026, 5, 28, 9, 0, 0, 0, time.UTC)
+	session, err := domain.NewChatSession(taskID, sessionKey, "owner-1", startedAt)
+	if err != nil {
+		t.Fatalf("NewChatSession: %v", err)
+	}
+	return session
+}
+
 func TestDiagnosisRepository_SaveTaskAndQuery(t *testing.T) {
 	resetDB(t)
 	snapID := makeSnapshotForDiagnosis(t, "save")
@@ -323,6 +347,206 @@ func TestDiagnosisRepository_FindEventByTaskAndDedupeKey(t *testing.T) {
 		_, err = uow.Diagnosis().FindEventByTaskAndDedupeKey(ctx, 0, sharedKey)
 		if !errors.Is(err, domain.ErrInvariantViolation) {
 			t.Fatalf("zero task id: want ErrInvariantViolation, got %v", err)
+		}
+	})
+}
+
+func TestDiagnosisRepository_SaveChatSessionAndQuery(t *testing.T) {
+	resetDB(t)
+	taskID := makeDiagnosisTaskForChat(t, "session")
+	session := makeChatSessionForDiagnosis(t, taskID, "session-1")
+
+	var saved domain.ChatSession
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Diagnosis().SaveChatSession(ctx, session)
+		if err != nil {
+			t.Fatalf("SaveChatSession: %v", err)
+		}
+		saved = got
+	})
+	if saved.ID == 0 {
+		t.Fatalf("saved.ID = 0, want non-zero")
+	}
+	if saved.Status != domain.ChatSessionStatusOpen || saved.TurnCount != 0 {
+		t.Fatalf("saved status/count = (%q,%d), want (open,0)", saved.Status, saved.TurnCount)
+	}
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		byID, err := uow.Diagnosis().FindChatSessionByID(ctx, saved.ID)
+		if err != nil {
+			t.Fatalf("FindChatSessionByID: %v", err)
+		}
+		if byID.SessionKey != "session-1" || byID.OwnerSubject != "owner-1" {
+			t.Fatalf("FindChatSessionByID = %+v", byID)
+		}
+		byKey, err := uow.Diagnosis().FindChatSessionByKey(ctx, "session-1")
+		if err != nil {
+			t.Fatalf("FindChatSessionByKey: %v", err)
+		}
+		if byKey.ID != saved.ID {
+			t.Fatalf("FindChatSessionByKey.ID = %d, want %d", byKey.ID, saved.ID)
+		}
+	})
+
+	advanced, err := saved.RecordTurn(saved.StartedAt.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("RecordTurn: %v", err)
+	}
+	closed, err := advanced.Close(saved.StartedAt.Add(5*time.Minute), "user_requested")
+	if err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Diagnosis().UpdateChatSession(ctx, closed)
+		if err != nil {
+			t.Fatalf("UpdateChatSession: %v", err)
+		}
+		if got.Status != domain.ChatSessionStatusClosed || got.ClosedAt == nil || got.TurnCount != 1 {
+			t.Fatalf("updated session = %+v", got)
+		}
+	})
+}
+
+func TestDiagnosisRepository_SaveChatSession_DuplicateKeys(t *testing.T) {
+	resetDB(t)
+	taskA := makeDiagnosisTaskForChat(t, "dup-a")
+	taskB := makeDiagnosisTaskForChat(t, "dup-b")
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		if _, err := uow.Diagnosis().SaveChatSession(ctx, makeChatSessionForDiagnosis(t, taskA, "session-dup")); err != nil {
+			t.Fatalf("SaveChatSession first: %v", err)
+		}
+	})
+
+	ctx := context.Background()
+	dupKeyErr := integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, err := uow.Diagnosis().SaveChatSession(ctx, makeChatSessionForDiagnosis(t, taskB, "session-dup"))
+		return err
+	})
+	if !errors.Is(dupKeyErr, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate session_key: want ErrAlreadyExists, got %v", dupKeyErr)
+	}
+
+	dupTaskErr := integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, err := uow.Diagnosis().SaveChatSession(ctx, makeChatSessionForDiagnosis(t, taskA, "session-dup-task"))
+		return err
+	})
+	if !errors.Is(dupTaskErr, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate diagnosis_task_id: want ErrAlreadyExists, got %v", dupTaskErr)
+	}
+}
+
+func TestDiagnosisRepository_SaveChatTurnAndList(t *testing.T) {
+	resetDB(t)
+	taskID := makeDiagnosisTaskForChat(t, "turn")
+
+	var sessionID domain.ChatSessionID
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		session, err := uow.Diagnosis().SaveChatSession(ctx, makeChatSessionForDiagnosis(t, taskID, "session-turn"))
+		if err != nil {
+			t.Fatalf("SaveChatSession: %v", err)
+		}
+		sessionID = session.ID
+	})
+
+	occurred := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	turn := func(messageID string, sequence int, role domain.ChatRole, content string) domain.ChatTurn {
+		t.Helper()
+		out, err := domain.NewChatTurn(domain.ChatTurn{
+			SessionID:    sessionID,
+			MessageID:    messageID,
+			Sequence:     sequence,
+			Role:         role,
+			ActorSubject: "owner-1",
+			Content:      content,
+			Metadata:     json.RawMessage(`{"source":"test"}`),
+			OccurredAt:   occurred.Add(time.Duration(sequence) * time.Second),
+		})
+		if err != nil {
+			t.Fatalf("NewChatTurn: %v", err)
+		}
+		return out
+	}
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		if _, err := uow.Diagnosis().SaveChatTurn(ctx, turn("assistant-1", 2, domain.ChatRoleAssistant, "diagnosis")); err != nil {
+			t.Fatalf("SaveChatTurn assistant: %v", err)
+		}
+		if _, err := uow.Diagnosis().SaveChatTurn(ctx, turn("user-1", 1, domain.ChatRoleUser, "what happened?")); err != nil {
+			t.Fatalf("SaveChatTurn user: %v", err)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Diagnosis().FindChatTurnBySessionAndMessageID(ctx, sessionID, "user-1")
+		if err != nil {
+			t.Fatalf("FindChatTurnBySessionAndMessageID: %v", err)
+		}
+		if got.Sequence != 1 || got.Role != domain.ChatRoleUser {
+			t.Fatalf("found turn = %+v", got)
+		}
+		out, err := uow.Diagnosis().ListChatTurnsBySession(ctx, sessionID, 10)
+		if err != nil {
+			t.Fatalf("ListChatTurnsBySession: %v", err)
+		}
+		if len(out) != 2 || out[0].MessageID != "user-1" || out[1].MessageID != "assistant-1" {
+			t.Fatalf("ordered turns = %+v", out)
+		}
+	})
+
+	ctx := context.Background()
+	dupMessageErr := integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, err := uow.Diagnosis().SaveChatTurn(ctx, turn("user-1", 3, domain.ChatRoleUser, "retry"))
+		return err
+	})
+	if !errors.Is(dupMessageErr, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate message_id: want ErrAlreadyExists, got %v", dupMessageErr)
+	}
+	dupSequenceErr := integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, err := uow.Diagnosis().SaveChatTurn(ctx, turn("user-2", 1, domain.ChatRoleUser, "same sequence"))
+		return err
+	})
+	if !errors.Is(dupSequenceErr, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate sequence: want ErrAlreadyExists, got %v", dupSequenceErr)
+	}
+}
+
+func TestDiagnosisRepository_ChatInvariantGuards(t *testing.T) {
+	resetDB(t)
+	taskID := makeDiagnosisTaskForChat(t, "guards")
+	var sessionID domain.ChatSessionID
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		session, err := uow.Diagnosis().SaveChatSession(ctx, makeChatSessionForDiagnosis(t, taskID, "session-guards"))
+		if err != nil {
+			t.Fatalf("SaveChatSession: %v", err)
+		}
+		sessionID = session.ID
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		_, err := uow.Diagnosis().FindChatSessionByID(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("FindChatSessionByID zero: want ErrInvariantViolation, got %v", err)
+		}
+		_, err = uow.Diagnosis().FindChatSessionByKey(ctx, "")
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("FindChatSessionByKey empty: want ErrInvariantViolation, got %v", err)
+		}
+		_, err = uow.Diagnosis().FindChatTurnBySessionAndMessageID(ctx, 0, "m")
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("FindChatTurn zero session: want ErrInvariantViolation, got %v", err)
+		}
+		_, err = uow.Diagnosis().FindChatTurnBySessionAndMessageID(ctx, sessionID, "")
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("FindChatTurn empty message: want ErrInvariantViolation, got %v", err)
+		}
+		_, err = uow.Diagnosis().ListChatTurnsBySession(ctx, 0, 1)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("ListChatTurns zero session: want ErrInvariantViolation, got %v", err)
+		}
+		_, err = uow.Diagnosis().ListChatTurnsBySession(ctx, sessionID, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("ListChatTurns zero limit: want ErrInvariantViolation, got %v", err)
 		}
 	})
 }

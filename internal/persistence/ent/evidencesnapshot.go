@@ -47,9 +47,11 @@ type EvidenceSnapshotEdges struct {
 	Group *AlertGroup `json:"group,omitempty"`
 	// Tasks holds the value of the tasks edge.
 	Tasks []*DiagnosisTask `json:"tasks,omitempty"`
+	// SubReports holds the value of the sub_reports edge.
+	SubReports []*SubReport `json:"sub_reports,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
 }
 
 // GroupOrErr returns the Group value or an error if the edge
@@ -70,6 +72,15 @@ func (e EvidenceSnapshotEdges) TasksOrErr() ([]*DiagnosisTask, error) {
 		return e.Tasks, nil
 	}
 	return nil, &NotLoadedError{edge: "tasks"}
+}
+
+// SubReportsOrErr returns the SubReports value or an error if the edge
+// was not loaded in eager-loading.
+func (e EvidenceSnapshotEdges) SubReportsOrErr() ([]*SubReport, error) {
+	if e.loadedTypes[2] {
+		return e.SubReports, nil
+	}
+	return nil, &NotLoadedError{edge: "sub_reports"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -181,6 +192,11 @@ func (_m *EvidenceSnapshot) QueryGroup() *AlertGroupQuery {
 // QueryTasks queries the "tasks" edge of the EvidenceSnapshot entity.
 func (_m *EvidenceSnapshot) QueryTasks() *DiagnosisTaskQuery {
 	return NewEvidenceSnapshotClient(_m.config).QueryTasks(_m)
+}
+
+// QuerySubReports queries the "sub_reports" edge of the EvidenceSnapshot entity.
+func (_m *EvidenceSnapshot) QuerySubReports() *SubReportQuery {
+	return NewEvidenceSnapshotClient(_m.config).QuerySubReports(_m)
 }
 
 // Update returns a builder for updating this EvidenceSnapshot.

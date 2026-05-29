@@ -53,7 +53,7 @@ func itoaInstance(i int) string {
 // client. We bypass the repository so the test asserts on the
 // "ground truth" (what landed in the table) rather than re-using
 // the code path under test.
-func countAlertEvents(t *testing.T, ctx context.Context) int {
+func countAlertEvents(ctx context.Context, t *testing.T) int {
 	t.Helper()
 	n, err := integration.client.AlertEvent.Query().Count(ctx)
 	if err != nil {
@@ -78,7 +78,7 @@ func TestIngestOnce_SavesAllFiringAlerts(t *testing.T) {
 	if stats != (alertingest.Stats{Total: n, Saved: n}) {
 		t.Errorf("stats = %+v, want {Total:%d,Saved:%d,Duplicate:0,Failed:0}", stats, n, n)
 	}
-	if got := countAlertEvents(t, ctx); got != n {
+	if got := countAlertEvents(ctx, t); got != n {
 		t.Errorf("alert_event row count = %d, want %d", got, n)
 	}
 }
@@ -111,7 +111,7 @@ func TestIngestOnce_DuplicateRunCountsAsDuplicate(t *testing.T) {
 	if second != (alertingest.Stats{Total: n, Duplicate: n}) {
 		t.Errorf("second stats = %+v, want {Total:%d,Saved:0,Duplicate:%d,Failed:0}", second, n, n)
 	}
-	if got := countAlertEvents(t, ctx); got != n {
+	if got := countAlertEvents(ctx, t); got != n {
 		t.Errorf("alert_event row count after duplicate run = %d, want %d (a leaked save means tx did not roll back)", got, n)
 	}
 }
@@ -129,7 +129,7 @@ func TestIngestOnce_DuplicateRunCountsAsDuplicate(t *testing.T) {
 //
 // Source="" is the chosen invalid surface because empty labels are
 // explicitly NOT invalid (domain.NewAlertEvent normalises nil
-// labels to an empty map; the resulting sha1/sha256 of `{}` are
+// labels to an empty map; the resulting SHA-256 fingerprints of `{}` are
 // non-empty fingerprints).
 func TestIngestOnce_InvariantViolationCountsAsFailedAndDoesNotBlockOthers(t *testing.T) {
 	resetDB(t)
@@ -168,7 +168,7 @@ func TestIngestOnce_InvariantViolationCountsAsFailedAndDoesNotBlockOthers(t *tes
 	if stats.Duplicate != 0 {
 		t.Errorf("stats.Duplicate = %d, want 0", stats.Duplicate)
 	}
-	if got := countAlertEvents(t, ctx); got != 2 {
+	if got := countAlertEvents(ctx, t); got != 2 {
 		t.Errorf("alert_event row count = %d, want 2 (only the two valid alerts should have been persisted)", got)
 	}
 }

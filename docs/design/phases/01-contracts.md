@@ -23,7 +23,7 @@ Initial domain objects:
 - DiagnosisTaskEvent (append-only lifecycle log; one row per state transition;
   `dedupe_key` UNIQUE per task allows idempotent producers)
 - SubReport
-- ResolutionReport
+- FinalReport
 - AuditLog
 
 > Persistence ownership and current schema status live in
@@ -45,7 +45,7 @@ Initial domain objects:
 - provider interfaces compile
 - fake providers exist for tests
 - database schema catalog matches Ent plan
-- `make ent-fresh` passes (no diff under `internal/persistence/ent/`)
+- `make ent-fresh` passes (Ent generation is stable after schema changes)
 - `make atlas-drift` passes (no Atlas-suggested migration delta)
 - `make atlas-smoke` passes once on host docker before the first migration
   is cut (manual acceptance gate; see

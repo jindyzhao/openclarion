@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"encoding/json"
+
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/persistence/ent"
 )
@@ -111,12 +113,123 @@ func diagnosisTaskEventToDomain(e *ent.DiagnosisTaskEvent) domain.DiagnosisTaskE
 	}
 }
 
+// chatSessionToDomain converts an Ent ChatSession row to a domain
+// entity.
+func chatSessionToDomain(s *ent.ChatSession) domain.ChatSession {
+	return domain.ChatSession{
+		ID:              domain.ChatSessionID(s.ID),
+		DiagnosisTaskID: domain.DiagnosisTaskID(s.DiagnosisTaskID),
+		SessionKey:      s.SessionKey,
+		OwnerSubject:    s.OwnerSubject,
+		Status:          domain.ChatSessionStatus(s.Status),
+		TurnCount:       s.TurnCount,
+		StartedAt:       s.StartedAt,
+		LastActivityAt:  s.LastActivityAt,
+		ClosedAt:        s.ClosedAt,
+		CloseReason:     s.CloseReason,
+		CreatedAt:       s.CreatedAt,
+		UpdatedAt:       s.UpdatedAt,
+	}
+}
+
+// chatTurnToDomain converts an Ent ChatTurn row to a domain entity.
+func chatTurnToDomain(t *ent.ChatTurn) domain.ChatTurn {
+	metadata := t.Metadata
+	if len(metadata) == 0 {
+		metadata = json.RawMessage(`{}`)
+	}
+	return domain.ChatTurn{
+		ID:           domain.ChatTurnID(t.ID),
+		SessionID:    domain.ChatSessionID(t.ChatSessionID),
+		MessageID:    t.MessageID,
+		Sequence:     t.Sequence,
+		Role:         domain.ChatRole(t.Role),
+		ActorSubject: t.ActorSubject,
+		Content:      t.Content,
+		Metadata:     metadata,
+		OccurredAt:   t.OccurredAt,
+		CreatedAt:    t.CreatedAt,
+	}
+}
+
+// subReportToDomain converts an Ent SubReport row to a domain entity.
+func subReportToDomain(r *ent.SubReport) domain.SubReport {
+	return domain.SubReport{
+		ID:                 domain.SubReportID(r.ID),
+		EvidenceSnapshotID: domain.EvidenceSnapshotID(r.EvidenceSnapshotID),
+		IdempotencyKey:     r.IdempotencyKey,
+		Scenario:           r.Scenario,
+		Title:              r.Title,
+		Summary:            r.Summary,
+		Severity:           domain.ReportSeverity(r.Severity),
+		Confidence:         domain.ReportConfidence(r.Confidence),
+		Findings:           r.Findings,
+		RecommendedActions: r.RecommendedActions,
+		EvidenceRefs:       r.EvidenceRefs,
+		Content:            r.Content,
+		Model:              r.Model,
+		OutputMode:         r.OutputMode,
+		CreatedByWorkflow:  r.CreatedByWorkflow,
+		CreatedAt:          r.CreatedAt,
+	}
+}
+
+// finalReportToDomain converts an Ent FinalReport row to a domain entity.
+func finalReportToDomain(r *ent.FinalReport) domain.FinalReport {
+	return domain.FinalReport{
+		ID:                 domain.FinalReportID(r.ID),
+		CorrelationKey:     r.CorrelationKey,
+		IdempotencyKey:     r.IdempotencyKey,
+		Title:              r.Title,
+		ExecutiveSummary:   r.ExecutiveSummary,
+		Severity:           domain.ReportSeverity(r.Severity),
+		Confidence:         domain.ReportConfidence(r.Confidence),
+		SubReports:         r.SubreportSummaries,
+		RecommendedActions: r.RecommendedActions,
+		NotificationText:   r.NotificationText,
+		Content:            r.Content,
+		Model:              r.Model,
+		OutputMode:         r.OutputMode,
+		CreatedByWorkflow:  r.CreatedByWorkflow,
+		CreatedAt:          r.CreatedAt,
+	}
+}
+
+// reportNotificationDeliveryToDomain converts an Ent
+// ReportNotificationDelivery row to a domain entity.
+func reportNotificationDeliveryToDomain(r *ent.ReportNotificationDelivery) domain.ReportNotificationDelivery {
+	return domain.ReportNotificationDelivery{
+		ID:                domain.ReportNotificationDeliveryID(r.ID),
+		FinalReportID:     domain.FinalReportID(r.FinalReportID),
+		IdempotencyKey:    r.IdempotencyKey,
+		ProviderMessageID: r.ProviderMessageID,
+		ProviderStatus:    r.ProviderStatus,
+		Status:            domain.ReportNotificationDeliveryStatus(r.Status),
+		Raw:               r.Raw,
+		FailureReason:     r.FailureReason,
+		DeliveredAt:       r.DeliveredAt,
+		CreatedAt:         r.CreatedAt,
+		UpdatedAt:         r.UpdatedAt,
+	}
+}
+
 // alertEventIDsToEnt converts a slice of domain.AlertEventID
 // (int64) to a slice of Ent IDs (int). Used by LinkEventsToGroup
 // to feed AddEventIDs. The conversion is unconditional because
 // Ent's ID column is bigserial and Go's int is at least 32 bits;
 // on 64-bit platforms the conversion is lossless.
 func alertEventIDsToEnt(ids []domain.AlertEventID) []int {
+	if len(ids) == 0 {
+		return []int{}
+	}
+	out := make([]int, len(ids))
+	for i, id := range ids {
+		out[i] = int(id)
+	}
+	return out
+}
+
+func subReportIDsToEnt(ids []domain.SubReportID) []int {
 	if len(ids) == 0 {
 		return []int{}
 	}

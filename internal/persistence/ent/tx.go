@@ -16,12 +16,24 @@ type Tx struct {
 	AlertEvent *AlertEventClient
 	// AlertGroup is the client for interacting with the AlertGroup builders.
 	AlertGroup *AlertGroupClient
+	// ChatSession is the client for interacting with the ChatSession builders.
+	ChatSession *ChatSessionClient
+	// ChatTurn is the client for interacting with the ChatTurn builders.
+	ChatTurn *ChatTurnClient
+	// DiagnosisAuthTicket is the client for interacting with the DiagnosisAuthTicket builders.
+	DiagnosisAuthTicket *DiagnosisAuthTicketClient
 	// DiagnosisTask is the client for interacting with the DiagnosisTask builders.
 	DiagnosisTask *DiagnosisTaskClient
 	// DiagnosisTaskEvent is the client for interacting with the DiagnosisTaskEvent builders.
 	DiagnosisTaskEvent *DiagnosisTaskEventClient
 	// EvidenceSnapshot is the client for interacting with the EvidenceSnapshot builders.
 	EvidenceSnapshot *EvidenceSnapshotClient
+	// FinalReport is the client for interacting with the FinalReport builders.
+	FinalReport *FinalReportClient
+	// ReportNotificationDelivery is the client for interacting with the ReportNotificationDelivery builders.
+	ReportNotificationDelivery *ReportNotificationDeliveryClient
+	// SubReport is the client for interacting with the SubReport builders.
+	SubReport *SubReportClient
 
 	// lazily loaded.
 	client     *Client
@@ -155,9 +167,15 @@ func (tx *Tx) Client() *Client {
 func (tx *Tx) init() {
 	tx.AlertEvent = NewAlertEventClient(tx.config)
 	tx.AlertGroup = NewAlertGroupClient(tx.config)
+	tx.ChatSession = NewChatSessionClient(tx.config)
+	tx.ChatTurn = NewChatTurnClient(tx.config)
+	tx.DiagnosisAuthTicket = NewDiagnosisAuthTicketClient(tx.config)
 	tx.DiagnosisTask = NewDiagnosisTaskClient(tx.config)
 	tx.DiagnosisTaskEvent = NewDiagnosisTaskEventClient(tx.config)
 	tx.EvidenceSnapshot = NewEvidenceSnapshotClient(tx.config)
+	tx.FinalReport = NewFinalReportClient(tx.config)
+	tx.ReportNotificationDelivery = NewReportNotificationDeliveryClient(tx.config)
+	tx.SubReport = NewSubReportClient(tx.config)
 }
 
 // txDriver wraps the given dialect.Tx with a nop dialect.Driver implementation.

@@ -23,32 +23,104 @@ non-existent code is a maintenance burden, not a quality boundary.
 
 | Gate | Introduced At | Status | Notes |
 |------|---------------|--------|-------|
-| docs hygiene (English-only check) | M0 | landed | `make docs-hygiene` |
-| ADR index consistency | M0 | landed | `make adr-check` |
-| Markdown relative-link validation | M0 | landed | `make links-check` |
-| Forbidden imports (Gin/Echo/Fiber/Redis/Mongo/vector) | M0 | landed | `make forbidden-imports`; activates when Go code lands |
-| Forbidden `latest` pins (go.mod, package.json) | M0 | landed | `make forbidden-latest` |
+| docs hygiene (English-only and terminology check) | M0 -> M1 hardening | landed | `make docs-hygiene`; rejects non-English CJK literals and checks `docs/design/ci/terminology.tsv` so governed docs keep OpenClarion positioned as intelligent alert analysis, reject generic platform positioning, and restrict `SignalEvent` / `SignalGroup` / `CaseGroup` aliases to architecture boundary docs. |
+| ADR index, front matter, Consequences, supersession, and immutability validation | M0 -> M1 hardening | landed | `make adr-check`; validates ADR index/file consistency, monotonic IDs, schema-valid ADR front matter (`id`, `title`, `status`, `date`, participants), accepted status values, file/H1/front-matter identity consistency, a non-empty `Consequences` section in every ADR, `supersedes` / `superseded_by` cross-reference closure, and PR/base-aware accepted ADR body immutability via `ADR_BASE_REF`. `go test ./scripts` carries fixture-backed positive and negative front-matter / Consequences / supersession / immutability tests. |
+| Markdown link, anchor, and docs reachability validation | M0 -> M1 hardening | landed | `make links-check`; validates relative Markdown target paths plus same-file and cross-file Markdown `#anchor` fragments against generated heading slugs or explicit HTML anchors, and rejects Markdown files under `docs/` that are not reachable from `docs/README.md` through relative Markdown links. `go test ./scripts` carries fixture-backed positive and negative anchor and orphan-document tests. |
+| External HTTPS link liveness | M3 docs hardening | landed / scheduled | `make external-links-check`; inventories governed Markdown external HTTP(S) links locally without network access. Weekly workflow `.github/workflows/external-links.yml` sets `OPENCLARION_EXTERNAL_LINKS_LIVE=1` and performs HEAD-with-GET-fallback liveness checks, accepting normal success, auth-required, forbidden, method-not-allowed, and rate-limited responses while failing broken links. |
+| Markdown structure lint | M1 hardening | landed | `make markdownlint`; runs pinned `markdownlint-cli2` from `web/package-lock.json` with `docs/design/ci/markdownlint/.markdownlint-cli2.jsonc`, enforcing heading-level increments, unordered-list indentation, and prose line length for governed Markdown. `go test ./scripts` verifies the wrapper uses the local pinned binary and fails fast when dependencies are not installed. |
+| Forbidden imports (Gin/Echo/Fiber/Redis/Mongo/vector) | M0 -> W3-2b | replaced | Legacy `scripts/check_no_forbidden_imports.sh` retired after analyzer equivalence verification; covered by `openclarion-arch` in `make go-lint` |
+| Forbidden mutable dependency pins (go.mod, package.json, Dockerfile) | M0 -> M4 hardening | landed | `make forbidden-latest`; rejects `latest` in Go/npm manifests, requires critical first-import Go modules (Ent, Temporal SDK, OTel) to stay direct concrete root-module pins without `replace`, requires Go `tool` directive paths to resolve to concrete `require` version pins, rejects undocumented Go `replace` directives unless `docs/design/DEPENDENCIES.md` carries a matching `replace-allow: <module> => <target>` marker with owner and expiry, rejects `^` / `~` direct dependency ranges in first-party `package.json` files once `web/` lands, and rejects external Dockerfile base images without an immutable `@sha256:` digest while allowing `scratch` and previous build stages. `go test ./scripts` carries Go module, Go tool directive, replace allowlist, Dockerfile, and npm positive/negative fixtures. |
 | Forbidden oapi-codegen v2 / openapi.compat.yaml | M0 | landed | `make forbidden-oapi-v2` |
 | Forbidden SQLite in Go tests | M0 | landed | `make forbidden-sqlite`; activates when tests land |
-| DCO sign-off validation | M0 | landed | `ci.yml` job `dco-check` (PR-only) calls `make dco-check`; rejects PR commits without `Signed-off-by:` |
-| Workflow / Makefile parity | M0 | landed | `make workflow-parity`; rejects inline shell, undeclared `make` targets, mutable action refs, and missing job permissions/timeouts |
-| Go module: `go vet`, `go build`, `go test ./...` | M0 | landed | `make go-checks` (composite of `generate go-vet go-build go-test`); CI job `go-checks` |
-| OpenAPI lint (`vacuum lint --fail-severity error`) | M0 | landed | `make openapi-lint`; vacuum is a `go tool` dependency so the gate is hermetic |
-| OpenAPI generation freshness (`make generate` no diff) | M0 | landed | `make openapi-fresh` runs `go generate ./api/...` and rejects any working-tree diff in `api/openapi.gen.go` |
+| PR title Conventional Commit validation | M1 hardening | landed | `ci.yml` job `pr-title-check` (PR-only) calls `make pr-title-check`; validates `github.event.pull_request.title` against the Conventional Commits header shape `type(scope)!: description` with optional scope and breaking-change marker. `go test ./scripts` carries positive and negative title fixtures. |
+| PR description risk/rollback validation | M2 hardening | landed | `ci.yml` job `pr-description-check` (PR-only) calls `make pr-description-check`; reads `pull_request.body` from `GITHUB_EVENT_PATH` and requires non-empty `## Risk` and `## Rollback` sections. `go test ./scripts` covers env/local mode, GitHub event JSON mode, missing sections, empty/comment-only sections, empty bodies, and fenced-code false positives. |
+| PR impact reference validation | M3 hardening | landed / PR-only | `ci.yml` job `pr-impact-reference-check` calls `make pr-impact-reference-check`; if a PR changes `docs/adr/` or future `internal/sandbox/` paths, the PR body must link an issue or ADR using `#123`, a GitHub issue/PR URL, `ADR-0001`, or a concrete `docs/adr/ADR-0001-*.md` path. `make pr-impact-reference-check-test` covers path triggers, issue/ADR reference forms, event JSON body loading, PR diff-range fetching, missing env pairs, and no-impact bypass. |
+| DCO sign-off validation | M0 -> M1 hardening | landed | `ci.yml` job `dco-check` (PR-only) calls `make dco-check`; rejects PR commits without `Signed-off-by:`, rejects sign-off emails that do not match the commit author email, and rejects commit messages/trailers with AI tool branding such as `Generated-by:`, AI co-author trailers, or model names. `go test ./scripts` carries temporary-git-repository fixtures for missing, mismatched, and AI-branded commits. |
+| Workflow / Makefile parity | M0 -> M2 hardening | landed | `make workflow-parity`; rejects inline shell, undeclared `make` targets, mutable action refs, missing action version comments, missing PR concurrency, `pull_request` secret references, `pull_request_target` workflows without an explicit reviewer-policy marker, missing default bash shell, unpinned runners, job permissions broader than `contents: read` without `parity-allow`, missing job permissions/timeouts, M0-M2 timeouts above 15 minutes, unregistered workflow files, and duplicate workflow names. `go test ./scripts` carries fixture-backed negative tests for workflow registry, permission drift, and PR secrets boundaries. |
+| Go module: generate, vet, build, tests | M0 -> M3 | landed | `make go-checks` (composite of `generate go-vet go-build go-test`) runs the root-module Go package set under `api/`, `cmd/`, `internal/`, and `scripts/`; `go-test` uses `go test -race -count=1`; CI job `go-checks` |
+| Go coverage floor | M3 hardening | landed | `make go-coverage`; runs `scripts/check_go_coverage.sh`, excludes generated API/Ent packages and root script-test aggregators, and requires every selected handwritten Go package with statements to stay at or above `GO_COVERAGE_MIN` (default 40.0%). Root `scripts` tests prove package filtering, threshold failures, and invalid threshold handling. |
+| Testcontainers integration-test contract | M1 -> M3 hardening | landed | `make testcontainers-contract`; parses real Go `_test.go` files outside `testdata/` with `go/parser` / `go/ast`, groups imports by test package directory, rejects any package that imports `database/sql` without also importing `github.com/testcontainers/testcontainers-go...`, and rejects direct host/public network entry points such as `net/http.Get`, `net/http.DefaultClient`, and `net.Dial` in tests. `go test ./scripts` covers same-file harnesses, split setup files, missing Testcontainers imports, analyzer fixture exclusions, commented/string import false positives, allowed `httptest` + injected-client usage, and direct-network negative fixtures. |
+| Generated file header validation | M0 -> M1 hardening | landed | `make generated-headers`; validates committed OpenAPI Go, Ent, and frontend OpenAPI TypeScript generated files retain their generator-owned headers / direct-edit warnings. `go test ./scripts` carries positive and negative fixtures for each generated family. |
+| OpenAPI lint (`vacuum lint --fail-severity error`) | M0 | landed | `make openapi-lint`; vacuum is a `go tool` dependency so the gate is hermetic; ruleset lives at `docs/design/ci/vacuum/.vacuum.yaml` and explicitly accepts OpenClarion's snake_case JSON convention |
+| OpenAPI generation freshness (`make generate` no diff) | M0 | landed | `make openapi-fresh` snapshots `api/openapi.gen.go`, runs `go generate ./api/...`, and rejects generator-induced diffs |
+| Repository generation freshness and idempotence | M1 -> M3 hardening | landed | `make generate-fresh`; snapshots tracked plus non-ignored untracked repository files, runs `make generate`, rejects any generator-induced file diff, then runs `make generate` a second time and rejects non-deterministic second-run output. `go test ./scripts` carries stable, tracked-diff, untracked-diff, and second-run-diff fixtures. |
 | `oapi-codegen-exp` released-version pin check | M0 | landed | covered by `make forbidden-latest` (rejects `latest` in `go.mod` / `package.json`); concrete pin recorded in `go.mod` (`v0.1.0`) and DEPENDENCIES.md |
-| Ent generation freshness | M1-PR1 | landed | `make ent-fresh`; runs `go generate ./internal/persistence/ent/...` and rejects any working-tree diff under `internal/persistence/ent/` |
+| Ent generation freshness | M1-PR1 -> M3 | landed | `make ent-fresh`; snapshots `internal/persistence/ent/`, runs `make ent-generate`, and rejects generator-induced differences while allowing intentional in-progress Ent changes that are already generated |
 | Atlas migration drift check | M1-PR1 | landed | `make atlas-drift`; copies `internal/persistence/migrations/` into `.atlas-drift-tmp/` and runs `atlas migrate diff drift_check` via the pinned `arigaio/atlas:1.2.0` Docker image; no-op until the first migration is cut. Companion gate `make atlas-smoke` is a manual one-shot acceptance check (not in `make ci`) - see [database/migrations.md](../database/migrations.md) |
-| Temporal workflow tests (replay, signal, timer) | M1 | pending | once first workflow lands |
-| Provider boundary lint (forbidden imports) | M2 | pending | once provider layer is real |
-| LLM golden prompt structural tests | M2 | pending | once LLMProvider exists |
-| LLM refusal / truncation handling tests | M2 | pending | covers Structured Outputs failure modes |
-| Frontend typecheck and unit tests | M3 | pending | once `web/` lands |
-| OpenAPI -> TS type freshness | M3 | pending | enforces frontend contract sync |
-| OpenTelemetry trace integration smoke | M3 | pending | observability check |
-| Container sandbox security gate (non-root, limits) | M4 | pending | once ContainerProvider lands |
-| WebSocket auth handshake test | M5 | pending | once diagnosis room lands |
-| Bounded-turn enforcement test | M5 | pending | guards against client-side bypass |
-| Audit completeness test | M5 | pending | every lifecycle event logged |
+| Secret scanning (gitleaks) | W1-1 | landed | `make secrets-scan`; runs pinned gitleaks with `.gitleaks.toml` config over git history plus a current-source snapshot of tracked and untracked, non-ignored files; CI job `secrets-scan` |
+| Go vulnerability scan (govulncheck) | W1-2 -> M3 | landed | `make govulncheck`; runs `go run golang.org/x/vuln/cmd/govulncheck@v1.1.4` over the root-module Go package set and `./...` inside `tools/openclarion-linter`; CI job `govulncheck` |
+| Go license compliance | M2 supply-chain hardening | landed | `make go-licenses-check`; runs pinned `go-licenses v1.6.0` with `--include_tests` over the root Go package set and `tools/openclarion-linter`, ignores first-party package prefixes while still checking their dependencies, and accepts only the SPDX IDs listed by `go-license-allow:` in [DEPENDENCIES.md](../DEPENDENCIES.md). `go test ./scripts` covers allowlist parsing, command wiring, missing policy markers, and tool failure propagation. |
+| OSV npm lockfile scan | M3 supply-chain hardening | landed | `make osv-scan`; runs pinned `osv-scanner v1.9.2` against committed `package-lock.json` files outside `node_modules`, fails if first-party `package.json` files exist without npm lockfiles, and scans `web/package-lock.json` in CI. `go test ./scripts` covers lockfile discovery, node_modules exclusions, missing lockfiles, and tool failure propagation. |
+| Go lint baseline (golangci-lint) | W1-3 | landed | `make go-lint`; bootstraps `github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2` into ignored `bin/`; CI job `go-lint` |
+| Dependency update policy (Dependabot) | W2-1 -> M3 | landed | `.github/dependabot.yml`; weekly GitHub Actions, Go module, and `/web` npm version checks, patch/security grouping, no blanket ignores for Temporal/Ent/Atlas/OTel/Next |
+| Custom analyzer scaffold + version parity | W3-1 -> M3 | landed | `make go-lint` now runs `tools/openclarion-linter` tests, validates `golang.org/x/tools` parity via `scripts/check_lint_version.sh`, builds `.custom-gcl.yml` with `golangci-lint custom`, and runs `bin/custom-gcl` over the root-module Go package set |
+| Provider/domain forbidden-import analyzer | W3-2a | landed | `openclarion-arch` analyzer enforces production domain/usecase imports and concrete-provider bans |
+| Legacy forbidden-import bash deletion | W3-2b | landed | Retired `scripts/check_no_forbidden_imports.sh` after `analysistest` red/green fixtures proved every retired legacy deny-list prefix plus provider-boundary coverage, with a retained deny-list drift test; `make forbidden` now only runs non-Go-plugin forbidden gates |
+| Ent transaction boundary analyzer | W3-3 | landed | `openclarion-arch` detects `ent.Client.Tx`, `ent.Tx.Commit`, and `ent.Tx.Rollback` calls outside generated Ent and repository packages using `go/types` |
+| Runtime fake-provider analyzer | W3-4 -> M2 hardening | landed | `openclarion-arch` rejects production `cmd/openclarion` imports of any `internal/providers/*/fake` package; test files remain exempt |
+| Structured logging analyzer | W3-5 -> M2 hardening | landed | `openclarion-arch` rejects direct `fmt.Print*` and standard-library `log.Print*` / `log.Fatal*` / `log.Panic*` calls in non-test production packages, while allowing CLI packages under `cmd/`, repository scripts under `scripts/`, and generated Ent code. Production diagnostics should flow through structured logging / explicit response writers instead of ad-hoc stdout/stderr output. |
+| HTTP client boundary analyzer | W3-6 -> M2 hardening | landed | `openclarion-arch` rejects `http.DefaultClient` and bare `http.Get` / `http.Head` / `http.Post` / `http.PostForm` in non-test production packages, while allowing CLI packages under `cmd/` and repository scripts under `scripts/`. Production outbound HTTP must use request-scoped contexts and injected clients so timeout, tracing, and request-id propagation remain explicit. |
+| SQL open boundary analyzer | W3-7 -> M2 hardening | landed | `openclarion-arch` rejects direct `database/sql.Open` calls outside the persistence repository / generated Ent boundary. Usecase, provider, transport, and runtime wiring code must receive persistence factories or repositories instead of opening database connections directly. |
+| Process execution boundary analyzer | W3-8 -> M4 hardening | landed | `openclarion-arch` rejects direct `os/exec.Command` / `os/exec.CommandContext` calls outside `cmd/`, repository `scripts/`, and the sandbox boundary. Production alert-analysis code should reach external tools through Provider interfaces or the audited sandbox runtime, not ad-hoc subprocess launches. |
+| Core clock boundary analyzer | W3-9 -> M2 hardening | landed | `openclarion-arch` rejects direct `time.Now()` calls in non-test `internal/domain` and `internal/usecases` packages. Core alert-analysis logic must receive timestamps from input DTOs, workflow/activity boundaries, or an injected clock so replay and unit tests stay deterministic. |
+| Reflection / unsafe import boundary analyzer | W3-10 -> M2 hardening | landed | `openclarion-arch` rejects `reflect` and `unsafe` imports in handwritten production files, while allowing tests and generated code identified by Go's generated-code marker. Reflection and unsafe escape hatches must stay in generated code or a deliberately reviewed infra boundary. |
+| Panic boundary analyzer | W3-11 -> M2 hardening | landed | `openclarion-arch` rejects `panic()` in handwritten production files outside `main`, `init`, or a deferred function literal that directly calls `recover()`. Core alert-analysis code must return errors instead of relying on crash semantics; transaction wrappers may still re-panic after rollback inside explicit recover boundaries. |
+| Goroutine supervision boundary analyzer | W3-12 -> M3 hardening | landed | `openclarion-arch` rejects raw `go` statements in handwritten production files outside `internal/supervision`. Long-running work must use `errgroup.Group.Go` or an approved supervision helper so cancellation and error propagation stay explicit. |
+| OpenAPI breaking-change diff | W4-1 | landed / soft-fail until 2026-06-10 | `make openapi-breaking`; oasdiff `v1.11.7`; soft-fail owner: CI maintainers; after 2026-06-10 the script hard-fails automatically |
+| OpenAPI critical-node fingerprint lock | W4-2 -> M3/M5 | landed | `make openapi-fingerprint`; lock file `docs/design/ci/locks/openapi-critical.lock` generated from the real `api/openapi.yaml` critical domain API nodes, now including dashboard, alert, evidence, report read paths, report replay trigger path, diagnosis room creation, and diagnosis WebSocket ticket issuance. The lock parser rejects duplicate-key or trailing-value JSON before comparing fingerprints. |
+| Documentation shipped-claims consistency | W4-3 | landed | `make doc-claims-check`; checks path hints in `docs/design/CURRENT_STATE.md` shipped rows exist on disk |
+| Gate hardening maturity checklist | M3 hardening | landed | `make gate-hardening-check`; validates [GATE_HARDENING_CHECKLIST.md](GATE_HARDENING_CHECKLIST.md) covers every activated Progressive Gate Schedule row exactly once with an allowed maturity level, concrete evidence, and a concrete next-hardening note |
+| Go toolchain version consistency | M3 hardening | landed | `make go-toolchain-check`; verifies every first-party `go.mod` uses the root patch-pinned Go directive, `.golangci.yml` uses the matching major.minor language version, and every `actions/setup-go` step reads `go-version-file: go.mod` instead of a hard-coded version |
+| Allowlist discipline | M3 hardening | landed | `make allowlist-discipline`; validates repository allowlist entries carry adjacent `Owner`, `Expires`, and `Removal trigger` comments so false-positive suppressions remain reviewable and temporary. `make allowlist-discipline-test` covers missing metadata, detached metadata, expired entries, and read-error handling. |
+| Workflow change isolation | M3 hardening | landed / PR-only | `make workflow-change-guard`; PR-only CI job rejects pull requests that change more than one `.github/workflows/*.yml` / `.yaml` file. Companion script/docs/Makefile changes may land with the single workflow file so the standard gate-introduction three-piece remains possible, but multi-workflow edits must be split for focused review. `make workflow-change-guard-test` covers path normalization, duplicate handling, CI diff-range fetching, local fallback, and violation reporting. |
+| PR wall-clock budget | M3 hardening | landed | `make pr` runs `scripts/pr_budget` around `make ci` with `PR_BUDGET` defaulting to 15 minutes and `PR_BUDGET_MODE=enforce`; enforced runs terminate the child command on timeout, while `PR_BUDGET_MODE=warn` is available for temporary local diagnostics. CI runs `make pr-budget-test` so the wrapper's parsing, exit-code preservation, warn mode, timeout termination, and over-budget enforcement stay covered without recursively running the whole PR bundle inside CI. |
+| Temporal workflow tests (snapshot-bound start + replay + signal completion) | M1 | landed | `make temporal-workflow-tests`; focused CI job runs `internal/orchestrator/temporal` integration tests with race detector, verifies the workflow starts from an `EvidenceSnapshot`-bound task, and replays a completed workflow history via `worker.NewWorkflowReplayer` |
+| LLM golden prompt structural tests | M2 | landed | `go test ./internal/usecases/reportprompt`; covers single-alert, cascade, alert-storm, and FinalReport request shape, JSON-only fallback instructions, schema selection, idempotency-key shape, invalid input rejection, and schema-compatible fixture outputs without calling a real provider |
+| LLM output acceptance tests | M2 | landed | `go test ./internal/usecases/llmoutput`; covers refusal, truncation / non-`stop` finish reasons, invalid JSON, JSON Schema violations, unsupported output modes, and `json_object` fallback validation |
+| LLM validation retry tests | M2 | landed | `go test ./internal/usecases/llmretry`; covers validation-feedback retries, max-attempt exhaustion, non-retryable refusal, provider errors, request validation, and context cancellation |
+| LLM report draft schema tests | M2 | landed | `go test ./internal/usecases/reportdraft`; covers SubReport/FinalReport valid parse, missing/extra/invalid enum rejection, local semantic bounds, defensive schema copies, and OpenAI strict structured-output compatibility (`additionalProperties:false`, all properties required, root object schemas, approved keyword subset only) |
+| OpenAI-compatible LLM provider tests | M2 | landed | `go test ./internal/providers/llm/openai`; covers Chat Completions request shape for strict `json_schema`, `json_object` fallback request shape, refusal mapping, API error wrapping, invalid request preflight, strict capability probe success, strict-unsupported fallback, and non-capability probe error propagation |
+| Report persistence repository tests | M2 | landed | `go test ./internal/domain ./internal/persistence/repository`; covers SubReport/FinalReport constructors, per-snapshot SubReport idempotency, global FinalReport idempotency, FinalReport-to-SubReport fan-in links, notification delivery pending/delivered/failed persistence, newest-first list queries, and repository invariant errors |
+| Report Temporal workflow tests | M2 | landed | `go test ./internal/orchestrator/temporal`; covers ReportFanOutWorkflow/ReportBatchWorkflow/FinalReportWorkflow scheduling, batch parent-child fan-out/fan-in, GenerateSubReport/GenerateFinalReport persistence and idempotency with a fake LLM provider, and SendReportNotification delivery-log persistence / duplicate delivered skip behaviour before and after IMProvider calls |
+| Report trigger tests | M2 | landed | `go test ./internal/usecases/alertreplay ./internal/usecases/reporttrigger ./internal/orchestrator/temporal ./internal/transport/http ./cmd/openclarion`; covers `ReplayWindowForReport` snapshot refs for saved and duplicate snapshots, replay-to-ReportBatchWorkflow start request mapping, Temporal client start options / idempotent duplicate policies, HTTP trigger request/response mapping, CLI one-shot flag parsing / request mapping / JSON output / wait-result mapping, unconfigured 503 handling, and env-driven Prometheus trigger wiring |
+| IM provider tests | M2/M5 | landed | `go test ./internal/providers/im/...`; covers deterministic fake provider scripts/copy isolation and Webhook JSON POST shape, idempotency headers, FinalReport and DiagnosisTask notification subjects, optional Bearer auth, response parsing, retryable status classification, and invalid input/config handling |
+| Report HTTP API tests | M2 | landed | `go test ./internal/transport/http`; covers `GET /api/v1/reports`, `GET /api/v1/reports/{report_id}`, generated response mapping for linked SubReports with `evidence_snapshot_id`, not-found handling, and shared bounded-list validation |
+| Runtime provider wiring tests | M2/M5 | landed | `go test ./cmd/openclarion`; covers env-driven OpenAI-compatible LLM provider injection, Webhook IM provider injection, Prometheus trigger wiring, diagnosis-room OIDC/ticket/Temporal relay/starter wiring, Docker-backed diagnosis sandbox provider wiring, browser origin/CORS allowlist parsing, CLI one-shot argument validation, unconfigured startup compatibility, and partial-config fail-fast behavior |
+| Report local E2E | M2 | landed | `go test ./internal/e2e`; covers generated HTTP replay trigger -> Prometheus-compatible alert provider -> alert replay/group/snapshot persistence -> real Temporal ReportBatchWorkflow worker -> OpenAI-compatible provider -> Webhook provider -> persisted FinalReport/SubReport/ReportNotificationDelivery rows |
+| Report live smoke harness | M2 | manual | `make report-live-smoke`; not run in CI because it requires real `DATABASE_URL`, `TEMPORAL_HOST_PORT`, `OPENCLARION_PROMETHEUS_URL`, a report-capable worker, and an alert window. Runs `openclarion report-replay --wait` and validates the JSON proof with `scripts/report_live_smoke_output` |
+| Report live proof validator | M2 | landed | `make report-live-smoke-output-test`; validates `scripts/report_live_smoke_output`, including regular-file/no-symlink proof input checks before reading, duplicate JSON object key and unknown-field rejection, a canonical UTC and non-future `checked_at`, replay request metadata (canonical UTC window timestamps, valid window, positive limit, supported scenario, explicit wait intent, positive wait timeout), bounded whitespace-free workflow/run IDs with workflow ID binding when explicitly requested, replay stats, zero failed ingest/replay counts, `events_loaded <= request.limit`, group outcome counts matching `groups_built`, snapshot saved/duplicate counts matching retained snapshot refs, snapshot event counts summing to `events_loaded`, non-empty uniquely identified snapshots with contiguous group indexes, one unique SubReport per snapshot, terminal workflow result metadata, a bounded matching `notification_idempotency_key`, bounded single-line provider message ID formatting when supplied by the upstream, and a successful notification status (`accepted` or `delivered`) before a retained `make report-live-smoke` artifact can support live E2E claims. |
+| Prometheus metrics endpoint tests | M3 | landed | `go test ./internal/observability/metrics`; covers isolated registry construction, `/metrics` scrape output, low-cardinality API request counter, duration histogram, and in-flight gauge instrumentation |
+| OpenTelemetry HTTP + Temporal tracing tests | M3 | landed | `go test ./internal/observability/tracing`; covers env-driven OTLP enablement, disabled no-op default, unsupported exporter rejection, W3C propagator wiring, low-cardinality ServeMux route-pattern span names, outbound HTTP `traceparent` + `X-Request-ID` propagation with an in-memory SDK exporter, an OTLP HTTP collector smoke that receives exported spans, and Temporal workflow span propagation through the Temporal OTel interceptor |
+| HTTP correlation / access logging tests | M3 | landed | `go test ./internal/observability/correlation ./internal/observability/accesslog ./internal/transport/http ./internal/providers/metrics/prometheus ./internal/providers/llm/openai ./internal/providers/im/webhook`; covers `X-Request-ID` preservation/generation, unsafe ID rejection, outbound request-id propagation, request/trace/span log attributes, structured access logs without raw target/query leakage, and HTTP error logging through context-aware `slog.LogAttrs` helpers |
+| Frontend typecheck / lint / unit / build / deadcode / audit | M3 | landed | `make frontend-checks`; runs `npm ci`, `tsc --noEmit`, ESLint, Vitest, `next build`, Knip, and `npm audit --audit-level=high` for `web/` |
+| Frontend Playwright route smoke | M3/M5 | landed | `make ci-frontend-smoke`; runs Next.js production server plus a mocked OpenClarion API/WebSocket endpoint and verifies `/dashboard`, `/reports`, and `/reports/{report_id}` render generated-contract-shaped fixture data. It also verifies `/diagnosis-room` can issue a diagnosis WebSocket ticket, receive `ready` and `state` frames, and complete one `submit_turn` / `turn_result` exchange through the browser WebSocket API. |
+| Diagnosis room live browser smoke harness | M5 | manual | `make diagnosis-live-browser-smoke`; not run in CI because it requires a real OpenClarion backend/worker stack, a valid bearer token, and a sandbox-capable worker. It can use an existing `OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID` or create one from `OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID` through `POST /api/v1/diagnosis/rooms`, then runs the production Next.js route with `web/playwright.live.config.ts` and requires one connect -> `state` -> `submit_turn` -> `turn_result` browser round trip before writing a JSON proof with request metadata and structured browser observations. |
+| Diagnosis room live proof validator | M5 | landed | `make diagnosis-live-smoke-output-test`; validates `scripts/diagnosis_live_smoke_output`, the offline checker that rejects symlink/non-regular proof files plus duplicate-key, unknown-field, weak, or log-polluted `make diagnosis-live-browser-smoke` JSON proofs before they can support M5 live acceptance claims. The retained proof must use canonical scalar fields for `checked_at` as UTC RFC3339, evidence snapshot IDs, completed-turn text, created-room run IDs, and a bounded single-line `evidence` summary that mentions the `turn_result` round trip; keep session, workflow, and run IDs single-line, whitespace-free, and bounded; bind the exercised request mode, session id, evidence snapshot id, message length, and lowercase submitted-message SHA-256 digest to the top-level proof metadata and browser observation without retaining message plaintext; and include browser-observed state load, turn-result observation, submitted-message visibility, connected status after the turn, assistant-turn count increment, transcript message pair increment, `Turn N completed` log consistency with the assistant turn count, and transcript count consistency with the user+assistant pair model. |
+| OpenAPI -> TS type freshness | M3 | landed | `make openapi-ts-fresh`; regenerates `web/src/lib/api/openapi.ts` from `api/openapi.yaml` via `openapi-typescript` and fails on diff |
+| Temporal trace propagation tests | M3 | landed | covered by `go test ./internal/observability/tracing` and runtime wiring tests in `go test ./cmd/openclarion` |
+| Agent runtime dependency and hardcoding boundary | M4 | landed | `make forbidden-agent-runtime`; reads `docs/design/ci/agent-runtime-forbidden.tsv`, validates the policy table for scope coverage, duplicate rows, and unpadded patterns, rejects the listed runtime-family dependencies in first-party control-plane manifests, and rejects those names in non-test Go control-plane source, until [agent-runtime-selection.md](../agent-runtime-selection.md) accepts a sandbox runtime baseline. The policy is configurable governance data, not production code binding. |
+| ContainerProvider contract tests | M4 | landed | `go test ./internal/usecases/ports ./internal/providers/container/fake`; covers ADR-0013 fixed workspace paths, duplicate-key-free request/raw-result JSON validation, timeout/output caps, network policy shape, deterministic fake scripts, copy isolation, scripted errors, and context cancellation |
+| Container sandbox security spec gate | M4 | landed | `make sandbox-security`; covers the provider-neutral contract plus Docker runtime-spec validation for digest-pinned images, non-root user, readonly rootfs, `no-new-privileges`, unprivileged execution, dropped capabilities, memory/CPU limits, readonly `/workspace/*` input mounts, writable `/workspace/out` output mount, output-size cap, and Docker socket mount rejection |
+| Agent tool helper contract tests | M4 | landed | `make agent-tool-scripts-test`; covers the read-only Prometheus instant-query helper and static topology lookup helper used by future sandbox runtime images. The metric helper rejects duplicate-key, unknown-field, and trailing-value Prometheus response JSON before emitting output; the topology helper rejects symlink/non-regular topology files plus duplicate-key, unknown-field, trailing-value, oversized, and semantically invalid topology JSON before emitting lookup output. |
+| Sandbox baseline audit | M4 | landed | `make sandbox-baseline-audit`; emits a code-level JSON proof for ADR-0013 file paths, network-none batch defaults, M5 turn input mounts, Docker security posture, resource limits, allowlist subset enforcement, and strict request/raw-output JSON validation. It complements manual Docker smokes rather than replacing them. |
+| Sandbox quality comparison helper tests | M4 | landed | `make sandbox-quality-compare-test`; covers the offline direct-vs-sandbox SubReport comparator, regular-file/no-symlink checks before reading manifests and report inputs, duplicate JSON object key rejection in manifests and report inputs, unknown-field rejection in manifests, manifest batch mode, required single-line bounded `sample_basis`, single-line bounded case IDs, per-case alert scenario labels, single-line bounded `required_evidence_refs` binding across both reports, canonical `snapshot:<positive-id>` EvidenceSnapshot refs, scenario coverage output, single-line bounded portable unique report paths, production schema reuse, equivalent/improved/regressed recommendations, aggregate summaries, and fail-on-regression behavior. This is a comparison harness, not a real report-quality acceptance result. |
+| Sandbox M4 decision gate tests | M4 | landed | `make sandbox-m4-decision-test`; covers the offline proceed/iterate/defer decision helper that combines baseline audit output, manifest-mode quality comparison output, runtime smoke evidence, and human review evidence while rejecting symlink/non-regular evidence files, duplicate JSON object keys, unknown fields, and duplicate baseline audit check names in evidence inputs. Quality comparison evidence must cover `single_alert`, `cascade`, and `alert_storm`; every case must retain single-line bounded IDs and non-empty single-line bounded `required_evidence_refs` with a canonical `snapshot:<positive-id>` EvidenceSnapshot ref; aggregate summary counts must match `cases[].recommendation`; review evidence `sample_basis` must match the quality comparison `sample_basis`; review evidence must cover the same single-line bounded case IDs via `reviewed_cases`; `selected_candidate` and `candidate_evaluations` are generic unpadded whitespace-free evidence-supplied IDs, with the selected candidate required to have a matching `pass` evaluation whose immutable `runtime_candidate` equals the top-level digest-pinned `runtime_candidate` and whose `runtime_smoke_refs` cite every required runtime smoke name; review evidence human-authored text is required where applicable, single-line, unpadded, and bounded to 2048 bytes; runtime smoke names must be exactly the required smoke set, sources must match their canonical `make` targets, and each smoke must carry a distinct bounded normalized relative `evidence_ref` plus lowercase `evidence_sha256`, preventing free-form pass claims or local-machine-specific paths from satisfying the decision gate. If incomplete evidence and explicit failure evidence coexist, the decision remains `defer` but retained reasons include both classes. The manual `make sandbox-m4-decision` target requires real evidence files and is not auto-run in CI. |
+| Sandbox M4 evidence packet tests | M4 | landed | `make sandbox-m4-evidence-packet-test`; covers the manual packet assembler and offline retained-packet verifier. Assembly freezes baseline audit, manifest quality comparison, copied quality manifest and raw direct/sandbox SubReport inputs, copied review evidence, copied runtime-smoke artifacts, decision output, and packet summary into one empty evidence directory. The assembler rejects weak artifacts before writing them: baseline output must contain uniquely named required pass checks, quality output must be manifest-mode with sample basis, required scenario coverage, unique single-line bounded case IDs, per-case review markers, per-case single-line bounded required evidence refs, and summary counts derived from case recommendations; copied quality manifest sample basis, case IDs, scenarios, and required refs must match the generated comparison output; copied direct/sandbox SubReports must pass the production SubReport parser and contain every declared required evidence ref; review evidence must contain dated representative-sample/runtime-smoke/human-review fields with generic unpadded whitespace-free `selected_candidate` / `candidate_evaluations`, a digest-pinned `runtime_candidate`, a matching selected-candidate evaluation runtime ref, selected pass-candidate `runtime_smoke_refs` for every required runtime smoke name, reviewer/status/notes metadata, exactly required runtime smoke names with canonical sources, distinct bounded normalized relative runtime-smoke `evidence_ref` values and lowercase `evidence_sha256` digests, case-level single-line bounded `reviewed_cases`, and the same sample basis as the generated quality comparison, duplicate JSON object keys and unknown fields must be absent, human-authored review text must be single-line, unpadded, and bounded to 2048 bytes, runtime-smoke source artifacts must exist under the configured artifact root, be regular files rather than symlinks or other non-regular files, and match their declared SHA-256 digests before being copied into packet-local `runtime-smoke-artifacts/` paths, decision output must use a valid proceed/iterate/defer value with decision-consistent non-blank, non-duplicate reasons, and decision evidence must match the frozen baseline/quality/review inputs plus `--min-cases`, selected-candidate summary, reviewed-case count, and reviewed case IDs. The retained `packet.json` records `out_dir` as `.`, stores generated artifact and helper output paths as packet-local slash-separated paths, and records SHA-256 digests for the frozen baseline, quality, review, decision, quality-input, and runtime-smoke artifacts. Verification mode `make sandbox-m4-evidence-packet-verify PACKET_DIR=...` revalidates an existing packet without rerunning helpers and rejects stale command metadata, digest drift, missing copied inputs, quality manifest/output drift, copied report schema/ref failures, runtime-smoke artifact drift, decision evidence mismatches, unexpected packet files/directories, symlinks, non-regular files, and `PACKET_JSON` aliases that do not match the packet's own `artifacts.packet` reference. |
+| Diagnosis room policy tests | M5 | landed | `make diagnosis-room-policy-test`; covers the pure short-conversation policy boundary for configured turn/time/message/context limits, duplicate message IDs, in-flight turn rejection, basic unsafe-instruction denylist matching, context byte accounting, and strict V1 sandbox `output.json` schema validation. |
+| Diagnosis room workflow tests | M5 | landed | `make diagnosis-room-workflow-test`; covers the Temporal room control plane plus per-turn sandbox, transcript persistence, lifecycle audit, and close-notification Activity boundaries: room workflow start options/readiness query through `DiagnosisRoomStarter`, `submit-turn` Update with policy Validator, `EnsureDiagnosisRoomSession`, `EnsureDiagnosisChatSession`, `RunDiagnosisTurn`, `PersistDiagnosisTurn`, `CloseDiagnosisChatSession`, `SendDiagnosisRoomCloseNotification`, `ContainerProvider.Run` request construction, schema-valid assistant output acceptance, idempotent user+assistant ChatTurn persistence, idempotent opened/turn-persisted/closed/close-notification `DiagnosisTaskEvent` audit rows, terminal `ChatSession` close metadata, idempotent IMProvider close notification, workflow-state transcript updates after persistence, `state` Query, close/cancel Signals, durable idle/session timers, duplicate `message_id` rejection, concurrent Update rejection while an Activity is in flight, configured max-turn rejection, unsafe-message rejection, and Temporal client start/Update/Query option mapping. |
+| Diagnosis auth boundary tests | M5 | landed | `make diagnosis-auth-test`; covers provider-neutral AuthProvider DTOs, OIDC ID-token verification and role-claim mapping, deterministic auth fake scripts, owner/admin RBAC, short-lived single-use WebSocket ticket issuance/consumption, TTL expiry, wrong-session rejection, defensive in-memory store copies, PostgreSQL-backed ticket persistence with hashed tokens plus concurrent single-consume protection, HTTP/WS transport handshake coverage, authenticated `submit_turn` / `query_state` relay, bounded Update timeout error frames, and disconnect behavior that does not cancel submitted Updates. |
+| Diagnosis chat persistence tests | M5 | landed | `make diagnosis-chat-persistence-test`; covers ChatSession/ChatTurn domain invariants plus PostgreSQL-backed schema/repository behavior: unique `session_key`, one session per `DiagnosisTask`, append-only turn insert, per-session `message_id` idempotency, per-session sequence uniqueness, ordered transcript listing, and invariant guards. |
+| Docker Provider live smoke harness | M4 | landed / manual | `make container-provider-smoke`; runs `ContainerProvider.Run` through a real local Docker daemon, digest-pinned image ref, network-none, non-root user, readonly rootfs, readonly ADR-0013 input mounts, `/workspace/out` as the only writable mount with `fsize` cap, Docker output archive copy, duplicate-key-free JSON-object output validation, and invocation-label leak check. Not run in CI because it requires a local Docker daemon. |
+| Docker Provider timeout cleanup smoke | M4 | landed / manual | `make container-provider-timeout-smoke`; runs the same Docker-backed Provider with a short timeout and long-running command, expects `context deadline exceeded`, then fails if any invocation-labelled container remains. Not run in CI because it requires a local Docker daemon. |
+| Docker Provider output cap smoke | M4 | landed / manual | `make container-provider-output-cap-smoke`; runs the same Docker-backed Provider with a 64-byte output cap and a command that writes more than the cap, accepts either `fsize`-enforced process failure or Provider output-size rejection, then fails if any invocation-labelled container remains. Not run in CI because it requires a local Docker daemon. |
+| Egress allow-deny smoke harness | M4 | landed / manual | `make egress-allowdeny-smoke`; creates Docker sandbox/upstream networks plus an allowlist proxy, proves allowed-via-proxy succeeds, denied-via-proxy returns 403, and direct sandbox bypass fails. Not run in CI because it requires a local Docker daemon and mutable Docker networks. |
+| Manual agent runtime adapter smoke harness | M4 | landed / manual | `make agent-runtime-smoke`; runs a digest-pinned candidate image through network-none, non-root, readonly rootfs, `no-new-privileges`, dropped capabilities, memory/CPU/PID limits, readonly ADR-0013 input mounts, writable `/workspace/out` output mount with `fsize` cap, timeout cleanup, regular-file/no-symlink output-artifact validation, bounded reads, and duplicate-key-free non-empty JSON-object output validation |
+| Custom thin runner candidate smoke | M4 | landed / manual | `make custom-thin-runner-smoke`; builds the local scratch-based custom runner plus packaged metric/topology helper binaries, pushes it to an ephemeral localhost registry to obtain a real `repo@sha256` reference, proves the packaged topology helper with `--entrypoint`, then runs both `make agent-runtime-smoke` and `make container-provider-smoke`. The runner rejects symlink/non-regular ADR-0013 JSON input paths plus duplicate-key or trailing-value ADR-0013 input JSON before hashing mounted inputs. This is a contract/lifecycle proof, not a report-quality baseline. |
+| Agent runtime adapter candidate result | M4 | partial | custom thin runner contract proof and offline quality comparison harness landed; OpenClaw/Hermes framework candidates and real report-quality comparison remain pending before any runtime baseline is accepted |
+| Container sandbox runtime execution gate | M4 | landed / manual | `make container-provider-smoke` proves create/start/wait/copy/remove plus duplicate-key-free JSON output on a short-lived sandbox; `make container-provider-timeout-smoke` proves timeout stop/remove cleanup; `make container-provider-output-cap-smoke` proves output cap enforcement against a real local Docker daemon. |
+| WebSocket auth handshake and relay test | M5 | landed | covered by `make diagnosis-auth-test`; verifies `POST /api/v1/diagnosis/ws-ticket`, ticket-required `GET /ws/diagnosis`, non-upgrade rejection before ticket consumption, same-origin rejection before ticket consumption, authenticated connection handoff, `submit_turn` to Temporal Update, `query_state` to Temporal Query, timeout response, and disconnect behavior |
+| Bounded-turn enforcement test | M5 | landed | covered by `make diagnosis-room-workflow-test`; guards against client-side bypass at the workflow Update Validator |
+| Audit completeness test | M5 | landed | covered by `make diagnosis-room-workflow-test`; verifies opened, turn-persisted, closed, and close-notification lifecycle events are idempotently logged through `DiagnosisTaskEvent` |
 
 ## Current Private-Incubation Gate
 
@@ -57,10 +129,50 @@ repository root `Makefile`. GitHub Actions calls the same `make` targets.
 
 ```bash
 make pr            # full PR validation bundle
-make docs-hygiene  # documentation language gate
-make forbidden     # forbidden-method bundle (imports / latest / v2 / sqlite)
+make docs-hygiene  # documentation language and terminology gate
+make forbidden     # forbidden-method bundle (latest / v2 / sqlite; import rules live in make go-lint)
 make adr-check     # ADR index consistency
-make links-check   # relative markdown link validation
+make links-check   # markdown link, anchor, and docs reachability validation
+make external-links-check # external link inventory; scheduled workflow enables live liveness
+make markdownlint  # markdown structure/style lint
+make doc-claims-check # shipped CURRENT_STATE.md path claims
+make gate-hardening-check # CI gate maturity checklist coverage
+make allowlist-discipline # allowlist owner / expiry / removal metadata
+make workflow-change-guard # PR-only workflow-file change isolation
+make pr-budget-test # make pr wall-clock budget wrapper tests
+PR_TITLE='feat: concise title' make pr-title-check # PR title policy
+PR_BODY="$(gh pr view --json body --jq .body)" make pr-description-check # PR body policy
+PR_BODY="$(gh pr view --json body --jq .body)" IMPACT_REFERENCE_BASE_REF=main IMPACT_REFERENCE_HEAD_SHA=HEAD make pr-impact-reference-check # PR issue/ADR reference policy
+make generated-headers # generated file header validation
+make generate-fresh # make generate freshness and idempotence
+make go-coverage # handwritten Go package coverage floor
+make testcontainers-contract # integration-test DB and host-network contract
+make openapi-breaking # OpenAPI breaking-change diff (W4 soft-fail until 2026-06-10)
+make openapi-fingerprint # critical OpenAPI node lock
+make go-licenses-check # Go dependency license compliance
+make osv-scan # npm package-lock vulnerability scan
+make sandbox-security # M4 sandbox contract and Docker security-spec tests
+make agent-tool-scripts-test # M4 sandbox metric/topology helper contract tests
+make sandbox-baseline-audit # M4/M5 code-level sandbox baseline audit
+make sandbox-quality-compare-test # M4 offline direct-vs-sandbox SubReport comparison tests
+make sandbox-m4-decision-test # M4 offline proceed/iterate/defer decision tests
+make sandbox-m4-decision # manual M4 decision with evidence file inputs
+make sandbox-m4-evidence-packet-test # M4 evidence packet assembly tests
+make sandbox-m4-evidence-packet # manual M4 evidence packet assembly
+make sandbox-m4-evidence-packet-verify # manual M4 retained packet verification
+make report-live-smoke-output-test # M2 live report smoke proof validator tests
+make diagnosis-room-policy-test # M5 pure short-conversation policy tests
+make diagnosis-room-workflow-test # M5 Temporal diagnosis room workflow/client and lifecycle activity tests
+make diagnosis-auth-test # M5 AuthProvider/OIDC/RBAC/WS ticket boundary + persistence + transport relay tests
+make diagnosis-chat-persistence-test # M5 ChatSession/ChatTurn persistence tests
+make diagnosis-live-smoke-output-test # M5 live browser smoke proof validator tests
+make container-provider-smoke # manual M4 Docker Provider.Run smoke; requires Docker
+make container-provider-timeout-smoke # manual M4 Docker Provider timeout cleanup smoke; requires Docker
+make container-provider-output-cap-smoke # manual M4 Docker Provider output cap smoke; requires Docker
+make egress-allowdeny-smoke # manual M4 egress proxy allow/deny smoke; requires Docker
+make agent-runtime-smoke # manual M4 candidate image smoke; requires digest-pinned image
+make custom-thin-runner-smoke # manual M4 local custom runner candidate smoke; requires Docker
+make report-live-smoke # manual M2 live external smoke; requires real services
 ```
 
 Additional gates land per the schedule above as code is introduced. A new
@@ -85,9 +197,52 @@ the schedule table.
 - Third-party GitHub Actions are pinned to a full commit SHA, with
   the human-readable version in a trailing comment
   (e.g. `actions/checkout@<sha> # v6.0.2`). Mutable tags such as
-  `@v4` are forbidden. See `docs/design/DEPENDENCIES.md`.
+  `@v4` are forbidden. The version comment is enforced by
+  `workflow-parity`. See `docs/design/DEPENDENCIES.md`.
+- PR-triggered workflows declare top-level `concurrency:` with
+  `cancel-in-progress: true`.
+- `pull_request` workflows may not reference `${{ secrets.* }}`. If a future
+  workflow genuinely needs PR-time secrets, it must use `pull_request_target`
+  and include a `# pull-request-target-review-policy: <review process>` marker
+  in the workflow file so the reviewer policy is visible in code review.
+- Workflows declare top-level `defaults.run.shell: bash` so `run:`
+  steps do not inherit runner defaults.
+- Workflow files use `ci.yml` for the primary gate bundle or
+  `<gate>.yml` for narrowly scoped gate workflows, and every committed
+  workflow file is listed in the Workflow File Registry below.
+- Top-level workflow `name:` values are required and unique across
+  `.github/workflows/` so branch-protection and failure names stay
+  unambiguous.
+- Every job uses a fixed Ubuntu runner label (`ubuntu-24.04` or
+  `ubuntu-22.04` during M0-M2).
 - Every job declares an explicit `permissions:` block (start from
-  `contents: read`) and a `timeout-minutes:` value.
+  `contents: read`) and a `timeout-minutes:` value capped at 15
+  minutes during M0-M2.
+- Workflow-level and job-level `permissions:` entries may not exceed
+  `contents: read` unless the broader entry carries an inline
+  `# parity-allow: <reason>` justification. This keeps write scopes
+  reviewable instead of silently broadening the default token.
+
+### Workflow File Registry
+
+| Workflow file | Purpose |
+|---|---|
+| `.github/workflows/ci.yml` | Primary PR/push CI gate bundle; every job calls repository-owned `make` targets |
+| `.github/workflows/external-links.yml` | Weekly scheduled external HTTPS liveness report; not PR-blocking |
+
+### Lock File Discipline
+
+- Lock files are generated from committed source-of-truth files, not
+  hand-authored from assumed future paths.
+- A PR that changes a locked node must update the corresponding lock
+  in the same change and let the gate prove the new fingerprint.
+- A lock may not contain stale entries: if a locked node disappears,
+  the check fails until the source and lock are deliberately reconciled.
+- Lock files must be strict JSON artifacts: duplicate object keys and trailing
+  JSON values are rejected before comparisons run.
+- The current OpenAPI lock covers the committed critical domain API nodes,
+  including alert/evidence reads, dashboard, reports, replay trigger, and
+  diagnosis-room creation/ticket paths.
 
 ## Future Imports from Shepherd Reference
 
@@ -100,20 +255,10 @@ one from shepherd at the milestone that activates it.
 
 | Asset (shepherd path) | Purpose | Activate at | Notes |
 |-----------------------|---------|-------------|-------|
-| `.gitleaks.toml` + `make secrets-scan` target | repository secret scanner; PR-blocking on any finding | M0 (with first source PR) | configure allowlist for governed example values only |
-| `.golangci.yml` (baseline rules) | Go static analysis baseline | M0 (with Go skeleton) | start with shepherd's baseline minus shepherd-specific custom rules |
-| `.custom-gcl.yml` + `tools/shepherd-linter/` style custom analyzer | architecture boundary lint (forbidden cross-layer imports, provider/transaction discipline) | M2 (with provider layer) | OpenClarion writes its own analyzer; reuse shepherd's plugin-loading pattern only |
-| `.github/workflows/api-contract-validation.yml` | OpenAPI lint + breaking-change diff + generation freshness | M0 (with `api/openapi.yaml`) | OpenClarion uses oapi-codegen-exp V3; replace shepherd's v2 bridge logic |
-| `.github/workflows/frontend-tests.yml` | typecheck, lint, unit test, build for `web/` | M3 (with `web/` skeleton) | mirrors shepherd structure |
 | `scripts/run_pr_parallel.sh` | parallel `make pr` job runner for local development speed | M2+ (when sequential `make pr` exceeds ~10 min) | premature on M0/M1 |
 | `scripts/check_public_hygiene.sh` | private-marker scanner for public-incubation transition | private-to-public transition | needed only if/when OpenClarion exits private incubation |
 | `release-please-config.json` + `.github/workflows/release-please.yml` + `.github/workflows/release.yml` + `docs/RELEASE.md` | conventional-commit-driven release automation | M3-M4 (first public preview) | conventional commit discipline already enforced in `ai-code/.agent/skills/github-workflow/SKILL.md` so adoption is non-disruptive |
-| `docs/design/ci/scripts/check_*.go` static analyzers | provider-wiring / SQLite-in-tests / sqlc / SSA boundary checks (Go-based) | M2-M4 (per analyzer's target) | port one analyzer at a time, only when the analyzed code exists in OpenClarion |
-| `docs/design/ci/GATE_HARDENING_CHECKLIST.md` | gate maturity scoring framework | M3+ | once OpenClarion has at least 5 gates, evaluate hardening per shepherd's framework |
-| `docs/design/ci/vacuum/.vacuum.yaml` ruleset | OpenAPI semantic linter (Go-native, ~10x faster than Spectral, Spectral-rule compatible per shepherd ADR-0029) | M0 (with first OpenAPI spec) | adopt minimal ruleset; expand as the spec grows. **Do not use `docs/design/ci/spectral/`** - it is deprecated upstream |
-| `docs/design/ci/allowlists/` discipline | per-gate allowlist with owners and expiry | when any gate first needs an allowlist | create allowlist only with a justified expiry, not blanket exemptions |
-| `docs/design/CURRENT_STATE.md` | living snapshot of milestone progress | M1+ | replaces ad-hoc status notes once cross-milestone tracking is needed |
-| `docs/design/DEFERRED_FOLLOWUPS.md` | structured backlog of deferred-but-not-forgotten items | M1+ | use shepherd's section template (item, why deferred, trigger to revisit) |
+| `docs/design/ci/scripts/check_*.go` static analyzers | future provider-wiring / sqlc / SSA boundary checks not covered by `tools/openclarion-linter` | M2-M4 (per analyzer's target) | port one analyzer at a time, only when the analyzed code exists in OpenClarion |
 
 ## Future Hardening Roadmap
 
@@ -134,85 +279,45 @@ plus a row in the Schedule table above.
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| Reject `runs-on: ubuntu-latest` and any non-pinned runner version | M1 (when adding the second workflow) | extend the awk pass to require `runs-on:` to match a fixed allow-list `^ubuntu-(24\.04|22\.04)$` |
-| Require `concurrency:` block on every PR-triggered workflow | M1 | reject PR-triggered workflows whose top level does not declare `concurrency:` with `cancel-in-progress: true` |
-| Require explicit `defaults: run: shell: bash` | M1 | parse top-level `defaults:` and reject workflows whose `run:` steps inherit the default shell |
-| Reject `permissions:` blocks broader than `contents: read` unless an inline justification comment is present | M2 (when first workflow legitimately needs write scope) | annotate exceptions with `# parity-allow: <reason>` adjacent to the `permissions:` line and check for it |
-| Cap `timeout-minutes:` at 15 (M0-M2) and 30 (M3+) | M1 | enforce numeric upper bound in the awk pass |
-| Forbid `secrets.*` references in `pull_request`-triggered workflows; require `pull_request_target` opt-in with explicit reviewer policy | first time a gate needs a secret on PR | regex scan for `${{ secrets.` plus trigger introspection |
-| Require an inline `# vX.Y.Z` comment after every `@<sha>` action pin (currently strongly encouraged, not enforced) | M1 | regex check that every `uses: ...@<40-hex>` is followed on the same line by `# v\d+\.\d+(\.\d+)?` |
-| Forbid duplicate `name:` across workflows (so failing job names are unambiguous in branch protection rules) | M2 | aggregate all `name:` per workflow file and de-duplicate |
-| Require every gate workflow file to be named `ci.yml` or `<gate>.yml` and listed in this README | M2 | cross-reference `.github/workflows/*.y*ml` against the Schedule table |
 
 ### DCO gate (`make dco-check`)
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| Require `Signed-off-by:` email to match the commit author email | M1 | parse trailer email; compare to `git show -s --format=%ae` |
 | Forbid GitHub `noreply` addresses in author email (project policy decision) | when project decides whether to allow web-edit commits | regex `@users\.noreply\.github\.com$` reject |
 | Require GPG / SSH commit signature verification (`git verify-commit`) on PR commits | when contributor base is large enough that DCO trailer alone is insufficient | call `git verify-commit` on each SHA; allowlist maintainers initially |
-| Reject commit messages or trailers that contain AI tool branding (`Generated-by:`, `Co-authored-by: Claude`, model names) | M1 | regex scan subject, body, and trailer block; aligned with `ai-code/.agent/skills/github-workflow/SKILL.md` Conventional Commit Discipline |
 
 ### Forbidden-imports / architectural boundaries
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| Forbid `os/exec` outside `internal/sandbox/` and `cmd/*` | M2 (provider layer lands) | per-package allow-list, mirrors the provider lint pattern |
-| Forbid `unsafe` and `reflect` outside designated infra packages | M2 | same allow-list mechanism |
-| Forbid `time.Now()` in domain logic; require injected `Clock` interface | M2 | restrict to packages tagged with `// +clock:allowed` build comment, or to `internal/infra/clock/` |
-| Forbid `panic()` outside `main` / `init` / explicit `recover` boundary | M2 | static analyzer using `go/ast` |
-| Forbid `fmt.Print*` / `log.Println` in non-test, non-CLI code; require structured logger | M2 | analyzer with allow-list for `cmd/` |
-| Forbid raw `database/sql.Open` outside the provider layer | M2 | provider-boundary analyzer (already on roadmap, this is the explicit rule) |
-| Forbid `net/http.DefaultClient` and bare `http.Get` (require timeout + retry middleware) | M2 | analyzer; aligns with stability principle |
-| Forbid Goroutine creation outside `errgroup` / supervised helpers | M3 | SSA-based analyzer; matches shepherd's "no unmanaged goroutine" gate |
 
 ### Dependency pinning (`make forbidden-latest` family)
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| Require concrete `module@version` pins for first-import-tracked Go modules (Temporal SDK, Ent, Atlas, OTel); reject `replace` directives for these without an entry in DEPENDENCIES.md | M1 (when these modules first land in `go.mod`) | scan `go.mod` for known module paths; require a non-`latest` version; cross-reference DEPENDENCIES.md allow-list. The `oapi-codegen-exp` `v0.1.0` pin (M0) is the prototype pattern. |
 | Reject indirect dependencies older than N months without an `indirect` allow-list | M2 | query Go module proxy or OSV metadata for module release dates; cross-reference an expiry-based allow-list |
-| Reject `replace` directives pointing at forks not listed in `docs/design/DEPENDENCIES.md` allow-list | M1 | parse `go.mod` `replace` block; cross-reference allow-list |
-| Reject `package.json` entries with `^` or `~` ranges for first-party packages | M3 (with `web/`) | regex scan; allow ranges only for transitive dev tooling |
-| Reject Docker base images without a digest pin (`@sha256:...`) | M4 (with first Dockerfile) | grep `FROM` lines |
 
 ### ADR governance gate (`make adr-check`)
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| YAML front-matter schema validation (`id`, `title`, `status`, `date`, optional `supersedes`, `superseded_by`) | M1 | small Go or `yq` script; reject unknown keys |
-| Cross-reference closure: `supersedes: ADR-X` requires ADR-X exists with `status: superseded` and a matching `superseded_by` back-pointer | M1 | second pass over the parsed metadata |
-| Reject ADR PRs that change a previously-`accepted` ADR's body (must be done via a new superseding ADR) | M1 | git-diff check on ADR files when status was `accepted` at base |
 | Enforce 48-hour governance window via PR labels rather than honor system | M2 (when external contributors arrive) | bot adds `adr-window-start` timestamp label; merge gate checks elapsed time |
-| Reject ADR files without a one-paragraph "Consequences" section | M1 | section-header presence check |
 
-### Markdown / docs hygiene (`make links-check`, `make docs-hygiene`)
+### Markdown / docs hygiene (`make links-check`, `make docs-hygiene`, `make markdownlint`)
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| Validate intra-document anchor links (`#section`) point at existing headings | M1 | extend `check_markdown_links.sh` with a heading-table pass |
-| External `https://` link liveness check (cached, weekly) | M3 | separate scheduled workflow, never PR-blocking; surface as report |
-| Markdown lint (heading-level jumps, list indentation, line length) on governed docs | M1 | `markdownlint-cli2` pinned to a SHA; ruleset in `docs/design/ci/markdownlint.yaml` |
-| Project terminology / wordlist enforcement (e.g. "MCP-over-Streamable-HTTP" single canonical spelling) | M1 | wordlist file + grep gate |
-| Reject orphan documents (files under `docs/` not reachable from `docs/README.md`) | M2 | reachability traversal from a root index |
 
 ### Code generation freshness
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| `make generate` must produce zero git diff (already on Schedule) | M0 with first generator | run `make generate && git diff --exit-code` in CI |
-| Generated files must carry a `// Code generated ... DO NOT EDIT.` header; reject hand edits | M0 | regex check on known generated paths |
-| Generation idempotence: running `make generate` twice yields identical output | M1 | second run + diff in CI |
-| Generator binaries pinned via the Go 1.24+ `tool` directive in `go.mod` (e.g. `oapi-codegen-exp`, `vacuum`); reject `latest` for any tool entry | M0 (landed implicitly via `forbidden-latest` + the `tool (...)` block in `go.mod`) | combine with the dependency-pinning rule above |
 
 ### Supply-chain & secrets
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| `gitleaks` PR-blocking secrets scan (already in Future Imports table) | M0 (with first source PR) | adopt shepherd's `.gitleaks.toml`; allowlist only governed example values |
-| `govulncheck` on every PR (Go) | M0 (with Go skeleton) | `govulncheck ./...` via a `make vuln-check` target |
-| `osv-scanner` for `package.json` and lockfiles | M3 | mirrors the Go path |
-| `go-licenses` license compliance gate (reject GPL / AGPL etc.) | M2 | allow-list of acceptable SPDX IDs in `docs/design/DEPENDENCIES.md` |
 | SBOM generation (CycloneDX) attached to every release artifact | M3-M4 | `cyclonedx-gomod` for Go, `@cyclonedx/cdxgen` for npm; integrate into release-please pipeline |
 | Container image vulnerability scan (Trivy / grype) on push | M4 | runs against the digest pinned in the build pipeline |
 | Sigstore / cosign artifact signing | M4 | optional but recommended once we ship containers |
@@ -221,19 +326,12 @@ plus a row in the Schedule table above.
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| Coverage non-regression on PR (per-package thresholds) | M2 (after enough tests exist that a baseline is meaningful) | `go test -coverprofile`; compare against base branch |
-| Integration tests must use Testcontainers (forbidden SQLite gate already enforces the negative half) | M1 | analyzer scans `*_test.go` for `testcontainers-go` import in any package that touches `database/sql` |
-| Integration tests must not depend on host network (no outbound DNS resolves to public ranges) | M2 | sandboxed runner with egress block; failure mode is documented in the test contract |
-| Race detector must be on for `go test` in CI | M0 (with Go skeleton) | `go test -race ./...` in the `make go-test` target |
 | Benchmark regression gate (>10% slowdown blocks PR) | M3 | `benchstat` comparison; soft-failure first, hard-failure once stable |
-| Prompt golden tests structural validation (already on Schedule) | M2 | listed for completeness |
 
 ### Performance & cost budgets
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| `make pr` total wall-clock budget: 10 min (M0-M2), 15 min (M3+) | always | timed wrapper in CI; soft warn, then enforce |
-| Per-job timeout cap (see workflow-parity hardening above) | M1 | numeric bound in awk pass |
 | Workflow run-time alerting (median + p95 dashboard) | M3 | scheduled report job; not PR-blocking |
 | CI artifact size cap (per artifact, total per PR) | M3 | post-job inventory; surfaces accidental binary commits |
 | Cache hit rate floor for module / npm caches | M3 | observability only; informs cache key tuning |
@@ -242,11 +340,7 @@ plus a row in the Schedule table above.
 
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
-| PR title matches Conventional Commit (already mandated in skill, not yet machine-checked) | M1 | small script or pinned action validates `pull_request.title`; if Node tooling is used, pin it in the lockfile |
-| PR description must contain non-empty `## Risk` and `## Rollback` sections | M2 | regex check on `pull_request.body` |
 | PR file count cap (default: 50; opt-out with maintainer label) | M2 | API call from a dedicated workflow |
-| PR must link an issue or ADR for any change touching `docs/adr/` or `internal/sandbox/` | M2 | regex on `pull_request.body` plus path-filter |
-| Single-PR-per-workflow-file rule for `.github/workflows/*` changes | M2 | path-filter check; forces explicit reviewer attention on CI changes |
 | Squash-merge enforced as the only allowed merge strategy | M1 | repo setting + a guard workflow that warns on merge-commit shape |
 | Branch protection: require all M0 jobs as required checks | M1 | configured in repo settings, recorded here as the policy source |
 | Negative-test fixture per gate (`tests/ci/negative/<gate>.sh`) committed alongside the gate | M2 | repository convention; the existing `parity_neg_v2.sh` is the prototype |
@@ -256,5 +350,4 @@ plus a row in the Schedule table above.
 | Tightening | Trigger | Implementation hint |
 |---|---|---|
 | Move each activated row out of this section and into the Schedule table | continuous | each PR that lands a hardening item also deletes its row here |
-| Annotate every gate with an "escape-hatch owner + expiry" when allowlist files appear | first allowlist file | enforced by the existing Workflow Policy bullet on allowlists |
 | Keep `make pr` as the primary reproducible local CI command, with explicit documentation for PR-context-only exceptions | always | DCO is the current exception because its authoritative range exists only on `pull_request`; record any new deviation as a deliberate ADR |

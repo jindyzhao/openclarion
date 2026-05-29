@@ -1,0 +1,176 @@
+// Package reportprompt builds provider-neutral LLM requests for the
+// M2 headless report loop.
+package reportprompt
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/ports"
+	"github.com/openclarion/openclarion/internal/usecases/reportdraft"
+)
+
+// Scenario identifies the report prompt variant selected for an alert
+// group.
+type Scenario string
+
+const (
+	// ScenarioSingleAlert is for one isolated alert group.
+	ScenarioSingleAlert Scenario = "single_alert"
+	// ScenarioCascade is for causally related alerts across services.
+	ScenarioCascade Scenario = "cascade"
+	// ScenarioAlertStorm is for broad alert bursts with shared context.
+	ScenarioAlertStorm Scenario = "alert_storm"
+)
+
+// Valid reports whether s is a supported prompt scenario.
+func (s Scenario) Valid() bool {
+	switch s {
+	case ScenarioSingleAlert, ScenarioCascade, ScenarioAlertStorm:
+		return true
+	default:
+		return false
+	}
+}
+
+// SubReportInput holds the evidence needed to draft one SubReport.
+type SubReportInput struct {
+	Snapshot   domain.EvidenceSnapshot
+	Scenario   Scenario
+	GroupIndex int
+}
+
+// FinalReportInput holds validated SubReports for the fan-in draft.
+type FinalReportInput struct {
+	CorrelationKey string
+	SubReports     []reportdraft.SubReport
+}
+
+// BuildSubReportRequest returns a strict-JSON LLM request for one
+// snapshot-backed SubReport. The idempotency key intentionally follows
+// the M2 Activity shape: snapshot ID plus group index.
+func BuildSubReportRequest(in SubReportInput) (ports.LLMRequest, error) {
+	if in.Snapshot.ID == 0 {
+		return ports.LLMRequest{}, fmt.Errorf("report prompt: snapshot ID must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if in.Snapshot.Digest == "" {
+		return ports.LLMRequest{}, fmt.Errorf("report prompt: snapshot digest must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if in.GroupIndex < 0 {
+		return ports.LLMRequest{}, fmt.Errorf("report prompt: group index must be >= 0: %w", domain.ErrInvariantViolation)
+	}
+	if !in.Scenario.Valid() {
+		return ports.LLMRequest{}, fmt.Errorf("report prompt: scenario %q is unsupported: %w", in.Scenario, domain.ErrInvariantViolation)
+	}
+	payload, err := compactJSON("snapshot payload", in.Snapshot.Payload)
+	if err != nil {
+		return ports.LLMRequest{}, err
+	}
+
+	return ports.LLMRequest{
+		Messages: []ports.LLMMessage{
+			{Role: ports.LLMRoleSystem, Content: subReportSystemPrompt},
+			{Role: ports.LLMRoleUser, Content: subReportUserPrompt(in, payload)},
+		},
+		OutputSchema:   reportdraft.SubReportSchema(),
+		OutputSchemaID: reportdraft.SubReportSchemaID,
+		IdempotencyKey: subReportIdempotencyKey(in.Snapshot.ID, in.GroupIndex),
+	}, nil
+}
+
+// BuildFinalReportRequest returns a strict-JSON LLM request that
+// reduces validated SubReports into one FinalReport draft.
+func BuildFinalReportRequest(in FinalReportInput) (ports.LLMRequest, error) {
+	correlationKey := strings.TrimSpace(in.CorrelationKey)
+	if correlationKey == "" {
+		return ports.LLMRequest{}, fmt.Errorf("report prompt: correlation key must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if len(in.SubReports) == 0 {
+		return ports.LLMRequest{}, fmt.Errorf("report prompt: subreports must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	subReports, err := marshalCompact("subreports", in.SubReports)
+	if err != nil {
+		return ports.LLMRequest{}, err
+	}
+
+	return ports.LLMRequest{
+		Messages: []ports.LLMMessage{
+			{Role: ports.LLMRoleSystem, Content: finalReportSystemPrompt},
+			{Role: ports.LLMRoleUser, Content: finalReportUserPrompt(correlationKey, subReports)},
+		},
+		OutputSchema:   reportdraft.FinalReportSchema(),
+		OutputSchemaID: reportdraft.FinalReportSchemaID,
+		IdempotencyKey: "final_report:" + correlationKey,
+	}, nil
+}
+
+func subReportIdempotencyKey(snapshotID domain.EvidenceSnapshotID, groupIndex int) string {
+	return fmt.Sprintf("snapshot:%d/group:%d/sub_report", snapshotID, groupIndex)
+}
+
+func subReportUserPrompt(in SubReportInput, payload string) string {
+	return fmt.Sprintf(`Task: produce one SubReport as JSON for OpenClarion.
+Scenario: %s
+Scenario guidance: %s
+Evidence snapshot id: %d
+Evidence snapshot digest: %s
+Group index: %d
+
+Use only the evidence in this snapshot. Do not invent evidence IDs. If evidence is weak, set confidence to low and explain the uncertainty in the summary.
+
+Evidence snapshot JSON:
+%s`, in.Scenario, scenarioGuidance(in.Scenario), in.Snapshot.ID, in.Snapshot.Digest, in.GroupIndex, payload)
+}
+
+func finalReportUserPrompt(correlationKey string, subReports string) string {
+	return fmt.Sprintf(`Task: produce one FinalReport as JSON for OpenClarion.
+Correlation key: %s
+
+Use only these validated SubReports. Do not add facts that are not present in the SubReport JSON. Notification text must be concise and operator-facing.
+
+Validated SubReports JSON:
+%s`, correlationKey, subReports)
+}
+
+func scenarioGuidance(s Scenario) string {
+	switch s {
+	case ScenarioSingleAlert:
+		return "Treat the evidence as one isolated alert group and focus on direct operator impact."
+	case ScenarioCascade:
+		return "Look for causal ordering across services and identify the most likely upstream symptom."
+	case ScenarioAlertStorm:
+		return "Summarize the common trigger across many related alerts and avoid one finding per duplicate alert."
+	default:
+		return "Use the generic OpenClarion incident report structure."
+	}
+}
+
+func compactJSON(label string, raw json.RawMessage) (string, error) {
+	if len(raw) == 0 {
+		return "", fmt.Errorf("report prompt: %s must be non-empty: %w", label, domain.ErrInvariantViolation)
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err != nil {
+		return "", fmt.Errorf("report prompt: %s must be valid JSON: %w", label, domain.ErrInvariantViolation)
+	}
+	return buf.String(), nil
+}
+
+func marshalCompact(label string, value any) (string, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", fmt.Errorf("report prompt: marshal %s: %w", label, err)
+	}
+	return compactJSON(label, raw)
+}
+
+const subReportSystemPrompt = `You are OpenClarion's headless incident SubReport writer.
+Return only JSON that matches the supplied schema. Do not include markdown, prose outside JSON, or tool-call text.
+Use evidence IDs exactly as supplied. Prefer concise operational language over speculation.`
+
+const finalReportSystemPrompt = `You are OpenClarion's headless incident FinalReport writer.
+Return only JSON that matches the supplied schema. Do not include markdown, prose outside JSON, or tool-call text.
+Reduce validated SubReports into one operator-facing incident report and preserve uncertainty.`

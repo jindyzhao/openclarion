@@ -7,9 +7,14 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
-func NewWorker(c client.Client, uowFactory ports.UnitOfWorkFactory) worker.Worker {
+// NewWorker registers OpenClarion workflows and activities on a Temporal worker.
+func NewWorker(c client.Client, uowFactory ports.UnitOfWorkFactory, opts ...ActivityOption) worker.Worker {
 	w := worker.New(c, TaskQueue, worker.Options{})
 	w.RegisterWorkflow(DiagnosisWorkflow)
-	w.RegisterActivity(NewActivities(uowFactory))
+	w.RegisterWorkflow(DiagnosisRoomWorkflow)
+	w.RegisterWorkflow(ReportFanOutWorkflow)
+	w.RegisterWorkflow(ReportBatchWorkflow)
+	w.RegisterWorkflow(FinalReportWorkflow)
+	w.RegisterActivity(NewActivities(uowFactory, opts...))
 	return w
 }

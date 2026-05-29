@@ -16,6 +16,16 @@ servers:
 tags:
   - name: system
     description: System-level endpoints such as health checks and readiness probes.
+  - name: alerts
+    description: Alert event read models.
+  - name: evidence
+    description: Evidence snapshot read models.
+  - name: reports
+    description: Final report and subreport read models.
+  - name: diagnosis
+    description: Short-conversation diagnosis room authentication and transport bootstrap.
+  - name: operations
+    description: Operational dashboard read models.
 
 paths:
   /healthz:
@@ -32,8 +42,594 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
+              examples:
+                ok:
+                  value:
+                    status: ok
+  /api/v1/dashboard:
+    get:
+      operationId: getDashboard
+      summary: Get operational dashboard summary
+      description: Returns a bounded operational summary for recent alerts and final report delivery outcomes.
+      tags:
+        - operations
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+              examples:
+                dashboard:
+                  value:
+                    generated_at: "2026-05-28T05:00:00Z"
+                    alerts:
+                      total_recent: 20
+                      firing: 18
+                      resolved: 2
+                    reports:
+                      total_recent: 8
+                      delivered: 7
+                      failed: 1
+                      pending: 0
+                      missing_delivery: 0
+                      success_rate: 0.875
+                      severity:
+                        info: 2
+                        warning: 5
+                        critical: 1
+        "500":
+          description: Dashboard summary failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                failed:
+                  value:
+                    error: dashboard summary failed
+  /api/v1/alerts:
+    get:
+      operationId: listAlerts
+      summary: List alert events
+      description: Returns the most recent alert events ordered by starts_at descending.
+      tags:
+        - alerts
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Recent alert events
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertListResponse"
+              examples:
+                recent-alerts:
+                  value:
+                    items:
+                      - id: 42
+                        source: prometheus
+                        source_fingerprint: prom:cpu:node-a
+                        canonical_fingerprint: sha256:93b885adfe0da089cdf634904fd59f71
+                        labels:
+                          alertname: HighCPU
+                          instance: node-a
+                        annotations:
+                          summary: CPU usage is high
+                        status: firing
+                        starts_at: "2026-05-27T08:00:00Z"
+                        ends_at: null
+                        created_at: "2026-05-27T08:00:01Z"
+        "400":
+          description: Alert list request parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-limit:
+                  value:
+                    error: "limit must be between 1 and 500 (got 0)"
+        "500":
+          description: Alert list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: list alerts failed
+  /api/v1/evidence-snapshots:
+    get:
+      operationId: listEvidenceSnapshots
+      summary: List evidence snapshots
+      description: Returns the most recent evidence snapshots ordered by created_at descending.
+      tags:
+        - evidence
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Recent evidence snapshots
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvidenceSnapshotListResponse"
+              examples:
+                recent-snapshots:
+                  value:
+                    items:
+                      - id: 7
+                        alert_group_id: 5
+                        digest: sha256:7a38bf81f383f69433ad6e900434f376
+                        payload:
+                          group_key: service:checkout
+                          event_count: 2
+                        provenance:
+                          openclarion.core: ok
+                        status: complete
+                        missing_fields: []
+                        created_by_workflow: DiagnosisWorkflow
+                        created_at: "2026-05-27T09:00:00Z"
+        "400":
+          description: Evidence snapshot list request parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-limit:
+                  value:
+                    error: "limit must be between 1 and 500 (got 0)"
+        "500":
+          description: Evidence snapshot list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: list evidence snapshots failed
+  /api/v1/reports:
+    get:
+      operationId: listReports
+      summary: List final reports
+      description: Returns the most recent final reports ordered by created_at descending.
+      tags:
+        - reports
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Recent final reports
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportListResponse"
+              examples:
+                recent-reports:
+                  value:
+                    items:
+                      - id: 11
+                        correlation_key: window:checkout:2026-05-27T09:00:00Z
+                        title: Checkout latency incident
+                        executive_summary: Checkout latency increased after a deployment.
+                        severity: warning
+                        confidence: high
+                        notification_text: Checkout latency incident requires review.
+                        created_by_workflow: FinalReportWorkflow
+                        created_at: "2026-05-27T09:05:00Z"
+        "400":
+          description: Report list request parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-limit:
+                  value:
+                    error: "limit must be between 1 and 500 (got 0)"
+        "500":
+          description: Report list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: list reports failed
+  /api/v1/report-triggers/replay-window:
+    post:
+      operationId: triggerReportReplay
+      summary: Replay an alert window and start report generation
+      description: Replays a bounded alert window, persists EvidenceSnapshots, and starts the report batch workflow when snapshots are available.
+      tags:
+        - reports
+      requestBody:
+        description: Replay window and optional report workflow identity overrides.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportReplayTriggerRequest"
+            examples:
+              one-hour-window:
+                value:
+                  window_start: "2026-05-27T09:00:00Z"
+                  window_end: "2026-05-27T10:00:00Z"
+                  limit: 10000
+                  scenario: single_alert
+      responses:
+        "202":
+          description: Replay completed and report workflow start was accepted when snapshots existed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportReplayTriggerResponse"
+              examples:
+                started:
+                  value:
+                    started: true
+                    workflow_id: report-batch-0bf4f5e1a8cb2d3299dcb4d280d5a6a0
+                    run_id: 7a2a1f6f-f114-4f6d-92d7-9b59f1c9f6f4
+                    stats:
+                      ingested:
+                        total: 20
+                        saved: 20
+                        duplicate: 0
+                        failed: 0
+                      events_loaded: 20
+                      groups_built: 4
+                      groups_saved: 4
+                      groups_refreshed: 0
+                      groups_existing: 0
+                      snapshots_saved: 4
+                      snapshots_duplicate: 0
+                      groups_closed: 4
+                      failed: 0
+                    snapshots:
+                      - id: 7
+                        group_index: 0
+                        event_count: 5
+        "400":
+          description: Trigger request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-window:
+                  value:
+                    error: "window_end must be after window_start"
+        "503":
+          description: Report trigger provider wiring is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: report trigger is not configured
+        "500":
+          description: Replay or workflow start failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: trigger report replay failed
+  /api/v1/diagnosis/ws-ticket:
+    post:
+      operationId: issueDiagnosisWSTicket
+      summary: Issue a diagnosis WebSocket ticket
+      description: Authenticates an OIDC bearer token, checks diagnosis-room RBAC, and returns a short-lived single-use ticket for the WebSocket upgrade.
+      tags:
+        - diagnosis
+      requestBody:
+        description: Diagnosis session to authorize for WebSocket access.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiagnosisWSTicketRequest"
+            examples:
+              session:
+                value:
+                  session_id: diagnosis-session-42
+      responses:
+        "201":
+          description: WebSocket ticket issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisWSTicketResponse"
+              examples:
+                issued:
+                  value:
+                    ticket: b64url-single-use-ticket
+                    session_id: diagnosis-session-42
+                    expires_at: "2026-05-28T10:00:30Z"
+        "400":
+          description: Ticket request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: session_id must be non-empty
+        "401":
+          description: Bearer token is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthenticated:
+                  value:
+                    error: authentication failed
+        "403":
+          description: Authenticated principal cannot access the diagnosis session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthorized:
+                  value:
+                    error: unauthorized
+        "404":
+          description: Diagnosis session was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: diagnosis session not found
+        "503":
+          description: Diagnosis auth transport wiring is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: diagnosis auth is not configured
+        "500":
+          description: Ticket issuance failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: issue diagnosis WebSocket ticket failed
+  /api/v1/diagnosis/rooms:
+    post:
+      operationId: createDiagnosisRoom
+      summary: Create a diagnosis room
+      description: Authenticates an OIDC bearer token, starts a short-conversation diagnosis room from a frozen EvidenceSnapshot, and returns the session identifier once the room is ready for WebSocket tickets.
+      tags:
+        - diagnosis
+      requestBody:
+        description: Evidence snapshot to diagnose.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiagnosisRoomCreateRequest"
+            examples:
+              evidence:
+                value:
+                  evidence_snapshot_id: 7
+      responses:
+        "201":
+          description: Diagnosis room created and ready for WebSocket ticket issuance
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisRoomCreateResponse"
+              examples:
+                created:
+                  value:
+                    session_id: diagnosis-session-42
+                    evidence_snapshot_id: 7
+                    diagnosis_task_id: 101
+                    chat_session_id: 202
+                    workflow_id: diagnosis-room-diagnosis-session-42
+                    run_id: run-42
+        "400":
+          description: Room create request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: evidence_snapshot_id must be positive
+        "401":
+          description: Bearer token is missing, invalid, or lacks a principal subject
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthenticated:
+                  value:
+                    error: authentication failed
+        "403":
+          description: Authenticated principal cannot create a diagnosis room
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthorized:
+                  value:
+                    error: unauthorized
+        "404":
+          description: Evidence snapshot was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: evidence snapshot not found
+        "503":
+          description: Diagnosis room starter wiring is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: diagnosis room starter is not configured
+        "500":
+          description: Room creation failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: create diagnosis room failed
+  /api/v1/reports/{report_id}:
+    get:
+      operationId: getReport
+      summary: Get final report detail
+      description: Returns one final report with linked subreports for evidence traceability.
+      tags:
+        - reports
+      parameters:
+        - $ref: "#/components/parameters/ReportID"
+      responses:
+        "200":
+          description: Final report detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinalReportDetail"
+              examples:
+                report-detail:
+                  value:
+                    id: 11
+                    correlation_key: window:checkout:2026-05-27T09:00:00Z
+                    title: Checkout latency incident
+                    executive_summary: Checkout latency increased after a deployment.
+                    severity: warning
+                    confidence: high
+                    sub_reports:
+                      - title: Checkout API latency
+                        severity: warning
+                        summary: p95 latency exceeded the warning threshold.
+                    recommended_actions:
+                      - label: Inspect deployment
+                        detail: Compare checkout deployment timestamps with latency onset.
+                        priority: high
+                    notification_text: Checkout latency incident requires review.
+                    content:
+                      title: Checkout latency incident
+                      executive_summary: Checkout latency increased after a deployment.
+                    model: gpt-4.1-mini
+                    output_mode: json_schema
+                    created_by_workflow: FinalReportWorkflow
+                    created_at: "2026-05-27T09:05:00Z"
+                    linked_sub_reports:
+                      - id: 21
+                        evidence_snapshot_id: 7
+                        scenario: single_alert
+                        title: Checkout API latency
+                        summary: p95 latency exceeded the warning threshold.
+                        severity: warning
+                        confidence: high
+                        findings:
+                          - label: High p95 latency
+                            detail: p95 latency stayed above the warning threshold.
+                            evidence_id: alert:checkout-latency
+                        recommended_actions:
+                          - label: Inspect deployment
+                            detail: Compare checkout deployment timestamps with latency onset.
+                            priority: high
+                        evidence_refs:
+                          - alert:checkout-latency
+                        content:
+                          title: Checkout API latency
+                          summary: p95 latency exceeded the warning threshold.
+                        model: gpt-4.1-mini
+                        output_mode: json_schema
+                        created_by_workflow: ReportFanOutWorkflow
+                        created_at: "2026-05-27T09:04:00Z"
+        "400":
+          description: Report ID is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-id:
+                  value:
+                    error: "report_id must be positive"
+        "404":
+          description: Report was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: report not found
+        "500":
+          description: Report detail failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: get report failed
 
 components:
+  parameters:
+    ListLimit:
+      name: limit
+      in: query
+      description: Maximum number of rows to return.
+      required: false
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 500
+        default: 100
+    ReportID:
+      name: report_id
+      in: path
+      description: Final report identifier.
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
   schemas:
     HealthResponse:
       type: object
@@ -46,3 +642,871 @@ components:
             - "ok"
       required:
         - status
+    DashboardSummary:
+      type: object
+      description: Operational summary for the web dashboard.
+      properties:
+        generated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-05-28T05:00:00Z"
+        alerts:
+          allOf:
+            - $ref: "#/components/schemas/DashboardAlertStats"
+            - type: object
+          examples:
+            - total_recent: 20
+              firing: 18
+              resolved: 2
+        reports:
+          allOf:
+            - $ref: "#/components/schemas/DashboardReportStats"
+            - type: object
+          examples:
+            - total_recent: 8
+              delivered: 7
+              failed: 1
+              pending: 0
+              missing_delivery: 0
+              success_rate: 0.875
+              severity:
+                info: 2
+                warning: 5
+                critical: 1
+      required:
+        - generated_at
+        - alerts
+        - reports
+    DashboardAlertStats:
+      type: object
+      description: Alert counters from the recent alert-event window.
+      properties:
+        total_recent:
+          type: integer
+          format: int64
+          minimum: 0
+        firing:
+          type: integer
+          format: int64
+          minimum: 0
+        resolved:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+        - total_recent
+        - firing
+        - resolved
+    DashboardReportStats:
+      type: object
+      description: Final report and latest notification delivery counters from the recent report window.
+      properties:
+        total_recent:
+          type: integer
+          format: int64
+          minimum: 0
+        delivered:
+          type: integer
+          format: int64
+          minimum: 0
+        failed:
+          type: integer
+          format: int64
+          minimum: 0
+        pending:
+          type: integer
+          format: int64
+          minimum: 0
+        missing_delivery:
+          type: integer
+          format: int64
+          minimum: 0
+        success_rate:
+          type:
+            - number
+            - "null"
+          format: double
+          minimum: 0
+          maximum: 1
+          description: Ratio of recent final reports whose latest notification delivery is delivered; null when there are no recent reports.
+        severity:
+          $ref: "#/components/schemas/DashboardReportSeverityStats"
+      required:
+        - total_recent
+        - delivered
+        - failed
+        - pending
+        - missing_delivery
+        - success_rate
+        - severity
+    DashboardReportSeverityStats:
+      type: object
+      description: Recent final report severity counters.
+      properties:
+        info:
+          type: integer
+          format: int64
+          minimum: 0
+        warning:
+          type: integer
+          format: int64
+          minimum: 0
+        critical:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+        - info
+        - warning
+        - critical
+    AlertListResponse:
+      type: object
+      description: List response for recent alert events.
+      properties:
+        items:
+          type: array
+          examples:
+            - - id: 42
+                source: prometheus
+                source_fingerprint: prom:cpu:node-a
+                canonical_fingerprint: sha256:93b885adfe0da089cdf634904fd59f71
+                labels:
+                  alertname: HighCPU
+                annotations:
+                  summary: CPU usage is high
+                status: firing
+                starts_at: "2026-05-27T08:00:00Z"
+                ends_at: null
+                created_at: "2026-05-27T08:00:01Z"
+          items:
+            $ref: "#/components/schemas/AlertEventSummary"
+      examples:
+        - items:
+            - id: 42
+              source: prometheus
+              source_fingerprint: prom:cpu:node-a
+              canonical_fingerprint: sha256:93b885adfe0da089cdf634904fd59f71
+              labels:
+                alertname: HighCPU
+              annotations:
+                summary: CPU usage is high
+              status: firing
+              starts_at: "2026-05-27T08:00:00Z"
+              ends_at: null
+              created_at: "2026-05-27T08:00:01Z"
+      required:
+        - items
+    AlertEventSummary:
+      type: object
+      description: Alert event summary.
+      properties:
+        id:
+          type: integer
+          format: int64
+          examples:
+            - 42
+        source:
+          type: string
+        source_fingerprint:
+          type: string
+        canonical_fingerprint:
+          type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+        status:
+          type: string
+          enum:
+            - firing
+            - resolved
+        starts_at:
+          type: string
+          format: date-time
+        ends_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - source
+        - source_fingerprint
+        - canonical_fingerprint
+        - labels
+        - annotations
+        - status
+        - starts_at
+        - ends_at
+        - created_at
+    EvidenceSnapshotListResponse:
+      type: object
+      description: List response for recent evidence snapshots.
+      properties:
+        items:
+          type: array
+          examples:
+            - - id: 7
+                alert_group_id: 5
+                digest: sha256:7a38bf81f383f69433ad6e900434f376
+                payload:
+                  group_key: service:checkout
+                provenance:
+                  openclarion.core: ok
+                status: complete
+                missing_fields: []
+                created_by_workflow: DiagnosisWorkflow
+                created_at: "2026-05-27T09:00:00Z"
+          items:
+            $ref: "#/components/schemas/EvidenceSnapshotSummary"
+      examples:
+        - items:
+            - id: 7
+              alert_group_id: 5
+              digest: sha256:7a38bf81f383f69433ad6e900434f376
+              payload:
+                group_key: service:checkout
+              provenance:
+                openclarion.core: ok
+              status: complete
+              missing_fields: []
+              created_by_workflow: DiagnosisWorkflow
+              created_at: "2026-05-27T09:00:00Z"
+      required:
+        - items
+    EvidenceSnapshotSummary:
+      type: object
+      description: Evidence snapshot summary.
+      properties:
+        id:
+          type: integer
+          format: int64
+        alert_group_id:
+          type: integer
+          format: int64
+        digest:
+          type: string
+        payload:
+          type: object
+          additionalProperties: true
+        provenance:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum:
+            - complete
+            - partial
+            - failed
+        missing_fields:
+          type: array
+          items:
+            type: string
+        created_by_workflow:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - alert_group_id
+        - digest
+        - payload
+        - provenance
+        - status
+        - missing_fields
+        - created_by_workflow
+        - created_at
+    ReportListResponse:
+      type: object
+      description: List response for recent final reports.
+      properties:
+        items:
+          type: array
+          examples:
+            - - id: 11
+                correlation_key: window:checkout
+                title: Checkout latency incident
+                executive_summary: Checkout latency increased after a deployment.
+                severity: warning
+                confidence: high
+                notification_text: Checkout latency incident requires review.
+                created_by_workflow: FinalReportWorkflow
+                created_at: "2026-05-27T09:05:00Z"
+          items:
+            $ref: "#/components/schemas/FinalReportSummary"
+      required:
+        - items
+    DiagnosisRoomCreateRequest:
+      type: object
+      description: Request to create a short-conversation diagnosis room from a frozen EvidenceSnapshot.
+      properties:
+        evidence_snapshot_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: EvidenceSnapshot identifier that freezes the diagnosis context.
+          examples:
+            - 7
+      required:
+        - evidence_snapshot_id
+      additionalProperties: false
+    DiagnosisRoomCreateResponse:
+      type: object
+      description: Created diagnosis room identity and workflow handle.
+      properties:
+        session_id:
+          type: string
+          minLength: 1
+          description: External diagnosis room session key used for WebSocket ticket issuance.
+          examples:
+            - diagnosis-session-42
+        evidence_snapshot_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: EvidenceSnapshot that backs the room.
+          examples:
+            - 7
+        diagnosis_task_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Persistent DiagnosisTask created for the room workflow.
+          examples:
+            - 101
+        chat_session_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Persistent ChatSession created for the room transcript.
+          examples:
+            - 202
+        workflow_id:
+          type: string
+          minLength: 1
+          description: Temporal workflow ID for the room.
+          examples:
+            - diagnosis-room-diagnosis-session-42
+        run_id:
+          type: string
+          minLength: 1
+          description: Temporal run ID for the room.
+          examples:
+            - run-42
+      required:
+        - session_id
+        - evidence_snapshot_id
+        - diagnosis_task_id
+        - chat_session_id
+        - workflow_id
+        - run_id
+    DiagnosisWSTicketRequest:
+      type: object
+      description: Request to issue a short-lived WebSocket ticket for a diagnosis session.
+      properties:
+        session_id:
+          type: string
+          minLength: 1
+          description: Diagnosis session identifier to authorize.
+          examples:
+            - diagnosis-session-42
+      required:
+        - session_id
+      additionalProperties: false
+    DiagnosisWSTicketResponse:
+      type: object
+      description: Short-lived single-use WebSocket ticket. The ticket is returned only once and is never stored in raw form.
+      properties:
+        ticket:
+          type: string
+          minLength: 1
+          description: URL-safe opaque single-use ticket for the WebSocket query string.
+          examples:
+            - b64url-single-use-ticket
+        session_id:
+          type: string
+          minLength: 1
+          description: Diagnosis session the ticket authorizes.
+          examples:
+            - diagnosis-session-42
+        expires_at:
+          type: string
+          format: date-time
+          description: Ticket expiry time; V1 hard cap is 30 seconds after issuance.
+          examples:
+            - "2026-05-28T10:00:30Z"
+      required:
+        - ticket
+        - session_id
+        - expires_at
+    ReportReplayTriggerRequest:
+      type: object
+      description: Request to replay an alert window and trigger report generation.
+      properties:
+        window_start:
+          type: string
+          format: date-time
+          description: Inclusive replay window start.
+          examples:
+            - "2026-05-27T09:00:00Z"
+        window_end:
+          type: string
+          format: date-time
+          description: Exclusive replay window end.
+          examples:
+            - "2026-05-27T10:00:00Z"
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100000
+          default: 10000
+          description: Maximum number of alert events to load from the window.
+        correlation_key:
+          type: string
+          description: Optional final-report idempotency key. Defaults to the normalized replay window.
+          examples:
+            - incident-window-20260527T0900Z
+        workflow_id:
+          type: string
+          description: Optional Temporal workflow ID. Defaults to a stable hash of the correlation key.
+          examples:
+            - report-batch-0bf4f5e1a8cb2d3299dcb4d280d5a6a0
+        scenario:
+          type: string
+          description: Report prompt scenario used for generated SubReports.
+          enum:
+            - single_alert
+            - cascade
+            - alert_storm
+          examples:
+            - single_alert
+      required:
+        - window_start
+        - window_end
+      additionalProperties: false
+    ReportReplayTriggerResponse:
+      type: object
+      description: Result of replaying an alert window and optionally starting report generation.
+      properties:
+        started:
+          type: boolean
+          description: True when at least one EvidenceSnapshot was available and workflow start was accepted.
+          examples:
+            - true
+        workflow_id:
+          type: string
+          description: Started workflow ID, or empty when no snapshots were available.
+          examples:
+            - report-batch-0bf4f5e1a8cb2d3299dcb4d280d5a6a0
+        run_id:
+          type: string
+          description: Started workflow run ID, or empty when no snapshots were available.
+          examples:
+            - 7a2a1f6f-f114-4f6d-92d7-9b59f1c9f6f4
+        stats:
+          $ref: "#/components/schemas/ReportReplayStats"
+        snapshots:
+          type: array
+          examples:
+            - - id: 7
+                group_index: 0
+                event_count: 5
+          items:
+            $ref: "#/components/schemas/ReportReplaySnapshotRef"
+      required:
+        - started
+        - workflow_id
+        - run_id
+        - stats
+        - snapshots
+    ReportReplayStats:
+      type: object
+      description: Counter summary from alert replay.
+      examples:
+        - ingested:
+            total: 20
+            saved: 20
+            duplicate: 0
+            failed: 0
+          events_loaded: 20
+          groups_built: 4
+          groups_saved: 4
+          groups_refreshed: 0
+          groups_existing: 0
+          snapshots_saved: 4
+          snapshots_duplicate: 0
+          groups_closed: 4
+          failed: 0
+      properties:
+        ingested:
+          $ref: "#/components/schemas/ReportReplayIngestStats"
+        events_loaded:
+          type: integer
+          format: int64
+        groups_built:
+          type: integer
+          format: int64
+        groups_saved:
+          type: integer
+          format: int64
+        groups_refreshed:
+          type: integer
+          format: int64
+        groups_existing:
+          type: integer
+          format: int64
+        snapshots_saved:
+          type: integer
+          format: int64
+        snapshots_duplicate:
+          type: integer
+          format: int64
+        groups_closed:
+          type: integer
+          format: int64
+        failed:
+          type: integer
+          format: int64
+      required:
+        - ingested
+        - events_loaded
+        - groups_built
+        - groups_saved
+        - groups_refreshed
+        - groups_existing
+        - snapshots_saved
+        - snapshots_duplicate
+        - groups_closed
+        - failed
+    ReportReplayIngestStats:
+      type: object
+      description: Counter summary from alert ingestion.
+      properties:
+        total:
+          type: integer
+          format: int64
+        saved:
+          type: integer
+          format: int64
+        duplicate:
+          type: integer
+          format: int64
+        failed:
+          type: integer
+          format: int64
+      required:
+        - total
+        - saved
+        - duplicate
+        - failed
+    ReportReplaySnapshotRef:
+      type: object
+      description: EvidenceSnapshot reference returned by replay.
+      properties:
+        id:
+          type: integer
+          format: int64
+        group_index:
+          type: integer
+          format: int64
+        event_count:
+          type: integer
+          format: int64
+      required:
+        - id
+        - group_index
+        - event_count
+    FinalReportSummary:
+      type: object
+      description: Final report summary for list views.
+      properties:
+        id:
+          type: integer
+          format: int64
+          examples:
+            - 11
+        correlation_key:
+          type: string
+        title:
+          type: string
+        executive_summary:
+          type: string
+        severity:
+          $ref: "#/components/schemas/ReportSeverity"
+        confidence:
+          $ref: "#/components/schemas/ReportConfidence"
+        notification_text:
+          type: string
+        created_by_workflow:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - correlation_key
+        - title
+        - executive_summary
+        - severity
+        - confidence
+        - notification_text
+        - created_by_workflow
+        - created_at
+    FinalReportDetail:
+      type: object
+      description: Final report detail with linked SubReports.
+      properties:
+        id:
+          type: integer
+          format: int64
+          examples:
+            - 11
+        correlation_key:
+          type: string
+          examples:
+            - window:checkout
+        title:
+          type: string
+          examples:
+            - Checkout latency incident
+        executive_summary:
+          type: string
+          examples:
+            - Checkout latency increased after a deployment.
+        severity:
+          $ref: "#/components/schemas/ReportSeverity"
+        confidence:
+          $ref: "#/components/schemas/ReportConfidence"
+        sub_reports:
+          type: array
+          examples:
+            - - title: Checkout API latency
+                severity: warning
+                summary: p95 latency exceeded the warning threshold.
+          items:
+            $ref: "#/components/schemas/FinalReportSubReportSummary"
+        recommended_actions:
+          type: array
+          examples:
+            - - label: Inspect deployment
+                detail: Compare checkout deployment timestamps with latency onset.
+                priority: high
+          items:
+            $ref: "#/components/schemas/ReportAction"
+        notification_text:
+          type: string
+          examples:
+            - Checkout latency incident requires review.
+        content:
+          type: object
+          examples:
+            - title: Checkout latency incident
+              executive_summary: Checkout latency increased after a deployment.
+          additionalProperties: true
+        model:
+          type: string
+          examples:
+            - gpt-4.1-mini
+        output_mode:
+          type: string
+          examples:
+            - json_schema
+        created_by_workflow:
+          type: string
+          examples:
+            - FinalReportWorkflow
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-05-27T09:05:00Z"
+        linked_sub_reports:
+          type: array
+          examples:
+            - - id: 21
+                evidence_snapshot_id: 7
+                scenario: single_alert
+                title: Checkout API latency
+                summary: p95 latency exceeded the warning threshold.
+                severity: warning
+                confidence: high
+                findings:
+                  - label: High p95 latency
+                    detail: p95 latency stayed above the warning threshold.
+                    evidence_id: alert:checkout-latency
+                recommended_actions:
+                  - label: Inspect deployment
+                    detail: Compare checkout deployment timestamps with latency onset.
+                    priority: high
+                evidence_refs:
+                  - alert:checkout-latency
+                content:
+                  title: Checkout API latency
+                model: gpt-4.1-mini
+                output_mode: json_schema
+                created_by_workflow: ReportFanOutWorkflow
+                created_at: "2026-05-27T09:04:00Z"
+          items:
+            $ref: "#/components/schemas/SubReportDetail"
+      required:
+        - id
+        - correlation_key
+        - title
+        - executive_summary
+        - severity
+        - confidence
+        - sub_reports
+        - recommended_actions
+        - notification_text
+        - content
+        - model
+        - output_mode
+        - created_by_workflow
+        - created_at
+        - linked_sub_reports
+    SubReportDetail:
+      type: object
+      description: Persisted subreport linked to a final report.
+      properties:
+        id:
+          type: integer
+          format: int64
+        evidence_snapshot_id:
+          type: integer
+          format: int64
+        scenario:
+          type: string
+        title:
+          type: string
+        summary:
+          type: string
+        severity:
+          $ref: "#/components/schemas/ReportSeverity"
+        confidence:
+          $ref: "#/components/schemas/ReportConfidence"
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportFinding"
+        recommended_actions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReportAction"
+        evidence_refs:
+          type: array
+          items:
+            type: string
+        content:
+          type: object
+          additionalProperties: true
+        model:
+          type: string
+        output_mode:
+          type: string
+        created_by_workflow:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - evidence_snapshot_id
+        - scenario
+        - title
+        - summary
+        - severity
+        - confidence
+        - findings
+        - recommended_actions
+        - evidence_refs
+        - content
+        - model
+        - output_mode
+        - created_by_workflow
+        - created_at
+    FinalReportSubReportSummary:
+      type: object
+      description: SubReport summary embedded in the final report content.
+      properties:
+        title:
+          type: string
+        severity:
+          $ref: "#/components/schemas/ReportSeverity"
+        summary:
+          type: string
+      required:
+        - title
+        - severity
+        - summary
+    ReportFinding:
+      type: object
+      description: Evidence-backed report finding.
+      properties:
+        label:
+          type: string
+        detail:
+          type: string
+        evidence_id:
+          type: string
+      required:
+        - label
+        - detail
+        - evidence_id
+    ReportAction:
+      type: object
+      description: Operator action recommended by a report.
+      properties:
+        label:
+          type: string
+        detail:
+          type: string
+        priority:
+          type: string
+          enum:
+            - low
+            - medium
+            - high
+      required:
+        - label
+        - detail
+        - priority
+    ReportSeverity:
+      type: string
+      description: Report-facing severity vocabulary.
+      examples:
+        - warning
+      enum:
+        - info
+        - warning
+        - critical
+    ReportConfidence:
+      type: string
+      description: Strength of evidence supporting the report.
+      examples:
+        - high
+      enum:
+        - low
+        - medium
+        - high
+    ErrorResponse:
+      type: object
+      description: Error response payload.
+      properties:
+        error:
+          type: string
+          examples:
+            - "limit must be between 1 and 500 (got 0)"
+      required:
+        - error
+      examples:
+        - error: "limit must be between 1 and 500 (got 0)"

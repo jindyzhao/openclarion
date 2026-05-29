@@ -48,9 +48,11 @@ type DiagnosisTaskEdges struct {
 	Snapshot *EvidenceSnapshot `json:"snapshot,omitempty"`
 	// Events holds the value of the events edge.
 	Events []*DiagnosisTaskEvent `json:"events,omitempty"`
+	// ChatSessions holds the value of the chat_sessions edge.
+	ChatSessions []*ChatSession `json:"chat_sessions,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
 }
 
 // SnapshotOrErr returns the Snapshot value or an error if the edge
@@ -71,6 +73,15 @@ func (e DiagnosisTaskEdges) EventsOrErr() ([]*DiagnosisTaskEvent, error) {
 		return e.Events, nil
 	}
 	return nil, &NotLoadedError{edge: "events"}
+}
+
+// ChatSessionsOrErr returns the ChatSessions value or an error if the edge
+// was not loaded in eager-loading.
+func (e DiagnosisTaskEdges) ChatSessionsOrErr() ([]*ChatSession, error) {
+	if e.loadedTypes[2] {
+		return e.ChatSessions, nil
+	}
+	return nil, &NotLoadedError{edge: "chat_sessions"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -182,6 +193,11 @@ func (_m *DiagnosisTask) QuerySnapshot() *EvidenceSnapshotQuery {
 // QueryEvents queries the "events" edge of the DiagnosisTask entity.
 func (_m *DiagnosisTask) QueryEvents() *DiagnosisTaskEventQuery {
 	return NewDiagnosisTaskClient(_m.config).QueryEvents(_m)
+}
+
+// QueryChatSessions queries the "chat_sessions" edge of the DiagnosisTask entity.
+func (_m *DiagnosisTask) QueryChatSessions() *ChatSessionQuery {
+	return NewDiagnosisTaskClient(_m.config).QueryChatSessions(_m)
 }
 
 // Update returns a builder for updating this DiagnosisTask.

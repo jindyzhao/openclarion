@@ -7,10 +7,16 @@ import (
 
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
+	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
+	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/schema"
+	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
 
 // The init function reads all schema descriptors with runtime code
@@ -131,6 +137,222 @@ func init() {
 	alertgroup.DefaultUpdatedAt = alertgroupDescUpdatedAt.Default.(func() time.Time)
 	// alertgroup.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	alertgroup.UpdateDefaultUpdatedAt = alertgroupDescUpdatedAt.UpdateDefault.(func() time.Time)
+	chatsessionFields := schema.ChatSession{}.Fields()
+	_ = chatsessionFields
+	// chatsessionDescSessionKey is the schema descriptor for session_key field.
+	chatsessionDescSessionKey := chatsessionFields[1].Descriptor()
+	// chatsession.SessionKeyValidator is a validator for the "session_key" field. It is called by the builders before save.
+	chatsession.SessionKeyValidator = func() func(string) error {
+		validators := chatsessionDescSessionKey.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(session_key string) error {
+			for _, fn := range fns {
+				if err := fn(session_key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// chatsessionDescOwnerSubject is the schema descriptor for owner_subject field.
+	chatsessionDescOwnerSubject := chatsessionFields[2].Descriptor()
+	// chatsession.OwnerSubjectValidator is a validator for the "owner_subject" field. It is called by the builders before save.
+	chatsession.OwnerSubjectValidator = func() func(string) error {
+		validators := chatsessionDescOwnerSubject.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(owner_subject string) error {
+			for _, fn := range fns {
+				if err := fn(owner_subject); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// chatsessionDescStatus is the schema descriptor for status field.
+	chatsessionDescStatus := chatsessionFields[3].Descriptor()
+	// chatsession.DefaultStatus holds the default value on creation for the status field.
+	chatsession.DefaultStatus = chatsessionDescStatus.Default.(string)
+	// chatsession.StatusValidator is a validator for the "status" field. It is called by the builders before save.
+	chatsession.StatusValidator = chatsessionDescStatus.Validators[0].(func(string) error)
+	// chatsessionDescTurnCount is the schema descriptor for turn_count field.
+	chatsessionDescTurnCount := chatsessionFields[4].Descriptor()
+	// chatsession.DefaultTurnCount holds the default value on creation for the turn_count field.
+	chatsession.DefaultTurnCount = chatsessionDescTurnCount.Default.(int)
+	// chatsession.TurnCountValidator is a validator for the "turn_count" field. It is called by the builders before save.
+	chatsession.TurnCountValidator = chatsessionDescTurnCount.Validators[0].(func(int) error)
+	// chatsessionDescCloseReason is the schema descriptor for close_reason field.
+	chatsessionDescCloseReason := chatsessionFields[8].Descriptor()
+	// chatsession.CloseReasonValidator is a validator for the "close_reason" field. It is called by the builders before save.
+	chatsession.CloseReasonValidator = chatsessionDescCloseReason.Validators[0].(func(string) error)
+	// chatsessionDescCreatedAt is the schema descriptor for created_at field.
+	chatsessionDescCreatedAt := chatsessionFields[9].Descriptor()
+	// chatsession.DefaultCreatedAt holds the default value on creation for the created_at field.
+	chatsession.DefaultCreatedAt = chatsessionDescCreatedAt.Default.(func() time.Time)
+	// chatsessionDescUpdatedAt is the schema descriptor for updated_at field.
+	chatsessionDescUpdatedAt := chatsessionFields[10].Descriptor()
+	// chatsession.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	chatsession.DefaultUpdatedAt = chatsessionDescUpdatedAt.Default.(func() time.Time)
+	// chatsession.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	chatsession.UpdateDefaultUpdatedAt = chatsessionDescUpdatedAt.UpdateDefault.(func() time.Time)
+	chatturnFields := schema.ChatTurn{}.Fields()
+	_ = chatturnFields
+	// chatturnDescMessageID is the schema descriptor for message_id field.
+	chatturnDescMessageID := chatturnFields[1].Descriptor()
+	// chatturn.MessageIDValidator is a validator for the "message_id" field. It is called by the builders before save.
+	chatturn.MessageIDValidator = func() func(string) error {
+		validators := chatturnDescMessageID.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(message_id string) error {
+			for _, fn := range fns {
+				if err := fn(message_id); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// chatturnDescSequence is the schema descriptor for sequence field.
+	chatturnDescSequence := chatturnFields[2].Descriptor()
+	// chatturn.SequenceValidator is a validator for the "sequence" field. It is called by the builders before save.
+	chatturn.SequenceValidator = chatturnDescSequence.Validators[0].(func(int) error)
+	// chatturnDescRole is the schema descriptor for role field.
+	chatturnDescRole := chatturnFields[3].Descriptor()
+	// chatturn.RoleValidator is a validator for the "role" field. It is called by the builders before save.
+	chatturn.RoleValidator = func() func(string) error {
+		validators := chatturnDescRole.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(role string) error {
+			for _, fn := range fns {
+				if err := fn(role); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// chatturnDescActorSubject is the schema descriptor for actor_subject field.
+	chatturnDescActorSubject := chatturnFields[4].Descriptor()
+	// chatturn.ActorSubjectValidator is a validator for the "actor_subject" field. It is called by the builders before save.
+	chatturn.ActorSubjectValidator = func() func(string) error {
+		validators := chatturnDescActorSubject.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(actor_subject string) error {
+			for _, fn := range fns {
+				if err := fn(actor_subject); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// chatturnDescContent is the schema descriptor for content field.
+	chatturnDescContent := chatturnFields[5].Descriptor()
+	// chatturn.ContentValidator is a validator for the "content" field. It is called by the builders before save.
+	chatturn.ContentValidator = chatturnDescContent.Validators[0].(func(string) error)
+	// chatturnDescCreatedAt is the schema descriptor for created_at field.
+	chatturnDescCreatedAt := chatturnFields[8].Descriptor()
+	// chatturn.DefaultCreatedAt holds the default value on creation for the created_at field.
+	chatturn.DefaultCreatedAt = chatturnDescCreatedAt.Default.(func() time.Time)
+	diagnosisauthticketFields := schema.DiagnosisAuthTicket{}.Fields()
+	_ = diagnosisauthticketFields
+	// diagnosisauthticketDescTokenHash is the schema descriptor for token_hash field.
+	diagnosisauthticketDescTokenHash := diagnosisauthticketFields[0].Descriptor()
+	// diagnosisauthticket.TokenHashValidator is a validator for the "token_hash" field. It is called by the builders before save.
+	diagnosisauthticket.TokenHashValidator = func() func(string) error {
+		validators := diagnosisauthticketDescTokenHash.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(token_hash string) error {
+			for _, fn := range fns {
+				if err := fn(token_hash); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// diagnosisauthticketDescSubject is the schema descriptor for subject field.
+	diagnosisauthticketDescSubject := diagnosisauthticketFields[1].Descriptor()
+	// diagnosisauthticket.SubjectValidator is a validator for the "subject" field. It is called by the builders before save.
+	diagnosisauthticket.SubjectValidator = func() func(string) error {
+		validators := diagnosisauthticketDescSubject.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(subject string) error {
+			for _, fn := range fns {
+				if err := fn(subject); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// diagnosisauthticketDescSessionID is the schema descriptor for session_id field.
+	diagnosisauthticketDescSessionID := diagnosisauthticketFields[3].Descriptor()
+	// diagnosisauthticket.SessionIDValidator is a validator for the "session_id" field. It is called by the builders before save.
+	diagnosisauthticket.SessionIDValidator = func() func(string) error {
+		validators := diagnosisauthticketDescSessionID.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(session_id string) error {
+			for _, fn := range fns {
+				if err := fn(session_id); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// diagnosisauthticketDescScope is the schema descriptor for scope field.
+	diagnosisauthticketDescScope := diagnosisauthticketFields[4].Descriptor()
+	// diagnosisauthticket.ScopeValidator is a validator for the "scope" field. It is called by the builders before save.
+	diagnosisauthticket.ScopeValidator = func() func(string) error {
+		validators := diagnosisauthticketDescScope.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(scope string) error {
+			for _, fn := range fns {
+				if err := fn(scope); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// diagnosisauthticketDescCreatedAt is the schema descriptor for created_at field.
+	diagnosisauthticketDescCreatedAt := diagnosisauthticketFields[8].Descriptor()
+	// diagnosisauthticket.DefaultCreatedAt holds the default value on creation for the created_at field.
+	diagnosisauthticket.DefaultCreatedAt = diagnosisauthticketDescCreatedAt.Default.(func() time.Time)
+	// diagnosisauthticketDescUpdatedAt is the schema descriptor for updated_at field.
+	diagnosisauthticketDescUpdatedAt := diagnosisauthticketFields[9].Descriptor()
+	// diagnosisauthticket.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	diagnosisauthticket.DefaultUpdatedAt = diagnosisauthticketDescUpdatedAt.Default.(func() time.Time)
+	// diagnosisauthticket.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	diagnosisauthticket.UpdateDefaultUpdatedAt = diagnosisauthticketDescUpdatedAt.UpdateDefault.(func() time.Time)
 	diagnosistaskFields := schema.DiagnosisTask{}.Fields()
 	_ = diagnosistaskFields
 	// diagnosistaskDescWorkflowID is the schema descriptor for workflow_id field.
@@ -251,4 +473,322 @@ func init() {
 	evidencesnapshotDescCreatedAt := evidencesnapshotFields[7].Descriptor()
 	// evidencesnapshot.DefaultCreatedAt holds the default value on creation for the created_at field.
 	evidencesnapshot.DefaultCreatedAt = evidencesnapshotDescCreatedAt.Default.(func() time.Time)
+	finalreportFields := schema.FinalReport{}.Fields()
+	_ = finalreportFields
+	// finalreportDescCorrelationKey is the schema descriptor for correlation_key field.
+	finalreportDescCorrelationKey := finalreportFields[0].Descriptor()
+	// finalreport.CorrelationKeyValidator is a validator for the "correlation_key" field. It is called by the builders before save.
+	finalreport.CorrelationKeyValidator = func() func(string) error {
+		validators := finalreportDescCorrelationKey.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(correlation_key string) error {
+			for _, fn := range fns {
+				if err := fn(correlation_key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// finalreportDescIdempotencyKey is the schema descriptor for idempotency_key field.
+	finalreportDescIdempotencyKey := finalreportFields[1].Descriptor()
+	// finalreport.IdempotencyKeyValidator is a validator for the "idempotency_key" field. It is called by the builders before save.
+	finalreport.IdempotencyKeyValidator = func() func(string) error {
+		validators := finalreportDescIdempotencyKey.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(idempotency_key string) error {
+			for _, fn := range fns {
+				if err := fn(idempotency_key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// finalreportDescTitle is the schema descriptor for title field.
+	finalreportDescTitle := finalreportFields[2].Descriptor()
+	// finalreport.TitleValidator is a validator for the "title" field. It is called by the builders before save.
+	finalreport.TitleValidator = func() func(string) error {
+		validators := finalreportDescTitle.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(title string) error {
+			for _, fn := range fns {
+				if err := fn(title); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// finalreportDescExecutiveSummary is the schema descriptor for executive_summary field.
+	finalreportDescExecutiveSummary := finalreportFields[3].Descriptor()
+	// finalreport.ExecutiveSummaryValidator is a validator for the "executive_summary" field. It is called by the builders before save.
+	finalreport.ExecutiveSummaryValidator = func() func(string) error {
+		validators := finalreportDescExecutiveSummary.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(executive_summary string) error {
+			for _, fn := range fns {
+				if err := fn(executive_summary); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// finalreportDescSeverity is the schema descriptor for severity field.
+	finalreportDescSeverity := finalreportFields[4].Descriptor()
+	// finalreport.SeverityValidator is a validator for the "severity" field. It is called by the builders before save.
+	finalreport.SeverityValidator = func() func(string) error {
+		validators := finalreportDescSeverity.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(severity string) error {
+			for _, fn := range fns {
+				if err := fn(severity); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// finalreportDescConfidence is the schema descriptor for confidence field.
+	finalreportDescConfidence := finalreportFields[5].Descriptor()
+	// finalreport.ConfidenceValidator is a validator for the "confidence" field. It is called by the builders before save.
+	finalreport.ConfidenceValidator = func() func(string) error {
+		validators := finalreportDescConfidence.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(confidence string) error {
+			for _, fn := range fns {
+				if err := fn(confidence); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// finalreportDescNotificationText is the schema descriptor for notification_text field.
+	finalreportDescNotificationText := finalreportFields[8].Descriptor()
+	// finalreport.NotificationTextValidator is a validator for the "notification_text" field. It is called by the builders before save.
+	finalreport.NotificationTextValidator = func() func(string) error {
+		validators := finalreportDescNotificationText.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(notification_text string) error {
+			for _, fn := range fns {
+				if err := fn(notification_text); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// finalreportDescModel is the schema descriptor for model field.
+	finalreportDescModel := finalreportFields[10].Descriptor()
+	// finalreport.ModelValidator is a validator for the "model" field. It is called by the builders before save.
+	finalreport.ModelValidator = finalreportDescModel.Validators[0].(func(string) error)
+	// finalreportDescOutputMode is the schema descriptor for output_mode field.
+	finalreportDescOutputMode := finalreportFields[11].Descriptor()
+	// finalreport.OutputModeValidator is a validator for the "output_mode" field. It is called by the builders before save.
+	finalreport.OutputModeValidator = finalreportDescOutputMode.Validators[0].(func(string) error)
+	// finalreportDescCreatedByWorkflow is the schema descriptor for created_by_workflow field.
+	finalreportDescCreatedByWorkflow := finalreportFields[12].Descriptor()
+	// finalreport.CreatedByWorkflowValidator is a validator for the "created_by_workflow" field. It is called by the builders before save.
+	finalreport.CreatedByWorkflowValidator = finalreportDescCreatedByWorkflow.Validators[0].(func(string) error)
+	// finalreportDescCreatedAt is the schema descriptor for created_at field.
+	finalreportDescCreatedAt := finalreportFields[13].Descriptor()
+	// finalreport.DefaultCreatedAt holds the default value on creation for the created_at field.
+	finalreport.DefaultCreatedAt = finalreportDescCreatedAt.Default.(func() time.Time)
+	reportnotificationdeliveryFields := schema.ReportNotificationDelivery{}.Fields()
+	_ = reportnotificationdeliveryFields
+	// reportnotificationdeliveryDescIdempotencyKey is the schema descriptor for idempotency_key field.
+	reportnotificationdeliveryDescIdempotencyKey := reportnotificationdeliveryFields[1].Descriptor()
+	// reportnotificationdelivery.IdempotencyKeyValidator is a validator for the "idempotency_key" field. It is called by the builders before save.
+	reportnotificationdelivery.IdempotencyKeyValidator = func() func(string) error {
+		validators := reportnotificationdeliveryDescIdempotencyKey.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(idempotency_key string) error {
+			for _, fn := range fns {
+				if err := fn(idempotency_key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// reportnotificationdeliveryDescProviderMessageID is the schema descriptor for provider_message_id field.
+	reportnotificationdeliveryDescProviderMessageID := reportnotificationdeliveryFields[2].Descriptor()
+	// reportnotificationdelivery.ProviderMessageIDValidator is a validator for the "provider_message_id" field. It is called by the builders before save.
+	reportnotificationdelivery.ProviderMessageIDValidator = reportnotificationdeliveryDescProviderMessageID.Validators[0].(func(string) error)
+	// reportnotificationdeliveryDescProviderStatus is the schema descriptor for provider_status field.
+	reportnotificationdeliveryDescProviderStatus := reportnotificationdeliveryFields[3].Descriptor()
+	// reportnotificationdelivery.ProviderStatusValidator is a validator for the "provider_status" field. It is called by the builders before save.
+	reportnotificationdelivery.ProviderStatusValidator = reportnotificationdeliveryDescProviderStatus.Validators[0].(func(string) error)
+	// reportnotificationdeliveryDescStatus is the schema descriptor for status field.
+	reportnotificationdeliveryDescStatus := reportnotificationdeliveryFields[4].Descriptor()
+	// reportnotificationdelivery.DefaultStatus holds the default value on creation for the status field.
+	reportnotificationdelivery.DefaultStatus = reportnotificationdeliveryDescStatus.Default.(string)
+	// reportnotificationdelivery.StatusValidator is a validator for the "status" field. It is called by the builders before save.
+	reportnotificationdelivery.StatusValidator = reportnotificationdeliveryDescStatus.Validators[0].(func(string) error)
+	// reportnotificationdeliveryDescFailureReason is the schema descriptor for failure_reason field.
+	reportnotificationdeliveryDescFailureReason := reportnotificationdeliveryFields[6].Descriptor()
+	// reportnotificationdelivery.FailureReasonValidator is a validator for the "failure_reason" field. It is called by the builders before save.
+	reportnotificationdelivery.FailureReasonValidator = reportnotificationdeliveryDescFailureReason.Validators[0].(func(string) error)
+	// reportnotificationdeliveryDescCreatedAt is the schema descriptor for created_at field.
+	reportnotificationdeliveryDescCreatedAt := reportnotificationdeliveryFields[8].Descriptor()
+	// reportnotificationdelivery.DefaultCreatedAt holds the default value on creation for the created_at field.
+	reportnotificationdelivery.DefaultCreatedAt = reportnotificationdeliveryDescCreatedAt.Default.(func() time.Time)
+	// reportnotificationdeliveryDescUpdatedAt is the schema descriptor for updated_at field.
+	reportnotificationdeliveryDescUpdatedAt := reportnotificationdeliveryFields[9].Descriptor()
+	// reportnotificationdelivery.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	reportnotificationdelivery.DefaultUpdatedAt = reportnotificationdeliveryDescUpdatedAt.Default.(func() time.Time)
+	// reportnotificationdelivery.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	reportnotificationdelivery.UpdateDefaultUpdatedAt = reportnotificationdeliveryDescUpdatedAt.UpdateDefault.(func() time.Time)
+	subreportFields := schema.SubReport{}.Fields()
+	_ = subreportFields
+	// subreportDescIdempotencyKey is the schema descriptor for idempotency_key field.
+	subreportDescIdempotencyKey := subreportFields[1].Descriptor()
+	// subreport.IdempotencyKeyValidator is a validator for the "idempotency_key" field. It is called by the builders before save.
+	subreport.IdempotencyKeyValidator = func() func(string) error {
+		validators := subreportDescIdempotencyKey.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(idempotency_key string) error {
+			for _, fn := range fns {
+				if err := fn(idempotency_key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// subreportDescScenario is the schema descriptor for scenario field.
+	subreportDescScenario := subreportFields[2].Descriptor()
+	// subreport.ScenarioValidator is a validator for the "scenario" field. It is called by the builders before save.
+	subreport.ScenarioValidator = func() func(string) error {
+		validators := subreportDescScenario.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(scenario string) error {
+			for _, fn := range fns {
+				if err := fn(scenario); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// subreportDescTitle is the schema descriptor for title field.
+	subreportDescTitle := subreportFields[3].Descriptor()
+	// subreport.TitleValidator is a validator for the "title" field. It is called by the builders before save.
+	subreport.TitleValidator = func() func(string) error {
+		validators := subreportDescTitle.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(title string) error {
+			for _, fn := range fns {
+				if err := fn(title); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// subreportDescSummary is the schema descriptor for summary field.
+	subreportDescSummary := subreportFields[4].Descriptor()
+	// subreport.SummaryValidator is a validator for the "summary" field. It is called by the builders before save.
+	subreport.SummaryValidator = func() func(string) error {
+		validators := subreportDescSummary.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(summary string) error {
+			for _, fn := range fns {
+				if err := fn(summary); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// subreportDescSeverity is the schema descriptor for severity field.
+	subreportDescSeverity := subreportFields[5].Descriptor()
+	// subreport.SeverityValidator is a validator for the "severity" field. It is called by the builders before save.
+	subreport.SeverityValidator = func() func(string) error {
+		validators := subreportDescSeverity.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(severity string) error {
+			for _, fn := range fns {
+				if err := fn(severity); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// subreportDescConfidence is the schema descriptor for confidence field.
+	subreportDescConfidence := subreportFields[6].Descriptor()
+	// subreport.ConfidenceValidator is a validator for the "confidence" field. It is called by the builders before save.
+	subreport.ConfidenceValidator = func() func(string) error {
+		validators := subreportDescConfidence.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(confidence string) error {
+			for _, fn := range fns {
+				if err := fn(confidence); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// subreportDescModel is the schema descriptor for model field.
+	subreportDescModel := subreportFields[11].Descriptor()
+	// subreport.ModelValidator is a validator for the "model" field. It is called by the builders before save.
+	subreport.ModelValidator = subreportDescModel.Validators[0].(func(string) error)
+	// subreportDescOutputMode is the schema descriptor for output_mode field.
+	subreportDescOutputMode := subreportFields[12].Descriptor()
+	// subreport.OutputModeValidator is a validator for the "output_mode" field. It is called by the builders before save.
+	subreport.OutputModeValidator = subreportDescOutputMode.Validators[0].(func(string) error)
+	// subreportDescCreatedByWorkflow is the schema descriptor for created_by_workflow field.
+	subreportDescCreatedByWorkflow := subreportFields[13].Descriptor()
+	// subreport.CreatedByWorkflowValidator is a validator for the "created_by_workflow" field. It is called by the builders before save.
+	subreport.CreatedByWorkflowValidator = subreportDescCreatedByWorkflow.Validators[0].(func(string) error)
+	// subreportDescCreatedAt is the schema descriptor for created_at field.
+	subreportDescCreatedAt := subreportFields[14].Descriptor()
+	// subreport.DefaultCreatedAt holds the default value on creation for the created_at field.
+	subreport.DefaultCreatedAt = subreportDescCreatedAt.Default.(func() time.Time)
 }

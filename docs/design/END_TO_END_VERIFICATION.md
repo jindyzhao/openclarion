@@ -5,7 +5,7 @@
 > node has a concrete technical implementation path. Verdicts are classified
 > honestly — not everything is "proven".
 
-> Last updated: 2026-05-19
+> Last updated: 2026-05-28
 
 ## Verdict Scale
 
@@ -43,16 +43,16 @@ Alertmanager/Prometheus
 
 | Node | Operation | Implementation | Verdict |
 |------|-----------|----------------|---------|
-| A1 | Receive alerts | Go `net/http` handler accepts Alertmanager webhook POST; or timer-driven poll via Prometheus `/api/v1/alerts` HTTP GET | proven |
+| A1 | Receive alerts | Prometheus provider + ingestion library exist; local E2E drives `POST /api/v1/report-triggers/replay-window` against a Prometheus-compatible API and loads one firing alert; `openclarion report-replay` provides the same one-shot replay path for operator-triggered live runs; scheduled/webhook trigger wiring and live external Prometheus verification remain pending | partial |
 | A2 | Deduplicate and group | Pure Go function, deterministic, no external dependency | proven |
-| A3 | Build evidence | Go calls MetricsProvider (Prometheus HTTP API for PromQL), CMDBProvider (fake in M1) | proven |
-| A4 | Start Temporal workflow | `temporalClient.ExecuteWorkflow(ctx, opts, ReportFanOutWorkflow, snapshotID)` | proven |
-| A5 | Parallel SubReports | `workflow.Go()` spawns goroutines within Temporal, or parallel `ExecuteActivity()` calls | proven |
-| A6 | Call LLM | HTTP POST to `/chat/completions`; structured output mode is provider-capability dependent | **feasible-with-constraint** |
+| A3 | Build evidence | `evidencebuild.BuildSnapshot` constructs deterministic EvidenceSnapshot payloads from persisted alert groups/events | proven |
+| A4 | Start Temporal workflow | `ReportWorkflowStarter` and Temporal `ReportStarter` can start `ReportBatchWorkflow` from replay snapshot refs with stable workflow IDs and duplicate-start policies; local E2E verifies HTTP trigger dispatch into a real Temporal dev server and worker, and CLI tests verify one-shot request/JSON/wait-result mapping; scheduled triggers and live external E2E verification remain pending | partial |
+| A5 | Parallel SubReports | `ReportBatchWorkflow` starts one `ReportFanOutWorkflow` child per EvidenceSnapshot and fans in persisted SubReport IDs in input order | proven-local |
+| A6 | Call LLM | OpenAI-compatible provider exists; report Activities use injected `LLMProvider`; `cmd/openclarion` wires it from env with startup capability detection | proven-local |
 | A7 | Validate output | `santhosh-tekuri/jsonschema` Go library; check `finish_reason`, detect refusal/truncation | proven |
-| A8 | Reduce | Pure Go merge logic inside Temporal Activity | proven |
-| A9 | Send notification | HTTP POST to Webhook URL; **must execute after A10 persistence succeeds** | proven |
-| A10 | Persist | Ent ORM → PostgreSQL; **must run as Temporal Activity** (not in workflow code) | proven |
+| A8 | Reduce | `GenerateFinalReport` Activity reduces persisted SubReports through `reportprompt` + `llmretry` + `reportdraft` before persistence | proven |
+| A9 | Send notification | `FinalReportWorkflow` schedules `SendReportNotification` only after `GenerateFinalReport` returns a persisted ID; the Activity persists a pending delivery row before calling IMProvider, marks it delivered/failed afterwards, skips duplicate provider calls after delivered, and the Webhook provider posts JSON with idempotency headers | proven-local |
+| A10 | Persist | Ent ORM → PostgreSQL; **must run as Temporal Activity** (not in workflow code). Covers SubReport, FinalReport, fan-in links, and ReportNotificationDelivery rows | proven |
 
 ### Constraint: A6 Structured Output Provider Dependency
 
@@ -76,8 +76,26 @@ Strict schema preferred; fallback to `json_object` mode + client-side validation
   idempotency keys (e.g. `snapshotID + groupIndex`) to prevent duplicate
   reports/notifications on Temporal retry.
 
-**Chain A conclusion**: proven at every node except A6, which is
-feasible-with-constraint (provider-dependent structured output capability).
+**Chain A conclusion**: local LLM validation, persistence, report
+Temporal workflow units, batch-level fan-out/fan-in, runtime provider
+injection, notification sequencing, report read APIs, the HTTP
+replay-to-workflow trigger, the CLI one-shot replay trigger, and a manual
+`make report-live-smoke` proof harness are proven locally. The retained proof
+is validated by `scripts/report_live_smoke_output`, including canonical UTC
+timestamps for `checked_at` and the replay window, replay request metadata,
+replay stats, and snapshot/SubReport consistency. The validator requires the
+replay window to be valid and no later than `checked_at`, the scenario to be
+one of the supported alert-analysis scenarios, the live proof to have explicit
+wait intent, and the workflow result notification status to be `accepted` or
+`delivered` and requires a matching `notification_idempotency_key` shaped as
+`final_report:<id>/notification`; a
+failed or pending notification cannot support live E2E acceptance. It also
+keeps retained workflow and run IDs whitespace-free and bounded, validates
+bounded single-line provider message ID formatting when the upstream supplies
+one, and bounds the retained notification idempotency key; Webhook 2xx
+responses without a stable upstream message ID remain acceptable because the IM
+provider contract permits that path. Live
+Prometheus->Temporal->Webhook execution evidence remains pending.
 
 ---
 
@@ -103,14 +121,14 @@ Temporal workflow (from Chain A)
 |------|-----------|----------------|---------|
 | B1 | Conditional branch | Temporal workflow `if` condition based on group criteria | proven |
 | B2 | Start container | `github.com/docker/docker/client` → `ContainerCreate()` + `ContainerStart()` | proven |
-| B3 | Mount evidence + config | `HostConfig.Binds` with `:ro` for inputs; writable tmpfs for output | proven |
+| B3 | Mount evidence + config | readonly bind mounts for inputs; private writable output bind mount capped by `fsize` and Go read limit | proven |
 | B4 | Non-root + limits | `User = "nonroot"`, `Resources.Memory`, `NanoCPUs`, `SecurityOpt: ["no-new-privileges"]` | proven |
 | B5 | Egress control | Docker network isolation + per-endpoint allowlist | **feasible-with-constraint** |
 | B6 | Agent loads config | Agent runtime reads `/workspace/agent_config/agent.yaml` at startup | proven |
 | B7 | Agent queries data | V1: direct HTTP to allowed endpoints (Prometheus, K8s); post-V1: MCP-over-Streamable-HTTP | proven (V1 scope) |
-| B8 | Agent writes output | Writes to `/workspace/out/output.json` on writable tmpfs | proven |
-| B9 | Go reads + validates | Read output file; JSON Schema validate against SubReport schema | proven |
-| B10 | Timeout + cleanup | `context.WithTimeout` → `ContainerStop()` → `ContainerRemove(force=true)` | proven |
+| B8 | Agent writes output | Writes to `/workspace/out/output.json` on the only writable output mount | proven |
+| B9 | Go reads + validates | Read output file; enforce output cap with `fsize`/Go read limit and JSON Schema validate against SubReport schema; `make container-provider-output-cap-smoke` proves cap failure cleanup | proven |
+| B10 | Timeout + cleanup | `context.WithTimeout` -> `ContainerStop()` -> `ContainerRemove(force=true)`, plus `make container-provider-timeout-smoke` leak check | proven |
 
 ### Constraint: B5 Egress Control Design
 
@@ -124,33 +142,79 @@ Docker can isolate containers (`--network=none`, internal networks), but
 | K8s NetworkPolicy | If deployed on K8s, CiliumNetworkPolicy can do L7 filtering | K8s-only; not applicable to bare Docker |
 | DNS-based + firewall | Resolve allowed domains, block everything else | domain-level; needs DNS sidecar |
 
-**V1 decision**: start with Docker internal network (`--network=sandbox-internal`)
-+ host iptables allowing only Prometheus and LLM API IPs. Note: if LLM API is
-public SaaS (e.g. api.openai.com), IP-based allowlist is fragile because SaaS
-IPs rotate. For SaaS LLM targets, egress proxy (Envoy/Squid with domain
-allowlist) is recommended even in V1. Graduate to full egress proxy for all
-endpoints as sandbox matures.
+**V1 direction**: default remains network-none. Allowlist mode uses a dedicated
+Docker network plus an external egress proxy or firewall boundary. The
+provider-neutral contract now accepts only exact `host[:port]` targets, and the
+Docker `StaticAllowlistEnforcer` can reject requests that are not a subset of
+an externally provisioned allowlist. Note: if LLM API is public SaaS
+(e.g. api.openai.com), IP-based allowlists are fragile because SaaS IPs rotate.
+For SaaS LLM targets, egress proxy (Envoy/Squid with domain allowlist) is
+recommended even in V1.
 
-**Concrete M0/M1 task**: design and test the egress control configuration before
-M4 implementation starts.
+`make egress-allowdeny-smoke` proves this topology locally with Docker: a
+sandbox client on an internal network reaches `allowed.internal:8080` through a
+dual-network proxy, receives 403 for `denied.internal:8080`, and cannot bypass
+the proxy to reach the upstream network directly.
+
+**Remaining M4 task**: wire the chosen proxy/firewall boundary into the
+candidate runtime path before accepting allowlist networking as production
+enforced.
 
 ### Chain B Additional Constraints
 
 - **Image digest pinning**: sandbox container image referenced by digest
   (`openclarion-agent@sha256:...`), not mutable tag, in production config.
-- **Short-lived credentials**: if agent needs API tokens (LLM, Prometheus),
-  Go issues short-lived tokens (TTL ≤ container timeout) via environment
-  variable injection. No long-lived secrets inside container.
+- **Short-lived credentials**: if an agent needs API tokens (LLM,
+  Prometheus), the control plane passes one-invocation credentials with an
+  expiry timestamp. The provider-neutral request validates credential names,
+  values, and required expiry; the Docker provider rejects expired credentials
+  and credentials whose expiry exceeds the effective container timeout
+  immediately before `ContainerCreate()`, then injects accepted credentials via
+  environment variables. Errors name the credential but never include the
+  credential value. Credential issuance/rotation remains runtime wiring.
 - **Docker daemon privilege**: ContainerProvider requires access to Docker
-  socket. V1 runs on same host; post-V1 considers rootless Docker or
-  dedicated sandbox host with mTLS-protected API.
-- **Writable mount scope**: output directory is `/workspace/out/` (writable
-  tmpfs); agent writes to `/workspace/out/output.json`. All other paths
+  socket. V1 permits a local host socket only as a control-plane boundary;
+  agent containers must never receive the socket as a mount. Remote Docker
+  access must not use plaintext TCP; if remote mode is required, it must use
+  TLS verification with client authentication. Post-V1 considers rootless
+  Docker, a dedicated sandbox host with mTLS-protected API, or a Kubernetes
+  Job provider behind the same file contract. See
+  [docker-daemon-boundary.md](docker-daemon-boundary.md).
+- **Writable mount scope**: output directory is `/workspace/out/` (private
+  per-invocation bind mount capped by `fsize` ulimit and Go read limit);
+  agent writes to `/workspace/out/output.json`. All other paths
   (`/workspace/evidence.json`, `/workspace/agent_config/`, etc.) are read-only
   bind mounts. Agent cannot write outside `/workspace/out/`.
 
-**Chain B conclusion**: all nodes proven except B5 (egress control), which is
-feasible-with-constraint. Requires concrete infrastructure design before M4.
+**Chain B conclusion**: all nodes proven except production wiring for B5
+(egress control), which remains feasible-with-constraint. The Docker Engine
+provider now fails closed for allowlist-mode requests unless an injected egress
+enforcer validates the provider-specific network boundary before container
+creation, rejects allowlist targets that are not exact `host[:port]` values,
+rejects long-lived or expired runtime credentials before create, and has a
+manual live Docker smoke through `make container-provider-smoke`, timeout
+cleanup proof through `make container-provider-timeout-smoke`, and output cap
+proof through `make container-provider-output-cap-smoke`. A concrete Docker
+internal-network + proxy allow/deny smoke passes locally, but candidate runtime
+egress wiring and credential issuer wiring remain separate M4 work.
+`scripts/sandbox_m4_decision` now provides the auditable proceed/iterate/defer
+decision path once real baseline-audit, manifest-mode quality, runtime-smoke,
+and human-review evidence files exist. Runtime-smoke sources are bound to their
+canonical `make` targets, and each retained smoke claim must include a bounded
+normalized relative `evidence_ref` plus a lowercase SHA-256 digest for the
+retained smoke artifact/log. Absolute paths, traversal, URI-style refs,
+backslashes, and spaces are rejected so retained packets stay portable. Review
+evidence must name the same `sample_basis` as the quality comparison.
+Pass-status candidate evaluations must also cite all required runtime smoke
+names through `runtime_smoke_refs`, so review evidence remains reproducible,
+tied to the compared sample, and not hard-bound to a particular agent runtime
+family.
+`scripts/sandbox_m4_evidence_packet` assembles those files and generated
+outputs into a single empty artifact directory for review handoff, verifies and
+copies the referenced runtime-smoke artifacts into `runtime-smoke-artifacts/`,
+and validates minimum artifact shape and sample-basis consistency before
+writing baseline, quality, review, runtime-smoke artifact, and decision
+outputs.
 
 ---
 
@@ -180,20 +244,20 @@ Browser
 | Node | Operation | Implementation | Verdict |
 |------|-----------|----------------|---------|
 | C1 | WS connection | Go `nhooyr.io/websocket` or `gorilla/websocket`; Browser WebSocket API in Next.js Client Component | proven |
-| C2 | Auth handshake | WS ticket model (see constraint below) | **feasible-with-constraint** |
-| C3 | Start workflow | `temporalClient.ExecuteWorkflow(ctx, opts, DiagnosisRoomWorkflow, sessionConfig)` | proven |
-| C4 | User message in | WS frame → Go handler → deny-list filter → use case | proven |
-| C5 | Send to workflow | Temporal Update (preferred) or Signal (fallback) | proven (Temporal 1.21+) |
-| C6 | Workflow receives | Update handler or Signal channel | proven |
-| C7 | Per-turn Activity | `workflow.ExecuteActivity(ctx, RunDiagnosisTurn, turnInput)` | proven |
-| C8 | Mount files | Same as B3, plus `conversation.json` and `message.json` | proven |
+| C2 | Auth handshake | `POST /api/v1/diagnosis/ws-ticket` + ticket-required `GET /ws/diagnosis` upgrade; runtime wiring now injects OIDC auth, PostgreSQL ticket storage, exact-origin CORS, and WebSocket origin checks from env | proven-local |
+| C3 | Start workflow | `POST /api/v1/diagnosis/rooms` authenticates the bearer principal, loads a frozen EvidenceSnapshot, starts `DiagnosisRoomWorkflow` through `DiagnosisRoomStarter`, and waits for the workflow-created `DiagnosisTask` / `ChatSession` before returning the session handle | proven-local |
+| C4 | User message in | WS `submit_turn` frame -> Go relay -> provider-neutral workflow client; deny-list enforcement remains authoritative in the workflow Update Validator | proven-local |
+| C5 | Send to workflow | `DiagnosisRoomClient` calls Temporal `UpdateWorkflow` with `WorkflowUpdateStageCompleted` for `submit-turn` | proven-local |
+| C6 | Workflow receives | `submit-turn` Update, `state` Query, `close`/`cancel` Signals | proven-local |
+| C7 | Per-turn Activity | `workflow.ExecuteActivity(ctx, RunDiagnosisTurn, turnInput)` calls `ContainerProvider.Run` | proven-local |
+| C8 | Mount files | Same as B3, plus `conversation.json` and `message.json`; M5 request construction is covered by `RunDiagnosisTurn` tests | proven-local |
 | C9 | Agent context size | Evidence + conversation + tools output; must fit token budget | **feasible-with-constraint** |
 | C10 | Agent writes output | Same as B8 | proven |
-| C11 | Validate response | Same as B9 | proven |
-| C12 | Persist turn | `client.ChatTurn.Create().SetSessionID(...).SetContent(...).Save(ctx)` | proven |
-| C13 | Push response to WS | Temporal Update returns result synchronously to caller | **feasible-with-constraint** |
-| C14 | Limit check | Workflow counter + `workflow.NewTimer(ctx, sessionLifetime)` | proven |
-| C15 | Close notification | Activity calls IMProvider.SendNotification() | proven |
+| C11 | Validate response | V1 diagnosis-turn `output.json` JSON Schema parser plus raw Container result validation | proven-local |
+| C12 | Persist turn | `PersistDiagnosisTurn` writes the user+assistant ChatTurn pair and advances ChatSession turn count idempotently | proven-local workflow |
+| C13 | Push response to WS | WebSocket relay returns the synchronous Temporal Update result as a `turn_result` frame and supports reconnect `query_state` frames | proven-local |
+| C14 | Limit check | workflow Update Validator + durable idle/session timers | proven-local |
+| C15 | Close notification | Close path persists ChatSession terminal metadata, sends the diagnosis-task-scoped IMProvider notification, and records an idempotent `diagnosis_room.close_notification_sent` audit event | proven-local |
 
 ### Constraint: C2 WebSocket Authentication
 
@@ -203,9 +267,9 @@ approaches:
 **V1 design: ticket-based auth**
 
 ```text
-1. Browser calls POST /api/ws-ticket (with OIDC Bearer token in header)
+1. Browser calls POST /api/v1/diagnosis/ws-ticket (with OIDC Bearer token in header)
 2. Server validates OIDC token, issues short-lived ticket (UUID, TTL=30s, single-use)
-3. Browser opens WebSocket: new WebSocket("wss://host/ws/diagnosis?ticket=xxx")
+3. Browser opens WebSocket: new WebSocket("wss://host/ws/diagnosis?session_id=<id>&ticket=xxx")
 4. Go WS handler validates ticket (exists, not expired, not used), consumes it
 5. If invalid: reject upgrade with 401
 ```
@@ -321,8 +385,10 @@ needs-design nodes remain once Temporal Update is selected as the primary path.
 ### Container Image Build
 
 All sandbox chains (B, C) depend on a pre-built container image containing the
-agent runtime. This image must:
-- include the chosen agent framework (OpenClaw / LangChain / custom)
+agent runtime adapter. This image must:
+- include the selected adapter for the candidate accepted by
+  [agent-runtime-selection.md](agent-runtime-selection.md); candidate identity
+  is operator-supplied evidence, not a control-plane enum
 - include Python/Go runtime for tool scripts
 - read `/workspace/agent_config/` at startup
 - write to `/workspace/out/output.json` on completion
@@ -330,7 +396,52 @@ agent runtime. This image must:
 - exit cleanly on SIGTERM (for timeout cleanup)
 - be referenced by digest in production configuration
 
-This is a standard Dockerfile + CI build pipeline concern.
+The first executable check for a candidate image is
+`make agent-runtime-smoke`, which validates the ADR-0013 file contract and
+Docker security posture before the image can be considered for the M4/M5
+baseline. `make custom-thin-runner-smoke` now provides the first concrete
+candidate proof by building a scratch custom runner, resolving it through an
+ephemeral localhost registry as `repo@sha256`, and running it through both the
+runtime harness and the Docker Provider harness. The same smoke packages the
+metric/topology helper binaries into the candidate image and proves the topology
+helper via an alternate entrypoint under non-root, readonly, network-none
+settings. This proves contract and lifecycle behavior only; quality comparison
+remains a separate M4 decision gate. The image build itself remains a standard
+Dockerfile + CI build pipeline concern.
+
+`make agent-tool-scripts-test` proves the first read-only tool helper contracts
+that a runtime image can later package: bounded Prometheus instant queries and
+bounded static topology lookups, both returning JSON objects for downstream
+agent/report validation.
+
+`make sandbox-baseline-audit` emits a code-level JSON proof for the M4/M5
+sandbox baseline without requiring a Docker daemon. It builds the same
+provider-neutral requests and Docker runtime specs used by the production
+boundary, then verifies fixed ADR-0013 file paths, network-none batch defaults,
+M5 read-only turn inputs, non-root/readonly/no-new-privileges/capability-drop
+security posture, resource limits, allowlist subset enforcement, and strict
+request/raw-output JSON validation. Manual Docker smokes still provide the live
+daemon evidence for create/start/wait/copy/remove behavior.
+
+The M5 minimum sandbox baseline is accepted locally as of 2026-05-28:
+`make sandbox-baseline-audit`, `make custom-thin-runner-smoke`,
+`make container-provider-timeout-smoke`, `make container-provider-output-cap-smoke`,
+and `make egress-allowdeny-smoke` pass against the current tree. That evidence
+is deliberately narrower than full M4 report enhancement acceptance: it proves
+the sandbox foundation for M5, not representative report quality.
+
+`make sandbox-quality-compare-test` proves the offline comparison helper for
+M4 direct-vs-sandbox SubReport outputs. The helper reuses the production
+SubReport schema parser before calculating conservative deltas, so invalid
+candidate report JSON cannot be compared. It also supports manifest-mode
+batches so a future representative sample run can produce per-case and
+aggregate evidence without changing the tool. Manifest-mode evidence includes
+`sample_basis`, per-case alert scenario labels, `scenario_coverage`, and
+canonical `snapshot:<positive-id>` EvidenceSnapshot refs so the M4 decision
+gate can require `single_alert`, `cascade`, and `alert_storm` coverage while
+proving each case remains bound to frozen evidence before proceeding. This
+remains a harness only; the actual M4 quality decision still needs
+representative direct and sandbox report outputs from candidate runtime runs.
 
 ### Temporal Worker Deployment
 
@@ -345,7 +456,8 @@ the WS handler and Temporal worker are colocated or separate.
 ### Volume Mount Security
 
 - Evidence and agent_config are mounted `:ro` (read-only bind mounts)
-- Output directory: `--tmpfs /workspace/out:size=10m` (writable, capped)
+- Output directory: private writable bind mount at `/workspace/out` plus
+  `fsize` ulimit and Go read cap
 - Agent writes only to `/workspace/out/output.json`
 - Container cannot access host filesystem beyond mounted paths
 - Container runs with `--security-opt=no-new-privileges`
@@ -358,9 +470,9 @@ the WS handler and Temporal worker are colocated or separate.
 |------|---------|----------------|
 | A6 | feasible-with-constraint | provider-capability dependent; strict preferred, JSON mode + validation fallback |
 | B5 | feasible-with-constraint | requires egress proxy or iptables design; Docker isolation alone is insufficient |
-| C2 | feasible-with-constraint | WS ticket model (short-lived, single-use); no JWT in query string |
+| C2 | proven-local | WS ticket model (short-lived, single-use); no JWT in query string; authenticated submit/query relay proven locally |
 | C9 | feasible-with-constraint | byte/token budget enforced at workflow level; truncate or reject on exceed |
-| C13 | feasible-with-constraint | Temporal Update primary; Signal+Poll fallback; in-memory channel optional |
+| C13 | proven-local | Temporal Update primary path wired to WebSocket relay; Query handles reconnect state |
 | All others | proven | standard APIs, no ambiguity |
 
 ---
@@ -374,7 +486,7 @@ the WS handler and Temporal worker are colocated or separate.
 | Per-turn container startup latency | UX | C7-C10 | ~1-3s acceptable for V1; post-V1: persistent container with HTTP endpoint |
 | Conversation context exceeds budget | engineering | C9 | enforce budget before container mount; truncate oldest turns |
 | WS auth token exposure | security | C2 | ticket model (30s TTL, single-use, not in logs) |
-| Docker daemon privilege surface | security | B2 | V1: host Docker socket; post-V1: rootless Docker or dedicated host |
+| Docker daemon privilege surface | security | B2 | V1: documented host-socket boundary; no socket mount into agents; no plaintext remote daemon; post-V1 rootless Docker or dedicated host |
 | Agent output quality | product | B8, C10 | golden tests validate structure; quality delta measurement in M4 |
 | LLM cost per turn | product | A6, C7 | token budget caps; model selection per use case |
 
@@ -383,13 +495,43 @@ the WS handler and Temporal worker are colocated or separate.
 ## Conclusion
 
 All three chains are technically feasible:
-- **Chain A** (M2): proven at all nodes except A6 (provider-dependent structured
-  output). Standard HTTP + Temporal fan-out + Ent persistence.
-- **Chain B** (M4): proven except B5 (egress control needs concrete design).
-  Docker Engine API + file-based contract.
-- **Chain C** (M5): proven except C2/C9/C13 (each feasible-with-constraint).
-  Temporal Update provides synchronous request-response semantics that close
-  the WS push gap cleanly.
+- **Chain A** (M2): local report contracts, OpenAI-compatible provider,
+  report persistence, Temporal report workflow units, notification delivery
+  logging, notification sequencing, and the HTTP replay-to-workflow trigger
+  are proven locally, including a protocol-level E2E test that reaches a real
+  Temporal worker and Webhook provider. `make report-live-smoke` is available
+  to capture validator-checked proof against real services, but live external
+  Prometheus->Temporal->Webhook execution evidence remains pending.
+- **Chain B** (M4): proven except production B5 egress wiring. The Docker
+  Engine API, file-based contract, Provider live/timeout/output-cap smokes, and
+  local proxy allow/deny topology are proven.
+- **Chain C** (M5): locally proven through the control-plane path. C1-C8 and
+  C11-C15, lifecycle audit persistence, final close notification, room
+  creation, and the mocked browser diagnosis-room route are proven locally at
+  their current boundary. `make diagnosis-live-browser-smoke` now captures the
+  required live browser proof shape against a real backend/worker stack and can
+  create a room from `OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID` before connecting.
+  The harness records canonical UTC `checked_at`, the exercised request mode,
+  session id, evidence snapshot id, submitted-message length, and
+  submitted-message SHA-256 digest without retaining message plaintext.
+  Retained session, workflow, and run IDs must be single-line, whitespace-free,
+  and bounded before they can support M5 acceptance. The retained `evidence`
+  summary must also be a bounded single-line statement that mentions the
+  `turn_result` round trip rather than copied logs. It also
+  records structured browser observations for state load, `turn_result`,
+  submitted-message visibility,
+  browser-submitted message length and digest, connected status after the turn,
+  assistant-turn count increment, user+assistant transcript pair increment,
+  completed-turn log consistency, and transcript count consistency with the pair
+  model.
+  It validates the retained proof with `scripts/diagnosis_live_smoke_output`
+  before reporting success, so M5 live acceptance cannot rely on a malformed,
+  log-polluted, request-mismatched, or free-text-only JSON artifact.
+  `cmd/openclarion` wires the OIDC auth, room starter, ticket store, WebSocket
+  relay, diagnosis Temporal client, browser origin policy, and Docker-backed
+  per-turn sandbox from env. C9 remains a documented byte-budget constraint.
+  Full M5 acceptance still requires running the live gate and retaining its
+  evidence.
 
 No link requires inventing a new protocol or depending on unproven technology.
 Constraints are documented and resolvable within existing tool ecosystems.
@@ -402,8 +544,8 @@ Constraints are documented and resolvable within existing tool ecosystems.
 |-------|--------------------|---------|
 | **M0/M1** | First code lands | `oapi-codegen-exp v0.1.0` pinned (M0); `docker-compose.yml` (PostgreSQL 18 + Temporal `auto-setup` 1.25.2) shipped (M0); Ent `v0.14.6` and Atlas `arigaio/atlas:1.2.0` pinned, 5 Ent schemas + first migration shipped (M1-PR1); Temporal Go SDK `>= 1.21` first-import pin and Update round-trip integration test planned for **M1-PR3** when the `DiagnosisWorkflow` shell lands (per ADR-0012 amendment and first-import rule) |
 | **M2** | LLM Activity ships | LLMProvider capability detection (strict vs json_object); JSON Schema subset validation; idempotency key design for LLM + Webhook Activities; confirm `finish_reason` / refusal handling |
-| **M4** | Sandbox ships | Egress allowlist scheme tested (iptables or egress proxy); image digest pin in CI; short-lived credential injection; Docker daemon privilege boundary; `/workspace/out/` tmpfs mount validated |
-| **M5** | Diagnosis room ships | WS ticket storage/consumption; Temporal Update timeout + reconnect + Query fallback; concurrent-turn rejection (Validator); context byte/token budget enforcement + truncation strategy |
+| **M4** | Sandbox ships | Egress allowlist scheme tested (iptables or egress proxy); image digest pin in CI; short-lived credential injection; Docker daemon privilege boundary documented; `/workspace/out/` output mount validated |
+| **M5** | Diagnosis room ships | Run `make diagnosis-live-browser-smoke` against a real backend/worker stack and retain the validator-checked JSON proof |
 
 Items not completed by their deadline are blockers for that milestone's
 acceptance. Items may be started earlier but must be proven (not just designed)

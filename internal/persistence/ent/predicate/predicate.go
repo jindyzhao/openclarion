@@ -12,6 +12,15 @@ type AlertEvent func(*sql.Selector)
 // AlertGroup is the predicate function for alertgroup builders.
 type AlertGroup func(*sql.Selector)
 
+// ChatSession is the predicate function for chatsession builders.
+type ChatSession func(*sql.Selector)
+
+// ChatTurn is the predicate function for chatturn builders.
+type ChatTurn func(*sql.Selector)
+
+// DiagnosisAuthTicket is the predicate function for diagnosisauthticket builders.
+type DiagnosisAuthTicket func(*sql.Selector)
+
 // DiagnosisTask is the predicate function for diagnosistask builders.
 type DiagnosisTask func(*sql.Selector)
 
@@ -20,3 +29,12 @@ type DiagnosisTaskEvent func(*sql.Selector)
 
 // EvidenceSnapshot is the predicate function for evidencesnapshot builders.
 type EvidenceSnapshot func(*sql.Selector)
+
+// FinalReport is the predicate function for finalreport builders.
+type FinalReport func(*sql.Selector)
+
+// ReportNotificationDelivery is the predicate function for reportnotificationdelivery builders.
+type ReportNotificationDelivery func(*sql.Selector)
+
+// SubReport is the predicate function for subreport builders.
+type SubReport func(*sql.Selector)

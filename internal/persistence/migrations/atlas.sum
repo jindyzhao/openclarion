@@ -1,2 +1,6 @@
-h1:QeNsBA3b1DVqw3ZmKzf+6vLDv/tC2Yys3Cpse2SHeKw=
+h1:GVImAsnILFd5innwsv7b6sgzj2eWmwGkJJKOLxnA0/o=
 20260525060310_initial_schema.sql h1:64NVxLTQU+MCtwcBMJ37cEb9Vsab5DAbwAv2BbvvjWc=
+20260528022647_report_schemas.sql h1:rajY/BH2BPn9zUR5wRnmUzfDrASeM4j3QL0MnftCpEA=
+20260528034745_report_notification_deliveries.sql h1:FrskNYvYNbC19C6cT5hDmnFr1UR/YYhDEhnsh46e+vs=
+20260528122257_diagnosis_auth_tickets.sql h1:6hWOAeqvMlGO+n2kSCCD70YDNPvaonBadjuqPchdPHc=
+20260528132100_chat_sessions_turns.sql h1:g6mA61rgV+TRuSJyK/E7QdCy+S1h/zIjihNMRchcz64=

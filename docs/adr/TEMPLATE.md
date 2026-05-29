@@ -1,4 +1,6 @@
 ---
+id: ADR-XXXX
+title: "Short Title"
 status: "proposed"
 date: YYYY-MM-DD
 deciders: []

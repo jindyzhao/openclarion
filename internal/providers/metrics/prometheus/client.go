@@ -8,24 +8,23 @@
 // model.LabelSet into the plain map[string]string the rest of the
 // codebase consumes.
 //
-// Authentication is opt-in via WithBearer. We deliberately do not
-// expose a generic RoundTripper hook here: the only authenticated
-// Prometheus deployments M1 needs to talk to use Bearer tokens, and
-// keeping the Option surface small avoids leaking the third-party
-// http.RoundTripper type into the public API of an internal
-// package.
+// Authentication is opt-in via WithBearer. Request IDs propagate through the
+// default transport so HTTP-triggered replay calls can be followed across the
+// Prometheus boundary without exposing a generic RoundTripper option here.
 package prometheus
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	promconfig "github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 
+	"github.com/openclarion/openclarion/internal/observability/correlation"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -51,7 +50,8 @@ var _ ports.MetricsProvider = (*Provider)(nil)
 // future Options can introduce non-api.Config concerns without
 // reshaping the call site.
 type providerConfig struct {
-	bearerToken string
+	bearerToken           string
+	roundTripperDecorator func(http.RoundTripper) http.RoundTripper
 }
 
 // Option configures a Provider at construction time.
@@ -69,25 +69,42 @@ func WithBearer(token string) Option {
 	return func(c *providerConfig) { c.bearerToken = token }
 }
 
-// NewProvider constructs a Provider against the Prometheus HTTP API
-// at addr (e.g. "http://prometheus:9090"). The underlying client
-// reuses Prometheus's DefaultRoundTripper so connection pooling and
-// timeouts follow upstream defaults; callers that need stricter
-// timeouts MUST wrap the returned Provider rather than re-deriving
-// http.Client behaviour here.
+// WithRoundTripperDecorator wraps the provider's internally constructed
+// transport. It is intended for cross-cutting runtime concerns such as
+// OpenTelemetry instrumentation while preserving Prometheus client defaults.
+func WithRoundTripperDecorator(decorator func(http.RoundTripper) http.RoundTripper) Option {
+	return func(c *providerConfig) { c.roundTripperDecorator = decorator }
+}
+
+// NewProvider constructs a Provider against the Prometheus HTTP API at addr
+// (e.g. "http://prometheus:9090"). The underlying client reuses Prometheus's
+// DefaultRoundTripper, wrapped only for optional Bearer auth, request-id
+// propagation, and any caller-supplied transport decorator, so connection
+// pooling and timeouts follow upstream defaults. Callers that need stricter
+// timeouts MUST wrap the returned Provider rather than re-deriving http.Client
+// behaviour here.
 func NewProvider(addr string, opts ...Option) (*Provider, error) {
 	cfg := providerConfig{}
 	for _, opt := range opts {
 		opt(&cfg)
 	}
 
-	apiCfg := api.Config{Address: addr}
+	var roundTripper http.RoundTripper = api.DefaultRoundTripper
 	if cfg.bearerToken != "" {
-		apiCfg.RoundTripper = promconfig.NewAuthorizationCredentialsRoundTripper(
+		roundTripper = promconfig.NewAuthorizationCredentialsRoundTripper(
 			"Bearer",
 			promconfig.NewInlineSecret(cfg.bearerToken),
-			api.DefaultRoundTripper,
+			roundTripper,
 		)
+	}
+	roundTripper = correlation.RoundTripper(roundTripper)
+	if cfg.roundTripperDecorator != nil {
+		roundTripper = cfg.roundTripperDecorator(roundTripper)
+	}
+
+	apiCfg := api.Config{
+		Address:      addr,
+		RoundTripper: roundTripper,
 	}
 
 	client, err := api.NewClient(apiCfg)

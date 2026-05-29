@@ -20,6 +20,8 @@
 //     lookup
 //   - DiagnosisRepository: DiagnosisTask + the append-only
 //     DiagnosisTaskEvent lifecycle log
+//   - ReportRepository:    SubReport + FinalReport persistence and
+//     report read paths
 //
 // Five entity-level repositories were rejected because they would
 // project the Ent table layout into the usecase layer, encouraging
@@ -111,6 +113,10 @@ type AlertRepository interface {
 	// with a wrapped domain.ErrInvariantViolation.
 	ListEventsByStartsAtRange(ctx context.Context, startInclusive, endExclusive time.Time, limit int) ([]domain.AlertEvent, error)
 
+	// ListEvents returns the most recent AlertEvents, ordered by
+	// (starts_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListEvents(ctx context.Context, limit int) ([]domain.AlertEvent, error)
+
 	// SaveGroup inserts a new AlertGroup header (without the M2N
 	// link). A duplicate (group_key, first_seen_at) returns a
 	// wrapped domain.ErrAlreadyExists. Use LinkEventsToGroup to
@@ -187,10 +193,16 @@ type EvidenceRepository interface {
 	// ordered by created_at descending, capped by limit. limit
 	// MUST be > 0.
 	ListByGroup(ctx context.Context, groupID domain.AlertGroupID, limit int) ([]domain.EvidenceSnapshot, error)
+
+	// List returns the most recent EvidenceSnapshots across groups,
+	// ordered by (created_at DESC, id DESC), capped by limit. limit
+	// MUST be > 0.
+	List(ctx context.Context, limit int) ([]domain.EvidenceSnapshot, error)
 }
 
-// DiagnosisRepository covers DiagnosisTask plus the append-only
-// DiagnosisTaskEvent lifecycle log.
+// DiagnosisRepository covers DiagnosisTask plus append-only
+// DiagnosisTaskEvent lifecycle logs and the M5 diagnosis-room
+// ChatSession / ChatTurn transcript boundary.
 type DiagnosisRepository interface {
 	// SaveTask inserts a new DiagnosisTask. A duplicate
 	// (workflow_id, run_id) returns a wrapped
@@ -236,6 +248,108 @@ type DiagnosisRepository interface {
 	// ListEvents returns the events for a task ordered by
 	// occurred_at ascending, capped by limit. limit MUST be > 0.
 	ListEvents(ctx context.Context, taskID domain.DiagnosisTaskID, limit int) ([]domain.DiagnosisTaskEvent, error)
+
+	// SaveChatSession inserts a new M5 diagnosis-room ChatSession.
+	// Duplicate session_key or diagnosis_task_id returns a wrapped
+	// domain.ErrAlreadyExists. The returned session has ID,
+	// CreatedAt, and UpdatedAt populated.
+	SaveChatSession(ctx context.Context, s domain.ChatSession) (domain.ChatSession, error)
+
+	// UpdateChatSession persists mutable lifecycle fields (status,
+	// turn_count, last_activity_at, closed_at, close_reason).
+	// Immutable fields (diagnosis_task_id, session_key,
+	// owner_subject, started_at, created_at) are ignored. Returns
+	// domain.ErrNotFound if the row is missing.
+	UpdateChatSession(ctx context.Context, s domain.ChatSession) (domain.ChatSession, error)
+
+	// FindChatSessionByID returns the ChatSession with the given ID,
+	// or domain.ErrNotFound.
+	FindChatSessionByID(ctx context.Context, id domain.ChatSessionID) (domain.ChatSession, error)
+
+	// FindChatSessionByKey returns the ChatSession matching the
+	// external WebSocket/session key, or domain.ErrNotFound.
+	FindChatSessionByKey(ctx context.Context, sessionKey string) (domain.ChatSession, error)
+
+	// SaveChatTurn appends one immutable chat transcript row. A
+	// duplicate (chat_session_id, message_id) or
+	// (chat_session_id, sequence) returns a wrapped
+	// domain.ErrAlreadyExists. The returned turn has ID and
+	// CreatedAt populated.
+	SaveChatTurn(ctx context.Context, turn domain.ChatTurn) (domain.ChatTurn, error)
+
+	// FindChatTurnBySessionAndMessageID returns the turn matching the
+	// per-session idempotency key, or domain.ErrNotFound.
+	FindChatTurnBySessionAndMessageID(ctx context.Context, sessionID domain.ChatSessionID, messageID string) (domain.ChatTurn, error)
+
+	// ListChatTurnsBySession returns turns for a session ordered by
+	// sequence ascending, capped by limit. limit MUST be > 0.
+	ListChatTurnsBySession(ctx context.Context, sessionID domain.ChatSessionID, limit int) ([]domain.ChatTurn, error)
+}
+
+// ReportRepository covers persisted SubReports, FinalReports, and the
+// notification delivery log tied to FinalReports.
+type ReportRepository interface {
+	// SaveSubReport inserts a new SubReport. A duplicate
+	// (evidence_snapshot_id, idempotency_key) returns a wrapped
+	// domain.ErrAlreadyExists. The returned report has ID and
+	// CreatedAt populated.
+	SaveSubReport(ctx context.Context, r domain.SubReport) (domain.SubReport, error)
+
+	// FindSubReportByID returns the SubReport with the given ID, or
+	// domain.ErrNotFound.
+	FindSubReportByID(ctx context.Context, id domain.SubReportID) (domain.SubReport, error)
+
+	// FindSubReportBySnapshotAndIdempotencyKey returns the SubReport
+	// matching the per-snapshot idempotency key, or domain.ErrNotFound.
+	FindSubReportBySnapshotAndIdempotencyKey(ctx context.Context, snapshotID domain.EvidenceSnapshotID, idempotencyKey string) (domain.SubReport, error)
+
+	// ListSubReportsBySnapshot returns SubReports for one
+	// EvidenceSnapshot ordered by (created_at DESC, id DESC), capped
+	// by limit. limit MUST be > 0.
+	ListSubReportsBySnapshot(ctx context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]domain.SubReport, error)
+
+	// SaveFinalReport inserts a new FinalReport and links the supplied
+	// SubReport IDs through the report fan-in edge. A duplicate
+	// idempotency_key returns a wrapped domain.ErrAlreadyExists. The
+	// returned report has ID and CreatedAt populated.
+	SaveFinalReport(ctx context.Context, r domain.FinalReport, subReportIDs []domain.SubReportID) (domain.FinalReport, error)
+
+	// FindFinalReportByID returns the FinalReport with the given ID,
+	// or domain.ErrNotFound.
+	FindFinalReportByID(ctx context.Context, id domain.FinalReportID) (domain.FinalReport, error)
+
+	// FindFinalReportByIdempotencyKey returns the FinalReport matching
+	// the global idempotency key, or domain.ErrNotFound.
+	FindFinalReportByIdempotencyKey(ctx context.Context, idempotencyKey string) (domain.FinalReport, error)
+
+	// ListFinalReports returns the most recent FinalReports ordered by
+	// (created_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListFinalReports(ctx context.Context, limit int) ([]domain.FinalReport, error)
+
+	// ListSubReportsForFinalReport returns SubReports linked to a
+	// FinalReport, ordered by (created_at ASC, id ASC), capped by
+	// limit. limit MUST be > 0.
+	ListSubReportsForFinalReport(ctx context.Context, finalReportID domain.FinalReportID, limit int) ([]domain.SubReport, error)
+
+	// SaveNotificationDelivery inserts a pending delivery row. A
+	// duplicate idempotency_key returns a wrapped domain.ErrAlreadyExists.
+	// The returned delivery has ID, CreatedAt, and UpdatedAt populated.
+	SaveNotificationDelivery(ctx context.Context, d domain.ReportNotificationDelivery) (domain.ReportNotificationDelivery, error)
+
+	// UpdateNotificationDelivery persists mutable delivery metadata
+	// (status, provider_message_id, provider_status, raw, failure_reason,
+	// delivered_at). Immutable fields are ignored. Returns
+	// domain.ErrNotFound if the row is missing.
+	UpdateNotificationDelivery(ctx context.Context, d domain.ReportNotificationDelivery) (domain.ReportNotificationDelivery, error)
+
+	// FindNotificationDeliveryByIdempotencyKey returns the delivery row
+	// matching the global notification idempotency key, or domain.ErrNotFound.
+	FindNotificationDeliveryByIdempotencyKey(ctx context.Context, idempotencyKey string) (domain.ReportNotificationDelivery, error)
+
+	// ListNotificationDeliveriesByFinalReport returns delivery rows for a
+	// FinalReport ordered by (created_at DESC, id DESC), capped by limit.
+	// limit MUST be > 0.
+	ListNotificationDeliveriesByFinalReport(ctx context.Context, finalReportID domain.FinalReportID, limit int) ([]domain.ReportNotificationDelivery, error)
 }
 
 // UnitOfWork bundles the three aggregate-root repositories under a
@@ -259,6 +373,9 @@ type UnitOfWork interface {
 	// Diagnosis returns the DiagnosisRepository bound to this
 	// transaction.
 	Diagnosis() DiagnosisRepository
+
+	// Reports returns the ReportRepository bound to this transaction.
+	Reports() ReportRepository
 
 	// Commit finalises the transaction. After a successful Commit
 	// the UoW is closed; subsequent Commit / Rollback calls return

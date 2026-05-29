@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"time"
 )
 
@@ -60,4 +61,167 @@ type ActiveAlert struct {
 // firing.
 type MetricsProvider interface {
 	ListActiveAlerts(ctx context.Context) ([]ActiveAlert, error)
+}
+
+// AuthRole is the small V1 role vocabulary understood by usecase-level
+// authorization checks. OIDC providers map upstream claims into these values
+// before the control plane evaluates RBAC.
+type AuthRole string
+
+const (
+	// AuthRoleOwner permits access to diagnosis sessions owned by the subject.
+	AuthRoleOwner AuthRole = "owner"
+	// AuthRoleAdmin permits access to diagnosis sessions across owners.
+	AuthRoleAdmin AuthRole = "admin"
+)
+
+// AuthPrincipal is the provider-neutral identity returned after bearer-token
+// authentication. Subject is the stable user identifier used for ownership
+// checks and audit records.
+type AuthPrincipal struct {
+	Subject string
+	Roles   []AuthRole
+	Claims  json.RawMessage
+}
+
+// AuthProvider authenticates an inbound bearer token and maps upstream claims
+// into OpenClarion's V1 role vocabulary. It does not authorize access to a
+// specific diagnosis session; usecase code owns RBAC.
+type AuthProvider interface {
+	AuthenticateBearer(ctx context.Context, bearerToken string) (AuthPrincipal, error)
+}
+
+// LLMMessageRole is the small role vocabulary accepted by the
+// provider-neutral LLM request DTO. It intentionally mirrors the
+// OpenAI-compatible chat-completions roles without importing any
+// provider SDK into the usecase layer.
+type LLMMessageRole string
+
+const (
+	// LLMRoleSystem carries system/developer instructions for a model.
+	LLMRoleSystem LLMMessageRole = "system"
+	// LLMRoleUser carries user or validation-feedback content.
+	LLMRoleUser LLMMessageRole = "user"
+	// LLMRoleAssistant carries prior assistant content during retry.
+	LLMRoleAssistant LLMMessageRole = "assistant"
+)
+
+// LLMOutputMode records which output-format capability the concrete
+// provider used for a request. OpenAI-compatible implementations
+// should prefer strict JSON Schema outputs when available and fall
+// back to json_object only when strict mode is unsupported.
+type LLMOutputMode string
+
+const (
+	// LLMOutputModeJSONSchema means strict JSON Schema output was used.
+	LLMOutputModeJSONSchema LLMOutputMode = "json_schema"
+	// LLMOutputModeJSONObject means json_object fallback output was used.
+	LLMOutputModeJSONObject LLMOutputMode = "json_object"
+)
+
+// LLMMessage is one chat message passed to an LLMProvider.
+type LLMMessage struct {
+	Role    LLMMessageRole
+	Content string
+}
+
+// LLMRequest is the provider-neutral input for one headless report
+// generation call. The caller owns prompt construction, schema
+// selection, validation, and retry policy; the provider only performs
+// the external model call and returns the raw assistant JSON payload
+// plus completion metadata.
+//
+// IdempotencyKey is required by Temporal activities that call the
+// provider so activity retry can be correlated by the concrete
+// provider or by deterministic fakes. For M2 report generation the
+// intended key shape is snapshotID + groupIndex.
+type LLMRequest struct {
+	Messages       []LLMMessage
+	OutputSchema   json.RawMessage
+	OutputSchemaID string
+	IdempotencyKey string
+}
+
+// LLMResponse is the provider-neutral output from one model call.
+// Content is intentionally raw JSON: callers must still validate it
+// against OutputSchema, and must reject non-stop finish reasons or
+// non-nil Refusal before persistence.
+type LLMResponse struct {
+	Content      json.RawMessage
+	FinishReason string
+	Refusal      *string
+	OutputMode   LLMOutputMode
+	Model        string
+}
+
+// LLMProvider is the headless structured-output generation contract.
+//
+// Responsibilities:
+//   - execute one OpenAI-compatible chat-completions style request;
+//   - return the assistant JSON payload as json.RawMessage;
+//   - surface finish_reason, refusal, model, and selected output mode
+//     so the caller can enforce acceptance rules before persistence.
+//
+// Non-responsibilities:
+//   - constructing prompts or choosing report sections;
+//   - validating output against JSON Schema;
+//   - retrying validation failures;
+//   - persisting SubReport / FinalReport rows;
+//   - notifying users.
+type LLMProvider interface {
+	GenerateJSON(ctx context.Context, req LLMRequest) (LLMResponse, error)
+}
+
+// IMNotification is the provider-neutral outbound notification DTO.
+// Workflows own persistence and ordering; IM providers only deliver
+// already-accepted operator-facing messages.
+//
+// IdempotencyKey is required so Temporal Activity retries can be
+// correlated by webhook receivers and deterministic fakes. For M2
+// final report notification the intended key shape is
+// "final_report:<id>/notification"; M5 diagnosis-room notifications
+// use their own diagnosis-room scoped key and set DiagnosisTaskID.
+type IMNotification struct {
+	IdempotencyKey  string
+	FinalReportID   int64
+	DiagnosisTaskID int64
+	CorrelationKey  string
+	Title           string
+	Body            string
+	Severity        string
+}
+
+// IMDelivery records provider-level delivery metadata. Concrete
+// providers may leave ProviderMessageID empty when the upstream does
+// not return a stable message identifier.
+type IMDelivery struct {
+	ProviderMessageID string
+	Status            string
+	Raw               json.RawMessage
+}
+
+// IMError classifies provider failures so Temporal Activities can
+// choose retryable vs non-retryable application errors without
+// depending on concrete provider packages.
+type IMError struct {
+	Message    string
+	StatusCode int
+	Retryable  bool
+}
+
+func (e *IMError) Error() string {
+	if e == nil {
+		return "<nil>"
+	}
+	if e.StatusCode == 0 {
+		return e.Message
+	}
+	return e.Message + " (status " + strconv.Itoa(e.StatusCode) + ")"
+}
+
+// IMProvider sends operator-facing notifications. Implementations
+// must treat IdempotencyKey as required and must not mutate the input
+// request.
+type IMProvider interface {
+	SendNotification(ctx context.Context, req IMNotification) (IMDelivery, error)
 }

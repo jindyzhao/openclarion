@@ -26,33 +26,52 @@ compression is out of scope for V1 short-conversation diagnosis.
 - **Short-lived tokens only**: if an agent needs API access (LLM, Prometheus),
   the control plane issues a short-lived credential whose TTL does not exceed
   the container timeout. Long-lived secrets must never be injected into a
-  container.
+  container. Container providers must validate expiry immediately before
+  runtime allocation, and error messages must never include credential values.
 - **Image digest pinning**: sandbox container images must be referenced by
   digest (`@sha256:...`), not mutable tag, in all non-dev configurations.
 - **Docker daemon boundary**: V1 uses the host Docker socket. Post-V1 should
   migrate to rootless Docker or a dedicated sandbox host with mTLS-protected
-  Docker API.
-- **Writable surface**: only `/workspace/out/` (writable tmpfs, capped 10MB);
-  all other mounts are read-only.
+  Docker API. See
+  [docker-daemon-boundary.md](docker-daemon-boundary.md).
+- **Writable surface**: only `/workspace/out/` (private writable output mount
+  capped by `fsize` ulimit and Go read limit); all other mounts are read-only.
 - **Egress control**: container network must restrict outbound traffic to an
   explicit allowlist. SaaS endpoints with rotating IPs require a domain-based
-  egress proxy (Envoy/Squid), not IP-based iptables rules.
+  egress proxy (Envoy/Squid), not IP-based iptables rules. Allowlist targets
+  must be exact `host[:port]` entries; URLs, paths, wildcards, whitespace,
+  invalid ports, and duplicate entries are rejected before runtime allocation.
 
 ## WebSocket Authentication
 
 Browser `new WebSocket(url)` cannot set custom HTTP headers. V1 uses a
 ticket-based handshake:
 
-1. Browser authenticates via `POST /api/ws-ticket` (OIDC Bearer in header).
-2. Server issues a single-use ticket (UUID, TTL <= 30s).
-3. Browser connects with `wss://host/ws/diagnosis?ticket=xxx`.
+1. Browser authenticates via `POST /api/v1/diagnosis/ws-ticket`
+   (OIDC Bearer in header).
+2. Server verifies the OIDC ID token and issues a single-use ticket
+   (random opaque token, TTL <= 30s).
+3. Browser connects with
+   `wss://host/ws/diagnosis?session_id=<id>&ticket=xxx`.
 4. Server validates and consumes the ticket on upgrade.
 
 Rules:
-- Ticket is single-use: deleted after consumption.
+- Ticket is single-use: marked consumed after consumption; only one consume
+  may win under concurrency.
 - TTL must be <= 30s to minimize replay window.
+- Raw ticket tokens must not be persisted; store only a cryptographic digest.
 - Long-lived JWTs must never appear in query strings (server logs, referrer
   headers, browser history exposure).
+- Usecase boundary: `internal/usecases/diagnosisauth` enforces owner/admin
+  RBAC and short-lived single-use ticket semantics. PostgreSQL persistence is
+  implemented by `internal/persistence/repository.NewDiagnosisAuthTicketStore`.
+- OIDC boundary: `internal/providers/auth/oidc` verifies signed OIDC ID tokens
+  through issuer discovery/JWKS, enforces configured client ID audience, and maps
+  configured role claims into owner/admin roles before any ticket is issued.
+- Transport boundary: `internal/transport/http` issues tickets through the
+  generated `POST /api/v1/diagnosis/ws-ticket` endpoint and consumes them before
+  upgrading `GET /ws/diagnosis`. The upgrade path rejects disallowed browser
+  origins before ticket consumption and hands off only redacted tickets.
 
 ## Review Checklist
 
@@ -64,7 +83,9 @@ Rules:
 - [ ] sandbox permissions are minimal (non-root, no-new-privileges, resource limits)
 - [ ] sandbox credentials are short-lived (TTL <= container timeout)
 - [ ] container image referenced by digest, not mutable tag
-- [ ] egress control tested (not just documented)
-- [ ] WS ticket is single-use and short-lived
+- [ ] allowlist sandbox networking fails closed without an egress enforcer
+- [x] egress control topology tested (not just documented)
+- [x] WS ticket usecase rule is single-use and short-lived
+- [ ] WS ticket endpoint and upgrade handler enforce the usecase rule
 - [ ] no long-lived JWT in query strings or URLs
 - [ ] generated API contract remains current
