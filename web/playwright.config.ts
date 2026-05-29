@@ -6,6 +6,7 @@ const apiPort = process.env.OPENCLARION_PLAYWRIGHT_API_PORT ?? "38280";
 const baseURL = `http://${host}:${webPort}`;
 const apiBaseURL = `http://${host}:${apiPort}`;
 const isCI = Boolean(process.env.CI);
+const browserChannel = process.env.OPENCLARION_PLAYWRIGHT_CHANNEL;
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -22,7 +23,10 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] }
+      use: {
+        ...devices["Desktop Chrome"],
+        ...(browserChannel ? { channel: browserChannel } : {})
+      }
     }
   ],
   webServer: [

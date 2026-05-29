@@ -98,6 +98,13 @@ GO_CHECK_PACKAGES := ./api/... ./cmd/... ./internal/... ./scripts/...
 NPM ?= npm
 PR_BUDGET ?= 15m
 PR_BUDGET_MODE ?= enforce
+ifeq ($(CI),true)
+PLAYWRIGHT_INSTALL ?= npx playwright install-deps chrome
+PLAYWRIGHT_SMOKE_ENV ?= OPENCLARION_PLAYWRIGHT_CHANNEL=chrome
+else
+PLAYWRIGHT_INSTALL ?= npx playwright install --with-deps --only-shell chromium
+PLAYWRIGHT_SMOKE_ENV ?=
+endif
 
 # Ent schema and migration paths (canonical layout per docs/design/database/).
 ENT_PKG := ./internal/persistence/ent
@@ -413,8 +420,8 @@ ci-frontend-build: frontend-install ## Build the Next.js frontend
 	@cd web && $(NPM) run build
 
 ci-frontend-smoke: ci-frontend-build ## Run Playwright route smoke with a mocked API
-	@cd web && npx playwright install --with-deps --only-shell chromium
-	@cd web && $(NPM) run smoke
+	@cd web && $(PLAYWRIGHT_INSTALL)
+	@cd web && $(PLAYWRIGHT_SMOKE_ENV) $(NPM) run smoke
 
 diagnosis-live-browser-smoke: ## Manual M5 smoke: browser diagnosis room against a real backend/worker stack
 	@bash scripts/run_diagnosis_live_browser_smoke.sh
