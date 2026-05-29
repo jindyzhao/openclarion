@@ -52,6 +52,14 @@
 > Security updates are still handled by Dependabot security-update PRs and must
 > either preserve parity or carry an explicit coordinated tooling update.
 
+> **Frontend toolchain major-update rule**: Dependabot suppresses ordinary
+> semver-major version-update PRs for `/web` `typescript` and `eslint`.
+> Those upgrades are treated as coordinated toolchain migrations because they
+> must be validated together with Next.js, `eslint-config-next`, generated
+> OpenAPI TypeScript output, lint, typecheck, build, and browser smoke gates.
+> Dependabot security-update PRs remain allowed and must either pass the same
+> gates or carry an explicit rollback path.
+
 ## License Compliance Policy
 
 Go dependency licenses are checked with pinned `go-licenses v1.6.0` through
