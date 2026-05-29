@@ -104,6 +104,9 @@ func TestPRDescriptionCheckRejectsMissingOrEmptySections(t *testing.T) {
 
 func TestPRDescriptionCheckRequiresInput(t *testing.T) {
 	root := newPRDescriptionFixture(t)
+	t.Setenv("PR_BODY", "## Risk\n\nLow.\n\n## Rollback\n\nRevert this PR.\n")
+	t.Setenv("GITHUB_EVENT_PATH", filepath.Join(root, "event.json"))
+
 	out, err := runPRDescriptionCheck(t, root, nil)
 	if err == nil {
 		t.Fatalf("pr description check passed unexpectedly:\n%s", out)
@@ -151,10 +154,18 @@ func runPRDescriptionCheck(t *testing.T, root string, env map[string]string) (st
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", "scripts/check_pr_description.sh")
 	cmd.Dir = root
-	cmd.Env = os.Environ()
+	cmd.Env = minimalPRDescriptionCheckEnv()
 	for key, value := range env {
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
 	raw, err := cmd.CombinedOutput()
 	return string(raw), err
+}
+
+func minimalPRDescriptionCheckEnv() []string {
+	var env []string
+	if path := os.Getenv("PATH"); path != "" {
+		env = append(env, "PATH="+path)
+	}
+	return env
 }
