@@ -118,6 +118,8 @@ jobs:
       - run: make gate-hardening-check
       - run: make comment-debt-check
       - run: make comment-debt-check-test
+      - run: make deferred-followups-check
+      - run: make deferred-followups-check-test
 
   go-toolchain-check:
     name: Go toolchain version consistency
