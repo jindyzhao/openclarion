@@ -10,7 +10,7 @@
 #   make forbidden        # all forbidden-method guards
 #   make adr-check        # validate ADR index and reading order
 #   make links-check      # validate markdown links, anchors, and docs reachability
-#   make external-links-check # inventory external links; scheduled workflow enables live checks
+#   make external-links-check # inventory external links; opt-in env enables live checks
 #   make markdownlint     # validate governed Markdown structure/style
 #   make gate-hardening-check # validate gate maturity checklist coverage
 #   make allowlist-discipline # validate allowlist owner / expiry / removal metadata
