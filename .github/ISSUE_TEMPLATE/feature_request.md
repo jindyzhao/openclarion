@@ -7,9 +7,15 @@ labels: enhancement
 
 ## Problem
 
+-
+
 ## Proposal
 
+-
+
 ## Alternatives considered
+
+-
 
 ## Acceptance criteria
 
