@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -161,6 +162,41 @@ func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoom(t *testing.T) {
 	if originPolicy.CheckWebSocketOrigin(req) {
 		t.Fatal("expected unconfigured origin to be rejected")
 	}
+}
+
+func TestHTTPServerOptionsFromEnv_RejectsCredentialedDiagnosisAllowedOrigin(t *testing.T) {
+	oidcServer := newOIDCDiscoveryServer(t)
+	tests := []struct {
+		name   string
+		origin string
+	}{
+		{name: "username", origin: "https://operator@example.test"},
+		{name: "password", origin: credentialedDiagnosisOrigin()},
+		{name: "escaped userinfo", origin: "https://operator%40team@example.test"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+				"OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL": " " + oidcServer.URL + " ",
+				"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID":  "openclarion-web",
+				"OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS": tc.origin,
+			}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil)
+			if err == nil {
+				t.Fatal("expected credentialed allowed origin error, got nil")
+			}
+			if !strings.Contains(err.Error(), "OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS") || !strings.Contains(err.Error(), "userinfo") {
+				t.Fatalf("error = %q, want allowed origins userinfo rejection", err.Error())
+			}
+		})
+	}
+}
+
+func credentialedDiagnosisOrigin() string {
+	return (&url.URL{
+		Scheme: "https",
+		User:   url.UserPassword("operator", "opaque"),
+		Host:   "example.test",
+	}).String()
 }
 
 func TestHTTPServerOptionsFromEnv_RejectsIncompleteDiagnosisConfig(t *testing.T) {
