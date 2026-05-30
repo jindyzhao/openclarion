@@ -56,6 +56,27 @@ func TestCheckFilesRejectsOversizedTotal(t *testing.T) {
 	}
 }
 
+func TestCheckFilesRejectsBlockedArtifactExtensions(t *testing.T) {
+	dir := t.TempDir()
+	writeSizedFile(t, filepath.Join(dir, "dist", "app.zip"), 2)
+	writeSizedFile(t, filepath.Join(dir, "tmp", "state.sqlite3"), 2)
+	writeSizedFile(t, filepath.Join(dir, "web", "module.WASM"), 2)
+
+	_, err := checkFiles(dir, []string{"dist/app.zip", "tmp/state.sqlite3", "web/module.WASM"}, 10, 20)
+	if err == nil {
+		t.Fatal("checkFiles() error = nil, want blocked extension rejection")
+	}
+	for _, want := range []string{
+		`dist/app.zip has blocked artifact extension ".zip" (compressed archive)`,
+		`tmp/state.sqlite3 has blocked artifact extension ".sqlite3" (database artifact)`,
+		`web/module.WASM has blocked artifact extension ".wasm" (compiled WebAssembly artifact)`,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want %q", err, want)
+		}
+	}
+}
+
 func TestCheckFilesRejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
 	writeSizedFile(t, filepath.Join(dir, "target.txt"), 1)
