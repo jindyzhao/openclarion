@@ -16,13 +16,15 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/observability/correlation"
+	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
 const (
-	defaultBaseURL = "https://api.openai.com/v1"
-	defaultTimeout = 30 * time.Second
-	maxErrorBody   = 1 << 20
+	defaultBaseURL  = "https://api.openai.com/v1"
+	defaultTimeout  = 30 * time.Second
+	maxErrorBody    = 1 << 20
+	maxResponseBody = 4 << 20
 )
 
 var schemaNamePattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -240,7 +242,7 @@ func (p *Provider) post(ctx context.Context, body chatCompletionRequest, idempot
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return apiStatusError(resp)
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+	if err := decodeChatCompletionResponse(resp.Body, out); err != nil {
 		return fmt.Errorf("openai llm: decode response: %w", err)
 	}
 	return nil
@@ -248,7 +250,21 @@ func (p *Provider) post(ctx context.Context, body chatCompletionRequest, idempot
 
 func apiStatusError(resp *http.Response) error {
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+	trimmed := strings.TrimSpace(string(raw))
 	var apiErr errorEnvelope
+	if strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+		if err := strictjson.RejectDuplicateObjectKeys(raw); err != nil {
+			return &statusError{
+				StatusCode: resp.StatusCode,
+				Message:    "invalid API error response",
+			}
+		}
+	} else {
+		return &statusError{
+			StatusCode: resp.StatusCode,
+			Message:    trimmed,
+		}
+	}
 	if err := json.Unmarshal(raw, &apiErr); err == nil && apiErr.Error.Message != "" {
 		return &statusError{
 			StatusCode: resp.StatusCode,
@@ -259,8 +275,34 @@ func apiStatusError(resp *http.Response) error {
 	}
 	return &statusError{
 		StatusCode: resp.StatusCode,
-		Message:    strings.TrimSpace(string(raw)),
+		Message:    trimmed,
 	}
+}
+
+func decodeChatCompletionResponse(body io.Reader, out *chatCompletionResponse) error {
+	raw, err := readLimited(body, maxResponseBody, "chat completion response")
+	if err != nil {
+		return err
+	}
+	if err := strictjson.RejectDuplicateObjectKeys(raw); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
+		return err
+	}
+	return nil
+}
+
+func readLimited(body io.Reader, limit int64, label string) ([]byte, error) {
+	limited := &io.LimitedReader{R: body, N: limit + 1}
+	raw, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > limit {
+		return nil, fmt.Errorf("%s exceeds %d bytes", label, limit)
+	}
+	return raw, nil
 }
 
 func probeStrictJSONSchema(ctx context.Context, p *Provider) error {

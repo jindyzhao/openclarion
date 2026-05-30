@@ -162,6 +162,64 @@ func TestProvider_GenerateJSON_MapsFinishReasonVerbatim(t *testing.T) {
 	}
 }
 
+func TestProvider_GenerateJSON_RejectsAmbiguousResponseEnvelope(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "duplicate top-level key",
+			body: `{"model":"old","model":"new","choices":[{"index":0,"message":{"role":"assistant","content":"{\"ok\":true}"},"finish_reason":"stop"}]}`,
+			want: `duplicate object key "model"`,
+		},
+		{
+			name: "trailing value",
+			body: `{"model":"gpt-test","choices":[{"index":0,"message":{"role":"assistant","content":"{\"ok\":true}"},"finish_reason":"stop"}]} {"model":"shadow"}`,
+			want: "trailing JSON values",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newChatServer(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.body))
+			})
+			p, err := NewProvider(Config{BaseURL: srv.URL, Model: "gpt-test", OutputMode: ports.LLMOutputModeJSONSchema})
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+
+			_, err = p.GenerateJSON(context.Background(), validRequest())
+			if err == nil {
+				t.Fatal("GenerateJSON err = nil, want ambiguous response error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestProvider_GenerateJSON_RejectsOversizedResponseEnvelope(t *testing.T) {
+	srv := newChatServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(strings.Repeat(" ", maxResponseBody+1)))
+	})
+
+	p, err := NewProvider(Config{BaseURL: srv.URL, Model: "gpt-test", OutputMode: ports.LLMOutputModeJSONSchema})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	_, err = p.GenerateJSON(context.Background(), validRequest())
+	if err == nil {
+		t.Fatal("GenerateJSON err = nil, want oversized response error")
+	}
+	if !strings.Contains(err.Error(), "chat completion response exceeds") {
+		t.Fatalf("err = %v, want response size error", err)
+	}
+}
+
 func TestProvider_GenerateJSON_WrapsAPIError(t *testing.T) {
 	srv := newChatServer(t, func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -181,6 +239,29 @@ func TestProvider_GenerateJSON_WrapsAPIError(t *testing.T) {
 		t.Fatalf("err = %T %v, want statusError", err, err)
 	}
 	if status.StatusCode != http.StatusServiceUnavailable || !strings.Contains(status.Message, "model unavailable") {
+		t.Fatalf("status = %+v", status)
+	}
+}
+
+func TestProvider_GenerateJSON_WrapsPlainTextAPIError(t *testing.T) {
+	srv := newChatServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`rate limited`))
+	})
+
+	p, err := NewProvider(Config{BaseURL: srv.URL, Model: "gpt-test", OutputMode: ports.LLMOutputModeJSONSchema})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	_, err = p.GenerateJSON(context.Background(), validRequest())
+	if err == nil {
+		t.Fatalf("GenerateJSON: want error")
+	}
+	var status *statusError
+	if !errors.As(err, &status) {
+		t.Fatalf("err = %T %v, want statusError", err, err)
+	}
+	if status.StatusCode != http.StatusTooManyRequests || status.Message != "rate limited" {
 		t.Fatalf("status = %+v", status)
 	}
 }
@@ -280,6 +361,29 @@ func TestNewProviderWithCapabilityDetection_PropagatesNonCapabilityError(t *test
 	}
 }
 
+func TestNewProviderWithCapabilityDetection_RejectsAmbiguousCapabilityError(t *testing.T) {
+	calls := 0
+	srv := newChatServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"response_format unsupported","message":"shadowed","type":"invalid_request_error","code":"unsupported_response_format"}}`))
+	})
+
+	_, err := NewProviderWithCapabilityDetection(context.Background(), Config{
+		BaseURL: srv.URL,
+		Model:   "gpt-test",
+	})
+	if err == nil {
+		t.Fatalf("NewProviderWithCapabilityDetection: want error")
+	}
+	if calls != 1 {
+		t.Fatalf("server calls = %d, want 1", calls)
+	}
+	if !strings.Contains(err.Error(), "invalid API error response") {
+		t.Fatalf("err = %v, want invalid API error response", err)
+	}
+}
+
 func TestNewProvider_Validation(t *testing.T) {
 	tests := []struct {
 		name string
@@ -333,12 +437,15 @@ func writeChatResponse(w http.ResponseWriter, content string, refusal *string, f
 		message["content"] = ""
 	}
 	out := map[string]any{
-		"model": "gpt-test",
+		"id":     "chatcmpl-test",
+		"model":  "gpt-test",
+		"object": "chat.completion",
 		"choices": []map[string]any{{
 			"index":         0,
 			"message":       message,
 			"finish_reason": finishReason,
 		}},
+		"usage": map[string]any{"total_tokens": 42},
 	}
 	_ = json.NewEncoder(w).Encode(out)
 }
