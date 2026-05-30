@@ -35,9 +35,10 @@ func (s *Server) GetHealthz(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-Note: oapi-codegen-exp V3 does not currently generate a `StrictServerInterface`.
-If strict typed request/response wrappers are desired, implement a thin adapter
-layer manually or contribute upstream. Accept the V3 `ServerInterface` for MVP.
+The V1 transport uses the generated `ServerInterface` directly. Do not add a
+handwritten strict adapter unless upstream generates one for the pinned OpenAPI
+3.1 path or review shows repeated request/response boilerplate that the adapter
+would remove without duplicating generated routing or DTO contracts.
 
 Middleware uses standard `func(http.Handler) http.Handler` chains.
 
