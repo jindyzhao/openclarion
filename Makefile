@@ -598,13 +598,6 @@ container-provider-output-cap-smoke: ## Manual M4 smoke: Docker-backed Container
 egress-allowdeny-smoke: ## Manual M4 smoke: Docker internal network + proxy allows listed egress and denies bypass/unlisted targets
 	@bash scripts/run_egress_allowdeny_smoke.sh
 
-# ---------------------------------------------------------------------------
-# Future targets (introduced progressively as code lands)
-# ---------------------------------------------------------------------------
-#
-# Per docs/design/ci/README.md, the targets below are placeholders for
-# upcoming milestones. They will be wired into `ci` once the underlying
-# code (provider boundaries, sandbox security) is committed.
-#
-#   provider-boundary  - forbidden cross-layer imports (M2, Go analyzer)
-#   sandbox-security   - container non-root / limits gate (M4)
+# Future gates are tracked in docs/design/ci/README.md, not as inactive
+# Makefile placeholders. Add a target here only when its script/tool,
+# CI workflow job, and Schedule row land in the same change.
