@@ -5,7 +5,7 @@
 > prevents deferred items from being silently lost and prevents past
 > discussions from being re-litigated without new information.
 
-> Last updated: 2026-05-27
+> Last updated: 2026-05-30
 
 ## How To Use This File
 
@@ -114,9 +114,10 @@
 |-------|-------|
 | Status | open |
 | Decided | 2026-05-19 |
-| Reason | Single `CHECKLIST.md` covers all milestones. Splitting into per-phase files (`checklist/phase-*.md`) is a maintenance choice, not a functional improvement, while the project remains a single maintainer. |
-| Trigger | re-evaluate after M2 if checklist length harms readability |
-| Target | M2 review |
+| Updated | 2026-05-30 |
+| Reason | M5 re-evaluation keeps the single `CHECKLIST.md`: it is 232 lines, still milestone-scannable, and detailed implementation history already lives in `CURRENT_STATE.md`, `docs/roadmap/tasks.md`, phase docs, and the M4 evidence documents. Splitting into `checklist/phase-*.md` would add navigation and link-maintenance cost without improving the current review flow. |
+| Trigger | revisit only if `CHECKLIST.md` exceeds 400 lines, gains separate phase owners, or review feedback shows that single-file milestone scanning is blocking delivery |
+| Target | post-V1, only if one trigger occurs |
 
 ### D11: Legacy Forbidden-Imports Bash Deletion
 
@@ -143,3 +144,4 @@
 | 2026-05-27 | jindyzhao | Add D11 for W3-2b: legacy forbidden-imports bash deletion is deferred until the two-week analyzer equivalence window completes. |
 | 2026-05-27 | jindyzhao | Close D11 after revising the plan to permit immediate retirement on rigorous local equivalence proof; analyzer tests now pin the retired legacy deny-list and cover red/green fixtures. |
 | 2026-05-28 | jindyzhao | D6 closed: M3 OpenTelemetry HTTP tracing first import pins `go.opentelemetry.io/otel v1.44.0`, `go.opentelemetry.io/otel/sdk v1.44.0`, OTLP HTTP trace exporter `v1.44.0`, and `otelhttp v0.68.0`; collector smoke and broader tracing coverage are tracked as M3 implementation work, not dependency-pin deferral. |
+| 2026-05-30 | jindyzhao | D10 re-evaluated after M2/M5 growth: keep the single delivery checklist for now and replace the expired M2-review trigger with concrete size, ownership, and reviewer-friction triggers. |
