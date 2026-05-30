@@ -2,10 +2,8 @@ package http
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 
@@ -25,7 +23,7 @@ func (s *Server) CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis auth is not configured", nil)
 		return
 	}
-	body, err := decodeDiagnosisRoomCreateRequest(r)
+	body, err := decodeDiagnosisRoomCreateRequest(w, r)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -51,20 +49,10 @@ func (s *Server) CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
 	writeJSON(r.Context(), w, s.logger, http.StatusCreated, diagnosisRoomCreateResponse(result))
 }
 
-func decodeDiagnosisRoomCreateRequest(r *http.Request) (api.DiagnosisRoomCreateRequest, error) {
-	defer func() {
-		_, _ = io.Copy(io.Discard, r.Body)
-		_ = r.Body.Close()
-	}()
-
+func decodeDiagnosisRoomCreateRequest(w http.ResponseWriter, r *http.Request) (api.DiagnosisRoomCreateRequest, error) {
 	var body api.DiagnosisRoomCreateRequest
-	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(&body); err != nil {
-		return body, fmt.Errorf("invalid JSON request body: %w", err)
-	}
-	var extra struct{}
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		return body, fmt.Errorf("request body must contain exactly one JSON object")
+	if err := decodeStrictJSONRequestBody(w, r, &body); err != nil {
+		return body, err
 	}
 	if len(body.AdditionalProperties) != 0 {
 		return body, fmt.Errorf("request body contains unknown fields")
