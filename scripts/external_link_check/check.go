@@ -160,7 +160,7 @@ func collectExternalLinks(files []string, root string) ([]linkEvidence, error) {
 }
 
 func trimURL(url string) string {
-	return strings.TrimRight(url, ".,;:")
+	return strings.TrimRight(url, ".,;:`")
 }
 
 func checkLiveLinks(ctx context.Context, links []linkEvidence, timeout time.Duration) (int, int, error) {
@@ -199,8 +199,10 @@ func reservedExampleURL(rawURL string) bool {
 	return host == "example.com" ||
 		host == "example.net" ||
 		host == "example.org" ||
+		host == "example.test" ||
 		host == "example" ||
-		strings.HasSuffix(host, ".example")
+		strings.HasSuffix(host, ".example") ||
+		strings.HasSuffix(host, ".example.test")
 }
 
 func probeURL(ctx context.Context, client *http.Client, url string) (int, error) {
