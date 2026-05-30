@@ -28,6 +28,7 @@
 #   make generate-fresh   # validate make generate freshness and idempotence
 #   make go-licenses-check # validate Go dependency license allowlist
 #   make osv-scan         # validate npm lockfiles with OSV-Scanner
+#   make dependabot-policy-check # validate Dependabot update policy shape
 #   make report-live-smoke # manual live M2 smoke against real services
 #   make report-live-smoke-output-test # M2 live report smoke proof validator tests
 #   make agent-runtime-smoke # manual M4 smoke against a candidate sandbox image
@@ -124,7 +125,7 @@ help: ## Show this help
 pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
 	@go run ./scripts/pr_budget --budget "$(PR_BUDGET)" --mode "$(PR_BUDGET_MODE)" -- $(MAKE) ci
 
-ci: workflow-parity docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test workflow-change-guard-test pr-impact-reference-check-test pr-budget-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
+ci: workflow-parity docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test pr-impact-reference-check-test pr-budget-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
 	@echo ""
 	@echo "[ci] all gates passed."
 
@@ -149,7 +150,7 @@ ci: workflow-parity docs-hygiene forbidden adr-check links-check markdownlint do
 # Documentation gates
 # ---------------------------------------------------------------------------
 
-.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test workflow-change-guard workflow-change-guard-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test pr-title-check pr-description-check dco-check workflow-parity
+.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard workflow-change-guard-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test pr-title-check pr-description-check dco-check workflow-parity
 
 docs-hygiene: ## Reject non-English CJK literals, terminology drift, and proof-state drift in governed documentation
 	@bash scripts/check_no_non_english_chars.sh
@@ -185,6 +186,12 @@ allowlist-discipline: ## Validate allowlist owner, expiry, and removal metadata
 
 allowlist-discipline-test: ## Validate allowlist discipline checker behavior
 	@go test -race -count=1 ./scripts/allowlist_discipline
+
+dependabot-policy-check: ## Validate Dependabot update policy shape
+	@go run ./scripts/dependabot_policy_check
+
+dependabot-policy-check-test: ## Validate Dependabot policy checker behavior
+	@go test -race -count=1 ./scripts/dependabot_policy_check
 
 workflow-change-guard: ## Validate PR workflow-file change isolation
 	@go run ./scripts/workflow_change_guard
