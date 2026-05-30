@@ -125,6 +125,189 @@ func TestRunRejectsHardCodedSetupGoVersion(t *testing.T) {
 	assertOutputContains(t, out.String(), "actions/setup-go must set go-version-file: go.mod")
 }
 
+func TestRunRejectsSymlinkedRootGoMod(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"real-go.mod":                     "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+	})
+	replaceWithSymlink(t, root, "go.mod", "real-go.mod")
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `go.mod: must be a regular file, not a symlink`)
+}
+
+func TestRunRejectsDirectoryRootGoMod(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+	})
+	if err := os.Mkdir(filepath.Join(root, "go.mod"), 0o750); err != nil {
+		t.Fatalf("Mkdir(go.mod): %v", err)
+	}
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `go.mod: must be a regular file`)
+}
+
+func TestRunRejectsDirectorySubmoduleGoMod(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":        "module example.test/root\n\ngo 1.25.10\n",
+		".golangci.yml": "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+	})
+	if err := os.MkdirAll(filepath.Join(root, "tools", "openclarion-linter", "go.mod"), 0o750); err != nil {
+		t.Fatalf("MkdirAll(submodule go.mod): %v", err)
+	}
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `tools/openclarion-linter/go.mod: must be a regular file`)
+}
+
+func TestRunRejectsSymlinkedGolangCIConfig(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".golangci.real.yml":              "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+	})
+	replaceWithSymlink(t, root, ".golangci.yml", ".golangci.real.yml")
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.golangci.yml: must be a regular file, not a symlink`)
+}
+
+func TestRunRejectsDirectoryGolangCIConfig(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+	})
+	if err := os.Mkdir(filepath.Join(root, ".golangci.yml"), 0o750); err != nil {
+		t.Fatalf("Mkdir(.golangci.yml): %v", err)
+	}
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.golangci.yml: must be a regular file`)
+}
+
+func TestRunRejectsSymlinkedWorkflowDirectory(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows-real/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+	})
+	if err := os.Symlink("workflows-real", filepath.Join(root, ".github", "workflows")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.github/workflows: .github/workflows must be a directory, not a symlink`)
+}
+
+func TestRunRejectsRegularFileWorkflowDirectory(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows":               "not a directory\n",
+	})
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.github/workflows: .github/workflows must be a directory`)
+}
+
+func TestRunRejectsSymlinkedWorkflowFile(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows/real.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+	})
+	if err := os.Symlink("real.yml", filepath.Join(root, ".github", "workflows", "ci.yml")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.github/workflows: .github/workflows/ci.yml must be a regular file, not a symlink`)
+}
+
+func TestRunRejectsDirectoryWorkflowFile(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+	})
+	if err := os.MkdirAll(filepath.Join(root, ".github", "workflows", "ci.yml"), 0o750); err != nil {
+		t.Fatalf("MkdirAll(workflow file dir): %v", err)
+	}
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.github/workflows: .github/workflows/ci.yml must be a regular file`)
+}
+
 func TestFindGoModFilesSkipsGeneratedAndDependencyDirs(t *testing.T) {
 	root := writeRepo(t, repoFiles{
 		"go.mod":                    "module example.test/root\n\ngo 1.25.10\n",
@@ -167,6 +350,17 @@ func writeRepo(t *testing.T, files repoFiles) string {
 		}
 	}
 	return root
+}
+
+func replaceWithSymlink(t *testing.T, root, linkPath, target string) {
+	t.Helper()
+	absLink := filepath.Join(root, filepath.FromSlash(linkPath))
+	if err := os.Remove(absLink); err != nil {
+		t.Fatalf("Remove(%s): %v", absLink, err)
+	}
+	if err := os.Symlink(target, absLink); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
 }
 
 func workflowWithSetupGo(withBlock string) string {
