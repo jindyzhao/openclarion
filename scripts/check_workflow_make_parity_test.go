@@ -53,6 +53,115 @@ func TestWorkflowMakeParityAcceptsRegisteredWorkflow(t *testing.T) {
 	}
 }
 
+func TestWorkflowMakeParityRejectsIndirectInputs(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, root string)
+		want  string
+	}{
+		{
+			name: "makefile symlink",
+			setup: func(t *testing.T, root string) {
+				replaceWithSymlink(t, root, "Makefile")
+			},
+			want: "Makefile must be a regular file, not a symlink",
+		},
+		{
+			name: "makefile directory",
+			setup: func(t *testing.T, root string) {
+				replaceWithDirectory(t, root, "Makefile")
+			},
+			want: "Makefile must be a regular file",
+		},
+		{
+			name: "ci readme symlink",
+			setup: func(t *testing.T, root string) {
+				replaceWithSymlink(t, root, "docs/design/ci/README.md")
+			},
+			want: "docs/design/ci/README.md must be a regular file, not a symlink",
+		},
+		{
+			name: "ci readme directory",
+			setup: func(t *testing.T, root string) {
+				replaceWithDirectory(t, root, "docs/design/ci/README.md")
+			},
+			want: "docs/design/ci/README.md must be a regular file",
+		},
+		{
+			name: "workflow file symlink",
+			setup: func(t *testing.T, root string) {
+				replaceWithSymlink(t, root, ".github/workflows/ci.yml")
+			},
+			want: ".github/workflows/ci.yml must be a regular file, not a symlink",
+		},
+		{
+			name: "workflow file directory",
+			setup: func(t *testing.T, root string) {
+				replaceWithDirectory(t, root, ".github/workflows/ci.yml")
+			},
+			want: ".github/workflows/ci.yml must be a regular file",
+		},
+		{
+			name: "workflow directory symlink",
+			setup: func(t *testing.T, root string) {
+				workflowsDir := filepath.Join(root, ".github", "workflows")
+				target := filepath.Join(root, ".github", "workflows-target")
+				if err := os.Rename(workflowsDir, target); err != nil {
+					t.Fatalf("rename workflow directory: %v", err)
+				}
+				if err := os.Symlink(target, workflowsDir); err != nil {
+					t.Skipf("symlink unsupported: %v", err)
+				}
+			},
+			want: ".github/workflows must be a directory, not a symlink",
+		},
+		{
+			name: "dangling workflow directory symlink",
+			setup: func(t *testing.T, root string) {
+				workflowsDir := filepath.Join(root, ".github", "workflows")
+				if err := os.RemoveAll(workflowsDir); err != nil {
+					t.Fatalf("remove workflow directory: %v", err)
+				}
+				target := filepath.Join(root, ".github", "missing-workflows")
+				if err := os.Symlink(target, workflowsDir); err != nil {
+					t.Skipf("symlink unsupported: %v", err)
+				}
+			},
+			want: ".github/workflows must be a directory, not a symlink",
+		},
+		{
+			name: "workflow directory regular file",
+			setup: func(t *testing.T, root string) {
+				workflowsDir := filepath.Join(root, ".github", "workflows")
+				if err := os.RemoveAll(workflowsDir); err != nil {
+					t.Fatalf("remove workflow directory: %v", err)
+				}
+				if err := os.WriteFile(workflowsDir, []byte("not a directory\n"), 0o600); err != nil {
+					t.Fatalf("write workflow directory replacement: %v", err)
+				}
+			},
+			want: ".github/workflows must be a directory",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := writeWorkflowParityRepo(t, map[string]string{
+				".github/workflows/ci.yml": validWorkflowYAML,
+			}, []string{".github/workflows/ci.yml"})
+			tc.setup(t, root)
+
+			out, err := runWorkflowParity(t, root)
+			if err == nil {
+				t.Fatalf("workflow parity passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("workflow parity output = %q, want substring %q", out, tc.want)
+			}
+		})
+	}
+}
+
 func TestWorkflowMakeParityAcceptsJustifiedPermissionExpansion(t *testing.T) {
 	workflow := strings.Replace(
 		validWorkflowYAML,
@@ -290,6 +399,29 @@ func writeFile(t *testing.T, root, name, body string, mode os.FileMode) {
 	}
 	if err := os.WriteFile(path, []byte(body), mode); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func replaceWithSymlink(t *testing.T, root, name string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	target := path + ".target"
+	if err := os.Rename(path, target); err != nil {
+		t.Fatalf("rename %s: %v", name, err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+}
+
+func replaceWithDirectory(t *testing.T, root, name string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove %s: %v", name, err)
+	}
+	if err := os.Mkdir(path, 0o750); err != nil {
+		t.Fatalf("mkdir %s: %v", name, err)
 	}
 }
 
