@@ -44,8 +44,8 @@ func TestEvaluateImpact(t *testing.T) {
 			want:  []string{"internal/sandbox/runtime.go"},
 		},
 		{
-			name:  "deduplicates and normalizes",
-			files: []string{`.\docs\adr\ADR-0001-postgresql-single-source.md`, "docs/adr/ADR-0001-postgresql-single-source.md"},
+			name:  "deduplicates",
+			files: []string{"docs/adr/ADR-0001-postgresql-single-source.md", "docs/adr/ADR-0001-postgresql-single-source.md"},
 			want:  []string{"docs/adr/ADR-0001-postgresql-single-source.md"},
 		},
 		{
@@ -59,6 +59,35 @@ func TestEvaluateImpact(t *testing.T) {
 			got := evaluateImpact(tt.files).Paths
 			if strings.Join(got, "\n") != strings.Join(tt.want, "\n") {
 				t.Fatalf("impact paths = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChangedFilesRejectsMalformedDiffPaths(t *testing.T) {
+	tests := []string{
+		"./docs/adr/ADR-0001-postgresql-single-source.md\n",
+		`.\docs\adr\ADR-0001-postgresql-single-source.md` + "\n",
+		"../docs/adr/ADR-0001-postgresql-single-source.md\n",
+		"/tmp/ADR-0001-postgresql-single-source.md\n",
+		"C:/tmp/ADR-0001-postgresql-single-source.md\n",
+		`"docs/adr/ADR-0001-postgresql-single-source.md"` + "\n",
+		"docs//adr/ADR-0001-postgresql-single-source.md\n",
+		"docs/adr/ADR-0001-postgresql-single-source.md\t\n",
+	}
+	for _, output := range tests {
+		t.Run(output, func(t *testing.T) {
+			git := &fakeGit{outputs: map[string]string{
+				"rev-parse\x00--abbrev-ref\x00--symbolic-full-name\x00@{u}":   "origin/main\n",
+				"diff\x00--name-only\x00--diff-filter=ACMRTUXB\x00@{u}..HEAD": output,
+			}}
+
+			_, err := changedFiles(context.Background(), mapEnv(nil), git)
+			if err == nil {
+				t.Fatal("changedFiles err = nil, want malformed path rejection")
+			}
+			if !strings.Contains(err.Error(), "invalid changed file path") {
+				t.Fatalf("err = %v, want invalid changed file path", err)
 			}
 		})
 	}
