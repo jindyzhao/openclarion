@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -171,6 +172,59 @@ func TestRunSkipsMissingFiles(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("run code = %d, want 0", code)
 	}
+}
+
+func TestRunSkipsMissingRegularFilePath(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), ".gitleaks.toml")
+
+	var stderr bytes.Buffer
+	code := run([]allowlistSpec{{Path: missing, EntryMarker: gitleaksSpec.EntryMarker, Name: gitleaksSpec.Name}}, time.Now(), readRegularFile, &stderr)
+	if code != 0 {
+		t.Fatalf("run code = %d, want 0; stderr=%s", code, stderr.String())
+	}
+}
+
+func TestRunRejectsSymlinkAllowlistFile(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.toml")
+	if err := os.WriteFile(target, []byte(validAllowlistFixture()), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	link := filepath.Join(dir, ".gitleaks.toml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	var stderr bytes.Buffer
+	code := run([]allowlistSpec{{Path: link, EntryMarker: gitleaksSpec.EntryMarker, Name: gitleaksSpec.Name}}, time.Now(), readRegularFile, &stderr)
+	if code != 2 {
+		t.Fatalf("run code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "must be a regular file, not a symlink") {
+		t.Fatalf("stderr = %q, want symlink rejection", stderr.String())
+	}
+}
+
+func TestRunRejectsNonRegularAllowlistFile(t *testing.T) {
+	dir := t.TempDir()
+
+	var stderr bytes.Buffer
+	code := run([]allowlistSpec{{Path: dir, EntryMarker: gitleaksSpec.EntryMarker, Name: gitleaksSpec.Name}}, time.Now(), readRegularFile, &stderr)
+	if code != 2 {
+		t.Fatalf("run code = %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "must be a regular file") {
+		t.Fatalf("stderr = %q, want regular-file rejection", stderr.String())
+	}
+}
+
+func validAllowlistFixture() string {
+	return `# Owner: openclarion CI maintainers.
+# Expires: 2026-08-31.
+# Removal trigger: delete this fixture exception after the value changes.
+[[rules.allowlists]]
+description = "fixture"
+`
 }
 
 func joinFindings(findings []finding) string {
