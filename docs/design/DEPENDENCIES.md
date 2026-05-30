@@ -161,5 +161,6 @@ exact same binary.
   [agent-runtime-forbidden.tsv](ci/agent-runtime-forbidden.tsv), or similar
   framework dependencies, must remain inside candidate sandbox images until
   [agent-runtime-selection.md](agent-runtime-selection.md) accepts a runtime
-  baseline; the root Go module and first-party frontend manifests are guarded by
-  the config-driven `make forbidden-agent-runtime` policy.
+  baseline; first-party dependency manifests plus non-test source under `cmd/`,
+  `internal/`, `scripts/`, and `web/src/` are guarded by the config-driven
+  `make forbidden-agent-runtime` policy.

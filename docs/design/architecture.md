@@ -246,8 +246,9 @@ the workflow contract.
 * Domain types depending on generated code.
 * `internal/temporal/` packages reaching into `internal/usecases/`.
 * Go code reading or interpreting agent config files.
-* Go control-plane manifests importing agent-framework dependencies before the
-  M4 runtime selection gate accepts a baseline.
+* First-party manifests or non-test control-plane source hard-coding
+  agent-framework dependencies or runtime-family names before the M4 runtime
+  selection gate accepts a baseline.
 * Agent containers accessing network endpoints not in their allowlist.
 * Agent containers writing outside `/workspace/`.
 

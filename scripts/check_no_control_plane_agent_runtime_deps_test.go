@@ -111,6 +111,18 @@ func TestForbiddenAgentRuntimeRejectsControlPlaneHardcodedRuntimeNames(t *testin
 			body: "package main\n\n// TODO: call langchain here.\nfunc main() {}\n",
 			want: "must not hard-code agent runtime family 'langchain'",
 		},
+		{
+			name: "shell script runtime branch",
+			file: "scripts/runtime_selector.sh",
+			body: "#!/usr/bin/env bash\nruntime=langgraph\n",
+			want: "must not hard-code agent runtime family 'langgraph'",
+		},
+		{
+			name: "frontend runtime branch",
+			file: "web/src/features/diagnosis/runtime.ts",
+			body: "export const runtimeFamily = \"hermes-agent\";\n",
+			want: "must not hard-code agent runtime family 'hermes'",
+		},
 	}
 
 	for _, tc := range tests {
@@ -216,6 +228,21 @@ func TestForbiddenAgentRuntimeAllowsCandidateNamesInDocs(t *testing.T) {
 	root := writeAgentRuntimeRepo(t, map[string]string{
 		"docs/design/agent-runtime-selection.md": "OpenClaw and Hermes Agent are candidate runtime evidence values.\n",
 		"internal/usecases/runtime/selector.go":  "package runtime\n\nconst selectedRuntime = \"evidence-supplied\"\n",
+	})
+
+	out, err := runForbiddenAgentRuntime(t, root)
+	if err != nil {
+		t.Fatalf("forbidden-agent-runtime failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "[forbidden-agent-runtime] OK") {
+		t.Fatalf("forbidden-agent-runtime output = %q, want OK", out)
+	}
+}
+
+func TestForbiddenAgentRuntimeAllowsCandidateNamesInTests(t *testing.T) {
+	root := writeAgentRuntimeRepo(t, map[string]string{
+		"internal/usecases/runtime/selector_test.go": "package runtime\n\nconst fixtureRuntime = \"openclaw\"\n",
+		"web/src/features/diagnosis/runtime.test.ts": "export const fixtureRuntime = \"hermes-agent\";\n",
 	})
 
 	out, err := runForbiddenAgentRuntime(t, root)
