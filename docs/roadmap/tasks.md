@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-05-29
+> Last updated: 2026-05-30
 > Author: jindyzhao
 > Status: private incubation
 
@@ -230,6 +230,7 @@ sessions, leader-tier approval, streaming partial responses.
 | 2026-05-29 | jindyzhao | Go license compliance gate landed locally: `make go-licenses-check` runs pinned `go-licenses v1.6.0` with `--include_tests` against the root module and `tools/openclarion-linter`, ignores first-party package prefixes while still checking dependencies, and accepts only the SPDX IDs recorded by `go-license-allow:` in `docs/design/DEPENDENCIES.md`. Root `scripts` tests cover allowlist parsing, command wiring, missing policy markers, and tool failure propagation. |
 | 2026-05-29 | jindyzhao | npm OSV lockfile scan landed locally: `make osv-scan` runs pinned `osv-scanner v1.9.2` against committed `package-lock.json` files outside `node_modules`, rejects first-party npm manifests without lockfiles, and currently reports zero findings for `web/package-lock.json`. Root `scripts` tests cover lockfile discovery, node_modules exclusions, missing lockfiles, and tool failure propagation. |
 | 2026-05-29 | jindyzhao | External HTTPS link inventory landed locally: `make external-links-check` inventories governed Markdown external links without network access, and `OPENCLARION_EXTERNAL_LINKS_LIVE=1` remains available for explicit HEAD/GET liveness checks. The scheduled workflow is deferred to a separate workflow-only PR to preserve workflow change isolation. Root `scripts/external_link_check` tests cover inventory mode, live success, HEAD-to-GET fallback, broken-link failures, and timeout validation. |
+| 2026-05-30 | jindyzhao | External link inventory source-file regularity hardened locally: `make external-links-check` now rejects symlink/non-regular top-level governed Markdown files, symlink `docs/` roots, and symlink/non-regular `docs/**/*.md` files before collecting external URLs. |
 | 2026-05-28 | jindyzhao | M2 provider contract started: `LLMProvider` and provider-neutral structured JSON request/response DTOs landed in `internal/usecases/ports`, with deterministic scripted fake provider in `internal/providers/llm/fake`. Runtime fake-provider analyzer now rejects any `internal/providers/*/fake` import from production `cmd/openclarion` wiring. |
 | 2026-05-28 | jindyzhao | M2 LLM output validation framework landed: `internal/usecases/llmoutput` rejects model refusals, non-`stop` finish reasons/truncation, invalid JSON, unsupported output modes, invalid schemas, and JSON Schema violations before output can be accepted. Validation failures carry reason and retryability metadata for the future retry loop. |
 | 2026-05-28 | jindyzhao | M2 LLM retry framework landed: `internal/usecases/llmretry` runs up to three validated provider attempts by default, appends validation error feedback as a user message only for retryable `llmoutput` failures, and stops immediately on refusal, provider errors, invalid request metadata, or context cancellation. |

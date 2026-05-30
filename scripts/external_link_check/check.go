@@ -81,14 +81,18 @@ func governedMarkdownFiles(root string) ([]string, error) {
 	var files []string
 	for _, candidate := range candidates {
 		path := filepath.Join(root, filepath.FromSlash(candidate))
-		if _, err := os.Stat(path); err == nil {
-			files = append(files, path)
-		} else if !errors.Is(err, os.ErrNotExist) {
+		ok, err := regularMarkdownFileExists(path)
+		if err != nil {
 			return nil, err
+		}
+		if ok {
+			files = append(files, path)
 		}
 	}
 	docsRoot := filepath.Join(root, "docs")
-	if _, err := os.Stat(docsRoot); err == nil {
+	if ok, err := docsDirectoryExists(docsRoot); err != nil {
+		return nil, err
+	} else if ok {
 		if err := filepath.WalkDir(docsRoot, func(path string, entry os.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -100,17 +104,70 @@ func governedMarkdownFiles(root string) ([]string, error) {
 				return nil
 			}
 			if strings.HasSuffix(entry.Name(), ".md") {
+				if err := requireRegularMarkdownEntry(path, entry); err != nil {
+					return err
+				}
 				files = append(files, path)
 			}
 			return nil
 		}); err != nil {
 			return nil, err
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, err
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+func regularMarkdownFileExists(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if err := requireRegularFileInfo(path, info); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func docsDirectoryExists(path string) (bool, error) {
+	info, err := os.Lstat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("%s must be a directory, not a symlink", path)
+	}
+	if !info.IsDir() {
+		return false, fmt.Errorf("%s must be a directory", path)
+	}
+	return true, nil
+}
+
+func requireRegularMarkdownEntry(path string, entry os.DirEntry) error {
+	if entry.Type()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must be a regular file, not a symlink", path)
+	}
+	info, err := entry.Info()
+	if err != nil {
+		return err
+	}
+	return requireRegularFileInfo(path, info)
+}
+
+func requireRegularFileInfo(path string, info os.FileInfo) error {
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s must be a regular file, not a symlink", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s must be a regular file", path)
+	}
+	return nil
 }
 
 func collectExternalLinks(files []string, root string) ([]linkEvidence, error) {

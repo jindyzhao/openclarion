@@ -80,6 +80,82 @@ func TestRunRejectsInvalidTimeout(t *testing.T) {
 	}
 }
 
+func TestRunRejectsTopLevelSymlinkMarkdown(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target.md")
+	if err := os.WriteFile(target, []byte("https://example.com\n"), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "README.md")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(config{Root: root, Timeout: time.Second}, &stdout)
+	if err == nil {
+		t.Fatal("run passed unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "README.md must be a regular file, not a symlink") {
+		t.Fatalf("run error = %v, want symlink Markdown rejection", err)
+	}
+}
+
+func TestRunRejectsDocsSymlinkMarkdown(t *testing.T) {
+	root := t.TempDir()
+	writeExternalLinkFile(t, root, "outside.md", "https://example.com\n")
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0o750); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(root, "outside.md"), filepath.Join(root, "docs", "design.md")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(config{Root: root, Timeout: time.Second}, &stdout)
+	if err == nil {
+		t.Fatal("run passed unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "docs/design.md must be a regular file, not a symlink") {
+		t.Fatalf("run error = %v, want docs symlink Markdown rejection", err)
+	}
+}
+
+func TestRunRejectsTopLevelNonRegularMarkdown(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "README.md"), 0o750); err != nil {
+		t.Fatalf("mkdir README.md: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(config{Root: root, Timeout: time.Second}, &stdout)
+	if err == nil {
+		t.Fatal("run passed unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "README.md must be a regular file") {
+		t.Fatalf("run error = %v, want non-regular Markdown rejection", err)
+	}
+}
+
+func TestRunRejectsSymlinkDocsRoot(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "outside-docs")
+	if err := os.MkdirAll(target, 0o750); err != nil {
+		t.Fatalf("mkdir target docs: %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "docs")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(config{Root: root, Timeout: time.Second}, &stdout)
+	if err == nil {
+		t.Fatal("run passed unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "docs must be a directory, not a symlink") {
+		t.Fatalf("run error = %v, want symlink docs root rejection", err)
+	}
+}
+
 func writeExternalLinkFile(t *testing.T, root, name, body string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(name))
