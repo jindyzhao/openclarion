@@ -16,6 +16,7 @@
 #   make comment-debt-check # validate tracked source comment debt
 #   make deferred-followups-check # validate deferred decision ledger
 #   make text-file-hygiene # validate tracked text encoding and line endings
+#   make file-mode-check  # validate tracked Git file modes
 #   make allowlist-discipline # validate allowlist owner / expiry / removal metadata
 #   make dependabot-policy-check # validate Dependabot update policy invariants
 #   make manual-target-isolation # validate manual smoke/evidence targets stay out of CI
@@ -138,7 +139,7 @@ help: ## Show this help
 pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
 	@go run ./scripts/pr_budget --budget "$(PR_BUDGET)" --mode "$(PR_BUDGET_MODE)" -- $(MAKE) ci
 
-ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
+ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test file-mode-check file-mode-check-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
 	@echo ""
 	@echo "[ci] all gates passed."
 
@@ -170,7 +171,7 @@ ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check mark
 # Documentation gates
 # ---------------------------------------------------------------------------
 
-.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard workflow-change-guard-test linear-history-check linear-history-check-test pr-file-count-check pr-file-count-check-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test pr-title-check pr-description-check dco-check workflow-parity actionlint
+.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test file-mode-check file-mode-check-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard workflow-change-guard-test linear-history-check linear-history-check-test pr-file-count-check pr-file-count-check-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test pr-title-check pr-description-check dco-check workflow-parity actionlint
 
 docs-hygiene: ## Reject non-English CJK literals, terminology drift, proof-state drift, and stale Last updated metadata in governed documentation
 	@bash scripts/check_no_non_english_chars.sh
@@ -201,6 +202,12 @@ text-file-hygiene: ## Validate tracked text file encoding and line endings
 
 text-file-hygiene-test: ## Validate tracked text file hygiene checker behavior
 	@go test -race -count=1 ./scripts/text_file_hygiene
+
+file-mode-check: ## Validate tracked Git file modes
+	@go run ./scripts/file_mode_check
+
+file-mode-check-test: ## Validate tracked Git file mode checker behavior
+	@go test -race -count=1 ./scripts/file_mode_check
 
 comment-debt-check: ## Validate source comment debt tracking
 	@go run ./scripts/comment_debt_check

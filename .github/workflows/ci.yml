@@ -63,6 +63,8 @@ jobs:
       - run: make docs-hygiene
       - run: make text-file-hygiene
       - run: make text-file-hygiene-test
+      - run: make file-mode-check
+      - run: make file-mode-check-test
 
   forbidden-methods:
     name: Forbidden methods
