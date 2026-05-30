@@ -132,6 +132,128 @@ func TestRunRejectsWeakRecordFields(t *testing.T) {
 	}
 }
 
+func TestRunRejectsSymlinkScheduleInput(t *testing.T) {
+	dir := t.TempDir()
+	target := writeGateHardeningFile(t, dir, "target-ci.md", `# CI
+
+## Progressive Gate Schedule
+
+| Gate | Introduced At | Status | Notes |
+|------|---------------|--------|-------|
+| Docs gate | M0 | landed | make docs |
+
+## Current Private-Incubation Gate
+`)
+	schedule := filepath.Join(dir, "ci.md")
+	if err := os.Symlink(target, schedule); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	checklist := writeGateHardeningFile(t, dir, "checklist.md", `# Checklist
+
+## Gate Maturity Records
+
+| Gate | Maturity | Evidence | Next hardening |
+|------|----------|----------|----------------|
+| Docs gate | hardened | make docs plus fixture tests | Add negative fixture when scope expands |
+`)
+
+	var stdout bytes.Buffer
+	err := run(config{SchedulePath: schedule, ChecklistPath: checklist}, &stdout)
+	if err == nil {
+		t.Fatal("run passed unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "ci.md must be a regular file, not a symlink") {
+		t.Fatalf("run error = %v, want symlink schedule rejection", err)
+	}
+}
+
+func TestRunRejectsSymlinkChecklistInput(t *testing.T) {
+	dir := t.TempDir()
+	schedule := writeGateHardeningFile(t, dir, "ci.md", `# CI
+
+## Progressive Gate Schedule
+
+| Gate | Introduced At | Status | Notes |
+|------|---------------|--------|-------|
+| Docs gate | M0 | landed | make docs |
+
+## Current Private-Incubation Gate
+`)
+	target := writeGateHardeningFile(t, dir, "target-checklist.md", `# Checklist
+
+## Gate Maturity Records
+
+| Gate | Maturity | Evidence | Next hardening |
+|------|----------|----------|----------------|
+| Docs gate | hardened | make docs plus fixture tests | Add negative fixture when scope expands |
+`)
+	checklist := filepath.Join(dir, "checklist.md")
+	if err := os.Symlink(target, checklist); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(config{SchedulePath: schedule, ChecklistPath: checklist}, &stdout)
+	if err == nil {
+		t.Fatal("run passed unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "checklist.md must be a regular file, not a symlink") {
+		t.Fatalf("run error = %v, want symlink checklist rejection", err)
+	}
+}
+
+func TestRunRejectsNonRegularScheduleInput(t *testing.T) {
+	dir := t.TempDir()
+	schedule := filepath.Join(dir, "ci.md")
+	if err := os.MkdirAll(schedule, 0o750); err != nil {
+		t.Fatalf("mkdir schedule path: %v", err)
+	}
+	checklist := writeGateHardeningFile(t, dir, "checklist.md", `# Checklist
+
+## Gate Maturity Records
+
+| Gate | Maturity | Evidence | Next hardening |
+|------|----------|----------|----------------|
+| Docs gate | hardened | make docs plus fixture tests | Add negative fixture when scope expands |
+`)
+
+	var stdout bytes.Buffer
+	err := run(config{SchedulePath: schedule, ChecklistPath: checklist}, &stdout)
+	if err == nil {
+		t.Fatal("run passed unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "ci.md must be a regular file") {
+		t.Fatalf("run error = %v, want non-regular schedule rejection", err)
+	}
+}
+
+func TestRunRejectsNonRegularChecklistInput(t *testing.T) {
+	dir := t.TempDir()
+	schedule := writeGateHardeningFile(t, dir, "ci.md", `# CI
+
+## Progressive Gate Schedule
+
+| Gate | Introduced At | Status | Notes |
+|------|---------------|--------|-------|
+| Docs gate | M0 | landed | make docs |
+
+## Current Private-Incubation Gate
+`)
+	checklist := filepath.Join(dir, "checklist.md")
+	if err := os.MkdirAll(checklist, 0o750); err != nil {
+		t.Fatalf("mkdir checklist path: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run(config{SchedulePath: schedule, ChecklistPath: checklist}, &stdout)
+	if err == nil {
+		t.Fatal("run passed unexpectedly")
+	}
+	if !strings.Contains(err.Error(), "checklist.md must be a regular file") {
+		t.Fatalf("run error = %v, want non-regular checklist rejection", err)
+	}
+}
+
 func writeGateHardeningFile(t *testing.T, root, name, body string) string {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(name))

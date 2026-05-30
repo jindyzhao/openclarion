@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -98,7 +99,7 @@ func run(cfg config, out io.Writer) error {
 }
 
 func readSchedule(path string) ([]scheduleGate, error) {
-	raw, err := os.ReadFile(path) // #nosec G304 -- repository-owned checker input.
+	raw, err := readRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +122,7 @@ func readSchedule(path string) ([]scheduleGate, error) {
 }
 
 func readChecklist(path string) (map[string]checklistRecord, error) {
-	raw, err := os.ReadFile(path) // #nosec G304 -- repository-owned checker input.
+	raw, err := readRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -147,6 +148,22 @@ func readChecklist(path string) (map[string]checklistRecord, error) {
 		return nil, fmt.Errorf("%s: no gate maturity records found", path)
 	}
 	return records, nil
+}
+
+func readRegularFile(path string) ([]byte, error) {
+	cleanPath := filepath.Clean(path)
+	info, err := os.Lstat(cleanPath)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%s must be a regular file, not a symlink", cleanPath)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s must be a regular file", cleanPath)
+	}
+	// #nosec G304 -- call sites pass repository-owned checker inputs or test fixtures after Lstat validation.
+	return os.ReadFile(cleanPath)
 }
 
 func tableRowsInSection(lines []string, startHeading, endHeading string) [][]string {
