@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -29,6 +30,9 @@ func TestNewSubReport(t *testing.T) {
 		{name: "invalid severity", edit: func(r *SubReport) { r.Severity = ReportSeverity("page") }},
 		{name: "invalid confidence", edit: func(r *SubReport) { r.Confidence = ReportConfidence("sure") }},
 		{name: "invalid findings", edit: func(r *SubReport) { r.Findings = json.RawMessage(`{`) }},
+		{name: "duplicate findings key", edit: func(r *SubReport) { r.Findings = json.RawMessage(`[{"label":"CPU","label":"Memory"}]`) }},
+		{name: "duplicate recommended action key", edit: func(r *SubReport) { r.RecommendedActions = json.RawMessage(`[{"label":"Scale","label":"Restart"}]`) }},
+		{name: "duplicate content key", edit: func(r *SubReport) { r.Content = json.RawMessage(`{"title":"old","title":"new"}`) }},
 		{name: "empty content", edit: func(r *SubReport) { r.Content = nil }},
 	}
 	for _, tc := range tests {
@@ -64,6 +68,9 @@ func TestNewFinalReport(t *testing.T) {
 		{name: "invalid severity", edit: func(r *FinalReport) { r.Severity = ReportSeverity("page") }},
 		{name: "invalid confidence", edit: func(r *FinalReport) { r.Confidence = ReportConfidence("sure") }},
 		{name: "invalid subreports", edit: func(r *FinalReport) { r.SubReports = json.RawMessage(`{`) }},
+		{name: "duplicate subreports key", edit: func(r *FinalReport) { r.SubReports = json.RawMessage(`[{"title":"old","title":"new"}]`) }},
+		{name: "duplicate recommended action key", edit: func(r *FinalReport) { r.RecommendedActions = json.RawMessage(`[{"label":"Scale","label":"Restart"}]`) }},
+		{name: "duplicate content key", edit: func(r *FinalReport) { r.Content = json.RawMessage(`{"title":"old","title":"new"}`) }},
 		{name: "empty notification", edit: func(r *FinalReport) { r.NotificationText = "" }},
 		{name: "empty content", edit: func(r *FinalReport) { r.Content = nil }},
 	}
@@ -161,6 +168,28 @@ func TestReportNotificationDeliveryRejectsInvalid(t *testing.T) {
 			},
 		},
 		{
+			name: "delivered duplicate raw key",
+			call: func() error {
+				d, err := NewReportNotificationDelivery(42, "key")
+				if err != nil {
+					return err
+				}
+				_, err = d.MarkDelivered("msg", "delivered", json.RawMessage(`{"message_id":"old","message_id":"new"}`), time.Now())
+				return err
+			},
+		},
+		{
+			name: "failed duplicate raw key",
+			call: func() error {
+				d, err := NewReportNotificationDelivery(42, "key")
+				if err != nil {
+					return err
+				}
+				_, err = d.MarkFailed("webhook 500", json.RawMessage(`{"status":"old","status":"new"}`))
+				return err
+			},
+		},
+		{
 			name: "failed without reason",
 			call: func() error {
 				d, err := NewReportNotificationDelivery(42, "key")
@@ -178,6 +207,19 @@ func TestReportNotificationDeliveryRejectsInvalid(t *testing.T) {
 				t.Fatalf("err = %v, want ErrInvariantViolation", err)
 			}
 		})
+	}
+}
+
+func TestReportRetainedJSONRejectsTrailingValues(t *testing.T) {
+	report := validSubReport()
+	report.Content = json.RawMessage(`{"title":"CPU saturation"} {"title":"again"}`)
+
+	_, err := NewSubReport(report)
+	if !errors.Is(err, ErrInvariantViolation) {
+		t.Fatalf("err = %v, want ErrInvariantViolation", err)
+	}
+	if !strings.Contains(err.Error(), "trailing JSON values") {
+		t.Fatalf("err = %q, want trailing JSON values", err.Error())
 	}
 }
 
