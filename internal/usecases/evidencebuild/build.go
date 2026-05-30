@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/strictjson"
 )
 
 // Input holds the data required to build an EvidenceSnapshot.
@@ -112,8 +113,10 @@ func validateInput(in Input) error {
 		if !e.Status.Valid() {
 			return fmt.Errorf("evidence build: event[%d] status %q is invalid: %w", i, e.Status, domain.ErrInvariantViolation)
 		}
-		if len(e.RawPayload) > 0 && !json.Valid(e.RawPayload) {
-			return fmt.Errorf("evidence build: event[%d] raw_payload is not valid JSON: %w", i, domain.ErrInvariantViolation)
+		if len(e.RawPayload) > 0 {
+			if err := strictjson.RejectDuplicateObjectKeys(e.RawPayload); err != nil {
+				return fmt.Errorf("evidence build: event[%d] raw_payload is not strict JSON: %w: %w", i, err, domain.ErrInvariantViolation)
+			}
 		}
 		// Cross-invariant: Status and EndsAt must agree (see internal/domain/doc.go).
 		// AlertEvent.EndsAt is non-nil iff Status == AlertStatusResolved.
@@ -175,11 +178,11 @@ func validateDimensions(raw json.RawMessage) error {
 	if len(raw) == 0 {
 		return fmt.Errorf("evidence build: group dimensions must be non-empty JSON object: %w", domain.ErrInvariantViolation)
 	}
-	if !json.Valid(raw) {
-		return fmt.Errorf("evidence build: group dimensions is not valid JSON: %w", domain.ErrInvariantViolation)
+	if err := strictjson.RejectDuplicateObjectKeys(raw); err != nil {
+		return fmt.Errorf("evidence build: group dimensions is not strict JSON: %w: %w", err, domain.ErrInvariantViolation)
 	}
 	var obj map[string]interface{}
-	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+	if err := decodeJSONUseNumber(raw, &obj); err != nil || obj == nil {
 		return fmt.Errorf("evidence build: group dimensions must be a JSON object: %w", domain.ErrInvariantViolation)
 	}
 	return nil
@@ -330,13 +333,20 @@ func buildProvenance() json.RawMessage {
 // It uses json.Decoder.UseNumber() to preserve integer precision
 // (avoids float64 lossy conversion for large integers like 2^53+1).
 func canonicalizeJSON(raw json.RawMessage) (json.RawMessage, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
+	if err := strictjson.RejectDuplicateObjectKeys(raw); err != nil {
+		return nil, err
+	}
 	var v interface{}
-	if err := dec.Decode(&v); err != nil {
+	if err := decodeJSONUseNumber(raw, &v); err != nil {
 		return nil, err
 	}
 	return json.Marshal(v)
+}
+
+func decodeJSONUseNumber(raw json.RawMessage, dst any) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	return dec.Decode(dst)
 }
 
 // cloneStringMap returns a shallow copy of in. If in is nil, an empty
