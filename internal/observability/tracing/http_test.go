@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -61,6 +62,65 @@ func TestConfigFromEnvRejectsUnsupportedExporter(t *testing.T) {
 	if _, err := ConfigFromEnv(mapGetenv(map[string]string{"OTEL_TRACES_EXPORTER": "stdout"})); err == nil {
 		t.Fatalf("ConfigFromEnv returned nil error, want unsupported exporter error")
 	}
+}
+
+func TestConfigFromEnvRejectsCredentialedOTLPEndpoint(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "generic endpoint username",
+			env:  map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "https://operator@collector.example.test"},
+			want: "OTEL_EXPORTER_OTLP_ENDPOINT",
+		},
+		{
+			name: "generic endpoint password",
+			env:  map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": credentialedOTLPEndpoint("")},
+			want: "OTEL_EXPORTER_OTLP_ENDPOINT",
+		},
+		{
+			name: "generic endpoint escaped userinfo",
+			env:  map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "https://operator%40team@collector.example.test"},
+			want: "OTEL_EXPORTER_OTLP_ENDPOINT",
+		},
+		{
+			name: "traces endpoint username",
+			env:  map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://operator@collector.example.test/v1/traces"},
+			want: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		},
+		{
+			name: "traces endpoint password",
+			env:  map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": credentialedOTLPEndpoint("/v1/traces")},
+			want: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		},
+		{
+			name: "traces endpoint escaped userinfo",
+			env:  map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://operator%40team@collector.example.test/v1/traces"},
+			want: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ConfigFromEnv(mapGetenv(tc.env))
+			if err == nil {
+				t.Fatalf("ConfigFromEnv: want userinfo error")
+			}
+			if !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "userinfo") {
+				t.Fatalf("error = %q, want %q and userinfo", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func credentialedOTLPEndpoint(path string) string {
+	return (&url.URL{
+		Scheme: "https",
+		User:   url.UserPassword("operator", "opaque"),
+		Host:   "collector.example.test",
+		Path:   path,
+	}).String()
 }
 
 func TestHTTPTracingMiddlewareCreatesStableServerSpan(t *testing.T) {

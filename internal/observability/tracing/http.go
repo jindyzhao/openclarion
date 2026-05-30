@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -68,6 +69,12 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		return Config{}, fmt.Errorf("unsupported OTEL_TRACES_EXPORTER %q (supported: otlp, none)", tracesExporter)
 	}
 
+	for _, key := range []string{"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"} {
+		if err := validateOTLPEndpointEnv(key, getenv(key)); err != nil {
+			return Config{}, err
+		}
+	}
+
 	enabled := tracesExporter == "otlp" ||
 		strings.TrimSpace(getenv("OTEL_EXPORTER_OTLP_ENDPOINT")) != "" ||
 		strings.TrimSpace(getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")) != ""
@@ -76,6 +83,21 @@ func ConfigFromEnv(getenv func(string) string) (Config, error) {
 		ServiceVersion: serviceVersionFromEnv(getenv),
 		Enabled:        enabled,
 	}, nil
+}
+
+func validateOTLPEndpointEnv(key, raw string) error {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("%s parse endpoint: %w", key, err)
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("%s must not include userinfo", key)
+	}
+	return nil
 }
 
 // NewHTTPTracing creates the HTTP tracing runtime. When Config.Enabled is
