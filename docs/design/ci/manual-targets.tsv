@@ -1,0 +1,13 @@
+target	reason
+atlas-smoke	manual Atlas acceptance smoke; requires Docker image pulls and a local Docker daemon
+report-live-smoke	manual M2 live report smoke; requires real PostgreSQL, Temporal, Prometheus, worker, and Webhook services
+agent-runtime-smoke	manual M4 candidate runtime smoke; requires a digest-pinned sandbox image and Docker runtime
+custom-thin-runner-smoke	manual M4 local candidate smoke; builds an image and exercises Docker-backed runtime paths
+sandbox-m4-decision	manual M4 runtime decision; requires retained baseline, quality-comparison, and human-review evidence files
+sandbox-m4-evidence-packet	manual M4 evidence packet assembly; requires retained quality, review, and runtime-smoke artifacts
+sandbox-m4-evidence-packet-verify	manual M4 retained packet verification; requires an operator-selected packet artifact
+diagnosis-live-browser-smoke	manual M5 browser smoke; requires a real backend, worker, token, and sandbox-capable runtime
+container-provider-smoke	manual M4 Docker Provider smoke; requires a real local Docker daemon
+container-provider-timeout-smoke	manual M4 Docker Provider timeout smoke; requires a real local Docker daemon
+container-provider-output-cap-smoke	manual M4 Docker Provider output-cap smoke; requires a real local Docker daemon
+egress-allowdeny-smoke	manual M4 egress proxy smoke; requires mutable Docker networks and upstream containers
