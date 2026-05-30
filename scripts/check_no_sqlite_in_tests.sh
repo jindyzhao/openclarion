@@ -9,16 +9,40 @@
 #
 # Behavior:
 #   - Scans `*_test.go` files for SQLite drivers and DSN patterns.
+#   - Rejects symlinked or otherwise non-regular `*_test.go` entries before
+#     scanning, so the grep-based gate cannot be bypassed by indirection.
 #   - No-op when no Go test files exist.
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+mapfile -t test_paths < <(find . \
+  -path './.git' -prune -o \
+  -path './vendor' -prune -o \
+  -name '*_test.go' -print 2>/dev/null | sort)
+
 # Skip when no tests exist yet.
-if ! find . -path ./vendor -prune -o -name '*_test.go' -print -quit 2>/dev/null | grep -q .; then
+if [[ ${#test_paths[@]} -eq 0 ]]; then
   echo "[forbidden-sqlite] no _test.go files yet; skipping."
   exit 0
+fi
+
+failed=0
+regular_test_paths=()
+non_regular_test_paths=()
+for path in "${test_paths[@]}"; do
+  if [[ -f "$path" && ! -L "$path" ]]; then
+    regular_test_paths+=("$path")
+  else
+    non_regular_test_paths+=("$path")
+  fi
+done
+
+if [[ ${#non_regular_test_paths[@]} -gt 0 ]]; then
+  echo "[forbidden-sqlite] Go test file paths must be regular files:" >&2
+  printf '%s\n' "${non_regular_test_paths[@]}" >&2
+  failed=1
 fi
 
 # Forbidden SQLite import paths and DSN markers.
@@ -31,27 +55,23 @@ sqlite_imports=(
 )
 imp_pattern="$(IFS='|'; echo "${sqlite_imports[*]}")"
 
-failed=0
+if [[ ${#regular_test_paths[@]} -gt 0 ]]; then
+  import_hits=$(rg --with-filename --no-heading --line-number \
+                  "\"($imp_pattern)" "${regular_test_paths[@]}" 2>/dev/null || true)
+  if [[ -n "$import_hits" ]]; then
+    echo "[forbidden-sqlite] SQLite imports in test files:" >&2
+    echo "$import_hits" >&2
+    failed=1
+  fi
 
-import_hits=$(rg --no-heading --line-number \
-                --glob '*_test.go' \
-                --glob '!vendor/**' \
-                "\"($imp_pattern)" . 2>/dev/null || true)
-if [[ -n "$import_hits" ]]; then
-  echo "[forbidden-sqlite] SQLite imports in test files:" >&2
-  echo "$import_hits" >&2
-  failed=1
-fi
-
-# DSN-style patterns ("file::memory:", "sqlite://", "sqlite3://").
-dsn_hits=$(rg --no-heading --line-number \
-             --glob '*_test.go' \
-             --glob '!vendor/**' \
-             '("file::memory:|sqlite3?://|:memory:")' . 2>/dev/null || true)
-if [[ -n "$dsn_hits" ]]; then
-  echo "[forbidden-sqlite] SQLite DSN patterns in test files:" >&2
-  echo "$dsn_hits" >&2
-  failed=1
+  # DSN-style patterns ("file::memory:", "sqlite://", "sqlite3://").
+  dsn_hits=$(rg --with-filename --no-heading --line-number \
+               '("file::memory:|sqlite3?://|:memory:")' "${regular_test_paths[@]}" 2>/dev/null || true)
+  if [[ -n "$dsn_hits" ]]; then
+    echo "[forbidden-sqlite] SQLite DSN patterns in test files:" >&2
+    echo "$dsn_hits" >&2
+    failed=1
+  fi
 fi
 
 if [[ $failed -ne 0 ]]; then
