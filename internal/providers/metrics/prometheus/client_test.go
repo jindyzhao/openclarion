@@ -114,6 +114,25 @@ func TestProvider_ListActiveAlerts_FiltersFiringOnly(t *testing.T) {
 	}
 }
 
+func TestNewProvider_RejectsAddressUserinfo(t *testing.T) {
+	cases := []string{
+		"http://operator@example.invalid",
+		"http://operator:secret@example.invalid",
+		"http://%6fperator@example.invalid",
+	}
+	for _, addr := range cases {
+		t.Run(addr, func(t *testing.T) {
+			_, err := NewProvider(addr)
+			if err == nil {
+				t.Fatal("NewProvider: want userinfo error, got nil")
+			}
+			if !strings.Contains(err.Error(), "must not include userinfo") {
+				t.Fatalf("NewProvider error = %v, want userinfo rejection", err)
+			}
+		})
+	}
+}
+
 // TestProvider_WithBearer_SendsAuthorizationHeader is the only
 // behavioural guard the WithBearer option has. Without it, removing
 // the Bearer wiring inside NewProvider would still type-check and

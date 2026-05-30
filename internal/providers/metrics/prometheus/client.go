@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
@@ -84,6 +85,9 @@ func WithRoundTripperDecorator(decorator func(http.RoundTripper) http.RoundTripp
 // timeouts MUST wrap the returned Provider rather than re-deriving http.Client
 // behaviour here.
 func NewProvider(addr string, opts ...Option) (*Provider, error) {
+	if err := rejectCredentialedAddress(addr); err != nil {
+		return nil, err
+	}
 	cfg := providerConfig{}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -112,6 +116,17 @@ func NewProvider(addr string, opts ...Option) (*Provider, error) {
 		return nil, fmt.Errorf("prometheus: build api client: %w", err)
 	}
 	return &Provider{api: v1.NewAPI(client)}, nil
+}
+
+func rejectCredentialedAddress(addr string) error {
+	parsed, err := url.Parse(addr)
+	if err != nil {
+		return fmt.Errorf("prometheus: parse address: %w", err)
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("prometheus: address must not include userinfo")
+	}
+	return nil
 }
 
 // ListActiveAlerts calls Prometheus's /api/v1/alerts endpoint and
