@@ -134,6 +134,92 @@ func TestADRCheckValidatesFrontMatterSchema(t *testing.T) {
 	}
 }
 
+func TestADRCheckRejectsIndirectADRInputs(t *testing.T) {
+	t.Run("adr directory symlink", func(t *testing.T) {
+		root := newADRCheckRepo(t, adrFixture("### Consequences\n\n* Good, because the decision tradeoffs are explicit.\n"))
+		if err := os.Rename(filepath.Join(root, "docs", "adr"), filepath.Join(root, "docs", "adr-real")); err != nil {
+			t.Fatalf("rename docs/adr: %v", err)
+		}
+		if err := os.Symlink("adr-real", filepath.Join(root, "docs", "adr")); err != nil {
+			t.Skipf("symlink unsupported: %v", err)
+		}
+
+		out, err := runADRCheck(t, root)
+		if err == nil {
+			t.Fatalf("adr-check passed unexpectedly:\n%s", out)
+		}
+		if !strings.Contains(out, "docs/adr must be a directory, not a symlink") {
+			t.Fatalf("adr-check output = %q, want ADR directory symlink rejection", out)
+		}
+	})
+
+	t.Run("readme symlink", func(t *testing.T) {
+		root := newADRCheckRepo(t, adrFixture("### Consequences\n\n* Good, because the decision tradeoffs are explicit.\n"))
+		adrCheckWriteFile(t, root, "docs/adr/README-target.md", "# linked index\n", 0o644)
+		replaceWithSymlink(t, root, "docs/adr/README-target.md", "docs/adr/README.md")
+
+		out, err := runADRCheck(t, root)
+		if err == nil {
+			t.Fatalf("adr-check passed unexpectedly:\n%s", out)
+		}
+		if !strings.Contains(out, "docs/adr/README.md must be a regular file, not a symlink") {
+			t.Fatalf("adr-check output = %q, want README symlink rejection", out)
+		}
+	})
+
+	t.Run("readme directory", func(t *testing.T) {
+		root := newADRCheckRepo(t, adrFixture("### Consequences\n\n* Good, because the decision tradeoffs are explicit.\n"))
+		readmePath := filepath.Join(root, "docs", "adr", "README.md")
+		if err := os.Remove(readmePath); err != nil {
+			t.Fatalf("remove README.md: %v", err)
+		}
+		if err := os.Mkdir(readmePath, 0o750); err != nil {
+			t.Fatalf("mkdir README.md: %v", err)
+		}
+
+		out, err := runADRCheck(t, root)
+		if err == nil {
+			t.Fatalf("adr-check passed unexpectedly:\n%s", out)
+		}
+		if !strings.Contains(out, "docs/adr/README.md must be a regular file") {
+			t.Fatalf("adr-check output = %q, want README non-regular rejection", out)
+		}
+	})
+
+	t.Run("adr symlink", func(t *testing.T) {
+		root := newADRCheckRepo(t, adrFixture("### Consequences\n\n* Good, because the decision tradeoffs are explicit.\n"))
+		adrCheckWriteFile(t, root, "docs/adr/target.md", adrFixture("### Consequences\n\n* Good, because the decision tradeoffs are explicit.\n"), 0o644)
+		replaceWithSymlink(t, root, "docs/adr/target.md", "docs/adr/ADR-0001-test.md")
+
+		out, err := runADRCheck(t, root)
+		if err == nil {
+			t.Fatalf("adr-check passed unexpectedly:\n%s", out)
+		}
+		if !strings.Contains(out, "docs/adr/ADR-0001-test.md must be a regular file, not a symlink") {
+			t.Fatalf("adr-check output = %q, want ADR symlink rejection", out)
+		}
+	})
+
+	t.Run("adr directory", func(t *testing.T) {
+		root := newADRCheckRepo(t, adrFixture("### Consequences\n\n* Good, because the decision tradeoffs are explicit.\n"))
+		adrPath := filepath.Join(root, "docs", "adr", "ADR-0001-test.md")
+		if err := os.Remove(adrPath); err != nil {
+			t.Fatalf("remove ADR file: %v", err)
+		}
+		if err := os.Mkdir(adrPath, 0o750); err != nil {
+			t.Fatalf("mkdir ADR path: %v", err)
+		}
+
+		out, err := runADRCheck(t, root)
+		if err == nil {
+			t.Fatalf("adr-check passed unexpectedly:\n%s", out)
+		}
+		if !strings.Contains(out, "docs/adr/ADR-0001-test.md must be a regular file") {
+			t.Fatalf("adr-check output = %q, want ADR non-regular rejection", out)
+		}
+	})
+}
+
 func TestADRCheckValidatesSupersedesClosure(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -440,6 +526,22 @@ func adrCheckWriteFile(t *testing.T, root, name, body string, mode os.FileMode) 
 	}
 	if err := os.WriteFile(path, []byte(body), mode); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func replaceWithSymlink(t *testing.T, root, targetName, linkName string) {
+	t.Helper()
+	linkPath := filepath.Join(root, filepath.FromSlash(linkName))
+	targetPath := filepath.Join(root, filepath.FromSlash(targetName))
+	if err := os.Remove(linkPath); err != nil {
+		t.Fatalf("remove %s: %v", linkName, err)
+	}
+	relTarget, err := filepath.Rel(filepath.Dir(linkPath), targetPath)
+	if err != nil {
+		t.Fatalf("relative symlink target: %v", err)
+	}
+	if err := os.Symlink(relTarget, linkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
 	}
 }
 

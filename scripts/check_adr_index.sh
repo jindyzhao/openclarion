@@ -20,12 +20,46 @@ cd "$(dirname "$0")/.."
 readme="docs/adr/README.md"
 adr_dir="docs/adr"
 
-if [[ ! -f "$readme" ]]; then
-  echo "[adr-check] $readme missing." >&2
+require_direct_directory() {
+  local path="$1"
+  if [[ -L "$path" ]]; then
+    echo "[adr-check] $path must be a directory, not a symlink." >&2
+    return 1
+  fi
+  if [[ ! -d "$path" ]]; then
+    echo "[adr-check] $path must be a directory." >&2
+    return 1
+  fi
+}
+
+require_regular_file() {
+  local path="$1"
+  if [[ -L "$path" ]]; then
+    echo "[adr-check] $path must be a regular file, not a symlink." >&2
+    return 1
+  fi
+  if [[ ! -f "$path" ]]; then
+    echo "[adr-check] $path must be a regular file." >&2
+    return 1
+  fi
+}
+
+failed=0
+
+if ! require_direct_directory "$adr_dir"; then
+  exit 1
+fi
+if ! require_regular_file "$readme"; then
   exit 1
 fi
 
-failed=0
+mapfile -t invalid_adr_files < <(find "$adr_dir" -maxdepth 1 \
+  -name 'ADR-*.md' ! -type f | sort)
+for f in "${invalid_adr_files[@]}"; do
+  if ! require_regular_file "$f"; then
+    failed=1
+  fi
+done
 
 # Files on disk: ADR-NNNN-*.md sorted.
 mapfile -t disk_files < <(find "$adr_dir" -maxdepth 1 -type f \
@@ -68,8 +102,8 @@ while IFS= read -r line; do
         failed=1
         ;;
     esac
-    if [[ ! -f "$adr_dir/$link" ]]; then
-      echo "[adr-check] README link '$disp -> $link' has no matching file in $adr_dir/" >&2
+    if ! require_regular_file "$adr_dir/$link"; then
+      echo "[adr-check] README link '$disp -> $link' must point to a regular file in $adr_dir/" >&2
       failed=1
     fi
   fi
@@ -395,8 +429,8 @@ check_accepted_adr_body_immutability() {
     if [[ "$base_status" != "accepted" ]]; then
       continue
     fi
-    if [[ ! -f "$base_path" ]]; then
-      echo "[adr-check] accepted ADR '$base_path' existed at $base_ref but is missing in the current tree; supersede it with a new ADR instead of deleting it." >&2
+    if ! require_regular_file "$base_path"; then
+      echo "[adr-check] accepted ADR '$base_path' existed at $base_ref but is missing or not a regular file in the current tree; supersede it with a new ADR instead of deleting or replacing it." >&2
       failed=1
       continue
     fi
