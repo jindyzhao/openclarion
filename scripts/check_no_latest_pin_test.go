@@ -423,6 +423,55 @@ replace example.com/tooldep => ../tooldep
 	}
 }
 
+func TestForbiddenLatestRejectsSymlinkDependencyPolicyForReplaceAllowlist(t *testing.T) {
+	root := newNoLatestRepo(t, map[string]string{
+		"go.mod": criticalGoMod(`
+replace example.com/forked => example.com/openclarion/forked
+`),
+		"docs/design/DEPENDENCIES.md": "replace-allow: example.com/forked => example.com/openclarion/forked; owner: ci-maintainers; expires: 2099-12-31; reason: temporary upstream fork\n",
+	})
+	policy := filepath.Join(root, "docs", "design", "DEPENDENCIES.md")
+	target := filepath.Join(root, "docs", "design", "DEPENDENCIES-target.md")
+	if err := os.Rename(policy, target); err != nil {
+		t.Fatalf("rename dependency policy: %v", err)
+	}
+	if err := os.Symlink(target, policy); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runNoLatestCheck(t, root)
+	if err == nil {
+		t.Fatalf("forbidden-latest passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/DEPENDENCIES.md must be a regular file, not a symlink") {
+		t.Fatalf("forbidden-latest output = %q, want symlink policy rejection", out)
+	}
+}
+
+func TestForbiddenLatestRejectsNonRegularDependencyPolicyForReplaceAllowlist(t *testing.T) {
+	root := newNoLatestRepo(t, map[string]string{
+		"go.mod": criticalGoMod(`
+replace example.com/forked => example.com/openclarion/forked
+`),
+		"docs/design/DEPENDENCIES.md": "replace-allow: example.com/forked => example.com/openclarion/forked; owner: ci-maintainers; expires: 2099-12-31; reason: temporary upstream fork\n",
+	})
+	policy := filepath.Join(root, "docs", "design", "DEPENDENCIES.md")
+	if err := os.Remove(policy); err != nil {
+		t.Fatalf("remove dependency policy: %v", err)
+	}
+	if err := os.Mkdir(policy, 0o750); err != nil {
+		t.Fatalf("mkdir dependency policy path: %v", err)
+	}
+
+	out, err := runNoLatestCheck(t, root)
+	if err == nil {
+		t.Fatalf("forbidden-latest passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/DEPENDENCIES.md must be a regular file") {
+		t.Fatalf("forbidden-latest output = %q, want regular-file policy rejection", out)
+	}
+}
+
 func criticalGoMod(extra string) string {
 	return `module example.com/test
 

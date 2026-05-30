@@ -224,7 +224,17 @@ check_replace_allowlist() {
   local allowlist_line=""
   local expires_at=""
   local expires_normalized=""
-  if [[ -f "$replace_allowlist_file" ]]; then
+  if [[ -L "$replace_allowlist_file" ]]; then
+    echo "[forbidden-latest] $replace_allowlist_file must be a regular file, not a symlink" >&2
+    failed=1
+    return
+  fi
+  if [[ -e "$replace_allowlist_file" && ! -f "$replace_allowlist_file" ]]; then
+    echo "[forbidden-latest] $replace_allowlist_file must be a regular file" >&2
+    failed=1
+    return
+  fi
+  if [[ -e "$replace_allowlist_file" ]]; then
     allowlist_line="$(grep -F "$marker" "$replace_allowlist_file" | head -n 1 || true)"
   fi
 

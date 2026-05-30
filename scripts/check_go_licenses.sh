@@ -11,8 +11,16 @@ POLICY_FILE="docs/design/DEPENDENCIES.md"
 ALLOW_MARKER="go-license-allow:"
 TODAY="${GO_LICENSES_REVIEW_TODAY:-$(date -u +%F)}"
 
-if [[ ! -f "$POLICY_FILE" ]]; then
+if [[ -L "$POLICY_FILE" ]]; then
+  echo "[go-licenses] $POLICY_FILE must be a regular file, not a symlink" >&2
+  exit 1
+fi
+if [[ ! -e "$POLICY_FILE" ]]; then
   echo "[go-licenses] missing $POLICY_FILE" >&2
+  exit 1
+fi
+if [[ ! -f "$POLICY_FILE" ]]; then
+  echo "[go-licenses] $POLICY_FILE must be a regular file" >&2
   exit 1
 fi
 
