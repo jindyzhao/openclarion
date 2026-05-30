@@ -31,7 +31,7 @@ instead of placeholders.
 | Markdown structure lint | hardened | `make markdownlint`; pinned local CLI and wrapper tests cover dependency and config behavior. | Expand rules only after style debt is first normalized. |
 | Forbidden imports (Gin/Echo/Fiber/Redis/Mongo/vector) | replaced | Legacy shell gate retired after `openclarion-arch` analyzer equivalence fixtures. | Keep deny-list drift covered inside analyzer tests. |
 | Forbidden mutable dependency pins (go.mod, package.json, Dockerfile) | mature | `make forbidden-latest`; tests cover Go critical pins, Go tool directive backing pins, npm exact pins, replace allowlists, and Dockerfile digest pinning. | Add release-age allowlists only with owner and expiry. |
-| Forbidden oapi-codegen v2 / openapi.compat.yaml | baseline | `make forbidden-oapi-v2`; keeps ADR-0007 toolchain choice from regressing. | Retire only if ADR-0007 is superseded. |
+| Forbidden oapi-codegen v2 / openapi.compat.yaml | hardened | `make forbidden-oapi-v2`; fixtures cover native-V3 acceptance, v2 module/source references, and regular, directory, symlink, or dangling-symlink `api/openapi.compat.yaml` paths. | Retire only if ADR-0007 is superseded. |
 | Forbidden SQLite in Go tests | hardened | `make forbidden-sqlite`; pairs with the Testcontainers contract. | Broaden only if a second embedded database appears. |
 | PR title Conventional Commit validation | hardened | `make pr-title-check`; PR-only CI job plus script fixtures. | Align allowed types with release automation when releases start. |
 | PR description risk/rollback validation | hardened | `make pr-description-check`; event JSON and local env fixtures cover required sections. | Add path-sensitive required sections only after reviewer workflow stabilizes. |
