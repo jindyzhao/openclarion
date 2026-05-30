@@ -6,8 +6,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 rules_file="docs/design/ci/terminology.tsv"
-if [[ ! -f "$rules_file" ]]; then
+if [[ -L "$rules_file" ]]; then
+  echo "[terminology] $rules_file must be a regular file, not a symlink" >&2
+  exit 1
+fi
+if [[ ! -e "$rules_file" ]]; then
   echo "[terminology] missing $rules_file" >&2
+  exit 1
+fi
+if [[ ! -f "$rules_file" ]]; then
+  echo "[terminology] $rules_file must be a regular file" >&2
   exit 1
 fi
 

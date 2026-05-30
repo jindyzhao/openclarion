@@ -77,6 +77,49 @@ func TestProjectTerminology(t *testing.T) {
 	}
 }
 
+func TestProjectTerminologyRejectsSymlinkRulesFile(t *testing.T) {
+	root := newTerminologyRepo(t, map[string]string{
+		"README.md": "OpenClarion remains an intelligent alert analysis product.\n",
+	})
+	rules := filepath.Join(root, "docs", "design", "ci", "terminology.tsv")
+	target := filepath.Join(root, "docs", "design", "ci", "terminology-target.tsv")
+	if err := os.Rename(rules, target); err != nil {
+		t.Fatalf("rename terminology rules: %v", err)
+	}
+	if err := os.Symlink(target, rules); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runTerminologyCheck(t, root)
+	if err == nil {
+		t.Fatalf("terminology check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/ci/terminology.tsv must be a regular file, not a symlink") {
+		t.Fatalf("terminology output = %q, want symlink rules rejection", out)
+	}
+}
+
+func TestProjectTerminologyRejectsNonRegularRulesFile(t *testing.T) {
+	root := newTerminologyRepo(t, map[string]string{
+		"README.md": "OpenClarion remains an intelligent alert analysis product.\n",
+	})
+	rules := filepath.Join(root, "docs", "design", "ci", "terminology.tsv")
+	if err := os.Remove(rules); err != nil {
+		t.Fatalf("remove terminology rules: %v", err)
+	}
+	if err := os.Mkdir(rules, 0o750); err != nil {
+		t.Fatalf("mkdir terminology rules path: %v", err)
+	}
+
+	out, err := runTerminologyCheck(t, root)
+	if err == nil {
+		t.Fatalf("terminology check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/ci/terminology.tsv must be a regular file") {
+		t.Fatalf("terminology output = %q, want regular-file rules rejection", out)
+	}
+}
+
 func newTerminologyRepo(t *testing.T, files map[string]string) string {
 	t.Helper()
 
