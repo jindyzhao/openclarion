@@ -12,6 +12,20 @@ SPEC_PATH="${OPENAPI_SPEC_PATH:-api/openapi.yaml}"
 SOFT_FAIL_UNTIL="${OPENAPI_BREAKING_SOFT_FAIL_UNTIL:-2026-06-10}"
 OASDIFF_VERSION="${OASDIFF_VERSION:-v1.11.7}"
 
+require_regular_file() {
+  local label="$1"
+  local path="$2"
+
+  if [[ -L "$path" ]]; then
+    echo "[openapi-breaking] $label must be a regular file, not a symlink: $path" >&2
+    exit 1
+  fi
+  if [[ ! -f "$path" ]]; then
+    echo "[openapi-breaking] $label not found or not a regular file: $path" >&2
+    exit 1
+  fi
+}
+
 if [[ ! "$SOFT_FAIL_UNTIL" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then
   echo "[openapi-breaking] SOFT_FAIL_UNTIL must be YYYY-MM-DD, got: ${SOFT_FAIL_UNTIL:-<empty>}" >&2
   exit 1
@@ -26,20 +40,14 @@ if [[ ! "$today" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || ! today_ts="$(date -u -d 
   exit 1
 fi
 
-if [[ ! -f "$SPEC_PATH" ]]; then
-  echo "[openapi-breaking] current spec not found: $SPEC_PATH" >&2
-  exit 1
-fi
+require_regular_file "current spec" "$SPEC_PATH"
 
 tmpdir="$(mktemp -d)"
 trap 'rm -rf "$tmpdir"' EXIT
 base_spec="$tmpdir/base-openapi.yaml"
 
 if [[ -n "${OPENAPI_BASE_SPEC:-}" ]]; then
-  if [[ ! -f "$OPENAPI_BASE_SPEC" ]]; then
-    echo "[openapi-breaking] OPENAPI_BASE_SPEC not found: $OPENAPI_BASE_SPEC" >&2
-    exit 1
-  fi
+  require_regular_file "OPENAPI_BASE_SPEC" "$OPENAPI_BASE_SPEC"
   cp "$OPENAPI_BASE_SPEC" "$base_spec"
 else
   candidates=()
@@ -49,7 +57,16 @@ else
   candidates+=("HEAD")
 
   for ref in "${candidates[@]}"; do
-    if git cat-file -e "$ref:$SPEC_PATH" 2>/dev/null; then
+    entry="$(git ls-tree "$ref" -- "$SPEC_PATH" 2>/dev/null || true)"
+    if [[ -n "$entry" ]]; then
+      mode="${entry%% *}"
+      case "$mode" in
+        100644|100755) ;;
+        *)
+          echo "[openapi-breaking] base spec at $ref:$SPEC_PATH must be a regular file blob, got git mode $mode" >&2
+          exit 1
+          ;;
+      esac
       git show "$ref:$SPEC_PATH" >"$base_spec"
       echo "[openapi-breaking] base: $ref:$SPEC_PATH"
       break
