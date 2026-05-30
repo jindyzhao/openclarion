@@ -321,6 +321,59 @@ func TestReadOutputArchiveValidatesOutput(t *testing.T) {
 			max:     32,
 			wantErr: "valid JSON",
 		},
+		{
+			name:    "nested output member",
+			archive: tarArchive(t, "nested/output.json", []byte(`{"summary":"ok"}`)),
+			max:     32,
+			wantErr: "top-level file",
+		},
+		{
+			name:    "traversal output member",
+			archive: tarArchive(t, "../output.json", []byte(`{"summary":"ok"}`)),
+			max:     32,
+			wantErr: "not allowed",
+		},
+		{
+			name:    "absolute output member",
+			archive: tarArchive(t, "/workspace/out/output.json", []byte(`{"summary":"ok"}`)),
+			max:     32,
+			wantErr: "not allowed",
+		},
+		{
+			name:    "backslash output member",
+			archive: tarArchive(t, `nested\output.json`, []byte(`{"summary":"ok"}`)),
+			max:     32,
+			wantErr: "not allowed",
+		},
+		{
+			name: "unsafe directory member before valid output",
+			archive: tarArchiveEntries(t,
+				tarEntry{header: tar.Header{Name: "../", Typeflag: tar.TypeDir, Mode: 0o700}},
+				tarEntry{header: tar.Header{Name: "output.json", Mode: 0o600}, content: []byte(`{"summary":"ok"}`)},
+			),
+			max:     32,
+			wantErr: "not allowed",
+		},
+		{
+			name: "symlink output member",
+			archive: tarArchiveWithHeader(t, tar.Header{
+				Name:     "output.json",
+				Typeflag: tar.TypeSymlink,
+				Linkname: "other.json",
+			}, nil),
+			max:     32,
+			wantErr: "regular file",
+		},
+		{
+			name: "hardlink output member",
+			archive: tarArchiveWithHeader(t, tar.Header{
+				Name:     "output.json",
+				Typeflag: tar.TypeLink,
+				Linkname: "other.json",
+			}, nil),
+			max:     32,
+			wantErr: "regular file",
+		},
 	}
 
 	for _, tt := range tests {
@@ -508,13 +561,33 @@ func assertSandboxOutputWritable(t *testing.T, path string) {
 
 func tarArchive(t *testing.T, name string, content []byte) io.ReadCloser {
 	t.Helper()
+	return tarArchiveWithHeader(t, tar.Header{Name: name, Mode: 0o600}, content)
+}
+
+func tarArchiveWithHeader(t *testing.T, header tar.Header, content []byte) io.ReadCloser {
+	t.Helper()
+	return tarArchiveEntries(t, tarEntry{header: header, content: content})
+}
+
+type tarEntry struct {
+	header  tar.Header
+	content []byte
+}
+
+func tarArchiveEntries(t *testing.T, entries ...tarEntry) io.ReadCloser {
+	t.Helper()
 	var buf bytes.Buffer
 	tw := tar.NewWriter(&buf)
-	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o600, Size: int64(len(content))}); err != nil {
-		t.Fatalf("write tar header: %v", err)
-	}
-	if _, err := tw.Write(content); err != nil {
-		t.Fatalf("write tar content: %v", err)
+	for _, entry := range entries {
+		entry.header.Size = int64(len(entry.content))
+		if err := tw.WriteHeader(&entry.header); err != nil {
+			t.Fatalf("write tar header: %v", err)
+		}
+		if len(entry.content) > 0 {
+			if _, err := tw.Write(entry.content); err != nil {
+				t.Fatalf("write tar content: %v", err)
+			}
+		}
 	}
 	if err := tw.Close(); err != nil {
 		t.Fatalf("close tar: %v", err)
