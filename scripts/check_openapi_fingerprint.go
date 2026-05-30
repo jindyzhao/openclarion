@@ -92,8 +92,7 @@ func main() {
 }
 
 func readYAML(path string) (any, error) {
-	// #nosec G304 -- path is one of this repository-owned checker's fixed inputs.
-	raw, err := os.ReadFile(path)
+	raw, err := readRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -223,8 +222,7 @@ func normalize(in any) any {
 }
 
 func readLock(path string) (map[string]string, error) {
-	// #nosec G304 -- path is one of this repository-owned checker's fixed inputs.
-	raw, err := os.ReadFile(path)
+	raw, err := readRegularFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -240,6 +238,9 @@ func writeLock(values map[string]string) error {
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		return err
 	}
+	if err := validateRegularFileForWrite(lockPath); err != nil {
+		return err
+	}
 	raw, err := json.MarshalIndent(values, "", "  ")
 	if err != nil {
 		return err
@@ -247,6 +248,41 @@ func writeLock(values map[string]string) error {
 	raw = append(raw, '\n')
 	// #nosec G306 -- lock files are committed project metadata.
 	return os.WriteFile(lockPath, raw, 0o644)
+}
+
+func readRegularFile(path string) ([]byte, error) {
+	cleanPath, err := validateRegularFile(path)
+	if err != nil {
+		return nil, err
+	}
+	// #nosec G304 -- call sites pass repository-owned checker inputs or test fixtures after Lstat validation.
+	return os.ReadFile(cleanPath)
+}
+
+func validateRegularFile(path string) (string, error) {
+	cleanPath := filepath.Clean(path)
+	info, err := os.Lstat(cleanPath)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("%s must be a regular file, not a symlink", cleanPath)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%s must be a regular file", cleanPath)
+	}
+	return cleanPath, nil
+}
+
+func validateRegularFileForWrite(path string) error {
+	_, err := validateRegularFile(path)
+	if err == nil {
+		return nil
+	}
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 func compare(expected, actual map[string]string) error {

@@ -199,3 +199,74 @@ func TestOpenAPIFingerprintReadLockAcceptsValidLock(t *testing.T) {
 		t.Fatalf("lock entry = %q, want abc", got["paths./api/v1/alerts.get"])
 	}
 }
+
+func TestOpenAPIFingerprintRejectsSymlinkInputs(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte(`{"paths./api/v1/alerts.get":"abc"}`), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	link := filepath.Join(dir, "openapi-critical.lock")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	if _, err := readLock(link); err == nil || !strings.Contains(err.Error(), "must be a regular file, not a symlink") {
+		t.Fatalf("readLock err = %v, want symlink rejection", err)
+	}
+	if _, err := readYAML(link); err == nil || !strings.Contains(err.Error(), "must be a regular file, not a symlink") {
+		t.Fatalf("readYAML err = %v, want symlink rejection", err)
+	}
+}
+
+func TestOpenAPIFingerprintRejectsNonRegularInputs(t *testing.T) {
+	dir := t.TempDir()
+
+	if _, err := readLock(dir); err == nil || !strings.Contains(err.Error(), "must be a regular file") {
+		t.Fatalf("readLock err = %v, want non-regular rejection", err)
+	}
+	if _, err := readYAML(dir); err == nil || !strings.Contains(err.Error(), "must be a regular file") {
+		t.Fatalf("readYAML err = %v, want non-regular rejection", err)
+	}
+}
+
+func TestOpenAPIFingerprintWriteLockRejectsIndirectLock(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatalf("mkdir lock dir: %v", err)
+	}
+	target := filepath.Join(dir, "target.lock")
+	if err := os.WriteFile(target, []byte(`{}`), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	if err := os.Symlink(target, lockPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	err := writeLock(map[string]string{"paths./api/v1/alerts.get": "abc"})
+	if err == nil {
+		t.Fatal("writeLock err = nil, want symlink rejection")
+	}
+	if !strings.Contains(err.Error(), "must be a regular file, not a symlink") {
+		t.Fatalf("writeLock err = %v, want symlink rejection", err)
+	}
+}
+
+func TestOpenAPIFingerprintWriteLockRejectsNonRegularLock(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	if err := os.MkdirAll(lockPath, 0o700); err != nil {
+		t.Fatalf("mkdir lock path: %v", err)
+	}
+
+	err := writeLock(map[string]string{"paths./api/v1/alerts.get": "abc"})
+	if err == nil {
+		t.Fatal("writeLock err = nil, want non-regular rejection")
+	}
+	if !strings.Contains(err.Error(), "must be a regular file") {
+		t.Fatalf("writeLock err = %v, want non-regular rejection", err)
+	}
+}
