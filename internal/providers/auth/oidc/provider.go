@@ -3,6 +3,7 @@ package oidc
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 
 	"github.com/openclarion/openclarion/internal/observability/correlation"
+	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -104,6 +106,9 @@ func (p *Provider) AuthenticateBearer(ctx context.Context, bearerToken string) (
 	if err != nil {
 		return ports.AuthPrincipal{}, err
 	}
+	if err := rejectAmbiguousIDTokenClaims(rawToken); err != nil {
+		return ports.AuthPrincipal{}, err
+	}
 	idToken, err := p.verifier.Verify(ctx, rawToken)
 	if err != nil {
 		return ports.AuthPrincipal{}, fmt.Errorf("oidc auth: verify token: %w", err)
@@ -164,6 +169,21 @@ func bearerTokenValue(in string) (string, error) {
 		return "", fmt.Errorf("oidc auth: bearer token must not contain whitespace")
 	}
 	return in, nil
+}
+
+func rejectAmbiguousIDTokenClaims(rawToken string) error {
+	parts := strings.Split(rawToken, ".")
+	if len(parts) != 3 {
+		return fmt.Errorf("oidc auth: ID token must use JWT compact serialization")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return fmt.Errorf("oidc auth: decode ID token claims payload: %w", err)
+	}
+	if err := strictjson.RejectDuplicateObjectKeys(payload); err != nil {
+		return fmt.Errorf("oidc auth: ID token claims payload is ambiguous: %w", err)
+	}
+	return nil
 }
 
 func roleValueSet(values, defaults []string, label string) (map[string]struct{}, error) {

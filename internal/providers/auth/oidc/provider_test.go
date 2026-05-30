@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -113,6 +114,46 @@ func TestProviderRejectsMalformedRoleClaim(t *testing.T) {
 
 	if _, err := provider.AuthenticateBearer(context.Background(), rawToken); err == nil {
 		t.Fatal("AuthenticateBearer with malformed roles: want error")
+	}
+}
+
+func TestProviderRejectsDuplicateClaimNames(t *testing.T) {
+	ts, priv := newOIDCTestServer(t)
+	provider := newTestProvider(t, ts.URL, Config{ClientID: "openclarion"})
+	claims := fmt.Sprintf(
+		`{"iss":%q,"aud":%q,"sub":"user-123","exp":%d,"roles":["ignored"],"roles":["owner"]}`,
+		ts.URL,
+		"openclarion",
+		time.Now().Add(time.Hour).Unix(),
+	)
+	rawToken := oidctest.SignIDToken(priv, "test-key", gooidc.RS256, claims)
+
+	_, err := provider.AuthenticateBearer(context.Background(), rawToken)
+	if err == nil {
+		t.Fatal("AuthenticateBearer with duplicate claim names: want error")
+	}
+	if !strings.Contains(err.Error(), `duplicate object key "roles"`) {
+		t.Fatalf("error = %q, want duplicate roles claim error", err.Error())
+	}
+}
+
+func TestProviderRejectsTrailingClaimPayloadValue(t *testing.T) {
+	ts, priv := newOIDCTestServer(t)
+	provider := newTestProvider(t, ts.URL, Config{ClientID: "openclarion"})
+	claims := fmt.Sprintf(
+		`{"iss":%q,"aud":%q,"sub":"user-123","exp":%d,"roles":["owner"]}[]`,
+		ts.URL,
+		"openclarion",
+		time.Now().Add(time.Hour).Unix(),
+	)
+	rawToken := oidctest.SignIDToken(priv, "test-key", gooidc.RS256, claims)
+
+	_, err := provider.AuthenticateBearer(context.Background(), rawToken)
+	if err == nil {
+		t.Fatal("AuthenticateBearer with trailing claim payload value: want error")
+	}
+	if !strings.Contains(err.Error(), "trailing JSON values") {
+		t.Fatalf("error = %q, want trailing JSON values error", err.Error())
 	}
 }
 
