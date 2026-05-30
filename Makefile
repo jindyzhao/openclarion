@@ -30,6 +30,7 @@
 #   make actionlint       # validate GitHub Actions workflow semantics
 #   make go-toolchain-check # validate Go version declarations across modules, lint, and workflows
 #   make shell-syntax-check # validate tracked shell scripts with bash -n
+#   make yaml-syntax-check # validate tracked YAML syntax and weak-feature policy
 #   make generated-headers # validate generated file headers
 #   make generate-fresh   # validate make generate freshness and idempotence
 #   make go-licenses-check # validate Go dependency license allowlist
@@ -131,7 +132,7 @@ help: ## Show this help
 pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
 	@go run ./scripts/pr_budget --budget "$(PR_BUDGET)" --mode "$(PR_BUDGET_MODE)" -- $(MAKE) ci
 
-ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
+ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
 	@echo ""
 	@echo "[ci] all gates passed."
 
@@ -156,7 +157,7 @@ ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check mark
 # Documentation gates
 # ---------------------------------------------------------------------------
 
-.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard workflow-change-guard-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test pr-title-check pr-description-check dco-check workflow-parity actionlint
+.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard workflow-change-guard-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test pr-title-check pr-description-check dco-check workflow-parity actionlint
 
 docs-hygiene: ## Reject non-English CJK literals, terminology drift, and proof-state drift in governed documentation
 	@bash scripts/check_no_non_english_chars.sh
@@ -202,6 +203,10 @@ go-toolchain-check-test: ## Validate Go toolchain version checker behavior
 shell-syntax-check: ## Validate tracked shell scripts with bash -n
 	@go test -race -count=1 ./scripts/shell_syntax_check
 	@go run ./scripts/shell_syntax_check
+
+yaml-syntax-check: ## Validate tracked YAML syntax and weak-feature policy
+	@go test -race -count=1 ./scripts/yaml_syntax_check
+	@go run ./scripts/yaml_syntax_check
 
 allowlist-discipline: ## Validate allowlist owner, expiry, and removal metadata
 	@go run ./scripts/allowlist_discipline
