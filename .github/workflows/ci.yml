@@ -134,6 +134,8 @@ jobs:
       - run: make comment-debt-check-test
       - run: make deferred-followups-check
       - run: make deferred-followups-check-test
+      - run: make pr-template-check
+      - run: make pr-template-check-test
       - run: make issue-template-check
       - run: make issue-template-check-test
 
