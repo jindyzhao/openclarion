@@ -55,6 +55,55 @@ func TestMarkdownlintCheckRejectsMissingLocalBinary(t *testing.T) {
 	}
 }
 
+func TestMarkdownlintCheckRejectsSymlinkConfig(t *testing.T) {
+	root := t.TempDir()
+	markdownlintWriteFile(t, root, "scripts/check_markdownlint.sh", markdownlintScript(t), 0o750)
+	config := markdownlintWriteFile(t, root, "docs/design/ci/markdownlint/.markdownlint-cli2.jsonc", `{"config":{"default":false}}`+"\n", 0o644)
+	target := filepath.Join(filepath.Dir(config), "markdownlint-target.jsonc")
+	if err := os.Rename(config, target); err != nil {
+		t.Fatalf("rename markdownlint config: %v", err)
+	}
+	if err := os.Symlink(target, config); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	markdownlintWriteFile(t, root, "web/node_modules/.bin/markdownlint-cli2", `#!/usr/bin/env bash
+printf '%s\n' "$@" > "$PWD/markdownlint-args.txt"
+`, 0o750)
+	markdownlintInitGit(t, root)
+
+	out, err := runMarkdownlintCheck(t, root)
+	if err == nil {
+		t.Fatalf("markdownlint check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/ci/markdownlint/.markdownlint-cli2.jsonc must be a regular file, not a symlink") {
+		t.Fatalf("markdownlint output = %q, want symlink config rejection", out)
+	}
+}
+
+func TestMarkdownlintCheckRejectsNonRegularConfig(t *testing.T) {
+	root := t.TempDir()
+	markdownlintWriteFile(t, root, "scripts/check_markdownlint.sh", markdownlintScript(t), 0o750)
+	config := markdownlintWriteFile(t, root, "docs/design/ci/markdownlint/.markdownlint-cli2.jsonc", `{"config":{"default":false}}`+"\n", 0o644)
+	if err := os.Remove(config); err != nil {
+		t.Fatalf("remove markdownlint config: %v", err)
+	}
+	if err := os.Mkdir(config, 0o750); err != nil {
+		t.Fatalf("mkdir markdownlint config path: %v", err)
+	}
+	markdownlintWriteFile(t, root, "web/node_modules/.bin/markdownlint-cli2", `#!/usr/bin/env bash
+printf '%s\n' "$@" > "$PWD/markdownlint-args.txt"
+`, 0o750)
+	markdownlintInitGit(t, root)
+
+	out, err := runMarkdownlintCheck(t, root)
+	if err == nil {
+		t.Fatalf("markdownlint check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/ci/markdownlint/.markdownlint-cli2.jsonc must be a regular file") {
+		t.Fatalf("markdownlint output = %q, want regular-file config rejection", out)
+	}
+}
+
 func markdownlintScript(t *testing.T) string {
 	t.Helper()
 	raw, err := os.ReadFile("check_markdownlint.sh")
@@ -64,7 +113,7 @@ func markdownlintScript(t *testing.T) string {
 	return string(raw)
 }
 
-func markdownlintWriteFile(t *testing.T, root, name, body string, mode os.FileMode) {
+func markdownlintWriteFile(t *testing.T, root, name, body string, mode os.FileMode) string {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(name))
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
@@ -73,6 +122,7 @@ func markdownlintWriteFile(t *testing.T, root, name, body string, mode os.FileMo
 	if err := os.WriteFile(path, []byte(body), mode); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
+	return path
 }
 
 func markdownlintInitGit(t *testing.T, root string) {

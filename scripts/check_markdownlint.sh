@@ -7,8 +7,16 @@ cd "$ROOT"
 CONFIG="docs/design/ci/markdownlint/.markdownlint-cli2.jsonc"
 BIN="web/node_modules/.bin/markdownlint-cli2"
 
-if [[ ! -f "$CONFIG" ]]; then
+if [[ -L "$CONFIG" ]]; then
+  echo "[markdownlint] $CONFIG must be a regular file, not a symlink" >&2
+  exit 2
+fi
+if [[ ! -e "$CONFIG" ]]; then
   echo "[markdownlint] missing $CONFIG" >&2
+  exit 2
+fi
+if [[ ! -f "$CONFIG" ]]; then
+  echo "[markdownlint] $CONFIG must be a regular file" >&2
   exit 2
 fi
 
