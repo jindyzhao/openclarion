@@ -175,6 +175,9 @@ func normalizeEndpoint(raw string) (string, error) {
 	if parsed.Host == "" {
 		return "", fmt.Errorf("webhook im: url must be absolute")
 	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("webhook im: url must not include userinfo")
+	}
 	parsed.Fragment = ""
 	return parsed.String(), nil
 }

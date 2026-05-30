@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -208,6 +209,11 @@ func TestProviderRejectsTrailingClaimPayloadValueDuringVerification(t *testing.T
 }
 
 func TestNewProviderRejectsInvalidConfig(t *testing.T) {
+	passwordIssuer := (&url.URL{
+		Scheme: "https",
+		User:   url.UserPassword("operator", "opaque"),
+		Host:   "issuer.example",
+	}).String()
 	tests := []struct {
 		name string
 		cfg  Config
@@ -222,6 +228,21 @@ func TestNewProviderRejectsInvalidConfig(t *testing.T) {
 			name: "empty client",
 			cfg:  Config{IssuerURL: "https://issuer.example"},
 			want: "client id",
+		},
+		{
+			name: "issuer username userinfo",
+			cfg:  Config{IssuerURL: "https://operator@issuer.example", ClientID: "client"},
+			want: "userinfo",
+		},
+		{
+			name: "issuer password userinfo",
+			cfg:  Config{IssuerURL: passwordIssuer, ClientID: "client"},
+			want: "userinfo",
+		},
+		{
+			name: "issuer escaped userinfo",
+			cfg:  Config{IssuerURL: "https://%6fperator@issuer.example", ClientID: "client"},
+			want: "userinfo",
 		},
 		{
 			name: "bad role values",

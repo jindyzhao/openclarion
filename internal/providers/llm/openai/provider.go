@@ -158,6 +158,12 @@ func chatCompletionsEndpoint(base string) (string, error) {
 	if parsed.Scheme == "" || parsed.Host == "" {
 		return "", fmt.Errorf("openai llm: base url must be absolute")
 	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("openai llm: base url scheme must be http or https")
+	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("openai llm: base url must not include userinfo")
+	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/chat/completions"
 	parsed.RawQuery = ""
 	parsed.Fragment = ""

@@ -148,6 +148,9 @@ func normalizeIssuer(raw string) (string, error) {
 	if parsed.Host == "" {
 		return "", fmt.Errorf("oidc auth: issuer url must be absolute")
 	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("oidc auth: issuer url must not include userinfo")
+	}
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	return parsed.String(), nil
