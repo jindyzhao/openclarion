@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -148,6 +150,52 @@ func TestLoadPRBodyReadsGitHubEvent(t *testing.T) {
 	}
 	if body != "See #123." {
 		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestRunRejectsSymlinkGitHubEventPath(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target-event.json")
+	if err := os.WriteFile(target, []byte(`{"pull_request":{"body":"See #123."}}`), 0o600); err != nil {
+		t.Fatalf("write target event: %v", err)
+	}
+	eventPath := filepath.Join(dir, "event.json")
+	if err := os.Symlink(target, eventPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	git := &fakeGit{outputs: map[string]string{
+		"rev-parse\x00--abbrev-ref\x00--symbolic-full-name\x00@{u}":   "origin/main\n",
+		"diff\x00--name-only\x00--diff-filter=ACMRTUXB\x00@{u}..HEAD": "docs/adr/ADR-0013-per-turn-container-invocation.md\n",
+	}}
+	var stderr bytes.Buffer
+
+	code := run(context.Background(), mapEnv(map[string]string{"GITHUB_EVENT_PATH": eventPath}), readRegularFile, git, &stderr)
+	if code != 2 {
+		t.Fatalf("run code = %d, want 2; stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "event.json must be a regular file, not a symlink") {
+		t.Fatalf("stderr = %q, want symlink event rejection", stderr.String())
+	}
+}
+
+func TestRunRejectsNonRegularGitHubEventPath(t *testing.T) {
+	dir := t.TempDir()
+	eventPath := filepath.Join(dir, "event.json")
+	if err := os.MkdirAll(eventPath, 0o750); err != nil {
+		t.Fatalf("mkdir event path: %v", err)
+	}
+	git := &fakeGit{outputs: map[string]string{
+		"rev-parse\x00--abbrev-ref\x00--symbolic-full-name\x00@{u}":   "origin/main\n",
+		"diff\x00--name-only\x00--diff-filter=ACMRTUXB\x00@{u}..HEAD": "internal/sandbox/runtime.go\n",
+	}}
+	var stderr bytes.Buffer
+
+	code := run(context.Background(), mapEnv(map[string]string{"GITHUB_EVENT_PATH": eventPath}), readRegularFile, git, &stderr)
+	if code != 2 {
+		t.Fatalf("run code = %d, want 2; stderr=%s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "event.json must be a regular file") {
+		t.Fatalf("stderr = %q, want non-regular event rejection", stderr.String())
 	}
 }
 
