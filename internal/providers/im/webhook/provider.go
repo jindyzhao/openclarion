@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/observability/correlation"
+	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -111,17 +113,43 @@ func (p *Provider) SendNotification(ctx context.Context, req ports.IMNotificatio
 	}
 	defer resp.Body.Close()
 
-	rawBody, err := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	rawBody, err := readResponseBody(resp.Body)
 	if err != nil {
+		retryable := true
+		var tooLarge responseBodyTooLargeError
+		if errors.As(err, &tooLarge) {
+			retryable = resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		}
 		return ports.IMDelivery{}, &ports.IMError{
-			Message:   fmt.Sprintf("webhook im: read response: %v", err),
-			Retryable: true,
+			Message:    fmt.Sprintf("webhook im: read response: %v", err),
+			StatusCode: resp.StatusCode,
+			Retryable:  retryable,
 		}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return ports.IMDelivery{}, statusError(resp.StatusCode, rawBody)
 	}
 	return deliveryFromResponse(rawBody)
+}
+
+type responseBodyTooLargeError struct {
+	limit int
+}
+
+func (e responseBodyTooLargeError) Error() string {
+	return fmt.Sprintf("response body exceeds %d bytes", e.limit)
+}
+
+func readResponseBody(body io.Reader) ([]byte, error) {
+	limited := &io.LimitedReader{R: body, N: maxBodyBytes + 1}
+	raw, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > maxBodyBytes {
+		return nil, responseBodyTooLargeError{limit: maxBodyBytes}
+	}
+	return raw, nil
 }
 
 func normalizeEndpoint(raw string) (string, error) {
@@ -177,6 +205,9 @@ func deliveryFromResponse(raw []byte) (ports.IMDelivery, error) {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
 		return ports.IMDelivery{Status: "delivered"}, nil
+	}
+	if err := strictjson.RejectDuplicateObjectKeys(trimmed); err != nil {
+		return ports.IMDelivery{}, fmt.Errorf("webhook im: decode response: %w", err)
 	}
 	var out webhookResponse
 	if err := json.Unmarshal(trimmed, &out); err != nil {
