@@ -17,16 +17,6 @@
 
 ## Active Deferrals
 
-### D1: Workflow Engine Spike (Temporal vs River+sqlc)
-
-| Field | Value |
-|-------|-------|
-| Status | open |
-| Decided | 2026-05-19 |
-| Reason | Temporal selection in ADR-0004 is driven by M5 short-conversation diagnosis. A 1-week spike comparing Temporal and River+sqlc on the M2 fan-out/fan-in path would cross-check the choice. Spike not run because pre-M0 has no code yet. |
-| Trigger | run only if M0 Temporal setup or M2 fan-out/fan-in implementation feels disproportionate |
-| Target | optional M0/M1 cross-check |
-
 ### D3: Lifecycle-End Conversation Compression (M5)
 
 | Field | Value |
@@ -100,6 +90,17 @@
 
 ## Closed Deferrals
 
+### D1: Workflow Engine Spike (Temporal vs River+sqlc)
+
+| Field | Value |
+|-------|-------|
+| Status | closed |
+| Decided | 2026-05-19 |
+| Updated | 2026-05-30 |
+| Reason | The early spike is no longer needed. Temporal is already exercised by the shipped M2 report pipeline (`ReportBatchWorkflow`, `ReportFanOutWorkflow`, and `FinalReportWorkflow`) and the M5 diagnosis-room workflow (Updates, Queries, Signals, durable timers, per-turn sandbox Activity, transcript persistence, lifecycle audit, and close notification). The implementation is covered by `make temporal-workflow-tests`, `make diagnosis-room-workflow-test`, local report E2E, and frontend diagnosis route smoke. A River+sqlc comparison would now be a rewrite evaluation rather than a pre-commit architecture cross-check. |
+| Trigger | closed after M2/M5 Temporal workflow evidence landed; reopen only if Temporal operations become a measured delivery or reliability blocker |
+| Target | closed by M5 workflow evidence |
+
 ### D2: oapi-codegen-exp StrictServerInterface Adapter
 
 | Field | Value |
@@ -146,3 +147,4 @@
 | 2026-05-30 | jindyzhao | D2 closed after re-evaluation: the generated `ServerInterface` handler surface remains small and covered by endpoint tests, so a handwritten strict adapter would add maintenance cost without proven V1 value. |
 | 2026-05-30 | jindyzhao | D10 re-evaluated after M2/M5 growth: keep the single delivery checklist for now and replace the expired M2-review trigger with concrete size, ownership, and reviewer-friction triggers. |
 | 2026-05-30 | jindyzhao | Add deferred follow-up ledger gate and move closed D6/D11 entries under the Closed Deferrals section so status and section stay machine-checkable. |
+| 2026-05-30 | jindyzhao | D1 closed after re-evaluation: the M2 report workflows and M5 diagnosis-room workflow now provide enough Temporal evidence that the River+sqlc spike would be a rewrite evaluation rather than an early architecture cross-check. |
