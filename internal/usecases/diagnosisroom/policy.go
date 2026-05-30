@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/strictjson"
 )
 
 const (
@@ -233,8 +234,8 @@ func MountContextBytes(evidence json.RawMessage, conversation []ConversationTurn
 	if len(evidence) == 0 {
 		return 0, fmt.Errorf("diagnosis room context: evidence must be non-empty JSON: %w", domain.ErrInvariantViolation)
 	}
-	if !json.Valid(evidence) {
-		return 0, fmt.Errorf("diagnosis room context: evidence must be valid JSON: %w", domain.ErrInvariantViolation)
+	if err := strictjson.RejectDuplicateObjectKeys(evidence); err != nil {
+		return 0, fmt.Errorf("diagnosis room context: evidence must be duplicate-key-free JSON: %w: %w", err, domain.ErrInvariantViolation)
 	}
 	for i, turn := range conversation {
 		if !validRole(turn.Role) {
