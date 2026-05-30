@@ -92,6 +92,109 @@ func TestMarkdownLinksCheckRejectsOrphanDocs(t *testing.T) {
 	}
 }
 
+func TestMarkdownLinksCheckRejectsSymlinkedMarkdownFiles(t *testing.T) {
+	root := t.TempDir()
+	mdWriteFile(t, root, "scripts/check_markdown_links.sh", markdownLinksScript(t), 0o750)
+	mdWriteFile(t, root, "docs/real.md", "# Docs\n", 0o644)
+	if err := os.Symlink("real.md", filepath.Join(root, "docs", "README.md")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runMarkdownLinksCheck(t, root)
+	if err == nil {
+		t.Fatalf("links check passed unexpectedly:\n%s", out)
+	}
+	for _, want := range []string{
+		"non-regular markdown files detected",
+		"docs/README.md",
+		"is a symlink",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("links check output = %q, want substring %q", out, want)
+		}
+	}
+}
+
+func TestMarkdownLinksCheckRejectsSymlinkedMarkdownPathComponents(t *testing.T) {
+	root := t.TempDir()
+	mdWriteFile(t, root, "scripts/check_markdown_links.sh", markdownLinksScript(t), 0o750)
+	mdWriteFile(t, root, "docs/README.md", `# Docs
+
+[target](alias/target.md)
+`, 0o644)
+	mdWriteFile(t, root, "docs/real/target.md", "# Target\n", 0o644)
+	if err := os.Symlink("real", filepath.Join(root, "docs", "alias")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runMarkdownLinksCheck(t, root)
+	if err == nil {
+		t.Fatalf("links check passed unexpectedly:\n%s", out)
+	}
+	for _, want := range []string{
+		"non-regular markdown files detected",
+		"docs/alias/target.md",
+		"contains symlink path component docs/alias",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("links check output = %q, want substring %q", out, want)
+		}
+	}
+}
+
+func TestMarkdownLinksCheckRejectsNonRegularMarkdownTargets(t *testing.T) {
+	root := t.TempDir()
+	mdWriteFile(t, root, "scripts/check_markdown_links.sh", markdownLinksScript(t), 0o750)
+	mdWriteFile(t, root, "docs/README.md", `# Docs
+
+[directory target](target.md)
+`, 0o644)
+	if err := os.Mkdir(filepath.Join(root, "docs", "target.md"), 0o750); err != nil {
+		t.Fatalf("mkdir target.md: %v", err)
+	}
+
+	out, err := runMarkdownLinksCheck(t, root)
+	if err == nil {
+		t.Fatalf("links check passed unexpectedly:\n%s", out)
+	}
+	for _, want := range []string{
+		"non-regular markdown files detected",
+		"docs/target.md",
+		"is not a regular file",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("links check output = %q, want substring %q", out, want)
+		}
+	}
+}
+
+func TestMarkdownLinksCheckRejectsTargetsOutsideRepository(t *testing.T) {
+	root := t.TempDir()
+	mdWriteFile(t, root, "scripts/check_markdown_links.sh", markdownLinksScript(t), 0o750)
+	mdWriteFile(t, root, "docs/README.md", `# Docs
+
+[outside](../../outside.md#outside)
+`, 0o644)
+	outside := filepath.Join(root, "..", "outside.md")
+	if err := os.WriteFile(outside, []byte("# Outside\n"), 0o600); err != nil {
+		t.Fatalf("write outside.md: %v", err)
+	}
+
+	out, err := runMarkdownLinksCheck(t, root)
+	if err == nil {
+		t.Fatalf("links check passed unexpectedly:\n%s", out)
+	}
+	for _, want := range []string{
+		"markdown links resolve outside the repository",
+		"docs/README.md",
+		"../../outside.md#outside",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("links check output = %q, want substring %q", out, want)
+		}
+	}
+}
+
 func markdownLinksScript(t *testing.T) string {
 	t.Helper()
 	raw, err := os.ReadFile("check_markdown_links.sh")
