@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-05-29
+> Last updated: 2026-05-30
 > Author: jindyzhao
 > Status: private incubation
 
@@ -372,3 +372,4 @@ sessions, leader-tier approval, streaming partial responses.
 | 2026-05-29 | jindyzhao | M4 topology helper source-file regularity hardened locally: `scripts/agent_tool_topology_lookup` now rejects symlink and other non-regular topology JSON paths before reading. This keeps future sandbox runtime helper inputs direct, bounded, and reviewable when helper output is used as evidence for report quality comparison. |
 | 2026-05-29 | jindyzhao | M4 custom thin runner ADR-0013 source-file regularity hardened locally: the runner now rejects symlink and other non-regular evidence, conversation, and message JSON paths before reading and hashing them. This keeps the local contract proof from accepting indirect mounted inputs while still avoiding planner, memory, approval, or runtime-framework behavior in Go. |
 | 2026-05-30 | jindyzhao | Dependabot linter-tooling policy tightened locally: ordinary minor/major `golang.org/x/tools` updates in `tools/openclarion-linter` are now suppressed because the custom golangci-lint plugin must match the exact `x/tools` version embedded in the pinned `GOLANGCI_LINT_VERSION` binary. Coordinated tooling updates and Dependabot security updates remain allowed. |
+| 2026-05-30 | jindyzhao | M5 diagnosis-room origin configuration hardened locally: `OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS` now rejects userinfo-bearing origins during runtime option construction, keeping WebSocket origin allowlists credential-free without changing the short-conversation diagnosis architecture. |

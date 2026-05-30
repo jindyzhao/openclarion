@@ -652,6 +652,9 @@ func normalizeBrowserOrigin(raw string) (string, error) {
 	if parsed.Host == "" {
 		return "", fmt.Errorf("origin %q must be absolute", raw)
 	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("origin %q must not include user info", raw)
+	}
 	if parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
 		return "", fmt.Errorf("origin %q must not include path, query, or fragment", raw)
 	}

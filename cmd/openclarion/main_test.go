@@ -163,6 +163,21 @@ func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoom(t *testing.T) {
 	}
 }
 
+func TestHTTPServerOptionsFromEnv_RejectsDiagnosisAllowedOriginUserInfo(t *testing.T) {
+	oidcServer := newOIDCDiscoveryServer(t)
+	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL": " " + oidcServer.URL + " ",
+		"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID":  "openclarion-web",
+		"OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS": "https://operator@example.invalid",
+	}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil)
+	if err == nil {
+		t.Fatal("expected allowed origin userinfo error, got nil")
+	}
+	if !strings.Contains(err.Error(), "must not include user info") {
+		t.Fatalf("error = %q, want user info rejection", err.Error())
+	}
+}
+
 func TestHTTPServerOptionsFromEnv_RejectsIncompleteDiagnosisConfig(t *testing.T) {
 	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID": "openclarion-web",
