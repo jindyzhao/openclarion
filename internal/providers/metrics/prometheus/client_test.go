@@ -310,6 +310,112 @@ func TestProvider_ListActiveAlerts_WrapsMalformedJSON(t *testing.T) {
 	}
 }
 
+func TestProvider_ListActiveAlerts_RejectsAmbiguousSuccessEnvelope(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "duplicate top-level key",
+			body: `{"status":"success","status":"shadow","data":{"alerts":[]}}`,
+			want: `duplicate object key "status"`,
+		},
+		{
+			name: "duplicate nested key",
+			body: `{"status":"success","data":{"alerts":[{"labels":{"alertname":"old","alertname":"new"},"annotations":{},"state":"firing","activeAt":"2026-05-26T10:00:00.000000000Z","value":"1e+00"}]}}`,
+			want: `duplicate object key "alertname"`,
+		},
+		{
+			name: "trailing value",
+			body: `{"status":"success","data":{"alerts":[]}} {"status":"success"}`,
+			want: "trailing JSON values",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newAlertsServer(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.body))
+			})
+
+			p, err := NewProvider(srv.URL)
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			_, err = p.ListActiveAlerts(context.Background())
+			if err == nil {
+				t.Fatal("ListActiveAlerts err = nil, want ambiguous response error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestProvider_ListActiveAlerts_RejectsAmbiguousAPIErrorEnvelope(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		want   string
+	}{
+		{
+			name:   "bad request duplicate error",
+			status: http.StatusBadRequest,
+			body:   `{"status":"error","errorType":"bad_data","error":"old","error":"new"}`,
+			want:   `duplicate object key "error"`,
+		},
+		{
+			name:   "unprocessable trailing value",
+			status: http.StatusUnprocessableEntity,
+			body:   `{"status":"error","errorType":"execution","error":"failed"} {"status":"success"}`,
+			want:   "trailing JSON values",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := newAlertsServer(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			})
+
+			p, err := NewProvider(srv.URL)
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			_, err = p.ListActiveAlerts(context.Background())
+			if err == nil {
+				t.Fatal("ListActiveAlerts err = nil, want ambiguous API error response")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestProvider_ListActiveAlerts_RejectsOversizedSuccessEnvelope(t *testing.T) {
+	srv := newAlertsServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(strings.Repeat(" ", maxResponseBodyBytes+1)))
+	})
+
+	p, err := NewProvider(srv.URL)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	_, err = p.ListActiveAlerts(context.Background())
+	if err == nil {
+		t.Fatal("ListActiveAlerts err = nil, want oversized response error")
+	}
+	if !strings.Contains(err.Error(), "response body exceeds") {
+		t.Fatalf("err = %v, want response size error", err)
+	}
+}
+
 // mapsEqual is a small, dependency-free helper. We avoid reflect
 // here so a failure in the test's expectation logic is visible in
 // the trace.
