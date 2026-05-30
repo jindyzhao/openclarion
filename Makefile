@@ -6,7 +6,7 @@
 #
 # Usage:
 #   make pr               # run the full PR validation bundle with wall-clock budget
-#   make docs-hygiene     # documentation language, terminology, and proof-state gates
+#   make docs-hygiene     # documentation language, terminology, proof-state, and metadata gates
 #   make forbidden        # all forbidden-method guards
 #   make adr-check        # validate ADR index and reading order
 #   make links-check      # validate markdown links, anchors, and docs reachability
@@ -171,10 +171,11 @@ ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check mark
 
 .PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard workflow-change-guard-test linear-history-check linear-history-check-test pr-file-count-check pr-file-count-check-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test pr-title-check pr-description-check dco-check workflow-parity actionlint
 
-docs-hygiene: ## Reject non-English CJK literals, terminology drift, and proof-state drift in governed documentation
+docs-hygiene: ## Reject non-English CJK literals, terminology drift, proof-state drift, and stale Last updated metadata in governed documentation
 	@bash scripts/check_no_non_english_chars.sh
 	@bash scripts/check_project_terminology.sh
 	@go run ./scripts/e2e_verification_check
+	@go run ./scripts/docs_metadata_check
 
 adr-check: ## Validate ADR index against files on disk
 	@bash scripts/check_adr_index.sh
