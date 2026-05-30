@@ -2,6 +2,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -220,7 +222,7 @@ func checkGolangCI(root, expectedLanguageVersion string) []finding {
 		return []finding{{Path: golangCIConfigPath, Msg: err.Error()}}
 	}
 	var cfg golangCIConfig
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+	if err := decodeCheckedYAML(raw, &cfg); err != nil {
 		return []finding{{Path: golangCIConfigPath, Msg: fmt.Sprintf("invalid YAML: %v", err)}}
 	}
 	actual := strings.TrimSpace(cfg.Run.Go)
@@ -280,7 +282,7 @@ func checkWorkflowFile(absPath, displayPath string) (int, []finding) {
 		return 0, []finding{{Path: displayPath, Msg: err.Error()}}
 	}
 	var wf workflowFile
-	if err := yaml.Unmarshal(raw, &wf); err != nil {
+	if err := decodeCheckedYAML(raw, &wf); err != nil {
 		return 0, []finding{{Path: displayPath, Msg: fmt.Sprintf("invalid YAML: %v", err)}}
 	}
 	var findings []finding
@@ -307,6 +309,69 @@ func checkWorkflowFile(absPath, displayPath string) (int, []finding) {
 		}
 	}
 	return setupGoSteps, findings
+}
+
+func decodeCheckedYAML(raw []byte, out any) error {
+	doc, err := parseSingleYAMLDocument(raw)
+	if err != nil {
+		return err
+	}
+	if err := rejectDuplicateYAMLKeys(doc); err != nil {
+		return err
+	}
+
+	return doc.Decode(out)
+}
+
+func parseSingleYAMLDocument(raw []byte) (*yaml.Node, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	var doc yaml.Node
+	if err := dec.Decode(&doc); err != nil {
+		return nil, err
+	}
+	var extra yaml.Node
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("multiple YAML documents are not allowed")
+	}
+	return &doc, nil
+}
+
+func rejectDuplicateYAMLKeys(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.DocumentNode:
+		for _, child := range node.Content {
+			if err := rejectDuplicateYAMLKeys(child); err != nil {
+				return err
+			}
+		}
+	case yaml.SequenceNode:
+		for _, child := range node.Content {
+			if err := rejectDuplicateYAMLKeys(child); err != nil {
+				return err
+			}
+		}
+	case yaml.MappingNode:
+		seen := map[string]*yaml.Node{}
+		for i := 0; i < len(node.Content); i += 2 {
+			key := node.Content[i]
+			value := node.Content[i+1]
+			if key.Kind != yaml.ScalarNode {
+				return fmt.Errorf("mapping key at line %d must be scalar", key.Line)
+			}
+			keyID := key.ShortTag() + "\x00" + key.Value
+			if previous, exists := seen[keyID]; exists {
+				return fmt.Errorf("duplicate YAML key %q at line %d; first declared at line %d", key.Value, key.Line, previous.Line)
+			}
+			seen[keyID] = key
+			if err := rejectDuplicateYAMLKeys(value); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func isSetupGoStep(uses string) bool {
