@@ -9,8 +9,18 @@ cd "$(dirname "$0")/.."
 
 policy_file="${OPENCLARION_AGENT_RUNTIME_POLICY_FILE:-docs/design/ci/agent-runtime-forbidden.tsv}"
 
-if [[ ! -f "$policy_file" ]]; then
+if [[ -L "$policy_file" ]]; then
+  echo "[forbidden-agent-runtime] policy file must be a regular file, not a symlink: $policy_file" >&2
+  exit 1
+fi
+
+if [[ ! -e "$policy_file" ]]; then
   echo "[forbidden-agent-runtime] missing policy file: $policy_file" >&2
+  exit 1
+fi
+
+if [[ ! -f "$policy_file" ]]; then
+  echo "[forbidden-agent-runtime] policy file must be a regular file: $policy_file" >&2
   exit 1
 fi
 

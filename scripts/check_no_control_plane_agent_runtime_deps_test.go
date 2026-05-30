@@ -212,6 +212,45 @@ func TestForbiddenAgentRuntimeRejectsIncompletePolicy(t *testing.T) {
 	}
 }
 
+func TestForbiddenAgentRuntimeRejectsSymlinkPolicy(t *testing.T) {
+	root := writeAgentRuntimeRepo(t, nil)
+	policy := filepath.Join(root, "docs", "design", "ci", "agent-runtime-forbidden.tsv")
+	target := filepath.Join(root, "docs", "design", "ci", "policy-target.tsv")
+	if err := os.Rename(policy, target); err != nil {
+		t.Fatalf("rename policy target: %v", err)
+	}
+	if err := os.Symlink(target, policy); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runForbiddenAgentRuntime(t, root)
+	if err == nil {
+		t.Fatalf("forbidden-agent-runtime passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "policy file must be a regular file, not a symlink") {
+		t.Fatalf("forbidden-agent-runtime output = %q, want symlink policy error", out)
+	}
+}
+
+func TestForbiddenAgentRuntimeRejectsNonRegularPolicy(t *testing.T) {
+	root := writeAgentRuntimeRepo(t, nil)
+	policy := filepath.Join(root, "docs", "design", "ci", "agent-runtime-forbidden.tsv")
+	if err := os.Remove(policy); err != nil {
+		t.Fatalf("remove policy: %v", err)
+	}
+	if err := os.Mkdir(policy, 0o750); err != nil {
+		t.Fatalf("mkdir policy path: %v", err)
+	}
+
+	out, err := runForbiddenAgentRuntime(t, root)
+	if err == nil {
+		t.Fatalf("forbidden-agent-runtime passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "policy file must be a regular file") {
+		t.Fatalf("forbidden-agent-runtime output = %q, want regular-file policy error", out)
+	}
+}
+
 func TestForbiddenAgentRuntimeAllowsCandidateNamesInDocs(t *testing.T) {
 	root := writeAgentRuntimeRepo(t, map[string]string{
 		"docs/design/agent-runtime-selection.md": "OpenClaw and Hermes Agent are candidate runtime evidence values.\n",
