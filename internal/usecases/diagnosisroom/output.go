@@ -27,7 +27,7 @@ type TurnOutput struct {
 	RequiresHumanReview bool     `json:"requires_human_review"`
 }
 
-var turnOutputSchema = json.RawMessage(`{
+const turnOutputSchemaJSON = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://openclarion.dev/schemas/diagnosis-turn-output.v1.json",
   "type": "object",
@@ -73,11 +73,11 @@ var turnOutputSchema = json.RawMessage(`{
       "type": "boolean"
     }
   }
-}`)
+}`
 
 // TurnOutputSchema returns a defensive copy of the V1 sandbox output schema.
 func TurnOutputSchema() json.RawMessage {
-	return cloneRawMessage(turnOutputSchema)
+	return cloneRawMessage(json.RawMessage(turnOutputSchemaJSON))
 }
 
 // ParseTurnOutput validates raw sandbox output.json bytes and returns the
@@ -108,7 +108,7 @@ func ParseTurnOutput(raw json.RawMessage) (TurnOutput, error) {
 }
 
 func compileTurnOutputSchema() (*jsonschema.Schema, error) {
-	parsed, err := jsonschema.UnmarshalJSON(bytes.NewReader(turnOutputSchema))
+	parsed, err := jsonschema.UnmarshalJSON(bytes.NewReader(json.RawMessage(turnOutputSchemaJSON)))
 	if err != nil {
 		return nil, fmt.Errorf("diagnosis turn output: parse schema: %w", err)
 	}

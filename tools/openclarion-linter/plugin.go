@@ -7,6 +7,7 @@ import (
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/execboundary"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/filesystemboundary"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/forbiddenimports"
+	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/globalstate"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/goroutineboundary"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/httpclient"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/panicboundary"
@@ -38,6 +39,7 @@ func (plugin) BuildAnalyzers() ([]*analysis.Analyzer, error) {
 		sqldb.Analyzer,
 		execboundary.Analyzer,
 		filesystemboundary.Analyzer,
+		globalstate.Analyzer,
 		clockboundary.Analyzer,
 		envboundary.Analyzer,
 		reflectionboundary.Analyzer,

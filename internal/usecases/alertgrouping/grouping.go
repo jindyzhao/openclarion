@@ -254,15 +254,6 @@ func sha256Hex(data []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// severityRank maps GroupSeverity values to ordinal ranks for
-// comparison. Higher rank wins in maxSeverity.
-var severityRank = map[domain.GroupSeverity]int{
-	domain.GroupSeverityUnknown:  0,
-	domain.GroupSeverityInfo:     1,
-	domain.GroupSeverityWarning:  2,
-	domain.GroupSeverityCritical: 3,
-}
-
 // extractSeverity reads the severity label from the event, trims and
 // lower-cases it, and maps it to a domain.GroupSeverity. Unrecognised
 // or missing values fall back to GroupSeverityUnknown.
@@ -288,8 +279,21 @@ func extractSeverity(labels map[string]string, key string) domain.GroupSeverity 
 // maxSeverity returns the higher of two GroupSeverity values based on
 // severityRank ordering.
 func maxSeverity(a, b domain.GroupSeverity) domain.GroupSeverity {
-	if severityRank[b] > severityRank[a] {
+	if severityRank(b) > severityRank(a) {
 		return b
 	}
 	return a
+}
+
+func severityRank(value domain.GroupSeverity) int {
+	switch value {
+	case domain.GroupSeverityCritical:
+		return 3
+	case domain.GroupSeverityWarning:
+		return 2
+	case domain.GroupSeverityInfo:
+		return 1
+	default:
+		return 0
+	}
 }

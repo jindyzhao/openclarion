@@ -69,6 +69,7 @@ instead of placeholders.
 | Reflection / unsafe import boundary analyzer | hardened | `openclarion-arch` rejects `reflect` and `unsafe` in handwritten production files. | Require ADR coverage for any future exception. |
 | Panic boundary analyzer | hardened | `openclarion-arch` rejects production panic outside accepted recover boundaries. | Add fixtures for any approved panic-wrapper pattern. |
 | Goroutine supervision boundary analyzer | hardened | `openclarion-arch` rejects raw production goroutines outside supervision boundary. | Introduce `internal/supervision` contract before allowing new patterns. |
+| Core mutable global state analyzer | hardened | `openclarion-arch` rejects package-level mutable collection state in handwritten deterministic core packages, including pointer/interface-backed collection initializers. | Add narrow exceptions only with executable proof that the state is immutable after initialization. |
 | OpenAPI breaking-change diff | hardened | `make openapi-breaking`; oasdiff soft-fails only until the recorded date. | Remove soft-fail language after the sunset has passed. |
 | OpenAPI critical-node fingerprint lock | mature | `make openapi-fingerprint`; lock generated from real OpenAPI nodes, with duplicate-key/trailing-value JSON rejection covered by root `scripts` tests. | Add new critical nodes in the same PR as API surfaces. |
 | Documentation shipped-claims consistency | hardened | `make doc-claims-check`; validates shipped path hints in `CURRENT_STATE.md`. | Extend to command claims only when command metadata is structured. |
