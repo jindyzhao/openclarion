@@ -55,6 +55,98 @@ func TestPRDescriptionCheckReadsGitHubEventPath(t *testing.T) {
 	}
 }
 
+func TestPRDescriptionCheckRejectsSymlinkedGitHubEventPath(t *testing.T) {
+	root := newPRDescriptionFixture(t)
+	body := "## Risk\n\nLow.\n\n## Rollback\n\nRevert this PR.\n"
+	prDescriptionWriteFile(t, root, "event-real.json", `{"pull_request":{"body":`+jsonString(body)+`}}`, 0o600)
+	if err := os.Symlink("event-real.json", filepath.Join(root, "event.json")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runPRDescriptionCheck(t, root, map[string]string{"GITHUB_EVENT_PATH": filepath.Join(root, "event.json")})
+	if err == nil {
+		t.Fatalf("pr description check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "GITHUB_EVENT_PATH must be a regular file, not a symlink") {
+		t.Fatalf("pr description output = %q, want symlink rejection", out)
+	}
+}
+
+func TestPRDescriptionCheckRejectsNonRegularGitHubEventPath(t *testing.T) {
+	root := newPRDescriptionFixture(t)
+	eventDir := filepath.Join(root, "event-dir")
+	if err := os.Mkdir(eventDir, 0o750); err != nil {
+		t.Fatalf("mkdir event-dir: %v", err)
+	}
+
+	out, err := runPRDescriptionCheck(t, root, map[string]string{"GITHUB_EVENT_PATH": eventDir})
+	if err == nil {
+		t.Fatalf("pr description check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "GITHUB_EVENT_PATH must be a regular file") {
+		t.Fatalf("pr description output = %q, want regular-file rejection", out)
+	}
+}
+
+func TestPRDescriptionCheckRejectsDuplicateGitHubEventKeys(t *testing.T) {
+	root := newPRDescriptionFixture(t)
+	eventPath := filepath.Join(root, "event.json")
+	raw := `{"pull_request":{"body":"## Risk\n\nLow.\n\n## Rollback\n\nRevert this PR.","body":"## Risk\n\nHidden override.\n\n## Rollback\n\nRevert."}}`
+	if err := os.WriteFile(eventPath, []byte(raw), 0o600); err != nil {
+		t.Fatalf("write event: %v", err)
+	}
+
+	out, err := runPRDescriptionCheck(t, root, map[string]string{"GITHUB_EVENT_PATH": eventPath})
+	if err == nil {
+		t.Fatalf("pr description check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "invalid GITHUB_EVENT_PATH JSON") || !strings.Contains(out, "duplicate object key 'body'") {
+		t.Fatalf("pr description output = %q, want duplicate-key rejection", out)
+	}
+}
+
+func TestPRDescriptionCheckRejectsMalformedGitHubEventShape(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "root array",
+			raw:  `[]`,
+			want: "root must be an object",
+		},
+		{
+			name: "pull request string",
+			raw:  `{"pull_request":"not an object"}`,
+			want: "pull_request must be an object",
+		},
+		{
+			name: "body number",
+			raw:  `{"pull_request":{"body":42}}`,
+			want: "pull_request.body must be a string",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newPRDescriptionFixture(t)
+			eventPath := filepath.Join(root, "event.json")
+			if err := os.WriteFile(eventPath, []byte(tc.raw), 0o600); err != nil {
+				t.Fatalf("write event: %v", err)
+			}
+
+			out, err := runPRDescriptionCheck(t, root, map[string]string{"GITHUB_EVENT_PATH": eventPath})
+			if err == nil {
+				t.Fatalf("pr description check passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, "invalid GITHUB_EVENT_PATH JSON") || !strings.Contains(out, tc.want) {
+				t.Fatalf("pr description output = %q, want malformed-event rejection %q", out, tc.want)
+			}
+		})
+	}
+}
+
 func TestPRDescriptionCheckRejectsMissingOrEmptySections(t *testing.T) {
 	tests := []struct {
 		name string
@@ -133,6 +225,14 @@ func prDescriptionScript(t *testing.T) string {
 	raw, err := os.ReadFile("check_pr_description.sh")
 	if err != nil {
 		t.Fatalf("read PR description script: %v", err)
+	}
+	return string(raw)
+}
+
+func jsonString(value string) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
 	}
 	return string(raw)
 }
