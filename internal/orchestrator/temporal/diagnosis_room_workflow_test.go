@@ -313,6 +313,23 @@ func TestDiagnosisRoomWorkflow_CanCreateTaskAndSessionOnStartup(t *testing.T) {
 	}
 }
 
+func TestDiagnosisRoomWorkflow_RejectsDuplicateEvidenceInput(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+
+	input := defaultRoomInput()
+	input.Evidence = json.RawMessage(`{"alert":"cpu","alert":"memory"}`)
+
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	err := env.GetWorkflowError()
+	if err == nil || !strings.Contains(err.Error(), `duplicate object key "alert"`) {
+		t.Fatalf("workflow error = %v, want duplicate evidence key rejection", err)
+	}
+}
+
 type captureSubmitTurnUpdate struct {
 	accepted    bool
 	rejected    error
