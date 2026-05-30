@@ -24,7 +24,7 @@ instead of placeholders.
 
 | Gate | Maturity | Evidence | Next hardening |
 |------|----------|----------|----------------|
-| docs hygiene (English-only and terminology check) | hardened | `make docs-hygiene`; terminology TSV keeps product wording on intelligent alert analysis. | Extend rule table only when a real naming drift appears. |
+| docs hygiene (English-only, terminology, and proof-state check) | hardened | `make docs-hygiene`; terminology TSV keeps product wording on intelligent alert analysis and the E2E verdict check keeps proof-state labels defined. | Extend rule tables only when a real naming or evidence-taxonomy drift appears. |
 | ADR index, front matter, Consequences, supersession, and immutability validation | mature | `make adr-check`; fixture tests cover metadata, consequences, supersession, and base-aware immutability. | Add label-based governance timing only when external contributor flow exists. |
 | Markdown link, anchor, and docs reachability validation | mature | `make links-check`; fixtures cover anchors, target paths, and orphan docs. | Keep external link liveness non-blocking if a scheduled workflow is added. |
 | External HTTPS link inventory | manual | `make external-links-check` inventories links locally; `OPENCLARION_EXTERNAL_LINKS_LIVE=1` enables explicit live checks. | Add scheduled live liveness only in an isolated workflow PR; keep it non-PR-blocking and add an ignore file only with owner and expiry if unstable links appear. |

@@ -12,6 +12,8 @@
 | Verdict | Meaning |
 |---------|---------|
 | **proven** | Standard API/library/protocol, no design ambiguity, directly implementable |
+| **proven-local** | Implemented and exercised locally, but still missing retained live or production-environment evidence |
+| **partial** | Some implementation evidence exists, but at least one required real-environment or end-to-end proof is still pending |
 | **feasible-with-constraint** | Technically possible, but requires specific design decisions, configuration, or operational constraints documented below |
 | **needs-design** | Implementation path exists but requires non-trivial design work not yet completed |
 | **risky** | No proven path exists, or path depends on unproven/unstable technology |
@@ -125,7 +127,7 @@ Temporal workflow (from Chain A)
 | B4 | Non-root + limits | `User = "nonroot"`, `Resources.Memory`, `NanoCPUs`, `SecurityOpt: ["no-new-privileges"]` | proven |
 | B5 | Egress control | Docker network isolation + per-endpoint allowlist | **feasible-with-constraint** |
 | B6 | Agent loads config | Agent runtime reads `/workspace/agent_config/agent.yaml` at startup | proven |
-| B7 | Agent queries data | V1: direct HTTP to allowed endpoints (Prometheus, K8s); post-V1: MCP-over-Streamable-HTTP | proven (V1 scope) |
+| B7 | Agent queries data | V1-proven direct HTTP to allowed endpoints (Prometheus, K8s); post-V1: MCP-over-Streamable-HTTP | proven |
 | B8 | Agent writes output | Writes to `/workspace/out/output.json` on the only writable output mount | proven |
 | B9 | Go reads + validates | Read output file; enforce output cap with `fsize`/Go read limit and JSON Schema validate against SubReport schema; `make container-provider-output-cap-smoke` proves cap failure cleanup | proven |
 | B10 | Timeout + cleanup | `context.WithTimeout` -> `ContainerStop()` -> `ContainerRemove(force=true)`, plus `make container-provider-timeout-smoke` leak check | proven |
@@ -254,7 +256,7 @@ Browser
 | C9 | Agent context size | Evidence + conversation + tools output; must fit token budget | **feasible-with-constraint** |
 | C10 | Agent writes output | Same as B8 | proven |
 | C11 | Validate response | V1 diagnosis-turn `output.json` JSON Schema parser plus raw Container result validation | proven-local |
-| C12 | Persist turn | `PersistDiagnosisTurn` writes the user+assistant ChatTurn pair and advances ChatSession turn count idempotently | proven-local workflow |
+| C12 | Persist turn | `PersistDiagnosisTurn` writes the user+assistant ChatTurn pair and advances ChatSession turn count idempotently through workflow coverage | proven-local |
 | C13 | Push response to WS | WebSocket relay returns the synchronous Temporal Update result as a `turn_result` frame and supports reconnect `query_state` frames | proven-local |
 | C14 | Limit check | workflow Update Validator + durable idle/session timers | proven-local |
 | C15 | Close notification | Close path persists ChatSession terminal metadata, sends the diagnosis-task-scoped IMProvider notification, and records an idempotent `diagnosis_room.close_notification_sent` audit event | proven-local |
