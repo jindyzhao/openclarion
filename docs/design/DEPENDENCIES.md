@@ -12,6 +12,7 @@
 | WebSocket transport | `github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674` (direct require since `internal/transport/http` upgrades authenticated diagnosis-room connections with explicit same-origin checks and `httptest`/Dialer coverage) | 2026-05-28 |
 | API | OpenAPI 3.1, `oapi-codegen-exp` V3 (pinned in `go.mod` at M0) | 2026-05-22 |
 | API diff | `oasdiff v1.11.7` via pinned `go run github.com/oasdiff/oasdiff@v1.11.7` in `make openapi-breaking` | 2026-05-27 |
+| GitHub Actions lint | `actionlint v1.7.12` via pinned `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12` in `make actionlint` | 2026-05-31 |
 | Database | PostgreSQL 18, Ent `v0.14.6` (`go.mod` direct require + `tool` directive at M1-PR1), Atlas CLI `arigaio/atlas:1.2.0` (Docker image pin) | 2026-05-22 |
 | Workflow | Temporal Go SDK `go.temporal.io/sdk v1.44.0` pinned via first-import rule at M1-PR3 (`DiagnosisWorkflow` shell shipped per ADR-0012 amendment) | 2026-05-25 |
 | Frontend / Node tooling | Node.js 24.x LTS in CI, Next.js `16.2.7`, React / React DOM `19.2.7`, TypeScript `5.9.3`, ESLint `9.39.4` + `eslint-config-next 16.2.7`, Vitest `4.1.8`, Playwright `1.60.0`, `@types/node 24.12.4`, `@types/react 19.2.16`, `@types/react-dom 19.2.3`, Knip `6.14.2`, OpenAPI TypeScript `7.13.0`, Markdownlint CLI2 `0.22.1`; `postcss` is overridden to `8.5.15` to stay above the advisory floor while Next's dependency graph catches up | 2026-06-03 |
