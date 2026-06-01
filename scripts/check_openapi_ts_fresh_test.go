@@ -56,6 +56,21 @@ func TestOpenAPITSFreshScript(t *testing.T) {
 			want: []string{"web/package.json must be a regular file"},
 		},
 		{
+			name: "directory package json is rejected",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeOpenAPITSFreshFixture(t, root, "already-generated\n", "keep")
+				path := filepath.Join(root, "web", "package.json")
+				if err := os.Remove(path); err != nil {
+					t.Fatalf("remove package.json: %v", err)
+				}
+				if err := os.Mkdir(path, 0o750); err != nil {
+					t.Fatalf("mkdir package.json replacement: %v", err)
+				}
+			},
+			want: []string{"web/package.json must be a regular file"},
+		},
+		{
 			name: "symlinked web tree is rejected",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
@@ -109,6 +124,32 @@ func TestOpenAPITSFreshScript(t *testing.T) {
 			want: []string{"api/openapi.yaml must be a regular file"},
 		},
 		{
+			name: "missing openapi source is rejected",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeOpenAPITSFreshFixture(t, root, "already-generated\n", "keep")
+				if err := os.Remove(filepath.Join(root, "api", "openapi.yaml")); err != nil {
+					t.Fatalf("remove openapi.yaml: %v", err)
+				}
+			},
+			want: []string{"api/openapi.yaml must be a regular file"},
+		},
+		{
+			name: "directory openapi source is rejected",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeOpenAPITSFreshFixture(t, root, "already-generated\n", "keep")
+				path := filepath.Join(root, "api", "openapi.yaml")
+				if err := os.Remove(path); err != nil {
+					t.Fatalf("remove openapi.yaml: %v", err)
+				}
+				if err := os.Mkdir(path, 0o750); err != nil {
+					t.Fatalf("mkdir openapi.yaml replacement: %v", err)
+				}
+			},
+			want: []string{"api/openapi.yaml must be a regular file"},
+		},
+		{
 			name: "symlinked package json is rejected",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
@@ -157,6 +198,32 @@ func TestOpenAPITSFreshScript(t *testing.T) {
 					t.Fatalf("remove generated file: %v", err)
 				}
 				createOpenAPITSFreshSymlink(t, "missing-openapi.ts", generated)
+			},
+			want: []string{"web/src/lib/api/openapi.ts must be a regular file"},
+		},
+		{
+			name: "missing generated file is rejected before generation",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeOpenAPITSFreshFixture(t, root, "already-generated\n", "keep")
+				if err := os.Remove(filepath.Join(root, "web", "src", "lib", "api", "openapi.ts")); err != nil {
+					t.Fatalf("remove generated file: %v", err)
+				}
+			},
+			want: []string{"web/src/lib/api/openapi.ts must be a regular file"},
+		},
+		{
+			name: "directory generated file is rejected before generation",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeOpenAPITSFreshFixture(t, root, "already-generated\n", "keep")
+				path := filepath.Join(root, "web", "src", "lib", "api", "openapi.ts")
+				if err := os.Remove(path); err != nil {
+					t.Fatalf("remove generated file: %v", err)
+				}
+				if err := os.Mkdir(path, 0o750); err != nil {
+					t.Fatalf("mkdir generated file replacement: %v", err)
+				}
 			},
 			want: []string{"web/src/lib/api/openapi.ts must be a regular file"},
 		},
