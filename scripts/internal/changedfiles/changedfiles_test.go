@@ -33,6 +33,7 @@ func TestNormalizeRejectsMalformedPaths(t *testing.T) {
 		"docs/./README.md",
 		"docs/../README.md",
 		"../README.md",
+		".",
 		"/tmp/README.md",
 		"C:/tmp/README.md",
 		"https://example.test/README.md",
@@ -40,6 +41,7 @@ func TestNormalizeRejectsMalformedPaths(t *testing.T) {
 		`docs\README.md`,
 		"docs/README.md\t",
 		"docs/\x00README.md",
+		string([]byte{'d', 'o', 'c', 's', '/', 0xff, '.', 'm', 'd'}),
 	}
 	for _, input := range tests {
 		t.Run(input, func(t *testing.T) {
@@ -47,6 +49,16 @@ func TestNormalizeRejectsMalformedPaths(t *testing.T) {
 				t.Fatalf("Normalize(%q) err = nil, want rejection", input)
 			}
 		})
+	}
+}
+
+func TestSplitNameOnlyOutputRejectsEmptyIntermediateLines(t *testing.T) {
+	_, err := SplitNameOnlyOutput("Makefile\n\nREADME.md\n")
+	if err == nil {
+		t.Fatal("SplitNameOnlyOutput err = nil, want empty line rejection")
+	}
+	if !strings.Contains(err.Error(), "line 2") || !strings.Contains(err.Error(), "must not be empty") {
+		t.Fatalf("error = %q, want empty line number", err.Error())
 	}
 }
 

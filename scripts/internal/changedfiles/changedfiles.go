@@ -3,17 +3,23 @@ package changedfiles
 
 import (
 	"fmt"
+	"io/fs"
 	"path"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // SplitNameOnlyOutput parses newline-delimited git diff --name-only output.
 func SplitNameOnlyOutput(out string) ([]string, error) {
 	var files []string
-	for lineNo, line := range strings.Split(out, "\n") {
+	lines := strings.Split(out, "\n")
+	for lineNo, line := range lines {
 		if line == "" {
-			continue
+			if lineNo == len(lines)-1 {
+				continue
+			}
+			return nil, fmt.Errorf("line %d: changed file path must not be empty", lineNo+1)
 		}
 		file, err := Normalize(line)
 		if err != nil {
@@ -32,6 +38,9 @@ func Normalize(file string) (string, error) {
 	if file == "" {
 		return "", fmt.Errorf("changed file path must not be empty")
 	}
+	if !utf8.ValidString(file) {
+		return "", fmt.Errorf("changed file path must be valid UTF-8")
+	}
 	for _, r := range file {
 		if unicode.IsControl(r) {
 			return "", fmt.Errorf("changed file path %q contains control characters", file)
@@ -49,12 +58,8 @@ func Normalize(file string) (string, error) {
 	if path.IsAbs(file) {
 		return "", fmt.Errorf("changed file path %q must be repository-relative", file)
 	}
-	clean := path.Clean(file)
-	if clean != file {
-		return "", fmt.Errorf("changed file path %q is not normalized", file)
-	}
-	if file == "." || file == ".." || strings.HasPrefix(file, "../") || strings.Contains(file, "/../") {
-		return "", fmt.Errorf("changed file path %q must not contain parent traversal", file)
+	if file == "." || !fs.ValidPath(file) {
+		return "", fmt.Errorf("changed file path %q must be a normalized repository-relative slash path", file)
 	}
 	return file, nil
 }
