@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Reject agent-framework dependencies and hard-coded runtime-family names in
-# first-party control-plane code until docs/design/agent-runtime-selection.md
+# first-party control-plane source until docs/design/agent-runtime-selection.md
 # records an accepted sandbox baseline and the policy is updated intentionally.
 
 set -euo pipefail
@@ -68,21 +68,30 @@ mapfile -t manifests < <(find . \
   -path './*/vendor' -prune -o \
   \( -name 'go.mod' -o -name 'package.json' \) -print 2>/dev/null)
 
-scan_roots=()
-for root in cmd internal scripts; do
+source_roots=()
+for root in cmd internal scripts web/src; do
   if [[ -d "$root" ]]; then
-    scan_roots+=("$root")
+    source_roots+=("$root")
   fi
 done
 
-code_files=()
-if [[ ${#scan_roots[@]} -gt 0 ]]; then
-  mapfile -t code_files < <(find "${scan_roots[@]}" \
+source_files=()
+if [[ ${#source_roots[@]} -gt 0 ]]; then
+  mapfile -t source_files < <(find "${source_roots[@]}" \
     -path '*/vendor' -prune -o \
+    -path '*/node_modules' -prune -o \
     -path '*/internal/persistence/ent' -prune -o \
     -type f \
-    -name '*.go' \
+    \( -name '*.go' -o -name '*.sh' -o -name '*.bash' -o -name '*.js' -o -name '*.jsx' -o -name '*.ts' -o -name '*.tsx' -o -name '*.mjs' -o -name '*.cjs' \) \
     ! -name '*_test.go' \
+    ! -name '*.test.js' \
+    ! -name '*.test.jsx' \
+    ! -name '*.test.ts' \
+    ! -name '*.test.tsx' \
+    ! -name '*.spec.js' \
+    ! -name '*.spec.jsx' \
+    ! -name '*.spec.ts' \
+    ! -name '*.spec.tsx' \
     -print 2>/dev/null)
 fi
 
@@ -97,10 +106,10 @@ for manifest in "${manifests[@]}"; do
   done
 done
 
-for code_file in "${code_files[@]}"; do
+for source_file in "${source_files[@]}"; do
   for pattern in "${blocked_code_patterns[@]}"; do
-    if grep -niF "$pattern" "$code_file"; then
-      echo "[forbidden-agent-runtime] $code_file must not hard-code agent runtime family '$pattern' in first-party Go control-plane code before the runtime selection gate accepts a baseline." >&2
+    if grep -niF "$pattern" "$source_file"; then
+      echo "[forbidden-agent-runtime] $source_file must not hard-code agent runtime family '$pattern' in first-party control-plane source before the runtime selection gate accepts a baseline." >&2
       failed=1
     fi
   done

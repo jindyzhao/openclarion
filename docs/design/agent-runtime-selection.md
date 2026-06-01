@@ -223,14 +223,16 @@ or equivalent agent framework dependencies before this gate records an accepted
 baseline. Candidate-specific runtime dependencies belong inside the sandbox
 image build context and must be referenced by digest-pinned images.
 
-First-party non-test Go control-plane code must also not hard-code those
-runtime-family names. Candidate names belong in docs, operator evidence,
-retained review packets, and sandbox image build contexts until the runtime
-selection gate accepts a baseline and the policy table is updated
-intentionally.
+First-party non-test control-plane source must also not hard-code those
+runtime-family names. The current scan covers Go, shell, and frontend
+JavaScript/TypeScript source under `cmd/`, `internal/`, `scripts/`, and
+`web/src/`, while keeping docs and test fixtures available for evaluation
+evidence. Candidate names belong in docs, operator evidence, retained review
+packets, and sandbox image build contexts until the runtime selection gate
+accepts a baseline and the policy table is updated intentionally.
 
 `make forbidden-agent-runtime` enforces these rules for first-party dependency
-manifests and non-test Go control-plane source by reading
+manifests and non-test first-party source by reading
 `docs/design/ci/agent-runtime-forbidden.tsv`. This keeps framework-specific
 names in an auditable governance policy instead of embedding them in the gate
 script or production code. The policy table itself is validated by the gate:
