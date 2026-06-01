@@ -65,6 +65,7 @@ instead of placeholders.
 | Process execution boundary analyzer | hardened | `openclarion-arch` rejects ad-hoc subprocess execution outside allowed boundaries. | Revisit allowlist after sandbox runtime baseline is accepted. |
 | Core filesystem boundary analyzer | hardened | `openclarion-arch` rejects direct local filesystem access in deterministic core packages. | Add fixture-backed exceptions only if a reviewed core file abstraction lands. |
 | Core clock boundary analyzer | hardened | `openclarion-arch` rejects direct `time.Now()` in deterministic core packages. | Add injected-clock conventions if new domains appear. |
+| Core context boundary analyzer | hardened | `openclarion-arch` rejects root and detached context creation in deterministic core packages. | Add allowed boundary fixtures only if a core orchestration package is introduced. |
 | Core environment/config boundary analyzer | hardened | `openclarion-arch` rejects direct process-environment reads/mutations and process flag parsing in deterministic core packages. | Add new allowed boundary fixtures only if configuration orchestration moves. |
 | Reflection / unsafe import boundary analyzer | hardened | `openclarion-arch` rejects `reflect` and `unsafe` in handwritten production files. | Require ADR coverage for any future exception. |
 | Panic boundary analyzer | hardened | `openclarion-arch` rejects production panic outside accepted recover boundaries. | Add fixtures for any approved panic-wrapper pattern. |

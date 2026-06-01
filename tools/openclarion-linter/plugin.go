@@ -3,6 +3,7 @@ package openclarionlinter
 import (
 	"github.com/golangci/plugin-module-register/register"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/clockboundary"
+	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/contextboundary"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/envboundary"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/execboundary"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/filesystemboundary"
@@ -41,6 +42,7 @@ func (plugin) BuildAnalyzers() ([]*analysis.Analyzer, error) {
 		filesystemboundary.Analyzer,
 		globalstate.Analyzer,
 		clockboundary.Analyzer,
+		contextboundary.Analyzer,
 		envboundary.Analyzer,
 		reflectionboundary.Analyzer,
 		panicboundary.Analyzer,
