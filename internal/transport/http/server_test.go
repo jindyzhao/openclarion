@@ -832,6 +832,10 @@ func TestHandleDiagnosisWebSocketRejectsBadOriginBeforeConsumingTicket(t *testin
 			origin: func(host string) string { return "https://" + host + "/diagnosis" },
 		},
 		{
+			name:   "root path same host",
+			origin: func(host string) string { return "https://" + host + "/" },
+		},
+		{
 			name:   "query same host",
 			origin: func(host string) string { return "https://" + host + "?ticket=redacted" },
 		},

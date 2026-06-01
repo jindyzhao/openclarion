@@ -284,7 +284,7 @@ func defaultDiagnosisWSCheckOrigin(r *http.Request) bool {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return false
 	}
-	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
+	if parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return false
 	}
 	return strings.EqualFold(parsed.Host, r.Host)
