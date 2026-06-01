@@ -69,6 +69,43 @@ func TestOpenAPILintRejectsSymlinkInputs(t *testing.T) {
 	}
 }
 
+func TestOpenAPILintRejectsMissingInputs(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "ruleset",
+			path: "docs/design/ci/vacuum/.vacuum.yaml",
+			want: "missing docs/design/ci/vacuum/.vacuum.yaml",
+		},
+		{
+			name: "spec",
+			path: "api/openapi.yaml",
+			want: "missing api/openapi.yaml",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newOpenAPILintRepo(t)
+			input := filepath.Join(root, filepath.FromSlash(tc.path))
+			if err := os.Remove(input); err != nil {
+				t.Fatalf("remove %s: %v", tc.path, err)
+			}
+
+			out, err := runOpenAPILintCheck(t, root)
+			if err == nil {
+				t.Fatalf("openapi lint check passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("openapi lint output = %q, want %q", out, tc.want)
+			}
+		})
+	}
+}
+
 func TestOpenAPILintRejectsNonRegularInputs(t *testing.T) {
 	tests := []struct {
 		name string
