@@ -119,19 +119,19 @@ type FinalReport struct {
 // SubReportSchema returns a copy of the strict JSON Schema for
 // SubReport.
 func SubReportSchema() json.RawMessage {
-	return cloneRawMessage(subReportSchema)
+	return cloneRawMessage(json.RawMessage(subReportSchemaJSON))
 }
 
 // FinalReportSchema returns a copy of the strict JSON Schema for
 // FinalReport.
 func FinalReportSchema() json.RawMessage {
-	return cloneRawMessage(finalReportSchema)
+	return cloneRawMessage(json.RawMessage(finalReportSchemaJSON))
 }
 
 // ParseSubReport validates resp against the SubReport schema and
 // unmarshals the accepted JSON into a typed draft.
 func ParseSubReport(resp ports.LLMResponse) (SubReport, error) {
-	accepted, err := llmoutput.Validate(schemaRequest(SubReportSchemaID, subReportSchema), resp)
+	accepted, err := llmoutput.Validate(schemaRequest(SubReportSchemaID, json.RawMessage(subReportSchemaJSON)), resp)
 	if err != nil {
 		return SubReport{}, err
 	}
@@ -148,7 +148,7 @@ func ParseSubReport(resp ports.LLMResponse) (SubReport, error) {
 // ParseFinalReport validates resp against the FinalReport schema and
 // unmarshals the accepted JSON into a typed draft.
 func ParseFinalReport(resp ports.LLMResponse) (FinalReport, error) {
-	accepted, err := llmoutput.Validate(schemaRequest(FinalReportSchemaID, finalReportSchema), resp)
+	accepted, err := llmoutput.Validate(schemaRequest(FinalReportSchemaID, json.RawMessage(finalReportSchemaJSON)), resp)
 	if err != nil {
 		return FinalReport{}, err
 	}
@@ -345,7 +345,7 @@ func reportSchemaViolation(err error) error {
 	}
 }
 
-var subReportSchema = json.RawMessage(`{
+const subReportSchemaJSON = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
@@ -390,9 +390,9 @@ var subReportSchema = json.RawMessage(`{
       "items": {"type": "string", "pattern": "\\S"}
     }
   }
-}`)
+}`
 
-var finalReportSchema = json.RawMessage(`{
+const finalReportSchemaJSON = `{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "additionalProperties": false,
@@ -433,4 +433,4 @@ var finalReportSchema = json.RawMessage(`{
     },
     "notification_text": {"type": "string", "pattern": "\\S"}
   }
-}`)
+}`
