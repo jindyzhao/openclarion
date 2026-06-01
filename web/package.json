@@ -31,7 +31,7 @@
     "@types/react-dom": "19.2.3",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
-    "knip": "6.14.2",
+    "knip": "6.15.0",
     "markdownlint-cli2": "0.22.1",
     "openapi-typescript": "7.13.0",
     "typescript": "5.9.3",
