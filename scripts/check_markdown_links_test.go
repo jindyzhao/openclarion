@@ -115,6 +115,29 @@ func TestMarkdownLinksCheckRejectsSymlinkedMarkdownFiles(t *testing.T) {
 	}
 }
 
+func TestMarkdownLinksCheckRejectsSymlinkedDocsDirectory(t *testing.T) {
+	root := t.TempDir()
+	mdWriteFile(t, root, "scripts/check_markdown_links.sh", markdownLinksScript(t), 0o750)
+	mdWriteFile(t, root, "real-docs/README.md", "# Docs\n", 0o644)
+	if err := os.Symlink("real-docs", filepath.Join(root, "docs")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runMarkdownLinksCheck(t, root)
+	if err == nil {
+		t.Fatalf("links check passed unexpectedly:\n%s", out)
+	}
+	for _, want := range []string{
+		"non-regular markdown files detected",
+		"docs/README.md",
+		"contains symlink path component docs",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("links check output = %q, want substring %q", out, want)
+		}
+	}
+}
+
 func TestMarkdownLinksCheckRejectsSymlinkedMarkdownPathComponents(t *testing.T) {
 	root := t.TempDir()
 	mdWriteFile(t, root, "scripts/check_markdown_links.sh", markdownLinksScript(t), 0o750)
