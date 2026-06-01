@@ -6,7 +6,7 @@
 #
 # Usage:
 #   make pr               # run the full PR validation bundle with wall-clock budget
-#   make docs-hygiene     # documentation language and terminology gate
+#   make docs-hygiene     # documentation language, terminology, and proof-state gates
 #   make forbidden        # all forbidden-method guards
 #   make adr-check        # validate ADR index and reading order
 #   make links-check      # validate markdown links, anchors, and docs reachability
@@ -151,9 +151,10 @@ ci: workflow-parity docs-hygiene forbidden adr-check links-check markdownlint do
 
 .PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test workflow-change-guard workflow-change-guard-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test pr-title-check pr-description-check dco-check workflow-parity
 
-docs-hygiene: ## Reject non-English CJK literals and terminology drift in governed documentation
+docs-hygiene: ## Reject non-English CJK literals, terminology drift, and proof-state drift in governed documentation
 	@bash scripts/check_no_non_english_chars.sh
 	@bash scripts/check_project_terminology.sh
+	@go run ./scripts/e2e_verification_check
 
 adr-check: ## Validate ADR index against files on disk
 	@bash scripts/check_adr_index.sh
