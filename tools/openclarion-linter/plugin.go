@@ -3,6 +3,7 @@ package openclarionlinter
 import (
 	"github.com/golangci/plugin-module-register/register"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/clockboundary"
+	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/envboundary"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/execboundary"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/forbiddenimports"
 	"github.com/openclarion/openclarion/tools/openclarion-linter/analyzer/goroutineboundary"
@@ -36,6 +37,7 @@ func (plugin) BuildAnalyzers() ([]*analysis.Analyzer, error) {
 		sqldb.Analyzer,
 		execboundary.Analyzer,
 		clockboundary.Analyzer,
+		envboundary.Analyzer,
 		reflectionboundary.Analyzer,
 		panicboundary.Analyzer,
 		goroutineboundary.Analyzer,

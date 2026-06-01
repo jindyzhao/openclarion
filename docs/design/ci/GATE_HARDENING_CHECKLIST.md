@@ -64,6 +64,7 @@ instead of placeholders.
 | SQL open boundary analyzer | hardened | `openclarion-arch` rejects direct `database/sql.Open` outside persistence boundary. | Pair with future pool lifecycle policy if runtime wiring expands. |
 | Process execution boundary analyzer | hardened | `openclarion-arch` rejects ad-hoc subprocess execution outside allowed boundaries. | Revisit allowlist after sandbox runtime baseline is accepted. |
 | Core clock boundary analyzer | hardened | `openclarion-arch` rejects direct `time.Now()` in deterministic core packages. | Add injected-clock conventions if new domains appear. |
+| Core environment/config boundary analyzer | hardened | `openclarion-arch` rejects direct process-environment reads/mutations and process flag parsing in deterministic core packages. | Add new allowed boundary fixtures only if configuration orchestration moves. |
 | Reflection / unsafe import boundary analyzer | hardened | `openclarion-arch` rejects `reflect` and `unsafe` in handwritten production files. | Require ADR coverage for any future exception. |
 | Panic boundary analyzer | hardened | `openclarion-arch` rejects production panic outside accepted recover boundaries. | Add fixtures for any approved panic-wrapper pattern. |
 | Goroutine supervision boundary analyzer | hardened | `openclarion-arch` rejects raw production goroutines outside supervision boundary. | Introduce `internal/supervision` contract before allowing new patterns. |
