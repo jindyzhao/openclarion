@@ -96,6 +96,24 @@ func TestDocsHygieneEnglishOnlyCheck(t *testing.T) {
 			},
 		},
 		{
+			name: "directory governed root doc is rejected",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeDocsHygieneGovernedDocs(t, root)
+				path := filepath.Join(root, "README.md")
+				if err := os.Remove(path); err != nil {
+					t.Fatalf("remove README.md: %v", err)
+				}
+				if err := os.Mkdir(path, 0o750); err != nil {
+					t.Fatalf("mkdir README.md replacement: %v", err)
+				}
+			},
+			want: []string{
+				"governed documentation file must be a regular file",
+				"README.md",
+			},
+		},
+		{
 			name: "symlinked docs entry is rejected",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
@@ -121,6 +139,20 @@ func TestDocsHygieneEnglishOnlyCheck(t *testing.T) {
 			},
 		},
 		{
+			name: "missing docs directory is rejected",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeDocsHygieneGovernedDocs(t, root)
+				if err := os.RemoveAll(filepath.Join(root, "docs")); err != nil {
+					t.Fatalf("remove docs dir: %v", err)
+				}
+			},
+			want: []string{
+				"governed documentation directory is missing",
+				"docs",
+			},
+		},
+		{
 			name: "docs symlink is rejected",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
@@ -132,6 +164,21 @@ func TestDocsHygieneEnglishOnlyCheck(t *testing.T) {
 					t.Fatalf("mkdir docs target: %v", err)
 				}
 				createDocsHygieneSymlink(t, "docs-target", filepath.Join(root, "docs"))
+			},
+			want: []string{
+				"governed documentation directory must be a real directory",
+				"docs",
+			},
+		},
+		{
+			name: "docs regular file is rejected",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeDocsHygieneGovernedDocs(t, root)
+				if err := os.RemoveAll(filepath.Join(root, "docs")); err != nil {
+					t.Fatalf("remove docs dir: %v", err)
+				}
+				writeDocsHygieneFile(t, root, "docs", "not a directory\n", 0o644)
 			},
 			want: []string{
 				"governed documentation directory must be a real directory",
