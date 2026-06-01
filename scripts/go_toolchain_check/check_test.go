@@ -188,6 +188,27 @@ func TestRunRejectsDirectorySubmoduleGoMod(t *testing.T) {
 	assertOutputContains(t, out.String(), `tools/openclarion-linter/go.mod: must be a regular file`)
 }
 
+func TestRunRejectsSymlinkedSubmoduleGoMod(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                               "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod":      "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.real.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                        "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+	})
+	replaceWithSymlink(t, root, "tools/openclarion-linter/go.mod", "go.real.mod")
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `tools/openclarion-linter/go.mod: must be a regular file, not a symlink`)
+}
+
 func TestRunRejectsSymlinkedGolangCIConfig(t *testing.T) {
 	root := writeRepo(t, repoFiles{
 		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
