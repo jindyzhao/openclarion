@@ -416,16 +416,28 @@ func TestTriggerReportReplayRejectsInvalidRequest(t *testing.T) {
 			name: "unknown_field",
 			body: `{"window_start":"2026-05-27T09:00:00Z","window_end":"2026-05-27T10:00:00Z","extra":true}`,
 		},
+		{
+			name: "duplicate_key",
+			body: `{"window_start":"2026-05-27T09:00:00Z","window_end":"2026-05-27T10:00:00Z","limit":1,"limit":2}`,
+		},
+		{
+			name: "overlarge_body",
+			body: strings.Repeat("{", maxJSONRequestBodyBytes+1),
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			trigger := &fakeReportReplayTrigger{}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/report-triggers/replay-window", strings.NewReader(tc.body))
-			testHandler(&fakeUOWFactory{}, WithReportReplayTrigger(&fakeReportReplayTrigger{})).ServeHTTP(rec, req)
+			testHandler(&fakeUOWFactory{}, WithReportReplayTrigger(trigger)).ServeHTTP(rec, req)
 
 			if rec.Code != stdhttp.StatusBadRequest {
 				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+			if trigger.called != 0 {
+				t.Fatalf("trigger calls = %d, want 0", trigger.called)
 			}
 		})
 	}
@@ -506,6 +518,24 @@ func TestIssueDiagnosisWSTicketRejectsBadInputs(t *testing.T) {
 			name:          "unknown field",
 			authHeader:    "Bearer oidc-token",
 			body:          `{"session_id":"session-1","ticket":"nope"}`,
+			principal:     ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
+			session:       diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"},
+			wantStatus:    stdhttp.StatusBadRequest,
+			wantAuthCalls: 0,
+		},
+		{
+			name:          "duplicate session id",
+			authHeader:    "Bearer oidc-token",
+			body:          `{"session_id":"session-1","session_id":"session-2"}`,
+			principal:     ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
+			session:       diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"},
+			wantStatus:    stdhttp.StatusBadRequest,
+			wantAuthCalls: 0,
+		},
+		{
+			name:          "overlarge body",
+			authHeader:    "Bearer oidc-token",
+			body:          strings.Repeat("{", maxJSONRequestBodyBytes+1),
 			principal:     ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
 			session:       diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"},
 			wantStatus:    stdhttp.StatusBadRequest,
@@ -642,6 +672,25 @@ func TestCreateDiagnosisRoomRejectsBadInputs(t *testing.T) {
 			principal:  ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
 			withAuth:   true,
 			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "duplicate evidence snapshot id",
+			body:       `{"evidence_snapshot_id":42,"evidence_snapshot_id":43}`,
+			authHeader: "Bearer oidc-token",
+			starter:    &fakeDiagnosisRoomStarter{},
+			principal:  ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
+			withAuth:   true,
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:          "overlarge body",
+			body:          strings.Repeat("{", maxJSONRequestBodyBytes+1),
+			authHeader:    "Bearer oidc-token",
+			starter:       &fakeDiagnosisRoomStarter{},
+			principal:     ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
+			withAuth:      true,
+			wantStatus:    stdhttp.StatusBadRequest,
+			wantAuthCalls: 0,
 		},
 		{
 			name:       "missing bearer",
@@ -957,6 +1006,56 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	}
 	if querySession, queryCalled := workflowClient.querySnapshot(); queryCalled != 1 || querySession != "session-1" {
 		t.Fatalf("QueryDiagnosisRoom calls=%d session=%q, want 1/session-1", queryCalled, querySession)
+	}
+}
+
+func TestDiagnosisWebSocketRelayRejectsAmbiguousFrame(t *testing.T) {
+	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("K", diagnosisauth.DefaultTokenBytes)))
+	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
+	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, session, now)
+	if err != nil {
+		t.Fatalf("IssueTicket: %v", err)
+	}
+	workflowClient := &fakeDiagnosisRoomWorkflowClient{}
+	handler := testHandlerWithDiagnosisWS(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(&neverAuthProvider{}, service, &fakeDiagnosisSessionResolver{
+			sessions: map[string]diagnosisauth.SessionRef{"session-1": session},
+		}),
+		WithDiagnosisRoomWorkflowClient(workflowClient),
+		withDiagnosisClock(func() time.Time { return now.Add(time.Second) }),
+	)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/diagnosis?session_id=session-1&ticket=" + ticket.Token
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer closeWebSocketDialResponse(resp)
+	if err != nil {
+		t.Fatalf("Dial: %v; resp=%v", err, resp)
+	}
+	defer conn.Close()
+
+	var ready diagnosisWSReadyFrame
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("ReadJSON ready: %v", err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, []byte(`{"type":"submit_turn","message_id":"msg-1","message_id":"msg-2","message":"Please investigate"}`)); err != nil {
+		t.Fatalf("WriteMessage: %v", err)
+	}
+	var frame diagnosisWSErrorFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("ReadJSON error: %v", err)
+	}
+	if frame.Type != diagnosisWSServerError || frame.Code != "bad_frame" || !strings.Contains(frame.Message, "duplicate object key") {
+		t.Fatalf("error frame = %+v", frame)
+	}
+	if _, submitCalled := workflowClient.submitSnapshot(); submitCalled != 0 {
+		t.Fatalf("SubmitDiagnosisTurn calls = %d, want 0", submitCalled)
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -214,7 +213,7 @@ func (s *Server) TriggerReportReplay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := decodeReportReplayTriggerRequest(r)
+	body, err := decodeReportReplayTriggerRequest(w, r)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -296,20 +295,10 @@ func parseListLimit(value *int32) (int, error) {
 	return limit, nil
 }
 
-func decodeReportReplayTriggerRequest(r *http.Request) (api.ReportReplayTriggerRequest, error) {
-	defer func() {
-		_, _ = io.Copy(io.Discard, r.Body)
-		_ = r.Body.Close()
-	}()
-
+func decodeReportReplayTriggerRequest(w http.ResponseWriter, r *http.Request) (api.ReportReplayTriggerRequest, error) {
 	var body api.ReportReplayTriggerRequest
-	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(&body); err != nil {
-		return body, fmt.Errorf("invalid JSON request body: %w", err)
-	}
-	var extra struct{}
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		return body, fmt.Errorf("request body must contain exactly one JSON object")
+	if err := decodeStrictJSONRequestBody(w, r, &body); err != nil {
+		return body, err
 	}
 	if len(body.AdditionalProperties) != 0 {
 		return body, fmt.Errorf("request body contains unknown fields")

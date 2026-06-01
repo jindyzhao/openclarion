@@ -1,18 +1,16 @@
 package http
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -190,15 +188,9 @@ func (r *DiagnosisWebSocketRelay) handleQueryState(ctx context.Context, conn *we
 }
 
 func decodeDiagnosisWSClientFrame(raw []byte) (diagnosisWSClientFrame, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
 	var frame diagnosisWSClientFrame
-	if err := dec.Decode(&frame); err != nil {
+	if err := strictjson.Unmarshal(raw, &frame); err != nil {
 		return frame, fmt.Errorf("invalid JSON frame: %w", err)
-	}
-	var extra struct{}
-	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
-		return frame, fmt.Errorf("frame must contain exactly one JSON object")
 	}
 	frame.Type = strings.TrimSpace(frame.Type)
 	switch frame.Type {
