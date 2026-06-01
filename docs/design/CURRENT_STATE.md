@@ -5,7 +5,7 @@
 > [../roadmap/tasks.md](../roadmap/tasks.md). Decisions intentionally not
 > done live in [DEFERRED_FOLLOWUPS.md](DEFERRED_FOLLOWUPS.md).
 
-> Last updated: 2026-05-29
+> Last updated: 2026-06-01
 > Stage: M4 agent sandbox hardening in progress; the current product direction
 > remains intelligent alert analysis, with alert-first extension boundaries
 > documented for future source/provider growth.
@@ -312,3 +312,4 @@
 | 2026-05-29 | jindyzhao | M4 runtime smoke output source-file regularity hardened locally: `scripts/agent_runtime_smoke_output` now rejects symlink and other non-regular output proof paths before opening them, then reads through a hard cap rather than trusting pre-read file size. This keeps candidate runtime smoke artifacts direct, bounded, and audit-friendly before any M4 baseline decision can cite them. |
 | 2026-05-29 | jindyzhao | M4 topology helper source-file regularity hardened locally: `scripts/agent_tool_topology_lookup` now rejects symlink and other non-regular topology JSON paths before reading. This keeps future sandbox runtime helper inputs direct, bounded, and reviewable when helper output is used as evidence for report quality comparison. |
 | 2026-05-29 | jindyzhao | M4 custom thin runner ADR-0013 source-file regularity hardened locally: the runner now rejects symlink and other non-regular evidence, conversation, and message JSON paths before reading and hashing them. This keeps the local contract proof from accepting indirect mounted inputs while still avoiding planner, memory, approval, or runtime-framework behavior in Go. |
+| 2026-06-01 | jindyzhao | Core environment/config boundary analyzer hardened locally: `openclarion-arch` rejects direct process-environment reads/mutations and process flag parsing in non-test `internal/domain` and `internal/usecases` packages, keeping core alert-analysis logic driven by injected configuration rather than hidden process state. |
