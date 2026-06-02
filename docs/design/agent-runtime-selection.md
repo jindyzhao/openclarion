@@ -246,3 +246,8 @@ names in an auditable governance policy instead of embedding them in the gate
 script or production code. The policy table itself is validated by the gate:
 rows must have `manifest` or `code` scope, non-empty unpadded patterns, at
 least one entry for each scope, and no duplicate scope/pattern pairs.
+Manifest scanning is structural: `go.mod` is parsed as module metadata and
+`package.json` checks only dependency sections. Go source scanning uses the Go
+parser for import paths, string literals, and identifiers, while shell and
+frontend JavaScript/TypeScript files remain text-scanned because they are
+runtime-branch surfaces until the M4 decision gate accepts a baseline.
