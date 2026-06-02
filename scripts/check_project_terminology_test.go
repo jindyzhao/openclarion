@@ -99,6 +99,53 @@ func TestProjectTerminologyRejectsSymlinkRulesFile(t *testing.T) {
 	}
 }
 
+func TestProjectTerminologyRejectsSymlinkRulesParent(t *testing.T) {
+	root := newTerminologyRepo(t, map[string]string{
+		"README.md": "OpenClarion remains an intelligent alert analysis product.\n",
+	})
+	ciDir := filepath.Join(root, "docs", "design", "ci")
+	targetDir := filepath.Join(root, "docs", "design", "ci-target")
+	if err := os.Rename(ciDir, targetDir); err != nil {
+		t.Fatalf("rename terminology rules parent: %v", err)
+	}
+	if err := os.Symlink(targetDir, ciDir); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runTerminologyCheck(t, root)
+	if err == nil {
+		t.Fatalf("terminology check passed unexpectedly:\n%s", out)
+	}
+	for _, want := range []string{"docs/design/ci/terminology.tsv parent directory docs/design/ci", "must not be a symlink"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("terminology output = %q, want %q", out, want)
+		}
+	}
+}
+
+func TestProjectTerminologyRejectsNonDirectoryRulesParent(t *testing.T) {
+	root := newTerminologyRepo(t, map[string]string{
+		"README.md": "OpenClarion remains an intelligent alert analysis product.\n",
+	})
+	ciDir := filepath.Join(root, "docs", "design", "ci")
+	if err := os.RemoveAll(ciDir); err != nil {
+		t.Fatalf("remove terminology rules parent: %v", err)
+	}
+	if err := os.WriteFile(ciDir, []byte("not a directory\n"), 0o600); err != nil {
+		t.Fatalf("write non-directory terminology rules parent: %v", err)
+	}
+
+	out, err := runTerminologyCheck(t, root)
+	if err == nil {
+		t.Fatalf("terminology check passed unexpectedly:\n%s", out)
+	}
+	for _, want := range []string{"docs/design/ci/terminology.tsv parent path docs/design/ci", "must be a directory"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("terminology output = %q, want %q", out, want)
+		}
+	}
+}
+
 func TestProjectTerminologyRejectsNonRegularRulesFile(t *testing.T) {
 	root := newTerminologyRepo(t, map[string]string{
 		"README.md": "OpenClarion remains an intelligent alert analysis product.\n",
