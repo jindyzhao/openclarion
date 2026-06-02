@@ -205,6 +205,53 @@ func TestRunRejectsSymlinkAllowlistFile(t *testing.T) {
 	}
 }
 
+func TestRunRejectsSymlinkParentAllowlistFile(t *testing.T) {
+	dir := t.TempDir()
+	targetDir := filepath.Join(dir, "target")
+	if err := os.MkdirAll(targetDir, 0o750); err != nil {
+		t.Fatalf("mkdir target dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, ".gitleaks.toml"), []byte(validAllowlistFixture()), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	linkDir := filepath.Join(dir, "allowlist-dir")
+	if err := os.Symlink(targetDir, linkDir); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	path := filepath.Join(linkDir, ".gitleaks.toml")
+
+	var stderr bytes.Buffer
+	code := run([]allowlistSpec{{Path: path, EntryMarker: gitleaksSpec.EntryMarker, Name: gitleaksSpec.Name}}, time.Now(), readRegularFile, &stderr)
+	if code != 2 {
+		t.Fatalf("run code = %d, want 2", code)
+	}
+	for _, want := range []string{"parent directory", "must not be a symlink"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
+	}
+}
+
+func TestRunRejectsNonDirectoryParentAllowlistFile(t *testing.T) {
+	dir := t.TempDir()
+	parent := filepath.Join(dir, "allowlist-parent")
+	if err := os.WriteFile(parent, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write parent: %v", err)
+	}
+	path := filepath.Join(parent, ".gitleaks.toml")
+
+	var stderr bytes.Buffer
+	code := run([]allowlistSpec{{Path: path, EntryMarker: gitleaksSpec.EntryMarker, Name: gitleaksSpec.Name}}, time.Now(), readRegularFile, &stderr)
+	if code != 2 {
+		t.Fatalf("run code = %d, want 2", code)
+	}
+	for _, want := range []string{"parent path", "must be a directory"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
+	}
+}
+
 func TestRunRejectsNonRegularAllowlistFile(t *testing.T) {
 	dir := t.TempDir()
 
