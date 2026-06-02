@@ -13,6 +13,7 @@ import (
 	temporalsdk "go.temporal.io/sdk/temporal"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -1105,8 +1106,10 @@ func (a *Activities) appendDiagnosisRoomLifecycleEvent(ctx context.Context, req 
 	if req.OccurredAt.IsZero() {
 		return domain.DiagnosisTaskEvent{}, fmt.Errorf("diagnosis room lifecycle event: occurred_at must be set: %w", domain.ErrInvariantViolation)
 	}
-	if len(req.Payload) > 0 && !json.Valid(req.Payload) {
-		return domain.DiagnosisTaskEvent{}, fmt.Errorf("diagnosis room lifecycle event: payload must be valid JSON: %w", domain.ErrInvariantViolation)
+	if len(req.Payload) > 0 {
+		if err := strictjson.RejectDuplicateObjectKeys(req.Payload); err != nil {
+			return domain.DiagnosisTaskEvent{}, fmt.Errorf("diagnosis room lifecycle event: payload must be valid duplicate-key-free JSON: %w: %w", err, domain.ErrInvariantViolation)
+		}
 	}
 	event, err := domain.NewDiagnosisTaskEvent(
 		domain.DiagnosisTaskID(req.TaskID),
