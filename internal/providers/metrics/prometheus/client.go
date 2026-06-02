@@ -14,9 +14,11 @@
 package prometheus
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 
@@ -26,6 +28,7 @@ import (
 	"github.com/prometheus/common/model"
 
 	"github.com/openclarion/openclarion/internal/observability/correlation"
+	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -34,7 +37,10 @@ import (
 // private because downstream code MUST treat the Source as opaque;
 // it participates in the AlertEvent (source, canonical_fingerprint,
 // starts_at) natural key but is not interpreted otherwise.
-const sourceName = "prometheus"
+const (
+	sourceName           = "prometheus"
+	maxResponseBodyBytes = 4 << 20
+)
 
 // Provider is the Prometheus-backed MetricsProvider. It is safe for
 // concurrent use because the underlying v1.API client wraps a
@@ -102,6 +108,7 @@ func NewProvider(addr string, opts ...Option) (*Provider, error) {
 		)
 	}
 	roundTripper = correlation.RoundTripper(roundTripper)
+	roundTripper = strictJSONResponseRoundTripper{base: roundTripper}
 	if cfg.roundTripperDecorator != nil {
 		roundTripper = cfg.roundTripperDecorator(roundTripper)
 	}
@@ -127,6 +134,59 @@ func rejectCredentialedAddress(addr string) error {
 		return fmt.Errorf("prometheus: address must not include userinfo")
 	}
 	return nil
+}
+
+type strictJSONResponseRoundTripper struct {
+	base http.RoundTripper
+}
+
+func (rt strictJSONResponseRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	base := rt.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	resp, err := base.RoundTrip(req)
+	if err != nil || resp == nil {
+		return resp, err
+	}
+	if !clientGolangParsesAPIEnvelope(resp.StatusCode) {
+		return resp, nil
+	}
+	if resp.Body == nil {
+		return nil, fmt.Errorf("prometheus: response body is nil")
+	}
+	raw, err := readLimitedResponseBody(resp.Body, maxResponseBodyBytes)
+	if err != nil {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("prometheus: read response body: %w", err)
+	}
+	if err := strictjson.RejectDuplicateObjectKeys(raw); err != nil {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("prometheus: validate response JSON: %w", err)
+	}
+	_ = resp.Body.Close()
+	resp.Body = io.NopCloser(bytes.NewReader(raw))
+	resp.ContentLength = int64(len(raw))
+	return resp, nil
+}
+
+func clientGolangParsesAPIEnvelope(statusCode int) bool {
+	if statusCode >= 200 && statusCode < 300 {
+		return true
+	}
+	return statusCode == http.StatusBadRequest || statusCode == http.StatusUnprocessableEntity
+}
+
+func readLimitedResponseBody(body io.Reader, limit int) ([]byte, error) {
+	limited := &io.LimitedReader{R: body, N: int64(limit) + 1}
+	raw, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > limit {
+		return nil, fmt.Errorf("response body exceeds %d bytes", limit)
+	}
+	return raw, nil
 }
 
 // ListActiveAlerts calls Prometheus's /api/v1/alerts endpoint and
