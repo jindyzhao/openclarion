@@ -261,6 +261,9 @@ func readRegularFile(path string) ([]byte, error) {
 
 func validateRegularFile(path string) (string, error) {
 	cleanPath := filepath.Clean(path)
+	if err := validateNoSymlinkAncestors(cleanPath); err != nil {
+		return "", err
+	}
 	info, err := os.Lstat(cleanPath)
 	if err != nil {
 		return "", err
@@ -272,6 +275,31 @@ func validateRegularFile(path string) (string, error) {
 		return "", fmt.Errorf("%s must be a regular file", cleanPath)
 	}
 	return cleanPath, nil
+}
+
+func validateNoSymlinkAncestors(cleanPath string) error {
+	dir := filepath.Dir(cleanPath)
+	for dir != "." && dir != string(filepath.Separator) {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s parent directory %s must not be a symlink", cleanPath, dir)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s parent path %s must be a directory", cleanPath, dir)
+		}
+		next := filepath.Dir(dir)
+		if next == dir {
+			return nil
+		}
+		dir = next
+	}
+	return nil
 }
 
 func validateRegularFileForWrite(path string) error {

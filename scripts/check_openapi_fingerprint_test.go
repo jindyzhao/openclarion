@@ -219,6 +219,30 @@ func TestOpenAPIFingerprintRejectsSymlinkInputs(t *testing.T) {
 	}
 }
 
+func TestOpenAPIFingerprintRejectsSymlinkParentInputs(t *testing.T) {
+	dir := t.TempDir()
+	targetDir := filepath.Join(dir, "target")
+	if err := os.Mkdir(targetDir, 0o700); err != nil {
+		t.Fatalf("mkdir target: %v", err)
+	}
+	target := filepath.Join(targetDir, "openapi-critical.lock")
+	if err := os.WriteFile(target, []byte(`{"paths./api/v1/alerts.get":"abc"}`), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	linkDir := filepath.Join(dir, "locks")
+	if err := os.Symlink(targetDir, linkDir); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	linkPath := filepath.Join(linkDir, "openapi-critical.lock")
+
+	if _, err := readLock(linkPath); err == nil || !strings.Contains(err.Error(), "parent directory") || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("readLock err = %v, want symlink parent rejection", err)
+	}
+	if _, err := readYAML(linkPath); err == nil || !strings.Contains(err.Error(), "parent directory") || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("readYAML err = %v, want symlink parent rejection", err)
+	}
+}
+
 func TestOpenAPIFingerprintRejectsNonRegularInputs(t *testing.T) {
 	dir := t.TempDir()
 
@@ -251,6 +275,30 @@ func TestOpenAPIFingerprintWriteLockRejectsIndirectLock(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "must be a regular file, not a symlink") {
 		t.Fatalf("writeLock err = %v, want symlink rejection", err)
+	}
+}
+
+func TestOpenAPIFingerprintWriteLockRejectsIndirectParent(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	realLocks := filepath.Join(dir, "real-locks")
+	if err := os.MkdirAll(realLocks, 0o700); err != nil {
+		t.Fatalf("mkdir real locks: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Dir(lockPath)), 0o700); err != nil {
+		t.Fatalf("mkdir ci dir: %v", err)
+	}
+	if err := os.Symlink(realLocks, filepath.Dir(lockPath)); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	err := writeLock(map[string]string{"paths./api/v1/alerts.get": "abc"})
+	if err == nil {
+		t.Fatal("writeLock err = nil, want symlink parent rejection")
+	}
+	if !strings.Contains(err.Error(), "parent directory") || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("writeLock err = %v, want symlink parent rejection", err)
 	}
 }
 
