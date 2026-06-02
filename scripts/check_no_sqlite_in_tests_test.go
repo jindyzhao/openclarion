@@ -183,6 +183,30 @@ func TestForbiddenSQLiteRejectsIndirectGoTestPaths(t *testing.T) {
 			},
 			want: "internal/repository/directory_test.go",
 		},
+		{
+			name: "symlinked test directory",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				target := filepath.Join(root, "internal-target")
+				if err := os.MkdirAll(filepath.Join(target, "repository"), 0o750); err != nil {
+					t.Fatalf("mkdir symlinked test directory target: %v", err)
+				}
+				hiddenSQLiteTest := "package repository\n\nconst dsn = \"" +
+					sqliteImportFixture("sqlite", "://hidden") +
+					"\"\n"
+				if err := os.WriteFile(
+					filepath.Join(target, "repository", "hidden_test.go"),
+					[]byte(hiddenSQLiteTest),
+					0o600,
+				); err != nil {
+					t.Fatalf("write hidden sqlite test: %v", err)
+				}
+				if err := os.Symlink(target, filepath.Join(root, "internal")); err != nil {
+					t.Fatalf("symlink test directory: %v", err)
+				}
+			},
+			want: "./internal",
+		},
 	}
 
 	for _, tc := range tests {
@@ -194,15 +218,35 @@ func TestForbiddenSQLiteRejectsIndirectGoTestPaths(t *testing.T) {
 			if err == nil {
 				t.Fatalf("forbidden-sqlite passed unexpectedly:\n%s", out)
 			}
-			for _, want := range []string{
-				"Go test file paths must be regular files",
-				tc.want,
-			} {
-				if !strings.Contains(out, want) {
-					t.Fatalf("forbidden-sqlite output = %q, want substring %q", out, want)
-				}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("forbidden-sqlite output = %q, want substring %q", out, tc.want)
+			}
+			if !strings.Contains(out, "Go test file paths must be regular files") &&
+				!strings.Contains(out, "Go test search directories must not be symlinks") {
+				t.Fatalf("forbidden-sqlite output = %q, want indirect path rejection", out)
 			}
 		})
+	}
+}
+
+func TestForbiddenSQLiteIgnoresDependencySymlinkDirectories(t *testing.T) {
+	root := writeForbiddenSQLiteRepo(t, map[string]string{
+		"internal/repository/postgres_test.go": "package repository\n\nfunc TestPostgresHarness() {}\n",
+	})
+	target := filepath.Join(root, "node-target")
+	if err := os.MkdirAll(target, 0o750); err != nil {
+		t.Fatalf("mkdir node target: %v", err)
+	}
+	if err := os.Symlink(target, filepath.Join(root, "node_modules")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runForbiddenSQLite(t, root)
+	if err != nil {
+		t.Fatalf("forbidden-sqlite failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "[forbidden-sqlite] OK") {
+		t.Fatalf("forbidden-sqlite output = %q, want OK", out)
 	}
 }
 
