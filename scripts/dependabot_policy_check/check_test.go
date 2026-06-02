@@ -115,6 +115,55 @@ func TestRunRejectsMultipleYAMLDocuments(t *testing.T) {
 	}
 }
 
+func TestRunRejectsNonRegularPolicyInput(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, root string) string
+	}{
+		{
+			name: "symlink",
+			setup: func(t *testing.T, root string) string {
+				t.Helper()
+				target := filepath.Join(root, "target.yml")
+				if err := os.WriteFile(target, []byte(validPolicy()), 0o600); err != nil {
+					t.Fatalf("WriteFile(%s): %v", target, err)
+				}
+				link := filepath.Join(root, "dependabot.yml")
+				if err := os.Symlink(target, link); err != nil {
+					t.Skipf("symlink unsupported: %v", err)
+				}
+				return link
+			},
+		},
+		{
+			name: "directory",
+			setup: func(t *testing.T, root string) string {
+				t.Helper()
+				dir := filepath.Join(root, "dependabot.yml")
+				if err := os.Mkdir(dir, 0o700); err != nil {
+					t.Fatalf("Mkdir(%s): %v", dir, err)
+				}
+				return dir
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := tc.setup(t, t.TempDir())
+
+			var out bytes.Buffer
+			err := run(path, &out)
+			if err == nil {
+				t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+			}
+			if !strings.Contains(err.Error(), "must be a regular file") {
+				t.Fatalf("run() error = %v, want regular file rejection", err)
+			}
+		})
+	}
+}
+
 func writePolicy(t *testing.T, contents string) string {
 	t.Helper()
 	root := t.TempDir()

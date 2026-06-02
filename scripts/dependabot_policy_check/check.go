@@ -73,6 +73,9 @@ func run(path string, out io.Writer) error {
 }
 
 func readConfig(path string) (dependabotConfig, error) {
+	if err := requireRegularFile(path); err != nil {
+		return dependabotConfig{}, err
+	}
 	raw, err := os.ReadFile(path) // #nosec G304 -- repository-owned checker input.
 	if err != nil {
 		return dependabotConfig{}, err
@@ -91,6 +94,17 @@ func readConfig(path string) (dependabotConfig, error) {
 		return dependabotConfig{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+func requireRegularFile(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s: must be a regular file, got mode %s", path, info.Mode())
+	}
+	return nil
 }
 
 func validateConfig(cfg dependabotConfig) []finding {
