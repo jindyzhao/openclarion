@@ -71,6 +71,34 @@ paths:
 			content:   "openapi: 3.1.0\n---\nopenapi: 3.1.0\n",
 			wantError: "multiple YAML documents are not allowed",
 		},
+		{
+			name: "merge key",
+			content: `
+openapi: 3.1.0
+paths:
+  /api/v1/alerts:
+    <<:
+      get:
+        responses: {}
+`,
+			wantError: "YAML merge keys are not allowed",
+		},
+		{
+			name: "alias",
+			content: `
+openapi: 3.1.0
+components:
+  responses:
+    Ok: &ok
+      description: ok
+paths:
+  /api/v1/alerts:
+    get:
+      responses:
+        "200": *ok
+`,
+			wantError: "YAML aliases are not allowed",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

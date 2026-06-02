@@ -102,7 +102,7 @@ func readYAML(path string) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	if err := rejectDuplicateYAMLKeys(node); err != nil {
+	if err := rejectWeakYAMLFeatures(node); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
 	if err := node.Decode(&out); err != nil {
@@ -127,17 +127,17 @@ func parseSingleYAMLDocument(raw []byte) (*yaml.Node, error) {
 	return &doc, nil
 }
 
-func rejectDuplicateYAMLKeys(node *yaml.Node) error {
+func rejectWeakYAMLFeatures(node *yaml.Node) error {
 	switch node.Kind {
 	case yaml.DocumentNode:
 		for _, child := range node.Content {
-			if err := rejectDuplicateYAMLKeys(child); err != nil {
+			if err := rejectWeakYAMLFeatures(child); err != nil {
 				return err
 			}
 		}
 	case yaml.SequenceNode:
 		for _, child := range node.Content {
-			if err := rejectDuplicateYAMLKeys(child); err != nil {
+			if err := rejectWeakYAMLFeatures(child); err != nil {
 				return err
 			}
 		}
@@ -149,15 +149,20 @@ func rejectDuplicateYAMLKeys(node *yaml.Node) error {
 			if key.Kind != yaml.ScalarNode {
 				return fmt.Errorf("mapping key at line %d must be scalar", key.Line)
 			}
+			if key.ShortTag() == "!!merge" || key.Value == "<<" {
+				return fmt.Errorf("YAML merge keys are not allowed at line %d", key.Line)
+			}
 			keyID := key.ShortTag() + "\x00" + key.Value
 			if previous, exists := seen[keyID]; exists {
 				return fmt.Errorf("duplicate YAML key %q at line %d; first declared at line %d", key.Value, key.Line, previous.Line)
 			}
 			seen[keyID] = key
-			if err := rejectDuplicateYAMLKeys(value); err != nil {
+			if err := rejectWeakYAMLFeatures(value); err != nil {
 				return err
 			}
 		}
+	case yaml.AliasNode:
+		return fmt.Errorf("YAML aliases are not allowed at line %d", node.Line)
 	}
 	return nil
 }
