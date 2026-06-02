@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"go.yaml.in/yaml/v3"
 )
 
 func TestOpenAPIFingerprintReadLockRejectsWeakJSON(t *testing.T) {
@@ -84,7 +86,19 @@ paths:
 			wantError: "YAML merge keys are not allowed",
 		},
 		{
-			name: "alias",
+			name: "anchor",
+			content: `
+openapi: 3.1.0
+components:
+  responses:
+    Ok: &ok
+      description: ok
+paths: {}
+`,
+			wantError: "YAML anchors are not allowed",
+		},
+		{
+			name: "anchor before alias",
 			content: `
 openapi: 3.1.0
 components:
@@ -97,7 +111,7 @@ paths:
       responses:
         "200": *ok
 `,
-			wantError: "YAML aliases are not allowed",
+			wantError: "YAML anchors are not allowed",
 		},
 	}
 	for _, tt := range tests {
@@ -115,6 +129,16 @@ paths:
 				t.Fatalf("readYAML err = %v, want %q", err, tt.wantError)
 			}
 		})
+	}
+}
+
+func TestOpenAPIFingerprintRejectWeakYAMLFeaturesRejectsAliasNode(t *testing.T) {
+	err := rejectWeakYAMLFeatures(&yaml.Node{Kind: yaml.AliasNode, Line: 7})
+	if err == nil {
+		t.Fatal("rejectWeakYAMLFeatures err = nil, want alias rejection")
+	}
+	if !strings.Contains(err.Error(), "YAML aliases are not allowed at line 7") {
+		t.Fatalf("rejectWeakYAMLFeatures err = %v, want alias rejection", err)
 	}
 }
 

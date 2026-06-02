@@ -128,6 +128,9 @@ func parseSingleYAMLDocument(raw []byte) (*yaml.Node, error) {
 }
 
 func rejectWeakYAMLFeatures(node *yaml.Node) error {
+	if node.Anchor != "" {
+		return fmt.Errorf("YAML anchors are not allowed at line %d", node.Line)
+	}
 	switch node.Kind {
 	case yaml.DocumentNode:
 		for _, child := range node.Content {
