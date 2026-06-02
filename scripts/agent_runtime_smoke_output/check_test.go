@@ -11,6 +11,8 @@ import (
 	"testing"
 )
 
+const validRuntimeCandidate = "registry.example.com/openclarion/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
 func TestRunAcceptsJSONObject(t *testing.T) {
 	path := writeOutput(t, `{"summary":"ok","findings":[]}`)
 
@@ -31,7 +33,7 @@ func TestRunWritesProofArtifact(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{
 		"--proof", proofPath,
-		"--runtime-candidate", "registry.example.com/openclarion/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"--runtime-candidate", validRuntimeCandidate,
 		"--source", "make agent-runtime-smoke",
 		"--output-max-bytes", "4096",
 		path,
@@ -59,7 +61,7 @@ func TestRunWritesProofArtifact(t *testing.T) {
 	if proof.Source != "make agent-runtime-smoke" {
 		t.Fatalf("proof source = %q", proof.Source)
 	}
-	if proof.RuntimeCandidate != "registry.example.com/openclarion/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+	if proof.RuntimeCandidate != validRuntimeCandidate {
 		t.Fatalf("proof runtime candidate = %q", proof.RuntimeCandidate)
 	}
 	if proof.Output.Path != "/workspace/out/output.json" {
@@ -129,7 +131,7 @@ func TestRunRejectsSymlinkProof(t *testing.T) {
 	createSymlinkOrSkip(t, target, link)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--proof", link, path}, &stdout)
+	err := run([]string{"--proof", link, "--runtime-candidate", validRuntimeCandidate, path}, &stdout)
 	if err == nil {
 		t.Fatal("run err = nil, want symlink proof rejection")
 	}
@@ -145,7 +147,7 @@ func TestRunRejectsSymlinkProofParent(t *testing.T) {
 	createSymlinkOrSkip(t, realDir, linkDir)
 
 	var stdout bytes.Buffer
-	err := run([]string{"--proof", filepath.Join(linkDir, "proof.json"), path}, &stdout)
+	err := run([]string{"--proof", filepath.Join(linkDir, "proof.json"), "--runtime-candidate", validRuntimeCandidate, path}, &stdout)
 	if err == nil {
 		t.Fatal("run err = nil, want symlink proof parent rejection")
 	}
@@ -193,6 +195,19 @@ func TestRunRejectsConfiguredOutputCapOverflow(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exceeds maximum 4") {
 		t.Fatalf("run err = %v, want output cap rejection", err)
+	}
+}
+
+func TestRunRejectsProofWithoutRuntimeCandidate(t *testing.T) {
+	path := writeOutput(t, `{"summary":"ok"}`)
+
+	var stdout bytes.Buffer
+	err := run([]string{"--proof", filepath.Join(t.TempDir(), "proof.json"), path}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want missing runtime candidate rejection")
+	}
+	if !strings.Contains(err.Error(), "required when --proof is set") {
+		t.Fatalf("run err = %v, want missing runtime candidate rejection", err)
 	}
 }
 

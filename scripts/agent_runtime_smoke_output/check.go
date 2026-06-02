@@ -95,7 +95,7 @@ func parseArgs(args []string) (config, error) {
 	fs := flag.NewFlagSet("agent_runtime_smoke_output", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&cfg.proofPath, "proof", "", "optional path for retained smoke proof JSON")
-	fs.StringVar(&cfg.runtimeCandidate, "runtime-candidate", "", "optional digest-pinned runtime candidate image ref")
+	fs.StringVar(&cfg.runtimeCandidate, "runtime-candidate", "", "digest-pinned runtime candidate image ref, required with --proof")
 	fs.StringVar(&cfg.source, "source", cfg.source, "proof source, usually a make target")
 	fs.Int64Var(&cfg.outputMaxBytes, "output-max-bytes", cfg.outputMaxBytes, "maximum output.json bytes")
 	if err := fs.Parse(args); err != nil {
@@ -107,6 +107,9 @@ func parseArgs(args []string) (config, error) {
 	cfg.outputPath = fs.Arg(0)
 	if cfg.outputMaxBytes <= 0 {
 		return config{}, errors.New("--output-max-bytes must be a positive integer")
+	}
+	if cfg.proofPath != "" && cfg.runtimeCandidate == "" {
+		return config{}, errors.New("--runtime-candidate is required when --proof is set")
 	}
 	if cfg.runtimeCandidate != "" && !digestPinnedImageRE.MatchString(cfg.runtimeCandidate) {
 		return config{}, fmt.Errorf("--runtime-candidate must be pinned by sha256 digest: %s", cfg.runtimeCandidate)
@@ -121,7 +124,7 @@ type proofArtifact struct {
 	Tool             string       `json:"tool"`
 	Status           string       `json:"status"`
 	Source           string       `json:"source"`
-	RuntimeCandidate string       `json:"runtime_candidate,omitempty"`
+	RuntimeCandidate string       `json:"runtime_candidate"`
 	Output           proofOutput  `json:"output"`
 	Checks           []proofCheck `json:"checks"`
 }
