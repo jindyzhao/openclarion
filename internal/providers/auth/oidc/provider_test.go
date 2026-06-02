@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -113,6 +114,96 @@ func TestProviderRejectsMalformedRoleClaim(t *testing.T) {
 
 	if _, err := provider.AuthenticateBearer(context.Background(), rawToken); err == nil {
 		t.Fatal("AuthenticateBearer with malformed roles: want error")
+	}
+}
+
+func TestProviderRejectsDuplicateClaimNames(t *testing.T) {
+	ts, priv := newOIDCTestServer(t)
+	provider := newTestProvider(t, ts.URL, Config{ClientID: "openclarion"})
+	tests := []struct {
+		name   string
+		claims string
+		want   string
+	}{
+		{
+			name: "top-level duplicate",
+			claims: fmt.Sprintf(
+				`{"iss":%q,"aud":%q,"sub":"user-123","exp":%d,"roles":["ignored"],"roles":["owner"]}`,
+				ts.URL,
+				"openclarion",
+				time.Now().Add(time.Hour).Unix(),
+			),
+			want: `duplicate object key "roles"`,
+		},
+		{
+			name: "nested duplicate",
+			claims: fmt.Sprintf(
+				`{"iss":%q,"aud":%q,"sub":"user-123","exp":%d,"roles":["owner"],"profile":{"department":"old","department":"new"}}`,
+				ts.URL,
+				"openclarion",
+				time.Now().Add(time.Hour).Unix(),
+			),
+			want: `duplicate object key "department"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rawToken := oidctest.SignIDToken(priv, "test-key", gooidc.RS256, tt.claims)
+
+			_, err := provider.AuthenticateBearer(context.Background(), rawToken)
+			if err == nil {
+				t.Fatal("AuthenticateBearer with duplicate claim names: want error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
+func TestProviderVerifiesTokenBeforeStrictClaimScan(t *testing.T) {
+	ts, priv := newOIDCTestServer(t)
+	provider := newTestProvider(t, ts.URL, Config{ClientID: "openclarion"})
+	claims := fmt.Sprintf(
+		`{"iss":%q,"aud":%q,"sub":"user-123","exp":%d,"roles":["ignored"],"roles":["owner"]}`,
+		ts.URL,
+		"other-client",
+		time.Now().Add(time.Hour).Unix(),
+	)
+	rawToken := oidctest.SignIDToken(priv, "test-key", gooidc.RS256, claims)
+
+	_, err := provider.AuthenticateBearer(context.Background(), rawToken)
+	if err == nil {
+		t.Fatal("AuthenticateBearer with wrong audience and duplicate claims: want error")
+	}
+	if !strings.Contains(err.Error(), "verify token") {
+		t.Fatalf("error = %q, want verify error", err.Error())
+	}
+	if strings.Contains(err.Error(), "duplicate object key") {
+		t.Fatalf("error = %q, strict claim scan ran before token verification", err.Error())
+	}
+}
+
+func TestProviderRejectsTrailingClaimPayloadValueDuringVerification(t *testing.T) {
+	ts, priv := newOIDCTestServer(t)
+	provider := newTestProvider(t, ts.URL, Config{ClientID: "openclarion"})
+	claims := fmt.Sprintf(
+		`{"iss":%q,"aud":%q,"sub":"user-123","exp":%d,"roles":["owner"]}[]`,
+		ts.URL,
+		"openclarion",
+		time.Now().Add(time.Hour).Unix(),
+	)
+	rawToken := oidctest.SignIDToken(priv, "test-key", gooidc.RS256, claims)
+
+	_, err := provider.AuthenticateBearer(context.Background(), rawToken)
+	if err == nil {
+		t.Fatal("AuthenticateBearer with trailing claim payload value: want error")
+	}
+	if !strings.Contains(err.Error(), "verify token") {
+		t.Fatalf("error = %q, want verify error", err.Error())
+	}
+	if !strings.Contains(err.Error(), "invalid character") {
+		t.Fatalf("error = %q, want malformed claim payload error", err.Error())
 	}
 }
 
