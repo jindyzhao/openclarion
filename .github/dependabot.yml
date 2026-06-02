@@ -106,3 +106,14 @@ updates:
       - dependency-name: "@types/node"
         update-types:
           - "version-update:semver-major"
+      # TypeScript and ESLint major releases are frontend toolchain migrations,
+      # not routine dependency bumps. Keep ordinary major version-update PRs
+      # out of the queue until the Next.js / eslint-config-next / TypeScript
+      # compatibility matrix is validated in one coordinated change; security
+      # updates still use Dependabot's security-update path.
+      - dependency-name: "typescript"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "eslint"
+        update-types:
+          - "version-update:semver-major"
