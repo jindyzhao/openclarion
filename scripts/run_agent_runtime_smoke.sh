@@ -84,6 +84,7 @@ conversation_path="${OPENCLARION_AGENT_RUNTIME_CONVERSATION_PATH:-$workdir/conve
 message_path="${OPENCLARION_AGENT_RUNTIME_MESSAGE_PATH:-$workdir/message.json}"
 agent_config_dir="${OPENCLARION_AGENT_RUNTIME_AGENT_CONFIG_DIR:-$workdir/agent_config}"
 output_path="${OPENCLARION_AGENT_RUNTIME_OUTPUT_PATH:-$workdir/output.json}"
+proof_path="${OPENCLARION_AGENT_RUNTIME_PROOF_PATH:-$workdir/agent-runtime-smoke-proof.json}"
 output_mount_dir="$workdir/out"
 
 if [[ -z "${OPENCLARION_AGENT_RUNTIME_EVIDENCE_PATH:-}" ]]; then
@@ -112,6 +113,7 @@ conversation_path="$(realpath "$conversation_path")"
 message_path="$(realpath "$message_path")"
 agent_config_dir="$(realpath "$agent_config_dir")"
 output_path="$(realpath -m "$output_path")"
+proof_path="$(realpath -m "$proof_path")"
 
 for path in "$evidence_path" "$conversation_path" "$message_path"; do
   if [[ ! -f "$path" ]]; then
@@ -190,7 +192,14 @@ if [[ "$exit_code" != "0" ]]; then
 fi
 
 mkdir -p "$(dirname "$output_path")"
+mkdir -p "$(dirname "$proof_path")"
 docker cp "$cid:/workspace/out/output.json" "$output_path" >/dev/null
-go run ./scripts/agent_runtime_smoke_output "$output_path"
+go run ./scripts/agent_runtime_smoke_output \
+  --runtime-candidate "$image" \
+  --source "make agent-runtime-smoke" \
+  --output-max-bytes "$output_max_bytes" \
+  --proof "$proof_path" \
+  "$output_path"
 
 echo "[agent-runtime-smoke] OK - candidate output: $output_path" >&2
+echo "[agent-runtime-smoke] OK - smoke proof: $proof_path" >&2

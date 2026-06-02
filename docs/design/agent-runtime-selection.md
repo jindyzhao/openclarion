@@ -105,6 +105,7 @@ Optional:
 | `OPENCLARION_AGENT_RUNTIME_MESSAGE_PATH` | generated fixture | latest message input mounted at `/workspace/message.json` |
 | `OPENCLARION_AGENT_RUNTIME_AGENT_CONFIG_DIR` | generated fixture | agent config mounted at `/workspace/agent_config` |
 | `OPENCLARION_AGENT_RUNTIME_OUTPUT_PATH` | temp file | copied output JSON path on the host |
+| `OPENCLARION_AGENT_RUNTIME_PROOF_PATH` | temp file | retained smoke proof JSON path on the host |
 | `OPENCLARION_AGENT_RUNTIME_SHOW_LOGS` | unset | print tail logs on failure; use only in a controlled shell |
 | `OPENCLARION_AGENT_RUNTIME_SHELL_COMMAND` | unset | optional `sh -c` command override for validating generic smoke images; candidate images normally use their own entrypoint |
 
@@ -115,7 +116,14 @@ readonly input bind mounts, `/workspace/out` as the only writable bind mount,
 and an `fsize` ulimit matching the 10 MiB output cap. It copies
 `/workspace/out/output.json` from the stopped container and validates that the
 file is a non-empty JSON object under the cap with no duplicate object keys or
-trailing JSON values.
+trailing JSON values. It also writes a runtime-agnostic proof JSON when the
+output is valid. The proof records `tool`, `status`, canonical source
+`make agent-runtime-smoke`, the digest-pinned `runtime_candidate`, container
+output path `/workspace/out/output.json`, output byte count, output SHA-256,
+configured output cap, and the checks that passed. It deliberately omits host
+input/output paths so the artifact can be retained under
+`runtime_smokes[].evidence_ref` without leaking operator-local filesystem
+details.
 
 `make container-provider-smoke` is the companion Provider smoke. It invokes the
 Docker-backed `ContainerProvider.Run` path through the Go control plane against
