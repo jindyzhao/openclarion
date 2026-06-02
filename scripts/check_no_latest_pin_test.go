@@ -448,6 +448,56 @@ replace example.com/forked => example.com/openclarion/forked
 	}
 }
 
+func TestForbiddenLatestRejectsSymlinkDependencyPolicyParentForReplaceAllowlist(t *testing.T) {
+	root := newNoLatestRepo(t, map[string]string{
+		"go.mod": criticalGoMod(`
+replace example.com/forked => example.com/openclarion/forked
+`),
+		"docs/design/DEPENDENCIES.md": "replace-allow: example.com/forked => example.com/openclarion/forked; owner: ci-maintainers; expires: 2099-12-31; reason: temporary upstream fork\n",
+	})
+	design := filepath.Join(root, "docs", "design")
+	target := filepath.Join(root, "docs", "design-target")
+	if err := os.Rename(design, target); err != nil {
+		t.Fatalf("rename dependency policy parent: %v", err)
+	}
+	if err := os.Symlink(target, design); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runNoLatestCheck(t, root)
+	if err == nil {
+		t.Fatalf("forbidden-latest passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/DEPENDENCIES.md parent directory docs/design must not be a symlink") {
+		t.Fatalf("forbidden-latest output = %q, want symlink policy parent rejection", out)
+	}
+}
+
+func TestForbiddenLatestRejectsNonDirectoryDependencyPolicyParentForReplaceAllowlist(t *testing.T) {
+	root := newNoLatestRepo(t, map[string]string{
+		"go.mod": criticalGoMod(`
+replace example.com/forked => example.com/openclarion/forked
+`),
+		"docs/design/DEPENDENCIES.md": "replace-allow: example.com/forked => example.com/openclarion/forked; owner: ci-maintainers; expires: 2099-12-31; reason: temporary upstream fork\n",
+	})
+	design := filepath.Join(root, "docs", "design")
+	target := filepath.Join(root, "docs", "design-target")
+	if err := os.Rename(design, target); err != nil {
+		t.Fatalf("rename dependency policy parent: %v", err)
+	}
+	if err := os.WriteFile(design, []byte("not a directory\n"), 0o600); err != nil {
+		t.Fatalf("write non-directory dependency policy parent: %v", err)
+	}
+
+	out, err := runNoLatestCheck(t, root)
+	if err == nil {
+		t.Fatalf("forbidden-latest passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/DEPENDENCIES.md parent directory docs/design must be a directory") {
+		t.Fatalf("forbidden-latest output = %q, want non-directory policy parent rejection", out)
+	}
+}
+
 func TestForbiddenLatestRejectsNonRegularDependencyPolicyForReplaceAllowlist(t *testing.T) {
 	root := newNoLatestRepo(t, map[string]string{
 		"go.mod": criticalGoMod(`
