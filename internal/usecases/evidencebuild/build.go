@@ -114,7 +114,7 @@ func validateInput(in Input) error {
 			return fmt.Errorf("evidence build: event[%d] status %q is invalid: %w", i, e.Status, domain.ErrInvariantViolation)
 		}
 		if len(e.RawPayload) > 0 {
-			if err := strictjson.RejectDuplicateObjectKeys(e.RawPayload); err != nil {
+			if err := validateStrictJSONRawMessage(e.RawPayload); err != nil {
 				return fmt.Errorf("evidence build: event[%d] raw_payload is not strict JSON: %w: %w", i, err, domain.ErrInvariantViolation)
 			}
 		}
@@ -178,11 +178,11 @@ func validateDimensions(raw json.RawMessage) error {
 	if len(raw) == 0 {
 		return fmt.Errorf("evidence build: group dimensions must be non-empty JSON object: %w", domain.ErrInvariantViolation)
 	}
-	if err := strictjson.RejectDuplicateObjectKeys(raw); err != nil {
+	var obj map[string]interface{}
+	if err := decodeStrictJSONUseNumber(raw, &obj); err != nil {
 		return fmt.Errorf("evidence build: group dimensions is not strict JSON: %w: %w", err, domain.ErrInvariantViolation)
 	}
-	var obj map[string]interface{}
-	if err := decodeJSONUseNumber(raw, &obj); err != nil || obj == nil {
+	if obj == nil {
 		return fmt.Errorf("evidence build: group dimensions must be a JSON object: %w", domain.ErrInvariantViolation)
 	}
 	return nil
@@ -333,17 +333,22 @@ func buildProvenance() json.RawMessage {
 // It uses json.Decoder.UseNumber() to preserve integer precision
 // (avoids float64 lossy conversion for large integers like 2^53+1).
 func canonicalizeJSON(raw json.RawMessage) (json.RawMessage, error) {
-	if err := strictjson.RejectDuplicateObjectKeys(raw); err != nil {
-		return nil, err
-	}
 	var v interface{}
-	if err := decodeJSONUseNumber(raw, &v); err != nil {
+	if err := decodeStrictJSONUseNumber(raw, &v); err != nil {
 		return nil, err
 	}
 	return json.Marshal(v)
 }
 
-func decodeJSONUseNumber(raw json.RawMessage, dst any) error {
+func validateStrictJSONRawMessage(raw json.RawMessage) error {
+	var v any
+	return decodeStrictJSONUseNumber(raw, &v)
+}
+
+func decodeStrictJSONUseNumber(raw json.RawMessage, dst any) error {
+	if err := strictjson.RejectDuplicateObjectKeys(raw); err != nil {
+		return err
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	return dec.Decode(dst)
