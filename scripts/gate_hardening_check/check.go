@@ -152,6 +152,9 @@ func readChecklist(path string) (map[string]checklistRecord, error) {
 
 func readRegularFile(path string) ([]byte, error) {
 	cleanPath := filepath.Clean(path)
+	if err := validateNoSymlinkAncestors(cleanPath); err != nil {
+		return nil, err
+	}
 	info, err := os.Lstat(cleanPath)
 	if err != nil {
 		return nil, err
@@ -164,6 +167,25 @@ func readRegularFile(path string) ([]byte, error) {
 	}
 	// #nosec G304 -- call sites pass repository-owned checker inputs or test fixtures after Lstat validation.
 	return os.ReadFile(cleanPath)
+}
+
+func validateNoSymlinkAncestors(cleanPath string) error {
+	for dir := filepath.Dir(cleanPath); dir != "."; dir = filepath.Dir(dir) {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s parent directory %s must not be a symlink", cleanPath, dir)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s parent path %s must be a directory", cleanPath, dir)
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			return nil
+		}
+	}
+	return nil
 }
 
 func tableRowsInSection(lines []string, startHeading, endHeading string) [][]string {
