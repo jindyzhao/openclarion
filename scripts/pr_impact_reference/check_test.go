@@ -178,6 +178,61 @@ func TestRunRejectsSymlinkGitHubEventPath(t *testing.T) {
 	}
 }
 
+func TestRunRejectsSymlinkParentGitHubEventPath(t *testing.T) {
+	dir := t.TempDir()
+	targetDir := filepath.Join(dir, "target")
+	if err := os.MkdirAll(targetDir, 0o750); err != nil {
+		t.Fatalf("mkdir target dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "event.json"), []byte(`{"pull_request":{"body":"See #123."}}`), 0o600); err != nil {
+		t.Fatalf("write target event: %v", err)
+	}
+	eventDir := filepath.Join(dir, "event-dir")
+	if err := os.Symlink(targetDir, eventDir); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	eventPath := filepath.Join(eventDir, "event.json")
+	git := &fakeGit{outputs: map[string]string{
+		"rev-parse\x00--abbrev-ref\x00--symbolic-full-name\x00@{u}":   "origin/main\n",
+		"diff\x00--name-only\x00--diff-filter=ACMRTUXB\x00@{u}..HEAD": "docs/adr/ADR-0013-per-turn-container-invocation.md\n",
+	}}
+	var stderr bytes.Buffer
+
+	code := run(context.Background(), mapEnv(map[string]string{"GITHUB_EVENT_PATH": eventPath}), readRegularFile, git, &stderr)
+	if code != 2 {
+		t.Fatalf("run code = %d, want 2; stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"parent directory", "must not be a symlink"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
+	}
+}
+
+func TestRunRejectsNonDirectoryParentGitHubEventPath(t *testing.T) {
+	dir := t.TempDir()
+	eventParent := filepath.Join(dir, "event-parent")
+	if err := os.WriteFile(eventParent, []byte("not a directory"), 0o600); err != nil {
+		t.Fatalf("write event parent: %v", err)
+	}
+	eventPath := filepath.Join(eventParent, "event.json")
+	git := &fakeGit{outputs: map[string]string{
+		"rev-parse\x00--abbrev-ref\x00--symbolic-full-name\x00@{u}":   "origin/main\n",
+		"diff\x00--name-only\x00--diff-filter=ACMRTUXB\x00@{u}..HEAD": "docs/adr/ADR-0013-per-turn-container-invocation.md\n",
+	}}
+	var stderr bytes.Buffer
+
+	code := run(context.Background(), mapEnv(map[string]string{"GITHUB_EVENT_PATH": eventPath}), readRegularFile, git, &stderr)
+	if code != 2 {
+		t.Fatalf("run code = %d, want 2; stderr=%s", code, stderr.String())
+	}
+	for _, want := range []string{"parent path", "must be a directory"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
+		}
+	}
+}
+
 func TestRunRejectsNonRegularGitHubEventPath(t *testing.T) {
 	dir := t.TempDir()
 	eventPath := filepath.Join(dir, "event.json")

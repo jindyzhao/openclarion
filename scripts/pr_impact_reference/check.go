@@ -168,6 +168,9 @@ func loadPRBody(getenv func(string) string, readFile bodyLoader) (string, error)
 
 func readRegularFile(path string) ([]byte, error) {
 	cleanPath := filepath.Clean(path)
+	if err := validateNoSymlinkAncestors(cleanPath); err != nil {
+		return nil, err
+	}
 	info, err := os.Lstat(cleanPath)
 	if err != nil {
 		return nil, err
@@ -180,6 +183,25 @@ func readRegularFile(path string) ([]byte, error) {
 	}
 	// #nosec G304 -- GITHUB_EVENT_PATH is validated as a direct regular file before reading.
 	return os.ReadFile(cleanPath)
+}
+
+func validateNoSymlinkAncestors(cleanPath string) error {
+	for dir := filepath.Dir(cleanPath); dir != "."; dir = filepath.Dir(dir) {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s parent directory %s must not be a symlink", cleanPath, dir)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s parent path %s must be a directory", cleanPath, dir)
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			return nil
+		}
+	}
+	return nil
 }
 
 func hasImpactReference(body string) bool {
