@@ -340,6 +340,9 @@ func parseSingleYAMLDocument(raw []byte) (*yaml.Node, error) {
 }
 
 func rejectDuplicateYAMLKeys(node *yaml.Node) error {
+	if node.Anchor != "" {
+		return fmt.Errorf("YAML anchors are not allowed at line %d", node.Line)
+	}
 	switch node.Kind {
 	case yaml.DocumentNode:
 		for _, child := range node.Content {
@@ -361,6 +364,9 @@ func rejectDuplicateYAMLKeys(node *yaml.Node) error {
 			if key.Kind != yaml.ScalarNode {
 				return fmt.Errorf("mapping key at line %d must be scalar", key.Line)
 			}
+			if key.ShortTag() == "!!merge" {
+				return fmt.Errorf("YAML merge keys are not allowed at line %d", key.Line)
+			}
 			keyID := key.ShortTag() + "\x00" + key.Value
 			if previous, exists := seen[keyID]; exists {
 				return fmt.Errorf("duplicate YAML key %q at line %d; first declared at line %d", key.Value, key.Line, previous.Line)
@@ -370,6 +376,8 @@ func rejectDuplicateYAMLKeys(node *yaml.Node) error {
 				return err
 			}
 		}
+	case yaml.AliasNode:
+		return fmt.Errorf("YAML aliases are not allowed at line %d", node.Line)
 	}
 	return nil
 }
