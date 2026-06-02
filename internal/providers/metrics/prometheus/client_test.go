@@ -123,6 +123,13 @@ func TestNewProvider_RejectsAddressUserinfo(t *testing.T) {
 			Host:   "example.invalid",
 		}).String()
 	}
+	passwordOnlyURL := func(password string) string {
+		return (&url.URL{
+			Scheme: "http",
+			User:   url.UserPassword("", password),
+			Host:   "example.invalid",
+		}).String()
+	}
 	malformedCredentialedURL := func(password string) string {
 		return "http://operator:" + password + "@[::1"
 	}
@@ -131,8 +138,10 @@ func TestNewProvider_RejectsAddressUserinfo(t *testing.T) {
 		addr string
 		want string
 	}{
+		{name: "empty userinfo", addr: "http://@example.invalid", want: "must not include userinfo"},
 		{name: "username", addr: "http://operator@example.invalid", want: "must not include userinfo"},
 		{name: "username password", addr: credentialedURL("credential-value"), want: "must not include userinfo"},
+		{name: "password only", addr: passwordOnlyURL("credential-value"), want: "must not include userinfo"},
 		{name: "escaped username", addr: "http://%6fperator@example.invalid", want: "must not include userinfo"},
 		{name: "malformed credentialed url", addr: malformedCredentialedURL("credential-value"), want: "must be a valid URL"},
 	}
