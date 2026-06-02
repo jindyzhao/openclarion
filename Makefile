@@ -507,12 +507,14 @@ container-provider-smoke: ## Manual M4 smoke: Docker-backed ContainerProvider.Ru
 
 container-provider-timeout-smoke: ## Manual M4 smoke: Docker-backed ContainerProvider timeout stop/remove against a real local daemon
 	@OPENCLARION_CONTAINER_PROVIDER_SMOKE_TIMEOUT_SECONDS=2 \
+	OPENCLARION_CONTAINER_PROVIDER_SMOKE_PROOF_SOURCE="make container-provider-timeout-smoke" \
 	OPENCLARION_CONTAINER_PROVIDER_SMOKE_EXPECT_ERROR_CONTAINS="context deadline exceeded" \
 	OPENCLARION_CONTAINER_PROVIDER_SMOKE_COMMAND_JSON='["sh","-c","sleep 30"]' \
 	bash scripts/run_container_provider_smoke.sh
 
 container-provider-output-cap-smoke: ## Manual M4 smoke: Docker-backed ContainerProvider output cap against a real local daemon
 	@OPENCLARION_CONTAINER_PROVIDER_SMOKE_OUTPUT_MAX_BYTES=64 \
+	OPENCLARION_CONTAINER_PROVIDER_SMOKE_PROOF_SOURCE="make container-provider-output-cap-smoke" \
 	OPENCLARION_CONTAINER_PROVIDER_SMOKE_EXPECT_ERROR_CONTAINS="exited with code||exceeds maximum" \
 	OPENCLARION_CONTAINER_PROVIDER_SMOKE_COMMAND_JSON='["sh","-c","dd if=/dev/zero of=/workspace/out/output.json bs=1024 count=1"]' \
 	bash scripts/run_container_provider_smoke.sh

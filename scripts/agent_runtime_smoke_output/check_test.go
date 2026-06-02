@@ -156,6 +156,21 @@ func TestRunRejectsSymlinkProofParent(t *testing.T) {
 	}
 }
 
+func TestOpenProofFileNoFollowRejectsFinalSymlink(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "proof.json")
+	if err := os.WriteFile(target, []byte(`{"old":true}`), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	link := filepath.Join(t.TempDir(), "proof-link.json")
+	createSymlinkOrSkip(t, target, link)
+
+	f, err := openProofFileNoFollow(link)
+	if err == nil {
+		_ = f.Close()
+		t.Fatal("openProofFileNoFollow err = nil, want symlink rejection")
+	}
+}
+
 func TestRunRejectsInvalidOutputs(t *testing.T) {
 	tests := []struct {
 		name    string
