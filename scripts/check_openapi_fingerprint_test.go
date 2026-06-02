@@ -161,6 +161,30 @@ func TestOpenAPIFingerprintReadYAMLAcceptsValidYAML(t *testing.T) {
 	}
 }
 
+func TestOpenAPIFingerprintReadYAMLAcceptsQuotedMergeLikeKey(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "openapi.yaml")
+	content := "openapi: 3.1.0\nx-fixture:\n  \"<<\": literal\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write spec: %v", err)
+	}
+
+	got, err := readYAML(path)
+	if err != nil {
+		t.Fatalf("readYAML: %v", err)
+	}
+	root, ok := got.(map[string]any)
+	if !ok {
+		t.Fatalf("readYAML root type = %T, want map[string]any", got)
+	}
+	fixture, ok := root["x-fixture"].(map[string]any)
+	if !ok {
+		t.Fatalf("x-fixture type = %T, want map[string]any", root["x-fixture"])
+	}
+	if fixture["<<"] != "literal" {
+		t.Fatalf("quoted merge-like key = %v, want literal", fixture["<<"])
+	}
+}
+
 func TestOpenAPIFingerprintReadLockAcceptsValidLock(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "openapi-critical.lock")
 	if err := os.WriteFile(path, []byte(`{"paths./api/v1/alerts.get":"abc"}`), 0o600); err != nil {

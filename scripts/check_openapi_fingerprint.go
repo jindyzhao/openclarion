@@ -152,7 +152,7 @@ func rejectWeakYAMLFeatures(node *yaml.Node) error {
 			if key.Kind != yaml.ScalarNode {
 				return fmt.Errorf("mapping key at line %d must be scalar", key.Line)
 			}
-			if key.ShortTag() == "!!merge" || key.Value == "<<" {
+			if key.ShortTag() == "!!merge" {
 				return fmt.Errorf("YAML merge keys are not allowed at line %d", key.Line)
 			}
 			keyID := key.ShortTag() + "\x00" + key.Value
