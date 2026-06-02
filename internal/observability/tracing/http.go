@@ -92,7 +92,7 @@ func validateOTLPEndpointEnv(key, raw string) error {
 	}
 	parsed, err := url.Parse(value)
 	if err != nil {
-		return fmt.Errorf("%s parse endpoint: %w", key, err)
+		return fmt.Errorf("%s parse endpoint", key)
 	}
 	if parsed.User != nil {
 		return fmt.Errorf("%s must not include userinfo", key)
