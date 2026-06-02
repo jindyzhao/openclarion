@@ -248,6 +248,11 @@ func TestMountContextBytesValidatesEvidenceAndConversation(t *testing.T) {
 			want:     `duplicate object key "snapshot_id"`,
 		},
 		{
+			name:     "nested duplicate evidence key",
+			evidence: json.RawMessage(`{"snapshot_id":42,"alerts":[{"labels":{"team":"core","team":"edge"}}]}`),
+			want:     `duplicate object key "team"`,
+		},
+		{
 			name:     "trailing evidence value",
 			evidence: json.RawMessage(`{"snapshot_id":42} {"snapshot_id":43}`),
 			want:     "trailing JSON values",
