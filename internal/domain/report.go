@@ -310,16 +310,6 @@ func (d ReportNotificationDelivery) validate() error {
 	return nil
 }
 
-func requireValidJSON(label string, raw json.RawMessage) error {
-	if len(raw) == 0 {
-		return fmt.Errorf("%s must be non-empty JSON: %w", label, ErrInvariantViolation)
-	}
-	if !json.Valid(raw) {
-		return fmt.Errorf("%s must be valid JSON: %w", label, ErrInvariantViolation)
-	}
-	return nil
-}
-
 func defaultJSONObject(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return json.RawMessage(`{}`)
