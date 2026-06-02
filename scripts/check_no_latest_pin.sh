@@ -21,6 +21,8 @@
 #   - package.json: rejects any dependency value that is exactly "latest" or
 #     starts with a semver range operator (`^` or `~`). First-party manifests
 #     must use concrete pins; transitive ranges remain confined to lockfiles.
+#   - package.json + GitHub Actions: requires @types/node major versions to
+#     match the single numeric actions/setup-node major used by CI.
 #   - Dockerfile: rejects external base images that are not pinned with an
 #     `@sha256:<digest>` reference. `scratch` and previously declared build
 #     stages are allowed because they do not pull a mutable external base.
@@ -383,6 +385,51 @@ for pkg in "${pkg_files[@]}"; do
     echo "[forbidden-latest] $pkg must pin dependencies to exact versions, not ^/~ ranges." >&2
     failed=1
   fi
+done
+
+declare -A ci_node_majors=()
+if [[ -d .github/workflows ]]; then
+  while IFS= read -r major; do
+    if [[ -n "$major" ]]; then
+      ci_node_majors["$major"]=1
+    fi
+  done < <(find .github/workflows \
+    -path './**/node_modules' -prune -o \
+    \( -name '*.yml' -o -name '*.yaml' \) -exec sed -nE "s/^[[:space:]]*node-version:[[:space:]]*[\"']?([0-9]+)([.][0-9]+){0,2}[\"']?[[:space:]]*(#.*)?$/\1/p" {} + 2>/dev/null)
+fi
+
+ci_node_major=""
+ci_node_major_count=0
+for major in "${!ci_node_majors[@]}"; do
+  ci_node_major="$major"
+  ((ci_node_major_count += 1))
+done
+
+for pkg in "${pkg_files[@]}"; do
+  while IFS=: read -r line_number node_types_version || [[ -n "${line_number:-}" ]]; do
+    if [[ -z "${line_number:-}" || -z "${node_types_version:-}" ]]; then
+      continue
+    fi
+
+    if [[ $ci_node_major_count -ne 1 ]]; then
+      echo "[forbidden-latest] $pkg:$line_number @types/node requires exactly one numeric actions/setup-node node-version major in .github/workflows, found $ci_node_major_count." >&2
+      failed=1
+      continue
+    fi
+
+    if [[ ! "$node_types_version" =~ ^([0-9]+)[.][0-9]+[.][0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
+      echo "[forbidden-latest] $pkg:$line_number @types/node must use a concrete semantic version, got '$node_types_version'." >&2
+      failed=1
+      continue
+    fi
+
+    node_types_major="${BASH_REMATCH[1]}"
+    if [[ "$node_types_major" != "$ci_node_major" ]]; then
+      echo "[forbidden-latest] $pkg:$line_number @types/node major $node_types_major must match CI Node.js major $ci_node_major." >&2
+      failed=1
+    fi
+  done < <(grep -nE '"@types/node"[[:space:]]*:[[:space:]]*"[^"]+"' "$pkg" \
+    | sed -E 's/^([0-9]+):.*"@types\/node"[[:space:]]*:[[:space:]]*"([^"]+)".*$/\1:\2/')
 done
 
 # -------- Dockerfile base image pins --------

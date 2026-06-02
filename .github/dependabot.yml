@@ -98,3 +98,11 @@ updates:
         applies-to: "security-updates"
         patterns:
           - "*"
+    ignore:
+      # @types/node follows the Node.js runtime major. Major type-definition
+      # bumps are coordinated with the CI Node.js baseline in ci.yml and
+      # docs/design/DEPENDENCIES.md; security updates still use Dependabot's
+      # security-update path.
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
