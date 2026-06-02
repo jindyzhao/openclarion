@@ -166,13 +166,18 @@ func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoom(t *testing.T) {
 
 func TestHTTPServerOptionsFromEnv_RejectsCredentialedDiagnosisAllowedOrigin(t *testing.T) {
 	oidcServer := newOIDCDiscoveryServer(t)
+	rawOriginMarker := "raw-marker"
 	tests := []struct {
-		name   string
-		origin string
+		name       string
+		origin     string
+		wantDetail string
+		wantNot    string
 	}{
-		{name: "username", origin: "https://operator@example.test"},
-		{name: "password", origin: credentialedDiagnosisOrigin()},
-		{name: "escaped userinfo", origin: "https://operator%40team@example.test"},
+		{name: "username", origin: "https://operator@example.test", wantDetail: "userinfo", wantNot: "operator@example.test"},
+		{name: "password", origin: credentialedDiagnosisOrigin(), wantDetail: "userinfo", wantNot: "opaque"},
+		{name: "escaped userinfo", origin: "https://operator%40team@example.test", wantDetail: "userinfo", wantNot: "operator%40team"},
+		{name: "malformed credentialed origin does not leak raw input", origin: "https://operator:%" + rawOriginMarker + "@example.test", wantDetail: "parse origin", wantNot: rawOriginMarker},
+		{name: "credentialed unsupported scheme does not leak raw input", origin: "ftp://operator:" + rawOriginMarker + "@example.test", wantDetail: "userinfo", wantNot: rawOriginMarker},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -184,8 +189,11 @@ func TestHTTPServerOptionsFromEnv_RejectsCredentialedDiagnosisAllowedOrigin(t *t
 			if err == nil {
 				t.Fatal("expected credentialed allowed origin error, got nil")
 			}
-			if !strings.Contains(err.Error(), "OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS") || !strings.Contains(err.Error(), "userinfo") {
-				t.Fatalf("error = %q, want allowed origins userinfo rejection", err.Error())
+			if !strings.Contains(err.Error(), "OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS") || !strings.Contains(err.Error(), tc.wantDetail) {
+				t.Fatalf("error = %q, want allowed origins %q rejection", err.Error(), tc.wantDetail)
+			}
+			if tc.wantNot != "" && strings.Contains(err.Error(), tc.wantNot) {
+				t.Fatalf("error = %q, must not contain %q", err.Error(), tc.wantNot)
 			}
 		})
 	}

@@ -644,19 +644,19 @@ func normalizeBrowserOrigin(raw string) (string, error) {
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("parse origin %q: %w", raw, err)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("origin %q must use http or https", raw)
-	}
-	if parsed.Host == "" {
-		return "", fmt.Errorf("origin %q must be absolute", raw)
+		return "", fmt.Errorf("parse origin")
 	}
 	if parsed.User != nil {
-		return "", fmt.Errorf("origin %q must not include userinfo", raw)
+		return "", fmt.Errorf("origin must not include userinfo")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("origin must use http or https")
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("origin must be absolute")
 	}
 	if parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
-		return "", fmt.Errorf("origin %q must not include path, query, or fragment", raw)
+		return "", fmt.Errorf("origin must not include path, query, or fragment")
 	}
 	return strings.ToLower(parsed.Scheme) + "://" + strings.ToLower(parsed.Host), nil
 }
