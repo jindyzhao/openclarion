@@ -35,6 +35,21 @@ func TestRunRejectsMissingFrontendMajorIgnore(t *testing.T) {
 	assertOutputContains(t, out.String(), "npm /web ignore typescript: missing ignore entry")
 }
 
+func TestRunRejectsMissingNodeTypesIgnore(t *testing.T) {
+	policy := strings.Replace(validPolicy(), `      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
+`, "", 1)
+	path := writePolicy(t, policy)
+
+	var out bytes.Buffer
+	err := run(path, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), "npm /web ignore @types/node: missing ignore entry")
+}
+
 func TestRunRejectsFrontendMajorIgnoreThatBlocksSecurityVersions(t *testing.T) {
 	policy := strings.Replace(validPolicy(), `      - dependency-name: "eslint"
         update-types:
@@ -52,6 +67,27 @@ func TestRunRejectsFrontendMajorIgnoreThatBlocksSecurityVersions(t *testing.T) {
 		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
 	}
 	assertOutputContains(t, out.String(), "npm /web ignore eslint: versions must stay empty")
+}
+
+func TestRunRejectsUnexpectedIgnoreEntries(t *testing.T) {
+	policy := strings.Replace(validPolicy(), `      - dependency-name: "eslint"
+        update-types:
+          - "version-update:semver-major"
+`, `      - dependency-name: "eslint"
+        update-types:
+          - "version-update:semver-major"
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+`, 1)
+	path := writePolicy(t, policy)
+
+	var out bytes.Buffer
+	err := run(path, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), "npm /web ignore *: unexpected ignore entry")
 }
 
 func TestRunRejectsMissingSecurityGroup(t *testing.T) {
@@ -87,6 +123,64 @@ func TestRunRejectsLinterToolsMajorMinorDrift(t *testing.T) {
 		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
 	}
 	assertOutputContains(t, out.String(), "gomod /tools/openclarion-linter ignore golang.org/x/tools: update-types must be exactly")
+}
+
+func TestRunRejectsUnsafeYAMLNodes(t *testing.T) {
+	tests := []struct {
+		name    string
+		policy  string
+		wantErr string
+	}{
+		{
+			name:    "duplicate key",
+			policy:  strings.Replace(validPolicy(), "version: 2", "version: 2\nversion: 2", 1),
+			wantErr: `duplicate YAML key "version"`,
+		},
+		{
+			name: "anchor",
+			policy: strings.Replace(validPolicy(), `    schedule:
+      interval: "weekly"
+`, `    schedule: &weekly
+      interval: "weekly"
+`, 1),
+			wantErr: "YAML anchors are not allowed",
+		},
+		{
+			name: "alias",
+			policy: strings.Replace(validPolicy(), `    schedule:
+      interval: "weekly"
+`, `    schedule: *weekly
+`, 1),
+			wantErr: "unknown anchor",
+		},
+		{
+			name: "merge key",
+			policy: strings.Replace(validPolicy(), `    labels:
+      - "dependencies"
+`, `    <<:
+      labels:
+        - "dependencies"
+    labels:
+      - "dependencies"
+`, 1),
+			wantErr: "YAML merge keys are not allowed",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writePolicy(t, tc.policy)
+
+			var out bytes.Buffer
+			err := run(path, &out)
+			if err == nil {
+				t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("run() error = %v, want %q", err, tc.wantErr)
+			}
+		})
+	}
 }
 
 func TestRunRejectsUnknownYAMLField(t *testing.T) {
@@ -221,6 +315,9 @@ updates:
         patterns:
           - "*"
     ignore:
+      - dependency-name: "@types/node"
+        update-types:
+          - "version-update:semver-major"
       - dependency-name: "typescript"
         update-types:
           - "version-update:semver-major"

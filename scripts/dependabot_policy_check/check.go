@@ -80,6 +80,9 @@ func readConfig(path string) (dependabotConfig, error) {
 	if err != nil {
 		return dependabotConfig{}, err
 	}
+	if err := validateStrictYAML(raw); err != nil {
+		return dependabotConfig{}, fmt.Errorf("%s: %w", path, err)
+	}
 	decoder := yaml.NewDecoder(bytes.NewReader(raw))
 	decoder.KnownFields(true)
 	var cfg dependabotConfig
@@ -94,6 +97,67 @@ func readConfig(path string) (dependabotConfig, error) {
 		return dependabotConfig{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil
+}
+
+func validateStrictYAML(raw []byte) error {
+	doc, err := parseSingleYAMLDocument(raw)
+	if err != nil {
+		return err
+	}
+	return rejectUnsafeYAMLNodes(doc)
+}
+
+func parseSingleYAMLDocument(raw []byte) (*yaml.Node, error) {
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	var doc yaml.Node
+	if err := decoder.Decode(&doc); err != nil {
+		return nil, err
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return nil, err
+		}
+		return nil, errors.New("multiple YAML documents are not allowed")
+	}
+	return &doc, nil
+}
+
+func rejectUnsafeYAMLNodes(node *yaml.Node) error {
+	if node.Anchor != "" {
+		return fmt.Errorf("YAML anchors are not allowed at line %d", node.Line)
+	}
+	switch node.Kind {
+	case yaml.DocumentNode, yaml.SequenceNode:
+		for _, child := range node.Content {
+			if err := rejectUnsafeYAMLNodes(child); err != nil {
+				return err
+			}
+		}
+	case yaml.MappingNode:
+		seen := map[string]*yaml.Node{}
+		for i := 0; i < len(node.Content); i += 2 {
+			key := node.Content[i]
+			value := node.Content[i+1]
+			if key.Kind != yaml.ScalarNode {
+				return fmt.Errorf("mapping key at line %d must be scalar", key.Line)
+			}
+			if key.ShortTag() == "!!merge" {
+				return fmt.Errorf("YAML merge keys are not allowed at line %d", key.Line)
+			}
+			keyID := key.ShortTag() + "\x00" + key.Value
+			if previous, exists := seen[keyID]; exists {
+				return fmt.Errorf("duplicate YAML key %q at line %d; first declared at line %d", key.Value, key.Line, previous.Line)
+			}
+			seen[keyID] = key
+			if err := rejectUnsafeYAMLNodes(value); err != nil {
+				return err
+			}
+		}
+	case yaml.AliasNode:
+		return fmt.Errorf("YAML aliases are not allowed at line %d", node.Line)
+	}
+	return nil
 }
 
 func requireRegularFile(path string) error {
@@ -138,9 +202,11 @@ func validateWebUpdate(update dependabotUpdate) []finding {
 	var findings []finding
 	findings = append(findings, requirePatchGroup(update, "web-patch")...)
 	findings = append(findings, requireSecurityGroup(update, "web-security")...)
-	for _, dependency := range []string{"typescript", "eslint"} {
-		findings = append(findings, requireExactIgnore(update, dependency, []string{"version-update:semver-major"})...)
-	}
+	findings = append(findings, requireOnlyExactIgnores(update, map[string][]string{
+		"@types/node": {"version-update:semver-major"},
+		"eslint":      {"version-update:semver-major"},
+		"typescript":  {"version-update:semver-major"},
+	})...)
 	return findings
 }
 
@@ -148,9 +214,11 @@ func validateLinterUpdate(update dependabotUpdate) []finding {
 	var findings []finding
 	findings = append(findings, requirePatchGroup(update, "openclarion-linter-patch")...)
 	findings = append(findings, requireSecurityGroup(update, "openclarion-linter-security")...)
-	findings = append(findings, requireExactIgnore(update, "golang.org/x/tools", []string{
-		"version-update:semver-minor",
-		"version-update:semver-major",
+	findings = append(findings, requireOnlyExactIgnores(update, map[string][]string{
+		"golang.org/x/tools": {
+			"version-update:semver-minor",
+			"version-update:semver-major",
+		},
 	})...)
 	return findings
 }
@@ -187,6 +255,25 @@ func requireSecurityGroup(update dependabotUpdate, groupName string) []finding {
 	}
 	if len(group.UpdateTypes) != 0 {
 		findings = append(findings, finding{Path: groupPath(update, groupName), Msg: "security group must not restrict update-types"})
+	}
+	return findings
+}
+
+func requireOnlyExactIgnores(update dependabotUpdate, allowed map[string][]string) []finding {
+	var findings []finding
+	dependencies := make([]string, 0, len(allowed))
+	for dependency := range allowed {
+		dependencies = append(dependencies, dependency)
+	}
+	sort.Strings(dependencies)
+	for _, dependency := range dependencies {
+		findings = append(findings, requireExactIgnore(update, dependency, allowed[dependency])...)
+	}
+	for _, ignore := range update.Ignore {
+		if _, ok := allowed[ignore.DependencyName]; !ok {
+			path := fmt.Sprintf("%s %s ignore %s", update.PackageEcosystem, update.Directory, ignore.DependencyName)
+			findings = append(findings, finding{Path: path, Msg: "unexpected ignore entry; only documented policy suppressions are allowed"})
+		}
 	}
 	return findings
 }
