@@ -23,6 +23,7 @@ image="${OPENCLARION_EGRESS_SMOKE_IMAGE:-busybox:1.36.1}"
 pull_policy="${OPENCLARION_EGRESS_SMOKE_PULL:-missing}"
 run_id="${OPENCLARION_EGRESS_SMOKE_RUN_ID:-$$-${RANDOM:-0}}"
 timeout_seconds="${OPENCLARION_EGRESS_SMOKE_TIMEOUT_SECONDS:-8}"
+proof_path="${OPENCLARION_EGRESS_SMOKE_PROOF_PATH:-}"
 
 case "$pull_policy" in
   always|missing|never) ;;
@@ -34,6 +35,10 @@ esac
 
 if [[ "$image" =~ (^|:)latest(@|$) ]]; then
   echo "[egress-allowdeny-smoke] image must not use latest: $image" >&2
+  exit 2
+fi
+if [[ -n "$image" && "$image" != *@sha256:* && "$pull_policy" == "never" ]]; then
+  echo "[egress-allowdeny-smoke] OPENCLARION_EGRESS_SMOKE_IMAGE must be digest-pinned when pull policy is never: $image" >&2
   exit 2
 fi
 if ! [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
@@ -57,6 +62,22 @@ cleanup() {
 trap cleanup EXIT
 
 ensure_image() {
+  if [[ "$image" =~ ^[^[:space:]@]+@sha256:[A-Fa-f0-9]{64}$ ]]; then
+    case "$pull_policy" in
+      always)
+        docker pull "$image" >/dev/null
+        ;;
+      missing)
+        if ! docker image inspect "$image" >/dev/null 2>&1; then
+          docker pull "$image" >/dev/null
+        fi
+        ;;
+      never)
+        docker image inspect "$image" >/dev/null
+        ;;
+    esac
+    return
+  fi
   case "$pull_policy" in
     always)
       docker pull "$image" >/dev/null
@@ -69,6 +90,13 @@ ensure_image() {
     never)
       ;;
   esac
+  local digest
+  digest="$(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$image" | sed -n '1p')"
+  if [[ -z "$digest" || ! "$digest" =~ ^[^[:space:]@]+@sha256:[A-Fa-f0-9]{64}$ ]]; then
+    echo "[egress-allowdeny-smoke] could not resolve a digest-pinned image ref for $image" >&2
+    exit 2
+  fi
+  image="$digest"
 }
 
 run_helper_container() {
@@ -91,6 +119,7 @@ GOOS=linux GOARCH="$(go env GOARCH)" CGO_ENABLED=0 go build -o "$helper" ./scrip
 chmod 0555 "$helper"
 
 ensure_image
+echo "[egress-allowdeny-smoke] using digest-pinned image $image..." >&2
 
 echo "[egress-allowdeny-smoke] creating Docker networks..." >&2
 docker network create --internal --label openclarion.smoke=egress-allowdeny "$sandbox_net" >/dev/null
@@ -177,5 +206,18 @@ run_helper_container client \
   --url http://allowed.internal:8080 \
   --want-fail \
   --timeout 2s
+
+if [[ -n "$proof_path" ]]; then
+  go run ./scripts/egress_allowdeny_smoke proof \
+    --proof-path "$proof_path" \
+    --image-ref "$image" \
+    --source "make egress-allowdeny-smoke" \
+    --run-id "$run_id" \
+    --timeout-seconds "$timeout_seconds" \
+    --allowed-target "allowed.internal:8080" \
+    --denied-target "denied.internal:8080" \
+    --proxy-target "egress-proxy:18080" >/dev/null
+  echo "[egress-allowdeny-smoke] OK - smoke proof: $proof_path" >&2
+fi
 
 echo "[egress-allowdeny-smoke] OK - proxy allowed exact target, denied unlisted target, direct bypass failed." >&2
