@@ -802,6 +802,53 @@ func TestHandleDiagnosisWebSocketConsumesTicketAndHandsOffConnection(t *testing.
 	}
 }
 
+func TestHandleDiagnosisWebSocketAcceptsSameHostOrigin(t *testing.T) {
+	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("O", diagnosisauth.DefaultTokenBytes)))
+	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
+	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, session, now)
+	if err != nil {
+		t.Fatalf("IssueTicket: %v", err)
+	}
+	wsHandler := &fakeDiagnosisWebSocketHandler{done: make(chan struct{})}
+	handler := testHandlerWithDiagnosisWS(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(&neverAuthProvider{}, service, &fakeDiagnosisSessionResolver{
+			sessions: map[string]diagnosisauth.SessionRef{"session-1": session},
+		}),
+		WithDiagnosisWebSocketHandler(wsHandler),
+		withDiagnosisClock(func() time.Time { return now.Add(time.Second) }),
+	)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	host := strings.TrimPrefix(srv.URL, "http://")
+	headers := stdhttp.Header{"Origin": []string{"http://" + host}}
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/diagnosis?session_id=session-1&ticket=" + ticket.Token
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, headers)
+	defer closeWebSocketDialResponse(resp)
+	if err != nil {
+		t.Fatalf("Dial: %v; resp=%v", err, resp)
+	}
+	defer conn.Close()
+
+	var ready map[string]string
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("ReadJSON ready: %v", err)
+	}
+	select {
+	case <-wsHandler.done:
+	case <-time.After(time.Second):
+		t.Fatal("websocket handler did not finish")
+	}
+	if ready["type"] != "ready" || wsHandler.called != 1 {
+		t.Fatalf("ready=%+v handler called=%d", ready, wsHandler.called)
+	}
+}
+
 func TestHandleDiagnosisWebSocketRejectsBadOriginBeforeConsumingTicket(t *testing.T) {
 	tests := []struct {
 		name   string
