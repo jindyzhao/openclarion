@@ -163,6 +163,9 @@ func writeProof(cfg config, outputBytes int64, outputSHA256 string) error {
 
 func writeJSONFile(path string, value any) error {
 	clean := filepath.Clean(path)
+	if err := validateNoSymlinkAncestors(clean); err != nil {
+		return err
+	}
 	if info, err := os.Lstat(clean); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("%s must be a regular file, not a symlink", clean)
@@ -175,6 +178,9 @@ func writeJSONFile(path string, value any) error {
 	}
 	if err := os.MkdirAll(filepath.Dir(clean), 0o700); err != nil {
 		return fmt.Errorf("create proof parent: %w", err)
+	}
+	if err := validateNoSymlinkAncestors(clean); err != nil {
+		return err
 	}
 	// #nosec G304 -- this manual smoke checker writes the operator-supplied proof JSON path.
 	f, err := os.OpenFile(clean, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
@@ -196,6 +202,9 @@ func writeJSONFile(path string, value any) error {
 
 func requireRegularFile(path string) error {
 	clean := filepath.Clean(path)
+	if err := validateNoSymlinkAncestors(clean); err != nil {
+		return err
+	}
 	info, err := os.Lstat(clean)
 	if err != nil {
 		return fmt.Errorf("stat output: %w", err)
@@ -205,6 +214,36 @@ func requireRegularFile(path string) error {
 	}
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("%s must be a regular file", clean)
+	}
+	return nil
+}
+
+func validateNoSymlinkAncestors(cleanPath string) error {
+	dir := filepath.Dir(cleanPath)
+	for dir != "." && dir != string(filepath.Separator) {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				next := filepath.Dir(dir)
+				if next == dir {
+					return nil
+				}
+				dir = next
+				continue
+			}
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s parent directory %s must not be a symlink", cleanPath, dir)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s parent path %s must be a directory", cleanPath, dir)
+		}
+		next := filepath.Dir(dir)
+		if next == dir {
+			return nil
+		}
+		dir = next
 	}
 	return nil
 }

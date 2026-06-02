@@ -100,6 +100,25 @@ func TestRunRejectsSymlinkOutput(t *testing.T) {
 	}
 }
 
+func TestRunRejectsSymlinkOutputParent(t *testing.T) {
+	realDir := t.TempDir()
+	target := filepath.Join(realDir, "output.json")
+	if err := os.WriteFile(target, []byte(`{"summary":"ok"}`), 0o600); err != nil {
+		t.Fatalf("write output: %v", err)
+	}
+	linkDir := filepath.Join(t.TempDir(), "out-link")
+	createSymlinkOrSkip(t, realDir, linkDir)
+
+	var stdout bytes.Buffer
+	err := run([]string{filepath.Join(linkDir, "output.json")}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want symlink parent rejection")
+	}
+	if !strings.Contains(err.Error(), "parent directory") || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("run err = %v, want symlink parent rejection", err)
+	}
+}
+
 func TestRunRejectsSymlinkProof(t *testing.T) {
 	path := writeOutput(t, `{"summary":"ok"}`)
 	target := filepath.Join(t.TempDir(), "proof.json")
@@ -116,6 +135,22 @@ func TestRunRejectsSymlinkProof(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "must be a regular file, not a symlink") {
 		t.Fatalf("run err = %v, want symlink rejection", err)
+	}
+}
+
+func TestRunRejectsSymlinkProofParent(t *testing.T) {
+	path := writeOutput(t, `{"summary":"ok"}`)
+	realDir := t.TempDir()
+	linkDir := filepath.Join(t.TempDir(), "proof-link")
+	createSymlinkOrSkip(t, realDir, linkDir)
+
+	var stdout bytes.Buffer
+	err := run([]string{"--proof", filepath.Join(linkDir, "proof.json"), path}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want symlink proof parent rejection")
+	}
+	if !strings.Contains(err.Error(), "parent directory") || !strings.Contains(err.Error(), "must not be a symlink") {
+		t.Fatalf("run err = %v, want symlink parent rejection", err)
 	}
 }
 
