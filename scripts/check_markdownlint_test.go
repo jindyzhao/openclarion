@@ -80,6 +80,58 @@ printf '%s\n' "$@" > "$PWD/markdownlint-args.txt"
 	}
 }
 
+func TestMarkdownlintCheckRejectsSymlinkConfigParent(t *testing.T) {
+	root := t.TempDir()
+	markdownlintWriteFile(t, root, "scripts/check_markdownlint.sh", markdownlintScript(t), 0o750)
+	markdownlintWriteFile(t, root, "docs/design/ci/markdownlint/.markdownlint-cli2.jsonc", `{"config":{"default":false}}`+"\n", 0o644)
+	parent := filepath.Join(root, "docs", "design", "ci", "markdownlint")
+	target := filepath.Join(root, "docs", "design", "ci", "markdownlint-target")
+	if err := os.Rename(parent, target); err != nil {
+		t.Fatalf("rename markdownlint config parent: %v", err)
+	}
+	if err := os.Symlink(target, parent); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	markdownlintWriteFile(t, root, "web/node_modules/.bin/markdownlint-cli2", `#!/usr/bin/env bash
+printf '%s\n' "$@" > "$PWD/markdownlint-args.txt"
+`, 0o750)
+	markdownlintInitGit(t, root)
+
+	out, err := runMarkdownlintCheck(t, root)
+	if err == nil {
+		t.Fatalf("markdownlint check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/ci/markdownlint/.markdownlint-cli2.jsonc parent directory docs/design/ci/markdownlint must not be a symlink") {
+		t.Fatalf("markdownlint output = %q, want symlink config parent rejection", out)
+	}
+}
+
+func TestMarkdownlintCheckRejectsNonDirectoryConfigParent(t *testing.T) {
+	root := t.TempDir()
+	markdownlintWriteFile(t, root, "scripts/check_markdownlint.sh", markdownlintScript(t), 0o750)
+	markdownlintWriteFile(t, root, "docs/design/ci/markdownlint/.markdownlint-cli2.jsonc", `{"config":{"default":false}}`+"\n", 0o644)
+	parent := filepath.Join(root, "docs", "design", "ci", "markdownlint")
+	target := filepath.Join(root, "docs", "design", "ci", "markdownlint-target")
+	if err := os.Rename(parent, target); err != nil {
+		t.Fatalf("rename markdownlint config parent: %v", err)
+	}
+	if err := os.WriteFile(parent, []byte("not a directory\n"), 0o600); err != nil {
+		t.Fatalf("write non-directory markdownlint config parent: %v", err)
+	}
+	markdownlintWriteFile(t, root, "web/node_modules/.bin/markdownlint-cli2", `#!/usr/bin/env bash
+printf '%s\n' "$@" > "$PWD/markdownlint-args.txt"
+`, 0o750)
+	markdownlintInitGit(t, root)
+
+	out, err := runMarkdownlintCheck(t, root)
+	if err == nil {
+		t.Fatalf("markdownlint check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/ci/markdownlint/.markdownlint-cli2.jsonc parent directory docs/design/ci/markdownlint must be a directory") {
+		t.Fatalf("markdownlint output = %q, want non-directory config parent rejection", out)
+	}
+}
+
 func TestMarkdownlintCheckRejectsNonRegularConfig(t *testing.T) {
 	root := t.TempDir()
 	markdownlintWriteFile(t, root, "scripts/check_markdownlint.sh", markdownlintScript(t), 0o750)
