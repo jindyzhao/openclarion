@@ -462,14 +462,11 @@ func readOutputArchive(reader io.Reader, outputPath string, outputMax int64) (js
 		if err != nil {
 			return nil, err
 		}
-		if header.FileInfo().IsDir() {
-			continue
-		}
-		if memberName != wantName {
-			continue
-		}
 		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
 			return nil, fmt.Errorf("output archive member %q must be a regular file", header.Name)
+		}
+		if memberName != wantName {
+			return nil, fmt.Errorf("unexpected output archive member %q, want %q", header.Name, wantName)
 		}
 		if header.Size > outputMax {
 			return nil, fmt.Errorf("output size %d exceeds maximum %d", header.Size, outputMax)
