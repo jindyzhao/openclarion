@@ -106,12 +106,12 @@ func (p *Provider) AuthenticateBearer(ctx context.Context, bearerToken string) (
 	if err != nil {
 		return ports.AuthPrincipal{}, err
 	}
-	if err := rejectAmbiguousIDTokenClaims(rawToken); err != nil {
-		return ports.AuthPrincipal{}, err
-	}
 	idToken, err := p.verifier.Verify(ctx, rawToken)
 	if err != nil {
 		return ports.AuthPrincipal{}, fmt.Errorf("oidc auth: verify token: %w", err)
+	}
+	if err := rejectAmbiguousIDTokenClaims(rawToken); err != nil {
+		return ports.AuthPrincipal{}, err
 	}
 
 	var claims map[string]json.RawMessage
