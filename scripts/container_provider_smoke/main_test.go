@@ -383,6 +383,23 @@ func TestWriteProofRejectsSymlinkParent(t *testing.T) {
 	}
 }
 
+func TestOpenProofFileNoFollowRejectsFinalSymlink(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "proof.json")
+	if err := os.WriteFile(target, []byte(`{"old":true}`), 0o600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	link := filepath.Join(t.TempDir(), "proof-link.json")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	f, err := openProofFileNoFollow(link)
+	if err == nil {
+		_ = f.Close()
+		t.Fatal("openProofFileNoFollow err = nil, want symlink rejection")
+	}
+}
+
 func TestErrorContainsAny(t *testing.T) {
 	err := errors.New("docker container exited with code 153")
 	if !errorContainsAny(err, "context deadline exceeded || exited with code") {

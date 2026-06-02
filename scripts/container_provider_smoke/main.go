@@ -20,6 +20,7 @@ import (
 	dockerprovider "github.com/openclarion/openclarion/internal/providers/container/docker"
 	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -393,7 +394,7 @@ func writeJSONFile(path string, value any) error {
 		return err
 	}
 	// #nosec G304 -- this manual smoke checker writes the operator-supplied proof JSON path.
-	f, err := os.OpenFile(clean, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	f, err := openProofFileNoFollow(clean)
 	if err != nil {
 		return fmt.Errorf("write proof: %w", err)
 	}
@@ -408,6 +409,19 @@ func writeJSONFile(path string, value any) error {
 		return fmt.Errorf("write proof: %w", err)
 	}
 	return nil
+}
+
+func openProofFileNoFollow(path string) (*os.File, error) {
+	fd, err := unix.Open(path, unix.O_WRONLY|unix.O_CREAT|unix.O_TRUNC|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	f := os.NewFile(uintptr(fd), path)
+	if f == nil {
+		_ = unix.Close(fd)
+		return nil, errors.New("wrap proof file descriptor")
+	}
+	return f, nil
 }
 
 func validateNoSymlinkAncestors(cleanPath string) error {
