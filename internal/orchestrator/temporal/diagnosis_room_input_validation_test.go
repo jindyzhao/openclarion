@@ -33,6 +33,11 @@ func TestValidateDiagnosisRoomWorkflowInputRejectsAmbiguousEvidence(t *testing.T
 			wantSubstr: `duplicate object key "alert"`,
 		},
 		{
+			name:       "nested duplicate evidence key",
+			evidence:   json.RawMessage(`{"alert":"cpu","labels":{"team":"core","team":"edge"}}`),
+			wantSubstr: `duplicate object key "team"`,
+		},
+		{
 			name:       "trailing evidence value",
 			evidence:   json.RawMessage(`{"alert":"cpu"} {"alert":"memory"}`),
 			wantSubstr: "trailing JSON values",
