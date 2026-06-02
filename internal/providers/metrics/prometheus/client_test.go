@@ -416,6 +416,32 @@ func TestProvider_ListActiveAlerts_RejectsOversizedSuccessEnvelope(t *testing.T)
 	}
 }
 
+func TestStrictJSONResponseRoundTripper_RejectsNilParsedBody(t *testing.T) {
+	rt := strictJSONResponseRoundTripper{base: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK}, nil
+	})}
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		http.MethodGet,
+		"https://prometheus.example/api/v1/alerts",
+		nil,
+	)
+
+	resp, err := rt.RoundTrip(req)
+	if resp != nil && resp.Body != nil {
+		defer resp.Body.Close()
+	}
+	if err == nil {
+		t.Fatal("RoundTrip err = nil, want nil body error")
+	}
+	if resp != nil {
+		t.Fatalf("RoundTrip resp = %+v, want nil on invalid parsed response body", resp)
+	}
+	if !strings.Contains(err.Error(), "response body is nil") {
+		t.Fatalf("RoundTrip err = %v, want nil body error", err)
+	}
+}
+
 // mapsEqual is a small, dependency-free helper. We avoid reflect
 // here so a failure in the test's expectation logic is visible in
 // the trace.

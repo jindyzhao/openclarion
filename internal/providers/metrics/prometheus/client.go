@@ -152,6 +152,9 @@ func (rt strictJSONResponseRoundTripper) RoundTrip(req *http.Request) (*http.Res
 	if !clientGolangParsesAPIEnvelope(resp.StatusCode) {
 		return resp, nil
 	}
+	if resp.Body == nil {
+		return nil, fmt.Errorf("prometheus: response body is nil")
+	}
 	raw, err := readLimitedResponseBody(resp.Body, maxResponseBodyBytes)
 	if err != nil {
 		_ = resp.Body.Close()
