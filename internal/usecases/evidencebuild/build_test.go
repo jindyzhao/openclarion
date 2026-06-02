@@ -220,6 +220,42 @@ func TestBuildSnapshot_RawPayloadKeyOrderIrrelevant(t *testing.T) {
 	}
 }
 
+func TestBuildSnapshot_RawPayloadDuplicateKeysRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  json.RawMessage
+		want string
+	}{
+		{
+			name: "top-level duplicate",
+			raw:  json.RawMessage(`{"metric":"old","metric":"new"}`),
+			want: `duplicate object key "metric"`,
+		},
+		{
+			name: "nested duplicate",
+			raw:  json.RawMessage(`{"metric":"cpu_usage","labels":{"node":"a","node":"b"}}`),
+			want: `duplicate object key "node"`,
+		},
+		{
+			name: "trailing value",
+			raw:  json.RawMessage(`{"metric":"cpu_usage"}[]`),
+			want: "trailing JSON values",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := validInput()
+			in.Events[0].RawPayload = tt.raw
+
+			_, err := BuildSnapshot(in)
+			mustBeInvariantViolation(t, err)
+			if !contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestBuildSnapshot_DimensionsKeyOrderIrrelevant(t *testing.T) {
 	in1 := validInput()
 	in1.Group.Dimensions = json.RawMessage(`{"alertname":"HighCPU","cluster":"prod"}`)
@@ -238,6 +274,42 @@ func TestBuildSnapshot_DimensionsKeyOrderIrrelevant(t *testing.T) {
 
 	if snap1.Digest != snap2.Digest {
 		t.Errorf("digest should be identical for semantically equivalent dimensions:\n  d1=%s\n  d2=%s", snap1.Digest, snap2.Digest)
+	}
+}
+
+func TestBuildSnapshot_DimensionsDuplicateKeysRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  json.RawMessage
+		want string
+	}{
+		{
+			name: "top-level duplicate",
+			raw:  json.RawMessage(`{"alertname":"HighCPU","alertname":"HighMemory"}`),
+			want: `duplicate object key "alertname"`,
+		},
+		{
+			name: "nested duplicate",
+			raw:  json.RawMessage(`{"alertname":"HighCPU","scope":{"cluster":"prod","cluster":"stage"}}`),
+			want: `duplicate object key "cluster"`,
+		},
+		{
+			name: "trailing value",
+			raw:  json.RawMessage(`{"alertname":"HighCPU"}{}`),
+			want: "trailing JSON values",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := validInput()
+			in.Group.Dimensions = tt.raw
+
+			_, err := BuildSnapshot(in)
+			mustBeInvariantViolation(t, err)
+			if !contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 
