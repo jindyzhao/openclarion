@@ -28,6 +28,11 @@ func TestAppendDiagnosisRoomLifecycleEventRejectsAmbiguousPayload(t *testing.T) 
 			wantSubstr: `duplicate object key "kind"`,
 		},
 		{
+			name:       "nested duplicate payload key",
+			payload:    json.RawMessage(`{"kind":"diagnosis_room.opened","metadata":{"phase":"open","phase":"close"}}`),
+			wantSubstr: `duplicate object key "phase"`,
+		},
+		{
 			name:       "trailing payload value",
 			payload:    json.RawMessage(`{"kind":"diagnosis_room.opened"} {"kind":"diagnosis_room.closed"}`),
 			wantSubstr: "trailing JSON values",
