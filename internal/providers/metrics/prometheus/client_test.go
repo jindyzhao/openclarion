@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -115,19 +116,37 @@ func TestProvider_ListActiveAlerts_FiltersFiringOnly(t *testing.T) {
 }
 
 func TestNewProvider_RejectsAddressUserinfo(t *testing.T) {
-	cases := []string{
-		"http://operator@example.invalid",
-		"http://operator:secret@example.invalid",
-		"http://%6fperator@example.invalid",
+	credentialedURL := func(password string) string {
+		return (&url.URL{
+			Scheme: "http",
+			User:   url.UserPassword("operator", password),
+			Host:   "example.invalid",
+		}).String()
 	}
-	for _, addr := range cases {
-		t.Run(addr, func(t *testing.T) {
-			_, err := NewProvider(addr)
+	malformedCredentialedURL := func(password string) string {
+		return "http://operator:" + password + "@[::1"
+	}
+	cases := []struct {
+		name string
+		addr string
+		want string
+	}{
+		{name: "username", addr: "http://operator@example.invalid", want: "must not include userinfo"},
+		{name: "username password", addr: credentialedURL("credential-value"), want: "must not include userinfo"},
+		{name: "escaped username", addr: "http://%6fperator@example.invalid", want: "must not include userinfo"},
+		{name: "malformed credentialed url", addr: malformedCredentialedURL("credential-value"), want: "must be a valid URL"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewProvider(tc.addr)
 			if err == nil {
 				t.Fatal("NewProvider: want userinfo error, got nil")
 			}
-			if !strings.Contains(err.Error(), "must not include userinfo") {
-				t.Fatalf("NewProvider error = %v, want userinfo rejection", err)
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("NewProvider error = %v, want %q", err, tc.want)
+			}
+			if strings.Contains(err.Error(), "credential-value") {
+				t.Fatalf("NewProvider error leaked credential: %v", err)
 			}
 		})
 	}

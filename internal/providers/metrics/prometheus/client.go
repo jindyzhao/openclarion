@@ -121,7 +121,7 @@ func NewProvider(addr string, opts ...Option) (*Provider, error) {
 func rejectCredentialedAddress(addr string) error {
 	parsed, err := url.Parse(addr)
 	if err != nil {
-		return fmt.Errorf("prometheus: parse address: %w", err)
+		return fmt.Errorf("prometheus: address must be a valid URL")
 	}
 	if parsed.User != nil {
 		return fmt.Errorf("prometheus: address must not include userinfo")
