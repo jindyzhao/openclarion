@@ -105,6 +105,62 @@ func TestRunRejectsGolangCIPatchVersion(t *testing.T) {
 	assertOutputContains(t, out.String(), `.golangci.yml: run.go "1.25.10" must match root Go language version "1.25"`)
 }
 
+func TestRunRejectsDuplicateGolangCIKeys(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n  go: \"1.24\"\n",
+		".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+	})
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.golangci.yml: invalid YAML: duplicate YAML key "go"`)
+}
+
+func TestRunRejectsGolangCIYAMLAnchors(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun: &run_config\n  go: \"1.25\"\n",
+		".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+	})
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.golangci.yml: invalid YAML: YAML anchors are not allowed`)
+}
+
+func TestRunToleratesUnconsumedGolangCIFields(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n  modules-download-mode: readonly\nissues:\n  max-issues-per-linter: 0\n",
+		".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+	})
+
+	var out bytes.Buffer
+	if err := run(root, &out); err != nil {
+		t.Fatalf("run() error = %v\noutput:\n%s", err, out.String())
+	}
+	assertOutputContains(t, out.String(), "[go-toolchain-check] OK (2 go.mod files, 1 setup-go steps)")
+}
+
 func TestRunRejectsHardCodedSetupGoVersion(t *testing.T) {
 	root := writeRepo(t, repoFiles{
 		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
@@ -123,6 +179,133 @@ func TestRunRejectsHardCodedSetupGoVersion(t *testing.T) {
 	}
 	assertOutputContains(t, out.String(), "actions/setup-go must not use hard-coded go-version")
 	assertOutputContains(t, out.String(), "actions/setup-go must set go-version-file: go.mod")
+}
+
+func TestRunRejectsDuplicateWorkflowSetupGoWithKeys(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+          go-version-file: tools/go.mod
+`),
+	})
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.github/workflows/ci.yml: invalid YAML: duplicate YAML key "go-version-file"`)
+}
+
+func TestRunRejectsWorkflowYAMLMergeKeys(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows/ci.yml": `name: CI
+x-go-with: &go_with
+  go-version-file: go.mod
+jobs:
+  go-checks:
+    steps:
+      - uses: actions/checkout@abc123
+      - uses: actions/setup-go@def456
+        with:
+          <<: *go_with
+`,
+	})
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.github/workflows/ci.yml: invalid YAML: YAML anchors are not allowed`)
+}
+
+func TestRunRejectsWorkflowInlineYAMLMergeKeys(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows/ci.yml": `name: CI
+jobs:
+  go-checks:
+    steps:
+      - uses: actions/checkout@abc123
+      - uses: actions/setup-go@def456
+        with:
+          <<: {go-version-file: go.mod}
+`,
+	})
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.github/workflows/ci.yml: invalid YAML: YAML merge keys are not allowed`)
+}
+
+func TestRunToleratesUnconsumedWorkflowFields(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows/ci.yml": `name: CI
+run-name: ${{ github.actor }} is testing
+on: [push]
+env:
+  GOFLAGS: -mod=mod
+jobs:
+  go-checks:
+    runs-on: ubuntu-latest
+    outputs:
+      binary: ${{ steps.build.outputs.path }}
+    steps:
+      - uses: actions/checkout@abc123
+      - uses: actions/setup-go@def456
+        continue-on-error: ${{ false }}
+        with:
+          go-version-file: go.mod
+      - id: build
+        run: echo "path=bin/app" >> "$GITHUB_OUTPUT"
+  reused:
+    uses: owner/repo/.github/workflows/reusable.yml@main
+    with:
+      input: value
+    secrets: inherit
+`,
+	})
+
+	var out bytes.Buffer
+	if err := run(root, &out); err != nil {
+		t.Fatalf("run() error = %v\noutput:\n%s", err, out.String())
+	}
+	assertOutputContains(t, out.String(), "[go-toolchain-check] OK (2 go.mod files, 1 setup-go steps)")
+}
+
+func TestRunRejectsMultiDocumentWorkflowYAML(t *testing.T) {
+	root := writeRepo(t, repoFiles{
+		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+		"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+		".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+		".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`) + "\n---\nname: shadow\n",
+	})
+
+	var out bytes.Buffer
+	err := run(root, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	assertOutputContains(t, out.String(), `.github/workflows/ci.yml: invalid YAML: multiple YAML documents are not allowed`)
 }
 
 func TestFindGoModFilesSkipsGeneratedAndDependencyDirs(t *testing.T) {
