@@ -69,6 +69,47 @@ func TestOpenAPILintRejectsSymlinkInputs(t *testing.T) {
 	}
 }
 
+func TestOpenAPILintRejectsSymlinkInputParents(t *testing.T) {
+	tests := []struct {
+		name   string
+		parent string
+		want   string
+	}{
+		{
+			name:   "ruleset parent",
+			parent: "docs/design/ci/vacuum",
+			want:   "docs/design/ci/vacuum/.vacuum.yaml parent directory docs/design/ci/vacuum must not be a symlink",
+		},
+		{
+			name:   "spec parent",
+			parent: "api",
+			want:   "api/openapi.yaml parent directory api must not be a symlink",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newOpenAPILintRepo(t)
+			parent := filepath.Join(root, filepath.FromSlash(tc.parent))
+			target := parent + "-target"
+			if err := os.Rename(parent, target); err != nil {
+				t.Fatalf("rename %s: %v", tc.parent, err)
+			}
+			if err := os.Symlink(target, parent); err != nil {
+				t.Skipf("symlink unsupported: %v", err)
+			}
+
+			out, err := runOpenAPILintCheck(t, root)
+			if err == nil {
+				t.Fatalf("openapi lint check passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("openapi lint output = %q, want %q", out, tc.want)
+			}
+		})
+	}
+}
+
 func TestOpenAPILintRejectsMissingInputs(t *testing.T) {
 	tests := []struct {
 		name string
