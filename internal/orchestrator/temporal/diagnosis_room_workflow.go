@@ -518,8 +518,8 @@ func validateDiagnosisRoomWorkflowInput(input DiagnosisRoomWorkflowInput, policy
 	if strings.TrimSpace(input.OwnerSubject) == "" {
 		return fmt.Errorf("diagnosis-room: input.owner_subject must be non-empty")
 	}
-	if len(input.Evidence) == 0 || !json.Valid(input.Evidence) {
-		return fmt.Errorf("diagnosis-room: input.evidence must be non-empty valid JSON")
+	if err := validateDiagnosisRoomEvidenceJSON("diagnosis-room: input.evidence", input.Evidence); err != nil {
+		return err
 	}
 	if err := diagnosisroom.ValidatePolicy(policy); err != nil {
 		return err

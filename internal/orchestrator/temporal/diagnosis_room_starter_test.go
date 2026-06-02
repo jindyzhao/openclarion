@@ -117,9 +117,10 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomValidation(t *testing.T) {
 		Evidence:           []byte(`{"alert":"cpu"}`),
 	}
 	cases := []struct {
-		name    string
-		starter *DiagnosisRoomStarter
-		req     ports.DiagnosisRoomStartRequest
+		name       string
+		starter    *DiagnosisRoomStarter
+		req        ports.DiagnosisRoomStartRequest
+		wantSubstr string
 	}{
 		{name: "nil_starter", starter: nil, req: good},
 		{name: "nil_client", starter: &DiagnosisRoomStarter{}, req: good},
@@ -127,7 +128,32 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomValidation(t *testing.T) {
 		{name: "trimmed_session", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.SessionID = " session-1 " })},
 		{name: "zero_snapshot", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.EvidenceSnapshotID = 0 })},
 		{name: "empty_owner", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.OwnerSubject = " " })},
-		{name: "invalid_evidence", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.Evidence = []byte(`not-json`) })},
+		{
+			name:       "invalid_evidence",
+			starter:    newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}),
+			req:        withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.Evidence = []byte(`not-json`) }),
+			wantSubstr: "decode JSON token",
+		},
+		{
+			name:       "duplicate_evidence_key",
+			starter:    newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}),
+			req:        withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.Evidence = []byte(`{"alert":"cpu","alert":"memory"}`) }),
+			wantSubstr: `duplicate object key "alert"`,
+		},
+		{
+			name:    "trailing_evidence_value",
+			starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}),
+			req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) {
+				req.Evidence = []byte(`{"alert":"cpu"} {"alert":"memory"}`)
+			}),
+			wantSubstr: "trailing JSON values",
+		},
+		{
+			name:       "non_object_evidence",
+			starter:    newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}),
+			req:        withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.Evidence = []byte(`["cpu"]`) }),
+			wantSubstr: "must be a JSON object",
+		},
 		{name: "empty_task_queue", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}, WithDiagnosisRoomStarterTaskQueue(" ")), req: good},
 		{name: "bad_ready_timeout", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}, WithDiagnosisRoomStarterReadyTimeout(0)), req: good},
 	}
@@ -136,6 +162,9 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomValidation(t *testing.T) {
 			_, err := tc.starter.StartDiagnosisRoom(context.Background(), tc.req)
 			if !errors.Is(err, domain.ErrInvariantViolation) {
 				t.Fatalf("StartDiagnosisRoom error = %v, want ErrInvariantViolation", err)
+			}
+			if tc.wantSubstr != "" && !strings.Contains(err.Error(), tc.wantSubstr) {
+				t.Fatalf("StartDiagnosisRoom error = %v, want substring %q", err, tc.wantSubstr)
 			}
 		})
 	}

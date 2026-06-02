@@ -141,8 +141,8 @@ func diagnosisRoomWorkflowInputFromStartRequest(req ports.DiagnosisRoomStartRequ
 	if ownerSubject == "" {
 		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("diagnosis-room starter: owner subject must be non-empty: %w", domain.ErrInvariantViolation)
 	}
-	if len(req.Evidence) == 0 || !json.Valid(req.Evidence) {
-		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("diagnosis-room starter: evidence must be non-empty valid JSON: %w", domain.ErrInvariantViolation)
+	if err := validateDiagnosisRoomEvidenceJSON("diagnosis-room starter: evidence", req.Evidence); err != nil {
+		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("%w: %w", err, domain.ErrInvariantViolation)
 	}
 	workflowID, err := DiagnosisRoomWorkflowID(sessionID)
 	if err != nil {
