@@ -172,6 +172,11 @@ func TestSendNotification_RejectsAmbiguousSuccessResponse(t *testing.T) {
 			body: `{"message_id":"msg-42","status":"accepted"} {"status":"shadow"}`,
 			want: "trailing JSON values",
 		},
+		{
+			name: "non object envelope",
+			body: `["msg-42"]`,
+			want: "response envelope must be a JSON object",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -191,6 +196,16 @@ func TestSendNotification_RejectsAmbiguousSuccessResponse(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want substring %q", err, tc.want)
+			}
+			var imErr *ports.IMError
+			if !errors.As(err, &imErr) {
+				t.Fatalf("err = %T %v, want *ports.IMError", err, err)
+			}
+			if imErr.StatusCode != http.StatusOK {
+				t.Fatalf("IMError.StatusCode = %d, want %d", imErr.StatusCode, http.StatusOK)
+			}
+			if imErr.Retryable {
+				t.Fatalf("IMError.Retryable = true, want false for malformed 2xx response")
 			}
 		})
 	}

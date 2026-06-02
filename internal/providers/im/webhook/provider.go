@@ -129,7 +129,15 @@ func (p *Provider) SendNotification(ctx context.Context, req ports.IMNotificatio
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return ports.IMDelivery{}, statusError(resp.StatusCode, rawBody)
 	}
-	return deliveryFromResponse(rawBody)
+	delivery, err := deliveryFromResponse(rawBody)
+	if err != nil {
+		return ports.IMDelivery{}, &ports.IMError{
+			Message:    err.Error(),
+			StatusCode: resp.StatusCode,
+			Retryable:  false,
+		}
+	}
+	return delivery, nil
 }
 
 type responseBodyTooLargeError struct {
@@ -208,6 +216,9 @@ func deliveryFromResponse(raw []byte) (ports.IMDelivery, error) {
 	}
 	if err := strictjson.RejectDuplicateObjectKeys(trimmed); err != nil {
 		return ports.IMDelivery{}, fmt.Errorf("webhook im: decode response: %w", err)
+	}
+	if trimmed[0] != '{' {
+		return ports.IMDelivery{}, fmt.Errorf("webhook im: decode response: response envelope must be a JSON object")
 	}
 	var out webhookResponse
 	if err := json.Unmarshal(trimmed, &out); err != nil {
