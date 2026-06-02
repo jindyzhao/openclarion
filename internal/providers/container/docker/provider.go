@@ -451,7 +451,11 @@ func readOutputArchive(reader io.Reader, outputPath string, outputMax int64) (js
 		if errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("%s not found in archive", wantName)
 		}
-		if err != nil {
+		if errors.Is(err, tar.ErrInsecurePath) {
+			if header == nil {
+				return nil, fmt.Errorf("read archive header: %w", err)
+			}
+		} else if err != nil {
 			return nil, fmt.Errorf("read archive header: %w", err)
 		}
 		memberName, err := outputArchiveMemberName(header.Name)

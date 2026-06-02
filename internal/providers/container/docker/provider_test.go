@@ -398,6 +398,22 @@ func TestReadOutputArchiveValidatesOutput(t *testing.T) {
 	}
 }
 
+func TestReadOutputArchiveRejectsTarInsecurePathError(t *testing.T) {
+	t.Setenv("GODEBUG", "tarinsecurepath=0")
+
+	_, err := readOutputArchive(
+		tarArchive(t, "../output.json", []byte(`{"summary":"ok"}`)),
+		ports.SandboxOutputPath,
+		32,
+	)
+	if err == nil {
+		t.Fatal("readOutputArchive err = nil, want insecure path rejection")
+	}
+	if !strings.Contains(err.Error(), "not allowed") {
+		t.Fatalf("readOutputArchive err = %v, want project path rejection", err)
+	}
+}
+
 type fakeEngine struct {
 	t             *testing.T
 	outputArchive io.ReadCloser
