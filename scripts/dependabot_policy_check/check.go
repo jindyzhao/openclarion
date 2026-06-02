@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -80,6 +81,13 @@ func readConfig(path string) (dependabotConfig, error) {
 	decoder.KnownFields(true)
 	var cfg dependabotConfig
 	if err := decoder.Decode(&cfg); err != nil {
+		return dependabotConfig{}, fmt.Errorf("%s: %w", path, err)
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return dependabotConfig{}, fmt.Errorf("%s: multiple YAML documents are not allowed", path)
+		}
 		return dependabotConfig{}, fmt.Errorf("%s: %w", path, err)
 	}
 	return cfg, nil

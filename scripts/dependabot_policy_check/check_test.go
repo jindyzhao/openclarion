@@ -102,6 +102,19 @@ func TestRunRejectsUnknownYAMLField(t *testing.T) {
 	}
 }
 
+func TestRunRejectsMultipleYAMLDocuments(t *testing.T) {
+	path := writePolicy(t, validPolicy()+"---\nversion: 2\nupdates: []\n")
+
+	var out bytes.Buffer
+	err := run(path, &out)
+	if err == nil {
+		t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+	}
+	if !strings.Contains(err.Error(), "multiple YAML documents are not allowed") {
+		t.Fatalf("run() error = %v, want multiple document rejection", err)
+	}
+}
+
 func writePolicy(t *testing.T, contents string) string {
 	t.Helper()
 	root := t.TempDir()
