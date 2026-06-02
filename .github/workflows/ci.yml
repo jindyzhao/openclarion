@@ -177,6 +177,8 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make pr-budget-test
+      - run: make repo-size-check
+      - run: make repo-size-check-test
 
   pr-title-check:
     name: PR title

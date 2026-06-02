@@ -17,6 +17,7 @@
 #   make dependabot-policy-check # validate Dependabot update policy invariants
 #   make workflow-change-guard # validate PR workflow-file change isolation
 #   make pr-budget-test   # validate the make pr wall-clock budget wrapper
+#   make repo-size-check  # validate Git-visible file size budgets
 #   make go-coverage # enforce handwritten Go package coverage floor
 #   make pr-title-check   # validate PR title Conventional Commit shape
 #   make pr-description-check # validate PR body risk/rollback sections
@@ -125,7 +126,7 @@ help: ## Show this help
 pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
 	@go run ./scripts/pr_budget --budget "$(PR_BUDGET)" --mode "$(PR_BUDGET_MODE)" -- $(MAKE) ci
 
-ci: workflow-parity docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test pr-impact-reference-check-test pr-budget-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
+ci: workflow-parity docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
 	@echo ""
 	@echo "[ci] all gates passed."
 
@@ -150,7 +151,7 @@ ci: workflow-parity docs-hygiene forbidden adr-check links-check markdownlint do
 # Documentation gates
 # ---------------------------------------------------------------------------
 
-.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard workflow-change-guard-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test pr-title-check pr-description-check dco-check workflow-parity
+.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check go-toolchain-check go-toolchain-check-test allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard workflow-change-guard-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test pr-title-check pr-description-check dco-check workflow-parity
 
 docs-hygiene: ## Reject non-English CJK literals, terminology drift, and proof-state drift in governed documentation
 	@bash scripts/check_no_non_english_chars.sh
@@ -207,6 +208,12 @@ pr-impact-reference-check-test: ## Validate high-impact PR reference checker beh
 
 pr-budget-test: ## Validate make pr wall-clock budget wrapper behavior
 	@go test -race -count=1 ./scripts/pr_budget
+
+repo-size-check: ## Enforce Git-visible file size budgets
+	@go run ./scripts/repo_size_check
+
+repo-size-check-test: ## Validate repository size budget checker behavior
+	@go test -race -count=1 ./scripts/repo_size_check
 
 pr-title-check: ## Validate PR title Conventional Commit shape
 	@bash scripts/check_pr_title.sh
