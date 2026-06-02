@@ -303,12 +303,15 @@ func TestNewProvider_RejectsInvalidURL(t *testing.T) {
 		Host:   "example.com",
 		Path:   "/hook",
 	}).String()
+	rawMarker := "raw-marker"
 	tests := []struct {
-		raw  string
-		want string
+		raw     string
+		want    string
+		wantNot string
 	}{
 		{raw: "", want: "non-empty"},
 		{raw: "://bad", want: "parse"},
+		{raw: "https://operator:" + rawMarker + "@example.com/\nhook", want: "parse", wantNot: rawMarker},
 		{raw: "/relative", want: "scheme"},
 		{raw: "ftp://example.com/hook", want: "scheme"},
 		{raw: "https://operator@example.com/hook", want: "userinfo"},
@@ -323,6 +326,9 @@ func TestNewProvider_RejectsInvalidURL(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("NewProvider(%q) error = %v, want substring %q", tc.raw, err, tc.want)
+			}
+			if tc.wantNot != "" && strings.Contains(err.Error(), tc.wantNot) {
+				t.Fatalf("NewProvider(%q) error = %v, must not contain %q", tc.raw, err, tc.wantNot)
 			}
 		})
 	}

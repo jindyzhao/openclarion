@@ -167,7 +167,7 @@ func normalizeEndpoint(raw string) (string, error) {
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("webhook im: parse url: %w", err)
+		return "", fmt.Errorf("webhook im: parse url")
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return "", fmt.Errorf("webhook im: url scheme must be http or https")

@@ -153,7 +153,7 @@ func withOutputMode(cfg Config, mode ports.LLMOutputMode) Config {
 func chatCompletionsEndpoint(base string) (string, error) {
 	parsed, err := url.Parse(base)
 	if err != nil {
-		return "", fmt.Errorf("openai llm: parse base url: %w", err)
+		return "", fmt.Errorf("openai llm: parse base url")
 	}
 	if parsed.Scheme == "" || parsed.Host == "" {
 		return "", fmt.Errorf("openai llm: base url must be absolute")
