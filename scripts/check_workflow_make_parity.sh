@@ -47,8 +47,39 @@ ALLOWED_UBUNTU_RUNNER_RE='^ubuntu-(24\.04|22\.04)$'
 ACTION_VERSION_COMMENT_RE='#[[:space:]]*v[0-9]+(\.[0-9]+){1,2}([[:space:]][^[:space:]].*)?[[:space:]]*$'
 PULL_REQUEST_TARGET_REVIEW_POLICY_RE='^[[:space:]]*#[[:space:]]*pull-request-target-review-policy:[[:space:]]+[^[:space:]]'
 
+reject_symlink_ancestors() {
+  local path="$1"
+  local dir=""
+  local part=""
+  local path_part=""
+  local -a parts=()
+
+  if [[ "$path" != */* ]]; then
+    return 0
+  fi
+  dir="${path%/*}"
+
+  IFS='/' read -r -a parts <<< "$dir"
+  for part in "${parts[@]}"; do
+    if [[ -z "$part" || "$part" == "." ]]; then
+      continue
+    fi
+    if [[ -z "$path_part" ]]; then
+      path_part="$part"
+    else
+      path_part="$path_part/$part"
+    fi
+    if [[ -L "$path_part" ]]; then
+      echo "[workflow-parity] $path parent directory $path_part must not be a symlink." >&2
+      exit 1
+    fi
+  done
+  return 0
+}
+
 require_regular_file() {
   local path="$1"
+  reject_symlink_ancestors "$path"
   if [[ -L "$path" ]]; then
     echo "[workflow-parity] $path must be a regular file, not a symlink." >&2
     exit 1
@@ -63,6 +94,7 @@ require_regular_file() {
   fi
 }
 
+reject_symlink_ancestors "$WORKFLOWS_DIR"
 if [[ -L "$WORKFLOWS_DIR" ]]; then
   echo "[workflow-parity] $WORKFLOWS_DIR must be a directory, not a symlink." >&2
   exit 1

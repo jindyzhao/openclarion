@@ -116,6 +116,34 @@ func TestWorkflowMakeParityRejectsIndirectInputs(t *testing.T) {
 			want: ".github/workflows must be a directory, not a symlink",
 		},
 		{
+			name: "workflow directory parent symlink",
+			setup: func(t *testing.T, root string) {
+				githubDir := filepath.Join(root, ".github")
+				target := filepath.Join(root, ".github-target")
+				if err := os.Rename(githubDir, target); err != nil {
+					t.Fatalf("rename workflow directory parent: %v", err)
+				}
+				if err := os.Symlink(target, githubDir); err != nil {
+					t.Skipf("symlink unsupported: %v", err)
+				}
+			},
+			want: ".github/workflows parent directory .github must not be a symlink",
+		},
+		{
+			name: "ci readme parent symlink",
+			setup: func(t *testing.T, root string) {
+				ciDir := filepath.Join(root, "docs", "design", "ci")
+				target := filepath.Join(root, "docs", "design", "ci-target")
+				if err := os.Rename(ciDir, target); err != nil {
+					t.Fatalf("rename CI README parent: %v", err)
+				}
+				if err := os.Symlink(target, ciDir); err != nil {
+					t.Skipf("symlink unsupported: %v", err)
+				}
+			},
+			want: "docs/design/ci/README.md parent directory docs/design/ci must not be a symlink",
+		},
+		{
 			name: "dangling workflow directory symlink",
 			setup: func(t *testing.T, root string) {
 				workflowsDir := filepath.Join(root, ".github", "workflows")
