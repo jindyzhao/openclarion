@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -59,10 +60,15 @@ func run(cfg config, stdout io.Writer) error {
 		fmt.Fprintf(stdout, "[external-links] OK (%d unique external links inventoried across %d files; live=false)\n", len(links), len(files))
 		return nil
 	}
-	if err := checkLiveLinks(context.Background(), links, cfg.Timeout); err != nil {
+	checked, skipped, err := checkLiveLinks(context.Background(), links, cfg.Timeout)
+	if err != nil {
 		return err
 	}
-	fmt.Fprintf(stdout, "[external-links] OK (%d unique external links checked across %d files)\n", len(links), len(files))
+	if skipped > 0 {
+		fmt.Fprintf(stdout, "[external-links] OK (%d unique external links checked across %d files; %d reserved example links skipped)\n", checked, len(files), skipped)
+		return nil
+	}
+	fmt.Fprintf(stdout, "[external-links] OK (%d unique external links checked across %d files)\n", checked, len(files))
 	return nil
 }
 
@@ -157,10 +163,17 @@ func trimURL(url string) string {
 	return strings.TrimRight(url, ".,;:")
 }
 
-func checkLiveLinks(ctx context.Context, links []linkEvidence, timeout time.Duration) error {
+func checkLiveLinks(ctx context.Context, links []linkEvidence, timeout time.Duration) (int, int, error) {
 	client := &http.Client{Timeout: timeout}
 	var failures []string
+	checked := 0
+	skipped := 0
 	for _, link := range links {
+		if reservedExampleURL(link.URL) {
+			skipped++
+			continue
+		}
+		checked++
 		status, err := probeURL(ctx, client, link.URL)
 		if err != nil {
 			failures = append(failures, fmt.Sprintf("%s (%s): %v", link.URL, strings.Join(link.Files, ","), err))
@@ -172,9 +185,22 @@ func checkLiveLinks(ctx context.Context, links []linkEvidence, timeout time.Dura
 	}
 	if len(failures) > 0 {
 		sort.Strings(failures)
-		return fmt.Errorf("external link liveness failures:\n%s", strings.Join(failures, "\n"))
+		return checked, skipped, fmt.Errorf("external link liveness failures:\n%s", strings.Join(failures, "\n"))
 	}
-	return nil
+	return checked, skipped, nil
+}
+
+func reservedExampleURL(rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	return host == "example.com" ||
+		host == "example.net" ||
+		host == "example.org" ||
+		host == "example" ||
+		strings.HasSuffix(host, ".example")
 }
 
 func probeURL(ctx context.Context, client *http.Client, url string) (int, error) {
