@@ -12,7 +12,6 @@ import (
 	"go.temporal.io/sdk/converter"
 
 	"github.com/openclarion/openclarion/internal/domain"
-	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -142,11 +141,8 @@ func diagnosisRoomWorkflowInputFromStartRequest(req ports.DiagnosisRoomStartRequ
 	if ownerSubject == "" {
 		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("diagnosis-room starter: owner subject must be non-empty: %w", domain.ErrInvariantViolation)
 	}
-	if len(req.Evidence) == 0 {
-		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("diagnosis-room starter: evidence must be non-empty JSON: %w", domain.ErrInvariantViolation)
-	}
-	if err := strictjson.RejectDuplicateObjectKeys(req.Evidence); err != nil {
-		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("diagnosis-room starter: evidence must be duplicate-key-free JSON: %w: %w", err, domain.ErrInvariantViolation)
+	if err := validateDiagnosisRoomEvidenceJSON("diagnosis-room starter: evidence", req.Evidence); err != nil {
+		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("%w: %w", err, domain.ErrInvariantViolation)
 	}
 	workflowID, err := DiagnosisRoomWorkflowID(sessionID)
 	if err != nil {

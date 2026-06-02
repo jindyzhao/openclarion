@@ -10,7 +10,6 @@ import (
 	temporalsdk "go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 )
 
@@ -519,11 +518,8 @@ func validateDiagnosisRoomWorkflowInput(input DiagnosisRoomWorkflowInput, policy
 	if strings.TrimSpace(input.OwnerSubject) == "" {
 		return fmt.Errorf("diagnosis-room: input.owner_subject must be non-empty")
 	}
-	if len(input.Evidence) == 0 {
-		return fmt.Errorf("diagnosis-room: input.evidence must be non-empty JSON")
-	}
-	if err := strictjson.RejectDuplicateObjectKeys(input.Evidence); err != nil {
-		return fmt.Errorf("diagnosis-room: input.evidence must be duplicate-key-free JSON: %w", err)
+	if err := validateDiagnosisRoomEvidenceJSON("diagnosis-room: input.evidence", input.Evidence); err != nil {
+		return err
 	}
 	if err := diagnosisroom.ValidatePolicy(policy); err != nil {
 		return err

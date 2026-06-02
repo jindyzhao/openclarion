@@ -37,6 +37,11 @@ func TestValidateDiagnosisRoomWorkflowInputRejectsAmbiguousEvidence(t *testing.T
 			evidence:   json.RawMessage(`{"alert":"cpu"} {"alert":"memory"}`),
 			wantSubstr: "trailing JSON values",
 		},
+		{
+			name:       "non object evidence",
+			evidence:   json.RawMessage(`["cpu"]`),
+			wantSubstr: "must be a JSON object",
+		},
 	}
 
 	for _, tc := range cases {

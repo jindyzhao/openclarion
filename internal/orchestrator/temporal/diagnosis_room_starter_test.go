@@ -148,6 +148,12 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomValidation(t *testing.T) {
 			}),
 			wantSubstr: "trailing JSON values",
 		},
+		{
+			name:       "non_object_evidence",
+			starter:    newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}),
+			req:        withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.Evidence = []byte(`["cpu"]`) }),
+			wantSubstr: "must be a JSON object",
+		},
 		{name: "empty_task_queue", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}, WithDiagnosisRoomStarterTaskQueue(" ")), req: good},
 		{name: "bad_ready_timeout", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}, WithDiagnosisRoomStarterReadyTimeout(0)), req: good},
 	}
