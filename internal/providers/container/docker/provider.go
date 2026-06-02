@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	dockercontainer "github.com/moby/moby/api/types/container"
@@ -443,20 +445,28 @@ func readOutputArchive(reader io.Reader, outputPath string, outputMax int64) (js
 		return nil, fmt.Errorf("output max must be positive")
 	}
 	tr := tar.NewReader(reader)
-	wantName := filepath.Base(outputPath)
+	wantName := path.Base(outputPath)
 	for {
 		header, err := tr.Next()
 		if errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("%s not found in archive", wantName)
 		}
-		if err != nil {
+		if errors.Is(err, tar.ErrInsecurePath) {
+			if header == nil {
+				return nil, fmt.Errorf("read archive header: %w", err)
+			}
+		} else if err != nil {
 			return nil, fmt.Errorf("read archive header: %w", err)
 		}
-		if header.FileInfo().IsDir() {
-			continue
+		memberName, err := outputArchiveMemberName(header.Name)
+		if err != nil {
+			return nil, err
 		}
-		if filepath.Base(header.Name) != wantName {
-			continue
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA {
+			return nil, fmt.Errorf("output archive member %q must be a regular file", header.Name)
+		}
+		if memberName != wantName {
+			return nil, fmt.Errorf("unexpected output archive member %q, want %q", header.Name, wantName)
 		}
 		if header.Size > outputMax {
 			return nil, fmt.Errorf("output size %d exceeds maximum %d", header.Size, outputMax)
@@ -475,4 +485,18 @@ func readOutputArchive(reader io.Reader, outputPath string, outputMax int64) (js
 		}
 		return out, nil
 	}
+}
+
+func outputArchiveMemberName(name string) (string, error) {
+	clean := path.Clean(name)
+	if name == "" || clean == "." || clean == ".." || path.IsAbs(name) || strings.Contains(name, `\`) || strings.HasPrefix(clean, "../") {
+		return "", fmt.Errorf("output archive member path %q is not allowed", name)
+	}
+	if clean != name {
+		return "", fmt.Errorf("output archive member path %q is not normalized", name)
+	}
+	if path.Base(clean) != clean {
+		return "", fmt.Errorf("output archive member %q must be a top-level file", name)
+	}
+	return clean, nil
 }
