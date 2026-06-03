@@ -138,6 +138,30 @@ func TestParseSubReport_RejectsSchemaViolations(t *testing.T) {
 			name:    "semantic length limit",
 			content: strings.Replace(validSubReportJSON(), "CPU saturation on payments", strings.Repeat("x", maxTitleRunes+1), 1),
 		},
+		{
+			name: "duplicate evidence refs",
+			content: `{
+				"title":"CPU",
+				"summary":"CPU high",
+				"severity":"warning",
+				"confidence":"high",
+				"findings":[{"label":"CPU","detail":"high","evidence_id":"alert:1"}],
+				"recommended_actions":[],
+				"evidence_refs":["alert:1", "alert:1"]
+			}`,
+		},
+		{
+			name: "finding evidence omitted from evidence refs",
+			content: `{
+				"title":"CPU",
+				"summary":"CPU high",
+				"severity":"warning",
+				"confidence":"high",
+				"findings":[{"label":"CPU","detail":"high","evidence_id":"alert:1"}],
+				"recommended_actions":[],
+				"evidence_refs":["snapshot:11"]
+			}`,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
