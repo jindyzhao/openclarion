@@ -1420,6 +1420,56 @@ func TestRunRejectsQualityCommandOutputWithMultilineCaseID(t *testing.T) {
 	}
 }
 
+func TestRunRejectsQualityCommandOutputWithMultilineSampleBasis(t *testing.T) {
+	dir := t.TempDir()
+	qualityManifest := writeFile(t, dir, "quality-manifest.json", `{"cases":[{"id":"payments-cpu"}]}`)
+	reviewEvidence := writeFile(t, dir, "review-evidence.json", validReviewEvidence())
+	runner := &fakeRunner{
+		responses: []fakeResponse{
+			{stdout: validBaselineOutput()},
+			{stdout: strings.Replace(validQualityOutput(), `"sample_basis": "representative alert-analysis scenarios"`, `"sample_basis": "representative alert-analysis scenarios\ncontinued"`, 1)},
+		},
+	}
+
+	var stdout bytes.Buffer
+	err := runWithRunner(context.Background(), []string{
+		"--quality-manifest", qualityManifest,
+		"--review-evidence", reviewEvidence,
+		"--out-dir", filepath.Join(dir, "packet"),
+	}, &stdout, runner)
+	if err == nil {
+		t.Fatal("run err = nil, want multiline quality sample_basis rejection")
+	}
+	if !strings.Contains(err.Error(), "quality comparison sample_basis must be a single-line value") {
+		t.Fatalf("run err = %v, want quality sample_basis single-line error", err)
+	}
+}
+
+func TestRunRejectsQualityCommandOutputWithOversizedSampleBasis(t *testing.T) {
+	dir := t.TempDir()
+	qualityManifest := writeFile(t, dir, "quality-manifest.json", `{"cases":[{"id":"payments-cpu"}]}`)
+	reviewEvidence := writeFile(t, dir, "review-evidence.json", validReviewEvidence())
+	runner := &fakeRunner{
+		responses: []fakeResponse{
+			{stdout: validBaselineOutput()},
+			{stdout: strings.Replace(validQualityOutput(), `representative alert-analysis scenarios`, strings.Repeat("a", maxReviewEvidenceTextBytes+1), 1)},
+		},
+	}
+
+	var stdout bytes.Buffer
+	err := runWithRunner(context.Background(), []string{
+		"--quality-manifest", qualityManifest,
+		"--review-evidence", reviewEvidence,
+		"--out-dir", filepath.Join(dir, "packet"),
+	}, &stdout, runner)
+	if err == nil {
+		t.Fatal("run err = nil, want oversized quality sample_basis rejection")
+	}
+	if !strings.Contains(err.Error(), "quality comparison sample_basis exceeds 2048 bytes") {
+		t.Fatalf("run err = %v, want quality sample_basis size error", err)
+	}
+}
+
 func TestRunRejectsQualityCommandOutputWithMultilineEvidenceRef(t *testing.T) {
 	dir := t.TempDir()
 	qualityManifest := writeFile(t, dir, "quality-manifest.json", `{"cases":[{"id":"payments-cpu"}]}`)

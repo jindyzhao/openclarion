@@ -369,11 +369,8 @@ func validateQualityComparison(quality qualityComparison, minCases int) ([]strin
 	if !quality.ReviewRequired {
 		return nil, errors.New("quality comparison review_required must be true")
 	}
-	if strings.TrimSpace(quality.SampleBasis) == "" {
-		return nil, errors.New("quality comparison sample_basis is required")
-	}
-	if strings.TrimSpace(quality.SampleBasis) != quality.SampleBasis {
-		return nil, errors.New("quality comparison sample_basis must not contain leading or trailing whitespace")
+	if err := validateReviewEvidenceText("quality comparison sample_basis", quality.SampleBasis); err != nil {
+		return nil, err
 	}
 	if quality.CaseCount <= 0 {
 		return nil, errors.New("quality comparison case_count must be greater than zero")

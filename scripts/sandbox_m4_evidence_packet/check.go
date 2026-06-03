@@ -1727,11 +1727,8 @@ func validateQualityOutput(raw []byte) error {
 	if !out.ReviewRequired {
 		return errors.New("quality comparison review_required must be true")
 	}
-	if strings.TrimSpace(out.SampleBasis) == "" {
-		return errors.New("quality comparison sample_basis is required")
-	}
-	if strings.TrimSpace(out.SampleBasis) != out.SampleBasis {
-		return errors.New("quality comparison sample_basis must not contain leading or trailing whitespace")
+	if err := validateReviewEvidenceText("quality comparison sample_basis", out.SampleBasis); err != nil {
+		return err
 	}
 	if out.CaseCount <= 0 {
 		return errors.New("quality comparison case_count must be greater than zero")
