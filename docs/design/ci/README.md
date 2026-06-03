@@ -40,6 +40,7 @@ non-existent code is a maintenance burden, not a quality boundary.
 | DCO sign-off validation | M0 -> M1 hardening | landed | `ci.yml` job `dco-check` (PR-only) calls `make dco-check`; rejects PR commits without `Signed-off-by:`, rejects sign-off emails that do not match the commit author email, rejects GitHub `users.noreply.github.com` author emails, and rejects commit messages/trailers with AI tool branding such as `Generated-by:`, AI co-author trailers, or model names. `go test ./scripts` carries temporary-git-repository fixtures for missing, mismatched, noreply-author, and AI-branded commits. |
 | Workflow / Makefile parity | M0 -> M2 hardening | landed | `make workflow-parity`; rejects inline shell, undeclared `make` targets, mutable action refs, missing action version comments, missing PR concurrency, `pull_request` secret references, `pull_request_target` workflows without an explicit reviewer-policy marker, missing default bash shell, unpinned runners, job permissions broader than `contents: read` without `parity-allow`, missing job permissions/timeouts, M0-M2 timeouts above 15 minutes, unregistered workflow files, and duplicate workflow names. `go test ./scripts` carries fixture-backed negative tests for workflow registry, permission drift, and PR secrets boundaries. |
 | GitHub Actions workflow semantic lint | M3 hardening | landed | `make actionlint`; runs pinned `github.com/rhysd/actionlint/cmd/actionlint@v1.7.12` over committed workflows so YAML syntax, GitHub Actions expressions, job graph references, and workflow semantics are checked by actionlint in addition to OpenClarion's custom workflow-policy gate. |
+| Manual target isolation | M4/M5 evidence hardening | landed / existing job | `make manual-target-isolation`; the existing gate-hardening job validates `docs/design/ci/manual-targets.tsv`, requires registered manual smoke/evidence targets to exist, have Manual-prefixed Makefile help, be documented in this file, and stay unreachable from `make ci` plus all workflow `run: make <target>` entry points without adding another top-level CI check. |
 | Go module: generate, vet, build, tests | M0 -> M3 | landed | `make go-checks` (composite of `generate go-vet go-build go-test`) runs the root-module Go package set under `api/`, `cmd/`, `internal/`, and `scripts/`; `go-test` uses `go test -race -count=1`; CI job `go-checks` |
 | Go coverage floor | M3 hardening | landed | `make go-coverage`; runs `scripts/check_go_coverage.sh`, excludes generated API/Ent packages and root script-test aggregators, and requires every selected handwritten Go package with statements to stay at or above `GO_COVERAGE_MIN` (default 40.0%). Root `scripts` tests prove package filtering, threshold failures, and invalid threshold handling. |
 | Testcontainers integration-test contract | M1 -> M3 hardening | landed | `make testcontainers-contract`; parses real Go `_test.go` files outside `testdata/` with `go/parser` / `go/ast`, groups imports by test package directory, rejects any package that imports `database/sql` without also importing `github.com/testcontainers/testcontainers-go...`, and rejects direct host/public network entry points such as `net/http.Get`, `net/http.DefaultClient`, and `net.Dial` in tests. `go test ./scripts` covers same-file harnesses, split setup files, missing Testcontainers imports, analyzer fixture exclusions, commented/string import false positives, allowed `httptest` + injected-client usage, and direct-network negative fixtures. |
@@ -160,6 +161,7 @@ make shell-syntax-check # tracked shell script syntax validation
 make yaml-syntax-check # tracked YAML syntax and weak-feature policy
 make allowlist-discipline # allowlist owner / expiry / removal metadata
 make dependabot-policy-check # Dependabot policy invariants
+make manual-target-isolation # manual smoke/evidence targets stay out of CI
 make workflow-change-guard # PR-only workflow-file change isolation
 LINEAR_HISTORY_BASE_REF=main LINEAR_HISTORY_HEAD_SHA=HEAD make linear-history-check # PR linear history policy
 PR_FILE_COUNT_BASE_REF=main PR_FILE_COUNT_HEAD_SHA=HEAD make pr-file-count-check # PR file-count policy
@@ -219,6 +221,11 @@ the schedule table.
 - Allowlist files must have owners and expiration criteria.
 - A new gate must ship with documentation in this file before being
   merged.
+- Manual smoke and evidence targets that require real external services,
+  Docker daemon access, mutable Docker networks, candidate images, or retained
+  evidence files must be registered in
+  `docs/design/ci/manual-targets.tsv`; `make manual-target-isolation`
+  keeps them out of automated `make ci` and workflow entry points.
 - Gates that block PRs must run within 10 minutes wall-clock for
   M0-M2.
 - Third-party GitHub Actions are pinned to a full commit SHA, with

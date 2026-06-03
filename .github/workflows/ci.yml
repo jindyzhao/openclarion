@@ -130,6 +130,7 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make gate-hardening-check
+      - run: make manual-target-isolation
       - run: make comment-debt-check
       - run: make comment-debt-check-test
       - run: make deferred-followups-check
