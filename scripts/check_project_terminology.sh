@@ -6,8 +6,36 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 rules_file="docs/design/ci/terminology.tsv"
-if [[ ! -f "$rules_file" ]]; then
+
+reject_symlink_ancestors() {
+  local file="$1"
+  local dir
+  dir="$(dirname "$file")"
+
+  while [[ "$dir" != "." && "$dir" != "/" ]]; do
+    if [[ -L "$dir" ]]; then
+      echo "[terminology] $file parent directory $dir must not be a symlink" >&2
+      exit 1
+    fi
+    if [[ -e "$dir" && ! -d "$dir" ]]; then
+      echo "[terminology] $file parent path $dir must be a directory" >&2
+      exit 1
+    fi
+    dir="$(dirname "$dir")"
+  done
+}
+
+reject_symlink_ancestors "$rules_file"
+if [[ -L "$rules_file" ]]; then
+  echo "[terminology] $rules_file must be a regular file, not a symlink" >&2
+  exit 1
+fi
+if [[ ! -e "$rules_file" ]]; then
   echo "[terminology] missing $rules_file" >&2
+  exit 1
+fi
+if [[ ! -f "$rules_file" ]]; then
+  echo "[terminology] $rules_file must be a regular file" >&2
   exit 1
 fi
 
