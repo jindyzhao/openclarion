@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/strictjson"
@@ -363,9 +362,4 @@ func cloneStringMap(in map[string]string) map[string]string {
 		out[k] = v
 	}
 	return out
-}
-
-// formatTime is a convenience for test readability. Unexported.
-func formatTime(t time.Time) string {
-	return domain.NormalizeUTCMicro(t).Format(timeFormat)
 }

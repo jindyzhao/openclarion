@@ -43,7 +43,10 @@ func TestNew_DeepCopiesSeed_PreventsPostConstructPollution(t *testing.T) {
 	seed[0].Labels["new_key"] = "MUTATED"
 	seed[0].Annotations["summary"] = "MUTATED"
 	seed[0].RawPayload[0] = 'X'
-	seed = append(seed, ports.ActiveAlert{Source: "extra"}) // grow original slice header
+	grownSeed := append(seed, ports.ActiveAlert{Source: "extra"}) // grow original slice header
+	if len(grownSeed) != 2 {
+		t.Fatalf("len(grownSeed) = %d, want 2", len(grownSeed))
+	}
 
 	got, err := p.ListActiveAlerts(context.Background())
 	if err != nil {
