@@ -21,6 +21,33 @@ const (
 	defaultMaxTotalBytes int64 = 25 << 20
 )
 
+var blockedArtifactExtensions = map[string]string{
+	".7z":      "compressed archive",
+	".a":       "compiled object archive",
+	".bin":     "generic binary artifact",
+	".bz2":     "compressed archive",
+	".class":   "compiled JVM artifact",
+	".db":      "database artifact",
+	".dll":     "compiled shared library",
+	".dylib":   "compiled shared library",
+	".ear":     "packaged JVM artifact",
+	".exe":     "executable artifact",
+	".gz":      "compressed archive",
+	".jar":     "packaged JVM artifact",
+	".o":       "compiled object artifact",
+	".rar":     "compressed archive",
+	".so":      "compiled shared library",
+	".sqlite":  "database artifact",
+	".sqlite3": "database artifact",
+	".tar":     "archive artifact",
+	".tgz":     "compressed archive",
+	".war":     "packaged JVM artifact",
+	".wasm":    "compiled WebAssembly artifact",
+	".xz":      "compressed archive",
+	".zip":     "compressed archive",
+	".zst":     "compressed archive",
+}
+
 type config struct {
 	Root             string
 	MaxFileBytes     int64
@@ -174,6 +201,12 @@ func checkFiles(root string, paths []string, maxFileBytes, maxTotalBytes int64) 
 	})
 	for _, record := range oversized {
 		problems = append(problems, fmt.Sprintf("%s is %d bytes, exceeds max-file-bytes %d", record.Path, record.Size, maxFileBytes))
+	}
+	for _, record := range records {
+		ext := path.Ext(strings.ToLower(record.Path))
+		if reason, ok := blockedArtifactExtensions[ext]; ok {
+			problems = append(problems, fmt.Sprintf("%s has blocked artifact extension %q (%s)", record.Path, ext, reason))
+		}
 	}
 	if total > maxTotalBytes {
 		problems = append(problems, fmt.Sprintf("repository total is %d bytes, exceeds max-total-bytes %d", total, maxTotalBytes))

@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-06-02
+> Last updated: 2026-06-03
 > Author: jindyzhao
 > Status: private incubation
 
@@ -428,4 +428,5 @@ sessions, leader-tier approval, streaming partial responses.
 | 2026-05-31 | jindyzhao | Shell script syntax validation landed locally: `make shell-syntax-check` discovers Git-tracked `.sh` files and shell-shebang scripts, requires `.sh` entries to be direct regular files, uses bounded first-line reads for shebang detection, and runs `bash -n` through a fixture-backed Go harness before repository scripts can enter CI. |
 | 2026-05-31 | jindyzhao | YAML configuration syntax validation landed locally: `make yaml-syntax-check` parses Git-tracked `.yml` / `.yaml` files with `go.yaml.in/yaml/v3`, rejects symlink/non-regular inputs, bounds file reads, requires a single-document scalar-key YAML tree, and rejects duplicate keys, anchors, aliases, and merge keys before configuration mistakes can be silently overwritten or hidden behind parser-specific expansion behavior. |
 | 2026-06-02 | jindyzhao | Repository size budget gate landed locally: `make repo-size-check` scans Git-visible tracked and non-ignored untracked working-tree files, rejects symlink/non-regular paths, and enforces default 1 MiB per-file / 25 MiB total budgets. The gate is wired into `make ci`; CI runs it in the existing PR budget job with `make repo-size-check-test`, complementing the still-deferred uploaded-artifact budget without adding another top-level workflow check. |
+| 2026-06-03 | jindyzhao | Repository size budget artifact-extension policy hardened locally: `make repo-size-check` now also rejects common archive, executable, object, packaged JVM, WebAssembly, and database artifact extensions for Git-visible files, keeping committed artifact review under the existing repository size gate instead of adding a duplicate workflow job. |
 | 2026-05-30 | jindyzhao | M5 diagnosis WebSocket default Origin validation hardened locally: transport-level `CheckOrigin` now rejects non-http(s), userinfo-bearing, path-bearing, query-bearing, fragment-bearing, and cross-host Origin values before consuming a single-use WebSocket ticket. |
