@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -32,7 +33,7 @@ var referenceRe = regexp.MustCompile(`(?i)(\bADR-[0-9]{4}\b|docs/adr/ADR-[0-9]{4
 func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	os.Exit(run(ctx, os.Getenv, os.ReadFile, realGit{}, os.Stderr))
+	os.Exit(run(ctx, os.Getenv, readRegularFile, realGit{}, os.Stderr))
 }
 
 func run(ctx context.Context, getenv func(string) string, readFile bodyLoader, git gitRunner, stderr io.Writer) int {
@@ -163,6 +164,44 @@ func loadPRBody(getenv func(string) string, readFile bodyLoader) (string, error)
 		return "", fmt.Errorf("invalid GITHUB_EVENT_PATH JSON: %w", err)
 	}
 	return event.PullRequest.Body, nil
+}
+
+func readRegularFile(path string) ([]byte, error) {
+	cleanPath := filepath.Clean(path)
+	if err := validateNoSymlinkAncestors(cleanPath); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(cleanPath)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%s must be a regular file, not a symlink", cleanPath)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s must be a regular file", cleanPath)
+	}
+	// #nosec G304 -- GITHUB_EVENT_PATH is validated as a direct regular file before reading.
+	return os.ReadFile(cleanPath)
+}
+
+func validateNoSymlinkAncestors(cleanPath string) error {
+	for dir := filepath.Dir(cleanPath); dir != "."; dir = filepath.Dir(dir) {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s parent directory %s must not be a symlink", cleanPath, dir)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s parent path %s must be a directory", cleanPath, dir)
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			return nil
+		}
+	}
+	return nil
 }
 
 func hasImpactReference(body string) bool {
