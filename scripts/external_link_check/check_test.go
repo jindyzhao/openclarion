@@ -68,6 +68,19 @@ func TestRunLiveSkipsReservedExampleLinks(t *testing.T) {
 	}
 }
 
+func TestRunLiveSkipsReservedExampleLinksInCodeSpans(t *testing.T) {
+	root := t.TempDir()
+	writeExternalLinkFile(t, root, "docs/design.md", "Allowed origins reject `https://user@example.test` before normalizing to `https://example.test`.\n")
+
+	var stdout bytes.Buffer
+	if err := run(config{Root: root, Live: true, Timeout: time.Second}, &stdout); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "[external-links] OK (0 unique external links checked across 1 files; 2 reserved example links skipped)") {
+		t.Fatalf("stdout = %q", stdout.String())
+	}
+}
+
 func TestRunLiveRejectsMissingExternalLink(t *testing.T) {
 	server := httptest.NewServer(http.NotFoundHandler())
 	defer server.Close()

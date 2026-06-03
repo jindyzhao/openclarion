@@ -96,7 +96,7 @@ Input file:
       "tier": "backend",
       "dependencies": ["postgres"],
       "dependents": ["checkout"],
-      "runbooks": ["https://runbooks.example/payments"],
+      "runbooks": ["runbook:payments"],
       "metadata": { "env": "prod" }
     }
   ]
@@ -105,6 +105,10 @@ Input file:
 
 Success output includes the selected node plus any dependency/dependent nodes
 present in the same file.
+
+Runbook values in static topology examples are internal identifiers, not live
+external documentation links. Real deployments can map them to owned runbook
+systems before mounting the topology file.
 
 ## Security Posture
 
