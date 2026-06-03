@@ -69,6 +69,8 @@ Go dependency licenses are checked with pinned `go-licenses v1.6.0` through
 the root Go module and `tools/openclarion-linter`; first-party OpenClarion
 package prefixes are ignored in `go-licenses` so the gate evaluates third-party
 dependencies while still traversing dependencies imported from those packages.
+The SPDX allowlist line must carry non-empty owner, non-future review date, and
+reason metadata.
 
 ```text
 go-license-allow: Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MIT,MPL-2.0; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency SPDX IDs for current runtime, tooling, and test dependency graph

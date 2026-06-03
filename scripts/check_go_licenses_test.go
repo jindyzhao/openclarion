@@ -54,6 +54,82 @@ func TestGoLicensesCheckRejectsMissingAllowlist(t *testing.T) {
 	}
 }
 
+func TestGoLicensesCheckRejectsMissingPolicyMetadata(t *testing.T) {
+	tests := []struct {
+		name   string
+		policy string
+		want   string
+	}{
+		{
+			name:   "missing owner",
+			policy: "go-license-allow: Apache-2.0, MIT; reviewed: 2026-05-29; reason: accepted licenses\n",
+			want:   "owner: <owner>",
+		},
+		{
+			name:   "missing reviewed",
+			policy: "go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reason: accepted licenses\n",
+			want:   "reviewed: YYYY-MM-DD",
+		},
+		{
+			name:   "missing reason",
+			policy: "go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29\n",
+			want:   "reason: <reason>",
+		},
+		{
+			name:   "empty owner",
+			policy: "go-license-allow: Apache-2.0, MIT; owner: ; reviewed: 2026-05-29; reason: accepted licenses\n",
+			want:   "owner: <owner>",
+		},
+		{
+			name:   "empty reason",
+			policy: "go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29; reason: \n",
+			want:   "reason: <reason>",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := newGoLicensesFixture(t)
+			goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", "# Dependency Policy\n\n"+tt.policy, 0o644)
+
+			out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "")
+			if err == nil {
+				t.Fatalf("go licenses check passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, tt.want) {
+				t.Fatalf("output = %q, want %q", out, tt.want)
+			}
+		})
+	}
+}
+
+func TestGoLicensesCheckRejectsInvalidPolicyReviewedDate(t *testing.T) {
+	tests := []struct {
+		name     string
+		reviewed string
+		want     string
+	}{
+		{name: "invalid calendar date", reviewed: "2026-02-31", want: "is invalid"},
+		{name: "future date", reviewed: "2026-05-31", want: "is in the future"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := newGoLicensesFixture(t)
+			goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", `# Dependency Policy
+
+go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: `+tt.reviewed+`; reason: accepted Go dependency licenses
+`, 0o644)
+
+			out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "")
+			if err == nil {
+				t.Fatalf("go licenses check passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, tt.want) {
+				t.Fatalf("output = %q, want %q", out, tt.want)
+			}
+		})
+	}
+}
+
 func TestGoLicensesCheckPropagatesToolFailure(t *testing.T) {
 	root := newGoLicensesFixture(t)
 	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", `# Dependency Policy
@@ -125,6 +201,7 @@ func runGoLicensesCheck(t *testing.T, root, callsPath, fakeFail string) (string,
 		"PATH="+filepath.Join(root, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"GO_LICENSES_CALLS="+callsPath,
 		"GO_LICENSES_FAKE_FAIL="+fakeFail,
+		"GO_LICENSES_REVIEW_TODAY=2026-05-30",
 	)
 	raw, err := cmd.CombinedOutput()
 	return string(raw), err
