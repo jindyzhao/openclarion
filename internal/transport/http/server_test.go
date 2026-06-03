@@ -802,9 +802,9 @@ func TestHandleDiagnosisWebSocketConsumesTicketAndHandsOffConnection(t *testing.
 	}
 }
 
-func TestHandleDiagnosisWebSocketRejectsBadOriginBeforeConsumingTicket(t *testing.T) {
+func TestHandleDiagnosisWebSocketAcceptsSameHostOrigin(t *testing.T) {
 	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
-	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("E", diagnosisauth.DefaultTokenBytes)))
+	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("O", diagnosisauth.DefaultTokenBytes)))
 	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
 	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
 		Subject: "owner-1",
@@ -813,31 +813,129 @@ func TestHandleDiagnosisWebSocketRejectsBadOriginBeforeConsumingTicket(t *testin
 	if err != nil {
 		t.Fatalf("IssueTicket: %v", err)
 	}
+	wsHandler := &fakeDiagnosisWebSocketHandler{done: make(chan struct{})}
 	handler := testHandlerWithDiagnosisWS(
 		&fakeUOWFactory{},
 		WithDiagnosisAuth(&neverAuthProvider{}, service, &fakeDiagnosisSessionResolver{
 			sessions: map[string]diagnosisauth.SessionRef{"session-1": session},
 		}),
-		WithDiagnosisWebSocketHandler(&fakeDiagnosisWebSocketHandler{}),
+		WithDiagnosisWebSocketHandler(wsHandler),
 		withDiagnosisClock(func() time.Time { return now.Add(time.Second) }),
 	)
 	srv := httptest.NewServer(handler)
 	defer srv.Close()
 
-	headers := stdhttp.Header{"Origin": []string{"https://evil.example"}}
+	host := strings.TrimPrefix(srv.URL, "http://")
+	headers := stdhttp.Header{"Origin": []string{"http://" + host}}
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/diagnosis?session_id=session-1&ticket=" + ticket.Token
 	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, headers)
 	defer closeWebSocketDialResponse(resp)
-	if err == nil {
-		_ = conn.Close()
-		t.Fatal("Dial with bad origin: want error")
+	if err != nil {
+		t.Fatalf("Dial: %v; resp=%v", err, resp)
 	}
-	if resp == nil || resp.StatusCode != stdhttp.StatusForbidden {
-		t.Fatalf("resp status = %v, want 403", resp)
+	defer conn.Close()
+
+	var ready map[string]string
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("ReadJSON ready: %v", err)
+	}
+	select {
+	case <-wsHandler.done:
+	case <-time.After(time.Second):
+		t.Fatal("websocket handler did not finish")
+	}
+	if ready["type"] != "ready" || wsHandler.called != 1 {
+		t.Fatalf("ready=%+v handler called=%d", ready, wsHandler.called)
+	}
+}
+
+func TestHandleDiagnosisWebSocketRejectsBadOriginBeforeConsumingTicket(t *testing.T) {
+	tests := []struct {
+		name   string
+		origin func(host string) string
+	}{
+		{
+			name:   "different host",
+			origin: func(string) string { return "https://evil.example" },
+		},
+		{
+			name:   "userinfo same host",
+			origin: func(host string) string { return "https://operator@" + host },
+		},
+		{
+			name:   "escaped userinfo same host",
+			origin: func(host string) string { return "https://operator%40team@" + host },
+		},
+		{
+			name:   "malformed",
+			origin: func(string) string { return "http://[::1" },
+		},
+		{
+			name:   "missing host",
+			origin: func(host string) string { return "https:" + host },
+		},
+		{
+			name:   "path same host",
+			origin: func(host string) string { return "https://" + host + "/diagnosis" },
+		},
+		{
+			name:   "root path same host",
+			origin: func(host string) string { return "https://" + host + "/" },
+		},
+		{
+			name:   "query same host",
+			origin: func(host string) string { return "https://" + host + "?ticket=redacted" },
+		},
+		{
+			name:   "fragment same host",
+			origin: func(host string) string { return "https://" + host + "#diagnosis" },
+		},
+		{
+			name:   "scheme same host",
+			origin: func(host string) string { return "ftp://" + host },
+		},
 	}
 
-	if _, err := service.ConsumeTicket(context.Background(), ticket.Token, session, now.Add(2*time.Second)); err != nil {
-		t.Fatalf("ticket should not be consumed by rejected origin: %v", err)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+			service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("E", diagnosisauth.DefaultTokenBytes)))
+			session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
+			ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
+				Subject: "owner-1",
+				Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+			}, session, now)
+			if err != nil {
+				t.Fatalf("IssueTicket: %v", err)
+			}
+			handler := testHandlerWithDiagnosisWS(
+				&fakeUOWFactory{},
+				WithDiagnosisAuth(&neverAuthProvider{}, service, &fakeDiagnosisSessionResolver{
+					sessions: map[string]diagnosisauth.SessionRef{"session-1": session},
+				}),
+				WithDiagnosisWebSocketHandler(&fakeDiagnosisWebSocketHandler{}),
+				withDiagnosisClock(func() time.Time { return now.Add(time.Second) }),
+			)
+			srv := httptest.NewServer(handler)
+			defer srv.Close()
+
+			host := strings.TrimPrefix(srv.URL, "http://")
+			headers := stdhttp.Header{"Origin": []string{tc.origin(host)}}
+			wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/diagnosis?session_id=session-1&ticket=" + ticket.Token
+			conn, resp, err := websocket.DefaultDialer.Dial(wsURL, headers)
+			defer closeWebSocketDialResponse(resp)
+			if err == nil {
+				_ = conn.Close()
+				t.Fatal("Dial with bad origin: want error")
+			}
+			if resp == nil || resp.StatusCode != stdhttp.StatusForbidden {
+				t.Fatalf("resp status = %v, want 403", resp)
+			}
+
+			if _, err := service.ConsumeTicket(context.Background(), ticket.Token, session, now.Add(2*time.Second)); err != nil {
+				t.Fatalf("ticket should not be consumed by rejected origin: %v", err)
+			}
+		})
 	}
 }
 
