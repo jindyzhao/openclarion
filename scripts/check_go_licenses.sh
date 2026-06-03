@@ -11,8 +11,53 @@ POLICY_FILE="docs/design/DEPENDENCIES.md"
 ALLOW_MARKER="go-license-allow:"
 TODAY="${GO_LICENSES_REVIEW_TODAY:-$(date -u +%F)}"
 
-if [[ ! -f "$POLICY_FILE" ]]; then
+reject_symlink_ancestors() {
+  local file="$1"
+  local dir=""
+  local part=""
+  local path_part=""
+  local -a parts=()
+
+  if [[ "$file" != */* ]]; then
+    return 0
+  fi
+  dir="${file%/*}"
+
+  IFS='/' read -r -a parts <<< "$dir"
+  for part in "${parts[@]}"; do
+    if [[ -z "$part" || "$part" == "." ]]; then
+      continue
+    fi
+    if [[ -z "$path_part" ]]; then
+      path_part="$part"
+    else
+      path_part="$path_part/$part"
+    fi
+    if [[ -L "$path_part" ]]; then
+      echo "[go-licenses] $file parent directory $path_part must not be a symlink" >&2
+      return 1
+    fi
+    if [[ -e "$path_part" && ! -d "$path_part" ]]; then
+      echo "[go-licenses] $file parent directory $path_part must be a directory" >&2
+      return 1
+    fi
+  done
+  return 0
+}
+
+if ! reject_symlink_ancestors "$POLICY_FILE"; then
+  exit 1
+fi
+if [[ -L "$POLICY_FILE" ]]; then
+  echo "[go-licenses] $POLICY_FILE must be a regular file, not a symlink" >&2
+  exit 1
+fi
+if [[ ! -e "$POLICY_FILE" ]]; then
   echo "[go-licenses] missing $POLICY_FILE" >&2
+  exit 1
+fi
+if [[ ! -f "$POLICY_FILE" ]]; then
+  echo "[go-licenses] $POLICY_FILE must be a regular file" >&2
   exit 1
 fi
 

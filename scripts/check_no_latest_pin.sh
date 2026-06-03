@@ -71,6 +71,41 @@ critical_go_modules=(
 concrete_go_version_re='^v[0-9]+[.][0-9]+[.][0-9]+([-.+][0-9A-Za-z.-]+)?$'
 replace_allowlist_file="docs/design/DEPENDENCIES.md"
 
+reject_symlink_ancestors() {
+  local file="$1"
+  local prefix="$2"
+  local dir=""
+  local part=""
+  local path_part=""
+  local -a parts=()
+
+  if [[ "$file" != */* ]]; then
+    return 0
+  fi
+  dir="${file%/*}"
+
+  IFS='/' read -r -a parts <<< "$dir"
+  for part in "${parts[@]}"; do
+    if [[ -z "$part" || "$part" == "." ]]; then
+      continue
+    fi
+    if [[ -z "$path_part" ]]; then
+      path_part="$part"
+    else
+      path_part="$path_part/$part"
+    fi
+    if [[ -L "$path_part" ]]; then
+      echo "[$prefix] $file parent directory $path_part must not be a symlink" >&2
+      return 1
+    fi
+    if [[ -e "$path_part" && ! -d "$path_part" ]]; then
+      echo "[$prefix] $file parent directory $path_part must be a directory" >&2
+      return 1
+    fi
+  done
+  return 0
+}
+
 is_critical_go_module() {
   local module="$1"
   local critical
@@ -224,7 +259,21 @@ check_replace_allowlist() {
   local allowlist_line=""
   local expires_at=""
   local expires_normalized=""
-  if [[ -f "$replace_allowlist_file" ]]; then
+  if ! reject_symlink_ancestors "$replace_allowlist_file" "forbidden-latest"; then
+    failed=1
+    return
+  fi
+  if [[ -L "$replace_allowlist_file" ]]; then
+    echo "[forbidden-latest] $replace_allowlist_file must be a regular file, not a symlink" >&2
+    failed=1
+    return
+  fi
+  if [[ -e "$replace_allowlist_file" && ! -f "$replace_allowlist_file" ]]; then
+    echo "[forbidden-latest] $replace_allowlist_file must be a regular file" >&2
+    failed=1
+    return
+  fi
+  if [[ -e "$replace_allowlist_file" ]]; then
     allowlist_line="$(grep -F "$marker" "$replace_allowlist_file" | head -n 1 || true)"
   fi
 

@@ -130,6 +130,101 @@ go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: `+tt.reviewe
 	}
 }
 
+func TestGoLicensesCheckRejectsSymlinkPolicyFile(t *testing.T) {
+	root := newGoLicensesFixture(t)
+	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", `# Dependency Policy
+
+go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency licenses
+`, 0o644)
+	policy := filepath.Join(root, "docs", "design", "DEPENDENCIES.md")
+	target := filepath.Join(root, "docs", "design", "DEPENDENCIES-target.md")
+	if err := os.Rename(policy, target); err != nil {
+		t.Fatalf("rename dependency policy: %v", err)
+	}
+	if err := os.Symlink(target, policy); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "")
+	if err == nil {
+		t.Fatalf("go licenses check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/DEPENDENCIES.md must be a regular file, not a symlink") {
+		t.Fatalf("output = %q, want symlink policy rejection", out)
+	}
+}
+
+func TestGoLicensesCheckRejectsSymlinkPolicyParent(t *testing.T) {
+	root := newGoLicensesFixture(t)
+	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", `# Dependency Policy
+
+go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency licenses
+`, 0o644)
+	design := filepath.Join(root, "docs", "design")
+	target := filepath.Join(root, "docs", "design-target")
+	if err := os.Rename(design, target); err != nil {
+		t.Fatalf("rename dependency policy parent: %v", err)
+	}
+	if err := os.Symlink(target, design); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+
+	out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "")
+	if err == nil {
+		t.Fatalf("go licenses check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/DEPENDENCIES.md parent directory docs/design must not be a symlink") {
+		t.Fatalf("output = %q, want symlink policy parent rejection", out)
+	}
+}
+
+func TestGoLicensesCheckRejectsNonDirectoryPolicyParent(t *testing.T) {
+	root := newGoLicensesFixture(t)
+	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", `# Dependency Policy
+
+go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency licenses
+`, 0o644)
+	design := filepath.Join(root, "docs", "design")
+	target := filepath.Join(root, "docs", "design-target")
+	if err := os.Rename(design, target); err != nil {
+		t.Fatalf("rename dependency policy parent: %v", err)
+	}
+	if err := os.WriteFile(design, []byte("not a directory\n"), 0o600); err != nil {
+		t.Fatalf("write non-directory dependency policy parent: %v", err)
+	}
+
+	out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "")
+	if err == nil {
+		t.Fatalf("go licenses check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/DEPENDENCIES.md parent directory docs/design must be a directory") {
+		t.Fatalf("output = %q, want non-directory policy parent rejection", out)
+	}
+}
+
+func TestGoLicensesCheckRejectsNonRegularPolicyFile(t *testing.T) {
+	root := newGoLicensesFixture(t)
+	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", `# Dependency Policy
+
+go-license-allow: Apache-2.0, MIT; owner: CI maintainers; reviewed: 2026-05-29; reason: accepted Go dependency licenses
+`, 0o644)
+	policy := filepath.Join(root, "docs", "design", "DEPENDENCIES.md")
+	if err := os.Remove(policy); err != nil {
+		t.Fatalf("remove dependency policy: %v", err)
+	}
+	if err := os.Mkdir(policy, 0o750); err != nil {
+		t.Fatalf("mkdir dependency policy path: %v", err)
+	}
+
+	out, err := runGoLicensesCheck(t, root, filepath.Join(root, "calls.txt"), "")
+	if err == nil {
+		t.Fatalf("go licenses check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "docs/design/DEPENDENCIES.md must be a regular file") {
+		t.Fatalf("output = %q, want regular-file policy rejection", out)
+	}
+}
+
 func TestGoLicensesCheckPropagatesToolFailure(t *testing.T) {
 	root := newGoLicensesFixture(t)
 	goLicensesWriteFile(t, root, "docs/design/DEPENDENCIES.md", `# Dependency Policy
