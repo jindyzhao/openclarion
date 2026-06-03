@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -208,10 +209,17 @@ func TestProviderRejectsTrailingClaimPayloadValueDuringVerification(t *testing.T
 }
 
 func TestNewProviderRejectsInvalidConfig(t *testing.T) {
+	passwordIssuer := (&url.URL{
+		Scheme: "https",
+		User:   url.UserPassword("operator", "opaque"),
+		Host:   "issuer.example",
+	}).String()
+	rawMarker := "raw-marker"
 	tests := []struct {
-		name string
-		cfg  Config
-		want string
+		name    string
+		cfg     Config
+		want    string
+		wantNot string
 	}{
 		{
 			name: "empty issuer",
@@ -222,6 +230,27 @@ func TestNewProviderRejectsInvalidConfig(t *testing.T) {
 			name: "empty client",
 			cfg:  Config{IssuerURL: "https://issuer.example"},
 			want: "client id",
+		},
+		{
+			name:    "malformed credentialed issuer does not leak raw input",
+			cfg:     Config{IssuerURL: "https://operator:" + rawMarker + "@issuer.example/\nrealm", ClientID: "client"},
+			want:    "parse issuer url",
+			wantNot: rawMarker,
+		},
+		{
+			name: "issuer username userinfo",
+			cfg:  Config{IssuerURL: "https://operator@issuer.example", ClientID: "client"},
+			want: "userinfo",
+		},
+		{
+			name: "issuer password userinfo",
+			cfg:  Config{IssuerURL: passwordIssuer, ClientID: "client"},
+			want: "userinfo",
+		},
+		{
+			name: "issuer escaped userinfo",
+			cfg:  Config{IssuerURL: "https://%6fperator@issuer.example", ClientID: "client"},
+			want: "userinfo",
 		},
 		{
 			name: "bad role values",
@@ -241,6 +270,9 @@ func TestNewProviderRejectsInvalidConfig(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("error = %q, want substring %q", err.Error(), tc.want)
+			}
+			if tc.wantNot != "" && strings.Contains(err.Error(), tc.wantNot) {
+				t.Fatalf("error = %q, must not contain %q", err.Error(), tc.wantNot)
 			}
 		})
 	}

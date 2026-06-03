@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -296,10 +297,38 @@ func TestSendNotification_StatusErrorClassifiesRetryability(t *testing.T) {
 }
 
 func TestNewProvider_RejectsInvalidURL(t *testing.T) {
-	for _, raw := range []string{"", "://bad", "/relative", "ftp://example.com/hook"} {
-		t.Run(raw, func(t *testing.T) {
-			if _, err := NewProvider(Config{URL: raw}); err == nil {
-				t.Fatalf("NewProvider(%q): want error, got nil", raw)
+	passwordURL := (&url.URL{
+		Scheme: "https",
+		User:   url.UserPassword("operator", "opaque"),
+		Host:   "example.com",
+		Path:   "/hook",
+	}).String()
+	rawMarker := "raw-marker"
+	tests := []struct {
+		raw     string
+		want    string
+		wantNot string
+	}{
+		{raw: "", want: "non-empty"},
+		{raw: "://bad", want: "parse"},
+		{raw: "https://operator:" + rawMarker + "@example.com/\nhook", want: "parse", wantNot: rawMarker},
+		{raw: "/relative", want: "scheme"},
+		{raw: "ftp://example.com/hook", want: "scheme"},
+		{raw: "https://operator@example.com/hook", want: "userinfo"},
+		{raw: passwordURL, want: "userinfo"},
+		{raw: "https://%6fperator@example.com/hook", want: "userinfo"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.raw, func(t *testing.T) {
+			_, err := NewProvider(Config{URL: tc.raw})
+			if err == nil {
+				t.Fatalf("NewProvider(%q): want error, got nil", tc.raw)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("NewProvider(%q) error = %v, want substring %q", tc.raw, err, tc.want)
+			}
+			if tc.wantNot != "" && strings.Contains(err.Error(), tc.wantNot) {
+				t.Fatalf("NewProvider(%q) error = %v, must not contain %q", tc.raw, err, tc.wantNot)
 			}
 		})
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -385,19 +386,39 @@ func TestNewProviderWithCapabilityDetection_RejectsAmbiguousCapabilityError(t *t
 }
 
 func TestNewProvider_Validation(t *testing.T) {
+	passwordBaseURL := (&url.URL{
+		Scheme: "https",
+		User:   url.UserPassword("operator", "opaque"),
+		Host:   "api.example.test",
+		Path:   "/v1",
+	}).String()
+	rawMarker := "raw-marker"
 	tests := []struct {
-		name string
-		cfg  Config
+		name    string
+		cfg     Config
+		want    string
+		wantNot string
 	}{
-		{name: "missing model", cfg: Config{BaseURL: "https://api.example.test/v1", OutputMode: ports.LLMOutputModeJSONSchema}},
-		{name: "relative base url", cfg: Config{BaseURL: "/v1", Model: "gpt-test", OutputMode: ports.LLMOutputModeJSONSchema}},
-		{name: "unsupported output mode", cfg: Config{BaseURL: "https://api.example.test/v1", Model: "gpt-test", OutputMode: ports.LLMOutputMode("text")}},
+		{name: "missing model", cfg: Config{BaseURL: "https://api.example.test/v1", OutputMode: ports.LLMOutputModeJSONSchema}, want: "model"},
+		{name: "malformed credentialed base url does not leak raw input", cfg: Config{BaseURL: "https://operator:" + rawMarker + "@api.example.test/\nv1", Model: "gpt-test", OutputMode: ports.LLMOutputModeJSONSchema}, want: "parse base url", wantNot: rawMarker},
+		{name: "relative base url", cfg: Config{BaseURL: "/v1", Model: "gpt-test", OutputMode: ports.LLMOutputModeJSONSchema}, want: "absolute"},
+		{name: "unsupported base url scheme", cfg: Config{BaseURL: "ftp://api.example.test/v1", Model: "gpt-test", OutputMode: ports.LLMOutputModeJSONSchema}, want: "scheme"},
+		{name: "base url username userinfo", cfg: Config{BaseURL: "https://operator@api.example.test/v1", Model: "gpt-test", OutputMode: ports.LLMOutputModeJSONSchema}, want: "userinfo"},
+		{name: "base url password userinfo", cfg: Config{BaseURL: passwordBaseURL, Model: "gpt-test", OutputMode: ports.LLMOutputModeJSONSchema}, want: "userinfo"},
+		{name: "base url escaped userinfo", cfg: Config{BaseURL: "https://%6fperator@api.example.test/v1", Model: "gpt-test", OutputMode: ports.LLMOutputModeJSONSchema}, want: "userinfo"},
+		{name: "unsupported output mode", cfg: Config{BaseURL: "https://api.example.test/v1", Model: "gpt-test", OutputMode: ports.LLMOutputMode("text")}, want: "output mode"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := NewProvider(tc.cfg)
 			if err == nil {
 				t.Fatalf("NewProvider: want error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("NewProvider error = %v, want substring %q", err, tc.want)
+			}
+			if tc.wantNot != "" && strings.Contains(err.Error(), tc.wantNot) {
+				t.Fatalf("NewProvider error = %v, must not contain %q", err, tc.wantNot)
 			}
 		})
 	}

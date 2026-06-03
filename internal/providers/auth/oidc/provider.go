@@ -140,13 +140,16 @@ func normalizeIssuer(raw string) (string, error) {
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return "", fmt.Errorf("oidc auth: parse issuer url: %w", err)
+		return "", fmt.Errorf("oidc auth: parse issuer url")
 	}
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return "", fmt.Errorf("oidc auth: issuer url scheme must be http or https")
 	}
 	if parsed.Host == "" {
 		return "", fmt.Errorf("oidc auth: issuer url must be absolute")
+	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("oidc auth: issuer url must not include userinfo")
 	}
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
