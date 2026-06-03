@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -161,6 +162,49 @@ func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoom(t *testing.T) {
 	if originPolicy.CheckWebSocketOrigin(req) {
 		t.Fatal("expected unconfigured origin to be rejected")
 	}
+}
+
+func TestHTTPServerOptionsFromEnv_RejectsCredentialedDiagnosisAllowedOrigin(t *testing.T) {
+	oidcServer := newOIDCDiscoveryServer(t)
+	rawOriginMarker := "raw-marker"
+	tests := []struct {
+		name       string
+		origin     string
+		wantDetail string
+		wantNot    string
+	}{
+		{name: "username", origin: "https://operator@example.test", wantDetail: "userinfo", wantNot: "operator@example.test"},
+		{name: "password", origin: credentialedDiagnosisOrigin(), wantDetail: "userinfo", wantNot: "opaque"},
+		{name: "escaped userinfo", origin: "https://operator%40team@example.test", wantDetail: "userinfo", wantNot: "operator%40team"},
+		{name: "malformed credentialed origin does not leak raw input", origin: "https://operator:%" + rawOriginMarker + "@example.test", wantDetail: "parse origin", wantNot: rawOriginMarker},
+		{name: "credentialed unsupported scheme does not leak raw input", origin: "ftp://operator:" + rawOriginMarker + "@example.test", wantDetail: "userinfo", wantNot: rawOriginMarker},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+				"OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL": " " + oidcServer.URL + " ",
+				"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID":  "openclarion-web",
+				"OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS": tc.origin,
+			}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil)
+			if err == nil {
+				t.Fatal("expected credentialed allowed origin error, got nil")
+			}
+			if !strings.Contains(err.Error(), "OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS") || !strings.Contains(err.Error(), tc.wantDetail) {
+				t.Fatalf("error = %q, want allowed origins %q rejection", err.Error(), tc.wantDetail)
+			}
+			if tc.wantNot != "" && strings.Contains(err.Error(), tc.wantNot) {
+				t.Fatalf("error = %q, must not contain %q", err.Error(), tc.wantNot)
+			}
+		})
+	}
+}
+
+func credentialedDiagnosisOrigin() string {
+	return (&url.URL{
+		Scheme: "https",
+		User:   url.UserPassword("operator", "opaque"),
+		Host:   "example.test",
+	}).String()
 }
 
 func TestHTTPServerOptionsFromEnv_RejectsIncompleteDiagnosisConfig(t *testing.T) {
