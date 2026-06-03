@@ -10,6 +10,7 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
+	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -104,6 +105,12 @@ func Validate(req ports.LLMRequest, resp ports.LLMResponse) (Accepted, error) {
 	}
 	if len(resp.Content) == 0 {
 		return Accepted{}, reject(ReasonInvalidJSON, true, fmt.Errorf("content must be non-empty JSON"))
+	}
+	if err := strictjson.RejectDuplicateObjectKeys(resp.Content); err != nil {
+		return Accepted{}, reject(ReasonInvalidJSON, true, fmt.Errorf("content must be strict JSON: %w", err))
+	}
+	if err := strictjson.RejectDuplicateObjectKeys(req.OutputSchema); err != nil {
+		return Accepted{}, reject(ReasonInvalidRequest, false, fmt.Errorf("output schema %q must be strict JSON: %w", req.OutputSchemaID, err))
 	}
 
 	schema, err := compileSchema(req.OutputSchemaID, req.OutputSchema)
