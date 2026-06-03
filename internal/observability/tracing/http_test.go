@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -61,6 +62,91 @@ func TestConfigFromEnvRejectsUnsupportedExporter(t *testing.T) {
 	if _, err := ConfigFromEnv(mapGetenv(map[string]string{"OTEL_TRACES_EXPORTER": "stdout"})); err == nil {
 		t.Fatalf("ConfigFromEnv returned nil error, want unsupported exporter error")
 	}
+}
+
+func TestConfigFromEnvRejectsCredentialedOTLPEndpoint(t *testing.T) {
+	rawEndpointMarker := "raw-marker"
+	tests := []struct {
+		name       string
+		env        map[string]string
+		want       string
+		wantDetail string
+		wantNot    string
+	}{
+		{
+			name:       "generic endpoint username",
+			env:        map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "https://operator@collector.example.test"},
+			want:       "OTEL_EXPORTER_OTLP_ENDPOINT",
+			wantDetail: "userinfo",
+		},
+		{
+			name:       "generic endpoint password",
+			env:        map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": credentialedOTLPEndpoint("")},
+			want:       "OTEL_EXPORTER_OTLP_ENDPOINT",
+			wantDetail: "userinfo",
+		},
+		{
+			name:       "malformed generic endpoint does not leak raw input",
+			env:        map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "https://operator:" + rawEndpointMarker + "@collector.example.test/\notlp"},
+			want:       "OTEL_EXPORTER_OTLP_ENDPOINT",
+			wantDetail: "parse endpoint",
+			wantNot:    rawEndpointMarker,
+		},
+		{
+			name:       "generic endpoint escaped userinfo",
+			env:        map[string]string{"OTEL_EXPORTER_OTLP_ENDPOINT": "https://operator%40team@collector.example.test"},
+			want:       "OTEL_EXPORTER_OTLP_ENDPOINT",
+			wantDetail: "userinfo",
+		},
+		{
+			name:       "traces endpoint username",
+			env:        map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://operator@collector.example.test/v1/traces"},
+			want:       "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+			wantDetail: "userinfo",
+		},
+		{
+			name:       "traces endpoint password",
+			env:        map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": credentialedOTLPEndpoint("/v1/traces")},
+			want:       "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+			wantDetail: "userinfo",
+		},
+		{
+			name:       "malformed traces endpoint does not leak raw input",
+			env:        map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://operator:" + rawEndpointMarker + "@collector.example.test/\nv1/traces"},
+			want:       "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+			wantDetail: "parse endpoint",
+			wantNot:    rawEndpointMarker,
+		},
+		{
+			name:       "traces endpoint escaped userinfo",
+			env:        map[string]string{"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": "https://operator%40team@collector.example.test/v1/traces"},
+			want:       "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+			wantDetail: "userinfo",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := ConfigFromEnv(mapGetenv(tc.env))
+			if err == nil {
+				t.Fatalf("ConfigFromEnv: want userinfo error")
+			}
+			if !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), tc.wantDetail) {
+				t.Fatalf("error = %q, want %q and %q", err.Error(), tc.want, tc.wantDetail)
+			}
+			if tc.wantNot != "" && strings.Contains(err.Error(), tc.wantNot) {
+				t.Fatalf("error = %q, must not contain %q", err.Error(), tc.wantNot)
+			}
+		})
+	}
+}
+
+func credentialedOTLPEndpoint(path string) string {
+	return (&url.URL{
+		Scheme: "https",
+		User:   url.UserPassword("operator", "opaque"),
+		Host:   "collector.example.test",
+		Path:   path,
+	}).String()
 }
 
 func TestHTTPTracingMiddlewareCreatesStableServerSpan(t *testing.T) {
