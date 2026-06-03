@@ -99,6 +99,57 @@ func TestCheckAllowlistFileRejectsExpiredMetadata(t *testing.T) {
 	}
 }
 
+func TestCheckAllowlistFileRejectsExpiryBeyondReviewHorizon(t *testing.T) {
+	now := time.Date(2026, 5, 29, 14, 30, 0, 0, time.FixedZone("UTC+8", 8*60*60))
+	contents := `# Owner: openclarion CI maintainers.
+# Expires: 2026-09-27.
+# Removal trigger: delete after fixture changes.
+[[rules.allowlists]]
+`
+
+	findings, _ := checkAllowlistFile(gitleaksSpec, contents, now)
+	if len(findings) != 1 {
+		t.Fatalf("findings = %#v, want one horizon finding", findings)
+	}
+	if !strings.Contains(findings[0].Msg, "more than 120 days") {
+		t.Fatalf("finding = %#v, want horizon message", findings[0])
+	}
+}
+
+func TestCheckAllowlistFileAcceptsExpiryAtReviewHorizon(t *testing.T) {
+	now := time.Date(2026, 5, 29, 23, 59, 0, 0, time.UTC)
+	contents := `# Owner: openclarion CI maintainers.
+# Expires: 2026-09-26.
+# Removal trigger: delete after fixture changes.
+[[rules.allowlists]]
+`
+
+	findings, entries := checkAllowlistFile(gitleaksSpec, contents, now)
+	if entries != 1 {
+		t.Fatalf("entries = %d, want 1", entries)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("findings = %#v, want none", findings)
+	}
+}
+
+func TestCheckAllowlistFileAcceptsExpiryToday(t *testing.T) {
+	now := time.Date(2026, 5, 29, 23, 59, 0, 0, time.UTC)
+	contents := `# Owner: openclarion CI maintainers.
+# Expires: 2026-05-29.
+# Removal trigger: delete after fixture changes.
+[[rules.allowlists]]
+`
+
+	findings, entries := checkAllowlistFile(gitleaksSpec, contents, now)
+	if entries != 1 {
+		t.Fatalf("entries = %d, want 1", entries)
+	}
+	if len(findings) != 0 {
+		t.Fatalf("findings = %#v, want none", findings)
+	}
+}
+
 func TestRunPropagatesReadErrors(t *testing.T) {
 	var stderr bytes.Buffer
 	code := run([]allowlistSpec{gitleaksSpec}, time.Now(), func(string) ([]byte, error) {
