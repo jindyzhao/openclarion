@@ -319,6 +319,10 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		}
 	}
 
+	if err := workflow.Await(ctx, func() bool { return workflow.AllHandlersFinished(ctx) }); err != nil {
+		return DiagnosisRoomWorkflowResult{}, err
+	}
+
 	if state.status == diagnosisRoomStatusClosed {
 		closeCtxBase := ctx
 		if state.closeReason == diagnosisRoomCloseContextCanceled {
