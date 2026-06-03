@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -39,7 +40,7 @@ var (
 )
 
 func main() {
-	code := run([]allowlistSpec{gitleaksSpec}, time.Now().UTC(), os.ReadFile, os.Stderr)
+	code := run([]allowlistSpec{gitleaksSpec}, time.Now().UTC(), readRegularFile, os.Stderr)
 	os.Exit(code)
 }
 
@@ -74,6 +75,47 @@ func run(specs []allowlistSpec, now time.Time, readFile func(string) ([]byte, er
 	}
 	fmt.Fprintf(stderr, "[allowlist-discipline] OK (%d allowlist entries checked)\n", checkedEntries)
 	return 0
+}
+
+func readRegularFile(path string) ([]byte, error) {
+	clean := filepath.Clean(path)
+	if err := validateNoSymlinkAncestors(clean); err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(clean)
+	if err != nil {
+		return nil, fmt.Errorf("stat %s: %w", clean, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%s must be a regular file, not a symlink", clean)
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s must be a regular file", clean)
+	}
+	raw, err := os.ReadFile(clean) // #nosec G304 -- allowlist paths are repository-owned gate inputs.
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", clean, err)
+	}
+	return raw, nil
+}
+
+func validateNoSymlinkAncestors(cleanPath string) error {
+	for dir := filepath.Dir(cleanPath); dir != "."; dir = filepath.Dir(dir) {
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s parent directory %s must not be a symlink", cleanPath, dir)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("%s parent path %s must be a directory", cleanPath, dir)
+		}
+		if parent := filepath.Dir(dir); parent == dir {
+			return nil
+		}
+	}
+	return nil
 }
 
 func checkAllowlistFile(spec allowlistSpec, contents string, now time.Time) ([]finding, int) {
