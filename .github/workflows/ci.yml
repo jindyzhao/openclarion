@@ -10,6 +10,7 @@ name: ci
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, edited, labeled, unlabeled]
   push:
     branches: [main]
 
@@ -257,6 +258,8 @@ jobs:
     env:
       IMPACT_REFERENCE_BASE_REF: ${{ github.base_ref }}
       IMPACT_REFERENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      PR_FILE_COUNT_MAX: "50"
+      PR_FILE_COUNT_OVERRIDE_LABEL: large-pr-approved
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -266,6 +269,8 @@ jobs:
           go-version-file: go.mod
       - run: make pr-impact-reference-check
       - run: make pr-impact-reference-check-test
+      - run: make pr-file-count-check
+      - run: make pr-file-count-check-test
 
   generated-headers:
     name: Generated file headers
