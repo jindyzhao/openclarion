@@ -1125,6 +1125,62 @@ func TestRunRejectsQualitySummaryThatDoesNotMatchCases(t *testing.T) {
 	}
 }
 
+func TestRunRejectsMultilineQualitySampleBasis(t *testing.T) {
+	dir := t.TempDir()
+	baseline := writeEvidence(t, dir, "baseline.json", passingBaselineAuditJSON())
+	quality := writeEvidence(t, dir, "quality.json", strings.Replace(
+		passingQualityComparisonJSON(),
+		`"sample_basis": "single-alert, cascade, and alert-storm representative alert cases"`,
+		`"sample_basis": "single-alert, cascade, and alert-storm representative alert cases\ncontinued"`,
+		1,
+	))
+	review := writeEvidence(t, dir, "review.json", passingReviewEvidenceJSON())
+
+	var stdout bytes.Buffer
+	err := run([]string{
+		"--baseline-audit", baseline,
+		"--quality-comparison", quality,
+		"--review-evidence", review,
+	}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want multiline quality sample_basis rejection")
+	}
+	if !strings.Contains(err.Error(), "quality comparison sample_basis must be a single-line value") {
+		t.Fatalf("run err = %v, want quality sample_basis single-line error", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on invalid evidence", stdout.String())
+	}
+}
+
+func TestRunRejectsOversizedQualitySampleBasis(t *testing.T) {
+	dir := t.TempDir()
+	baseline := writeEvidence(t, dir, "baseline.json", passingBaselineAuditJSON())
+	quality := writeEvidence(t, dir, "quality.json", strings.Replace(
+		passingQualityComparisonJSON(),
+		`single-alert, cascade, and alert-storm representative alert cases`,
+		strings.Repeat("a", maxReviewEvidenceTextBytes+1),
+		1,
+	))
+	review := writeEvidence(t, dir, "review.json", passingReviewEvidenceJSON())
+
+	var stdout bytes.Buffer
+	err := run([]string{
+		"--baseline-audit", baseline,
+		"--quality-comparison", quality,
+		"--review-evidence", review,
+	}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want oversized quality sample_basis rejection")
+	}
+	if !strings.Contains(err.Error(), "quality comparison sample_basis exceeds 2048 bytes") {
+		t.Fatalf("run err = %v, want quality sample_basis size error", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on invalid evidence", stdout.String())
+	}
+}
+
 func TestRunRejectsQualityCaseWithMultilineID(t *testing.T) {
 	dir := t.TempDir()
 	baseline := writeEvidence(t, dir, "baseline.json", passingBaselineAuditJSON())
