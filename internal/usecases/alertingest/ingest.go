@@ -156,21 +156,6 @@ func canonicalLabelsJSON(labels map[string]string) ([]byte, error) {
 	return json.Marshal(labels)
 }
 
-// sourceFingerprint is the provider-local fingerprint stored in
-// AlertEvent.SourceFingerprint. Prometheus alerts do not expose a
-// stable provider fingerprint through client_golang, so the current
-// fallback hashes the canonical label JSON with SHA-256. The separate
-// helper is retained so we can mirror upstream provider fingerprints
-// later without changing CanonicalFingerprint semantics.
-func sourceFingerprint(labels map[string]string) (string, error) {
-	b, err := canonicalLabelsJSON(labels)
-	if err != nil {
-		return "", fmt.Errorf("canonical labels json: %w", err)
-	}
-	sum := sha256.Sum256(b)
-	return hex.EncodeToString(sum[:]), nil
-}
-
 // canonicalFingerprint is the global cross-source fingerprint stored
 // in AlertEvent.CanonicalFingerprint and participates in the natural
 // unique key. sha256 keeps the collision probability astronomically

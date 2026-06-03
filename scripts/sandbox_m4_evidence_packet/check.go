@@ -2146,21 +2146,6 @@ func copyEvidenceFile(src, dst, qualitySampleBasis string) error {
 	return nil
 }
 
-func readQualitySampleBasis(path string) (string, error) {
-	raw, err := readFileCapped(path)
-	if err != nil {
-		return "", err
-	}
-	var out helperQualityComparison
-	if err := strictjson.Unmarshal(raw, &out); err != nil {
-		return "", fmt.Errorf("parse quality comparison output: %w", err)
-	}
-	if strings.TrimSpace(out.SampleBasis) == "" {
-		return "", errors.New("quality comparison sample_basis is required")
-	}
-	return out.SampleBasis, nil
-}
-
 func reviewSampleBasis(raw []byte) (string, error) {
 	var review packetReviewEvidence
 	if err := strictjson.Unmarshal(raw, &review); err != nil {
