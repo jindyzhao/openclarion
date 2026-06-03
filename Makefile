@@ -25,6 +25,7 @@
 #   make go-coverage # enforce handwritten Go package coverage floor
 #   make pr-title-check   # validate PR title Conventional Commit shape
 #   make pr-description-check # validate PR body risk/rollback sections
+#   make issue-template-check # validate issue template front matter and sections
 #   make pr-impact-reference-check # validate issue/ADR reference for high-impact PRs
 #   make testcontainers-contract # integration-test DB and host-network contract
 #   make dco-check        # validate DCO sign-off on PR / local commits
@@ -134,7 +135,7 @@ help: ## Show this help
 pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
 	@go run ./scripts/pr_budget --budget "$(PR_BUDGET)" --mode "$(PR_BUDGET_MODE)" -- $(MAKE) ci
 
-ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
+ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
 	@echo ""
 	@echo "[ci] all gates passed."
 
@@ -166,7 +167,7 @@ ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check mark
 # Documentation gates
 # ---------------------------------------------------------------------------
 
-.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard workflow-change-guard-test linear-history-check linear-history-check-test pr-file-count-check pr-file-count-check-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test pr-title-check pr-description-check dco-check workflow-parity actionlint
+.PHONY: docs-hygiene adr-check links-check external-links-check markdownlint doc-claims-check gate-hardening-check comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard workflow-change-guard-test linear-history-check linear-history-check-test pr-file-count-check pr-file-count-check-test pr-impact-reference-check pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test pr-title-check pr-description-check dco-check workflow-parity actionlint
 
 docs-hygiene: ## Reject non-English CJK literals, terminology drift, and proof-state drift in governed documentation
 	@bash scripts/check_no_non_english_chars.sh
@@ -267,6 +268,12 @@ pr-title-check: ## Validate PR title Conventional Commit shape
 
 pr-description-check: ## Validate PR body risk/rollback sections
 	@bash scripts/check_pr_description.sh
+
+issue-template-check: ## Validate issue template front matter and sections
+	@bash scripts/check_issue_templates.sh
+
+issue-template-check-test: ## Validate issue template checker behavior
+	@go test -race -count=1 ./scripts -run TestIssueTemplateCheck
 
 dco-check: ## Validate DCO Signed-off-by on PR / local commits (DCO.md)
 	@bash scripts/check_dco_signoff.sh
