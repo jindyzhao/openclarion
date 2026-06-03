@@ -27,16 +27,6 @@
 | Trigger | run only if M0 Temporal setup or M2 fan-out/fan-in implementation feels disproportionate |
 | Target | optional M0/M1 cross-check |
 
-### D2: oapi-codegen-exp StrictServerInterface Adapter
-
-| Field | Value |
-|-------|-------|
-| Status | open |
-| Decided | 2026-05-19 |
-| Reason | V3 of `oapi-codegen-exp` does not currently generate `StrictServerInterface`. V1 will accept the non-strict `ServerInterface`. A thin typed adapter layer can be written if request/response wrapping becomes a maintainability problem. |
-| Trigger | revisit if generated handlers accumulate boilerplate that strict typing would eliminate, or if upstream adds Strict support |
-| Target | M2 (only if pain materializes) |
-
 ### D3: Lifecycle-End Conversation Compression (M5)
 
 | Field | Value |
@@ -110,6 +100,17 @@
 
 ## Closed Deferrals
 
+### D2: oapi-codegen-exp StrictServerInterface Adapter
+
+| Field | Value |
+|-------|-------|
+| Status | closed |
+| Decided | 2026-05-19 |
+| Updated | 2026-05-30 |
+| Reason | Re-evaluation found no V1 maintainability pain that justifies a manual strict adapter. The pinned `oapi-codegen-exp v0.1.0` generator emits 9 `ServerInterface` methods and the transport layer implements them directly with a compile-time `api.ServerInterface` assertion. Request decoding and response mapping remain local to the affected handlers, while `internal/transport/http` has endpoint-level coverage for list, detail, replay trigger, diagnosis room, WebSocket ticket, and WebSocket relay paths. A handwritten strict adapter would now duplicate generated request binding and add another transport contract to maintain. |
+| Trigger | closed after M2/M5 handler growth did not materialize into adapter pain; reopen only if upstream generates a stable strict interface for the pinned OpenAPI 3.1 path, or if repeated handler request/response boilerplate is measured in review |
+| Target | closed by V1 API handler evidence |
+
 ### D6: Concrete Version Pinning for Temporal SDK / Ent / Atlas / OTel
 
 | Field | Value |
@@ -142,5 +143,6 @@
 | 2026-05-27 | jindyzhao | Add D11 for W3-2b: legacy forbidden-imports bash deletion is deferred until the two-week analyzer equivalence window completes. |
 | 2026-05-27 | jindyzhao | Close D11 after revising the plan to permit immediate retirement on rigorous local equivalence proof; analyzer tests now pin the retired legacy deny-list and cover red/green fixtures. |
 | 2026-05-28 | jindyzhao | D6 closed: M3 OpenTelemetry HTTP tracing first import pins `go.opentelemetry.io/otel v1.44.0`, `go.opentelemetry.io/otel/sdk v1.44.0`, OTLP HTTP trace exporter `v1.44.0`, and `otelhttp v0.68.0`; collector smoke and broader tracing coverage are tracked as M3 implementation work, not dependency-pin deferral. |
+| 2026-05-30 | jindyzhao | D2 closed after re-evaluation: the generated `ServerInterface` handler surface remains small and covered by endpoint tests, so a handwritten strict adapter would add maintenance cost without proven V1 value. |
 | 2026-05-30 | jindyzhao | D10 re-evaluated after M2/M5 growth: keep the single delivery checklist for now and replace the expired M2-review trigger with concrete size, ownership, and reviewer-friction triggers. |
 | 2026-05-30 | jindyzhao | Add deferred follow-up ledger gate and move closed D6/D11 entries under the Closed Deferrals section so status and section stay machine-checkable. |
