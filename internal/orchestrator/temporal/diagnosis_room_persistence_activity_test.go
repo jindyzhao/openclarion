@@ -291,17 +291,123 @@ func TestDiagnosisRoomPersistenceActivities_CloseSessionIsIdempotentAndAudited(t
 		var closePayload struct {
 			CloseReason string `json:"close_reason"`
 			TurnCount   int    `json:"turn_count"`
+			Conclusion  struct {
+				Status string `json:"status"`
+				Source string `json:"source"`
+				Reason string `json:"reason"`
+			} `json:"final_conclusion"`
 		}
 		if err := json.Unmarshal(events[1].Payload, &closePayload); err != nil {
 			t.Fatalf("close event payload: %v", err)
 		}
-		if closePayload.CloseReason != "idle_timeout" || closePayload.TurnCount != 0 {
+		if closePayload.CloseReason != "idle_timeout" ||
+			closePayload.TurnCount != 0 ||
+			closePayload.Conclusion.Status != "not_available" ||
+			closePayload.Conclusion.Source != "none" ||
+			closePayload.Conclusion.Reason != "room_closed_without_assistant_turn" {
 			t.Fatalf("close event payload = %+v raw=%s", closePayload, events[1].Payload)
 		}
 		return nil
 	})
 	if err != nil {
 		t.Fatalf("verify close: %v", err)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-close-conclusion")
+	activities := temporalpkg.NewActivities(env.factory)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 16, 30, 0, 0, time.UTC)
+	_, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-close-conclusion",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	})
+	if err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+	turnReq := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-close-conclusion", startedAt)
+	persisted, err := activities.PersistDiagnosisTurn(ctx, turnReq)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn: %v", err)
+	}
+
+	closeReq := temporalpkg.CloseDiagnosisChatSessionInput{
+		SessionID:       "session-room-close-conclusion",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		TurnCount:       1,
+		ClosedAt:        startedAt.Add(5 * time.Minute),
+		Reason:          "user_done",
+	}
+	first, err := activities.CloseDiagnosisChatSession(ctx, closeReq)
+	if err != nil {
+		t.Fatalf("CloseDiagnosisChatSession first: %v", err)
+	}
+	second, err := activities.CloseDiagnosisChatSession(ctx, closeReq)
+	if err != nil {
+		t.Fatalf("CloseDiagnosisChatSession second: %v", err)
+	}
+	if second.LifecycleEventID != first.LifecycleEventID {
+		t.Fatalf("close event ID second=%d, want %d", second.LifecycleEventID, first.LifecycleEventID)
+	}
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
+		if err != nil {
+			return err
+		}
+		var closeEvent domain.DiagnosisTaskEvent
+		for _, event := range events {
+			if event.Kind == "diagnosis_room.closed" {
+				closeEvent = event
+				break
+			}
+		}
+		if closeEvent.ID == 0 {
+			t.Fatalf("events = %+v, want diagnosis_room.closed", events)
+		}
+		var payload struct {
+			CloseReason       string `json:"close_reason"`
+			TurnCount         int    `json:"turn_count"`
+			ConclusionVersion string `json:"conclusion_version"`
+			Conclusion        struct {
+				Status              string     `json:"status"`
+				Source              string     `json:"source"`
+				AssistantTurnID     int64      `json:"assistant_turn_id"`
+				AssistantMessageID  string     `json:"assistant_message_id"`
+				AssistantSequence   int        `json:"assistant_sequence"`
+				AssistantOccurredAt *time.Time `json:"assistant_occurred_at"`
+				Content             string     `json:"content"`
+				Confidence          string     `json:"confidence"`
+				RequiresHumanReview *bool      `json:"requires_human_review"`
+			} `json:"final_conclusion"`
+		}
+		if err := json.Unmarshal(closeEvent.Payload, &payload); err != nil {
+			t.Fatalf("close event payload: %v", err)
+		}
+		if payload.CloseReason != "user_done" ||
+			payload.TurnCount != 1 ||
+			payload.ConclusionVersion != "diagnosis-room-close.v1" ||
+			payload.Conclusion.Status != "available" ||
+			payload.Conclusion.Source != "latest_assistant_turn" ||
+			payload.Conclusion.AssistantTurnID != persisted.AssistantTurnID ||
+			payload.Conclusion.AssistantMessageID != turnReq.AssistantMessageID ||
+			payload.Conclusion.AssistantSequence != turnReq.AssistantSequence ||
+			payload.Conclusion.AssistantOccurredAt == nil ||
+			!payload.Conclusion.AssistantOccurredAt.Equal(domain.NormalizeUTCMicro(turnReq.AssistantOccurredAt)) ||
+			payload.Conclusion.Content != turnReq.AssistantMessage ||
+			payload.Conclusion.Confidence != "high" ||
+			payload.Conclusion.RequiresHumanReview == nil ||
+			!*payload.Conclusion.RequiresHumanReview {
+			t.Fatalf("close event payload = %+v raw=%s", payload, closeEvent.Payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify close conclusion: %v", err)
 	}
 }
 

@@ -23,6 +23,8 @@ const (
 	diagnosisRoomEventTurnPersisted         = "diagnosis_room.turn_persisted"
 	diagnosisRoomEventClosed                = "diagnosis_room.closed"
 	diagnosisRoomEventCloseNotificationSent = "diagnosis_room.close_notification_sent"
+
+	diagnosisRoomFinalConclusionMaxRunes = 4096
 )
 
 // EnsureDiagnosisChatSessionInput creates or reuses the persisted room session
@@ -1024,16 +1026,22 @@ func (a *Activities) recordDiagnosisRoomTurnPersisted(ctx context.Context, req P
 }
 
 func (a *Activities) recordDiagnosisRoomClosed(ctx context.Context, req CloseDiagnosisChatSessionInput, session domain.ChatSession) (domain.DiagnosisTaskEvent, error) {
+	finalConclusion, err := a.diagnosisRoomFinalConclusion(ctx, req, session)
+	if err != nil {
+		return domain.DiagnosisTaskEvent{}, err
+	}
 	payload, err := diagnosisRoomLifecyclePayload(map[string]any{
-		"kind":              diagnosisRoomEventClosed,
-		"session_id":        req.SessionID,
-		"chat_session_id":   int64(session.ID),
-		"diagnosis_task_id": req.DiagnosisTaskID,
-		"owner_subject":     req.OwnerSubject,
-		"status":            string(session.Status),
-		"turn_count":        session.TurnCount,
-		"close_reason":      session.CloseReason,
-		"closed_at":         session.ClosedAt,
+		"kind":               diagnosisRoomEventClosed,
+		"session_id":         req.SessionID,
+		"chat_session_id":    int64(session.ID),
+		"diagnosis_task_id":  req.DiagnosisTaskID,
+		"owner_subject":      req.OwnerSubject,
+		"status":             string(session.Status),
+		"turn_count":         session.TurnCount,
+		"close_reason":       session.CloseReason,
+		"closed_at":          session.ClosedAt,
+		"final_conclusion":   finalConclusion,
+		"conclusion_version": "diagnosis-room-close.v1",
 	})
 	if err != nil {
 		return domain.DiagnosisTaskEvent{}, err
@@ -1045,6 +1053,88 @@ func (a *Activities) recordDiagnosisRoomClosed(ctx context.Context, req CloseDia
 		Payload:    payload,
 		OccurredAt: req.ClosedAt,
 	})
+}
+
+type diagnosisRoomFinalConclusion struct {
+	Status              string     `json:"status"`
+	Source              string     `json:"source"`
+	Reason              string     `json:"reason,omitempty"`
+	AssistantTurnID     int64      `json:"assistant_turn_id,omitempty"`
+	AssistantMessageID  string     `json:"assistant_message_id,omitempty"`
+	AssistantSequence   int        `json:"assistant_sequence,omitempty"`
+	AssistantOccurredAt *time.Time `json:"assistant_occurred_at,omitempty"`
+	Content             string     `json:"content,omitempty"`
+	Confidence          string     `json:"confidence,omitempty"`
+	RequiresHumanReview *bool      `json:"requires_human_review,omitempty"`
+}
+
+type diagnosisRoomAssistantTurnMetadata struct {
+	Confidence          string `json:"confidence"`
+	RequiresHumanReview bool   `json:"requires_human_review"`
+}
+
+func (a *Activities) diagnosisRoomFinalConclusion(
+	ctx context.Context,
+	req CloseDiagnosisChatSessionInput,
+	session domain.ChatSession,
+) (diagnosisRoomFinalConclusion, error) {
+	if session.TurnCount == 0 {
+		return diagnosisRoomFinalConclusion{
+			Status: "not_available",
+			Source: "none",
+			Reason: "room_closed_without_assistant_turn",
+		}, nil
+	}
+
+	turns, err := a.listDiagnosisRoomTurns(ctx, session.ID, session.TurnCount)
+	if err != nil {
+		return diagnosisRoomFinalConclusion{}, err
+	}
+	for i := len(turns) - 1; i >= 0; i-- {
+		turn := turns[i]
+		if turn.Role != domain.ChatRoleAssistant {
+			continue
+		}
+		var metadata diagnosisRoomAssistantTurnMetadata
+		if err := json.Unmarshal(turn.Metadata, &metadata); err != nil {
+			return diagnosisRoomFinalConclusion{}, fmt.Errorf("diagnosis room final conclusion: parse assistant metadata for turn %d: %w", turn.ID, err)
+		}
+		requiresHumanReview := metadata.RequiresHumanReview
+		occurredAt := turn.OccurredAt
+		return diagnosisRoomFinalConclusion{
+			Status:              "available",
+			Source:              "latest_assistant_turn",
+			AssistantTurnID:     int64(turn.ID),
+			AssistantMessageID:  turn.MessageID,
+			AssistantSequence:   turn.Sequence,
+			AssistantOccurredAt: &occurredAt,
+			Content:             truncateString(turn.Content, diagnosisRoomFinalConclusionMaxRunes),
+			Confidence:          strings.TrimSpace(metadata.Confidence),
+			RequiresHumanReview: &requiresHumanReview,
+		}, nil
+	}
+	return diagnosisRoomFinalConclusion{}, fmt.Errorf("diagnosis room final conclusion: no assistant turn found for non-empty session %q: %w",
+		req.SessionID, domain.ErrInvariantViolation)
+}
+
+func (a *Activities) listDiagnosisRoomTurns(ctx context.Context, sessionID domain.ChatSessionID, turnCount int) ([]domain.ChatTurn, error) {
+	if turnCount < 0 {
+		return nil, fmt.Errorf("diagnosis room final conclusion: turn_count must be >= 0: %w", domain.ErrInvariantViolation)
+	}
+	limit := turnCount*2 + 2
+	if limit <= 0 {
+		limit = 2
+	}
+	var turns []domain.ChatTurn
+	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		out, err := uow.Diagnosis().ListChatTurnsBySession(ctx, sessionID, limit)
+		if err != nil {
+			return err
+		}
+		turns = out
+		return nil
+	})
+	return turns, err
 }
 
 func (a *Activities) recordDiagnosisRoomCloseNotificationSent(
