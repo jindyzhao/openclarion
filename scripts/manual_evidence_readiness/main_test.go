@@ -71,15 +71,23 @@ func TestRunValidatesM4EvidenceFilesAndPacketOutputDir(t *testing.T) {
 	quality := writeFile(t, root, "quality.json")
 	review := writeFile(t, root, "review.json")
 	manifest := writeFile(t, root, "manifest.json")
+	sampleRoot := filepath.Join(root, "quality-samples")
+	writeQualitySamplePair(t, sampleRoot, "single_alert", "payments-cpu")
+	writeQualitySamplePair(t, sampleRoot, "cascade", "checkout-latency")
+	writeQualitySamplePair(t, sampleRoot, "alert_storm", "billing-errors")
 	runtimeArtifacts := filepath.Join(root, "runtime-artifacts")
 	if err := os.Mkdir(runtimeArtifacts, 0o700); err != nil {
 		t.Fatalf("mkdir runtime artifacts: %v", err)
 	}
 	collectedRuntimeArtifacts := filepath.Join(root, "collected-runtime-artifacts")
 	outDir := filepath.Join(root, "packet")
+	manifestOut := filepath.Join(root, "prepared-quality-manifest.json")
 
 	var stdout bytes.Buffer
 	err := run(nil, []string{
+		"ROOT=" + sampleRoot,
+		"SAMPLE_BASIS=representative retained alert cases",
+		"OUT=" + manifestOut,
 		"BASELINE_AUDIT=" + baseline,
 		"QUALITY_COMPARISON=" + quality,
 		"REVIEW_EVIDENCE=" + review,
@@ -100,6 +108,13 @@ func TestRunValidatesM4EvidenceFilesAndPacketOutputDir(t *testing.T) {
 	if got := targetByName(t, out, "sandbox-m4-runtime-smoke-artifacts").Status; got != "ready" {
 		t.Fatalf("runtime smoke artifacts status = %q, want ready", got)
 	}
+	manifestTarget := targetByName(t, out, "sandbox-m4-quality-manifest-prepare")
+	if manifestTarget.Status != "ready" {
+		t.Fatalf("quality manifest prepare status = %q, want ready", manifestTarget.Status)
+	}
+	if len(manifestTarget.QualitySampleChecks) != 1 || manifestTarget.QualitySampleChecks[0].PairedCases != 3 {
+		t.Fatalf("quality sample checks = %#v, want three paired cases", manifestTarget.QualitySampleChecks)
+	}
 	if got := targetByName(t, out, "sandbox-m4-review-evidence-template").Status; got != "ready" {
 		t.Fatalf("review evidence template status = %q, want ready", got)
 	}
@@ -108,6 +123,108 @@ func TestRunValidatesM4EvidenceFilesAndPacketOutputDir(t *testing.T) {
 	}
 	if got := targetByName(t, out, "sandbox-m4-evidence-packet").Status; got != "ready" {
 		t.Fatalf("packet status = %q, want ready", got)
+	}
+}
+
+func TestRunReportsM4QualityManifestSampleReadiness(t *testing.T) {
+	root := t.TempDir()
+	sampleRoot := filepath.Join(root, "quality-samples")
+	writeQualitySamplePair(t, sampleRoot, "single_alert", "payments-cpu")
+	writeQualitySamplePair(t, sampleRoot, "cascade", "checkout-latency")
+	writeQualitySamplePair(t, sampleRoot, "alert_storm", "billing-errors")
+	outPath := filepath.Join(root, "quality-manifest.json")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-quality-manifest-prepare"}, []string{
+		"ROOT=" + sampleRoot,
+		"SAMPLE_BASIS=representative retained alert cases",
+		"OUT=" + outPath,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-quality-manifest-prepare")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready", target.Status)
+	}
+	if len(target.QualitySampleChecks) != 1 {
+		t.Fatalf("quality sample checks = %#v, want one", target.QualitySampleChecks)
+	}
+	check := target.QualitySampleChecks[0]
+	if check.Status != "ok" || check.DirectReports != 3 || check.SandboxReports != 3 || check.PairedCases != 3 {
+		t.Fatalf("quality sample check = %#v, want ok counts", check)
+	}
+	fileCheck := fileCheckByEnv(t, target.FileChecks, "OUT")
+	if fileCheck.Status != "ok" {
+		t.Fatalf("OUT check = %#v, want ok", fileCheck)
+	}
+	if strings.Contains(stdout.String(), sampleRoot) || strings.Contains(stdout.String(), outPath) || strings.Contains(stdout.String(), "payments-cpu") {
+		t.Fatalf("output leaked sample path or case id: %s", stdout.String())
+	}
+}
+
+func TestRunBlocksM4QualityManifestSampleGapsWithoutLeakingCases(t *testing.T) {
+	root := t.TempDir()
+	sampleRoot := filepath.Join(root, "quality-samples")
+	writeQualitySamplePair(t, sampleRoot, "single_alert", "payments-cpu")
+	writeQualitySampleReport(t, sampleRoot, "direct", "cascade", "checkout-latency")
+	if err := os.MkdirAll(filepath.Join(sampleRoot, "sandbox", "cascade"), 0o700); err != nil {
+		t.Fatalf("mkdir sandbox cascade: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-quality-manifest-prepare"}, []string{
+		"ROOT=" + sampleRoot,
+		"SAMPLE_BASIS=representative retained alert cases",
+		"OUT=" + filepath.Join(root, "quality-manifest.json"),
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-quality-manifest-prepare")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	check := target.QualitySampleChecks[0]
+	if check.Status != "missing_counterparts" {
+		t.Fatalf("sample status = %q, want missing_counterparts", check.Status)
+	}
+	if check.MissingSandboxReports != 1 {
+		t.Fatalf("missing sandbox reports = %d, want 1", check.MissingSandboxReports)
+	}
+	if strings.Contains(stdout.String(), sampleRoot) || strings.Contains(stdout.String(), "checkout-latency") {
+		t.Fatalf("output leaked sample path or case id: %s", stdout.String())
+	}
+}
+
+func TestRunBlocksM4QualityManifestMissingScenario(t *testing.T) {
+	root := t.TempDir()
+	sampleRoot := filepath.Join(root, "quality-samples")
+	writeQualitySamplePair(t, sampleRoot, "single_alert", "payments-cpu")
+	writeQualitySamplePair(t, sampleRoot, "cascade", "checkout-latency")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-quality-manifest-prepare"}, []string{
+		"ROOT=" + sampleRoot,
+		"SAMPLE_BASIS=representative retained alert cases",
+		"OUT=" + filepath.Join(root, "quality-manifest.json"),
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-quality-manifest-prepare")
+	check := target.QualitySampleChecks[0]
+	if check.Status != "missing_scenario_coverage" {
+		t.Fatalf("sample status = %q, want missing_scenario_coverage", check.Status)
+	}
+	if !contains(check.MissingScenarios, "alert_storm") {
+		t.Fatalf("missing scenarios = %#v, want alert_storm", check.MissingScenarios)
 	}
 }
 
@@ -435,6 +552,24 @@ func writeFile(t *testing.T, dir, name string) string {
 		t.Fatalf("write %s: %v", path, err)
 	}
 	return path
+}
+
+func writeQualitySamplePair(t *testing.T, root, scenario, id string) {
+	t.Helper()
+	writeQualitySampleReport(t, root, directRole, scenario, id)
+	writeQualitySampleReport(t, root, sandboxRole, scenario, id)
+}
+
+func writeQualitySampleReport(t *testing.T, root, role, scenario, id string) {
+	t.Helper()
+	dir := filepath.Join(root, role, scenario)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatalf("mkdir quality sample dir: %v", err)
+	}
+	path := filepath.Join(dir, id+".json")
+	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write quality sample report: %v", err)
+	}
 }
 
 func createSymlinkOrSkip(t *testing.T, oldname, newname string) {

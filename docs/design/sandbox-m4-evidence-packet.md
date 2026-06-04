@@ -87,7 +87,10 @@ packet artifacts stay portable and cannot compare a report file to itself.
 from retained `direct/<scenario>/<case>.json` and
 `sandbox/<scenario>/<case>.json` SubReport pairs after parsing both sides
 through the production parser and requiring all three alert-analysis scenarios.
-It is a preparation helper only; the sample still needs operator selection,
+`make manual-evidence-readiness` now preflights that sample-root layout,
+paired-case counts, required scenario coverage, `SAMPLE_BASIS`, and the
+manifest `OUT` path before operators run the helper. This is still preparation
+only; the sample still needs operator selection,
 `scripts/sandbox_quality_compare --manifest`, human review, and packet
 verification before it can support a decision.
 The packet helper validates that the copied manifest's `sample_basis`, case
