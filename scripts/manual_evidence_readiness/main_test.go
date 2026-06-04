@@ -234,6 +234,81 @@ func TestRunRejectsBadM4RuntimeCandidateEnv(t *testing.T) {
 	}
 }
 
+func TestRunAcceptsM4RuntimeCandidateFile(t *testing.T) {
+	root := t.TempDir()
+	quality := writeFile(t, root, "quality.json")
+	runtimeArtifacts := filepath.Join(root, "runtime-artifacts")
+	if err := os.Mkdir(runtimeArtifacts, 0o700); err != nil {
+		t.Fatalf("mkdir runtime artifacts: %v", err)
+	}
+	candidateFile := filepath.Join(root, "digest-ref.txt")
+	if err := os.WriteFile(candidateFile, []byte("registry.example.com/openclarion/runtime-candidate-a@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n"), 0o600); err != nil {
+		t.Fatalf("write runtime candidate file: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-review-evidence-template"}, []string{
+		"QUALITY_COMPARISON=" + quality,
+		"RUNTIME_SMOKE_ARTIFACTS_ROOT=" + runtimeArtifacts,
+		"SELECTED_CANDIDATE=runtime-candidate-a",
+		"RUNTIME_CANDIDATE_FILE=" + candidateFile,
+		"REVIEWER=openclarion-maintainer",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-review-evidence-template")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready", target.Status)
+	}
+	check := fileCheckByEnv(t, target.FileChecks, "RUNTIME_CANDIDATE_FILE")
+	if check.Status != "ok" {
+		t.Fatalf("runtime candidate file status = %q, want ok", check.Status)
+	}
+	if strings.Contains(stdout.String(), candidateFile) || strings.Contains(stdout.String(), "sha256:0123456789abcdef") {
+		t.Fatalf("output leaked runtime candidate file path or value: %s", stdout.String())
+	}
+}
+
+func TestRunRejectsBadM4RuntimeCandidateFile(t *testing.T) {
+	root := t.TempDir()
+	quality := writeFile(t, root, "quality.json")
+	runtimeArtifacts := filepath.Join(root, "runtime-artifacts")
+	if err := os.Mkdir(runtimeArtifacts, 0o700); err != nil {
+		t.Fatalf("mkdir runtime artifacts: %v", err)
+	}
+	candidateFile := filepath.Join(root, "digest-ref.txt")
+	if err := os.WriteFile(candidateFile, []byte("runtime-candidate-a:latest\n"), 0o600); err != nil {
+		t.Fatalf("write runtime candidate file: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-review-evidence-template"}, []string{
+		"QUALITY_COMPARISON=" + quality,
+		"RUNTIME_SMOKE_ARTIFACTS_ROOT=" + runtimeArtifacts,
+		"SELECTED_CANDIDATE=runtime-candidate-a",
+		"RUNTIME_CANDIDATE_FILE=" + candidateFile,
+		"REVIEWER=openclarion-maintainer",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-review-evidence-template")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	if len(target.InvalidEnv) != 1 || target.InvalidEnv[0].Name != "RUNTIME_CANDIDATE_FILE" {
+		t.Fatalf("invalid env = %#v, want runtime candidate file rejection", target.InvalidEnv)
+	}
+	if strings.Contains(stdout.String(), candidateFile) || strings.Contains(stdout.String(), "latest") {
+		t.Fatalf("output leaked runtime candidate file path or value: %s", stdout.String())
+	}
+}
+
 func TestRunRejectsIndirectOrReusedM4EvidencePaths(t *testing.T) {
 	root := t.TempDir()
 	target := writeFile(t, root, "target.json")
@@ -331,6 +406,17 @@ func directoryCheckByEnv(t *testing.T, checks []directoryCheck, name string) dir
 	}
 	t.Fatalf("directory check %q not found in %#v", name, checks)
 	return directoryCheck{}
+}
+
+func fileCheckByEnv(t *testing.T, checks []fileCheck, name string) fileCheck {
+	t.Helper()
+	for _, check := range checks {
+		if check.Env == name {
+			return check
+		}
+	}
+	t.Fatalf("file check %q not found in %#v", name, checks)
+	return fileCheck{}
 }
 
 func contains(values []string, want string) bool {

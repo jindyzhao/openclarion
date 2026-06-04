@@ -118,6 +118,100 @@ func TestRunCanAssertRepresentativeSample(t *testing.T) {
 	}
 }
 
+func TestRunReadsRuntimeCandidateFile(t *testing.T) {
+	dir := t.TempDir()
+	quality := writeTemplateQuality(t, dir)
+	writeSmokeArtifacts(t, dir, "")
+	candidateFile := writeTemplateFile(t, dir, "digest-ref.txt", testRuntimeCandidate+"\n")
+
+	var stdout bytes.Buffer
+	if err := run([]string{
+		"--quality-comparison", quality,
+		"--runtime-smoke-artifacts-root", dir,
+		"--selected-candidate", "runtime-candidate-a",
+		"--runtime-candidate-file", candidateFile,
+		"--reviewer", "openclarion-maintainer",
+	}, &stdout); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	var out reviewEvidence
+	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
+		t.Fatalf("decode stdout: %v", err)
+	}
+	if out.RuntimeCandidate != testRuntimeCandidate {
+		t.Fatalf("RuntimeCandidate = %q, want file value", out.RuntimeCandidate)
+	}
+	if got := out.CandidateEvaluations[0].RuntimeCandidate; got != testRuntimeCandidate {
+		t.Fatalf("candidate evaluation runtime candidate = %q, want file value", got)
+	}
+}
+
+func TestRunRejectsAmbiguousRuntimeCandidateSources(t *testing.T) {
+	dir := t.TempDir()
+	candidateFile := writeTemplateFile(t, dir, "digest-ref.txt", testRuntimeCandidate+"\n")
+
+	var stdout bytes.Buffer
+	err := run([]string{
+		"--quality-comparison", "quality.json",
+		"--runtime-smoke-artifacts-root", "artifacts",
+		"--selected-candidate", "runtime-candidate-a",
+		"--runtime-candidate", testRuntimeCandidate,
+		"--runtime-candidate-file", candidateFile,
+		"--reviewer", "openclarion-maintainer",
+	}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want ambiguous runtime candidate source rejection")
+	}
+	if !strings.Contains(err.Error(), "set only one of --runtime-candidate or --runtime-candidate-file") {
+		t.Fatalf("run err = %v, want ambiguous source rejection", err)
+	}
+}
+
+func TestRunRejectsInvalidRuntimeCandidateFile(t *testing.T) {
+	dir := t.TempDir()
+	candidateFile := writeTemplateFile(t, dir, "digest-ref.txt", "runtime-candidate-a:latest\n")
+
+	var stdout bytes.Buffer
+	err := run([]string{
+		"--quality-comparison", "quality.json",
+		"--runtime-smoke-artifacts-root", "artifacts",
+		"--selected-candidate", "runtime-candidate-a",
+		"--runtime-candidate-file", candidateFile,
+		"--reviewer", "openclarion-maintainer",
+	}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want invalid runtime candidate file rejection")
+	}
+	if !strings.Contains(err.Error(), "--runtime-candidate-file") {
+		t.Fatalf("run err = %v, want runtime candidate file rejection", err)
+	}
+	if strings.Contains(err.Error(), "latest") {
+		t.Fatalf("run err leaked runtime candidate file content: %v", err)
+	}
+}
+
+func TestRunRejectsSymlinkRuntimeCandidateFile(t *testing.T) {
+	dir := t.TempDir()
+	target := writeTemplateFile(t, dir, "digest-ref-target.txt", testRuntimeCandidate+"\n")
+	link := filepath.Join(dir, "digest-ref.txt")
+	createTemplateSymlinkOrSkip(t, target, link)
+
+	var stdout bytes.Buffer
+	err := run([]string{
+		"--quality-comparison", "quality.json",
+		"--runtime-smoke-artifacts-root", "artifacts",
+		"--selected-candidate", "runtime-candidate-a",
+		"--runtime-candidate-file", link,
+		"--reviewer", "openclarion-maintainer",
+	}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want symlink runtime candidate file rejection")
+	}
+	if !strings.Contains(err.Error(), "must be a regular file, not a symlink") {
+		t.Fatalf("run err = %v, want symlink rejection", err)
+	}
+}
+
 func TestRunWritesOutputFile(t *testing.T) {
 	dir := t.TempDir()
 	quality := writeTemplateQuality(t, dir)

@@ -76,9 +76,11 @@ for human audit context. `make sandbox-m4-runtime-smoke-artifacts` can collect
 the five canonical runtime-smoke proof files into one empty directory, and
 `make sandbox-m4-review-evidence-template` can produce a fail-closed draft
 review-evidence file from the retained quality comparison and those artifacts,
-but operators must still review the draft and edit candidate, reviewed-case,
-human-review, and representative-sample fields before it can support
-acceptance. Quality manifest report paths are intentionally
+including a retained custom-runner `digest-ref.txt` when
+`RUNTIME_CANDIDATE_FILE=...` is set. Operators must still review the draft and
+edit candidate, reviewed-case, human-review, and representative-sample fields
+before it can support acceptance. Quality manifest report paths are
+intentionally
 relative to the manifest directory, non-traversing, and distinct per case so
 packet artifacts stay portable and cannot compare a report file to itself.
 `make sandbox-m4-quality-manifest-prepare` can create that quality manifest

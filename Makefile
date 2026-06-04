@@ -56,6 +56,7 @@
 #   make sandbox-m4-decision-test # M4 proceed/iterate/defer decision logic tests
 #   make sandbox-m4-decision BASELINE_AUDIT=... QUALITY_COMPARISON=... REVIEW_EVIDENCE=...
 #   make sandbox-m4-review-evidence-template QUALITY_COMPARISON=... RUNTIME_SMOKE_ARTIFACTS_ROOT=... SELECTED_CANDIDATE=... RUNTIME_CANDIDATE=... REVIEWER=...
+#   make sandbox-m4-review-evidence-template QUALITY_COMPARISON=... RUNTIME_SMOKE_ARTIFACTS_ROOT=... SELECTED_CANDIDATE=... RUNTIME_CANDIDATE_FILE=... REVIEWER=...
 #   make sandbox-m4-evidence-packet QUALITY_MANIFEST=... REVIEW_EVIDENCE=... [RUNTIME_SMOKE_ARTIFACTS_ROOT=...] OUT_DIR=...
 #   make sandbox-m4-evidence-packet-verify PACKET_DIR=... # verify retained M4 packet without rerunning helpers
 #   make diagnosis-live-browser-smoke # manual M5 browser smoke against real backend/worker stack
@@ -453,18 +454,27 @@ sandbox-m4-decision: ## Manual M4 decision: BASELINE_AUDIT=... QUALITY_COMPARISO
 		--quality-comparison "$(QUALITY_COMPARISON)" \
 		--review-evidence "$(REVIEW_EVIDENCE)"
 
-sandbox-m4-review-evidence-template: ## Manual M4 review evidence template: QUALITY_COMPARISON=... RUNTIME_SMOKE_ARTIFACTS_ROOT=... SELECTED_CANDIDATE=... RUNTIME_CANDIDATE=... REVIEWER=...
-	@if [[ -z "$(QUALITY_COMPARISON)" || -z "$(RUNTIME_SMOKE_ARTIFACTS_ROOT)" || -z "$(SELECTED_CANDIDATE)" || -z "$(RUNTIME_CANDIDATE)" || -z "$(REVIEWER)" ]]; then \
+sandbox-m4-review-evidence-template: ## Manual M4 review evidence template: QUALITY_COMPARISON=... RUNTIME_SMOKE_ARTIFACTS_ROOT=... SELECTED_CANDIDATE=... RUNTIME_CANDIDATE[_FILE]=... REVIEWER=...
+	@if [[ -z "$(QUALITY_COMPARISON)" || -z "$(RUNTIME_SMOKE_ARTIFACTS_ROOT)" || -z "$(SELECTED_CANDIDATE)" || -z "$(REVIEWER)" ]]; then \
 		echo "[sandbox-m4-review-evidence-template] usage: make sandbox-m4-review-evidence-template QUALITY_COMPARISON=<quality-comparison.json> RUNTIME_SMOKE_ARTIFACTS_ROOT=<artifact-root-dir> [RUNTIME_SMOKE_REF_PREFIX=<relative-prefix>] SELECTED_CANDIDATE=<candidate-id> RUNTIME_CANDIDATE=<image@sha256:digest> REVIEWER=<reviewer> [EVIDENCE_DATE=YYYY-MM-DD] [REPRESENTATIVE_SAMPLE=1] [OUT=<review-evidence.json>]"; \
+		echo "[sandbox-m4-review-evidence-template] alternate: set RUNTIME_CANDIDATE_FILE=<digest-ref.txt> instead of RUNTIME_CANDIDATE"; \
+		exit 2; \
+	fi
+	@if [[ -z "$(RUNTIME_CANDIDATE)" && -z "$(RUNTIME_CANDIDATE_FILE)" ]]; then \
+		echo "[sandbox-m4-review-evidence-template] set exactly one of RUNTIME_CANDIDATE or RUNTIME_CANDIDATE_FILE"; \
+		exit 2; \
+	fi
+	@if [[ -n "$(RUNTIME_CANDIDATE)" && -n "$(RUNTIME_CANDIDATE_FILE)" ]]; then \
+		echo "[sandbox-m4-review-evidence-template] set exactly one of RUNTIME_CANDIDATE or RUNTIME_CANDIDATE_FILE"; \
 		exit 2; \
 	fi
 	@args=( \
 		--quality-comparison "$(QUALITY_COMPARISON)" \
 		--runtime-smoke-artifacts-root "$(RUNTIME_SMOKE_ARTIFACTS_ROOT)" \
 		--selected-candidate "$(SELECTED_CANDIDATE)" \
-		--runtime-candidate "$(RUNTIME_CANDIDATE)" \
 		--reviewer "$(REVIEWER)" \
 	); \
+	if [[ -n "$(RUNTIME_CANDIDATE)" ]]; then args+=(--runtime-candidate "$(RUNTIME_CANDIDATE)"); else args+=(--runtime-candidate-file "$(RUNTIME_CANDIDATE_FILE)"); fi; \
 	if [[ -n "$(RUNTIME_SMOKE_REF_PREFIX)" ]]; then args+=(--runtime-smoke-ref-prefix "$(RUNTIME_SMOKE_REF_PREFIX)"); fi; \
 	if [[ -n "$(EVIDENCE_DATE)" ]]; then args+=(--evidence-date "$(EVIDENCE_DATE)"); fi; \
 	if [[ "$(REPRESENTATIVE_SAMPLE)" == "1" ]]; then args+=(--representative-sample); fi; \
