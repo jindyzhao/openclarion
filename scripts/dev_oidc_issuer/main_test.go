@@ -155,7 +155,7 @@ func newTestIssuer(t *testing.T) *devIssuer {
 		t.Fatalf("newDevIssuer: %v", err)
 	}
 	issuer.now = func() time.Time {
-		return time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+		return time.Now().UTC().Add(-time.Second)
 	}
 	return issuer
 }
