@@ -65,6 +65,38 @@ more than one case.
 Operators can prepare the manifest from an evidence directory instead of
 hand-writing report pairs:
 
+When the direct and sandbox outputs already exist as persisted `SubReport`
+rows, operators can first export the retained sample layout from PostgreSQL:
+
+```bash
+DATABASE_URL=postgres://... \
+  make sandbox-m4-quality-sample-export \
+  SELECTION=artifacts/m4/quality-selection.json \
+  ROOT=artifacts/m4/quality-sample
+```
+
+The selection file is operator-authored evidence and must name the persisted
+direct and sandbox rows for each case:
+
+```json
+{
+  "cases": [
+    {
+      "id": "payments-cpu",
+      "scenario": "single_alert",
+      "direct_sub_report_id": 101,
+      "sandbox_sub_report_id": 201
+    }
+  ]
+}
+```
+
+The export helper rejects duplicate case/report IDs, scenario mismatches,
+different `evidence_snapshot_id` values for a pair, invalid persisted
+SubReport JSON, symlinked selection files, and non-empty output roots. It
+does not select representative cases, run model inference, compare quality, or
+accept a runtime candidate.
+
 ```bash
 make sandbox-m4-quality-manifest-prepare \
   ROOT=artifacts/m4/quality-sample \

@@ -109,7 +109,7 @@ func main() {
 func run(args []string, environ []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, diagnosis-live-browser-smoke")
+	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-sample-export, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, diagnosis-live-browser-smoke")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -121,6 +121,7 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	targets := []targetReadiness{
 		reportLiveSmokeReadiness(env),
 		sandboxM4BaselineAuditReadiness(env),
+		sandboxM4QualitySampleExportReadiness(env),
 		sandboxM4QualityManifestPrepareReadiness(env),
 		sandboxM4QualityCompareReadiness(env),
 		sandboxM4RuntimeSmokeArtifactsReadiness(env),
@@ -162,6 +163,25 @@ func sandboxM4BaselineAuditReadiness(env envMap) targetReadiness {
 		},
 	}
 	target.FileChecks = append(target.FileChecks, requiredAbsentOutputFileEnv(env, "OUT"))
+	return finalize(target)
+}
+
+func sandboxM4QualitySampleExportReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:    "sandbox-m4-quality-sample-export",
+		Command: "DATABASE_URL=... make sandbox-m4-quality-sample-export SELECTION=... ROOT=...",
+		Notes: []string{
+			"Preflight checks only the local database URL presence, operator selection file, and empty sample-root output path.",
+			"The manual target still validates persisted SubReport rows through the production SubReport parser before writing samples.",
+		},
+	}
+	target.MissingEnv = missingEnv(env,
+		"DATABASE_URL",
+		"SELECTION",
+		"ROOT",
+	)
+	target.FileChecks = append(target.FileChecks, requiredRegularFileEnv(env, "SELECTION"))
+	target.DirectoryChecks = append(target.DirectoryChecks, requiredCreatableEmptyOutputDirEnv(env, "ROOT"))
 	return finalize(target)
 }
 
@@ -545,6 +565,31 @@ func requiredEmptyOutputDirEnv(env envMap, name string) directoryCheck {
 		return directoryCheck{Env: name, Status: "not_empty", Reason: "directory must be empty before helper output is written"}
 	}
 	return directoryCheck{Env: name, Status: "ok"}
+}
+
+func requiredCreatableEmptyOutputDirEnv(env envMap, name string) directoryCheck {
+	check := requiredEmptyOutputDirEnv(env, name)
+	if check.Status != "ok" || !envPresent(env, name) {
+		return check
+	}
+	clean := filepath.Clean(strings.TrimSpace(env[name]))
+	if _, err := os.Lstat(clean); err == nil {
+		return check
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return directoryCheck{Env: name, Status: "error", Reason: "directory cannot be inspected"}
+	}
+	parent := filepath.Dir(clean)
+	info, err := os.Lstat(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return directoryCheck{Env: name, Status: "parent_missing", Reason: "output parent directory does not exist"}
+	}
+	if err != nil {
+		return directoryCheck{Env: name, Status: "error", Reason: "output parent directory cannot be inspected"}
+	}
+	if !info.IsDir() {
+		return directoryCheck{Env: name, Status: "parent_not_directory", Reason: "output parent path must be a direct directory"}
+	}
+	return check
 }
 
 func optionalDirectoryEnv(env envMap, name string) directoryCheck {

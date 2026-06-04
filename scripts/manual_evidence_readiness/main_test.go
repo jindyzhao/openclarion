@@ -171,6 +171,37 @@ func TestRunReportsM4QualityManifestSampleReadiness(t *testing.T) {
 	}
 }
 
+func TestRunReportsM4QualitySampleExportReadiness(t *testing.T) {
+	root := t.TempDir()
+	selection := writeFile(t, root, "selection.json")
+	outRoot := filepath.Join(root, "exported-quality-samples")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-quality-sample-export"}, []string{
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"SELECTION=" + selection,
+		"ROOT=" + outRoot,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-quality-sample-export")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready", target.Status)
+	}
+	if got := fileCheckByEnv(t, target.FileChecks, "SELECTION").Status; got != "ok" {
+		t.Fatalf("SELECTION status = %q, want ok", got)
+	}
+	if got := directoryCheckByEnv(t, target.DirectoryChecks, "ROOT").Status; got != "ok" {
+		t.Fatalf("ROOT status = %q, want ok", got)
+	}
+	if strings.Contains(stdout.String(), "example.test") || strings.Contains(stdout.String(), root) {
+		t.Fatalf("output leaked environment values: %s", stdout.String())
+	}
+}
+
 func TestRunReportsM4BaselineAuditReadiness(t *testing.T) {
 	outPath := filepath.Join(t.TempDir(), "baseline-audit.json")
 

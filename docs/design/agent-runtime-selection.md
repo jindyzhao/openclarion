@@ -199,6 +199,14 @@ plus `scenario_coverage`. Each manifest case must include a canonical
 SubReports still contain the declared evidence refs, keeping the runtime
 decision measurable while leaving the real report-quality judgment pending
 until representative alert evidence is run through candidate images.
+`make sandbox-m4-quality-sample-export` is the manual bridge from real
+persisted direct/sandbox SubReport rows to that retained sample layout. It
+uses an operator-authored selection file, reads PostgreSQL through
+`DATABASE_URL`, rejects duplicate case/report IDs, scenario mismatches, mixed
+EvidenceSnapshot IDs, invalid persisted SubReport JSON, and non-empty output
+roots, and writes only `direct/<scenario>/<case>.json` plus
+`sandbox/<scenario>/<case>.json` samples. It does not decide sample
+representativeness or report quality.
 `make sandbox-m4-quality-manifest-prepare` is the manual preparation path for
 that manifest: it scans retained `direct/<scenario>/<case>.json` and
 `sandbox/<scenario>/<case>.json` SubReport pairs, requires all three

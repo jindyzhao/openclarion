@@ -124,6 +124,8 @@ with evidence traceability links.
 - [x] concrete egress proxy/firewall allow-deny smoke
 - [x] offline quality comparison harness (`make sandbox-quality-compare-test`)
 - [x] batch quality evidence manifest mode for representative sample runs
+- [x] persisted SubReport sample export for retained quality runs
+  (`make sandbox-m4-quality-sample-export`)
 - [x] quality manifest scenario coverage gate for `single_alert`, `cascade`, and `alert_storm`
 - [x] retained quality comparison output target (`make sandbox-m4-quality-compare`)
 - [x] code-level minimum sandbox baseline audit (`make sandbox-baseline-audit`)
@@ -186,6 +188,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-06-04 | jindyzhao | M4 persisted quality sample export landed locally: `make sandbox-m4-quality-sample-export` exports operator-selected PostgreSQL SubReport rows into the retained `direct/<scenario>/<case>.json` and `sandbox/<scenario>/<case>.json` sample layout while rejecting ambiguous selection JSON, duplicate case/report IDs, scenario mismatches, mixed EvidenceSnapshot IDs, invalid persisted SubReport JSON, and non-empty output roots. `make manual-evidence-readiness --target sandbox-m4-quality-sample-export` now preflights the database URL presence, selection file, and output root without printing their values. This prepares real quality evidence without selecting representative samples, comparing quality, or recording an M4 decision. |
 | 2026-06-04 | jindyzhao | M4 retained baseline audit output path landed locally: `make sandbox-m4-baseline-audit` writes a new retained `baseline-audit.json` file for the decision evidence chain while preserving the existing CI `make sandbox-baseline-audit` stdout behavior. The real representative quality run, human review, and recorded M4 decision remain pending. |
 | 2026-06-04 | jindyzhao | M4 retained quality comparison output path landed locally: `make sandbox-m4-quality-compare` runs the manifest-mode direct-vs-sandbox comparison with fail-on-regression and writes a new retained `quality-comparison.json` file. The real representative quality run, human review, and recorded M4 decision remain pending. |
 | 2026-05-18 | jindyzhao | English roadmap reset and MVP cutline |
