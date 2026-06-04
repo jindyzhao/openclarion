@@ -72,6 +72,42 @@ func TestRunReportsReadyLiveTargets(t *testing.T) {
 	}
 }
 
+func TestRunReportsNextTargetUsesMilestoneSequence(t *testing.T) {
+	var stdout bytes.Buffer
+	windowStart, windowEnd := pastReportWindow()
+	err := run(nil, []string{
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		"OPENCLARION_PROMETHEUS_URL=https://prometheus.example.test",
+		"REPORT_WINDOW_START=" + windowStart,
+		"REPORT_WINDOW_END=" + windowEnd,
+		"OPENCLARION_LLM_MODEL=gpt-example",
+		"OPENCLARION_IM_WEBHOOK_URL=https://webhook.example.test",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	if got := targetByName(t, out, "report-live-smoke").Status; got != "ready" {
+		t.Fatalf("report status = %q, want ready", got)
+	}
+	if out.Summary.NextTarget == nil {
+		t.Fatal("summary next target is nil, want diagnosis target")
+	}
+	if out.Summary.NextTarget.Name != "diagnosis-live-browser-smoke" {
+		t.Fatalf("summary next target = %#v, want diagnosis-live-browser-smoke", out.Summary.NextTarget)
+	}
+	diagnosis := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if diagnosis.Milestone != "M5" || diagnosis.Sequence != 20 || diagnosis.EvidenceGoal == "" {
+		t.Fatalf("diagnosis sequencing metadata = milestone %q sequence %d goal %q, want M5/20/goal",
+			diagnosis.Milestone, diagnosis.Sequence, diagnosis.EvidenceGoal)
+	}
+	if strings.Contains(stdout.String(), "prometheus.example.test") || strings.Contains(stdout.String(), "webhook.example.test") {
+		t.Fatalf("output leaked configured URL: %s", stdout.String())
+	}
+}
+
 func TestRunRejectsBadReportLiveInputsWithoutLeakingValues(t *testing.T) {
 	var stdout bytes.Buffer
 	futureStart := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)

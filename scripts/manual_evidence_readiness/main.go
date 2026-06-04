@@ -70,13 +70,25 @@ type readinessOutput struct {
 }
 
 type readinessSummary struct {
-	ReadyCount   int `json:"ready_count"`
-	BlockedCount int `json:"blocked_count"`
+	ReadyCount   int             `json:"ready_count"`
+	BlockedCount int             `json:"blocked_count"`
+	NextTarget   *nextTargetHint `json:"next_target,omitempty"`
+}
+
+type nextTargetHint struct {
+	Name         string `json:"name"`
+	Milestone    string `json:"milestone,omitempty"`
+	Command      string `json:"command"`
+	EvidenceGoal string `json:"evidence_goal,omitempty"`
 }
 
 type targetReadiness struct {
 	Name                    string               `json:"name"`
 	Status                  string               `json:"status"`
+	Milestone               string               `json:"milestone,omitempty"`
+	Sequence                int                  `json:"sequence,omitempty"`
+	EvidenceGoal            string               `json:"evidence_goal,omitempty"`
+	DependsOn               []string             `json:"depends_on,omitempty"`
 	Command                 string               `json:"command"`
 	MissingEnv              []string             `json:"missing_env,omitempty"`
 	UnsatisfiedAlternatives []envAlternative     `json:"unsatisfied_alternatives,omitempty"`
@@ -188,24 +200,48 @@ func run(args []string, environ []string, stdout io.Writer) error {
 		Status:  "ready",
 		Targets: selected,
 	}
+	var blockedTargets []targetReadiness
 	for _, target := range selected {
 		if target.Status == "ready" {
 			out.Summary.ReadyCount++
 		} else {
 			out.Summary.BlockedCount++
 			out.Status = "blocked"
+			blockedTargets = append(blockedTargets, target)
 		}
 	}
+	out.Summary.NextTarget = nextBlockedTarget(blockedTargets)
 	enc := json.NewEncoder(stdout)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
 }
 
+func nextBlockedTarget(targets []targetReadiness) *nextTargetHint {
+	if len(targets) == 0 {
+		return nil
+	}
+	next := targets[0]
+	for _, target := range targets[1:] {
+		if target.Sequence != 0 && (next.Sequence == 0 || target.Sequence < next.Sequence) {
+			next = target
+		}
+	}
+	return &nextTargetHint{
+		Name:         next.Name,
+		Milestone:    next.Milestone,
+		Command:      next.Command,
+		EvidenceGoal: next.EvidenceGoal,
+	}
+}
+
 func sandboxM4BaselineAuditReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
-		Name:    "sandbox-m4-baseline-audit",
-		Command: "make sandbox-m4-baseline-audit OUT=...",
+		Name:         "sandbox-m4-baseline-audit",
+		Milestone:    "M4",
+		Sequence:     30,
+		EvidenceGoal: "Retain the code-level sandbox baseline audit artifact used by the M4 decision evidence chain.",
+		Command:      "make sandbox-m4-baseline-audit OUT=...",
 		Notes: []string{
 			"Preflight validates only the retained output path; the audit helper still runs the same code-level sandbox baseline checks.",
 			"The manual target writes a new retained baseline-audit JSON file for the M4 decision evidence chain.",
@@ -217,8 +253,12 @@ func sandboxM4BaselineAuditReadiness(env envMap) targetReadiness {
 
 func sandboxM4QualitySampleExportReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
-		Name:    "sandbox-m4-quality-sample-export",
-		Command: "DATABASE_URL=... make sandbox-m4-quality-sample-export SELECTION=... ROOT=...",
+		Name:         "sandbox-m4-quality-sample-export",
+		Milestone:    "M4",
+		Sequence:     50,
+		EvidenceGoal: "Export operator-selected persisted direct and sandbox SubReport rows into a retained sample layout.",
+		DependsOn:    []string{"sandbox-m4-subreport-generate"},
+		Command:      "DATABASE_URL=... make sandbox-m4-quality-sample-export SELECTION=... ROOT=...",
 		Notes: []string{
 			"Preflight checks only the local database URL presence, operator selection file, and empty sample-root output path.",
 			"The manual target still validates persisted SubReport rows through the production SubReport parser before writing samples.",
@@ -236,8 +276,12 @@ func sandboxM4QualitySampleExportReadiness(env envMap) targetReadiness {
 
 func sandboxM4QualityManifestPrepareReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
-		Name:    "sandbox-m4-quality-manifest-prepare",
-		Command: "make sandbox-m4-quality-manifest-prepare ROOT=... SAMPLE_BASIS=... OUT=...",
+		Name:         "sandbox-m4-quality-manifest-prepare",
+		Milestone:    "M4",
+		Sequence:     60,
+		EvidenceGoal: "Prepare a portable retained quality manifest from paired direct and sandbox report samples.",
+		DependsOn:    []string{"sandbox-m4-quality-sample-export"},
+		Command:      "make sandbox-m4-quality-manifest-prepare ROOT=... SAMPLE_BASIS=... OUT=...",
 		Notes: []string{
 			"Preflight scans retained direct/sandbox SubReport sample layout only; the manifest helper still parses both reports through the production SubReport parser.",
 			"Sample readiness requires paired cases across single_alert, cascade, and alert_storm before the real quality comparison can support an M4 decision.",
@@ -263,8 +307,12 @@ func sandboxM4QualityManifestPrepareReadiness(env envMap) targetReadiness {
 
 func sandboxM4QualityCompareReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
-		Name:    "sandbox-m4-quality-compare",
-		Command: "make sandbox-m4-quality-compare QUALITY_MANIFEST=... OUT=...",
+		Name:         "sandbox-m4-quality-compare",
+		Milestone:    "M4",
+		Sequence:     70,
+		EvidenceGoal: "Run the retained direct-vs-sandbox report quality comparison artifact for representative samples.",
+		DependsOn:    []string{"sandbox-m4-quality-manifest-prepare"},
+		Command:      "make sandbox-m4-quality-compare QUALITY_MANIFEST=... OUT=...",
 		Notes: []string{
 			"Preflight validates the retained manifest and output path only; the comparison helper still parses every direct/sandbox SubReport through the production parser.",
 			"The manual target runs manifest mode with fail-on-regression and writes a new retained quality-comparison JSON file.",
@@ -296,8 +344,11 @@ func selectTargets(targets []targetReadiness, target string) ([]targetReadiness,
 
 func reportLiveSmokeReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
-		Name:    "report-live-smoke",
-		Command: "make report-live-smoke",
+		Name:         "report-live-smoke",
+		Milestone:    "M2",
+		Sequence:     10,
+		EvidenceGoal: "Retain the real Prometheus-to-Temporal-to-Webhook proof for the headless report loop.",
+		Command:      "make report-live-smoke",
 		Notes: []string{
 			"Preflight only checks local configuration; it does not connect to PostgreSQL, Temporal, Prometheus, LLM, or Webhook services.",
 		},
@@ -387,8 +438,11 @@ func reportLiveSmokeReadiness(env envMap) targetReadiness {
 
 func sandboxM4RuntimeSmokeArtifactsReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
-		Name:    "sandbox-m4-runtime-smoke-artifacts",
-		Command: "make sandbox-m4-runtime-smoke-artifacts OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR=... OPENCLARION_AGENT_RUNTIME_IMAGE=...",
+		Name:         "sandbox-m4-runtime-smoke-artifacts",
+		Milestone:    "M4",
+		Sequence:     40,
+		EvidenceGoal: "Retain digest-bound runtime, provider lifecycle, timeout, output-cap, and egress smoke artifacts.",
+		Command:      "make sandbox-m4-runtime-smoke-artifacts OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR=... OPENCLARION_AGENT_RUNTIME_IMAGE=...",
 		Notes: []string{
 			"Preflight checks only local configuration; the target still runs Docker-backed runtime, provider, and egress smokes.",
 			"Provider timeout, output-cap, and egress proofs use their existing smoke harness images unless explicitly overridden.",
@@ -425,8 +479,12 @@ func sandboxM4RuntimeSmokeArtifactsReadiness(env envMap) targetReadiness {
 
 func sandboxM4ReviewEvidenceTemplateReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
-		Name:    "sandbox-m4-review-evidence-template",
-		Command: "make sandbox-m4-review-evidence-template QUALITY_COMPARISON=... RUNTIME_SMOKE_ARTIFACTS_ROOT=... SELECTED_CANDIDATE=... RUNTIME_CANDIDATE[_FILE]=... REVIEWER=...",
+		Name:         "sandbox-m4-review-evidence-template",
+		Milestone:    "M4",
+		Sequence:     80,
+		EvidenceGoal: "Prepare the human-review evidence draft that binds quality cases to the selected runtime candidate.",
+		DependsOn:    []string{"sandbox-m4-quality-compare", "sandbox-m4-runtime-smoke-artifacts"},
+		Command:      "make sandbox-m4-review-evidence-template QUALITY_COMPARISON=... RUNTIME_SMOKE_ARTIFACTS_ROOT=... SELECTED_CANDIDATE=... RUNTIME_CANDIDATE[_FILE]=... REVIEWER=...",
 		Notes: []string{
 			"Preflight validates local draft-generation inputs only; generated review evidence remains fail-closed until operator review.",
 			"RUNTIME_CANDIDATE_FILE may be used instead of RUNTIME_CANDIDATE when the runtime-smoke artifact directory contains a retained digest-ref.txt file.",
@@ -478,8 +536,12 @@ func sandboxM4ReviewEvidenceTemplateReadiness(env envMap) targetReadiness {
 
 func sandboxM4DecisionReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
-		Name:    "sandbox-m4-decision",
-		Command: "make sandbox-m4-decision BASELINE_AUDIT=... QUALITY_COMPARISON=... REVIEW_EVIDENCE=...",
+		Name:         "sandbox-m4-decision",
+		Milestone:    "M4",
+		Sequence:     90,
+		EvidenceGoal: "Record the M4 proceed, iterate, or defer decision from retained baseline, quality, runtime, and review evidence.",
+		DependsOn:    []string{"sandbox-m4-baseline-audit", "sandbox-m4-quality-compare", "sandbox-m4-review-evidence-template"},
+		Command:      "make sandbox-m4-decision BASELINE_AUDIT=... QUALITY_COMPARISON=... REVIEW_EVIDENCE=...",
 		Notes: []string{
 			"Preflight validates evidence file presence only; the decision helper still performs strict schema and consistency validation.",
 		},
@@ -494,8 +556,12 @@ func sandboxM4DecisionReadiness(env envMap) targetReadiness {
 
 func sandboxM4EvidencePacketReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
-		Name:    "sandbox-m4-evidence-packet",
-		Command: "make sandbox-m4-evidence-packet QUALITY_MANIFEST=... REVIEW_EVIDENCE=... OUT_DIR=...",
+		Name:         "sandbox-m4-evidence-packet",
+		Milestone:    "M4",
+		Sequence:     100,
+		EvidenceGoal: "Freeze the retained M4 baseline, quality, review, runtime-smoke, decision, and sample inputs into one packet.",
+		DependsOn:    []string{"sandbox-m4-decision"},
+		Command:      "make sandbox-m4-evidence-packet QUALITY_MANIFEST=... REVIEW_EVIDENCE=... OUT_DIR=...",
 		Notes: []string{
 			"OUT_DIR may be absent or an existing empty directory; packet assembly still refuses to mix artifacts in a non-empty directory.",
 		},
@@ -513,8 +579,12 @@ func sandboxM4EvidencePacketReadiness(env envMap) targetReadiness {
 
 func sandboxM4EvidenceChainReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
-		Name:    "sandbox-m4-evidence-chain",
-		Command: "OPENCLARION_M4_EVIDENCE_ROOT=... make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=sandbox-m4-evidence-chain",
+		Name:         "sandbox-m4-evidence-chain",
+		Milestone:    "M4",
+		Sequence:     110,
+		EvidenceGoal: "Audit the retained M4 evidence directory and semantic packet verification status without rerunning the evidence-producing commands.",
+		DependsOn:    []string{"sandbox-m4-evidence-packet"},
+		Command:      "OPENCLARION_M4_EVIDENCE_ROOT=... make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=sandbox-m4-evidence-chain",
 		Notes: []string{
 			"Preflight checks a retained M4 evidence working directory for the canonical artifact chain without printing local paths.",
 			"JSON artifacts are checked for duplicate object keys and trailing JSON before the packet verifier performs semantic validation when all canonical artifacts are present.",
@@ -530,8 +600,11 @@ func sandboxM4EvidenceChainReadiness(env envMap) targetReadiness {
 
 func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
-		Name:    "diagnosis-live-browser-smoke",
-		Command: "make diagnosis-live-browser-smoke",
+		Name:         "diagnosis-live-browser-smoke",
+		Milestone:    "M5",
+		Sequence:     20,
+		EvidenceGoal: "Retain the real diagnosis-room browser proof, including close-notification IM evidence when explicitly required.",
+		Command:      "make diagnosis-live-browser-smoke",
 		Notes: []string{
 			"Preflight only checks local configuration; it does not authenticate, create a room, install browsers, or contact the live backend.",
 			"When close-notification proof is required, the local close CLI still signals Temporal and loads PostgreSQL lifecycle events while the running worker must be configured to send the IM notification.",
