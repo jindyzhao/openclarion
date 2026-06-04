@@ -75,6 +75,7 @@ func TestRunValidatesM4EvidenceFilesAndPacketOutputDir(t *testing.T) {
 	if err := os.Mkdir(runtimeArtifacts, 0o700); err != nil {
 		t.Fatalf("mkdir runtime artifacts: %v", err)
 	}
+	collectedRuntimeArtifacts := filepath.Join(root, "collected-runtime-artifacts")
 	outDir := filepath.Join(root, "packet")
 
 	var stdout bytes.Buffer
@@ -84,6 +85,8 @@ func TestRunValidatesM4EvidenceFilesAndPacketOutputDir(t *testing.T) {
 		"REVIEW_EVIDENCE=" + review,
 		"QUALITY_MANIFEST=" + manifest,
 		"RUNTIME_SMOKE_ARTIFACTS_ROOT=" + runtimeArtifacts,
+		"OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR=" + collectedRuntimeArtifacts,
+		"OPENCLARION_AGENT_RUNTIME_IMAGE=registry.example.com/openclarion/runtime-candidate-a@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		"SELECTED_CANDIDATE=runtime-candidate-a",
 		"RUNTIME_CANDIDATE=registry.example.com/openclarion/runtime-candidate-a@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 		"REVIEWER=openclarion-maintainer",
@@ -94,6 +97,9 @@ func TestRunValidatesM4EvidenceFilesAndPacketOutputDir(t *testing.T) {
 	}
 
 	out := decodeOutput(t, stdout.Bytes())
+	if got := targetByName(t, out, "sandbox-m4-runtime-smoke-artifacts").Status; got != "ready" {
+		t.Fatalf("runtime smoke artifacts status = %q, want ready", got)
+	}
 	if got := targetByName(t, out, "sandbox-m4-review-evidence-template").Status; got != "ready" {
 		t.Fatalf("review evidence template status = %q, want ready", got)
 	}
@@ -102,6 +108,33 @@ func TestRunValidatesM4EvidenceFilesAndPacketOutputDir(t *testing.T) {
 	}
 	if got := targetByName(t, out, "sandbox-m4-evidence-packet").Status; got != "ready" {
 		t.Fatalf("packet status = %q, want ready", got)
+	}
+}
+
+func TestRunRejectsBadM4RuntimeSmokeArtifactEnv(t *testing.T) {
+	root := t.TempDir()
+	artifactsDir := filepath.Join(root, "runtime-artifacts")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-runtime-smoke-artifacts"}, []string{
+		"OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR=" + artifactsDir,
+		"OPENCLARION_AGENT_RUNTIME_IMAGE=registry.example.com/openclarion/runtime-candidate-a:latest",
+		"OPENCLARION_M4_RUNTIME_SMOKE_PULL=sometimes",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-runtime-smoke-artifacts")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	if len(target.InvalidEnv) != 2 {
+		t.Fatalf("invalid env = %#v, want image and pull rejections", target.InvalidEnv)
+	}
+	if strings.Contains(stdout.String(), "latest") || strings.Contains(stdout.String(), "sometimes") {
+		t.Fatalf("output leaked invalid environment value: %s", stdout.String())
 	}
 }
 

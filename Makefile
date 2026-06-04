@@ -48,6 +48,7 @@
 #   make report-live-smoke-output-test # M2 live report smoke proof validator tests
 #   make agent-runtime-smoke # manual M4 smoke against a candidate sandbox image
 #   make custom-thin-runner-smoke # manual M4 smoke: local custom runner candidate
+#   make sandbox-m4-runtime-smoke-artifacts OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR=... OPENCLARION_AGENT_RUNTIME_IMAGE=...
 #   make agent-tool-scripts-test # M4 sandbox tool helper contract tests
 #   make sandbox-baseline-audit # M4/M5 code-level sandbox baseline audit
 #   make sandbox-quality-compare-test # M4 offline sandbox/direct SubReport comparison tests
@@ -579,7 +580,7 @@ frontend-checks: frontend-install ci-frontend-typecheck ci-frontend-lint ci-fron
 # See ADR-0001 (PostgreSQL single source of truth) and
 # docs/design/database/migrations.md.
 
-.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness report-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke
+.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness report-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke sandbox-m4-runtime-smoke-artifacts
 
 ent-generate: ## Regenerate ent client + entity code from schemas under internal/persistence/ent/schema
 	@go generate $(ENT_PKG)/...
@@ -642,6 +643,9 @@ container-provider-output-cap-smoke: ## Manual M4 smoke: Docker-backed Container
 
 egress-allowdeny-smoke: ## Manual M4 smoke: Docker internal network + proxy allows listed egress and denies bypass/unlisted targets
 	@bash scripts/run_egress_allowdeny_smoke.sh
+
+sandbox-m4-runtime-smoke-artifacts: ## Manual M4 smoke bundle: retain canonical runtime-smoke artifacts for review evidence
+	@bash scripts/run_sandbox_m4_runtime_smoke_artifacts.sh
 
 # Future gates are tracked in docs/design/ci/README.md, not as inactive
 # Makefile placeholders. Add a target here only when its script/tool,

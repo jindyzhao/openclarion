@@ -77,7 +77,7 @@ func main() {
 func run(args []string, environ []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, diagnosis-live-browser-smoke")
+	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, diagnosis-live-browser-smoke")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -88,6 +88,7 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	env := environMap(environ)
 	targets := []targetReadiness{
 		reportLiveSmokeReadiness(env),
+		sandboxM4RuntimeSmokeArtifactsReadiness(env),
 		sandboxM4ReviewEvidenceTemplateReadiness(env),
 		sandboxM4DecisionReadiness(env),
 		sandboxM4EvidencePacketReadiness(env),
@@ -157,6 +158,34 @@ func reportLiveSmokeReadiness(env envMap) targetReadiness {
 			},
 		})
 	}
+	return finalize(target)
+}
+
+func sandboxM4RuntimeSmokeArtifactsReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:    "sandbox-m4-runtime-smoke-artifacts",
+		Command: "make sandbox-m4-runtime-smoke-artifacts OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR=... OPENCLARION_AGENT_RUNTIME_IMAGE=...",
+		Notes: []string{
+			"Preflight checks only local configuration; the target still runs Docker-backed runtime, provider, and egress smokes.",
+			"Provider timeout, output-cap, and egress proofs use their existing smoke harness images unless explicitly overridden.",
+		},
+	}
+	target.MissingEnv = missingEnv(env,
+		"OPENCLARION_AGENT_RUNTIME_IMAGE",
+	)
+	if envPresent(env, "OPENCLARION_AGENT_RUNTIME_IMAGE") && !immutableImageReference(env["OPENCLARION_AGENT_RUNTIME_IMAGE"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_AGENT_RUNTIME_IMAGE",
+			Reason: "must be an immutable image reference name@sha256:<64-lowercase-hex-digest>",
+		})
+	}
+	if envPresent(env, "OPENCLARION_M4_RUNTIME_SMOKE_PULL") && !oneOf(env["OPENCLARION_M4_RUNTIME_SMOKE_PULL"], "always", "missing", "never") {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_M4_RUNTIME_SMOKE_PULL",
+			Reason: "must be one of always, missing, never when set",
+		})
+	}
+	target.DirectoryChecks = append(target.DirectoryChecks, requiredEmptyOutputDirEnv(env, "OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR"))
 	return finalize(target)
 }
 
@@ -426,4 +455,14 @@ func immutableImageReference(value string) bool {
 		}
 	}
 	return true
+}
+
+func oneOf(value string, allowed ...string) bool {
+	value = strings.TrimSpace(value)
+	for _, candidate := range allowed {
+		if value == candidate {
+			return true
+		}
+	}
+	return false
 }

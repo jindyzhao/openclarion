@@ -194,6 +194,7 @@ make sandbox-baseline-audit # M4/M5 code-level sandbox baseline audit
 make sandbox-quality-compare-test # M4 offline direct-vs-sandbox SubReport comparison tests
 make sandbox-m4-decision-test # M4 offline proceed/iterate/defer decision tests
 make sandbox-m4-decision # manual M4 decision with evidence file inputs
+make sandbox-m4-runtime-smoke-artifacts # manual M4 retained runtime-smoke artifact bundle
 make sandbox-m4-review-evidence-template # manual M4 review-evidence draft from retained artifacts
 make sandbox-m4-evidence-packet-test # M4 evidence packet assembly tests
 make sandbox-m4-evidence-packet # manual M4 evidence packet assembly
