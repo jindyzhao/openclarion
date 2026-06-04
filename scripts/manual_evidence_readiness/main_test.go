@@ -747,6 +747,9 @@ func TestRunReportsM4EvidenceChainGapsWithoutLeakingRoot(t *testing.T) {
 }
 
 func TestRunReportsReadyM4EvidenceChainWithDigests(t *testing.T) {
+	withM4PacketVerifier(t, func(_ string) error {
+		return nil
+	})
 	root := t.TempDir()
 	writeM4EvidenceChainRuntimeArtifacts(t, root)
 	writeQualitySamplePair(t, root, "single_alert", "payments-cpu")
@@ -779,9 +782,54 @@ func TestRunReportsReadyM4EvidenceChainWithDigests(t *testing.T) {
 	if check.Status != "ok" || !lowerHexDigest(check.SHA256) {
 		t.Fatalf("packet check = %#v, want ok with sha256", check)
 	}
+	semantic := evidenceChainCheckByName(t, target.EvidenceChainChecks, "packet_semantic_verification")
+	if semantic.Status != "ok" || semantic.SHA256 != "" {
+		t.Fatalf("semantic check = %#v, want ok without sha256", semantic)
+	}
 	direct := evidenceChainCheckByName(t, target.EvidenceChainChecks, "direct_quality_samples")
 	if direct.Status != "ok" || direct.SHA256 != "" {
 		t.Fatalf("direct sample check = %#v, want directory ok without sha256", direct)
+	}
+	if strings.Contains(stdout.String(), root) {
+		t.Fatalf("output leaked evidence root: %s", stdout.String())
+	}
+}
+
+func TestRunRejectsM4EvidenceChainWhenPacketVerifierFails(t *testing.T) {
+	withM4PacketVerifier(t, func(_ string) error {
+		return os.ErrInvalid
+	})
+	root := t.TempDir()
+	writeM4EvidenceChainRuntimeArtifacts(t, root)
+	writeQualitySamplePair(t, root, "single_alert", "payments-cpu")
+	writeQualitySamplePair(t, root, "cascade", "checkout-latency")
+	writeQualitySamplePair(t, root, "alert_storm", "billing-errors")
+	for _, name := range []string{
+		"baseline-audit.json",
+		"quality-manifest.json",
+		"quality-comparison.json",
+		"review-evidence.json",
+		"packet.json",
+	} {
+		writeFile(t, root, name)
+	}
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-evidence-chain"}, []string{
+		"OPENCLARION_M4_EVIDENCE_ROOT=" + root,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-evidence-chain")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	semantic := evidenceChainCheckByName(t, target.EvidenceChainChecks, "packet_semantic_verification")
+	if semantic.Status != "invalid_packet" || semantic.Reason != "invalid argument" {
+		t.Fatalf("semantic check = %#v, want invalid_packet with sanitized reason", semantic)
 	}
 	if strings.Contains(stdout.String(), root) {
 		t.Fatalf("output leaked evidence root: %s", stdout.String())
@@ -1017,4 +1065,13 @@ func lowerHexDigest(value string) bool {
 		}
 	}
 	return true
+}
+
+func withM4PacketVerifier(t *testing.T, verifier func(string) error) {
+	t.Helper()
+	previous := verifyM4EvidencePacket
+	verifyM4EvidencePacket = verifier
+	t.Cleanup(func() {
+		verifyM4EvidencePacket = previous
+	})
 }
