@@ -114,6 +114,11 @@ make sandbox-m4-review-evidence-template \
   OUT=artifacts/samples/review-evidence.json
 ```
 
+When the retained runtime-smoke artifacts came from `make custom-thin-runner-smoke`
+with `OPENCLARION_CUSTOM_THIN_RUNNER_DIGEST_REF_OUT=.../digest-ref.txt`, use
+`RUNTIME_CANDIDATE_FILE=.../digest-ref.txt` instead of manually copying the
+digest into `RUNTIME_CANDIDATE`.
+
 `make sandbox-m4-runtime-smoke-artifacts` is a manual Docker-backed convenience
 target. It runs the existing candidate runtime file-contract smoke, candidate
 Provider lifecycle smoke, Provider timeout cleanup smoke, Provider output-cap

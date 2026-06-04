@@ -23,10 +23,11 @@ import (
 )
 
 const (
-	toolName          = "sandbox_m4_review_evidence_template"
-	maxInputBytes     = 1024 * 1024
-	maxTextBytes      = 2048
-	maxCandidateBytes = 128
+	toolName                     = "sandbox_m4_review_evidence_template"
+	maxInputBytes                = 1024 * 1024
+	maxRuntimeCandidateFileBytes = 4096
+	maxTextBytes                 = 2048
+	maxCandidateBytes            = 128
 )
 
 var digestPinnedImageRE = regexp.MustCompile(`^[^\s@]+@sha256:[a-f0-9]{64}$`)
@@ -42,6 +43,7 @@ type config struct {
 	RuntimeSmokeRefPrefix     string
 	SelectedCandidate         string
 	RuntimeCandidate          string
+	RuntimeCandidateFile      string
 	Reviewer                  string
 	EvidenceDate              string
 	RepresentativeSample      bool
@@ -152,6 +154,7 @@ func parseConfig(args []string) (config, error) {
 	fs.StringVar(&cfg.RuntimeSmokeRefPrefix, "runtime-smoke-ref-prefix", "", "optional slash-separated prefix for smoke artifact refs")
 	fs.StringVar(&cfg.SelectedCandidate, "selected-candidate", "", "operator-supplied candidate evidence ID")
 	fs.StringVar(&cfg.RuntimeCandidate, "runtime-candidate", "", "digest-pinned runtime image reference")
+	fs.StringVar(&cfg.RuntimeCandidateFile, "runtime-candidate-file", "", "direct regular file containing the digest-pinned runtime image reference")
 	fs.StringVar(&cfg.Reviewer, "reviewer", "", "reviewer identity for the draft human_review block")
 	fs.StringVar(&cfg.EvidenceDate, "evidence-date", cfg.EvidenceDate, "review evidence date in YYYY-MM-DD format")
 	fs.BoolVar(&cfg.RepresentativeSample, "representative-sample", false, "set review evidence representative_sample to true")
@@ -167,6 +170,7 @@ func parseConfig(args []string) (config, error) {
 	cfg.RuntimeSmokeRefPrefix = strings.Trim(strings.TrimSpace(cfg.RuntimeSmokeRefPrefix), "/")
 	cfg.SelectedCandidate = strings.TrimSpace(cfg.SelectedCandidate)
 	cfg.RuntimeCandidate = strings.TrimSpace(cfg.RuntimeCandidate)
+	cfg.RuntimeCandidateFile = strings.TrimSpace(cfg.RuntimeCandidateFile)
 	cfg.Reviewer = strings.TrimSpace(cfg.Reviewer)
 	cfg.EvidenceDate = strings.TrimSpace(cfg.EvidenceDate)
 	cfg.OutPath = strings.TrimSpace(cfg.OutPath)
@@ -178,6 +182,19 @@ func parseConfig(args []string) (config, error) {
 	}
 	if !validCandidateID(cfg.SelectedCandidate) {
 		return config{}, fmt.Errorf("--selected-candidate must be a non-whitespace value up to %d bytes", maxCandidateBytes)
+	}
+	if cfg.RuntimeCandidate == "" && cfg.RuntimeCandidateFile == "" {
+		return config{}, errors.New("--runtime-candidate or --runtime-candidate-file is required")
+	}
+	if cfg.RuntimeCandidate != "" && cfg.RuntimeCandidateFile != "" {
+		return config{}, errors.New("set only one of --runtime-candidate or --runtime-candidate-file")
+	}
+	if cfg.RuntimeCandidateFile != "" {
+		runtimeCandidate, err := readRuntimeCandidateFile(cfg.RuntimeCandidateFile)
+		if err != nil {
+			return config{}, err
+		}
+		cfg.RuntimeCandidate = runtimeCandidate
 	}
 	if !digestPinnedImageRE.MatchString(cfg.RuntimeCandidate) {
 		return config{}, errors.New("--runtime-candidate must be an immutable image reference `name@sha256:<64-hex-digest>`")
@@ -292,6 +309,21 @@ func parseQualityComparison(filePath string) (qualityComparison, error) {
 		seen[id] = true
 	}
 	return quality, nil
+}
+
+func readRuntimeCandidateFile(filePath string) (string, error) {
+	raw, err := readRegularFileCapped(filePath, maxRuntimeCandidateFileBytes)
+	if err != nil {
+		return "", fmt.Errorf("--runtime-candidate-file: %w", err)
+	}
+	candidate := strings.TrimSuffix(string(raw), "\n")
+	if candidate == "" {
+		return "", errors.New("--runtime-candidate-file must contain one immutable image reference")
+	}
+	if strings.ContainsAny(candidate, "\r\n\t ") || !digestPinnedImageRE.MatchString(candidate) {
+		return "", errors.New("--runtime-candidate-file must contain exactly one immutable image reference `name@sha256:<64-hex-digest>` followed by an optional newline")
+	}
+	return candidate, nil
 }
 
 func runtimeSmokeEvidence(root, refPrefix string) ([]runtimeSmoke, []string, error) {

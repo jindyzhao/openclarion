@@ -208,16 +208,33 @@ func sandboxM4RuntimeSmokeArtifactsReadiness(env envMap) targetReadiness {
 func sandboxM4ReviewEvidenceTemplateReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
 		Name:    "sandbox-m4-review-evidence-template",
-		Command: "make sandbox-m4-review-evidence-template QUALITY_COMPARISON=... RUNTIME_SMOKE_ARTIFACTS_ROOT=... SELECTED_CANDIDATE=... RUNTIME_CANDIDATE=... REVIEWER=...",
+		Command: "make sandbox-m4-review-evidence-template QUALITY_COMPARISON=... RUNTIME_SMOKE_ARTIFACTS_ROOT=... SELECTED_CANDIDATE=... RUNTIME_CANDIDATE[_FILE]=... REVIEWER=...",
 		Notes: []string{
 			"Preflight validates local draft-generation inputs only; generated review evidence remains fail-closed until operator review.",
+			"RUNTIME_CANDIDATE_FILE may be used instead of RUNTIME_CANDIDATE when the runtime-smoke artifact directory contains a retained digest-ref.txt file.",
 		},
 	}
 	target.MissingEnv = missingEnv(env,
 		"SELECTED_CANDIDATE",
-		"RUNTIME_CANDIDATE",
 		"REVIEWER",
 	)
+	runtimeCandidateSet := envPresent(env, "RUNTIME_CANDIDATE")
+	runtimeCandidateFileSet := envPresent(env, "RUNTIME_CANDIDATE_FILE")
+	if !runtimeCandidateSet && !runtimeCandidateFileSet {
+		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
+			Description: "runtime candidate source",
+			Options: []string{
+				"RUNTIME_CANDIDATE",
+				"RUNTIME_CANDIDATE_FILE",
+			},
+		})
+	}
+	if runtimeCandidateSet && runtimeCandidateFileSet {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "RUNTIME_CANDIDATE_FILE",
+			Reason: "set exactly one of RUNTIME_CANDIDATE or RUNTIME_CANDIDATE_FILE",
+		})
+	}
 	if envPresent(env, "RUNTIME_CANDIDATE") && !immutableImageReference(env["RUNTIME_CANDIDATE"]) {
 		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
 			Name:   "RUNTIME_CANDIDATE",
@@ -225,6 +242,18 @@ func sandboxM4ReviewEvidenceTemplateReadiness(env envMap) targetReadiness {
 		})
 	}
 	target.FileChecks = append(target.FileChecks, requiredRegularFileEnv(env, "QUALITY_COMPARISON"))
+	if runtimeCandidateFileSet {
+		check := requiredRegularFileEnv(env, "RUNTIME_CANDIDATE_FILE")
+		target.FileChecks = append(target.FileChecks, check)
+		if check.Status == "ok" {
+			if !runtimeCandidateFileReference(env["RUNTIME_CANDIDATE_FILE"]) {
+				target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+					Name:   "RUNTIME_CANDIDATE_FILE",
+					Reason: "file must contain exactly one immutable image reference name@sha256:<64-lowercase-hex-digest> followed by an optional newline",
+				})
+			}
+		}
+	}
 	target.DirectoryChecks = append(target.DirectoryChecks, requiredDirectoryEnv(env, "RUNTIME_SMOKE_ARTIFACTS_ROOT"))
 	return finalize(target)
 }
@@ -471,6 +500,26 @@ func immutableImageReference(value string) bool {
 		}
 	}
 	return true
+}
+
+func runtimeCandidateFileReference(filePath string) bool {
+	clean := filepath.Clean(strings.TrimSpace(filePath))
+	// #nosec G304 -- manual readiness inspects an operator-supplied digest-ref
+	// file after requiredRegularFileEnv has accepted it as a direct file.
+	f, err := os.Open(clean)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, 4097))
+	if err != nil || len(raw) > 4096 {
+		return false
+	}
+	value := strings.TrimSuffix(string(raw), "\n")
+	if value == "" || strings.ContainsAny(value, " \r\n\t") {
+		return false
+	}
+	return immutableImageReference(value)
 }
 
 func oneOf(value string, allowed ...string) bool {
