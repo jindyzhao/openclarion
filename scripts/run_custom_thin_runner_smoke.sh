@@ -3,6 +3,8 @@
 #
 # The image is pushed to an ephemeral localhost registry so the existing
 # runtime/provider smoke harnesses exercise a real repo@sha256 reference.
+# Set OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR to also collect the five
+# canonical M4 runtime-smoke artifacts before the ephemeral registry is removed.
 
 set -euo pipefail
 
@@ -24,6 +26,8 @@ tmp_dir="$(mktemp -d -t openclarion-custom-thin-runner.XXXXXX)"
 registry_image="${OPENCLARION_CUSTOM_THIN_RUNNER_REGISTRY_IMAGE:-registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373}"
 registry_name="openclarion-custom-thin-runner-registry-${run_id}"
 local_tag="openclarion/custom-thin-runner:smoke-${run_id}"
+digest_ref_out="${OPENCLARION_CUSTOM_THIN_RUNNER_DIGEST_REF_OUT:-}"
+artifacts_dir="${OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR:-}"
 registry_cid=""
 
 cleanup() {
@@ -88,6 +92,7 @@ if [[ ! "$digest_ref" =~ ^[^[:space:]@]+@sha256:[A-Fa-f0-9]{64}$ ]]; then
   echo "[custom-thin-runner-smoke] could not resolve digest-pinned image ref: $digest_ref" >&2
   exit 1
 fi
+echo "[custom-thin-runner-smoke] resolved candidate image: $digest_ref" >&2
 
 topology_file="$tmp_dir/topology.json"
 cat >"$topology_file" <<'JSON'
@@ -115,13 +120,35 @@ go run ./scripts/agent_tool_topology_lookup --topology-file "$topology_file" --s
 go run ./scripts/agent_runtime_smoke_output "$tmp_dir/topology-output.json" >/dev/null
 
 echo "[custom-thin-runner-smoke] running agent-runtime-smoke with $digest_ref..." >&2
-OPENCLARION_AGENT_RUNTIME_IMAGE="$digest_ref" \
-OPENCLARION_AGENT_RUNTIME_PULL=missing \
+env -u OPENCLARION_AGENT_RUNTIME_SHELL_COMMAND \
+  OPENCLARION_AGENT_RUNTIME_IMAGE="$digest_ref" \
+  OPENCLARION_AGENT_RUNTIME_PULL=missing \
   make agent-runtime-smoke
 
 echo "[custom-thin-runner-smoke] running container-provider-smoke with $digest_ref..." >&2
-OPENCLARION_CONTAINER_PROVIDER_SMOKE_IMAGE="$digest_ref" \
-OPENCLARION_CONTAINER_PROVIDER_SMOKE_PULL=missing \
+env -u OPENCLARION_CONTAINER_PROVIDER_SMOKE_COMMAND_JSON \
+  OPENCLARION_CONTAINER_PROVIDER_SMOKE_IMAGE="$digest_ref" \
+  OPENCLARION_CONTAINER_PROVIDER_SMOKE_PULL=missing \
   make container-provider-smoke
+
+if [[ -n "$artifacts_dir" ]]; then
+  echo "[custom-thin-runner-smoke] collecting runtime-smoke artifacts in $artifacts_dir..." >&2
+  env -u OPENCLARION_AGENT_RUNTIME_SHELL_COMMAND \
+    -u OPENCLARION_CONTAINER_PROVIDER_SMOKE_COMMAND_JSON \
+    OPENCLARION_AGENT_RUNTIME_IMAGE="$digest_ref" \
+    OPENCLARION_M4_RUNTIME_SMOKE_PULL=missing \
+    OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR="$artifacts_dir" \
+    make sandbox-m4-runtime-smoke-artifacts
+fi
+
+if [[ -n "$digest_ref_out" ]]; then
+  if [[ -e "$digest_ref_out" ]]; then
+    echo "[custom-thin-runner-smoke] digest ref output path already exists: $digest_ref_out" >&2
+    exit 2
+  fi
+  mkdir -p "$(dirname "$digest_ref_out")"
+  (umask 077 && set -o noclobber && printf '%s\n' "$digest_ref" >"$digest_ref_out")
+  echo "[custom-thin-runner-smoke] wrote digest ref: $digest_ref_out" >&2
+fi
 
 echo "[custom-thin-runner-smoke] OK - custom thin runner passed both digest-pinned smoke harnesses." >&2

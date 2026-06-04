@@ -125,6 +125,8 @@
   (`make agent-tool-scripts-test`)
 - [x] custom thin runner image packages tool helpers and proves topology helper
   execution inside the digest-pinned image
+- [x] custom thin runner smoke can retain canonical runtime-smoke artifacts
+  during the same ephemeral registry run
 - [x] code-level M4/M5 sandbox baseline audit exists
   (`make sandbox-baseline-audit`)
 - [x] offline sandbox/direct SubReport comparison helper validates both outputs

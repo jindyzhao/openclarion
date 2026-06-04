@@ -156,6 +156,23 @@ and proves the topology helper with
 posture. It is a lifecycle and file-contract result, not an accepted
 report-quality baseline.
 
+For retained review evidence, the same target can keep the ephemeral registry
+alive long enough to run the canonical artifact bundle:
+
+```bash
+OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR=artifacts/m4-runtime-smokes/custom-thin-runner \
+  OPENCLARION_CUSTOM_THIN_RUNNER_DIGEST_REF_OUT=artifacts/m4-runtime-smokes/custom-thin-runner/digest-ref.txt \
+  make custom-thin-runner-smoke
+```
+
+The artifacts directory must be absent or empty because the underlying
+`make sandbox-m4-runtime-smoke-artifacts` target owns the same mixing guard as
+manual candidate runs. The digest-ref file is optional and is written only when
+the path does not already exist. These options only retain lifecycle/security
+proofs for later review-evidence generation; they do not make the sample
+representative, accept the custom runner as the runtime baseline, or replace
+direct-vs-sandbox report-quality comparison.
+
 `make agent-tool-scripts-test` proves the first tool-helper contracts that
 candidate images may package later. The helpers are intentionally read-only:
 one bounded Prometheus instant-query helper and one bounded static topology
