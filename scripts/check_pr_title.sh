@@ -8,6 +8,7 @@ set -euo pipefail
 # checks, run: PR_TITLE='feat: add report trigger' make pr-title-check
 
 title="${PR_TITLE:-}"
+max_title_chars=120
 
 if [[ -z "$title" ]]; then
   echo "[pr-title-check] PR_TITLE is required." >&2
@@ -17,6 +18,11 @@ fi
 
 if [[ "$title" == *$'\n'* || "$title" == *$'\r'* ]]; then
   echo "[pr-title-check] PR title must be a single line." >&2
+  exit 1
+fi
+
+if (( ${#title} > max_title_chars )); then
+  echo "[pr-title-check] PR title is ${#title} characters; maximum is ${max_title_chars}." >&2
   exit 1
 fi
 
