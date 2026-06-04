@@ -13,6 +13,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path"
@@ -36,6 +37,7 @@ const (
 	decisionIterate                         = "iterate"
 	decisionDefer                           = "defer"
 	canonicalProceedReason                  = "all required M4 evidence is present and no regression was detected"
+	loopbackRuntimeCandidateReason          = "review evidence runtime_candidate uses a loopback registry reference; publishable runtime baselines must use a non-loopback registry reference"
 	requiredSnapshotRefPrefix               = "snapshot:"
 	maxReviewEvidenceTextBytes              = 2048
 	maxEvidenceCaseIDBytes                  = 128
@@ -1897,6 +1899,9 @@ func validateDecisionOutput(raw []byte) error {
 	if !immutableImageReference(out.Evidence.RuntimeCandidate) {
 		return errors.New("decision evidence runtime_candidate must be an immutable image reference `name@sha256:<64-hex-digest>`")
 	}
+	if out.Decision == decisionProceed && loopbackImageReference(out.Evidence.RuntimeCandidate) {
+		return errors.New(loopbackRuntimeCandidateReason)
+	}
 	if out.Evidence.RuntimeSmokePassedCount < 0 {
 		return errors.New("decision evidence runtime_smoke_passed_count must not be negative")
 	}
@@ -2120,6 +2125,38 @@ func immutableImageReference(value string) bool {
 		return false
 	}
 	return imageDigestHexRe.MatchString(digest)
+}
+
+func loopbackImageReference(value string) bool {
+	name, _, ok := strings.Cut(value, "@sha256:")
+	if !ok {
+		return false
+	}
+	registry := imageReferenceRegistry(name)
+	if registry == "" {
+		return false
+	}
+	host := registry
+	if h, _, err := net.SplitHostPort(registry); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func imageReferenceRegistry(name string) string {
+	first, _, _ := strings.Cut(name, "/")
+	if first == "" {
+		return ""
+	}
+	if strings.EqualFold(first, "localhost") || strings.ContainsAny(first, ".:") {
+		return first
+	}
+	return ""
 }
 
 func copyEvidenceFile(src, dst, qualitySampleBasis string) error {

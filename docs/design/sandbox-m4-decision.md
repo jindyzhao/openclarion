@@ -86,7 +86,9 @@ without hard-coding candidate runtime names into the control plane.
 `evidence_date` must be a non-future `YYYY-MM-DD` date, `runtime_candidate`
 values must be immutable `name@sha256:<64-hex-digest>` image references,
 runtime/human statuses must use the bounded `pass` / `fail` vocabulary, and
-candidate-evaluation statuses must use `pass`, `fail`, or `not_fit`.
+candidate-evaluation statuses must use `pass`, `fail`, or `not_fit`. Loopback
+or `localhost` registry references are accepted only as local smoke evidence:
+they force `defer` and cannot support a `proceed` runtime baseline.
 `human_review.notes` is required and must explain the reviewer judgement; a
 bare pass/fail status is not enough to support retained evidence. Each
 `reviewed_cases[]` item must match a quality comparison case ID, carry a
@@ -118,7 +120,9 @@ make sandbox-m4-review-evidence-template \
 When the retained runtime-smoke artifacts came from `make custom-thin-runner-smoke`
 with `OPENCLARION_CUSTOM_THIN_RUNNER_DIGEST_REF_OUT=.../digest-ref.txt`, use
 `RUNTIME_CANDIDATE_FILE=.../digest-ref.txt` instead of manually copying the
-digest into `RUNTIME_CANDIDATE`.
+digest into `RUNTIME_CANDIDATE`. The custom-runner digest comes from an
+ephemeral loopback registry, so it is useful for retained local smoke review but
+cannot by itself support a `proceed` decision.
 
 `make sandbox-m4-runtime-smoke-artifacts` is a manual Docker-backed convenience
 target. It runs the existing candidate runtime file-contract smoke, candidate
@@ -246,7 +250,8 @@ The gate is conservative:
   and `alert_storm`, review evidence is incomplete, the selected candidate has
   no matching candidate-evaluation entry, the selected candidate runtime ref is
   missing or does not match the top-level runtime ref, the selected pass
-  candidate lacks required runtime-smoke references, or the comparator shows no
+  candidate lacks required runtime-smoke references, the selected runtime
+  candidate uses a loopback registry reference, or the comparator shows no
   improved or human-reviewed candidate case.
 - `iterate`: runtime smokes or human review fail, or any quality-comparison case
   regresses, any reviewed quality case fails human review, or the selected

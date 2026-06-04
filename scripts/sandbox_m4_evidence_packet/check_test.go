@@ -1942,6 +1942,33 @@ func TestRunRejectsProceedDecisionWithNonCanonicalReason(t *testing.T) {
 	}
 }
 
+func TestRunRejectsProceedDecisionWithLoopbackRuntimeCandidate(t *testing.T) {
+	dir := t.TempDir()
+	qualityManifest := writeFile(t, dir, "quality-manifest.json", `{"cases":[{"id":"payments-cpu"}]}`)
+	loopbackRef := "localhost:5000/openclarion/runtime-candidate-a@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	reviewEvidence := writeFile(t, dir, "review-evidence.json", strings.ReplaceAll(validReviewEvidence(), runtimeCandidateRef, loopbackRef))
+	runner := &fakeRunner{
+		responses: []fakeResponse{
+			{stdout: validBaselineOutput()},
+			{stdout: validQualityOutput()},
+			{stdout: strings.ReplaceAll(validDecisionOutput(), runtimeCandidateRef, loopbackRef)},
+		},
+	}
+
+	var stdout bytes.Buffer
+	err := runWithRunner(context.Background(), []string{
+		"--quality-manifest", qualityManifest,
+		"--review-evidence", reviewEvidence,
+		"--out-dir", filepath.Join(dir, "packet"),
+	}, &stdout, runner)
+	if err == nil {
+		t.Fatal("run err = nil, want loopback proceed runtime candidate rejection")
+	}
+	if !strings.Contains(err.Error(), loopbackRuntimeCandidateReason) {
+		t.Fatalf("run err = %v, want loopback runtime candidate error", err)
+	}
+}
+
 func TestRunRejectsNonProceedDecisionWithProceedReason(t *testing.T) {
 	dir := t.TempDir()
 	qualityManifest := writeFile(t, dir, "quality-manifest.json", `{"cases":[{"id":"payments-cpu"}]}`)

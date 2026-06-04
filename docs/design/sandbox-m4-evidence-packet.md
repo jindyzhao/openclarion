@@ -79,8 +79,9 @@ review-evidence file from the retained quality comparison and those artifacts,
 including a retained custom-runner `digest-ref.txt` when
 `RUNTIME_CANDIDATE_FILE=...` is set. Operators must still review the draft and
 edit candidate, reviewed-case, human-review, and representative-sample fields
-before it can support acceptance. Quality manifest report paths are
-intentionally
+before it can support acceptance. Custom-runner digest refs from the ephemeral
+loopback registry remain local smoke evidence; a `proceed` decision must not use
+one as the runtime baseline. Quality manifest report paths are intentionally
 relative to the manifest directory, non-traversing, and distinct per case so
 packet artifacts stay portable and cannot compare a report file to itself.
 `make sandbox-m4-quality-sample-export` can create that retained sample-root
@@ -159,7 +160,10 @@ reasons. A `proceed` decision must carry only the canonical success reason;
 `iterate` and `defer` decisions must not reuse that success reason, and blank,
 whitespace-padded, or duplicate reasons are rejected. Its evidence summary must
 match the frozen baseline, quality, review, and `--min-cases` inputs in the
-same packet.
+same packet. The packet validator also rejects a `proceed` decision whose
+runtime candidate points at `localhost`, `127.0.0.1`, `::1`, or another
+loopback registry reference, preventing a local smoke handoff from being frozen
+as an accepted runtime baseline.
 Helper output and copied review evidence also reject duplicate JSON object keys
 and unknown fields before parsing so retained artifacts cannot depend on
 last-key-wins behavior or unvalidated proof claims.
