@@ -1,5 +1,6 @@
 target	reason
 atlas-smoke	manual Atlas acceptance smoke; requires Docker image pulls and a local Docker daemon
+manual-evidence-readiness	manual readiness preflight for remaining live/evidence targets; intentionally operator-run so missing secrets and artifact paths are not evaluated in CI
 report-live-smoke	manual M2 live report smoke; requires real PostgreSQL, Temporal, Prometheus, worker, and Webhook services
 agent-runtime-smoke	manual M4 candidate runtime smoke; requires a digest-pinned sandbox image and Docker runtime
 custom-thin-runner-smoke	manual M4 local candidate smoke; builds an image and exercises Docker-backed runtime paths

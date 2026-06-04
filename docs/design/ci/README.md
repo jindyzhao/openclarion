@@ -168,6 +168,7 @@ make allowlist-discipline # allowlist owner / expiry / removal metadata
 make dependabot-policy-check # Dependabot policy invariants
 make branch-protection-check # branch protection required-check policy
 make manual-target-isolation # manual smoke/evidence targets stay out of CI
+make manual-evidence-readiness # manual preflight for remaining live/evidence target prerequisites
 make workflow-change-guard # PR-only workflow-file change isolation
 LINEAR_HISTORY_BASE_REF=main LINEAR_HISTORY_HEAD_SHA=HEAD make linear-history-check # PR linear history policy
 PR_FILE_COUNT_BASE_REF=main PR_FILE_COUNT_HEAD_SHA=HEAD make pr-file-count-check # PR file-count policy
