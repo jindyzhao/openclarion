@@ -181,6 +181,7 @@ func (r *DiagnosisWebSocketRelay) handleQueryState(ctx context.Context, conn *we
 		LastActivityAt:  state.LastActivityAt,
 		ClosedAt:        state.ClosedAt,
 		CloseReason:     state.CloseReason,
+		FinalConclusion: diagnosisWSFinalConclusionFrame(state.FinalConclusion),
 		InFlight:        state.InFlight,
 		SeenMessageIDs:  append([]string(nil), state.SeenMessageIDs...),
 		Conversation:    diagnosisWSConversation(state.Conversation),
@@ -258,6 +259,24 @@ func diagnosisWSConversation(in []ports.DiagnosisRoomConversationTurn) []diagnos
 	return out
 }
 
+func diagnosisWSFinalConclusionFrame(in *ports.DiagnosisRoomFinalConclusion) *diagnosisWSFinalConclusion {
+	if in == nil {
+		return nil
+	}
+	return &diagnosisWSFinalConclusion{
+		Status:              in.Status,
+		Source:              in.Source,
+		Reason:              in.Reason,
+		AssistantTurnID:     int64(in.AssistantTurnID),
+		AssistantMessageID:  in.AssistantMessageID,
+		AssistantSequence:   in.AssistantSequence,
+		AssistantOccurredAt: in.AssistantOccurredAt,
+		Content:             in.Content,
+		Confidence:          in.Confidence,
+		RequiresHumanReview: in.RequiresHumanReview,
+	}
+}
+
 func writeDiagnosisWSJSON(conn *websocket.Conn, value interface{}) error {
 	if err := conn.WriteJSON(value); err != nil {
 		return err
@@ -307,6 +326,7 @@ type diagnosisWSStateFrame struct {
 	LastActivityAt  time.Time                     `json:"last_activity_at"`
 	ClosedAt        *time.Time                    `json:"closed_at,omitempty"`
 	CloseReason     string                        `json:"close_reason,omitempty"`
+	FinalConclusion *diagnosisWSFinalConclusion   `json:"final_conclusion,omitempty"`
 	InFlight        bool                          `json:"in_flight"`
 	SeenMessageIDs  []string                      `json:"seen_message_ids"`
 	Conversation    []diagnosisWSConversationTurn `json:"conversation"`
@@ -315,6 +335,19 @@ type diagnosisWSStateFrame struct {
 type diagnosisWSConversationTurn struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+}
+
+type diagnosisWSFinalConclusion struct {
+	Status              string     `json:"status"`
+	Source              string     `json:"source"`
+	Reason              string     `json:"reason,omitempty"`
+	AssistantTurnID     int64      `json:"assistant_turn_id,omitempty"`
+	AssistantMessageID  string     `json:"assistant_message_id,omitempty"`
+	AssistantSequence   int        `json:"assistant_sequence,omitempty"`
+	AssistantOccurredAt *time.Time `json:"assistant_occurred_at,omitempty"`
+	Content             string     `json:"content,omitempty"`
+	Confidence          string     `json:"confidence,omitempty"`
+	RequiresHumanReview *bool      `json:"requires_human_review,omitempty"`
 }
 
 type diagnosisWSErrorFrame struct {

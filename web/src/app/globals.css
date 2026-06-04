@@ -422,6 +422,24 @@ tr:last-child td {
   font-weight: 720;
 }
 
+.diagnosis-conclusion {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.diagnosis-conclusion-title {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.diagnosis-conclusion p {
+  margin: 0;
+  line-height: 1.5;
+}
+
 .diagnosis-room-panel {
   margin-bottom: 16px;
 }

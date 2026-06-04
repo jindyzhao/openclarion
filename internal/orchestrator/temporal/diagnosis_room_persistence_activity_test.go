@@ -266,7 +266,11 @@ func TestDiagnosisRoomPersistenceActivities_CloseSessionIsIdempotentAndAudited(t
 		second.LifecycleEventID != first.LifecycleEventID ||
 		first.Status != string(domain.ChatSessionStatusClosed) ||
 		first.CloseReason != "idle_timeout" ||
-		!first.ClosedAt.Equal(domain.NormalizeUTCMicro(req.ClosedAt)) {
+		!first.ClosedAt.Equal(domain.NormalizeUTCMicro(req.ClosedAt)) ||
+		first.FinalConclusion.Status != "not_available" ||
+		first.FinalConclusion.Source != "none" ||
+		first.FinalConclusion.Reason != "room_closed_without_assistant_turn" ||
+		second.FinalConclusion != first.FinalConclusion {
 		t.Fatalf("close results first=%+v second=%+v ensure=%+v", first, second, ensure)
 	}
 
@@ -352,6 +356,19 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 	}
 	if second.LifecycleEventID != first.LifecycleEventID {
 		t.Fatalf("close event ID second=%d, want %d", second.LifecycleEventID, first.LifecycleEventID)
+	}
+	if first.FinalConclusion.Status != "available" ||
+		first.FinalConclusion.Source != "latest_assistant_turn" ||
+		first.FinalConclusion.AssistantTurnID != persisted.AssistantTurnID ||
+		first.FinalConclusion.AssistantMessageID != turnReq.AssistantMessageID ||
+		first.FinalConclusion.AssistantSequence != turnReq.AssistantSequence ||
+		first.FinalConclusion.AssistantOccurredAt == nil ||
+		!first.FinalConclusion.AssistantOccurredAt.Equal(domain.NormalizeUTCMicro(turnReq.AssistantOccurredAt)) ||
+		first.FinalConclusion.Content != turnReq.AssistantMessage ||
+		first.FinalConclusion.Confidence != "high" ||
+		first.FinalConclusion.RequiresHumanReview == nil ||
+		!*first.FinalConclusion.RequiresHumanReview {
+		t.Fatalf("close result final conclusion = %+v", first.FinalConclusion)
 	}
 
 	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {

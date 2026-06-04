@@ -127,6 +127,7 @@ type CloseDiagnosisChatSessionResult struct {
 	ClosedAt         time.Time
 	CloseReason      string
 	LastActivityAt   time.Time
+	FinalConclusion  DiagnosisRoomFinalConclusion
 }
 
 // SendDiagnosisRoomCloseNotificationResult returns the outbound close
@@ -233,11 +234,11 @@ func (a *Activities) CloseDiagnosisChatSession(ctx context.Context, req CloseDia
 	if err != nil {
 		return CloseDiagnosisChatSessionResult{}, mapActivityError(err, "close-diagnosis-chat-session")
 	}
-	event, err := a.recordDiagnosisRoomClosed(ctx, req, session)
+	event, finalConclusion, err := a.recordDiagnosisRoomClosed(ctx, req, session)
 	if err != nil {
 		return CloseDiagnosisChatSessionResult{}, mapActivityError(err, "close-diagnosis-chat-session lifecycle event")
 	}
-	return closeDiagnosisChatSessionResult(session, event), nil
+	return closeDiagnosisChatSessionResult(session, event, finalConclusion), nil
 }
 
 // SendDiagnosisRoomCloseNotification delivers the final operator notification
@@ -925,7 +926,11 @@ func persistDiagnosisTurnResult(
 	}
 }
 
-func closeDiagnosisChatSessionResult(session domain.ChatSession, event domain.DiagnosisTaskEvent) CloseDiagnosisChatSessionResult {
+func closeDiagnosisChatSessionResult(
+	session domain.ChatSession,
+	event domain.DiagnosisTaskEvent,
+	finalConclusion DiagnosisRoomFinalConclusion,
+) CloseDiagnosisChatSessionResult {
 	var closedAt time.Time
 	if session.ClosedAt != nil {
 		closedAt = *session.ClosedAt
@@ -938,6 +943,7 @@ func closeDiagnosisChatSessionResult(session domain.ChatSession, event domain.Di
 		ClosedAt:         closedAt,
 		CloseReason:      session.CloseReason,
 		LastActivityAt:   session.LastActivityAt,
+		FinalConclusion:  finalConclusion,
 	}
 }
 
@@ -1025,10 +1031,14 @@ func (a *Activities) recordDiagnosisRoomTurnPersisted(ctx context.Context, req P
 	})
 }
 
-func (a *Activities) recordDiagnosisRoomClosed(ctx context.Context, req CloseDiagnosisChatSessionInput, session domain.ChatSession) (domain.DiagnosisTaskEvent, error) {
+func (a *Activities) recordDiagnosisRoomClosed(
+	ctx context.Context,
+	req CloseDiagnosisChatSessionInput,
+	session domain.ChatSession,
+) (domain.DiagnosisTaskEvent, DiagnosisRoomFinalConclusion, error) {
 	finalConclusion, err := a.diagnosisRoomFinalConclusion(ctx, req, session)
 	if err != nil {
-		return domain.DiagnosisTaskEvent{}, err
+		return domain.DiagnosisTaskEvent{}, DiagnosisRoomFinalConclusion{}, err
 	}
 	payload, err := diagnosisRoomLifecyclePayload(map[string]any{
 		"kind":               diagnosisRoomEventClosed,
@@ -1044,18 +1054,24 @@ func (a *Activities) recordDiagnosisRoomClosed(ctx context.Context, req CloseDia
 		"conclusion_version": "diagnosis-room-close.v1",
 	})
 	if err != nil {
-		return domain.DiagnosisTaskEvent{}, err
+		return domain.DiagnosisTaskEvent{}, DiagnosisRoomFinalConclusion{}, err
 	}
-	return a.appendDiagnosisRoomLifecycleEvent(ctx, diagnosisRoomLifecycleEventInput{
+	event, err := a.appendDiagnosisRoomLifecycleEvent(ctx, diagnosisRoomLifecycleEventInput{
 		TaskID:     req.DiagnosisTaskID,
 		Kind:       diagnosisRoomEventClosed,
 		DedupeKey:  diagnosisRoomEventDedupeKey(diagnosisRoomEventClosed, req.SessionID, "closed"),
 		Payload:    payload,
 		OccurredAt: req.ClosedAt,
 	})
+	if err != nil {
+		return domain.DiagnosisTaskEvent{}, DiagnosisRoomFinalConclusion{}, err
+	}
+	return event, finalConclusion, nil
 }
 
-type diagnosisRoomFinalConclusion struct {
+// DiagnosisRoomFinalConclusion is the persisted close-time diagnosis summary
+// derived from the latest assistant turn, when one exists.
+type DiagnosisRoomFinalConclusion struct {
 	Status              string     `json:"status"`
 	Source              string     `json:"source"`
 	Reason              string     `json:"reason,omitempty"`
@@ -1077,9 +1093,9 @@ func (a *Activities) diagnosisRoomFinalConclusion(
 	ctx context.Context,
 	req CloseDiagnosisChatSessionInput,
 	session domain.ChatSession,
-) (diagnosisRoomFinalConclusion, error) {
+) (DiagnosisRoomFinalConclusion, error) {
 	if session.TurnCount == 0 {
-		return diagnosisRoomFinalConclusion{
+		return DiagnosisRoomFinalConclusion{
 			Status: "not_available",
 			Source: "none",
 			Reason: "room_closed_without_assistant_turn",
@@ -1088,7 +1104,7 @@ func (a *Activities) diagnosisRoomFinalConclusion(
 
 	turns, err := a.listDiagnosisRoomTurns(ctx, session.ID, session.TurnCount)
 	if err != nil {
-		return diagnosisRoomFinalConclusion{}, err
+		return DiagnosisRoomFinalConclusion{}, err
 	}
 	for i := len(turns) - 1; i >= 0; i-- {
 		turn := turns[i]
@@ -1097,11 +1113,11 @@ func (a *Activities) diagnosisRoomFinalConclusion(
 		}
 		var metadata diagnosisRoomAssistantTurnMetadata
 		if err := json.Unmarshal(turn.Metadata, &metadata); err != nil {
-			return diagnosisRoomFinalConclusion{}, fmt.Errorf("diagnosis room final conclusion: parse assistant metadata for turn %d: %w", turn.ID, err)
+			return DiagnosisRoomFinalConclusion{}, fmt.Errorf("diagnosis room final conclusion: parse assistant metadata for turn %d: %w", turn.ID, err)
 		}
 		requiresHumanReview := metadata.RequiresHumanReview
 		occurredAt := turn.OccurredAt
-		return diagnosisRoomFinalConclusion{
+		return DiagnosisRoomFinalConclusion{
 			Status:              "available",
 			Source:              "latest_assistant_turn",
 			AssistantTurnID:     int64(turn.ID),
@@ -1113,7 +1129,7 @@ func (a *Activities) diagnosisRoomFinalConclusion(
 			RequiresHumanReview: &requiresHumanReview,
 		}, nil
 	}
-	return diagnosisRoomFinalConclusion{}, fmt.Errorf("diagnosis room final conclusion: no assistant turn found for non-empty session %q: %w",
+	return DiagnosisRoomFinalConclusion{}, fmt.Errorf("diagnosis room final conclusion: no assistant turn found for non-empty session %q: %w",
 		req.SessionID, domain.ErrInvariantViolation)
 }
 

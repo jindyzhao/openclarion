@@ -98,6 +98,21 @@ type DiagnosisRoomConversationTurn struct {
 	Content string
 }
 
+// DiagnosisRoomFinalConclusion is the close-time conclusion snapshot returned
+// for read/reconnect flows after the room has closed.
+type DiagnosisRoomFinalConclusion struct {
+	Status              string
+	Source              string
+	Reason              string
+	AssistantTurnID     domain.ChatTurnID
+	AssistantMessageID  string
+	AssistantSequence   int
+	AssistantOccurredAt *time.Time
+	Content             string
+	Confidence          string
+	RequiresHumanReview *bool
+}
+
 // DiagnosisRoomState is the provider-neutral room state returned for
 // WebSocket reconnect/read flows.
 type DiagnosisRoomState struct {
@@ -111,6 +126,7 @@ type DiagnosisRoomState struct {
 	LastActivityAt  time.Time
 	ClosedAt        *time.Time
 	CloseReason     string
+	FinalConclusion *DiagnosisRoomFinalConclusion
 	InFlight        bool
 	SeenMessageIDs  []string
 	Conversation    []DiagnosisRoomConversationTurn

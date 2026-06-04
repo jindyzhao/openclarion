@@ -171,6 +171,7 @@ func TestDiagnosisRoomClient_SubmitDiagnosisTurnUsesCompletedUpdate(t *testing.T
 func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 	startedAt := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
 	closedAt := startedAt.Add(5 * time.Minute)
+	requiresHumanReview := true
 	temporalClient := &recordingDiagnosisRoomTemporalClient{
 		queryValue: fakeEncodedValue{value: DiagnosisRoomWorkflowState{
 			SessionID:       "session-1",
@@ -183,8 +184,19 @@ func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 			LastActivityAt:  closedAt,
 			ClosedAt:        &closedAt,
 			CloseReason:     "user_requested",
-			InFlight:        false,
-			SeenMessageIDs:  []string{"msg-1"},
+			FinalConclusion: &DiagnosisRoomFinalConclusion{
+				Status:              "available",
+				Source:              "latest_assistant_turn",
+				AssistantTurnID:     32,
+				AssistantMessageID:  "msg-1/assistant",
+				AssistantSequence:   2,
+				AssistantOccurredAt: &closedAt,
+				Content:             "The alert has recovered.",
+				Confidence:          "high",
+				RequiresHumanReview: &requiresHumanReview,
+			},
+			InFlight:       false,
+			SeenMessageIDs: []string{"msg-1"},
 			Conversation: []diagnosisroom.ConversationTurn{
 				{Role: "user", Content: "Please continue investigating"},
 				{Role: "assistant", Content: "The alert has recovered."},
@@ -211,6 +223,19 @@ func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 	}
 	if got.ClosedAt == nil || !got.ClosedAt.Equal(closedAt) {
 		t.Fatalf("ClosedAt = %v, want %s", got.ClosedAt, closedAt)
+	}
+	if got.FinalConclusion == nil ||
+		got.FinalConclusion.Status != "available" ||
+		got.FinalConclusion.AssistantTurnID != domain.ChatTurnID(32) ||
+		got.FinalConclusion.AssistantMessageID != "msg-1/assistant" ||
+		got.FinalConclusion.AssistantSequence != 2 ||
+		got.FinalConclusion.AssistantOccurredAt == nil ||
+		!got.FinalConclusion.AssistantOccurredAt.Equal(closedAt) ||
+		got.FinalConclusion.Content != "The alert has recovered." ||
+		got.FinalConclusion.Confidence != "high" ||
+		got.FinalConclusion.RequiresHumanReview == nil ||
+		!*got.FinalConclusion.RequiresHumanReview {
+		t.Fatalf("FinalConclusion = %+v", got.FinalConclusion)
 	}
 }
 

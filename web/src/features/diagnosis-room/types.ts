@@ -11,6 +11,19 @@ export type DiagnosisConversationTurn = {
   content: string;
 };
 
+type DiagnosisFinalConclusion = {
+  status: string;
+  source: string;
+  reason?: string;
+  assistant_turn_id?: number;
+  assistant_message_id?: string;
+  assistant_sequence?: number;
+  assistant_occurred_at?: string;
+  content?: string;
+  confidence?: string;
+  requires_human_review?: boolean;
+};
+
 type DiagnosisReadyFrame = {
   type: "ready";
   session_id: string;
@@ -47,6 +60,7 @@ export type DiagnosisStateFrame = {
   last_activity_at: string;
   closed_at?: string;
   close_reason?: string;
+  final_conclusion?: DiagnosisFinalConclusion;
   in_flight: boolean;
   seen_message_ids: string[];
   conversation: DiagnosisConversationTurn[];
