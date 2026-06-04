@@ -42,23 +42,49 @@ if [[ -z "${OPENCLARION_LIVE_DIAGNOSIS_MESSAGE:-}" ]]; then
   export OPENCLARION_LIVE_DIAGNOSIS_MESSAGE="Live browser acceptance $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 fi
 
+normalize_bearer_env() {
+  local raw trimmed token
+  raw="${OPENCLARION_LIVE_BEARER_TOKEN:-}"
+  trimmed="$(printf '%s' "$raw" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+  if [[ -z "$trimmed" ]]; then
+    echo "[diagnosis-live-browser-smoke] OPENCLARION_LIVE_BEARER_TOKEN must be non-empty" >&2
+    exit 2
+  fi
+  if [[ "$trimmed" =~ ^[Bb][Ee][Aa][Rr][Ee][Rr][[:space:]]+(.+)$ ]]; then
+    token="${BASH_REMATCH[1]}"
+  else
+    token="$trimmed"
+  fi
+  if [[ -z "$token" || "$token" =~ [[:space:]] ]]; then
+    echo "[diagnosis-live-browser-smoke] OPENCLARION_LIVE_BEARER_TOKEN must be a single bearer token or Bearer header" >&2
+    exit 2
+  fi
+  export OPENCLARION_LIVE_BEARER_TOKEN="$token"
+  export OPENCLARION_LIVE_AUTHORIZATION_HEADER="Bearer $token"
+}
+
+normalize_bearer_env
+
 if [[ -z "${OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID:-}" ]]; then
   echo "[diagnosis-live-browser-smoke] creating live diagnosis room from evidence snapshot ${OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID}..." >&2
   create_response="$(
     node <<'EOF'
 const baseURL = process.env.OPENCLARION_LIVE_API_BASE_URL;
-const bearer = process.env.OPENCLARION_LIVE_BEARER_TOKEN;
+const authorizationHeader = process.env.OPENCLARION_LIVE_AUTHORIZATION_HEADER;
 const evidenceSnapshotID = Number(process.env.OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID);
 
 if (!Number.isSafeInteger(evidenceSnapshotID) || evidenceSnapshotID <= 0) {
   throw new Error("OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID must be a positive integer");
+}
+if (!authorizationHeader || !/^Bearer [^ \t\r\n]+$/.test(authorizationHeader)) {
+  throw new Error("OPENCLARION_LIVE_AUTHORIZATION_HEADER must be a Bearer header");
 }
 
 (async () => {
   const response = await fetch(new URL("/api/v1/diagnosis/rooms", baseURL), {
     method: "POST",
     headers: {
-      "authorization": bearer,
+      "authorization": authorizationHeader,
       "content-type": "application/json",
       "accept": "application/json"
     },
@@ -107,6 +133,10 @@ function sha256Hex(value) {
   return createHash("sha256").update(value, "utf8").digest("hex");
 }
 
+function canonicalUTCNow() {
+  return new Date().toISOString().replace(/\.000Z$/, "Z").replace(/(\.\d*?[1-9])0+Z$/, "$1Z");
+}
+
 const output = process.argv[2];
 const browserProofPath = process.env.OPENCLARION_LIVE_BROWSER_PROOF_PATH;
 if (!browserProofPath) {
@@ -127,7 +157,7 @@ const messageLength = message.length;
 const messageSHA256 = sha256Hex(message);
 const proof = {
   passed: true,
-  checked_at: new Date().toISOString(),
+  checked_at: canonicalUTCNow(),
   request: {
     mode: createdRoom ? "create_room" : "existing_session",
     session_id: process.env.OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID,
