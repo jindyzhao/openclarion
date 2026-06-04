@@ -133,6 +133,8 @@
   (`make sandbox-m4-baseline-audit`)
 - [x] offline sandbox/direct SubReport comparison helper validates both outputs
   through production schema parsing (`make sandbox-quality-compare-test`)
+- [x] manual persisted SubReport sample export target exists
+  (`make sandbox-m4-quality-sample-export`)
 - [x] manual quality manifest preparation from retained direct/sandbox pairs
   exists (`make sandbox-m4-quality-manifest-prepare`)
 - [x] manual retained quality comparison target exists

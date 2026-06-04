@@ -83,6 +83,12 @@ before it can support acceptance. Quality manifest report paths are
 intentionally
 relative to the manifest directory, non-traversing, and distinct per case so
 packet artifacts stay portable and cannot compare a report file to itself.
+`make sandbox-m4-quality-sample-export` can create that retained sample-root
+layout from operator-selected persisted SubReport rows after checking strict
+selection JSON, scenario matches, shared EvidenceSnapshot IDs, production
+SubReport validity, and an empty output directory. It remains a sample export
+step only; the operator still owns sample representativeness and downstream
+review.
 `make sandbox-m4-quality-manifest-prepare` can create that quality manifest
 from retained `direct/<scenario>/<case>.json` and
 `sandbox/<scenario>/<case>.json` SubReport pairs after parsing both sides
