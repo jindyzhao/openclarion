@@ -89,10 +89,13 @@ from retained `direct/<scenario>/<case>.json` and
 through the production parser and requiring all three alert-analysis scenarios.
 `make manual-evidence-readiness` now preflights that sample-root layout,
 paired-case counts, required scenario coverage, `SAMPLE_BASIS`, and the
-manifest `OUT` path before operators run the helper. This is still preparation
-only; the sample still needs operator selection,
-`scripts/sandbox_quality_compare --manifest`, human review, and packet
-verification before it can support a decision.
+manifest `OUT` path before operators run the helper. It also preflights the
+retained quality-comparison manifest and `OUT` path for
+`make sandbox-m4-quality-compare`, which runs manifest comparison with
+fail-on-regression and writes the retained comparison JSON without overwriting
+an existing file. This is still preparation only; the sample still needs
+operator selection, quality comparison, human review, and packet verification
+before it can support a decision.
 The packet helper validates that the copied manifest's `sample_basis`, case
 IDs, scenarios, and `required_evidence_refs` match the generated quality
 comparison output, then validates every copied direct/sandbox SubReport with

@@ -233,7 +233,10 @@ outputs with the production `reportdraft.ParseSubReport` path, emits
 machine-readable metric deltas, supports manifest-mode batches of
 representative direct/sandbox sample pairs, records `sample_basis` plus
 per-case alert scenario labels, emits `scenario_coverage`, and can fail on
-conservative structural regression. This does not close the M4 quality-delta
+conservative structural regression. Manual
+`make sandbox-m4-quality-compare` runs that manifest-mode comparison with
+fail-on-regression and writes a retained `quality-comparison.json` output
+without overwriting an existing file. This does not close the M4 quality-delta
 decision; real direct and sandbox outputs from representative alert evidence
 are still required.
 

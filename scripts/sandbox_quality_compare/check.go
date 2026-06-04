@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -42,6 +43,7 @@ type config struct {
 	ManifestPath     string
 	DirectPath       string
 	SandboxPath      string
+	OutPath          string
 	FailOnRegression bool
 }
 
@@ -143,9 +145,7 @@ func run(args []string, stdout io.Writer) error {
 		if cfg.FailOnRegression && out.Summary.RegressedCount > 0 {
 			return fmt.Errorf("sandbox report regressed in %d manifest case(s)", out.Summary.RegressedCount)
 		}
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		return enc.Encode(out)
+		return writeJSONOutput(stdout, cfg.OutPath, out)
 	}
 	out, err := compareFiles(cfg)
 	if err != nil {
@@ -154,9 +154,7 @@ func run(args []string, stdout io.Writer) error {
 	if cfg.FailOnRegression && out.Recommendation == "sandbox_candidate_regressed" {
 		return errors.New("sandbox report regressed against direct report")
 	}
-	enc := json.NewEncoder(stdout)
-	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	return writeJSONOutput(stdout, cfg.OutPath, out)
 }
 
 func parseConfig(args []string) (config, error) {
@@ -165,6 +163,7 @@ func parseConfig(args []string) (config, error) {
 	manifest := fs.String("manifest", "", "JSON manifest of direct/sandbox SubReport comparison cases")
 	direct := fs.String("direct-sub-report", "", "direct M2 SubReport JSON path")
 	sandbox := fs.String("sandbox-sub-report", "", "sandbox-augmented SubReport JSON path")
+	out := fs.String("out", "", "optional output comparison JSON path; stdout is used when omitted")
 	failOnRegression := fs.Bool("fail-on-regression", false, "exit non-zero when sandbox metrics regress")
 	if err := fs.Parse(args); err != nil {
 		return config{}, err
@@ -173,6 +172,7 @@ func parseConfig(args []string) (config, error) {
 		ManifestPath:     *manifest,
 		DirectPath:       *direct,
 		SandboxPath:      *sandbox,
+		OutPath:          strings.TrimSpace(*out),
 		FailOnRegression: *failOnRegression,
 	}
 	if cfg.ManifestPath != "" {
@@ -191,6 +191,64 @@ func parseConfig(args []string) (config, error) {
 		return config{}, errors.New("--sandbox-sub-report is required when --manifest is not used")
 	}
 	return cfg, nil
+}
+
+func writeJSONOutput(stdout io.Writer, outPath string, value any) error {
+	if outPath == "" || outPath == "-" {
+		return encodeJSON(stdout, value)
+	}
+	var buf bytes.Buffer
+	if err := encodeJSON(&buf, value); err != nil {
+		return err
+	}
+	return writeNewOutputFile(outPath, buf.Bytes())
+}
+
+func encodeJSON(w io.Writer, value any) error {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent("", "  ")
+	return enc.Encode(value)
+}
+
+func writeNewOutputFile(path string, raw []byte) error {
+	clean := filepath.Clean(strings.TrimSpace(path))
+	if clean == "" || clean == "." || clean == string(filepath.Separator) {
+		return errors.New("output file must not be empty, current directory, or filesystem root")
+	}
+	if info, err := os.Lstat(clean); err == nil {
+		if info.Mode().IsRegular() {
+			return fmt.Errorf("output file %s already exists", clean)
+		}
+		return fmt.Errorf("output path %s must be absent before helper output is written", clean)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat output file %s: %w", clean, err)
+	}
+	parent := filepath.Dir(clean)
+	info, err := os.Lstat(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("output parent directory %s does not exist", parent)
+	}
+	if err != nil {
+		return fmt.Errorf("stat output parent directory %s: %w", parent, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("output parent path %s must be a directory", parent)
+	}
+	// #nosec G304 -- this offline comparison tool intentionally writes an
+	// operator-supplied retained evidence path after refusing overwrites.
+	f, err := os.OpenFile(clean, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create output file %s: %w", clean, err)
+	}
+	if _, err := f.Write(raw); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("write output file %s: %w", clean, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close output file %s: %w", clean, err)
+	}
+	return nil
 }
 
 func compareFiles(cfg config) (comparisonOutput, error) {

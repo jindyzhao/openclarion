@@ -6,6 +6,7 @@ agent-runtime-smoke	manual M4 candidate runtime smoke; requires a digest-pinned 
 custom-thin-runner-smoke	manual M4 local candidate smoke; builds an image and exercises Docker-backed runtime paths
 sandbox-m4-runtime-smoke-artifacts	manual M4 runtime-smoke artifact collection; requires a digest-pinned runtime image, Docker runtime, and empty output directory
 sandbox-m4-quality-manifest-prepare	manual M4 quality manifest preparation; requires retained direct/sandbox SubReport sample files selected by an operator
+sandbox-m4-quality-compare	manual M4 quality comparison; requires retained quality manifest and direct/sandbox SubReport files selected by an operator
 sandbox-m4-decision	manual M4 runtime decision; requires retained baseline, quality-comparison, and human-review evidence files
 sandbox-m4-review-evidence-template	manual M4 review-evidence draft generation; requires operator-selected retained quality and runtime-smoke artifacts
 sandbox-m4-evidence-packet	manual M4 evidence packet assembly; requires retained quality, review, and runtime-smoke artifacts

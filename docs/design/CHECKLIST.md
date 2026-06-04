@@ -133,6 +133,8 @@
   through production schema parsing (`make sandbox-quality-compare-test`)
 - [x] manual quality manifest preparation from retained direct/sandbox pairs
   exists (`make sandbox-m4-quality-manifest-prepare`)
+- [x] manual retained quality comparison target exists
+  (`make sandbox-m4-quality-compare`)
 - [x] M4 proceed/iterate/defer decision evidence gate exists
   (`make sandbox-m4-decision-test`; manual `make sandbox-m4-decision`)
 - [x] M4 retained runtime-smoke artifact collection target exists

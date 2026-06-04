@@ -91,9 +91,24 @@ sandbox reports. Each case must share at least one canonical
 the sample representative, run model inference, review report quality, or
 accept a runtime candidate. The output path must not already exist.
 
+After the manifest is retained, operators can run the manual quality
+comparison and keep the resulting evidence file:
+
+```bash
+make sandbox-m4-quality-compare \
+  QUALITY_MANIFEST=artifacts/m4/quality-sample/quality-manifest.json \
+  OUT=artifacts/m4/quality-sample/quality-comparison.json
+```
+
+The target runs manifest mode with `--fail-on-regression` and refuses to
+overwrite an existing comparison file.
+
 ## Output
 
-The tool emits one JSON object to stdout with:
+The tool emits one JSON object to stdout by default, or writes the same JSON to
+`--out <path>` when a retained output file is requested. The output file must
+not already exist and its parent directory must be present. The object
+contains:
 
 - the validated schema id
 - direct and sandbox report metrics
