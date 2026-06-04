@@ -542,6 +542,19 @@ func TestRunDiagnosisRoomCloseCLIWithDependenciesWritesProof(t *testing.T) {
 	t.Cleanup(func() { diagnosisRoomCloseCLINowUTC = previousNow })
 
 	closedAt := time.Date(2026, 6, 4, 7, 59, 0, 0, time.UTC)
+	assistantOccurredAt := closedAt.Add(-time.Second)
+	requiresHumanReview := true
+	finalConclusion := temporalpkg.DiagnosisRoomFinalConclusion{
+		Status:              "available",
+		Source:              "latest_assistant_turn",
+		AssistantTurnID:     303,
+		AssistantMessageID:  "msg-1/assistant",
+		AssistantSequence:   2,
+		AssistantOccurredAt: &assistantOccurredAt,
+		Content:             "CPU alert is still firing.",
+		Confidence:          "medium",
+		RequiresHumanReview: &requiresHumanReview,
+	}
 	waiter := &recordingDiagnosisRoomCloseWaiter{
 		result: temporalpkg.DiagnosisRoomWorkflowResult{
 			SessionID:       "diagnosis-session-abc",
@@ -551,6 +564,7 @@ func TestRunDiagnosisRoomCloseCLIWithDependenciesWritesProof(t *testing.T) {
 			TurnCount:       1,
 			ClosedAt:        &closedAt,
 			CloseReason:     "live_smoke_completed",
+			FinalConclusion: &finalConclusion,
 		},
 	}
 	loader := &recordingDiagnosisRoomCloseEventsLoader{
@@ -561,6 +575,7 @@ func TestRunDiagnosisRoomCloseCLIWithDependenciesWritesProof(t *testing.T) {
 				Kind:       diagnosisRoomCloseEventClosedKind,
 				OccurredAt: closedAt,
 			},
+			ClosePayload: testDiagnosisRoomCloseEventPayload(closedAt, 1, finalConclusion),
 			NotificationEvent: domain.DiagnosisTaskEvent{
 				ID:         domain.DiagnosisTaskEventID(12),
 				TaskID:     domain.DiagnosisTaskID(101),
@@ -606,10 +621,22 @@ func TestRunDiagnosisRoomCloseCLIWithDependenciesWritesProof(t *testing.T) {
 		got.Workflow.DiagnosisTaskID != 101 ||
 		got.Workflow.ChatSessionID != 202 ||
 		got.Workflow.TurnCount != 1 ||
-		got.Workflow.CloseReason != "live_smoke_completed" {
+		got.Workflow.CloseReason != "live_smoke_completed" ||
+		got.Workflow.FinalConclusion.Status != "available" ||
+		got.Workflow.FinalConclusion.AssistantTurnID != 303 ||
+		got.Workflow.FinalConclusion.AssistantMessageID != "msg-1/assistant" ||
+		got.Workflow.FinalConclusion.AssistantSequence != 2 ||
+		got.Workflow.FinalConclusion.AssistantOccurredAt != assistantOccurredAt.Format(time.RFC3339Nano) ||
+		got.Workflow.FinalConclusion.Content != "CPU alert is still firing." ||
+		got.Workflow.FinalConclusion.Confidence != "medium" ||
+		got.Workflow.FinalConclusion.RequiresHumanReview == nil ||
+		!*got.Workflow.FinalConclusion.RequiresHumanReview {
 		t.Fatalf("workflow output = %+v", got.Workflow)
 	}
 	if got.CloseEvent.Kind != diagnosisRoomCloseEventClosedKind ||
+		got.CloseEvent.ConclusionVersion != "diagnosis-room-close.v1" ||
+		got.CloseEvent.FinalConclusion.Status != "available" ||
+		got.CloseEvent.FinalConclusion.AssistantTurnID != 303 ||
 		got.NotificationEvent.Kind != diagnosisRoomCloseEventNotificationSentKind ||
 		got.NotificationEvent.IdempotencyKey != "diagnosis_room:101:close-notification" ||
 		got.NotificationEvent.ProviderMessageID != "webhook-message-1" ||
@@ -620,15 +647,21 @@ func TestRunDiagnosisRoomCloseCLIWithDependenciesWritesProof(t *testing.T) {
 
 func TestRunDiagnosisRoomCloseCLIWithDependenciesRequiresNotificationEvent(t *testing.T) {
 	closedAt := time.Date(2026, 6, 4, 7, 59, 0, 0, time.UTC)
+	finalConclusion := temporalpkg.DiagnosisRoomFinalConclusion{
+		Status: "not_available",
+		Source: "none",
+		Reason: "room_closed_without_assistant_turn",
+	}
 	waiter := &recordingDiagnosisRoomCloseWaiter{
 		result: temporalpkg.DiagnosisRoomWorkflowResult{
 			SessionID:       "diagnosis-session-abc",
 			ChatSessionID:   202,
 			DiagnosisTaskID: 101,
 			Status:          "closed",
-			TurnCount:       1,
+			TurnCount:       0,
 			ClosedAt:        &closedAt,
 			CloseReason:     "live_smoke_completed",
+			FinalConclusion: &finalConclusion,
 		},
 	}
 	loader := &recordingDiagnosisRoomCloseEventsLoader{
@@ -639,6 +672,7 @@ func TestRunDiagnosisRoomCloseCLIWithDependenciesRequiresNotificationEvent(t *te
 				Kind:       diagnosisRoomCloseEventClosedKind,
 				OccurredAt: closedAt,
 			},
+			ClosePayload: testDiagnosisRoomCloseEventPayload(closedAt, 0, finalConclusion),
 		},
 	}
 	var out bytes.Buffer
@@ -655,6 +689,26 @@ func TestRunDiagnosisRoomCloseCLIWithDependenciesRequiresNotificationEvent(t *te
 	}
 	if out.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+}
+
+func testDiagnosisRoomCloseEventPayload(
+	closedAt time.Time,
+	turnCount int,
+	finalConclusion temporalpkg.DiagnosisRoomFinalConclusion,
+) diagnosisRoomCloseEventPayload {
+	return diagnosisRoomCloseEventPayload{
+		Kind:              diagnosisRoomCloseEventClosedKind,
+		SessionID:         "diagnosis-session-abc",
+		ChatSessionID:     202,
+		DiagnosisTaskID:   101,
+		OwnerSubject:      "oidc|user-1",
+		Status:            "closed",
+		TurnCount:         turnCount,
+		CloseReason:       "live_smoke_completed",
+		ClosedAt:          closedAt,
+		FinalConclusion:   finalConclusion,
+		ConclusionVersion: "diagnosis-room-close.v1",
 	}
 }
 

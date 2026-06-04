@@ -18,14 +18,15 @@ import (
 )
 
 const (
-	maxProofBytes                int64 = 10 * 1024 * 1024
-	maxProofSessionIDBytes             = 128
-	maxProofWorkflowIDBytes            = 256
-	maxProofRunIDBytes                 = 256
-	maxProofEvidenceBytes              = 512
-	maxProofCloseReasonBytes           = 128
-	maxProofIdempotencyKeyBytes        = 256
-	maxProofProviderMessageBytes       = 512
+	maxProofBytes                       int64 = 10 * 1024 * 1024
+	maxProofSessionIDBytes                    = 128
+	maxProofWorkflowIDBytes                   = 256
+	maxProofRunIDBytes                        = 256
+	maxProofEvidenceBytes                     = 512
+	maxProofCloseReasonBytes                  = 128
+	maxProofIdempotencyKeyBytes               = 256
+	maxProofProviderMessageBytes              = 512
+	maxProofFinalConclusionContentBytes       = 4096
 
 	closeNotificationClosedKind = "diagnosis_room.closed"
 	closeNotificationSentKind   = "diagnosis_room.close_notification_sent"
@@ -96,19 +97,35 @@ type closeProofRequest struct {
 }
 
 type closeProofWorkflow struct {
-	SessionID       string `json:"session_id"`
-	ChatSessionID   int64  `json:"chat_session_id"`
-	DiagnosisTaskID int64  `json:"diagnosis_task_id"`
-	Status          string `json:"status"`
-	TurnCount       int    `json:"turn_count"`
-	ClosedAt        string `json:"closed_at"`
-	CloseReason     string `json:"close_reason"`
+	SessionID       string               `json:"session_id"`
+	ChatSessionID   int64                `json:"chat_session_id"`
+	DiagnosisTaskID int64                `json:"diagnosis_task_id"`
+	Status          string               `json:"status"`
+	TurnCount       int                  `json:"turn_count"`
+	ClosedAt        string               `json:"closed_at"`
+	CloseReason     string               `json:"close_reason"`
+	FinalConclusion closeFinalConclusion `json:"final_conclusion"`
 }
 
 type closeProofEvent struct {
-	ID         int64  `json:"id"`
-	Kind       string `json:"kind"`
-	OccurredAt string `json:"occurred_at"`
+	ID                int64                `json:"id"`
+	Kind              string               `json:"kind"`
+	OccurredAt        string               `json:"occurred_at"`
+	ConclusionVersion string               `json:"conclusion_version"`
+	FinalConclusion   closeFinalConclusion `json:"final_conclusion"`
+}
+
+type closeFinalConclusion struct {
+	Status              string `json:"status"`
+	Source              string `json:"source"`
+	Reason              string `json:"reason,omitempty"`
+	AssistantTurnID     int64  `json:"assistant_turn_id,omitempty"`
+	AssistantMessageID  string `json:"assistant_message_id,omitempty"`
+	AssistantSequence   int    `json:"assistant_sequence,omitempty"`
+	AssistantOccurredAt string `json:"assistant_occurred_at,omitempty"`
+	Content             string `json:"content,omitempty"`
+	Confidence          string `json:"confidence,omitempty"`
+	RequiresHumanReview *bool  `json:"requires_human_review,omitempty"`
 }
 
 type closeNotificationEvent struct {
@@ -487,6 +504,14 @@ func validateCloseProof(proof closeProof, sessionID string, assistantTurnsAfter 
 	if closeReason != reason {
 		return fmt.Errorf("close_notification.workflow.close_reason must match close_notification.request.reason")
 	}
+	if err := validateCloseFinalConclusion(
+		"close_notification.workflow.final_conclusion",
+		proof.Workflow.FinalConclusion,
+		assistantTurnsAfter,
+		closedAt,
+	); err != nil {
+		return err
+	}
 
 	closeEventAt, err := validateCloseProofEvent("close_notification.close_event", proof.CloseEvent, closeNotificationClosedKind)
 	if err != nil {
@@ -494,6 +519,20 @@ func validateCloseProof(proof closeProof, sessionID string, assistantTurnsAfter 
 	}
 	if closeEventAt.Before(closedAt) {
 		return fmt.Errorf("close_notification.close_event.occurred_at must not be before workflow.closed_at")
+	}
+	if proof.CloseEvent.ConclusionVersion != "diagnosis-room-close.v1" {
+		return fmt.Errorf("close_notification.close_event.conclusion_version = %q, want diagnosis-room-close.v1", proof.CloseEvent.ConclusionVersion)
+	}
+	if err := validateCloseFinalConclusion(
+		"close_notification.close_event.final_conclusion",
+		proof.CloseEvent.FinalConclusion,
+		assistantTurnsAfter,
+		closedAt,
+	); err != nil {
+		return err
+	}
+	if !sameCloseFinalConclusion(proof.Workflow.FinalConclusion, proof.CloseEvent.FinalConclusion) {
+		return fmt.Errorf("close_notification.close_event.final_conclusion must match close_notification.workflow.final_conclusion")
 	}
 	notificationEventAt, err := validateCloseNotificationEvent(
 		proof.NotificationEvent,
@@ -510,6 +549,107 @@ func validateCloseProof(proof closeProof, sessionID string, assistantTurnsAfter 
 		return fmt.Errorf("close_notification.notification_event.id must differ from close_event.id")
 	}
 	return nil
+}
+
+func validateCloseFinalConclusion(field string, conclusion closeFinalConclusion, assistantTurnsAfter int, closedAt time.Time) error {
+	status, err := validateRequiredCleanString(field+".status", conclusion.Status)
+	if err != nil {
+		return err
+	}
+	source, err := validateRequiredCleanString(field+".source", conclusion.Source)
+	if err != nil {
+		return err
+	}
+	if assistantTurnsAfter > 0 {
+		if status != "available" {
+			return fmt.Errorf("%s.status = %q, want available", field, status)
+		}
+		if source != "latest_assistant_turn" {
+			return fmt.Errorf("%s.source = %q, want latest_assistant_turn", field, source)
+		}
+		if conclusion.Reason != "" {
+			return fmt.Errorf("%s.reason must be empty when status is available", field)
+		}
+		if conclusion.AssistantTurnID <= 0 {
+			return fmt.Errorf("%s.assistant_turn_id must be > 0", field)
+		}
+		if _, err := validateProofID(field+".assistant_message_id", conclusion.AssistantMessageID, maxProofIdempotencyKeyBytes); err != nil {
+			return err
+		}
+		wantAssistantSequence := assistantTurnsAfter * 2
+		if conclusion.AssistantSequence != wantAssistantSequence {
+			return fmt.Errorf("%s.assistant_sequence = %d, want %d", field, conclusion.AssistantSequence, wantAssistantSequence)
+		}
+		assistantOccurredAt, err := validateCanonicalUTCTime(field+".assistant_occurred_at", conclusion.AssistantOccurredAt)
+		if err != nil {
+			return err
+		}
+		if assistantOccurredAt.After(closedAt) {
+			return fmt.Errorf("%s.assistant_occurred_at must not be after workflow.closed_at", field)
+		}
+		if _, err := validateBoundedText(field+".content", conclusion.Content, maxProofFinalConclusionContentBytes); err != nil {
+			return err
+		}
+		confidence, err := validateRequiredCleanString(field+".confidence", conclusion.Confidence)
+		if err != nil {
+			return err
+		}
+		switch confidence {
+		case "low", "medium", "high":
+		default:
+			return fmt.Errorf("%s.confidence = %q, want low, medium, or high", field, confidence)
+		}
+		if conclusion.RequiresHumanReview == nil {
+			return fmt.Errorf("%s.requires_human_review is required when status is available", field)
+		}
+		return nil
+	}
+
+	if status != "not_available" {
+		return fmt.Errorf("%s.status = %q, want not_available", field, status)
+	}
+	if source != "none" {
+		return fmt.Errorf("%s.source = %q, want none", field, source)
+	}
+	reason, err := validateRequiredCleanString(field+".reason", conclusion.Reason)
+	if err != nil {
+		return err
+	}
+	if reason != "room_closed_without_assistant_turn" {
+		return fmt.Errorf("%s.reason = %q, want room_closed_without_assistant_turn", field, reason)
+	}
+	if conclusion.AssistantTurnID != 0 ||
+		conclusion.AssistantMessageID != "" ||
+		conclusion.AssistantSequence != 0 ||
+		conclusion.AssistantOccurredAt != "" ||
+		conclusion.Content != "" ||
+		conclusion.Confidence != "" ||
+		conclusion.RequiresHumanReview != nil {
+		return fmt.Errorf("%s must not include assistant-turn fields when status is not_available", field)
+	}
+	return nil
+}
+
+func sameCloseFinalConclusion(a, b closeFinalConclusion) bool {
+	if a.Status != b.Status ||
+		a.Source != b.Source ||
+		a.Reason != b.Reason ||
+		a.AssistantTurnID != b.AssistantTurnID ||
+		a.AssistantMessageID != b.AssistantMessageID ||
+		a.AssistantSequence != b.AssistantSequence ||
+		a.AssistantOccurredAt != b.AssistantOccurredAt ||
+		a.Content != b.Content ||
+		a.Confidence != b.Confidence {
+		return false
+	}
+	switch {
+	case a.RequiresHumanReview == nil && b.RequiresHumanReview == nil:
+		return true
+	case a.RequiresHumanReview == nil || b.RequiresHumanReview == nil:
+		return false
+	default:
+		return *a.RequiresHumanReview == *b.RequiresHumanReview
+	}
 }
 
 func validateCloseProofEvent(field string, event closeProofEvent, wantKind string) (time.Time, error) {
@@ -663,6 +803,20 @@ func validateBoundedCleanString(field, raw string, maxBytes int) (string, error)
 	value, err := validateRequiredCleanString(field, raw)
 	if err != nil {
 		return "", err
+	}
+	if len(raw) > maxBytes {
+		return "", fmt.Errorf("%s exceeds %d bytes", field, maxBytes)
+	}
+	return value, nil
+}
+
+func validateBoundedText(field, raw string, maxBytes int) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", fmt.Errorf("%s must be non-empty", field)
+	}
+	if value != raw {
+		return "", fmt.Errorf("%s must not contain leading or trailing whitespace", field)
 	}
 	if len(raw) > maxBytes {
 		return "", fmt.Errorf("%s exceeds %d bytes", field, maxBytes)
