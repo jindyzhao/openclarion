@@ -46,8 +46,11 @@ match the quality-comparison
 `sample_basis`; reviewer commentary belongs in `human_review.notes` so stale
 review evidence cannot be attached to a different quality sample. Review
 evidence must also contain one `reviewed_cases` entry for each quality case and
-no extra case IDs. A missing or stale case keeps the decision at `defer`; any
-case-level review failure makes the decision `iterate`.
+no extra case IDs. Each reviewed case must repeat the quality case `scenario`
+and `required_evidence_refs` exactly, so a stale human-review file cannot bind
+the right case ID to a different alert scenario or frozen evidence snapshot. A
+missing, stale, or mismatched case keeps the decision at `defer`; any case-level
+review failure makes the decision `iterate`.
 All evidence inputs reject duplicate JSON object keys and unknown fields before
 unmarshalling, so retained artifacts cannot hide stale fields behind later
 duplicate fields or attach unvalidated proof claims. Baseline audit check names
@@ -91,9 +94,10 @@ or `localhost` registry references are accepted only as local smoke evidence:
 they force `defer` and cannot support a `proceed` runtime baseline.
 `human_review.notes` is required and must explain the reviewer judgement; a
 bare pass/fail status is not enough to support retained evidence. Each
-`reviewed_cases[]` item must match a quality comparison case ID, carry a
-bounded `pass` / `fail` status, include reviewer notes for that specific case,
-and use a single-line, unpadded, no-more-than-128-byte case ID. Human-authored
+`reviewed_cases[]` item must match a quality comparison case ID, repeat that
+case's `scenario` and `required_evidence_refs` exactly, carry a bounded
+`pass` / `fail` status, include reviewer notes for that specific case, and use
+a single-line, unpadded, no-more-than-128-byte case ID. Human-authored
 text in `sample_basis`, `human_review.reviewer`,
 `human_review.notes`, `candidate_evaluations[].source`,
 `candidate_evaluations[].notes`, and `reviewed_cases[].notes` must be
@@ -132,13 +136,13 @@ filenames expected by the review-evidence template. The Provider timeout,
 output-cap, and egress proofs remain boundary proofs and use their existing
 smoke harness images unless the operator explicitly overrides those harnesses.
 
-The generator copies the quality `sample_basis` and case IDs, fills the
-canonical runtime-smoke names/sources, reads each retained smoke artifact
-status, and records SHA-256 digests for those files. It does not mark the
-candidate accepted: generated candidate, reviewed-case, and human-review
-statuses are `fail` by default, and `representative_sample` remains false
-unless the operator explicitly sets `REPRESENTATIVE_SAMPLE=1` after confirming
-the sample basis.
+The generator copies the quality `sample_basis`, case IDs, scenarios, and
+required evidence refs, fills the canonical runtime-smoke names/sources, reads
+each retained smoke artifact status, and records SHA-256 digests for those
+files. It does not mark the candidate accepted: generated candidate,
+reviewed-case, and human-review statuses are `fail` by default, and
+`representative_sample` remains false unless the operator explicitly sets
+`REPRESENTATIVE_SAMPLE=1` after confirming the sample basis.
 
 The example below uses `runtime-candidate-a` only as a placeholder evidence ID.
 It is not a built-in runtime family, product default, or control-plane branch.
@@ -219,16 +223,31 @@ It is not a built-in runtime family, product default, or control-plane branch.
   "reviewed_cases": [
     {
       "id": "payments-cpu",
+      "scenario": "single_alert",
+      "required_evidence_refs": [
+        "snapshot:11",
+        "alert:cpu"
+      ],
       "status": "pass",
       "notes": "direct and sandbox outputs preserve the required evidence refs"
     },
     {
       "id": "checkout-latency",
+      "scenario": "cascade",
+      "required_evidence_refs": [
+        "snapshot:12",
+        "alert:latency"
+      ],
       "status": "pass",
       "notes": "cascade output remains evidence-bound"
     },
     {
       "id": "billing-errors",
+      "scenario": "alert_storm",
+      "required_evidence_refs": [
+        "snapshot:13",
+        "alert:errors"
+      ],
       "status": "pass",
       "notes": "alert-storm output is acceptable for the retained sample"
     }

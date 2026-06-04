@@ -146,9 +146,11 @@ type candidateEvaluation struct {
 }
 
 type reviewedCase struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	Notes  string `json:"notes"`
+	ID                   string   `json:"id"`
+	Scenario             string   `json:"scenario"`
+	RequiredEvidenceRefs []string `json:"required_evidence_refs"`
+	Status               string   `json:"status"`
+	Notes                string   `json:"notes"`
 }
 
 type runtimeSmoke struct {
@@ -728,6 +730,19 @@ func validateReviewedCases(cases []reviewedCase) ([]string, error) {
 			return nil, fmt.Errorf("duplicate review evidence reviewed case %q", id)
 		}
 		seen[id] = true
+		scenario := strings.TrimSpace(item.Scenario)
+		if scenario == "" {
+			return nil, fmt.Errorf("review evidence reviewed case %q scenario is required", id)
+		}
+		if scenario != item.Scenario {
+			return nil, fmt.Errorf("review evidence reviewed case %q scenario must not contain leading or trailing whitespace", id)
+		}
+		if !reportprompt.Scenario(scenario).Valid() {
+			return nil, fmt.Errorf("review evidence reviewed case %q scenario %q is unsupported", id, scenario)
+		}
+		if err := validateReviewedCaseRequiredEvidenceRefs(id, item.RequiredEvidenceRefs); err != nil {
+			return nil, err
+		}
 		if strings.TrimSpace(item.Status) == "" {
 			return nil, fmt.Errorf("review evidence reviewed case %q status is required", id)
 		}
@@ -742,6 +757,34 @@ func validateReviewedCases(cases []reviewedCase) ([]string, error) {
 		}
 	}
 	return nil, nil
+}
+
+func validateReviewedCaseRequiredEvidenceRefs(caseID string, refs []string) error {
+	if len(refs) == 0 {
+		return fmt.Errorf("review evidence reviewed case %q required_evidence_refs must contain at least one item", caseID)
+	}
+	seen := map[string]bool{}
+	hasSnapshotRef := false
+	for i, ref := range refs {
+		value, err := validateEvidenceRef(fmt.Sprintf("review evidence reviewed case %q required_evidence_refs[%d]", caseID, i), ref)
+		if err != nil {
+			return err
+		}
+		if seen[value] {
+			return fmt.Errorf("review evidence reviewed case %q duplicate required_evidence_refs value %q", caseID, value)
+		}
+		if strings.HasPrefix(value, requiredSnapshotRefPrefix) {
+			if !validQualitySnapshotRef(value) {
+				return fmt.Errorf("review evidence reviewed case %q required_evidence_refs[%d] snapshot evidence ref %q must use snapshot:<positive-id>", caseID, i, value)
+			}
+			hasSnapshotRef = true
+		}
+		seen[value] = true
+	}
+	if !hasSnapshotRef {
+		return fmt.Errorf("review evidence reviewed case %q required_evidence_refs must include one snapshot:<positive-id> reference", caseID)
+	}
+	return nil
 }
 
 func validateEvidenceCaseID(field, raw string) (string, error) {
@@ -813,6 +856,12 @@ func validateReviewCoverage(qualityCases []qualityCase, reviewedCases []reviewed
 		if review.Status != "pass" {
 			iterateReasons = append(iterateReasons, fmt.Sprintf("review evidence reviewed case %q status = %q, want pass", item.ID, review.Status))
 		}
+		if review.Scenario != item.Scenario {
+			deferReasons = append(deferReasons, fmt.Sprintf("review evidence reviewed case %q scenario = %q, want quality comparison scenario %q", item.ID, review.Scenario, item.Scenario))
+		}
+		if !equalStrings(review.RequiredEvidenceRefs, item.RequiredEvidenceRefs) {
+			deferReasons = append(deferReasons, fmt.Sprintf("review evidence reviewed case %q required_evidence_refs = %v, want quality comparison refs %v", item.ID, review.RequiredEvidenceRefs, item.RequiredEvidenceRefs))
+		}
 	}
 	for _, review := range reviewedCases {
 		if !qualityIDs[review.ID] {
@@ -820,6 +869,18 @@ func validateReviewCoverage(qualityCases []qualityCase, reviewedCases []reviewed
 		}
 	}
 	return deferReasons, iterateReasons
+}
+
+func equalStrings(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func validateRuntimeSmokes(smokes []runtimeSmoke) ([]string, error) {

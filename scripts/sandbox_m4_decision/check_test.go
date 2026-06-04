@@ -1017,8 +1017,8 @@ func TestRunDefersWhenReviewEvidenceDoesNotMatchQualityCases(t *testing.T) {
 	quality := writeEvidence(t, dir, "quality.json", passingQualityComparisonJSON())
 	review := writeEvidence(t, dir, "review.json", strings.Replace(
 		passingReviewEvidenceJSON(),
-		`"id": "checkout-latency", "status": "pass"`,
-		`"id": "stale-case", "status": "pass"`,
+		`"id": "checkout-latency", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:latency"], "status": "pass"`,
+		`"id": "stale-case", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:latency"], "status": "pass"`,
 		1,
 	))
 
@@ -1038,6 +1038,54 @@ func TestRunDefersWhenReviewEvidenceDoesNotMatchQualityCases(t *testing.T) {
 	}
 }
 
+func TestRunDefersWhenReviewedCaseScenarioDoesNotMatchQuality(t *testing.T) {
+	dir := t.TempDir()
+	baseline := writeEvidence(t, dir, "baseline.json", passingBaselineAuditJSON())
+	quality := writeEvidence(t, dir, "quality.json", passingQualityComparisonJSON())
+	review := writeEvidence(t, dir, "review.json", strings.Replace(
+		passingReviewEvidenceJSON(),
+		`"id": "checkout-latency", "scenario": "cascade"`,
+		`"id": "checkout-latency", "scenario": "single_alert"`,
+		1,
+	))
+
+	out := runDecision(t, []string{
+		"--baseline-audit", baseline,
+		"--quality-comparison", quality,
+		"--review-evidence", review,
+	})
+	if out.Decision != "defer" {
+		t.Fatalf("Decision = %q reasons=%v", out.Decision, out.Reasons)
+	}
+	if !containsReason(out.Reasons, `reviewed case "checkout-latency" scenario = "single_alert", want quality comparison scenario "cascade"`) {
+		t.Fatalf("Reasons = %v, want reviewed case scenario mismatch", out.Reasons)
+	}
+}
+
+func TestRunDefersWhenReviewedCaseRequiredEvidenceRefsDoNotMatchQuality(t *testing.T) {
+	dir := t.TempDir()
+	baseline := writeEvidence(t, dir, "baseline.json", passingBaselineAuditJSON())
+	quality := writeEvidence(t, dir, "quality.json", passingQualityComparisonJSON())
+	review := writeEvidence(t, dir, "review.json", strings.Replace(
+		passingReviewEvidenceJSON(),
+		`"id": "checkout-latency", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:latency"]`,
+		`"id": "checkout-latency", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:stale-latency"]`,
+		1,
+	))
+
+	out := runDecision(t, []string{
+		"--baseline-audit", baseline,
+		"--quality-comparison", quality,
+		"--review-evidence", review,
+	})
+	if out.Decision != "defer" {
+		t.Fatalf("Decision = %q reasons=%v", out.Decision, out.Reasons)
+	}
+	if !containsReason(out.Reasons, `reviewed case "checkout-latency" required_evidence_refs = [snapshot:12 alert:stale-latency], want quality comparison refs [snapshot:12 alert:latency]`) {
+		t.Fatalf("Reasons = %v, want reviewed case required_evidence_refs mismatch", out.Reasons)
+	}
+}
+
 func TestRunDefersWhenReviewEvidenceHasNoReviewedCases(t *testing.T) {
 	dir := t.TempDir()
 	baseline := writeEvidence(t, dir, "baseline.json", passingBaselineAuditJSON())
@@ -1045,9 +1093,9 @@ func TestRunDefersWhenReviewEvidenceHasNoReviewedCases(t *testing.T) {
 	review := writeEvidence(t, dir, "review.json", strings.Replace(
 		passingReviewEvidenceJSON(),
 		`"reviewed_cases": [
-			{"id": "payments-cpu", "status": "pass", "notes": "direct and sandbox outputs preserve the payments CPU evidence chain"},
-			{"id": "checkout-latency", "status": "pass", "notes": "cascade output keeps latency evidence traceability"},
-			{"id": "billing-errors", "status": "pass", "notes": "alert-storm output remains equivalent and evidence-bound"}
+			{"id": "payments-cpu", "scenario": "single_alert", "required_evidence_refs": ["snapshot:11", "alert:cpu"], "status": "pass", "notes": "direct and sandbox outputs preserve the payments CPU evidence chain"},
+			{"id": "checkout-latency", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:latency"], "status": "pass", "notes": "cascade output keeps latency evidence traceability"},
+			{"id": "billing-errors", "scenario": "alert_storm", "required_evidence_refs": ["snapshot:13", "alert:errors"], "status": "pass", "notes": "alert-storm output remains equivalent and evidence-bound"}
 		],`,
 		`"reviewed_cases": [],`,
 		1,
@@ -1100,8 +1148,8 @@ func TestRunIteratesWhenReviewedCaseFails(t *testing.T) {
 	quality := writeEvidence(t, dir, "quality.json", passingQualityComparisonJSON())
 	review := writeEvidence(t, dir, "review.json", strings.Replace(
 		passingReviewEvidenceJSON(),
-		`"id": "checkout-latency", "status": "pass"`,
-		`"id": "checkout-latency", "status": "fail"`,
+		`"id": "checkout-latency", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:latency"], "status": "pass"`,
+		`"id": "checkout-latency", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:latency"], "status": "fail"`,
 		1,
 	))
 
@@ -1606,9 +1654,9 @@ func passingReviewEvidenceJSON() string {
 				{"name": "egress_allowdeny", "status": "pass", "source": "make egress-allowdeny-smoke", "evidence_ref": "artifacts/m4/runtime/egress-allowdeny-smoke.json", "evidence_sha256": "5555555555555555555555555555555555555555555555555555555555555555"}
 			],
 		"reviewed_cases": [
-			{"id": "payments-cpu", "status": "pass", "notes": "direct and sandbox outputs preserve the payments CPU evidence chain"},
-			{"id": "checkout-latency", "status": "pass", "notes": "cascade output keeps latency evidence traceability"},
-			{"id": "billing-errors", "status": "pass", "notes": "alert-storm output remains equivalent and evidence-bound"}
+			{"id": "payments-cpu", "scenario": "single_alert", "required_evidence_refs": ["snapshot:11", "alert:cpu"], "status": "pass", "notes": "direct and sandbox outputs preserve the payments CPU evidence chain"},
+			{"id": "checkout-latency", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:latency"], "status": "pass", "notes": "cascade output keeps latency evidence traceability"},
+			{"id": "billing-errors", "scenario": "alert_storm", "required_evidence_refs": ["snapshot:13", "alert:errors"], "status": "pass", "notes": "alert-storm output remains equivalent and evidence-bound"}
 		],
 		"human_review": {
 			"status": "pass",
