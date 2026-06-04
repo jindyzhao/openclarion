@@ -239,6 +239,63 @@ func TestRunManifestOutputsAggregateComparison(t *testing.T) {
 	}
 }
 
+func TestRunManifestWritesOutputFile(t *testing.T) {
+	manifest := writeOneCaseImprovedManifest(t)
+	outPath := filepath.Join(t.TempDir(), "quality-comparison.json")
+
+	var stdout bytes.Buffer
+	if err := run([]string{"--manifest", manifest, "--out", outPath}, &stdout); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty when --out is used", stdout.String())
+	}
+	// #nosec G304 -- test reads the temp output path produced by this run.
+	raw, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	var out batchComparisonOutput
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal output %q: %v", raw, err)
+	}
+	if out.Mode != "manifest" || out.CaseCount != 1 || out.Summary.ImprovedCount != 1 {
+		t.Fatalf("output = %+v, want one improved manifest case", out)
+	}
+}
+
+func TestRunRejectsExistingOutputFile(t *testing.T) {
+	direct := writeSubReport(t, `{
+		"title": "Payments CPU saturation",
+		"summary": "Payments CPU exceeded the warning threshold.",
+		"severity": "warning",
+		"confidence": "high",
+		"findings": [
+			{"label": "CPU", "detail": "CPU remained above threshold for 10 minutes.", "evidence_id": "alert:cpu"}
+		],
+		"recommended_actions": [],
+		"evidence_refs": ["alert:cpu"]
+	}`)
+	outPath := filepath.Join(t.TempDir(), "quality-comparison.json")
+	writeFile(t, outPath, "{}\n")
+
+	var stdout bytes.Buffer
+	err := run([]string{
+		"--direct-sub-report", direct,
+		"--sandbox-sub-report", direct,
+		"--out", outPath,
+	}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want existing output rejection")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("run err = %v, want already exists", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on output rejection", stdout.String())
+	}
+}
+
 func TestRunRejectsSymlinkManifest(t *testing.T) {
 	dir := t.TempDir()
 	manifest := filepath.Join(dir, "quality-manifest.json")
@@ -342,6 +399,58 @@ func TestRunManifestFailsOnRegressionWhenRequested(t *testing.T) {
 	}
 	if stdout.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty on fail-on-regression", stdout.String())
+	}
+}
+
+func TestRunManifestRegressionWithOutputDoesNotWriteFile(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "direct.json"), `{
+		"title": "Payments CPU saturation",
+		"summary": "Payments CPU exceeded the warning threshold.",
+		"severity": "warning",
+		"confidence": "high",
+		"findings": [
+			{"label": "CPU", "detail": "CPU remained above threshold for 10 minutes.", "evidence_id": "alert:cpu"},
+			{"label": "Queue latency", "detail": "Queue latency increased while CPU stayed saturated.", "evidence_id": "metric:queue"}
+		],
+		"recommended_actions": [
+			{"label": "Scale payments", "detail": "Add one payments replica and monitor queue latency.", "priority": "high"}
+		],
+		"evidence_refs": ["snapshot:11", "alert:cpu", "metric:queue"]
+	}`)
+	writeFile(t, filepath.Join(dir, "sandbox.json"), `{
+		"title": "Payments CPU saturation",
+		"summary": "Payments CPU exceeded the warning threshold.",
+		"severity": "warning",
+		"confidence": "medium",
+		"findings": [
+			{"label": "CPU", "detail": "CPU remained above threshold for 10 minutes.", "evidence_id": "alert:cpu"}
+		],
+		"recommended_actions": [],
+		"evidence_refs": ["snapshot:11", "alert:cpu"]
+	}`)
+	manifest := filepath.Join(dir, "quality-manifest.json")
+	writeFile(t, manifest, `{
+		"sample_basis": "regression sample",
+		"cases": [
+			{"id": "payments-regression", "scenario": "single_alert", "required_evidence_refs": ["snapshot:11", "alert:cpu"], "direct_sub_report": "direct.json", "sandbox_sub_report": "sandbox.json"}
+		]
+	}`)
+	outPath := filepath.Join(dir, "quality-comparison.json")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--manifest", manifest, "--fail-on-regression", "--out", outPath}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want regression error")
+	}
+	if !strings.Contains(err.Error(), "1 manifest case") {
+		t.Fatalf("run err = %v, want manifest regression count", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on fail-on-regression", stdout.String())
+	}
+	if _, err := os.Lstat(outPath); !os.IsNotExist(err) {
+		t.Fatalf("output stat err = %v, want missing output file", err)
 	}
 }
 
@@ -777,6 +886,46 @@ func writeSubReport(t *testing.T, content string) string {
 	path := filepath.Join(t.TempDir(), "subreport.json")
 	writeFile(t, path, content)
 	return path
+}
+
+func writeOneCaseImprovedManifest(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "direct.json"), `{
+		"title": "Payments CPU saturation",
+		"summary": "Payments CPU exceeded the warning threshold.",
+		"severity": "warning",
+		"confidence": "medium",
+		"findings": [
+			{"label": "CPU", "detail": "CPU remained above threshold for 10 minutes.", "evidence_id": "alert:cpu"}
+		],
+		"recommended_actions": [
+			{"label": "Scale payments", "detail": "Add one payments replica and monitor queue latency.", "priority": "medium"}
+		],
+		"evidence_refs": ["snapshot:11", "alert:cpu"]
+	}`)
+	writeFile(t, filepath.Join(dir, "sandbox.json"), `{
+		"title": "Payments CPU saturation",
+		"summary": "Payments CPU and queue latency indicate customer-impacting degradation.",
+		"severity": "warning",
+		"confidence": "high",
+		"findings": [
+			{"label": "CPU", "detail": "CPU remained above threshold for 10 minutes.", "evidence_id": "alert:cpu"},
+			{"label": "Queue latency", "detail": "Queue latency increased while CPU stayed saturated.", "evidence_id": "metric:queue"}
+		],
+		"recommended_actions": [
+			{"label": "Scale payments", "detail": "Add one payments replica and monitor queue latency.", "priority": "high"}
+		],
+		"evidence_refs": ["snapshot:11", "alert:cpu", "metric:queue"]
+	}`)
+	manifest := filepath.Join(dir, "quality-manifest.json")
+	writeFile(t, manifest, `{
+		"sample_basis": "representative alert sample",
+		"cases": [
+			{"id": "payments-cpu", "scenario": "single_alert", "required_evidence_refs": ["snapshot:11", "alert:cpu"], "direct_sub_report": "direct.json", "sandbox_sub_report": "sandbox.json"}
+		]
+	}`)
+	return manifest
 }
 
 func writeFile(t *testing.T, path string, content string) {

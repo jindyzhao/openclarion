@@ -53,6 +53,7 @@
 #   make sandbox-baseline-audit # M4/M5 code-level sandbox baseline audit
 #   make sandbox-quality-compare-test # M4 offline sandbox/direct SubReport comparison tests
 #   make sandbox-m4-quality-manifest-prepare ROOT=... SAMPLE_BASIS=... OUT=...
+#   make sandbox-m4-quality-compare QUALITY_MANIFEST=... OUT=...
 #   make sandbox-m4-decision-test # M4 proceed/iterate/defer decision logic tests
 #   make sandbox-m4-decision BASELINE_AUDIT=... QUALITY_COMPARISON=... REVIEW_EVIDENCE=...
 #   make sandbox-m4-review-evidence-template QUALITY_COMPARISON=... RUNTIME_SMOKE_ARTIFACTS_ROOT=... SELECTED_CANDIDATE=... RUNTIME_CANDIDATE=... REVIEWER=...
@@ -376,7 +377,7 @@ osv-scan: ## Detect known vulnerabilities in npm package-lock files
 # Go gates (activated at M0 bootstrap)
 # ---------------------------------------------------------------------------
 
-.PHONY: generated-headers generate generate-fresh go-vet go-build go-test go-coverage temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-quality-manifest-prepare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
+.PHONY: generated-headers generate generate-fresh go-vet go-build go-test go-coverage temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-quality-manifest-prepare sandbox-m4-quality-compare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
 
 generated-headers: ## Validate generated files carry generator headers
 	@bash scripts/check_generated_headers.sh
@@ -439,6 +440,16 @@ sandbox-m4-quality-manifest-prepare: ## Manual M4 quality manifest preparation: 
 	@go run ./scripts/sandbox_quality_manifest_prepare \
 		--root "$(ROOT)" \
 		--sample-basis "$(SAMPLE_BASIS)" \
+		--out "$(OUT)"
+
+sandbox-m4-quality-compare: ## Manual M4 quality comparison: QUALITY_MANIFEST=... OUT=...
+	@if [[ -z "$(QUALITY_MANIFEST)" || -z "$(OUT)" ]]; then \
+		echo "[sandbox-m4-quality-compare] usage: make sandbox-m4-quality-compare QUALITY_MANIFEST=<quality-manifest.json> OUT=<quality-comparison.json>"; \
+		exit 2; \
+	fi
+	@go run ./scripts/sandbox_quality_compare \
+		--manifest "$(QUALITY_MANIFEST)" \
+		--fail-on-regression \
 		--out "$(OUT)"
 
 sandbox-m4-decision-test: ## Run focused M4 sandbox decision gate tests

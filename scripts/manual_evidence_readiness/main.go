@@ -109,7 +109,7 @@ func main() {
 func run(args []string, environ []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-quality-manifest-prepare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, diagnosis-live-browser-smoke")
+	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, diagnosis-live-browser-smoke")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -121,6 +121,7 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	targets := []targetReadiness{
 		reportLiveSmokeReadiness(env),
 		sandboxM4QualityManifestPrepareReadiness(env),
+		sandboxM4QualityCompareReadiness(env),
 		sandboxM4RuntimeSmokeArtifactsReadiness(env),
 		sandboxM4ReviewEvidenceTemplateReadiness(env),
 		sandboxM4DecisionReadiness(env),
@@ -174,6 +175,22 @@ func sandboxM4QualityManifestPrepareReadiness(env envMap) targetReadiness {
 	}
 	target.FileChecks = append(target.FileChecks, requiredAbsentOutputFileEnv(env, "OUT"))
 	target.QualitySampleChecks = append(target.QualitySampleChecks, qualitySampleRootEnv(env, "ROOT"))
+	return finalize(target)
+}
+
+func sandboxM4QualityCompareReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:    "sandbox-m4-quality-compare",
+		Command: "make sandbox-m4-quality-compare QUALITY_MANIFEST=... OUT=...",
+		Notes: []string{
+			"Preflight validates the retained manifest and output path only; the comparison helper still parses every direct/sandbox SubReport through the production parser.",
+			"The manual target runs manifest mode with fail-on-regression and writes a new retained quality-comparison JSON file.",
+		},
+	}
+	target.FileChecks = append(target.FileChecks,
+		requiredRegularFileEnv(env, "QUALITY_MANIFEST"),
+		requiredAbsentOutputFileEnv(env, "OUT"),
+	)
 	return finalize(target)
 }
 

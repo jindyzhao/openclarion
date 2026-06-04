@@ -115,6 +115,9 @@ func TestRunValidatesM4EvidenceFilesAndPacketOutputDir(t *testing.T) {
 	if len(manifestTarget.QualitySampleChecks) != 1 || manifestTarget.QualitySampleChecks[0].PairedCases != 3 {
 		t.Fatalf("quality sample checks = %#v, want three paired cases", manifestTarget.QualitySampleChecks)
 	}
+	if got := targetByName(t, out, "sandbox-m4-quality-compare").Status; got != "ready" {
+		t.Fatalf("quality compare status = %q, want ready", got)
+	}
 	if got := targetByName(t, out, "sandbox-m4-review-evidence-template").Status; got != "ready" {
 		t.Fatalf("review evidence template status = %q, want ready", got)
 	}
@@ -162,6 +165,63 @@ func TestRunReportsM4QualityManifestSampleReadiness(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), sampleRoot) || strings.Contains(stdout.String(), outPath) || strings.Contains(stdout.String(), "payments-cpu") {
 		t.Fatalf("output leaked sample path or case id: %s", stdout.String())
+	}
+}
+
+func TestRunReportsM4QualityCompareReadiness(t *testing.T) {
+	root := t.TempDir()
+	manifest := writeFile(t, root, "quality-manifest.json")
+	outPath := filepath.Join(root, "quality-comparison.json")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-quality-compare"}, []string{
+		"QUALITY_MANIFEST=" + manifest,
+		"OUT=" + outPath,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-quality-compare")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready", target.Status)
+	}
+	if got := fileCheckByEnv(t, target.FileChecks, "QUALITY_MANIFEST").Status; got != "ok" {
+		t.Fatalf("QUALITY_MANIFEST status = %q, want ok", got)
+	}
+	if got := fileCheckByEnv(t, target.FileChecks, "OUT").Status; got != "ok" {
+		t.Fatalf("OUT status = %q, want ok", got)
+	}
+	if strings.Contains(stdout.String(), manifest) || strings.Contains(stdout.String(), outPath) {
+		t.Fatalf("output leaked quality compare paths: %s", stdout.String())
+	}
+}
+
+func TestRunBlocksM4QualityCompareExistingOutputWithoutLeakingPath(t *testing.T) {
+	root := t.TempDir()
+	manifest := writeFile(t, root, "quality-manifest.json")
+	outPath := writeFile(t, root, "quality-comparison.json")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-quality-compare"}, []string{
+		"QUALITY_MANIFEST=" + manifest,
+		"OUT=" + outPath,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-quality-compare")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	if got := fileCheckByEnv(t, target.FileChecks, "OUT").Status; got != "exists" {
+		t.Fatalf("OUT status = %q, want exists", got)
+	}
+	if strings.Contains(stdout.String(), manifest) || strings.Contains(stdout.String(), outPath) {
+		t.Fatalf("output leaked quality compare paths: %s", stdout.String())
 	}
 }
 

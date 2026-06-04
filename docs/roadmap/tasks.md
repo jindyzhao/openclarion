@@ -125,6 +125,7 @@ with evidence traceability links.
 - [x] offline quality comparison harness (`make sandbox-quality-compare-test`)
 - [x] batch quality evidence manifest mode for representative sample runs
 - [x] quality manifest scenario coverage gate for `single_alert`, `cascade`, and `alert_storm`
+- [x] retained quality comparison output target (`make sandbox-m4-quality-compare`)
 - [x] code-level minimum sandbox baseline audit (`make sandbox-baseline-audit`)
 - [x] minimum sandbox baseline for M5 (auditable file-based I/O, cleanup, limits)
 - [ ] quality comparison: sandbox report vs direct LLM report
@@ -184,6 +185,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-06-04 | jindyzhao | M4 retained quality comparison output path landed locally: `make sandbox-m4-quality-compare` runs the manifest-mode direct-vs-sandbox comparison with fail-on-regression and writes a new retained `quality-comparison.json` file. The real representative quality run, human review, and recorded M4 decision remain pending. |
 | 2026-05-18 | jindyzhao | English roadmap reset and MVP cutline |
 | 2026-05-19 | jindyzhao | Restructure to M0-M5; remove OpenClaw binding; add acceptance criteria |
 | 2026-05-19 | jindyzhao | M5 reclassified as V1 required (short-conversation scope); defer compression and long sessions |
