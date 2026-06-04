@@ -5,6 +5,7 @@ report-live-smoke	manual M2 live report smoke; requires real PostgreSQL, Tempora
 agent-runtime-smoke	manual M4 candidate runtime smoke; requires a digest-pinned sandbox image and Docker runtime
 custom-thin-runner-smoke	manual M4 local candidate smoke; builds an image and exercises Docker-backed runtime paths
 sandbox-m4-decision	manual M4 runtime decision; requires retained baseline, quality-comparison, and human-review evidence files
+sandbox-m4-review-evidence-template	manual M4 review-evidence draft generation; requires operator-selected retained quality and runtime-smoke artifacts
 sandbox-m4-evidence-packet	manual M4 evidence packet assembly; requires retained quality, review, and runtime-smoke artifacts
 sandbox-m4-evidence-packet-verify	manual M4 retained packet verification; requires an operator-selected packet artifact
 diagnosis-live-browser-smoke	manual M5 browser smoke; requires a real backend, worker, token, and sandbox-capable runtime

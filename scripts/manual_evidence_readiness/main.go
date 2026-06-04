@@ -77,7 +77,7 @@ func main() {
 func run(args []string, environ []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-decision, sandbox-m4-evidence-packet, diagnosis-live-browser-smoke")
+	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, diagnosis-live-browser-smoke")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -88,6 +88,7 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	env := environMap(environ)
 	targets := []targetReadiness{
 		reportLiveSmokeReadiness(env),
+		sandboxM4ReviewEvidenceTemplateReadiness(env),
 		sandboxM4DecisionReadiness(env),
 		sandboxM4EvidencePacketReadiness(env),
 		diagnosisLiveBrowserSmokeReadiness(env),
@@ -156,6 +157,30 @@ func reportLiveSmokeReadiness(env envMap) targetReadiness {
 			},
 		})
 	}
+	return finalize(target)
+}
+
+func sandboxM4ReviewEvidenceTemplateReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:    "sandbox-m4-review-evidence-template",
+		Command: "make sandbox-m4-review-evidence-template QUALITY_COMPARISON=... RUNTIME_SMOKE_ARTIFACTS_ROOT=... SELECTED_CANDIDATE=... RUNTIME_CANDIDATE=... REVIEWER=...",
+		Notes: []string{
+			"Preflight validates local draft-generation inputs only; generated review evidence remains fail-closed until operator review.",
+		},
+	}
+	target.MissingEnv = missingEnv(env,
+		"SELECTED_CANDIDATE",
+		"RUNTIME_CANDIDATE",
+		"REVIEWER",
+	)
+	if envPresent(env, "RUNTIME_CANDIDATE") && !immutableImageReference(env["RUNTIME_CANDIDATE"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "RUNTIME_CANDIDATE",
+			Reason: "must be an immutable image reference name@sha256:<64-lowercase-hex-digest>",
+		})
+	}
+	target.FileChecks = append(target.FileChecks, requiredRegularFileEnv(env, "QUALITY_COMPARISON"))
+	target.DirectoryChecks = append(target.DirectoryChecks, requiredDirectoryEnv(env, "RUNTIME_SMOKE_ARTIFACTS_ROOT"))
 	return finalize(target)
 }
 
@@ -330,6 +355,13 @@ func optionalDirectoryEnv(env envMap, name string) directoryCheck {
 	return directoryCheck{Env: name, Status: "ok"}
 }
 
+func requiredDirectoryEnv(env envMap, name string) directoryCheck {
+	if !envPresent(env, name) {
+		return directoryCheck{Env: name, Status: "missing", Reason: "environment variable is unset or empty"}
+	}
+	return optionalDirectoryEnv(env, name)
+}
+
 func environMap(environ []string) envMap {
 	env := envMap{}
 	for _, entry := range environ {
@@ -370,6 +402,26 @@ func positiveInteger(value string) bool {
 	}
 	for _, r := range value {
 		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func immutableImageReference(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.ContainsAny(value, " \r\n\t") {
+		return false
+	}
+	name, digest, ok := strings.Cut(value, "@sha256:")
+	if !ok || name == "" || digest == "" {
+		return false
+	}
+	if len(digest) != 64 {
+		return false
+	}
+	for _, r := range digest {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
 			return false
 		}
 	}

@@ -131,6 +131,8 @@
   through production schema parsing (`make sandbox-quality-compare-test`)
 - [x] M4 proceed/iterate/defer decision evidence gate exists
   (`make sandbox-m4-decision-test`; manual `make sandbox-m4-decision`)
+- [x] fail-closed M4 review-evidence template helper exists
+  (`make sandbox-m4-review-evidence-template`)
 - [x] M4 decision evidence packet assembler exists
   (`make sandbox-m4-evidence-packet-test`; manual
   `make sandbox-m4-evidence-packet`)
