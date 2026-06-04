@@ -25,3 +25,9 @@ the browser path against a mocked API/WebSocket endpoint. The manual `make
 diagnosis-live-browser-smoke` gate uses `web/playwright.live.config.ts` for the
 same browser path against a real backend/worker stack; captured live evidence
 remains a separate M5 acceptance item.
+
+For local manual runs, `make diagnosis-dev-oidc-issuer` can provide the OIDC
+discovery, JWKS, and short-lived local operator ID token needed by the real
+`cmd/openclarion` OIDC verifier. It is only an identity helper: M5 acceptance
+still requires a real persisted `EvidenceSnapshot`, Temporal worker, sandbox
+provider, and retained `diagnosis-live-browser-smoke` proof.

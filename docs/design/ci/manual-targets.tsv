@@ -13,6 +13,7 @@ sandbox-m4-decision	manual M4 runtime decision; requires retained baseline, qual
 sandbox-m4-review-evidence-template	manual M4 review-evidence draft generation; requires operator-selected retained quality and runtime-smoke artifacts
 sandbox-m4-evidence-packet	manual M4 evidence packet assembly; requires retained quality, review, and runtime-smoke artifacts
 sandbox-m4-evidence-packet-verify	manual M4 retained packet verification; requires an operator-selected packet artifact
+diagnosis-dev-oidc-issuer	manual M5 local OIDC issuer/token helper; binds a developer-owned loopback listener and mints short-lived tokens outside CI
 diagnosis-live-browser-smoke	manual M5 browser smoke; requires a real backend, worker, token, and sandbox-capable runtime
 container-provider-smoke	manual M4 Docker Provider smoke; requires a real local Docker daemon
 container-provider-timeout-smoke	manual M4 Docker Provider timeout smoke; requires a real local Docker daemon

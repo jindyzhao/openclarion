@@ -62,6 +62,7 @@
 #   make sandbox-m4-review-evidence-template QUALITY_COMPARISON=... RUNTIME_SMOKE_ARTIFACTS_ROOT=... SELECTED_CANDIDATE=... RUNTIME_CANDIDATE_FILE=... REVIEWER=...
 #   make sandbox-m4-evidence-packet QUALITY_MANIFEST=... REVIEW_EVIDENCE=... [RUNTIME_SMOKE_ARTIFACTS_ROOT=...] OUT_DIR=...
 #   make sandbox-m4-evidence-packet-verify PACKET_DIR=... # verify retained M4 packet without rerunning helpers
+#   make diagnosis-dev-oidc-issuer # manual M5 local OIDC issuer/token helper
 #   make diagnosis-live-browser-smoke # manual M5 browser smoke against real backend/worker stack
 #   make diagnosis-room-policy-test # M5 pure policy boundary tests
 #   make diagnosis-room-workflow-test # M5 Temporal room workflow/client and lifecycle activity tests
@@ -630,7 +631,7 @@ frontend-checks: frontend-install ci-frontend-typecheck ci-frontend-lint ci-fron
 # See ADR-0001 (PostgreSQL single source of truth) and
 # docs/design/database/migrations.md.
 
-.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness report-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke sandbox-m4-runtime-smoke-artifacts
+.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness report-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke sandbox-m4-runtime-smoke-artifacts diagnosis-dev-oidc-issuer
 
 ent-generate: ## Regenerate ent client + entity code from schemas under internal/persistence/ent/schema
 	@go generate $(ENT_PKG)/...
@@ -696,6 +697,9 @@ egress-allowdeny-smoke: ## Manual M4 smoke: Docker internal network + proxy allo
 
 sandbox-m4-runtime-smoke-artifacts: ## Manual M4 smoke bundle: retain canonical runtime-smoke artifacts for review evidence
 	@bash scripts/run_sandbox_m4_runtime_smoke_artifacts.sh
+
+diagnosis-dev-oidc-issuer: ## Manual M5 helper: local OIDC issuer and short-lived token endpoint
+	@go run ./scripts/dev_oidc_issuer $(ARGS)
 
 # Future gates are tracked in docs/design/ci/README.md, not as inactive
 # Makefile placeholders. Add a target here only when its script/tool,

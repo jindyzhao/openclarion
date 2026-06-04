@@ -531,9 +531,11 @@ All three chains are technically feasible:
   log-polluted, request-mismatched, or free-text-only JSON artifact.
   `cmd/openclarion` wires the OIDC auth, room starter, ticket store, WebSocket
   relay, diagnosis Temporal client, browser origin policy, and Docker-backed
-  per-turn sandbox from env. C9 remains a documented byte-budget constraint.
-  Full M5 acceptance still requires running the live gate and retaining its
-  evidence.
+  per-turn sandbox from env. `make diagnosis-dev-oidc-issuer` supplies a
+  loopback-only local OIDC discovery/JWKS/token helper for manual live-smoke
+  setup while preserving the same runtime verifier path. It is not acceptance
+  evidence by itself. C9 remains a documented byte-budget constraint. Full M5
+  acceptance still requires running the live gate and retaining its evidence.
 
 No link requires inventing a new protocol or depending on unproven technology.
 Constraints are documented and resolvable within existing tool ecosystems.
