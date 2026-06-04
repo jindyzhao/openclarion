@@ -238,7 +238,7 @@ Browser
   -> [C12] Persist ChatTurn via Ent
   -> [C13] Return response to WS handler (via Update result)
   -> [C14] Check turn/time limits
-  -> [C15] On close: notify via IMProvider
+  -> [C15] On close: persist conclusion snapshot + notify via IMProvider
 ```
 
 ### Per-Node Verification
@@ -259,7 +259,7 @@ Browser
 | C12 | Persist turn | `PersistDiagnosisTurn` writes the user+assistant ChatTurn pair and advances ChatSession turn count idempotently through workflow coverage | proven-local |
 | C13 | Push response to WS | WebSocket relay returns the synchronous Temporal Update result as a `turn_result` frame and supports reconnect `query_state` frames | proven-local |
 | C14 | Limit check | workflow Update Validator + durable idle/session timers | proven-local |
-| C15 | Close notification | Close path persists ChatSession terminal metadata, sends the diagnosis-task-scoped IMProvider notification, and records an idempotent `diagnosis_room.close_notification_sent` audit event | proven-local |
+| C15 | Close conclusion + notification | Close path persists ChatSession terminal metadata, records a bounded `final_conclusion` snapshot in the idempotent `diagnosis_room.closed` event, sends the diagnosis-task-scoped IMProvider notification, and records an idempotent `diagnosis_room.close_notification_sent` audit event | proven-local |
 
 ### Constraint: C2 WebSocket Authentication
 

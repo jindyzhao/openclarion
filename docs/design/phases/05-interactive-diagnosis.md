@@ -56,6 +56,7 @@ closure metadata. No automatic compression is attempted in V1.
 - bounded-turn enforcement at the workflow level
 - unsafe-instruction filter (deny-list, defense-in-depth)
 - audit logging for session lifecycle events
+- close audit payload with the latest assistant conclusion snapshot
 - final group notification on session close
 
 ## Architecture
@@ -182,7 +183,9 @@ owns the M5 room state machine through `DiagnosisRoomWorkflow`:
 - durable timers close the room on fixed session lifetime or idle timeout
 - terminal close calls `CloseDiagnosisChatSession`, which persists
   `ChatSession.closed_at` / `close_reason` and records an idempotent
-  `diagnosis_room.closed` audit event
+  `diagnosis_room.closed` audit event with a bounded `final_conclusion`
+  snapshot from the latest persisted assistant turn, or `not_available` when
+  the room closes before any assistant turn exists
 - after close persistence succeeds, `SendDiagnosisRoomCloseNotification`
   reuses the M2 `IMProvider` with a diagnosis-task-scoped idempotency key,
   sends the alert-group close notification, and records
