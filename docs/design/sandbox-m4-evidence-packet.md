@@ -66,6 +66,13 @@ human-review, and representative-sample fields before it can support
 acceptance. Quality manifest report paths are intentionally
 relative to the manifest directory, non-traversing, and distinct per case so
 packet artifacts stay portable and cannot compare a report file to itself.
+`make sandbox-m4-quality-manifest-prepare` can create that quality manifest
+from retained `direct/<scenario>/<case>.json` and
+`sandbox/<scenario>/<case>.json` SubReport pairs after parsing both sides
+through the production parser and requiring all three alert-analysis scenarios.
+It is a preparation helper only; the sample still needs operator selection,
+`scripts/sandbox_quality_compare --manifest`, human review, and packet
+verification before it can support a decision.
 The packet helper validates that the copied manifest's `sample_basis`, case
 IDs, scenarios, and `required_evidence_refs` match the generated quality
 comparison output, then validates every copied direct/sandbox SubReport with

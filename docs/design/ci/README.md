@@ -192,6 +192,7 @@ make sandbox-security # M4 sandbox contract and Docker security-spec tests
 make agent-tool-scripts-test # M4 sandbox metric/topology helper contract tests
 make sandbox-baseline-audit # M4/M5 code-level sandbox baseline audit
 make sandbox-quality-compare-test # M4 offline direct-vs-sandbox SubReport comparison tests
+make sandbox-m4-quality-manifest-prepare # manual M4 quality manifest preparation from retained report pairs
 make sandbox-m4-decision-test # M4 offline proceed/iterate/defer decision tests
 make sandbox-m4-decision # manual M4 decision with evidence file inputs
 make sandbox-m4-runtime-smoke-artifacts # manual M4 retained runtime-smoke artifact bundle
