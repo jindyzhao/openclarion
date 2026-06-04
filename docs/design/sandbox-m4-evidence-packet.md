@@ -57,7 +57,11 @@ its `sample_basis`, and the per-case alert scenario labels. The decision gate
 checks that the generated comparison output covers `single_alert`, `cascade`,
 and `alert_storm`. The review evidence still owns runtime smoke sources and
 reviewer status, and must repeat the exact quality-comparison `sample_basis`
-for human audit context. Quality manifest report paths are intentionally
+for human audit context. `make sandbox-m4-review-evidence-template` can produce
+a fail-closed draft review-evidence file from the retained quality comparison
+and runtime-smoke artifacts, but operators must still review the draft and edit
+candidate, reviewed-case, human-review, and representative-sample fields before
+it can support acceptance. Quality manifest report paths are intentionally
 relative to the manifest directory, non-traversing, and distinct per case so
 packet artifacts stay portable and cannot compare a report file to itself.
 The packet helper validates that the copied manifest's `sample_basis`, case

@@ -97,6 +97,28 @@ text in `sample_basis`, `human_review.reviewer`,
 single-line, free of leading/trailing whitespace, and no more than 2048 bytes
 per field.
 
+Operators can generate a fail-closed draft review-evidence file from retained
+quality comparison output and runtime-smoke artifacts:
+
+```bash
+make sandbox-m4-review-evidence-template \
+  QUALITY_COMPARISON=artifacts/samples/quality-comparison.json \
+  RUNTIME_SMOKE_ARTIFACTS_ROOT=artifacts/samples \
+  RUNTIME_SMOKE_REF_PREFIX=artifacts/m4/runtime \
+  SELECTED_CANDIDATE=runtime-candidate-a \
+  RUNTIME_CANDIDATE=registry.example.com/openclarion/runtime-candidate-a@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+  REVIEWER=openclarion-maintainer \
+  OUT=artifacts/samples/review-evidence.json
+```
+
+The generator copies the quality `sample_basis` and case IDs, fills the
+canonical runtime-smoke names/sources, reads each retained smoke artifact
+status, and records SHA-256 digests for those files. It does not mark the
+candidate accepted: generated candidate, reviewed-case, and human-review
+statuses are `fail` by default, and `representative_sample` remains false
+unless the operator explicitly sets `REPRESENTATIVE_SAMPLE=1` after confirming
+the sample basis.
+
 The example below uses `runtime-candidate-a` only as a placeholder evidence ID.
 It is not a built-in runtime family, product default, or control-plane branch.
 

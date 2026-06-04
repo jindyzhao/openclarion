@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-06-03
+> Last updated: 2026-06-04
 > Author: jindyzhao
 > Status: private incubation
 
@@ -439,3 +439,4 @@ sessions, leader-tier approval, streaming partial responses.
 | 2026-05-30 | jindyzhao | M5 diagnosis WebSocket default Origin validation hardened locally: transport-level `CheckOrigin` now rejects non-http(s), userinfo-bearing, path-bearing, query-bearing, fragment-bearing, and cross-host Origin values before consuming a single-use WebSocket ticket. |
 | 2026-05-30 | jindyzhao | D1 workflow-engine spike deferral closed locally: Temporal is now proven by the M2 report workflow graph, M5 diagnosis-room workflow path, local report E2E, and frontend diagnosis route smoke, so the old River+sqlc spike is no longer an early architecture cross-check. |
 | 2026-05-30 | jindyzhao | Documentation metadata freshness gate landed locally: `make docs-hygiene` now runs `scripts/docs_metadata_check`, which rejects stale `Last updated` metadata when a governed Markdown file contains a newer dated status/changelog table row. The initial run fixed stale headers in `docs/roadmap/tasks.md` and `docs/design/DEFERRED_FOLLOWUPS.md`. |
+| 2026-06-04 | jindyzhao | M4 review-evidence template helper landed locally: `make sandbox-m4-review-evidence-template` generates a fail-closed `sandbox_m4_review_evidence` draft from retained quality comparison and runtime-smoke artifacts, carrying quality sample/case IDs, canonical smoke sources, artifact statuses, and smoke SHA-256 digests without accepting a runtime baseline. Real representative quality review and the recorded M4 proceed/iterate/defer decision remain pending. |
