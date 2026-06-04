@@ -289,6 +289,107 @@ jobs:
 	assertOutputContains(t, out.String(), "[go-toolchain-check] OK (2 go.mod files, 1 setup-go steps)")
 }
 
+func TestRunRejectsNonRegularToolchainInputs(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, root string)
+		want  string
+	}{
+		{
+			name: "root go.mod symlink",
+			setup: func(t *testing.T, root string) {
+				goToolchainReplaceWithSymlink(t, root, "go.mod")
+			},
+			want: `go.mod: must be a regular file, not a symlink`,
+		},
+		{
+			name: "root go.mod directory",
+			setup: func(t *testing.T, root string) {
+				goToolchainReplaceWithDirectory(t, root, "go.mod")
+			},
+			want: `go.mod: must be a regular file`,
+		},
+		{
+			name: "submodule go.mod symlink",
+			setup: func(t *testing.T, root string) {
+				goToolchainReplaceWithSymlink(t, root, "tools/openclarion-linter/go.mod")
+			},
+			want: `tools/openclarion-linter/go.mod: must be a regular file, not a symlink`,
+		},
+		{
+			name: "submodule go.mod directory",
+			setup: func(t *testing.T, root string) {
+				goToolchainReplaceWithDirectory(t, root, "tools/openclarion-linter/go.mod")
+			},
+			want: `tools/openclarion-linter/go.mod: must be a regular file`,
+		},
+		{
+			name: "golangci config symlink",
+			setup: func(t *testing.T, root string) {
+				goToolchainReplaceWithSymlink(t, root, ".golangci.yml")
+			},
+			want: `.golangci.yml: must be a regular file, not a symlink`,
+		},
+		{
+			name: "golangci config directory",
+			setup: func(t *testing.T, root string) {
+				goToolchainReplaceWithDirectory(t, root, ".golangci.yml")
+			},
+			want: `.golangci.yml: must be a regular file`,
+		},
+		{
+			name: "workflow directory symlink",
+			setup: func(t *testing.T, root string) {
+				goToolchainReplaceWithSymlink(t, root, ".github/workflows")
+			},
+			want: `.github/workflows: .github/workflows must be a directory, not a symlink`,
+		},
+		{
+			name: "workflow directory file",
+			setup: func(t *testing.T, root string) {
+				goToolchainReplaceWithFile(t, root, ".github/workflows", "not a directory\n")
+			},
+			want: `.github/workflows: .github/workflows must be a directory`,
+		},
+		{
+			name: "workflow file symlink",
+			setup: func(t *testing.T, root string) {
+				goToolchainReplaceWithSymlink(t, root, ".github/workflows/ci.yml")
+			},
+			want: `.github/workflows: .github/workflows/ci.yml must be a regular file, not a symlink`,
+		},
+		{
+			name: "workflow file directory",
+			setup: func(t *testing.T, root string) {
+				goToolchainReplaceWithDirectory(t, root, ".github/workflows/ci.yml")
+			},
+			want: `.github/workflows: .github/workflows/ci.yml must be a regular file`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := writeRepo(t, repoFiles{
+				"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
+				"tools/openclarion-linter/go.mod": "module example.test/root/tools/openclarion-linter\n\ngo 1.25.10\n",
+				".golangci.yml":                   "version: \"2\"\nrun:\n  go: \"1.25\"\n",
+				".github/workflows/ci.yml": workflowWithSetupGo(`
+        with:
+          go-version-file: go.mod
+`),
+			})
+			tc.setup(t, root)
+
+			var out bytes.Buffer
+			err := run(root, &out)
+			if err == nil {
+				t.Fatalf("run() error = nil\noutput:\n%s", out.String())
+			}
+			assertOutputContains(t, out.String(), tc.want)
+		})
+	}
+}
+
 func TestRunRejectsMultiDocumentWorkflowYAML(t *testing.T) {
 	root := writeRepo(t, repoFiles{
 		"go.mod":                          "module example.test/root\n\ngo 1.25.10\n",
@@ -350,6 +451,40 @@ func writeRepo(t *testing.T, files repoFiles) string {
 		}
 	}
 	return root
+}
+
+func goToolchainReplaceWithSymlink(t *testing.T, root, name string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	target := path + ".target"
+	if err := os.Rename(path, target); err != nil {
+		t.Fatalf("rename %s: %v", name, err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+}
+
+func goToolchainReplaceWithDirectory(t *testing.T, root, name string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove %s: %v", name, err)
+	}
+	if err := os.Mkdir(path, 0o750); err != nil {
+		t.Fatalf("mkdir %s: %v", name, err)
+	}
+}
+
+func goToolchainReplaceWithFile(t *testing.T, root, name, body string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.RemoveAll(path); err != nil {
+		t.Fatalf("remove %s: %v", name, err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
 }
 
 func workflowWithSetupGo(withBlock string) string {

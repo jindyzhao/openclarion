@@ -484,7 +484,7 @@ diagnosis-live-smoke-output-test: ## Run focused M5 live browser smoke proof val
 go-checks: generate go-vet go-build go-test ## Combined Go validation gate
 
 openapi-lint: ## Lint OpenAPI spec with vacuum (mandatory gate)
-	@go tool github.com/daveshanley/vacuum lint -r docs/design/ci/vacuum/.vacuum.yaml --details --fail-severity error api/openapi.yaml
+	@bash scripts/check_openapi_lint.sh
 
 openapi-fresh: ## Ensure generated code is up-to-date with OpenAPI spec
 	@tmp="$$(mktemp)"; \

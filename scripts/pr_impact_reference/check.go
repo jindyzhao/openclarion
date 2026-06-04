@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/openclarion/openclarion/scripts/internal/changedfiles"
 )
 
 type gitRunner interface {
@@ -84,7 +86,11 @@ func changedFiles(ctx context.Context, getenv func(string) string, git gitRunner
 	if err != nil {
 		return nil, fmt.Errorf("cannot determine local changed files: %w", err)
 	}
-	return splitChangedFiles(out), nil
+	files, err := splitChangedFiles(out)
+	if err != nil {
+		return nil, fmt.Errorf("invalid changed file path for HEAD: %w", err)
+	}
+	return files, nil
 }
 
 func ensureRef(ctx context.Context, git gitRunner, ref string) error {
@@ -102,26 +108,22 @@ func diffNameOnly(ctx context.Context, git gitRunner, rangeSpec string) ([]strin
 	if err != nil {
 		return nil, fmt.Errorf("cannot list changed files for %q: %w", rangeSpec, err)
 	}
-	return splitChangedFiles(out), nil
+	files, err := splitChangedFiles(out)
+	if err != nil {
+		return nil, fmt.Errorf("invalid changed file path for %q: %w", rangeSpec, err)
+	}
+	return files, nil
 }
 
-func splitChangedFiles(out string) []string {
-	var files []string
-	for _, line := range strings.Split(out, "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			files = append(files, normalizeChangedPath(line))
-		}
-	}
-	return files
+func splitChangedFiles(out string) ([]string, error) {
+	return changedfiles.SplitNameOnlyOutput(out)
 }
 
 func evaluateImpact(files []string) impactResult {
 	seen := map[string]struct{}{}
 	for _, file := range files {
-		path := normalizeChangedPath(file)
-		if isHighImpactPath(path) {
-			seen[path] = struct{}{}
+		if isHighImpactPath(file) {
+			seen[file] = struct{}{}
 		}
 	}
 	paths := make([]string, 0, len(seen))
@@ -130,13 +132,6 @@ func evaluateImpact(files []string) impactResult {
 	}
 	sort.Strings(paths)
 	return impactResult{Paths: paths}
-}
-
-func normalizeChangedPath(path string) string {
-	path = strings.TrimSpace(path)
-	path = strings.ReplaceAll(path, "\\", "/")
-	path = strings.TrimPrefix(path, "./")
-	return path
 }
 
 func isHighImpactPath(path string) bool {

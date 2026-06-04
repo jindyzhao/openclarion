@@ -92,6 +92,74 @@ func TestMarkdownLinksCheckRejectsOrphanDocs(t *testing.T) {
 	}
 }
 
+func TestMarkdownLinksCheckRejectsIndirectMarkdownInputs(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, root string)
+		want  string
+	}{
+		{
+			name: "symlinked markdown target",
+			setup: func(t *testing.T, root string) {
+				mdWriteFile(t, root, "docs/README.md", "# Docs\n\n[target](target.md)\n", 0o644)
+				mdWriteFile(t, root, "docs/real-target.md", "# Target\n", 0o644)
+				mdSymlink(t, "real-target.md", filepath.Join(root, "docs", "target.md"))
+			},
+			want: "docs/target.md uses symlink path component docs/target.md",
+		},
+		{
+			name: "symlinked docs directory",
+			setup: func(t *testing.T, root string) {
+				mdWriteFile(t, root, "docs-target/README.md", "# Docs\n", 0o644)
+				mdSymlink(t, "docs-target", filepath.Join(root, "docs"))
+			},
+			want: "docs must be a real directory, not a symlink or file",
+		},
+		{
+			name: "symlinked markdown path component",
+			setup: func(t *testing.T, root string) {
+				mdWriteFile(t, root, "docs/README.md", "# Docs\n\n[target](linked/target.md)\n", 0o644)
+				mdWriteFile(t, root, "docs/real/target.md", "# Target\n", 0o644)
+				mdSymlink(t, "real", filepath.Join(root, "docs", "linked"))
+			},
+			want: "docs/linked/target.md uses symlink path component docs/linked",
+		},
+		{
+			name: "markdown target directory",
+			setup: func(t *testing.T, root string) {
+				mdWriteFile(t, root, "docs/README.md", "# Docs\n\n[target](target.md)\n", 0o644)
+				if err := os.Mkdir(filepath.Join(root, "docs", "target.md"), 0o750); err != nil {
+					t.Fatalf("mkdir markdown target replacement: %v", err)
+				}
+			},
+			want: "docs/target.md must be a regular markdown file",
+		},
+		{
+			name: "relative link outside repository",
+			setup: func(t *testing.T, root string) {
+				mdWriteFile(t, root, "docs/README.md", "# Docs\n\n[outside](../../outside.md)\n", 0o644)
+			},
+			want: "relative markdown links resolve outside the repository",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			mdWriteFile(t, root, "scripts/check_markdown_links.sh", markdownLinksScript(t), 0o750)
+			tc.setup(t, root)
+
+			out, err := runMarkdownLinksCheck(t, root)
+			if err == nil {
+				t.Fatalf("links check passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("links check output = %q, want substring %q", out, tc.want)
+			}
+		})
+	}
+}
+
 func markdownLinksScript(t *testing.T) string {
 	t.Helper()
 	raw, err := os.ReadFile("check_markdown_links.sh")
@@ -109,6 +177,13 @@ func mdWriteFile(t *testing.T, root, name, body string, mode os.FileMode) {
 	}
 	if err := os.WriteFile(path, []byte(body), mode); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func mdSymlink(t *testing.T, oldname, newname string) {
+	t.Helper()
+	if err := os.Symlink(oldname, newname); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
 	}
 }
 

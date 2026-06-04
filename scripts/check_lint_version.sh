@@ -7,9 +7,30 @@ cd "$(dirname "$0")/.."
 
 binary="${1:-bin/golangci-lint}"
 module_dir="${2:-tools/openclarion-linter}"
+module_file="$module_dir/go.mod"
 
-if [[ ! -x "$binary" ]]; then
+if [[ -L "$binary" ]]; then
+  echo "[lint-version-check] FAIL: golangci-lint binary must be a regular file, not a symlink: $binary" >&2
+  exit 1
+fi
+if [[ ! -f "$binary" || ! -x "$binary" ]]; then
   echo "[lint-version-check] FAIL: golangci-lint binary not found or not executable: $binary" >&2
+  exit 1
+fi
+if [[ -L "$module_dir" ]]; then
+  echo "[lint-version-check] FAIL: linter module directory must not be a symlink: $module_dir" >&2
+  exit 1
+fi
+if [[ ! -d "$module_dir" ]]; then
+  echo "[lint-version-check] FAIL: linter module directory not found: $module_dir" >&2
+  exit 1
+fi
+if [[ -L "$module_file" ]]; then
+  echo "[lint-version-check] FAIL: linter module go.mod must be a regular file, not a symlink: $module_file" >&2
+  exit 1
+fi
+if [[ ! -f "$module_file" ]]; then
+  echo "[lint-version-check] FAIL: linter module go.mod not found: $module_file" >&2
   exit 1
 fi
 

@@ -40,18 +40,13 @@ func TestEvaluateWorkflowIsolation(t *testing.T) {
 		},
 		{
 			name:  "duplicate workflow path counts once",
-			files: []string{".github/workflows/ci.yml", "./.github/workflows/ci.yml"},
+			files: []string{".github/workflows/ci.yml", ".github/workflows/ci.yml"},
 			want:  []string{".github/workflows/ci.yml"},
 		},
 		{
 			name:  "multiple workflow files are sorted",
 			files: []string{".github/workflows/external-links.yml", ".github/workflows/ci.yml"},
 			want:  []string{".github/workflows/ci.yml", ".github/workflows/external-links.yml"},
-		},
-		{
-			name:  "windows separators normalize",
-			files: []string{`.github\workflows\ci.yml`},
-			want:  []string{".github/workflows/ci.yml"},
 		},
 		{
 			name:  "non yaml workflow path ignored",
@@ -64,6 +59,35 @@ func TestEvaluateWorkflowIsolation(t *testing.T) {
 			got := evaluateWorkflowIsolation(tt.files).WorkflowFiles
 			if strings.Join(got, "\n") != strings.Join(tt.want, "\n") {
 				t.Fatalf("workflow files = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestChangedFilesRejectsMalformedDiffPaths(t *testing.T) {
+	tests := []string{
+		"./.github/workflows/ci.yml\n",
+		`.\.github\workflows\ci.yml` + "\n",
+		"../.github/workflows/ci.yml\n",
+		"/tmp/ci.yml\n",
+		"C:/.github/workflows/ci.yml\n",
+		`".github/workflows/ci.yml"` + "\n",
+		".github//workflows/ci.yml\n",
+		".github/workflows/ci.yml\t\n",
+	}
+	for _, output := range tests {
+		t.Run(output, func(t *testing.T) {
+			git := &fakeGit{outputs: map[string]string{
+				"rev-parse\x00--abbrev-ref\x00--symbolic-full-name\x00@{u}":   "origin/main\n",
+				"diff\x00--name-only\x00--diff-filter=ACMRTUXB\x00@{u}..HEAD": output,
+			}}
+
+			_, err := changedFiles(context.Background(), mapEnv(nil), git)
+			if err == nil {
+				t.Fatal("changedFiles err = nil, want malformed path rejection")
+			}
+			if !strings.Contains(err.Error(), "invalid changed file path") {
+				t.Fatalf("err = %v, want invalid changed file path", err)
 			}
 		})
 	}
