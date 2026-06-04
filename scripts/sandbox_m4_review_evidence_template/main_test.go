@@ -246,6 +246,73 @@ func TestRunWritesOutputFile(t *testing.T) {
 	}
 }
 
+func TestRunRejectsExistingOutputFile(t *testing.T) {
+	dir := t.TempDir()
+	quality := writeTemplateQuality(t, dir)
+	writeSmokeArtifacts(t, dir, "")
+	outPath := writeTemplateFile(t, dir, "review-evidence.json", `{"existing":true}`+"\n")
+
+	var stdout bytes.Buffer
+	err := run([]string{
+		"--quality-comparison", quality,
+		"--runtime-smoke-artifacts-root", dir,
+		"--selected-candidate", "runtime-candidate-a",
+		"--runtime-candidate", testRuntimeCandidate,
+		"--reviewer", "openclarion-maintainer",
+		"--out", outPath,
+	}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want existing output rejection")
+	}
+	if !strings.Contains(err.Error(), "must be absent before review evidence output is written") {
+		t.Fatalf("run err = %v, want existing output rejection", err)
+	}
+	// #nosec G304 -- outPath is created inside this test's temporary directory.
+	raw, readErr := os.ReadFile(outPath)
+	if readErr != nil {
+		t.Fatalf("read existing output: %v", readErr)
+	}
+	if got := string(raw); got != `{"existing":true}`+"\n" {
+		t.Fatalf("existing output changed to %q", got)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on error", stdout.String())
+	}
+}
+
+func TestRunRejectsSymlinkOutputFile(t *testing.T) {
+	dir := t.TempDir()
+	quality := writeTemplateQuality(t, dir)
+	writeSmokeArtifacts(t, dir, "")
+	target := writeTemplateFile(t, dir, "target-review-evidence.json", `{"existing":true}`+"\n")
+	outPath := filepath.Join(dir, "review-evidence.json")
+	createTemplateSymlinkOrSkip(t, target, outPath)
+
+	var stdout bytes.Buffer
+	err := run([]string{
+		"--quality-comparison", quality,
+		"--runtime-smoke-artifacts-root", dir,
+		"--selected-candidate", "runtime-candidate-a",
+		"--runtime-candidate", testRuntimeCandidate,
+		"--reviewer", "openclarion-maintainer",
+		"--out", outPath,
+	}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want symlink output rejection")
+	}
+	if !strings.Contains(err.Error(), "must be absent before review evidence output is written, not a symlink") {
+		t.Fatalf("run err = %v, want symlink output rejection", err)
+	}
+	// #nosec G304 -- target is created inside this test's temporary directory.
+	raw, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatalf("read symlink target: %v", readErr)
+	}
+	if got := string(raw); got != `{"existing":true}`+"\n" {
+		t.Fatalf("symlink target changed to %q", got)
+	}
+}
+
 func TestRunRejectsUnsupportedRuntimeSmokeStatus(t *testing.T) {
 	dir := t.TempDir()
 	quality := writeTemplateQuality(t, dir)

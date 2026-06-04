@@ -472,11 +472,9 @@ func writeJSONFile(filePath string, value any) error {
 	clean := filepath.Clean(filePath)
 	if info, err := os.Lstat(clean); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("%s must be a regular file, not a symlink", clean)
+			return fmt.Errorf("%s must be absent before review evidence output is written, not a symlink", clean)
 		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("%s must be a regular file", clean)
-		}
+		return fmt.Errorf("%s must be absent before review evidence output is written", clean)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("stat output: %w", err)
 	}
@@ -484,7 +482,7 @@ func writeJSONFile(filePath string, value any) error {
 		return fmt.Errorf("create output parent: %w", err)
 	}
 	// #nosec G304 -- this manual helper writes the operator-supplied output path.
-	f, err := os.OpenFile(clean, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	f, err := os.OpenFile(clean, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("write output: %w", err)
 	}

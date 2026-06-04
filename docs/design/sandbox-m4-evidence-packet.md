@@ -77,13 +77,16 @@ the five canonical runtime-smoke proof files into one empty directory, and
 `make sandbox-m4-review-evidence-template` can produce a fail-closed draft
 review-evidence file from the retained quality comparison and those artifacts,
 including a retained custom-runner `digest-ref.txt` when
-`RUNTIME_CANDIDATE_FILE=...` is set. Operators must still review the draft and
-edit candidate, reviewed-case, human-review, and representative-sample fields
-before it can support acceptance. Custom-runner digest refs from the ephemeral
-loopback registry remain local smoke evidence; a `proceed` decision must not use
-one as the runtime baseline. Quality manifest report paths are intentionally
-relative to the manifest directory, non-traversing, and distinct per case so
-packet artifacts stay portable and cannot compare a report file to itself.
+`RUNTIME_CANDIDATE_FILE=...` is set. When `OUT=...` is used, the output path
+must be absent before the helper writes the draft, so retained review evidence
+cannot be silently refreshed in place. Operators must still review the draft
+and edit candidate, reviewed-case, human-review, and representative-sample
+fields before it can support acceptance. Custom-runner digest refs from the
+ephemeral loopback registry remain local smoke evidence; a `proceed` decision
+must not use one as the runtime baseline. Quality manifest report paths are
+intentionally relative to the manifest directory, non-traversing, and distinct
+per case so packet artifacts stay portable and cannot compare a report file to
+itself.
 `make sandbox-m4-quality-sample-export` can create that retained sample-root
 layout from operator-selected persisted SubReport rows after checking strict
 selection JSON, scenario matches, shared EvidenceSnapshot IDs, production
