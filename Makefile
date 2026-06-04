@@ -21,6 +21,7 @@
 #   make branch-protection-check # validate branch protection required-check policy
 #   make dependabot-policy-check # validate Dependabot update policy invariants
 #   make manual-target-isolation # validate manual smoke/evidence targets stay out of CI
+#   make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=diagnosis-live-browser-smoke # preflight one manual evidence target
 #   make workflow-change-guard # validate PR workflow-file change isolation
 #   make linear-history-check # validate PR ranges contain no merge commits
 #   make pr-budget-test   # validate the make pr wall-clock budget wrapper
@@ -664,7 +665,9 @@ atlas-smoke: ## Manual one-shot smoke: verify Dockerized Atlas can read the ent 
 	@ATLAS_IMAGE="$(ATLAS_IMAGE)" ENT_SCHEMA_URL="$(ENT_SCHEMA_URL)" bash scripts/check_atlas_smoke.sh
 
 manual-evidence-readiness: ## Manual readiness preflight for remaining M2/M4/M5 live and evidence targets
-	@go run ./scripts/manual_evidence_readiness
+	@args=(); \
+	if [[ -n "$(MANUAL_EVIDENCE_TARGET)" ]]; then args+=(--target "$(MANUAL_EVIDENCE_TARGET)"); fi; \
+	go run ./scripts/manual_evidence_readiness "$${args[@]}"
 
 report-live-smoke: ## Manual M2 smoke: real Prometheus -> Temporal -> Webhook via report-replay --wait
 	@bash scripts/run_report_live_smoke.sh

@@ -60,7 +60,7 @@ Optional variables:
   delivery.
 - `DIAGNOSIS_LIVE_BROWSER_SMOKE_OUTPUT` for the JSON proof path
 
-Run `make manual-evidence-readiness --target diagnosis-live-browser-smoke`
+Run `make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=diagnosis-live-browser-smoke`
 before the live smoke to check these local prerequisites without printing
 tokens, URLs, session ids, or local paths.
 
