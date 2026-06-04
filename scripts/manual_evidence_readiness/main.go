@@ -31,21 +31,27 @@ type readinessSummary struct {
 }
 
 type targetReadiness struct {
-	Name                    string           `json:"name"`
-	Status                  string           `json:"status"`
-	Command                 string           `json:"command"`
-	MissingEnv              []string         `json:"missing_env,omitempty"`
-	UnsatisfiedAlternatives []envAlternative `json:"unsatisfied_alternatives,omitempty"`
-	InvalidEnv              []invalidEnv     `json:"invalid_env,omitempty"`
-	FileChecks              []fileCheck      `json:"file_checks,omitempty"`
-	DirectoryChecks         []directoryCheck `json:"directory_checks,omitempty"`
-	OptionalDirectoryChecks []directoryCheck `json:"optional_directory_checks,omitempty"`
-	Notes                   []string         `json:"notes,omitempty"`
+	Name                    string             `json:"name"`
+	Status                  string             `json:"status"`
+	Command                 string             `json:"command"`
+	MissingEnv              []string           `json:"missing_env,omitempty"`
+	UnsatisfiedAlternatives []envAlternative   `json:"unsatisfied_alternatives,omitempty"`
+	AlternateCommands       []alternateCommand `json:"alternate_commands,omitempty"`
+	InvalidEnv              []invalidEnv       `json:"invalid_env,omitempty"`
+	FileChecks              []fileCheck        `json:"file_checks,omitempty"`
+	DirectoryChecks         []directoryCheck   `json:"directory_checks,omitempty"`
+	OptionalDirectoryChecks []directoryCheck   `json:"optional_directory_checks,omitempty"`
+	Notes                   []string           `json:"notes,omitempty"`
 }
 
 type envAlternative struct {
 	Description string   `json:"description"`
 	Options     []string `json:"options"`
+}
+
+type alternateCommand struct {
+	Description string `json:"description"`
+	Command     string `json:"command"`
 }
 
 type invalidEnv struct {
@@ -168,6 +174,13 @@ func sandboxM4RuntimeSmokeArtifactsReadiness(env envMap) targetReadiness {
 		Notes: []string{
 			"Preflight checks only local configuration; the target still runs Docker-backed runtime, provider, and egress smokes.",
 			"Provider timeout, output-cap, and egress proofs use their existing smoke harness images unless explicitly overridden.",
+			"The primary command still requires OPENCLARION_AGENT_RUNTIME_IMAGE; for the local custom thin runner candidate, the alternate command can resolve the digest-pinned image and retain the same artifact set while its ephemeral registry is alive.",
+		},
+		AlternateCommands: []alternateCommand{
+			{
+				Description: "Build the local custom thin runner candidate and retain the same runtime-smoke artifact set.",
+				Command:     "make custom-thin-runner-smoke OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR=...",
+			},
 		},
 	}
 	target.MissingEnv = missingEnv(env,
@@ -186,6 +199,9 @@ func sandboxM4RuntimeSmokeArtifactsReadiness(env envMap) targetReadiness {
 		})
 	}
 	target.DirectoryChecks = append(target.DirectoryChecks, requiredEmptyOutputDirEnv(env, "OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR"))
+	if envPresent(env, "OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR") {
+		target.OptionalDirectoryChecks = append(target.OptionalDirectoryChecks, requiredEmptyOutputDirEnv(env, "OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR"))
+	}
 	return finalize(target)
 }
 
@@ -348,7 +364,7 @@ func requiredEmptyOutputDirEnv(env envMap, name string) directoryCheck {
 	}
 	info, err := os.Lstat(clean)
 	if errors.Is(err, os.ErrNotExist) {
-		return directoryCheck{Env: name, Status: "ok", Reason: "directory will be created by the packet helper"}
+		return directoryCheck{Env: name, Status: "ok", Reason: "directory will be created by the helper"}
 	}
 	if err != nil {
 		return directoryCheck{Env: name, Status: "error", Reason: "directory cannot be inspected"}
@@ -361,7 +377,7 @@ func requiredEmptyOutputDirEnv(env envMap, name string) directoryCheck {
 		return directoryCheck{Env: name, Status: "error", Reason: "directory cannot be read"}
 	}
 	if len(entries) > 0 {
-		return directoryCheck{Env: name, Status: "not_empty", Reason: "directory must be empty before packet assembly"}
+		return directoryCheck{Env: name, Status: "not_empty", Reason: "directory must be empty before helper output is written"}
 	}
 	return directoryCheck{Env: name, Status: "ok"}
 }

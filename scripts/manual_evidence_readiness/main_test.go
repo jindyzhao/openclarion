@@ -138,6 +138,69 @@ func TestRunRejectsBadM4RuntimeSmokeArtifactEnv(t *testing.T) {
 	}
 }
 
+func TestRunReportsCustomThinRunnerArtifactAlternative(t *testing.T) {
+	root := t.TempDir()
+	customArtifacts := filepath.Join(root, "custom-runtime-artifacts")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-runtime-smoke-artifacts"}, []string{
+		"OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR=" + filepath.Join(root, "direct-runtime-artifacts"),
+		"OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR=" + customArtifacts,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-runtime-smoke-artifacts")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked without primary runtime image", target.Status)
+	}
+	if !contains(target.MissingEnv, "OPENCLARION_AGENT_RUNTIME_IMAGE") {
+		t.Fatalf("missing env = %#v, want primary runtime image", target.MissingEnv)
+	}
+	if len(target.AlternateCommands) != 1 || !strings.Contains(target.AlternateCommands[0].Command, "custom-thin-runner-smoke") {
+		t.Fatalf("alternate commands = %#v, want custom thin runner artifact command", target.AlternateCommands)
+	}
+	check := directoryCheckByEnv(t, target.OptionalDirectoryChecks, "OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR")
+	if check.Status != "ok" {
+		t.Fatalf("custom artifact dir status = %q, want ok", check.Status)
+	}
+	if strings.Contains(stdout.String(), customArtifacts) {
+		t.Fatalf("output leaked custom artifact path: %s", stdout.String())
+	}
+}
+
+func TestRunRejectsReusedCustomThinRunnerArtifactDir(t *testing.T) {
+	root := t.TempDir()
+	customArtifacts := filepath.Join(root, "custom-runtime-artifacts")
+	if err := os.Mkdir(customArtifacts, 0o700); err != nil {
+		t.Fatalf("mkdir custom artifacts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(customArtifacts, "old.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write old artifact: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-runtime-smoke-artifacts"}, []string{
+		"OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR=" + filepath.Join(root, "direct-runtime-artifacts"),
+		"OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR=" + customArtifacts,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-runtime-smoke-artifacts")
+	check := directoryCheckByEnv(t, target.OptionalDirectoryChecks, "OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR")
+	if check.Status != "not_empty" {
+		t.Fatalf("custom artifact dir status = %q, want not_empty", check.Status)
+	}
+	if strings.Contains(stdout.String(), customArtifacts) {
+		t.Fatalf("output leaked custom artifact path: %s", stdout.String())
+	}
+}
+
 func TestRunRejectsBadM4RuntimeCandidateEnv(t *testing.T) {
 	root := t.TempDir()
 	quality := writeFile(t, root, "quality.json")
@@ -257,6 +320,17 @@ func targetByName(t *testing.T, out readinessOutput, name string) targetReadines
 	}
 	t.Fatalf("target %q not found in %#v", name, out.Targets)
 	return targetReadiness{}
+}
+
+func directoryCheckByEnv(t *testing.T, checks []directoryCheck, name string) directoryCheck {
+	t.Helper()
+	for _, check := range checks {
+		if check.Env == name {
+			return check
+		}
+	}
+	t.Fatalf("directory check %q not found in %#v", name, checks)
+	return directoryCheck{}
 }
 
 func contains(values []string, want string) bool {
