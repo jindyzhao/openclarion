@@ -552,6 +552,39 @@ func TestRunRejectsInvalidLiveSmokeProof(t *testing.T) {
 			want: "close_notification.workflow.turn_count",
 		},
 		{
+			name: "close notification missing workflow final conclusion",
+			body: func(t *testing.T) string {
+				return removeProof(t, validCreatedProofWithCloseNotification(), `,"final_conclusion":{"status":"available","source":"latest_assistant_turn","assistant_turn_id":4,"assistant_message_id":"msg-1/assistant","assistant_sequence":2,"assistant_occurred_at":"2026-05-29T01:02:04Z","content":"CPU alert is still firing.","confidence":"medium","requires_human_review":true}`)
+			},
+			want: "close_notification.workflow.final_conclusion.status",
+		},
+		{
+			name: "close notification final conclusion sequence mismatch",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithCloseNotification(), `"assistant_sequence":2`, `"assistant_sequence":3`)
+			},
+			want: "assistant_sequence",
+		},
+		{
+			name: "close notification final conclusion event mismatch",
+			body: func(t *testing.T) string {
+				body := validCreatedProofWithCloseNotification()
+				workflowConclusion := `"final_conclusion":{"status":"available","source":"latest_assistant_turn","assistant_turn_id":4,"assistant_message_id":"msg-1/assistant","assistant_sequence":2,"assistant_occurred_at":"2026-05-29T01:02:04Z","content":"CPU alert is still firing.","confidence":"medium","requires_human_review":true}`
+				eventConclusion := `"final_conclusion":{"status":"available","source":"latest_assistant_turn","assistant_turn_id":4,"assistant_message_id":"msg-1/assistant","assistant_sequence":2,"assistant_occurred_at":"2026-05-29T01:02:04Z","content":"CPU alert recovered.","confidence":"medium","requires_human_review":true}`
+				first := strings.Index(body, workflowConclusion)
+				if first < 0 {
+					t.Fatalf("workflow final conclusion fragment not found")
+				}
+				second := strings.Index(body[first+len(workflowConclusion):], workflowConclusion)
+				if second < 0 {
+					t.Fatalf("event final conclusion fragment not found")
+				}
+				offset := first + len(workflowConclusion) + second
+				return body[:offset] + eventConclusion + body[offset+len(workflowConclusion):]
+			},
+			want: "must match close_notification.workflow.final_conclusion",
+		},
+		{
 			name: "close notification bad idempotency key",
 			body: func(t *testing.T) string {
 				return replaceProof(t, validCreatedProofWithCloseNotification(), `"idempotency_key":"diagnosis_room:1:abcdef/close_notification"`, `"idempotency_key":"final_report:1/notification"`)
@@ -615,7 +648,7 @@ func validCreatedProofWithCloseNotification() string {
 	return strings.Replace(
 		validCreatedProof(),
 		`,"evidence":"turn_result"}`,
-		`,"close_notification":{"checked_at":"2026-05-29T01:03:00Z","request":{"session_id":"s","workflow_id":"diagnosis-room-s","run_id":"run","reason":"live_smoke_completed","wait_timeout":"2m0s"},"signaled":true,"workflow":{"session_id":"s","chat_session_id":1,"diagnosis_task_id":1,"status":"closed","turn_count":1,"closed_at":"2026-05-29T01:02:05Z","close_reason":"live_smoke_completed"},"close_event":{"id":2,"kind":"diagnosis_room.closed","occurred_at":"2026-05-29T01:02:05Z"},"notification_event":{"id":3,"kind":"diagnosis_room.close_notification_sent","occurred_at":"2026-05-29T01:02:05.000001Z","idempotency_key":"diagnosis_room:1:abcdef/close_notification","provider_message_id":"msg-1","provider_status":"accepted"}},"evidence":"turn_result close_notification"}`,
+		`,"close_notification":{"checked_at":"2026-05-29T01:03:00Z","request":{"session_id":"s","workflow_id":"diagnosis-room-s","run_id":"run","reason":"live_smoke_completed","wait_timeout":"2m0s"},"signaled":true,"workflow":{"session_id":"s","chat_session_id":1,"diagnosis_task_id":1,"status":"closed","turn_count":1,"closed_at":"2026-05-29T01:02:05Z","close_reason":"live_smoke_completed","final_conclusion":{"status":"available","source":"latest_assistant_turn","assistant_turn_id":4,"assistant_message_id":"msg-1/assistant","assistant_sequence":2,"assistant_occurred_at":"2026-05-29T01:02:04Z","content":"CPU alert is still firing.","confidence":"medium","requires_human_review":true}},"close_event":{"id":2,"kind":"diagnosis_room.closed","occurred_at":"2026-05-29T01:02:05Z","conclusion_version":"diagnosis-room-close.v1","final_conclusion":{"status":"available","source":"latest_assistant_turn","assistant_turn_id":4,"assistant_message_id":"msg-1/assistant","assistant_sequence":2,"assistant_occurred_at":"2026-05-29T01:02:04Z","content":"CPU alert is still firing.","confidence":"medium","requires_human_review":true}},"notification_event":{"id":3,"kind":"diagnosis_room.close_notification_sent","occurred_at":"2026-05-29T01:02:05.000001Z","idempotency_key":"diagnosis_room:1:abcdef/close_notification","provider_message_id":"msg-1","provider_status":"accepted"}},"evidence":"turn_result close_notification"}`,
 		1,
 	)
 }

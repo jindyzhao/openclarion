@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-06-04
+> Last updated: 2026-06-05
 > Author: jindyzhao
 > Status: private incubation
 
@@ -195,6 +195,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-06-05 | jindyzhao | M5 close-notification proof conclusion binding hardened locally: `openclarion diagnosis-room-close` now decodes the strict `diagnosis_room.closed` payload, emits both workflow and close-event `final_conclusion` blocks, and rejects mismatches between the Temporal completion result and the append-only audit event. `scripts/diagnosis_live_smoke_output` now requires optional close proofs to bind the latest assistant-turn conclusion fields, canonical assistant occurrence time, confidence, and human-review flag before a retained close-notification artifact can support M5 claims. This strengthens the manual proof path without adding a CI gate or claiming a live IM delivery run. |
 | 2026-06-04 | jindyzhao | M5 close audit conclusion snapshot landed locally: `CloseDiagnosisChatSession` now records a structured `final_conclusion` block in the idempotent `diagnosis_room.closed` event. Rooms with no accepted assistant turn record `not_available`; rooms with turns bind the close audit to the latest persisted assistant `ChatTurn`, including message id, sequence, occurrence time, bounded content, confidence, and human-review flag. This stores the room-close conclusion in the append-only audit trail without adding a new table, API surface, workflow, or CI job. |
 | 2026-06-04 | jindyzhao | M5 close-notification live-smoke readiness preflight landed locally: `make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=diagnosis-live-browser-smoke` now checks URL and bearer-token shape, positive evidence snapshot IDs, and the extra close-proof prerequisites for local PostgreSQL, Temporal, close timeout/reason shape, and close-notification worker IM configuration. Operators can satisfy the IM preflight with `OPENCLARION_IM_WEBHOOK_URL` in the current shell or `DIAGNOSIS_LIVE_SMOKE_ASSUME_WORKER_READY=1` when the worker is externally managed. The readiness output names only missing/invalid inputs and does not print tokens, URLs, session ids, or local paths; retained live close-notification IM proof remains pending. |
 | 2026-06-04 | jindyzhao | M4 evidence-chain readiness preflight landed locally: `make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=sandbox-m4-evidence-chain` now checks an operator-selected retained evidence root for the canonical baseline audit, runtime-smoke artifacts, digest-ref handoff, direct/sandbox sample directories, quality manifest, quality comparison, review evidence, and packet summary. Existing JSON artifacts are strict-checked for duplicate keys and trailing values before SHA-256 digests are reported. This improves the manual gap audit without adding a workflow, selecting representative samples, comparing quality, or recording an M4 decision. |

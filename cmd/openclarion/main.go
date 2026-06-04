@@ -813,19 +813,35 @@ type diagnosisRoomCloseCLIRequest struct {
 }
 
 type diagnosisRoomCloseCLIWorkflow struct {
-	SessionID       string `json:"session_id"`
-	ChatSessionID   int64  `json:"chat_session_id"`
-	DiagnosisTaskID int64  `json:"diagnosis_task_id"`
-	Status          string `json:"status"`
-	TurnCount       int    `json:"turn_count"`
-	ClosedAt        string `json:"closed_at"`
-	CloseReason     string `json:"close_reason"`
+	SessionID       string                               `json:"session_id"`
+	ChatSessionID   int64                                `json:"chat_session_id"`
+	DiagnosisTaskID int64                                `json:"diagnosis_task_id"`
+	Status          string                               `json:"status"`
+	TurnCount       int                                  `json:"turn_count"`
+	ClosedAt        string                               `json:"closed_at"`
+	CloseReason     string                               `json:"close_reason"`
+	FinalConclusion diagnosisRoomCloseCLIFinalConclusion `json:"final_conclusion"`
 }
 
 type diagnosisRoomCloseCLIEvent struct {
-	ID         int64  `json:"id"`
-	Kind       string `json:"kind"`
-	OccurredAt string `json:"occurred_at"`
+	ID                int64                                `json:"id"`
+	Kind              string                               `json:"kind"`
+	OccurredAt        string                               `json:"occurred_at"`
+	ConclusionVersion string                               `json:"conclusion_version,omitempty"`
+	FinalConclusion   diagnosisRoomCloseCLIFinalConclusion `json:"final_conclusion,omitempty"`
+}
+
+type diagnosisRoomCloseCLIFinalConclusion struct {
+	Status              string `json:"status"`
+	Source              string `json:"source"`
+	Reason              string `json:"reason,omitempty"`
+	AssistantTurnID     int64  `json:"assistant_turn_id,omitempty"`
+	AssistantMessageID  string `json:"assistant_message_id,omitempty"`
+	AssistantSequence   int    `json:"assistant_sequence,omitempty"`
+	AssistantOccurredAt string `json:"assistant_occurred_at,omitempty"`
+	Content             string `json:"content,omitempty"`
+	Confidence          string `json:"confidence,omitempty"`
+	RequiresHumanReview *bool  `json:"requires_human_review,omitempty"`
 }
 
 type diagnosisRoomCloseCLINotificationEvent struct {
@@ -843,9 +859,24 @@ type diagnosisRoomCloseNotificationPayload struct {
 	ProviderStatus    string `json:"provider_status"`
 }
 
+type diagnosisRoomCloseEventPayload struct {
+	Kind              string                                   `json:"kind"`
+	SessionID         string                                   `json:"session_id"`
+	ChatSessionID     int64                                    `json:"chat_session_id"`
+	DiagnosisTaskID   int64                                    `json:"diagnosis_task_id"`
+	OwnerSubject      string                                   `json:"owner_subject"`
+	Status            string                                   `json:"status"`
+	TurnCount         int                                      `json:"turn_count"`
+	CloseReason       string                                   `json:"close_reason"`
+	ClosedAt          time.Time                                `json:"closed_at"`
+	FinalConclusion   temporalpkg.DiagnosisRoomFinalConclusion `json:"final_conclusion"`
+	ConclusionVersion string                                   `json:"conclusion_version"`
+}
+
 type diagnosisRoomCloseEvents struct {
 	CloseEvent        domain.DiagnosisTaskEvent
 	NotificationEvent domain.DiagnosisTaskEvent
+	ClosePayload      diagnosisRoomCloseEventPayload
 	Notification      diagnosisRoomCloseNotificationPayload
 }
 
@@ -1302,6 +1333,15 @@ func (l postgresDiagnosisRoomCloseEventsLoader) LoadDiagnosisRoomCloseEvents(ctx
 	if out.NotificationEvent.ID == 0 {
 		return diagnosisRoomCloseEvents{}, fmt.Errorf("diagnosis room close notification event is missing for task %d", taskID)
 	}
+	if err := strictjson.Unmarshal(out.CloseEvent.Payload, &out.ClosePayload); err != nil {
+		return diagnosisRoomCloseEvents{}, fmt.Errorf("decode diagnosis room close event payload: %w", err)
+	}
+	if out.ClosePayload.ConclusionVersion != "diagnosis-room-close.v1" {
+		return diagnosisRoomCloseEvents{}, fmt.Errorf("diagnosis room close event conclusion_version = %q, want diagnosis-room-close.v1", out.ClosePayload.ConclusionVersion)
+	}
+	if strings.TrimSpace(out.ClosePayload.FinalConclusion.Status) == "" {
+		return diagnosisRoomCloseEvents{}, fmt.Errorf("diagnosis room close event missing final_conclusion.status")
+	}
 	if err := strictjson.Unmarshal(out.NotificationEvent.Payload, &out.Notification); err != nil {
 		return diagnosisRoomCloseEvents{}, fmt.Errorf("decode diagnosis room close notification event payload: %w", err)
 	}
@@ -1344,6 +1384,9 @@ func diagnosisRoomCloseCLIOutputFromResult(
 	if result.CloseReason != cfg.Reason {
 		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close reason = %q, want %q", result.CloseReason, cfg.Reason)
 	}
+	if result.FinalConclusion == nil {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close result missing final_conclusion")
+	}
 	if events.CloseEvent.ID == 0 {
 		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close event is missing")
 	}
@@ -1352,6 +1395,9 @@ func diagnosisRoomCloseCLIOutputFromResult(
 	}
 	if events.CloseEvent.Kind != diagnosisRoomCloseEventClosedKind {
 		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close event kind = %q, want %s", events.CloseEvent.Kind, diagnosisRoomCloseEventClosedKind)
+	}
+	if err := validateDiagnosisRoomClosePayload(result, events.ClosePayload); err != nil {
+		return diagnosisRoomCloseCLIOutput{}, err
 	}
 	if events.NotificationEvent.ID == 0 {
 		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close notification event is missing")
@@ -1380,11 +1426,14 @@ func diagnosisRoomCloseCLIOutputFromResult(
 			TurnCount:       result.TurnCount,
 			ClosedAt:        result.ClosedAt.UTC().Format(time.RFC3339Nano),
 			CloseReason:     result.CloseReason,
+			FinalConclusion: diagnosisRoomCloseCLIFinalConclusionFromTemporal(*result.FinalConclusion),
 		},
 		CloseEvent: diagnosisRoomCloseCLIEvent{
-			ID:         int64(events.CloseEvent.ID),
-			Kind:       events.CloseEvent.Kind,
-			OccurredAt: events.CloseEvent.OccurredAt.UTC().Format(time.RFC3339Nano),
+			ID:                int64(events.CloseEvent.ID),
+			Kind:              events.CloseEvent.Kind,
+			OccurredAt:        events.CloseEvent.OccurredAt.UTC().Format(time.RFC3339Nano),
+			ConclusionVersion: events.ClosePayload.ConclusionVersion,
+			FinalConclusion:   diagnosisRoomCloseCLIFinalConclusionFromTemporal(events.ClosePayload.FinalConclusion),
 		},
 		NotificationEvent: diagnosisRoomCloseCLINotificationEvent{
 			ID:                int64(events.NotificationEvent.ID),
@@ -1395,6 +1444,130 @@ func diagnosisRoomCloseCLIOutputFromResult(
 			ProviderStatus:    events.Notification.ProviderStatus,
 		},
 	}, nil
+}
+
+func validateDiagnosisRoomClosePayload(
+	result temporalpkg.DiagnosisRoomWorkflowResult,
+	payload diagnosisRoomCloseEventPayload,
+) error {
+	if payload.Kind != diagnosisRoomCloseEventClosedKind {
+		return fmt.Errorf("diagnosis room close event payload kind = %q, want %s", payload.Kind, diagnosisRoomCloseEventClosedKind)
+	}
+	if payload.SessionID != result.SessionID {
+		return fmt.Errorf("diagnosis room close event payload session_id = %q, want %q", payload.SessionID, result.SessionID)
+	}
+	if payload.ChatSessionID != result.ChatSessionID {
+		return fmt.Errorf("diagnosis room close event payload chat_session_id = %d, want %d", payload.ChatSessionID, result.ChatSessionID)
+	}
+	if payload.DiagnosisTaskID != result.DiagnosisTaskID {
+		return fmt.Errorf("diagnosis room close event payload diagnosis_task_id = %d, want %d", payload.DiagnosisTaskID, result.DiagnosisTaskID)
+	}
+	if payload.Status != result.Status {
+		return fmt.Errorf("diagnosis room close event payload status = %q, want %q", payload.Status, result.Status)
+	}
+	if payload.TurnCount != result.TurnCount {
+		return fmt.Errorf("diagnosis room close event payload turn_count = %d, want %d", payload.TurnCount, result.TurnCount)
+	}
+	if payload.CloseReason != result.CloseReason {
+		return fmt.Errorf("diagnosis room close event payload close_reason = %q, want %q", payload.CloseReason, result.CloseReason)
+	}
+	if result.ClosedAt == nil || result.ClosedAt.IsZero() {
+		return fmt.Errorf("diagnosis room close result missing closed_at")
+	}
+	if !payload.ClosedAt.Equal(result.ClosedAt.UTC()) {
+		return fmt.Errorf("diagnosis room close event payload closed_at = %s, want %s",
+			payload.ClosedAt.UTC().Format(time.RFC3339Nano),
+			result.ClosedAt.UTC().Format(time.RFC3339Nano))
+	}
+	if result.FinalConclusion == nil {
+		return fmt.Errorf("diagnosis room close result missing final_conclusion")
+	}
+	return compareDiagnosisRoomFinalConclusion(*result.FinalConclusion, payload.FinalConclusion)
+}
+
+func compareDiagnosisRoomFinalConclusion(
+	result temporalpkg.DiagnosisRoomFinalConclusion,
+	payload temporalpkg.DiagnosisRoomFinalConclusion,
+) error {
+	if strings.TrimSpace(result.Status) == "" {
+		return fmt.Errorf("diagnosis room close result final_conclusion.status must be non-empty")
+	}
+	if payload.Status != result.Status {
+		return fmt.Errorf("diagnosis room close event final_conclusion.status = %q, want %q", payload.Status, result.Status)
+	}
+	if payload.Source != result.Source {
+		return fmt.Errorf("diagnosis room close event final_conclusion.source = %q, want %q", payload.Source, result.Source)
+	}
+	if payload.Reason != result.Reason {
+		return fmt.Errorf("diagnosis room close event final_conclusion.reason = %q, want %q", payload.Reason, result.Reason)
+	}
+	if payload.AssistantTurnID != result.AssistantTurnID {
+		return fmt.Errorf("diagnosis room close event final_conclusion.assistant_turn_id = %d, want %d", payload.AssistantTurnID, result.AssistantTurnID)
+	}
+	if payload.AssistantMessageID != result.AssistantMessageID {
+		return fmt.Errorf("diagnosis room close event final_conclusion.assistant_message_id = %q, want %q", payload.AssistantMessageID, result.AssistantMessageID)
+	}
+	if payload.AssistantSequence != result.AssistantSequence {
+		return fmt.Errorf("diagnosis room close event final_conclusion.assistant_sequence = %d, want %d", payload.AssistantSequence, result.AssistantSequence)
+	}
+	if !sameOptionalTime(payload.AssistantOccurredAt, result.AssistantOccurredAt) {
+		return fmt.Errorf("diagnosis room close event final_conclusion.assistant_occurred_at does not match workflow result")
+	}
+	if payload.Content != result.Content {
+		return fmt.Errorf("diagnosis room close event final_conclusion.content does not match workflow result")
+	}
+	if payload.Confidence != result.Confidence {
+		return fmt.Errorf("diagnosis room close event final_conclusion.confidence = %q, want %q", payload.Confidence, result.Confidence)
+	}
+	if !sameOptionalBool(payload.RequiresHumanReview, result.RequiresHumanReview) {
+		return fmt.Errorf("diagnosis room close event final_conclusion.requires_human_review does not match workflow result")
+	}
+	return nil
+}
+
+func diagnosisRoomCloseCLIFinalConclusionFromTemporal(
+	in temporalpkg.DiagnosisRoomFinalConclusion,
+) diagnosisRoomCloseCLIFinalConclusion {
+	out := diagnosisRoomCloseCLIFinalConclusion{
+		Status:             in.Status,
+		Source:             in.Source,
+		Reason:             in.Reason,
+		AssistantTurnID:    in.AssistantTurnID,
+		AssistantMessageID: in.AssistantMessageID,
+		AssistantSequence:  in.AssistantSequence,
+		Content:            in.Content,
+		Confidence:         in.Confidence,
+	}
+	if in.AssistantOccurredAt != nil {
+		out.AssistantOccurredAt = in.AssistantOccurredAt.UTC().Format(time.RFC3339Nano)
+	}
+	if in.RequiresHumanReview != nil {
+		requiresHumanReview := *in.RequiresHumanReview
+		out.RequiresHumanReview = &requiresHumanReview
+	}
+	return out
+}
+
+func sameOptionalTime(a, b *time.Time) bool {
+	switch {
+	case a == nil && b == nil:
+		return true
+	case a == nil || b == nil:
+		return false
+	default:
+		return a.UTC().Equal(b.UTC())
+	}
+}
+
+func sameOptionalBool(a, b *bool) bool {
+	switch {
+	case a == nil && b == nil:
+		return true
+	case a == nil || b == nil:
+		return false
+	default:
+		return *a == *b
+	}
 }
 
 func diagnosisRoomCloseCLIUsage() string {
