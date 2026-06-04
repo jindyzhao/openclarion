@@ -159,6 +159,7 @@
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-06-04 | jindyzhao | M4 evidence-chain readiness preflight landed locally: `make manual-evidence-readiness --target sandbox-m4-evidence-chain` now checks `OPENCLARION_M4_EVIDENCE_ROOT` for the canonical retained M4 artifact chain, including baseline audit, runtime-smoke artifacts, digest-ref handoff, direct/sandbox sample directories, quality manifest, quality comparison, review evidence, and packet summary. Existing JSON artifacts are checked for duplicate object keys and trailing JSON values before SHA-256 digests are reported. This is an operator gap audit only; representative quality comparison, human review, and the M4 proceed/iterate/defer decision remain pending. |
 | 2026-05-19 | jindyzhao | Initial snapshot at pre-M0 state |
 | 2026-05-22 | jindyzhao | M0 bootstrap complete: Go module, Docker Compose, OpenAPI, oapi-codegen-exp, health endpoint, CI gates |
 | 2026-05-22 | jindyzhao | Post-review fixes: PostgreSQL `postgres:18-alpine` tag (digest scrapped); `vacuum` promoted to real blocking gate via `go tool`; Ent / Atlas / Temporal SDK pin moved to M1 per first-import rule; ADR-0012 amended to move Temporal Update validation to M1 |
