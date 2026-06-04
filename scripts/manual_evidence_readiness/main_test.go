@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRunReportsMissingEvidencePrerequisitesWithoutValues(t *testing.T) {
@@ -37,12 +38,18 @@ func TestRunReportsMissingEvidencePrerequisitesWithoutValues(t *testing.T) {
 
 func TestRunReportsReadyLiveTargets(t *testing.T) {
 	var stdout bytes.Buffer
+	windowStart, windowEnd := pastReportWindow()
 	err := run(nil, []string{
 		"DATABASE_URL=postgres://example.test/openclarion",
 		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
 		"OPENCLARION_PROMETHEUS_URL=https://prometheus.example.test",
-		"REPORT_WINDOW_START=2026-06-04T00:00:00Z",
-		"REPORT_WINDOW_END=2026-06-04T01:00:00Z",
+		"REPORT_WINDOW_START=" + windowStart,
+		"REPORT_WINDOW_END=" + windowEnd,
+		"REPORT_SCENARIO=cascade",
+		"REPORT_REPLAY_LIMIT=20",
+		"REPORT_WAIT_TIMEOUT=3m",
+		"REPORT_CORRELATION_KEY=manual-proof-001",
+		"REPORT_WORKFLOW_ID=report-live-smoke-manual-proof-001",
 		"OPENCLARION_LLM_MODEL=gpt-example",
 		"OPENCLARION_IM_WEBHOOK_URL=https://webhook.example.test",
 		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
@@ -62,6 +69,62 @@ func TestRunReportsReadyLiveTargets(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "secret-token") {
 		t.Fatalf("output leaked bearer token: %s", stdout.String())
+	}
+}
+
+func TestRunRejectsBadReportLiveInputsWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	futureStart := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	futureEnd := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
+	err := run([]string{"--target", "report-live-smoke"}, []string{
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		"OPENCLARION_PROMETHEUS_URL=https://operator:secret@prometheus.example.test?token=secret",
+		"REPORT_WINDOW_START=" + futureStart,
+		"REPORT_WINDOW_END=" + futureEnd,
+		"REPORT_SCENARIO= single_alert",
+		"REPORT_REPLAY_LIMIT=0",
+		"REPORT_WAIT_TIMEOUT=soon",
+		"REPORT_CORRELATION_KEY=manual proof",
+		"REPORT_WORKFLOW_ID=workflow\nsecret",
+		"OPENCLARION_LLM_MODEL=gpt-example",
+		"OPENCLARION_IM_WEBHOOK_URL=https://operator:secret@webhook.example.test",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "report-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("report status = %q, want blocked", target.Status)
+	}
+	for _, name := range []string{
+		"OPENCLARION_PROMETHEUS_URL",
+		"OPENCLARION_IM_WEBHOOK_URL",
+		"REPORT_WINDOW_START/REPORT_WINDOW_END",
+		"REPORT_SCENARIO",
+		"REPORT_REPLAY_LIMIT",
+		"REPORT_WAIT_TIMEOUT",
+		"REPORT_CORRELATION_KEY",
+		"REPORT_WORKFLOW_ID",
+	} {
+		if !invalidEnvByName(target.InvalidEnv, name) {
+			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
+		}
+	}
+	for _, secret := range []string{
+		"operator",
+		"secret",
+		"prometheus.example.test",
+		"webhook.example.test",
+		"manual proof",
+		"workflow",
+		"soon",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked invalid environment value %q: %s", secret, stdout.String())
+		}
 	}
 }
 
@@ -986,6 +1049,12 @@ func invalidEnvByName(values []invalidEnv, want string) bool {
 		}
 	}
 	return false
+}
+
+func pastReportWindow() (string, string) {
+	end := time.Now().UTC().Add(-1 * time.Hour).Truncate(time.Second)
+	start := end.Add(-1 * time.Hour)
+	return start.Format(time.RFC3339), end.Format(time.RFC3339)
 }
 
 func writeFile(t *testing.T, dir, name string) string {

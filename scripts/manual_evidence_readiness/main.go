@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,7 @@ const (
 	maxReadinessSampleBasisBytes   = 2048
 	maxReadinessQualityCaseIDBytes = 128
 	maxReadinessCloseReasonBytes   = 128
+	maxReadinessReportIDBytes      = 256
 	m4PacketVerificationTimeout    = 2 * time.Minute
 	directRole                     = "direct"
 	sandboxRole                    = "sandbox"
@@ -307,6 +309,70 @@ func reportLiveSmokeReadiness(env envMap) targetReadiness {
 		"REPORT_WINDOW_START",
 		"REPORT_WINDOW_END",
 	)
+	if envPresent(env, "OPENCLARION_PROMETHEUS_URL") {
+		if err := validateReadinessHTTPURL(env["OPENCLARION_PROMETHEUS_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_PROMETHEUS_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") {
+		if err := validateReadinessWebhookURL(env["OPENCLARION_IM_WEBHOOK_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_IM_WEBHOOK_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_WINDOW_START") || envPresent(env, "REPORT_WINDOW_END") {
+		if err := validateReadinessReportWindow(env["REPORT_WINDOW_START"], env["REPORT_WINDOW_END"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_WINDOW_START/REPORT_WINDOW_END",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_REPLAY_LIMIT") {
+		if err := validateReadinessPositiveInteger(env["REPORT_REPLAY_LIMIT"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_REPLAY_LIMIT",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_SCENARIO") {
+		if err := validateReadinessScenario(env["REPORT_SCENARIO"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_SCENARIO",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_WAIT_TIMEOUT") {
+		if err := validateReadinessPositiveDuration(env["REPORT_WAIT_TIMEOUT"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_WAIT_TIMEOUT",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_CORRELATION_KEY") {
+		if err := validateReadinessOptionalID(env["REPORT_CORRELATION_KEY"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_CORRELATION_KEY",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_WORKFLOW_ID") {
+		if err := validateReadinessOptionalID(env["REPORT_WORKFLOW_ID"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_WORKFLOW_ID",
+				Reason: err.Error(),
+			})
+		}
+	}
 	if !allPresent(env, "OPENCLARION_LLM_MODEL", "OPENCLARION_IM_WEBHOOK_URL") && !envEquals(env, "REPORT_LIVE_SMOKE_ASSUME_WORKER_READY", "1") {
 		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
 			Description: "worker provider configuration",
@@ -973,6 +1039,112 @@ func positiveInteger(value string) bool {
 		}
 	}
 	return true
+}
+
+func validateReadinessPositiveInteger(raw string) error {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return errors.New("must be non-empty")
+	}
+	if value != raw {
+		return errors.New("must not contain leading or trailing whitespace")
+	}
+	if strings.ContainsAny(raw, " \r\n\t") {
+		return errors.New("must not contain whitespace")
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return errors.New("must be a positive integer")
+	}
+	return nil
+}
+
+func validateReadinessPositiveDuration(raw string) error {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return errors.New("must be non-empty")
+	}
+	if value != raw {
+		return errors.New("must not contain leading or trailing whitespace")
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return errors.New("must be a valid Go duration such as 20m")
+	}
+	if duration <= 0 {
+		return errors.New("must be greater than zero")
+	}
+	return nil
+}
+
+func validateReadinessScenario(raw string) error {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return errors.New("must be non-empty")
+	}
+	if value != raw {
+		return errors.New("must not contain leading or trailing whitespace")
+	}
+	if !qualitySampleScenario(value) {
+		return errors.New("must be one of single_alert, cascade, or alert_storm")
+	}
+	return nil
+}
+
+func validateReadinessOptionalID(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	value := strings.TrimSpace(raw)
+	if value != raw {
+		return errors.New("must not contain leading or trailing whitespace")
+	}
+	if strings.ContainsAny(raw, " \r\n\t") {
+		return errors.New("must not contain whitespace")
+	}
+	if len(raw) > maxReadinessReportIDBytes {
+		return fmt.Errorf("exceeds %d bytes", maxReadinessReportIDBytes)
+	}
+	return nil
+}
+
+func validateReadinessReportWindow(rawStart, rawEnd string) error {
+	if strings.TrimSpace(rawStart) == "" || strings.TrimSpace(rawEnd) == "" {
+		return nil
+	}
+	start, err := parseReadinessCanonicalTime(rawStart)
+	if err != nil {
+		return fmt.Errorf("window start %w", err)
+	}
+	end, err := parseReadinessCanonicalTime(rawEnd)
+	if err != nil {
+		return fmt.Errorf("window end %w", err)
+	}
+	if !end.After(start) {
+		return errors.New("window end must be after window start")
+	}
+	if end.After(time.Now().UTC()) {
+		return errors.New("window end must not be in the future")
+	}
+	return nil
+}
+
+func parseReadinessCanonicalTime(raw string) (time.Time, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return time.Time{}, errors.New("must be non-empty")
+	}
+	if value != raw {
+		return time.Time{}, errors.New("must not contain leading or trailing whitespace")
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}, errors.New("must be RFC3339")
+	}
+	if parsed.UTC().Format(time.RFC3339Nano) != value {
+		return time.Time{}, errors.New("must be canonical UTC RFC3339")
+	}
+	return parsed.UTC(), nil
 }
 
 func validateReadinessSampleBasis(raw string) error {
