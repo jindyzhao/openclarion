@@ -569,6 +569,104 @@ func TestRunRejectsBadM4RuntimeCandidateFile(t *testing.T) {
 	}
 }
 
+func TestRunReportsM4EvidenceChainGapsWithoutLeakingRoot(t *testing.T) {
+	root := t.TempDir()
+	writeM4EvidenceChainRuntimeArtifacts(t, root)
+	writeFile(t, root, "baseline-audit.json")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-evidence-chain"}, []string{
+		"OPENCLARION_M4_EVIDENCE_ROOT=" + root,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-evidence-chain")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	if got := directoryCheckByEnv(t, target.DirectoryChecks, "OPENCLARION_M4_EVIDENCE_ROOT").Status; got != "ok" {
+		t.Fatalf("evidence root status = %q, want ok", got)
+	}
+	if got := evidenceChainCheckByName(t, target.EvidenceChainChecks, "baseline_audit").Status; got != "ok" {
+		t.Fatalf("baseline status = %q, want ok", got)
+	}
+	if got := evidenceChainCheckByName(t, target.EvidenceChainChecks, "quality_manifest").Status; got != "missing" {
+		t.Fatalf("quality manifest status = %q, want missing", got)
+	}
+	if strings.Contains(stdout.String(), root) {
+		t.Fatalf("output leaked evidence root: %s", stdout.String())
+	}
+}
+
+func TestRunReportsReadyM4EvidenceChainWithDigests(t *testing.T) {
+	root := t.TempDir()
+	writeM4EvidenceChainRuntimeArtifacts(t, root)
+	writeQualitySamplePair(t, root, "single_alert", "payments-cpu")
+	writeQualitySamplePair(t, root, "cascade", "checkout-latency")
+	writeQualitySamplePair(t, root, "alert_storm", "billing-errors")
+	for _, name := range []string{
+		"baseline-audit.json",
+		"quality-manifest.json",
+		"quality-comparison.json",
+		"review-evidence.json",
+		"packet.json",
+	} {
+		writeFile(t, root, name)
+	}
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-evidence-chain"}, []string{
+		"OPENCLARION_M4_EVIDENCE_ROOT=" + root,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-evidence-chain")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready", target.Status)
+	}
+	check := evidenceChainCheckByName(t, target.EvidenceChainChecks, "packet_summary")
+	if check.Status != "ok" || !lowerHexDigest(check.SHA256) {
+		t.Fatalf("packet check = %#v, want ok with sha256", check)
+	}
+	direct := evidenceChainCheckByName(t, target.EvidenceChainChecks, "direct_quality_samples")
+	if direct.Status != "ok" || direct.SHA256 != "" {
+		t.Fatalf("direct sample check = %#v, want directory ok without sha256", direct)
+	}
+	if strings.Contains(stdout.String(), root) {
+		t.Fatalf("output leaked evidence root: %s", stdout.String())
+	}
+}
+
+func TestRunRejectsM4EvidenceChainDuplicateJSON(t *testing.T) {
+	root := t.TempDir()
+	writeM4EvidenceChainRuntimeArtifacts(t, root)
+	writeFileBody(t, root, "baseline-audit.json", `{"status":"pass","status":"fail"}`+"\n")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-evidence-chain"}, []string{
+		"OPENCLARION_M4_EVIDENCE_ROOT=" + root,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-evidence-chain")
+	check := evidenceChainCheckByName(t, target.EvidenceChainChecks, "baseline_audit")
+	if check.Status != "invalid_json" || check.SHA256 != "" {
+		t.Fatalf("baseline check = %#v, want invalid_json without digest", check)
+	}
+	if strings.Contains(stdout.String(), root) || strings.Contains(stdout.String(), "fail") {
+		t.Fatalf("output leaked evidence root or JSON value: %s", stdout.String())
+	}
+}
+
 func TestRunRejectsIndirectOrReusedM4EvidencePaths(t *testing.T) {
 	root := t.TempDir()
 	target := writeFile(t, root, "target.json")
@@ -690,8 +788,16 @@ func contains(values []string, want string) bool {
 
 func writeFile(t *testing.T, dir, name string) string {
 	t.Helper()
+	return writeFileBody(t, dir, name, "{}\n")
+}
+
+func writeFileBody(t *testing.T, dir, name, body string) string {
+	t.Helper()
 	path := filepath.Join(dir, name)
-	if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 	return path
@@ -720,4 +826,41 @@ func createSymlinkOrSkip(t *testing.T, oldname, newname string) {
 	if err := os.Symlink(oldname, newname); err != nil {
 		t.Skipf("symlink not available: %v", err)
 	}
+}
+
+func writeM4EvidenceChainRuntimeArtifacts(t *testing.T, root string) {
+	t.Helper()
+	writeFileBody(t, root, "runtime-smokes/digest-ref.txt", "registry.example.com/openclarion/runtime-candidate-a@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n")
+	for _, name := range []string{
+		"agent-runtime-smoke.json",
+		"container-provider-smoke.json",
+		"container-provider-timeout-smoke.json",
+		"container-provider-output-cap-smoke.json",
+		"egress-allowdeny-smoke.json",
+	} {
+		writeFileBody(t, root, filepath.Join("runtime-smokes", name), `{"status":"pass"}`+"\n")
+	}
+}
+
+func evidenceChainCheckByName(t *testing.T, checks []evidenceChainCheck, name string) evidenceChainCheck {
+	t.Helper()
+	for _, check := range checks {
+		if check.Name == name {
+			return check
+		}
+	}
+	t.Fatalf("evidence chain check %q not found in %#v", name, checks)
+	return evidenceChainCheck{}
+}
+
+func lowerHexDigest(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	for _, r := range value {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }

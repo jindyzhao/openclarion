@@ -5,6 +5,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -15,10 +17,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/openclarion/openclarion/internal/strictjson"
 )
 
 const (
 	toolName                       = "manual_evidence_readiness"
+	maxReadinessArtifactBytes      = 8 * 1024 * 1024
 	maxReadinessSampleBasisBytes   = 2048
 	maxReadinessQualityCaseIDBytes = 128
 	directRole                     = "direct"
@@ -29,6 +34,22 @@ var requiredQualitySampleScenarios = []string{
 	"single_alert",
 	"cascade",
 	"alert_storm",
+}
+
+var requiredM4EvidenceArtifacts = []m4EvidenceArtifact{
+	{Name: "baseline_audit", Artifact: "baseline-audit.json", JSON: true},
+	{Name: "runtime_candidate_digest_ref", Artifact: "runtime-smokes/digest-ref.txt", RuntimeCandidateRef: true},
+	{Name: "candidate_runtime_file_contract", Artifact: "runtime-smokes/agent-runtime-smoke.json", JSON: true},
+	{Name: "docker_provider_lifecycle", Artifact: "runtime-smokes/container-provider-smoke.json", JSON: true},
+	{Name: "docker_provider_timeout_cleanup", Artifact: "runtime-smokes/container-provider-timeout-smoke.json", JSON: true},
+	{Name: "docker_provider_output_cap", Artifact: "runtime-smokes/container-provider-output-cap-smoke.json", JSON: true},
+	{Name: "egress_allowdeny", Artifact: "runtime-smokes/egress-allowdeny-smoke.json", JSON: true},
+	{Name: "direct_quality_samples", Artifact: "direct", Directory: true},
+	{Name: "sandbox_quality_samples", Artifact: "sandbox", Directory: true},
+	{Name: "quality_manifest", Artifact: "quality-manifest.json", JSON: true},
+	{Name: "quality_comparison", Artifact: "quality-comparison.json", JSON: true},
+	{Name: "review_evidence", Artifact: "review-evidence.json", JSON: true},
+	{Name: "packet_summary", Artifact: "packet.json", JSON: true},
 }
 
 type readinessOutput struct {
@@ -55,6 +76,7 @@ type targetReadiness struct {
 	DirectoryChecks         []directoryCheck     `json:"directory_checks,omitempty"`
 	OptionalDirectoryChecks []directoryCheck     `json:"optional_directory_checks,omitempty"`
 	QualitySampleChecks     []qualitySampleCheck `json:"quality_sample_checks,omitempty"`
+	EvidenceChainChecks     []evidenceChainCheck `json:"evidence_chain_checks,omitempty"`
 	Notes                   []string             `json:"notes,omitempty"`
 }
 
@@ -97,6 +119,22 @@ type qualitySampleCheck struct {
 	MissingScenarios      []string `json:"missing_scenarios,omitempty"`
 }
 
+type evidenceChainCheck struct {
+	Name     string `json:"name"`
+	Artifact string `json:"artifact"`
+	Status   string `json:"status"`
+	Reason   string `json:"reason,omitempty"`
+	SHA256   string `json:"sha256,omitempty"`
+}
+
+type m4EvidenceArtifact struct {
+	Name                string
+	Artifact            string
+	JSON                bool
+	Directory           bool
+	RuntimeCandidateRef bool
+}
+
 type envMap map[string]string
 
 func main() {
@@ -109,7 +147,7 @@ func main() {
 func run(args []string, environ []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-sample-export, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, diagnosis-live-browser-smoke")
+	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-sample-export, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, sandbox-m4-evidence-chain, diagnosis-live-browser-smoke")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -128,6 +166,7 @@ func run(args []string, environ []string, stdout io.Writer) error {
 		sandboxM4ReviewEvidenceTemplateReadiness(env),
 		sandboxM4DecisionReadiness(env),
 		sandboxM4EvidencePacketReadiness(env),
+		sandboxM4EvidenceChainReadiness(env),
 		diagnosisLiveBrowserSmokeReadiness(env),
 	}
 	selected, err := selectTargets(targets, strings.TrimSpace(*target))
@@ -398,6 +437,23 @@ func sandboxM4EvidencePacketReadiness(env envMap) targetReadiness {
 	return finalize(target)
 }
 
+func sandboxM4EvidenceChainReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:    "sandbox-m4-evidence-chain",
+		Command: "OPENCLARION_M4_EVIDENCE_ROOT=... make manual-evidence-readiness --target sandbox-m4-evidence-chain",
+		Notes: []string{
+			"Preflight checks a retained M4 evidence working directory for the canonical artifact chain without printing local paths.",
+			"JSON artifacts are checked for duplicate object keys and trailing JSON before downstream helpers perform full semantic validation.",
+			"The target reports presence and SHA-256 digests only; it does not judge sample representativeness or accept a runtime baseline.",
+		},
+	}
+	target.DirectoryChecks = append(target.DirectoryChecks, requiredDirectoryEnv(env, "OPENCLARION_M4_EVIDENCE_ROOT"))
+	if directoryChecksReady(target.DirectoryChecks) {
+		target.EvidenceChainChecks = m4EvidenceChainChecks(filepath.Clean(strings.TrimSpace(env["OPENCLARION_M4_EVIDENCE_ROOT"])))
+	}
+	return finalize(target)
+}
+
 func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
 		Name:    "diagnosis-live-browser-smoke",
@@ -435,7 +491,8 @@ func finalize(target targetReadiness) targetReadiness {
 		fileChecksReady(target.FileChecks) &&
 		directoryChecksReady(target.DirectoryChecks) &&
 		directoryChecksReady(target.OptionalDirectoryChecks) &&
-		qualitySampleChecksReady(target.QualitySampleChecks) {
+		qualitySampleChecksReady(target.QualitySampleChecks) &&
+		evidenceChainChecksReady(target.EvidenceChainChecks) {
 		target.Status = "ready"
 	} else {
 		target.Status = "blocked"
@@ -462,6 +519,15 @@ func directoryChecksReady(checks []directoryCheck) bool {
 }
 
 func qualitySampleChecksReady(checks []qualitySampleCheck) bool {
+	for _, check := range checks {
+		if check.Status != "ok" {
+			return false
+		}
+	}
+	return true
+}
+
+func evidenceChainChecksReady(checks []evidenceChainCheck) bool {
 	for _, check := range checks {
 		if check.Status != "ok" {
 			return false
@@ -892,6 +958,95 @@ func runtimeCandidateFileReference(filePath string) bool {
 	if err != nil || len(raw) > 4096 {
 		return false
 	}
+	value := strings.TrimSuffix(string(raw), "\n")
+	if value == "" || strings.ContainsAny(value, " \r\n\t") {
+		return false
+	}
+	return immutableImageReference(value)
+}
+
+func m4EvidenceChainChecks(root string) []evidenceChainCheck {
+	checks := make([]evidenceChainCheck, 0, len(requiredM4EvidenceArtifacts))
+	for _, artifact := range requiredM4EvidenceArtifacts {
+		checks = append(checks, checkM4EvidenceArtifact(root, artifact))
+	}
+	return checks
+}
+
+func checkM4EvidenceArtifact(root string, artifact m4EvidenceArtifact) evidenceChainCheck {
+	check := evidenceChainCheck{
+		Name:     artifact.Name,
+		Artifact: artifact.Artifact,
+	}
+	artifactPath := filepath.Join(root, filepath.FromSlash(artifact.Artifact))
+	info, err := os.Lstat(artifactPath)
+	if errors.Is(err, os.ErrNotExist) {
+		check.Status = "missing"
+		check.Reason = "artifact is not present"
+		return check
+	}
+	if err != nil {
+		check.Status = "error"
+		check.Reason = "artifact cannot be inspected"
+		return check
+	}
+	if artifact.Directory {
+		if !info.IsDir() {
+			check.Status = "not_directory"
+			check.Reason = "artifact must be a direct directory"
+			return check
+		}
+		check.Status = "ok"
+		return check
+	}
+	if !info.Mode().IsRegular() {
+		check.Status = "not_regular"
+		check.Reason = "artifact must be a direct regular file"
+		return check
+	}
+	raw, err := readBoundedArtifact(artifactPath)
+	if err != nil {
+		check.Status = "error"
+		check.Reason = "artifact cannot be read"
+		return check
+	}
+	if len(raw) > maxReadinessArtifactBytes {
+		check.Status = "too_large"
+		check.Reason = "artifact exceeds the readiness read cap"
+		return check
+	}
+	sum := sha256.Sum256(raw)
+	check.SHA256 = hex.EncodeToString(sum[:])
+	if artifact.JSON {
+		if err := strictjson.RejectDuplicateObjectKeys(raw); err != nil {
+			check.Status = "invalid_json"
+			check.Reason = "artifact must be duplicate-key-free JSON with no trailing values"
+			check.SHA256 = ""
+			return check
+		}
+	}
+	if artifact.RuntimeCandidateRef && !runtimeCandidateBytesReference(raw) {
+		check.Status = "invalid_runtime_candidate"
+		check.Reason = "artifact must contain exactly one immutable image reference"
+		check.SHA256 = ""
+		return check
+	}
+	check.Status = "ok"
+	return check
+}
+
+func readBoundedArtifact(path string) ([]byte, error) {
+	// #nosec G304 -- manual readiness inspects operator-selected evidence paths
+	// without printing them, then reports only status and artifact digests.
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, maxReadinessArtifactBytes+1))
+}
+
+func runtimeCandidateBytesReference(raw []byte) bool {
 	value := strings.TrimSuffix(string(raw), "\n")
 	if value == "" || strings.ContainsAny(value, " \r\n\t") {
 		return false
