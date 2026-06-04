@@ -106,6 +106,88 @@ func TestRunRejectsInvalidTimeout(t *testing.T) {
 	}
 }
 
+func TestRunRejectsNonRegularMarkdownInputs(t *testing.T) {
+	tests := []struct {
+		name    string
+		setup   func(t *testing.T, root string)
+		wantErr string
+	}{
+		{
+			name: "top-level markdown symlink",
+			setup: func(t *testing.T, root string) {
+				writeExternalLinkFile(t, root, "target.md", "https://example.com\n")
+				symlinkExternalLink(t, root, "target.md", "README.md")
+			},
+			wantErr: "README.md must be a regular file, not a symlink",
+		},
+		{
+			name: "docs markdown symlink",
+			setup: func(t *testing.T, root string) {
+				writeExternalLinkFile(t, root, "docs/target.md", "https://example.com\n")
+				symlinkExternalLink(t, root, "target.md", "docs/design.md")
+			},
+			wantErr: "docs/design.md must be a regular file, not a symlink",
+		},
+		{
+			name: "top-level markdown directory",
+			setup: func(t *testing.T, root string) {
+				if err := os.Mkdir(filepath.Join(root, "README.md"), 0o750); err != nil {
+					t.Fatalf("mkdir README.md: %v", err)
+				}
+			},
+			wantErr: "README.md must be a regular file",
+		},
+		{
+			name: "docs markdown directory",
+			setup: func(t *testing.T, root string) {
+				if err := os.MkdirAll(filepath.Join(root, "docs/design.md"), 0o750); err != nil {
+					t.Fatalf("mkdir docs/design.md: %v", err)
+				}
+			},
+			wantErr: "docs/design.md must be a regular file",
+		},
+		{
+			name: "docs root symlink",
+			setup: func(t *testing.T, root string) {
+				if err := os.Mkdir(filepath.Join(root, "real-docs"), 0o750); err != nil {
+					t.Fatalf("mkdir real-docs: %v", err)
+				}
+				symlinkExternalLink(t, root, "real-docs", "docs")
+			},
+			wantErr: "docs must be a directory, not a symlink",
+		},
+		{
+			name: "docs nested symlink directory",
+			setup: func(t *testing.T, root string) {
+				if err := os.MkdirAll(filepath.Join(root, "real-docs"), 0o750); err != nil {
+					t.Fatalf("mkdir real-docs: %v", err)
+				}
+				symlinkExternalLink(t, root, "../real-docs", "docs/archive")
+			},
+			wantErr: "docs/archive must not be a symlink under docs",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			tc.setup(t, root)
+
+			var stdout bytes.Buffer
+			err := run(config{Root: root, Timeout: time.Second}, &stdout)
+			if err == nil {
+				t.Fatal("run passed unexpectedly")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("run error = %q, want substring %q", err.Error(), tc.wantErr)
+			}
+			if stdout.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty on invalid input", stdout.String())
+			}
+		})
+	}
+}
+
 func writeExternalLinkFile(t *testing.T, root, name, body string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(name))
@@ -114,5 +196,16 @@ func writeExternalLinkFile(t *testing.T, root, name, body string) {
 	}
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func symlinkExternalLink(t *testing.T, root, target, link string) {
+	t.Helper()
+	linkPath := filepath.Join(root, filepath.FromSlash(link))
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o750); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(linkPath), err)
+	}
+	if err := os.Symlink(filepath.FromSlash(target), linkPath); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
 	}
 }
