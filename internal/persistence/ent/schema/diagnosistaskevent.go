@@ -14,9 +14,8 @@ import (
 )
 
 // DiagnosisTaskEvent is the append-only lifecycle log for a
-// DiagnosisTask. Per the M1 decision (see decision memory
-// "M1持久化层事件建模与CI门禁决策" and
-// docs/design/database/schema-catalog.md DiagnosisTaskEvent block),
+// DiagnosisTask. Per the M1 persistence and CI-gate modeling decision
+// (see docs/design/database/schema-catalog.md DiagnosisTaskEvent block),
 // events live in their own small table rather than a jsonb array on
 // DiagnosisTask: this preserves index-friendly queries, lets the
 // kind vocabulary grow without schema migrations, and supports

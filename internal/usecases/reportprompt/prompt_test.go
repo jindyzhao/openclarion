@@ -183,6 +183,12 @@ func assertSubReportRequestShape(t *testing.T, req ports.LLMRequest, snapshotID 
 	if !strings.Contains(req.Messages[1].Content, string(scenario)) {
 		t.Fatalf("user prompt missing scenario %q: %s", scenario, req.Messages[1].Content)
 	}
+	if !strings.Contains(req.Messages[1].Content, fmt.Sprintf("Evidence snapshot ref: snapshot:%d", snapshotID)) {
+		t.Fatalf("user prompt missing snapshot ref: %s", req.Messages[1].Content)
+	}
+	if !strings.Contains(req.Messages[1].Content, "Include the evidence snapshot ref in evidence_refs") {
+		t.Fatalf("user prompt does not require snapshot ref evidence_refs: %s", req.Messages[1].Content)
+	}
 	if !strings.Contains(req.Messages[1].Content, `"schema_version":"evidence.snapshot.v1"`) {
 		t.Fatalf("user prompt does not include compact snapshot payload: %s", req.Messages[1].Content)
 	}

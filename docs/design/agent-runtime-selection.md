@@ -199,6 +199,15 @@ plus `scenario_coverage`. Each manifest case must include a canonical
 SubReports still contain the declared evidence refs, keeping the runtime
 decision measurable while leaving the real report-quality judgment pending
 until representative alert evidence is run through candidate images.
+`make sandbox-m4-subreport-generate` is the manual bridge from a persisted
+`EvidenceSnapshot` to a persisted sandbox candidate `SubReport`. It wraps the
+snapshot payload with snapshot ID, canonical `snapshot:<id>` ref, digest,
+scenario, and group metadata, runs the configured digest-pinned candidate image
+through the existing Docker `ContainerProvider`, validates `output.json`
+through the production SubReport parser, requires the canonical snapshot ref in
+`evidence_refs`, and writes an idempotent sandbox row keyed by snapshot, group,
+and candidate ID. It does not generate the direct baseline, select
+representative samples, compare quality, or accept the runtime.
 `make sandbox-m4-quality-sample-export` is the manual bridge from real
 persisted direct/sandbox SubReport rows to that retained sample layout. It
 uses an operator-authored selection file, reads PostgreSQL through
