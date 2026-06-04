@@ -9,7 +9,45 @@ python3 - <<'PY'
 import json
 import os
 import re
+import stat
 import sys
+
+
+def reject_duplicate_object_keys(pairs):
+    obj = {}
+    seen = set()
+    for key, value in pairs:
+        if key in seen:
+            raise ValueError(f"duplicate JSON key: {key}")
+        seen.add(key)
+        obj[key] = value
+    return obj
+
+
+def load_event(path: str):
+    try:
+        mode = os.lstat(path).st_mode
+    except OSError as exc:
+        print(f"[pr-description-check] cannot read GITHUB_EVENT_PATH: {exc}", file=sys.stderr)
+        sys.exit(2)
+    if stat.S_ISLNK(mode):
+        print("[pr-description-check] GITHUB_EVENT_PATH must be a regular file, not a symlink.", file=sys.stderr)
+        sys.exit(2)
+    if not stat.S_ISREG(mode):
+        print("[pr-description-check] GITHUB_EVENT_PATH must be a regular file.", file=sys.stderr)
+        sys.exit(2)
+    try:
+        with open(path, encoding="utf-8") as event_file:
+            return json.load(event_file, object_pairs_hook=reject_duplicate_object_keys)
+    except OSError as exc:
+        print(f"[pr-description-check] cannot read GITHUB_EVENT_PATH: {exc}", file=sys.stderr)
+        sys.exit(2)
+    except json.JSONDecodeError as exc:
+        print(f"[pr-description-check] invalid GITHUB_EVENT_PATH JSON: {exc}", file=sys.stderr)
+        sys.exit(2)
+    except ValueError as exc:
+        print(f"[pr-description-check] invalid GITHUB_EVENT_PATH JSON: {exc}", file=sys.stderr)
+        sys.exit(2)
 
 
 def load_body() -> str:
@@ -19,17 +57,19 @@ def load_body() -> str:
 
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     if event_path:
-        try:
-            with open(event_path, encoding="utf-8") as event_file:
-                event = json.load(event_file)
-        except OSError as exc:
-            print(f"[pr-description-check] cannot read GITHUB_EVENT_PATH: {exc}", file=sys.stderr)
-            sys.exit(2)
-        except json.JSONDecodeError as exc:
-            print(f"[pr-description-check] invalid GITHUB_EVENT_PATH JSON: {exc}", file=sys.stderr)
+        event = load_event(event_path)
+        if not isinstance(event, dict):
+            print("[pr-description-check] GITHUB_EVENT_PATH JSON root must be an object.", file=sys.stderr)
             sys.exit(2)
         pull_request = event.get("pull_request") or {}
-        return pull_request.get("body") or ""
+        if not isinstance(pull_request, dict):
+            print("[pr-description-check] GITHUB_EVENT_PATH pull_request must be an object.", file=sys.stderr)
+            sys.exit(2)
+        body = pull_request.get("body") or ""
+        if not isinstance(body, str):
+            print("[pr-description-check] GITHUB_EVENT_PATH pull_request.body must be a string or null.", file=sys.stderr)
+            sys.exit(2)
+        return body
 
     print("[pr-description-check] PR_BODY or GITHUB_EVENT_PATH is required.", file=sys.stderr)
     print("[pr-description-check] Usage: PR_BODY='<body with ## Risk and ## Rollback>' make pr-description-check", file=sys.stderr)

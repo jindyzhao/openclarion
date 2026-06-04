@@ -240,6 +240,65 @@ func TestADRCheckValidatesSupersedesClosure(t *testing.T) {
 	}
 }
 
+func TestADRCheckRejectsIndirectADRInputs(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, root string)
+		want  string
+	}{
+		{
+			name: "adr directory symlink",
+			setup: func(t *testing.T, root string) {
+				adrCheckReplaceWithSymlink(t, root, "docs/adr")
+			},
+			want: "docs/adr must be a real directory, not a symlink",
+		},
+		{
+			name: "readme symlink",
+			setup: func(t *testing.T, root string) {
+				adrCheckReplaceWithSymlink(t, root, "docs/adr/README.md")
+			},
+			want: "docs/adr/README.md must be a regular file, not a symlink",
+		},
+		{
+			name: "readme directory",
+			setup: func(t *testing.T, root string) {
+				adrCheckReplaceWithDirectory(t, root, "docs/adr/README.md")
+			},
+			want: "docs/adr/README.md must be a regular file",
+		},
+		{
+			name: "adr file symlink",
+			setup: func(t *testing.T, root string) {
+				adrCheckReplaceWithSymlink(t, root, "docs/adr/ADR-0001-test.md")
+			},
+			want: "docs/adr/ADR-0001-test.md must be a regular file, not a symlink",
+		},
+		{
+			name: "adr file directory",
+			setup: func(t *testing.T, root string) {
+				adrCheckReplaceWithDirectory(t, root, "docs/adr/ADR-0001-test.md")
+			},
+			want: "docs/adr/ADR-0001-test.md must be a regular file",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newADRCheckRepo(t, adrFixture("### Consequences\n\n* Good, because the decision tradeoffs are explicit.\n"))
+			tc.setup(t, root)
+
+			out, err := runADRCheck(t, root)
+			if err == nil {
+				t.Fatalf("adr-check passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("adr-check output = %q, want substring %q", out, tc.want)
+			}
+		})
+	}
+}
+
 func TestADRCheckRejectsAcceptedADRBodyChanges(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -440,6 +499,29 @@ func adrCheckWriteFile(t *testing.T, root, name, body string, mode os.FileMode) 
 	}
 	if err := os.WriteFile(path, []byte(body), mode); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func adrCheckReplaceWithSymlink(t *testing.T, root, name string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	target := path + ".target"
+	if err := os.Rename(path, target); err != nil {
+		t.Fatalf("rename %s: %v", name, err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+}
+
+func adrCheckReplaceWithDirectory(t *testing.T, root, name string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove %s: %v", name, err)
+	}
+	if err := os.Mkdir(path, 0o750); err != nil {
+		t.Fatalf("mkdir %s: %v", name, err)
 	}
 }
 

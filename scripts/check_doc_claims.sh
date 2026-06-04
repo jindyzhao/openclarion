@@ -8,8 +8,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 doc="docs/design/CURRENT_STATE.md"
+if [[ -L "$doc" ]]; then
+  echo "[doc-claims] $doc must be a regular file, not a symlink" >&2
+  exit 1
+fi
 if [[ ! -f "$doc" ]]; then
-  echo "[doc-claims] missing $doc" >&2
+  echo "[doc-claims] missing or non-regular $doc" >&2
   exit 1
 fi
 

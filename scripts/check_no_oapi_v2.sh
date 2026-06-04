@@ -9,7 +9,7 @@
 # Behavior:
 #   - Rejects imports of `github.com/oapi-codegen/oapi-codegen/v2` in code.
 #   - Rejects the string `oapi-codegen/v2` in go.mod and tools.go.
-#   - Rejects existence of api/openapi.compat.yaml.
+#   - Rejects any api/openapi.compat.yaml path, including symlinks.
 #   - No-op when no targets exist yet.
 
 set -euo pipefail
@@ -18,8 +18,8 @@ cd "$(dirname "$0")/.."
 
 failed=0
 
-# -------- compat bridge file must not exist --------
-if [[ -f api/openapi.compat.yaml ]]; then
+# -------- compat bridge path must not exist --------
+if [[ -e api/openapi.compat.yaml || -L api/openapi.compat.yaml ]]; then
   echo "[forbidden-oapi-v2] api/openapi.compat.yaml exists." >&2
   echo "  ADR-0007 requires native OpenAPI 3.1; the 3.0 compat bridge is a" >&2
   echo "  downgrade fallback gated by a superseding ADR." >&2

@@ -145,14 +145,17 @@ func findGoModFiles(root string) ([]string, error) {
 		if entry.IsDir() && shouldSkipDir(name) && path != root {
 			return filepath.SkipDir
 		}
-		if entry.IsDir() || name != "go.mod" {
+		if name == "go.mod" {
+			rel, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+			paths = append(paths, filepath.ToSlash(rel))
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-		paths = append(paths, filepath.ToSlash(rel))
 		return nil
 	})
 	if err != nil {
@@ -180,7 +183,7 @@ func shouldSkipDir(name string) bool {
 }
 
 func readGoDirective(path string) (string, error) {
-	raw, err := os.ReadFile(path) // #nosec G304 -- repository-owned checker input.
+	raw, err := readRegularFile(path)
 	if err != nil {
 		return "", err
 	}
@@ -217,7 +220,7 @@ func languageVersion(goDirective string) (string, error) {
 
 func checkGolangCI(root, expectedLanguageVersion string) []finding {
 	path := filepath.Join(root, golangCIConfigPath)
-	raw, err := os.ReadFile(path) // #nosec G304 -- repository-owned checker input.
+	raw, err := readRegularFile(path)
 	if err != nil {
 		return []finding{{Path: golangCIConfigPath, Msg: err.Error()}}
 	}
@@ -255,21 +258,39 @@ func checkWorkflows(root string) (int, []finding) {
 
 func workflowFiles(root string) ([]string, error) {
 	dir := filepath.Join(root, workflowDir)
-	entries, err := os.ReadDir(dir)
+	info, err := os.Lstat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%s must be a directory, not a symlink", workflowDir)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("%s must be a directory", workflowDir)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
 	var paths []string
 	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
 		name := entry.Name()
 		if strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml") {
-			paths = append(paths, filepath.ToSlash(filepath.Join(workflowDir, name)))
+			path := filepath.ToSlash(filepath.Join(workflowDir, name))
+			if entry.Type()&fs.ModeSymlink != 0 {
+				return nil, fmt.Errorf("%s must be a regular file, not a symlink", path)
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return nil, err
+			}
+			if !info.Mode().IsRegular() {
+				return nil, fmt.Errorf("%s must be a regular file", path)
+			}
+			paths = append(paths, path)
 		}
 	}
 	sort.Strings(paths)
@@ -277,7 +298,7 @@ func workflowFiles(root string) ([]string, error) {
 }
 
 func checkWorkflowFile(absPath, displayPath string) (int, []finding) {
-	raw, err := os.ReadFile(absPath) // #nosec G304 -- repository-owned checker input.
+	raw, err := readRegularFile(absPath)
 	if err != nil {
 		return 0, []finding{{Path: displayPath, Msg: err.Error()}}
 	}
@@ -384,6 +405,20 @@ func rejectDuplicateYAMLKeys(node *yaml.Node) error {
 
 func isSetupGoStep(uses string) bool {
 	return strings.HasPrefix(strings.TrimSpace(uses), "actions/setup-go@")
+}
+
+func readRegularFile(path string) ([]byte, error) {
+	info, err := os.Lstat(path) // #nosec G304 -- repository-owned checker input.
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("must be a regular file, not a symlink")
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("must be a regular file")
+	}
+	return os.ReadFile(path) // #nosec G304 -- repository-owned checker input.
 }
 
 func sortFindings(findings []finding) {

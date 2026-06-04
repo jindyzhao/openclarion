@@ -110,6 +110,82 @@ func TestOpenAPIBreakingRejectsInvalidDatesBeforeToolRun(t *testing.T) {
 	}
 }
 
+func TestOpenAPIBreakingRejectsNonRegularFilesystemInputs(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, root string) map[string]string
+		want  string
+	}{
+		{
+			name: "current spec symlink",
+			setup: func(t *testing.T, root string) map[string]string {
+				openAPIBreakingReplaceWithSymlink(t, root, "api/openapi.yaml")
+				return nil
+			},
+			want: "current spec must be a regular file, not a symlink",
+		},
+		{
+			name: "current spec directory",
+			setup: func(t *testing.T, root string) map[string]string {
+				openAPIBreakingReplaceWithDirectory(t, root, "api/openapi.yaml")
+				return nil
+			},
+			want: "current spec not found or not a regular file",
+		},
+		{
+			name: "explicit base spec symlink",
+			setup: func(t *testing.T, root string) map[string]string {
+				openAPIBreakingReplaceWithSymlink(t, root, "base-openapi.yaml")
+				return nil
+			},
+			want: "OPENAPI_BASE_SPEC must be a regular file, not a symlink",
+		},
+		{
+			name: "explicit base spec directory",
+			setup: func(t *testing.T, root string) map[string]string {
+				openAPIBreakingReplaceWithDirectory(t, root, "base-openapi.yaml")
+				return nil
+			},
+			want: "OPENAPI_BASE_SPEC not found or not a regular file",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newOpenAPIBreakingFixture(t)
+			env := tc.setup(t, root)
+
+			out, err := runOpenAPIBreakingCheck(t, root, env)
+			if err == nil {
+				t.Fatalf("openapi breaking check passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, tc.want) {
+				t.Fatalf("openapi breaking output = %q, want substring %q", out, tc.want)
+			}
+		})
+	}
+}
+
+func TestOpenAPIBreakingRejectsGitBaseSymlink(t *testing.T) {
+	root := newOpenAPIBreakingFixture(t)
+	openAPIBreakingInitGit(t, root)
+	openAPIBreakingReplaceWithSymlink(t, root, "api/openapi.yaml")
+	openAPIBreakingGit(t, root, "add", "api/openapi.yaml")
+	openAPIBreakingGit(t, root, "commit", "-m", "base symlink spec")
+	openAPIBreakingReplaceSymlinkWithFile(t, root, "api/openapi.yaml", "openapi: 3.1.0\ninfo:\n  title: Current\n  version: 1.0.0\npaths: {}\n")
+
+	out, err := runOpenAPIBreakingCheck(t, root, map[string]string{
+		"OPENAPI_BASE_SPEC": "",
+		"OPENAPI_BASE_REF":  "HEAD",
+	})
+	if err == nil {
+		t.Fatalf("openapi breaking check passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "base spec at HEAD:api/openapi.yaml must be a regular file blob, got git mode 120000") {
+		t.Fatalf("openapi breaking output = %q, want git symlink mode rejection", out)
+	}
+}
+
 func newOpenAPIBreakingFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -154,18 +230,78 @@ func openAPIBreakingWriteFile(t *testing.T, root, name, body string, mode os.Fil
 	}
 }
 
+func openAPIBreakingReplaceWithSymlink(t *testing.T, root, name string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	target := path + ".target"
+	if err := os.Rename(path, target); err != nil {
+		t.Fatalf("rename %s: %v", name, err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+}
+
+func openAPIBreakingReplaceWithDirectory(t *testing.T, root, name string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove %s: %v", name, err)
+	}
+	if err := os.Mkdir(path, 0o750); err != nil {
+		t.Fatalf("mkdir %s: %v", name, err)
+	}
+}
+
+func openAPIBreakingReplaceSymlinkWithFile(t *testing.T, root, name, body string) {
+	t.Helper()
+	path := filepath.Join(root, filepath.FromSlash(name))
+	if err := os.Remove(path); err != nil {
+		t.Fatalf("remove %s: %v", name, err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatalf("write %s: %v", name, err)
+	}
+}
+
+func openAPIBreakingInitGit(t *testing.T, root string) {
+	t.Helper()
+	openAPIBreakingGit(t, root, "init", "-b", "main")
+	openAPIBreakingGit(t, root, "config", "user.email", "test@example.com")
+	openAPIBreakingGit(t, root, "config", "user.name", "Test User")
+}
+
+func openAPIBreakingGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// #nosec G204 -- tests invoke git with helper-owned arguments against a temp repository only.
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = root
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s failed: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
 func runOpenAPIBreakingCheck(t *testing.T, root string, env map[string]string) (string, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", "scripts/check_openapi_breaking.sh")
 	cmd.Dir = root
+	baseSpec, hasBaseSpec := env["OPENAPI_BASE_SPEC"]
+	if !hasBaseSpec {
+		baseSpec = filepath.Join(root, "base-openapi.yaml")
+	}
 	cmd.Env = append(os.Environ(),
 		"PATH="+filepath.Join(root, "bin")+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"OPENAPI_BASE_SPEC="+filepath.Join(root, "base-openapi.yaml"),
+		"OPENAPI_BASE_SPEC="+baseSpec,
 		"OPENAPI_BREAKING_CALLS="+filepath.Join(root, "calls.txt"),
 	)
 	for key, value := range env {
+		if key == "OPENAPI_BASE_SPEC" {
+			continue
+		}
 		cmd.Env = append(cmd.Env, key+"="+value)
 	}
 	raw, err := cmd.CombinedOutput()

@@ -8,6 +8,19 @@ cd "$ROOT_DIR"
 
 OSV_SCANNER_VERSION="${OSV_SCANNER_VERSION:-v1.9.2}"
 
+require_regular_file() {
+  local label="$1"
+  local path="$2"
+  if [[ -L "$path" ]]; then
+    echo "[osv-scan] $label must be a regular file, not a symlink: $path" >&2
+    exit 1
+  fi
+  if [[ ! -f "$path" ]]; then
+    echo "[osv-scan] $label not found or not a regular file: $path" >&2
+    exit 1
+  fi
+}
+
 mapfile -t lockfiles < <(
   find . \
     -path './.git' -prune -o \
@@ -38,7 +51,12 @@ if [[ ${#lockfiles[@]} -eq 0 ]]; then
   exit 0
 fi
 
+for manifest in "${package_manifests[@]}"; do
+  require_regular_file "package manifest" "$manifest"
+done
+
 for lockfile in "${lockfiles[@]}"; do
+  require_regular_file "lockfile" "$lockfile"
   echo "[osv-scan] $lockfile"
   go run "github.com/google/osv-scanner/cmd/osv-scanner@${OSV_SCANNER_VERSION}" scan \
     --lockfile="$lockfile" \
