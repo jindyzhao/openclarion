@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path"
 	"path/filepath"
@@ -33,6 +34,7 @@ const (
 	maxEvidenceCaseIDBytes                = 128
 	maxEvidenceRefRunes                   = 120
 	maxRuntimeSmokeEvidenceRefBytes       = 256
+	loopbackRuntimeCandidateReason        = "review evidence runtime_candidate uses a loopback registry reference; publishable runtime baselines must use a non-loopback registry reference"
 )
 
 var requiredBaselineChecks = []string{
@@ -544,6 +546,8 @@ func validateReviewEvidence(review reviewEvidence) ([]string, []string, error) {
 		return nil, nil, errors.New("review evidence runtime_candidate must not contain leading or trailing whitespace")
 	} else if !immutableImageReference(review.RuntimeCandidate) {
 		return nil, nil, errors.New("review evidence runtime_candidate must be an immutable image reference `name@sha256:<64-hex-digest>`")
+	} else if loopbackImageReference(review.RuntimeCandidate) {
+		deferReasons = append(deferReasons, loopbackRuntimeCandidateReason)
 	}
 	candidateDeferReasons, candidateIterateReasons, err := validateCandidateEvaluations(review.SelectedCandidate, review.RuntimeCandidate, review.CandidateEvaluations)
 	if err != nil {
@@ -1063,4 +1067,36 @@ func immutableImageReference(value string) bool {
 		return false
 	}
 	return imageDigestHexRe.MatchString(digest)
+}
+
+func loopbackImageReference(value string) bool {
+	name, _, ok := strings.Cut(value, "@sha256:")
+	if !ok {
+		return false
+	}
+	registry := imageReferenceRegistry(name)
+	if registry == "" {
+		return false
+	}
+	host := registry
+	if h, _, err := net.SplitHostPort(registry); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func imageReferenceRegistry(name string) string {
+	first, _, _ := strings.Cut(name, "/")
+	if first == "" {
+		return ""
+	}
+	if strings.EqualFold(first, "localhost") || strings.ContainsAny(first, ".:") {
+		return first
+	}
+	return ""
 }

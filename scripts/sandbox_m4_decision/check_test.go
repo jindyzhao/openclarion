@@ -329,6 +329,67 @@ func TestRunRejectsTagOnlyRuntimeCandidate(t *testing.T) {
 	}
 }
 
+func TestRunDefersWhenRuntimeCandidateUsesLoopbackRegistry(t *testing.T) {
+	dir := t.TempDir()
+	baseline := writeEvidence(t, dir, "baseline.json", passingBaselineAuditJSON())
+	quality := writeEvidence(t, dir, "quality.json", passingQualityComparisonJSON())
+	loopbackRef := "localhost:5000/openclarion/runtime-candidate-a@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	review := writeEvidence(t, dir, "review.json", strings.ReplaceAll(passingReviewEvidenceJSON(), runtimeCandidateRef, loopbackRef))
+
+	out := runDecision(t, []string{
+		"--baseline-audit", baseline,
+		"--quality-comparison", quality,
+		"--review-evidence", review,
+	})
+	if out.Decision != "defer" {
+		t.Fatalf("Decision = %q reasons=%v", out.Decision, out.Reasons)
+	}
+	if !containsReason(out.Reasons, loopbackRuntimeCandidateReason) {
+		t.Fatalf("Reasons = %v, want loopback runtime candidate reason", out.Reasons)
+	}
+}
+
+func TestLoopbackImageReference(t *testing.T) {
+	tests := []struct {
+		name string
+		ref  string
+		want bool
+	}{
+		{
+			name: "localhost registry",
+			ref:  "localhost:5000/openclarion/runtime@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			want: true,
+		},
+		{
+			name: "ipv4 loopback registry",
+			ref:  "127.0.0.1:5000/openclarion/runtime@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			want: true,
+		},
+		{
+			name: "ipv6 loopback registry",
+			ref:  "[::1]:5000/openclarion/runtime@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			want: true,
+		},
+		{
+			name: "remote registry",
+			ref:  runtimeCandidateRef,
+			want: false,
+		},
+		{
+			name: "docker hub implicit registry",
+			ref:  "openclarion/runtime@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			want: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := loopbackImageReference(tc.ref); got != tc.want {
+				t.Fatalf("loopbackImageReference(%q) = %v, want %v", tc.ref, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestRunRejectsDuplicateCandidateRuntimeSmokeRefs(t *testing.T) {
 	dir := t.TempDir()
 	baseline := writeEvidence(t, dir, "baseline.json", passingBaselineAuditJSON())
