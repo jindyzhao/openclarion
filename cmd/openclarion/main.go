@@ -37,6 +37,7 @@ import (
 	imwebhook "github.com/openclarion/openclarion/internal/providers/im/webhook"
 	openaillm "github.com/openclarion/openclarion/internal/providers/llm/openai"
 	metricsprometheus "github.com/openclarion/openclarion/internal/providers/metrics/prometheus"
+	"github.com/openclarion/openclarion/internal/strictjson"
 	transporthttp "github.com/openclarion/openclarion/internal/transport/http"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
@@ -54,9 +55,20 @@ const (
 	reportReplayCLICreatedByWorkflow = "ReportReplayCLI"
 	defaultReportReplayCLILimit      = 10000
 	defaultReportReplayCLIWait       = 20 * time.Minute
+
+	diagnosisRoomCloseCLICommand    = "diagnosis-room-close"
+	defaultDiagnosisRoomCloseReason = "live_smoke_completed"
+	defaultDiagnosisRoomCloseWait   = 2 * time.Minute
+
+	diagnosisRoomCloseEventClosedKind           = "diagnosis_room.closed"
+	diagnosisRoomCloseEventNotificationSentKind = "diagnosis_room.close_notification_sent"
 )
 
 var reportReplayCLINowUTC = func() time.Time {
+	return time.Now().UTC()
+}
+
+var diagnosisRoomCloseCLINowUTC = func() time.Time {
 	return time.Now().UTC()
 }
 
@@ -81,8 +93,10 @@ func dispatch(ctx context.Context, logger *slog.Logger, args []string, stdout io
 		return run(ctx, logger)
 	case reportReplayCLICommand:
 		return runReportReplayCLI(ctx, logger, os.Getenv, args[1:], stdout)
+	case diagnosisRoomCloseCLICommand:
+		return runDiagnosisRoomCloseCLI(ctx, logger, os.Getenv, args[1:], stdout)
 	default:
-		return fmt.Errorf("unknown command %q (expected: serve or %s)", args[0], reportReplayCLICommand)
+		return fmt.Errorf("unknown command %q (expected: serve, %s, or %s)", args[0], reportReplayCLICommand, diagnosisRoomCloseCLICommand)
 	}
 }
 
@@ -774,6 +788,83 @@ type reportReplayCLIWorkflowResult struct {
 	NotificationStatus         string  `json:"notification_status"`
 }
 
+type diagnosisRoomCloseCLIConfig struct {
+	SessionID   string
+	RunID       string
+	Reason      string
+	WaitTimeout time.Duration
+}
+
+type diagnosisRoomCloseCLIOutput struct {
+	CheckedAt         string                                 `json:"checked_at"`
+	Request           diagnosisRoomCloseCLIRequest           `json:"request"`
+	Signaled          bool                                   `json:"signaled"`
+	Workflow          diagnosisRoomCloseCLIWorkflow          `json:"workflow"`
+	CloseEvent        diagnosisRoomCloseCLIEvent             `json:"close_event"`
+	NotificationEvent diagnosisRoomCloseCLINotificationEvent `json:"notification_event"`
+}
+
+type diagnosisRoomCloseCLIRequest struct {
+	SessionID   string `json:"session_id"`
+	WorkflowID  string `json:"workflow_id"`
+	RunID       string `json:"run_id,omitempty"`
+	Reason      string `json:"reason"`
+	WaitTimeout string `json:"wait_timeout"`
+}
+
+type diagnosisRoomCloseCLIWorkflow struct {
+	SessionID       string `json:"session_id"`
+	ChatSessionID   int64  `json:"chat_session_id"`
+	DiagnosisTaskID int64  `json:"diagnosis_task_id"`
+	Status          string `json:"status"`
+	TurnCount       int    `json:"turn_count"`
+	ClosedAt        string `json:"closed_at"`
+	CloseReason     string `json:"close_reason"`
+}
+
+type diagnosisRoomCloseCLIEvent struct {
+	ID         int64  `json:"id"`
+	Kind       string `json:"kind"`
+	OccurredAt string `json:"occurred_at"`
+}
+
+type diagnosisRoomCloseCLINotificationEvent struct {
+	ID                int64  `json:"id"`
+	Kind              string `json:"kind"`
+	OccurredAt        string `json:"occurred_at"`
+	IdempotencyKey    string `json:"idempotency_key"`
+	ProviderMessageID string `json:"provider_message_id,omitempty"`
+	ProviderStatus    string `json:"provider_status"`
+}
+
+type diagnosisRoomCloseNotificationPayload struct {
+	IdempotencyKey    string `json:"idempotency_key"`
+	ProviderMessageID string `json:"provider_message_id"`
+	ProviderStatus    string `json:"provider_status"`
+}
+
+type diagnosisRoomCloseEvents struct {
+	CloseEvent        domain.DiagnosisTaskEvent
+	NotificationEvent domain.DiagnosisTaskEvent
+	Notification      diagnosisRoomCloseNotificationPayload
+}
+
+type diagnosisRoomCloseWorkflowWaiter interface {
+	SignalAndWaitDiagnosisRoomClose(ctx context.Context, cfg diagnosisRoomCloseCLIConfig) (temporalpkg.DiagnosisRoomWorkflowResult, error)
+}
+
+type diagnosisRoomCloseEventsLoader interface {
+	LoadDiagnosisRoomCloseEvents(ctx context.Context, taskID domain.DiagnosisTaskID) (diagnosisRoomCloseEvents, error)
+}
+
+type temporalDiagnosisRoomCloseWaiter struct {
+	client temporalclient.Client
+}
+
+type postgresDiagnosisRoomCloseEventsLoader struct {
+	factory ports.UnitOfWorkFactory
+}
+
 type temporalReportReplayCLIWaiter struct {
 	client temporalclient.Client
 }
@@ -1018,6 +1109,298 @@ func (w temporalReportReplayCLIWaiter) WaitReportBatch(ctx context.Context, hand
 		ProviderMessageID:          result.ProviderMessageID,
 		NotificationStatus:         result.NotificationStatus,
 	}, nil
+}
+
+func runDiagnosisRoomCloseCLI(
+	ctx context.Context,
+	logger *slog.Logger,
+	getenv getenvFunc,
+	args []string,
+	stdout io.Writer,
+) error {
+	cfg, err := parseDiagnosisRoomCloseCLIArgs(args)
+	if err != nil {
+		return err
+	}
+	dsn := strings.TrimSpace(getenv("DATABASE_URL"))
+	if dsn == "" {
+		return fmt.Errorf("DATABASE_URL is required")
+	}
+	entClient, err := repository.OpenPostgres(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("open postgres: %w", err)
+	}
+	defer func() {
+		if cerr := entClient.Close(); cerr != nil {
+			logger.Warn("close ent client", "error", cerr)
+		}
+	}()
+
+	temporalAddr := envOrDefaultFrom(getenv, "TEMPORAL_HOST_PORT", "localhost:7233")
+	traceConfig, err := observabilitytracing.ConfigFromEnv(getenv)
+	if err != nil {
+		return err
+	}
+	httpTracing, err := observabilitytracing.NewHTTPTracing(ctx, traceConfig)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpTracing.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("shutdown OpenTelemetry tracing", "error", err)
+		}
+	}()
+	temporalInterceptors, err := temporalClientInterceptors(httpTracing)
+	if err != nil {
+		return err
+	}
+	tc, err := temporalclient.Dial(temporalclient.Options{
+		HostPort:     temporalAddr,
+		Logger:       temporallog.NewStructuredLogger(logger),
+		Interceptors: temporalInterceptors,
+	})
+	if err != nil {
+		return fmt.Errorf("dial temporal: %w", err)
+	}
+	defer tc.Close()
+
+	return runDiagnosisRoomCloseCLIWithDependencies(
+		ctx,
+		temporalDiagnosisRoomCloseWaiter{client: tc},
+		postgresDiagnosisRoomCloseEventsLoader{factory: repository.NewFactory(entClient)},
+		cfg,
+		stdout,
+	)
+}
+
+func parseDiagnosisRoomCloseCLIArgs(args []string) (diagnosisRoomCloseCLIConfig, error) {
+	cfg := diagnosisRoomCloseCLIConfig{
+		Reason:      defaultDiagnosisRoomCloseReason,
+		WaitTimeout: defaultDiagnosisRoomCloseWait,
+	}
+	fs := flag.NewFlagSet(diagnosisRoomCloseCLICommand, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&cfg.SessionID, "session-id", "", "diagnosis room session id")
+	fs.StringVar(&cfg.RunID, "run-id", "", "optional Temporal run id")
+	fs.StringVar(&cfg.Reason, "reason", defaultDiagnosisRoomCloseReason, "close reason")
+	fs.DurationVar(&cfg.WaitTimeout, "wait-timeout", defaultDiagnosisRoomCloseWait, "maximum duration to wait for workflow close")
+	if err := fs.Parse(args); err != nil {
+		return diagnosisRoomCloseCLIConfig{}, fmt.Errorf("%w\n%s", err, diagnosisRoomCloseCLIUsage())
+	}
+	if fs.NArg() != 0 {
+		return diagnosisRoomCloseCLIConfig{}, fmt.Errorf("unexpected positional arguments: %s\n%s", strings.Join(fs.Args(), " "), diagnosisRoomCloseCLIUsage())
+	}
+	if strings.TrimSpace(cfg.SessionID) == "" {
+		return diagnosisRoomCloseCLIConfig{}, fmt.Errorf("--session-id is required\n%s", diagnosisRoomCloseCLIUsage())
+	}
+	if strings.TrimSpace(cfg.SessionID) != cfg.SessionID {
+		return diagnosisRoomCloseCLIConfig{}, fmt.Errorf("--session-id must not contain leading or trailing whitespace\n%s", diagnosisRoomCloseCLIUsage())
+	}
+	cfg.RunID = strings.TrimSpace(cfg.RunID)
+	if strings.TrimSpace(cfg.Reason) == "" {
+		return diagnosisRoomCloseCLIConfig{}, fmt.Errorf("--reason must be non-empty\n%s", diagnosisRoomCloseCLIUsage())
+	}
+	if strings.TrimSpace(cfg.Reason) != cfg.Reason {
+		return diagnosisRoomCloseCLIConfig{}, fmt.Errorf("--reason must not contain leading or trailing whitespace\n%s", diagnosisRoomCloseCLIUsage())
+	}
+	if cfg.WaitTimeout <= 0 {
+		return diagnosisRoomCloseCLIConfig{}, fmt.Errorf("--wait-timeout must be > 0 (got %s)\n%s", cfg.WaitTimeout, diagnosisRoomCloseCLIUsage())
+	}
+	return cfg, nil
+}
+
+func runDiagnosisRoomCloseCLIWithDependencies(
+	ctx context.Context,
+	waiter diagnosisRoomCloseWorkflowWaiter,
+	loader diagnosisRoomCloseEventsLoader,
+	cfg diagnosisRoomCloseCLIConfig,
+	stdout io.Writer,
+) error {
+	if waiter == nil {
+		return fmt.Errorf("diagnosis room close workflow waiter must be configured")
+	}
+	if loader == nil {
+		return fmt.Errorf("diagnosis room close event loader must be configured")
+	}
+	workflowResult, err := waiter.SignalAndWaitDiagnosisRoomClose(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	events, err := loader.LoadDiagnosisRoomCloseEvents(ctx, domain.DiagnosisTaskID(workflowResult.DiagnosisTaskID))
+	if err != nil {
+		return err
+	}
+	out, err := diagnosisRoomCloseCLIOutputFromResult(cfg, workflowResult, events)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		return fmt.Errorf("write diagnosis room close output: %w", err)
+	}
+	return nil
+}
+
+func (w temporalDiagnosisRoomCloseWaiter) SignalAndWaitDiagnosisRoomClose(ctx context.Context, cfg diagnosisRoomCloseCLIConfig) (temporalpkg.DiagnosisRoomWorkflowResult, error) {
+	if w.client == nil {
+		return temporalpkg.DiagnosisRoomWorkflowResult{}, fmt.Errorf("diagnosis room close waiter: Temporal client must be non-nil")
+	}
+	workflowID, err := temporalpkg.DiagnosisRoomWorkflowID(cfg.SessionID)
+	if err != nil {
+		return temporalpkg.DiagnosisRoomWorkflowResult{}, err
+	}
+	if err := w.client.SignalWorkflow(
+		ctx,
+		workflowID,
+		cfg.RunID,
+		temporalpkg.DiagnosisRoomCloseSignal,
+		temporalpkg.DiagnosisRoomCloseRequest{Reason: cfg.Reason},
+	); err != nil {
+		return temporalpkg.DiagnosisRoomWorkflowResult{}, fmt.Errorf("signal diagnosis room close: %w", err)
+	}
+	waitCtx, cancel := context.WithTimeout(ctx, cfg.WaitTimeout)
+	defer cancel()
+	var result temporalpkg.DiagnosisRoomWorkflowResult
+	if err := w.client.GetWorkflow(waitCtx, workflowID, cfg.RunID).Get(waitCtx, &result); err != nil {
+		return temporalpkg.DiagnosisRoomWorkflowResult{}, fmt.Errorf("wait diagnosis room close: %w", err)
+	}
+	return result, nil
+}
+
+func (l postgresDiagnosisRoomCloseEventsLoader) LoadDiagnosisRoomCloseEvents(ctx context.Context, taskID domain.DiagnosisTaskID) (diagnosisRoomCloseEvents, error) {
+	if l.factory == nil {
+		return diagnosisRoomCloseEvents{}, fmt.Errorf("diagnosis room close event loader: unit of work factory must be configured")
+	}
+	if taskID == 0 {
+		return diagnosisRoomCloseEvents{}, fmt.Errorf("diagnosis room close event loader: diagnosis_task_id must be non-zero")
+	}
+	var out diagnosisRoomCloseEvents
+	err := l.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, taskID, 1000)
+		if err != nil {
+			return err
+		}
+		for _, event := range events {
+			switch event.Kind {
+			case diagnosisRoomCloseEventClosedKind:
+				out.CloseEvent = event
+			case diagnosisRoomCloseEventNotificationSentKind:
+				out.NotificationEvent = event
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return diagnosisRoomCloseEvents{}, fmt.Errorf("load diagnosis room close events: %w", err)
+	}
+	if out.CloseEvent.ID == 0 {
+		return diagnosisRoomCloseEvents{}, fmt.Errorf("diagnosis room close event is missing for task %d", taskID)
+	}
+	if out.NotificationEvent.ID == 0 {
+		return diagnosisRoomCloseEvents{}, fmt.Errorf("diagnosis room close notification event is missing for task %d", taskID)
+	}
+	if err := strictjson.Unmarshal(out.NotificationEvent.Payload, &out.Notification); err != nil {
+		return diagnosisRoomCloseEvents{}, fmt.Errorf("decode diagnosis room close notification event payload: %w", err)
+	}
+	if strings.TrimSpace(out.Notification.IdempotencyKey) == "" {
+		return diagnosisRoomCloseEvents{}, fmt.Errorf("diagnosis room close notification event missing idempotency_key")
+	}
+	if strings.TrimSpace(out.Notification.ProviderStatus) == "" {
+		return diagnosisRoomCloseEvents{}, fmt.Errorf("diagnosis room close notification event missing provider_status")
+	}
+	return out, nil
+}
+
+func diagnosisRoomCloseCLIOutputFromResult(
+	cfg diagnosisRoomCloseCLIConfig,
+	result temporalpkg.DiagnosisRoomWorkflowResult,
+	events diagnosisRoomCloseEvents,
+) (diagnosisRoomCloseCLIOutput, error) {
+	workflowID, err := temporalpkg.DiagnosisRoomWorkflowID(cfg.SessionID)
+	if err != nil {
+		return diagnosisRoomCloseCLIOutput{}, err
+	}
+	if result.Status != "closed" {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room status = %q, want closed", result.Status)
+	}
+	if result.SessionID != cfg.SessionID {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close result session_id = %q, want %q", result.SessionID, cfg.SessionID)
+	}
+	if result.DiagnosisTaskID <= 0 {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close result missing diagnosis_task_id")
+	}
+	if result.ChatSessionID <= 0 {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close result missing chat_session_id")
+	}
+	if result.TurnCount < 0 {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close result turn_count must be >= 0")
+	}
+	if result.ClosedAt == nil || result.ClosedAt.IsZero() {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close result missing closed_at")
+	}
+	if result.CloseReason != cfg.Reason {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close reason = %q, want %q", result.CloseReason, cfg.Reason)
+	}
+	if events.CloseEvent.ID == 0 {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close event is missing")
+	}
+	if events.CloseEvent.TaskID != domain.DiagnosisTaskID(result.DiagnosisTaskID) {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close event task_id = %d, want %d", events.CloseEvent.TaskID, result.DiagnosisTaskID)
+	}
+	if events.CloseEvent.Kind != diagnosisRoomCloseEventClosedKind {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close event kind = %q, want %s", events.CloseEvent.Kind, diagnosisRoomCloseEventClosedKind)
+	}
+	if events.NotificationEvent.ID == 0 {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close notification event is missing")
+	}
+	if events.NotificationEvent.TaskID != domain.DiagnosisTaskID(result.DiagnosisTaskID) {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close notification event task_id = %d, want %d", events.NotificationEvent.TaskID, result.DiagnosisTaskID)
+	}
+	if events.NotificationEvent.Kind != diagnosisRoomCloseEventNotificationSentKind {
+		return diagnosisRoomCloseCLIOutput{}, fmt.Errorf("diagnosis room close notification event kind = %q, want %s", events.NotificationEvent.Kind, diagnosisRoomCloseEventNotificationSentKind)
+	}
+	return diagnosisRoomCloseCLIOutput{
+		CheckedAt: diagnosisRoomCloseCLINowUTC().Format(time.RFC3339Nano),
+		Request: diagnosisRoomCloseCLIRequest{
+			SessionID:   cfg.SessionID,
+			WorkflowID:  workflowID,
+			RunID:       cfg.RunID,
+			Reason:      cfg.Reason,
+			WaitTimeout: cfg.WaitTimeout.String(),
+		},
+		Signaled: true,
+		Workflow: diagnosisRoomCloseCLIWorkflow{
+			SessionID:       result.SessionID,
+			ChatSessionID:   result.ChatSessionID,
+			DiagnosisTaskID: result.DiagnosisTaskID,
+			Status:          result.Status,
+			TurnCount:       result.TurnCount,
+			ClosedAt:        result.ClosedAt.UTC().Format(time.RFC3339Nano),
+			CloseReason:     result.CloseReason,
+		},
+		CloseEvent: diagnosisRoomCloseCLIEvent{
+			ID:         int64(events.CloseEvent.ID),
+			Kind:       events.CloseEvent.Kind,
+			OccurredAt: events.CloseEvent.OccurredAt.UTC().Format(time.RFC3339Nano),
+		},
+		NotificationEvent: diagnosisRoomCloseCLINotificationEvent{
+			ID:                int64(events.NotificationEvent.ID),
+			Kind:              events.NotificationEvent.Kind,
+			OccurredAt:        events.NotificationEvent.OccurredAt.UTC().Format(time.RFC3339Nano),
+			IdempotencyKey:    events.Notification.IdempotencyKey,
+			ProviderMessageID: events.Notification.ProviderMessageID,
+			ProviderStatus:    events.Notification.ProviderStatus,
+		},
+	}, nil
+}
+
+func diagnosisRoomCloseCLIUsage() string {
+	return "usage: openclarion " + diagnosisRoomCloseCLICommand +
+		" --session-id " + strconv.Quote("diagnosis-session-...") +
+		" [--run-id run] [--reason live_smoke_completed] [--wait-timeout 2m]"
 }
 
 func envOrDefaultFrom(getenv getenvFunc, key, defaultVal string) string {

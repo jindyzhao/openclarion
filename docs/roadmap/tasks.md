@@ -161,9 +161,13 @@ for the V1 scope boundary.
 - [x] unsafe-instruction filter (deny-list) at workflow/sandbox boundary
 - [x] audit logging for session lifecycle
 - [x] final group notification on session close
-- [ ] live browser acceptance against a real backend/worker stack
-      (`make diagnosis-live-browser-smoke` harness landed; real-stack proof
-      still pending)
+- [x] live browser acceptance against a real backend/worker stack
+      (`make diagnosis-live-browser-smoke` retained a local 2026-06-04
+      create-room -> browser connect/state -> submit_turn -> turn_result
+      proof for one turn; this does not select a production agent runtime)
+- [ ] live close-notification IM delivery proof against a real backend/worker
+      stack (`OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=1` harness support
+      landed; retained live proof remains pending)
 
 **Acceptance**: authorized user opens diagnosis room -> short-conversation
 with sandboxed agent within turn and time limits -> chat persisted, audit
@@ -188,6 +192,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-06-04 | jindyzhao | M5 optional live close-notification proof path landed locally: `openclarion diagnosis-room-close` signals a diagnosis room close, waits for the Temporal workflow result, loads `diagnosis_room.closed` and `diagnosis_room.close_notification_sent` events from PostgreSQL, and emits a strict JSON proof with workflow, close-event, and IM provider delivery metadata. `make diagnosis-live-browser-smoke` can now run that path when `OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=1`, and `scripts/diagnosis_live_smoke_output` validates the optional `close_notification` block for session/workflow/run binding, closed workflow state, turn-count consistency, event kinds/timestamps, diagnosis-task-scoped idempotency key, and accepted/delivered provider status. This adds the proof mechanism but does not claim a retained live close-notification IM proof until an operator runs it against a real backend/worker/IM stack. |
 | 2026-06-04 | jindyzhao | M5 local real-stack browser smoke proof captured with `make diagnosis-live-browser-smoke`: local PostgreSQL, Temporal, `openclarion serve`, OIDC, production Next.js, Playwright Chromium, and a digest-pinned temporary diagnosis-turn runner completed one create-room -> connect/state -> submit_turn -> turn_result path. Retained proof: `artifacts/m5/manual-2026-06-04/diagnosis-live-browser-smoke-local.json`, SHA-256 `4fa36ef42ba744721172d818f09453c572839c52210da789ea34c10c88c92be8`. This proves the local browser/API/WebSocket/Temporal/Docker-sandbox/persistence path for one turn, but does not select a production agent runtime or prove live close-notification IM delivery. |
 | 2026-06-04 | jindyzhao | M4 review-evidence retained-output hardening landed locally: `make sandbox-m4-review-evidence-template OUT=...` now refuses existing files and symlinks before writing draft review evidence, keeping retained human-review artifacts immutable until the later packet assembler freezes them. This does not complete the real representative quality comparison or M4 decision. |
 | 2026-06-04 | jindyzhao | M4 persisted quality sample export landed locally: `make sandbox-m4-quality-sample-export` exports operator-selected PostgreSQL SubReport rows into the retained `direct/<scenario>/<case>.json` and `sandbox/<scenario>/<case>.json` sample layout while rejecting ambiguous selection JSON, duplicate case/report IDs, scenario mismatches, mixed EvidenceSnapshot IDs, invalid persisted SubReport JSON, and non-empty output roots. `make manual-evidence-readiness --target sandbox-m4-quality-sample-export` now preflights the database URL presence, selection file, and output root without printing their values. This prepares real quality evidence without selecting representative samples, comparing quality, or recording an M4 decision. |

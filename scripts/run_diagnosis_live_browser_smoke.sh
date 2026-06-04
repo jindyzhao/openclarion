@@ -20,10 +20,25 @@ require_env() {
   fi
 }
 
+env_truthy() {
+  case "${1:-}" in
+    1 | true | TRUE | yes | YES)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 require_env OPENCLARION_LIVE_API_BASE_URL
 require_env OPENCLARION_LIVE_BEARER_TOKEN
 if [[ -z "${OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID:-}" && -z "${OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID:-}" ]]; then
   missing+=("OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID or OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID")
+fi
+close_notification_required="${OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION:-${DIAGNOSIS_LIVE_REQUIRE_CLOSE_NOTIFICATION:-}}"
+if env_truthy "$close_notification_required"; then
+  require_env DATABASE_URL
 fi
 
 if ((${#missing[@]} > 0)); then
@@ -125,6 +140,30 @@ echo "[diagnosis-live-browser-smoke] installing Chromium browser dependencies...
 echo "[diagnosis-live-browser-smoke] running browser round trip against live backend..." >&2
 (cd web && npm run smoke:live)
 
+if env_truthy "$close_notification_required"; then
+  close_output="$(mktemp -t openclarion-diagnosis-live-close.XXXXXX.json)"
+  close_reason="${OPENCLARION_LIVE_CLOSE_REASON:-live_smoke_completed}"
+  close_wait_timeout="${OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT:-2m}"
+  close_args=(
+    diagnosis-room-close
+    --session-id "$OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID"
+    --reason "$close_reason"
+    --wait-timeout "$close_wait_timeout"
+  )
+  close_run_id="${OPENCLARION_LIVE_DIAGNOSIS_RUN_ID:-}"
+  if [[ -n "${OPENCLARION_LIVE_DIAGNOSIS_ROOM_CREATE_RESPONSE:-}" ]]; then
+    close_run_id="$(
+      node -e 'const body = JSON.parse(process.env.OPENCLARION_LIVE_DIAGNOSIS_ROOM_CREATE_RESPONSE); if (body.run_id) process.stdout.write(body.run_id);'
+    )"
+  fi
+  if [[ -n "$close_run_id" ]]; then
+    close_args+=(--run-id "$close_run_id")
+  fi
+  echo "[diagnosis-live-browser-smoke] closing diagnosis room and validating close notification..." >&2
+  go run ./cmd/openclarion "${close_args[@]}" >"$close_output"
+  export OPENCLARION_LIVE_CLOSE_NOTIFICATION_PROOF_PATH="$close_output"
+fi
+
 node - "$output" <<'EOF'
 const { createHash } = require("node:crypto");
 const fs = require("node:fs");
@@ -145,6 +184,9 @@ if (!browserProofPath) {
 const browser = JSON.parse(fs.readFileSync(browserProofPath, "utf8"));
 const createdRoom = process.env.OPENCLARION_LIVE_DIAGNOSIS_ROOM_CREATE_RESPONSE
   ? JSON.parse(process.env.OPENCLARION_LIVE_DIAGNOSIS_ROOM_CREATE_RESPONSE)
+  : null;
+const closeNotification = process.env.OPENCLARION_LIVE_CLOSE_NOTIFICATION_PROOF_PATH
+  ? JSON.parse(fs.readFileSync(process.env.OPENCLARION_LIVE_CLOSE_NOTIFICATION_PROOF_PATH, "utf8"))
   : null;
 const evidenceSnapshotID = process.env.OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID
   ? Number(process.env.OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID)
@@ -173,7 +215,10 @@ const proof = {
   message_length: messageLength,
   message_sha256: messageSHA256,
   browser,
-  evidence: "Playwright live diagnosis-room browser smoke passed one connect/query/submit/turn_result round trip."
+  close_notification: closeNotification,
+  evidence: closeNotification
+    ? "Playwright live diagnosis-room browser smoke passed one connect/query/submit/turn_result round trip and close_notification proof."
+    : "Playwright live diagnosis-room browser smoke passed one connect/query/submit/turn_result round trip."
 };
 
 fs.writeFileSync(output, `${JSON.stringify(proof, null, 2)}\n`);
