@@ -179,6 +179,13 @@ plus `scenario_coverage`. Each manifest case must include a canonical
 SubReports still contain the declared evidence refs, keeping the runtime
 decision measurable while leaving the real report-quality judgment pending
 until representative alert evidence is run through candidate images.
+`make sandbox-m4-quality-manifest-prepare` is the manual preparation path for
+that manifest: it scans retained `direct/<scenario>/<case>.json` and
+`sandbox/<scenario>/<case>.json` SubReport pairs, requires all three
+alert-analysis scenarios, parses both sides through the production parser, and
+derives portable required evidence refs from refs shared by both reports. It
+does not make a sample representative or accept a runtime; it only reduces
+pairing and evidence-ref mistakes before the quality comparison runs.
 
 `make sandbox-m4-decision-test` proves the offline decision helper that later
 combines the baseline audit, manifest-mode quality comparison, runtime smoke

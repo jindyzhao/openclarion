@@ -62,6 +62,35 @@ more than one case.
 }
 ```
 
+Operators can prepare the manifest from an evidence directory instead of
+hand-writing report pairs:
+
+```bash
+make sandbox-m4-quality-manifest-prepare \
+  ROOT=artifacts/m4/quality-sample \
+  SAMPLE_BASIS="single-alert, cascade, and alert-storm samples from the same alert replay window" \
+  OUT=artifacts/m4/quality-sample/quality-manifest.json
+```
+
+The sample root must use this layout:
+
+```text
+direct/single_alert/<case-id>.json
+direct/cascade/<case-id>.json
+direct/alert_storm/<case-id>.json
+sandbox/single_alert/<case-id>.json
+sandbox/cascade/<case-id>.json
+sandbox/alert_storm/<case-id>.json
+```
+
+The helper pairs files by scenario and case ID, parses both sides through the
+production SubReport parser, requires all three alert-analysis scenarios, and
+derives manifest `required_evidence_refs` from refs shared by the direct and
+sandbox reports. Each case must share at least one canonical
+`snapshot:<positive-id>` ref. It writes only a manifest input; it does not make
+the sample representative, run model inference, review report quality, or
+accept a runtime candidate. The output path must not already exist.
+
 ## Output
 
 The tool emits one JSON object to stdout with:
