@@ -13,10 +13,12 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/openclarion/openclarion/internal/strictjson"
 )
@@ -26,6 +28,7 @@ const (
 	maxReadinessArtifactBytes      = 8 * 1024 * 1024
 	maxReadinessSampleBasisBytes   = 2048
 	maxReadinessQualityCaseIDBytes = 128
+	maxReadinessCloseReasonBytes   = 128
 	directRole                     = "direct"
 	sandboxRole                    = "sandbox"
 )
@@ -460,12 +463,35 @@ func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 		Command: "make diagnosis-live-browser-smoke",
 		Notes: []string{
 			"Preflight only checks local configuration; it does not authenticate, create a room, install browsers, or contact the live backend.",
+			"When close-notification proof is required, the local close CLI still signals Temporal and loads PostgreSQL lifecycle events while the running worker must be configured to send the IM notification.",
 		},
 	}
 	target.MissingEnv = missingEnv(env,
 		"OPENCLARION_LIVE_API_BASE_URL",
 		"OPENCLARION_LIVE_BEARER_TOKEN",
 	)
+	if envPresent(env, "OPENCLARION_LIVE_API_BASE_URL") {
+		if err := validateReadinessHTTPURL(env["OPENCLARION_LIVE_API_BASE_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_API_BASE_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_LIVE_WEB_BASE_URL") {
+		if err := validateReadinessHTTPURL(env["OPENCLARION_LIVE_WEB_BASE_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_WEB_BASE_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_LIVE_BEARER_TOKEN") && !validReadinessBearerToken(env["OPENCLARION_LIVE_BEARER_TOKEN"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_LIVE_BEARER_TOKEN",
+			Reason: "must be a single bearer token or Bearer header without embedded whitespace",
+		})
+	}
 	if !envPresent(env, "OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID") && !envPresent(env, "OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID") {
 		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
 			Description: "diagnosis room input",
@@ -480,6 +506,45 @@ func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 			Name:   "OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID",
 			Reason: "must be a positive integer when set",
 		})
+	}
+	if closeNotificationProofRequired(env) {
+		target.MissingEnv = append(target.MissingEnv, missingEnv(env,
+			"DATABASE_URL",
+			"TEMPORAL_HOST_PORT",
+		)...)
+		if !envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") && !envEquals(env, "DIAGNOSIS_LIVE_SMOKE_ASSUME_WORKER_READY", "1") {
+			target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
+				Description: "close-notification worker IM configuration",
+				Options: []string{
+					"OPENCLARION_IM_WEBHOOK_URL",
+					"DIAGNOSIS_LIVE_SMOKE_ASSUME_WORKER_READY=1",
+				},
+			})
+		}
+		if envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") {
+			if err := validateReadinessWebhookURL(env["OPENCLARION_IM_WEBHOOK_URL"]); err != nil {
+				target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+					Name:   "OPENCLARION_IM_WEBHOOK_URL",
+					Reason: err.Error(),
+				})
+			}
+		}
+		if envPresent(env, "OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT") {
+			if _, err := time.ParseDuration(strings.TrimSpace(env["OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT"])); err != nil {
+				target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+					Name:   "OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT",
+					Reason: "must be a valid Go duration such as 2m",
+				})
+			}
+		}
+		if envPresent(env, "OPENCLARION_LIVE_CLOSE_REASON") {
+			if err := validateReadinessCloseReason(env["OPENCLARION_LIVE_CLOSE_REASON"]); err != nil {
+				target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+					Name:   "OPENCLARION_LIVE_CLOSE_REASON",
+					Reason: err.Error(),
+				})
+			}
+		}
 	}
 	return finalize(target)
 }
@@ -875,6 +940,23 @@ func envEquals(env envMap, name, want string) bool {
 	return strings.TrimSpace(env[name]) == want
 }
 
+func closeNotificationProofRequired(env envMap) bool {
+	return envTruthy(env, "OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION") ||
+		envTruthy(env, "DIAGNOSIS_LIVE_REQUIRE_CLOSE_NOTIFICATION")
+}
+
+func envTruthy(env envMap, name string) bool {
+	if !envPresent(env, name) {
+		return false
+	}
+	switch strings.TrimSpace(env[name]) {
+	case "1", "true", "TRUE", "yes", "YES":
+		return true
+	default:
+		return false
+	}
+}
+
 func positiveInteger(value string) bool {
 	value = strings.TrimSpace(value)
 	if value == "" || value[0] == '0' {
@@ -903,6 +985,78 @@ func validateReadinessSampleBasis(raw string) error {
 		return fmt.Errorf("exceeds %d bytes", maxReadinessSampleBasisBytes)
 	}
 	return nil
+}
+
+func validateReadinessCloseReason(raw string) error {
+	value := strings.TrimSpace(raw)
+	if value != raw {
+		return errors.New("must not contain leading or trailing whitespace")
+	}
+	if value == "" {
+		return errors.New("must be non-empty")
+	}
+	if strings.ContainsAny(raw, "\r\n\t") {
+		return errors.New("must be a single-line value")
+	}
+	if len(raw) > maxReadinessCloseReasonBytes {
+		return fmt.Errorf("exceeds %d bytes", maxReadinessCloseReasonBytes)
+	}
+	return nil
+}
+
+func validateReadinessHTTPURL(raw string) error {
+	parsed, err := parseReadinessURL(raw)
+	if err != nil {
+		return err
+	}
+	if parsed.RawQuery != "" {
+		return errors.New("must not include a query string")
+	}
+	if parsed.Fragment != "" {
+		return errors.New("must not include a fragment")
+	}
+	return nil
+}
+
+func validateReadinessWebhookURL(raw string) error {
+	_, err := parseReadinessURL(raw)
+	return err
+}
+
+func parseReadinessURL(raw string) (*url.URL, error) {
+	value := strings.TrimSpace(raw)
+	if value != raw {
+		return nil, errors.New("must not contain leading or trailing whitespace")
+	}
+	if value == "" {
+		return nil, errors.New("must be non-empty")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return nil, errors.New("must be a valid URL")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, errors.New("must use http or https")
+	}
+	if parsed.Host == "" {
+		return nil, errors.New("must include a host")
+	}
+	if parsed.User != nil {
+		return nil, errors.New("must not include user info")
+	}
+	return parsed, nil
+}
+
+func validReadinessBearerToken(raw string) bool {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return false
+	}
+	lower := strings.ToLower(value)
+	if strings.HasPrefix(lower, "bearer ") {
+		value = strings.TrimSpace(value[len("bearer "):])
+	}
+	return value != "" && !strings.ContainsAny(value, " \r\n\t")
 }
 
 func qualitySampleScenario(value string) bool {
