@@ -43,6 +43,7 @@
 #   make generate-fresh   # validate make generate freshness and idempotence
 #   make go-licenses-check # validate Go dependency license allowlist
 #   make osv-scan         # validate npm lockfiles with OSV-Scanner
+#   make manual-evidence-readiness # manual readiness preflight for remaining live/evidence targets
 #   make report-live-smoke # manual live M2 smoke against real services
 #   make report-live-smoke-output-test # M2 live report smoke proof validator tests
 #   make agent-runtime-smoke # manual M4 smoke against a candidate sandbox image
@@ -559,7 +560,7 @@ frontend-checks: frontend-install ci-frontend-typecheck ci-frontend-lint ci-fron
 # See ADR-0001 (PostgreSQL single source of truth) and
 # docs/design/database/migrations.md.
 
-.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke report-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke
+.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness report-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke
 
 ent-generate: ## Regenerate ent client + entity code from schemas under internal/persistence/ent/schema
 	@go generate $(ENT_PKG)/...
@@ -590,6 +591,9 @@ atlas-drift: ## Reject ent-schema vs migrations drift; runs in a temp copy so th
 
 atlas-smoke: ## Manual one-shot smoke: verify Dockerized Atlas can read the ent schema (M1-PR1 acceptance gate)
 	@ATLAS_IMAGE="$(ATLAS_IMAGE)" ENT_SCHEMA_URL="$(ENT_SCHEMA_URL)" bash scripts/check_atlas_smoke.sh
+
+manual-evidence-readiness: ## Manual readiness preflight for remaining M2/M4/M5 live and evidence targets
+	@go run ./scripts/manual_evidence_readiness
 
 report-live-smoke: ## Manual M2 smoke: real Prometheus -> Temporal -> Webhook via report-replay --wait
 	@bash scripts/run_report_live_smoke.sh
