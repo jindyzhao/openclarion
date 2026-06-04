@@ -116,13 +116,14 @@ func subReportUserPrompt(in SubReportInput, payload string) string {
 Scenario: %s
 Scenario guidance: %s
 Evidence snapshot id: %d
+Evidence snapshot ref: snapshot:%d
 Evidence snapshot digest: %s
 Group index: %d
 
-Use only the evidence in this snapshot. Do not invent evidence IDs. If evidence is weak, set confidence to low and explain the uncertainty in the summary.
+Use only the evidence in this snapshot. Do not invent evidence IDs. Include the evidence snapshot ref in evidence_refs. If evidence is weak, set confidence to low and explain the uncertainty in the summary.
 
 Evidence snapshot JSON:
-%s`, in.Scenario, scenarioGuidance(in.Scenario), in.Snapshot.ID, in.Snapshot.Digest, in.GroupIndex, payload)
+%s`, in.Scenario, scenarioGuidance(in.Scenario), in.Snapshot.ID, in.Snapshot.ID, in.Snapshot.Digest, in.GroupIndex, payload)
 }
 
 func finalReportUserPrompt(correlationKey string, subReports string) string {

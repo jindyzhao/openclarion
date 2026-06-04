@@ -445,6 +445,15 @@ proving each case remains bound to frozen evidence before proceeding. This
 remains a harness only; the actual M4 quality decision still needs
 representative direct and sandbox report outputs from candidate runtime runs.
 
+`make sandbox-m4-subreport-generate` provides the manual persisted-sample
+bridge for the sandbox side of that comparison. It loads a real
+`EvidenceSnapshot` from PostgreSQL, mounts a snapshot-bound evidence envelope
+through the existing Docker `ContainerProvider`, validates the candidate
+`output.json` as a production SubReport, requires the canonical `snapshot:<id>`
+ref in `evidence_refs`, and persists an idempotent sandbox SubReport row for
+later sample export. This closes the candidate-output persistence gap, not the
+representative quality review or M4 proceed/iterate/defer decision.
+
 ### Temporal Worker Deployment
 
 For V1 (single-binary monolith):

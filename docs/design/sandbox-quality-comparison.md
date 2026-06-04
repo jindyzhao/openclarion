@@ -65,6 +65,31 @@ more than one case.
 Operators can prepare the manifest from an evidence directory instead of
 hand-writing report pairs:
 
+When a sandbox candidate needs to produce the sandbox side of a pair from a
+real persisted `EvidenceSnapshot`, operators can run the candidate through the
+same Docker `ContainerProvider` used by M5 turns:
+
+```bash
+DATABASE_URL=postgres://... \
+OPENCLARION_M4_SANDBOX_IMAGE_REF=registry.example.com/openclarion/runtime@sha256:<64-hex-digest> \
+OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=/path/to/agents \
+  make sandbox-m4-subreport-generate \
+  SNAPSHOT_ID=11 \
+  SCENARIO=single_alert \
+  CANDIDATE_ID=custom-thin-runner \
+  OUT=artifacts/m4/sandbox-subreport-payments-cpu.json
+```
+
+The helper mounts an envelope containing the snapshot ID, `snapshot:<id>` ref,
+digest, scenario, group index, and original snapshot payload at
+`/workspace/evidence.json`. It accepts only a strict, production-validated
+`SubReport` from `/workspace/out/output.json`, requires the candidate output to
+include the canonical snapshot ref in `evidence_refs`, and persists the sandbox
+row with an idempotency key scoped to snapshot, group, and candidate ID. The
+summary output records the persisted SubReport ID and output digest. This
+generates retained candidate rows; it does not choose representative samples,
+compare quality, perform human review, or accept a runtime candidate.
+
 When the direct and sandbox outputs already exist as persisted `SubReport`
 rows, operators can first export the retained sample layout from PostgreSQL:
 

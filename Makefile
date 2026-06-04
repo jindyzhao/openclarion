@@ -54,6 +54,7 @@
 #   make sandbox-baseline-audit # M4/M5 code-level sandbox baseline audit
 #   make sandbox-m4-baseline-audit OUT=...
 #   make sandbox-quality-compare-test # M4 offline sandbox/direct SubReport comparison tests
+#   make sandbox-m4-subreport-generate SNAPSHOT_ID=... SCENARIO=... CANDIDATE_ID=... OUT=...
 #   make sandbox-m4-quality-sample-export SELECTION=... ROOT=...
 #   make sandbox-m4-quality-manifest-prepare ROOT=... SAMPLE_BASIS=... OUT=...
 #   make sandbox-m4-quality-compare QUALITY_MANIFEST=... OUT=...
@@ -381,7 +382,7 @@ osv-scan: ## Detect known vulnerabilities in npm package-lock files
 # Go gates (activated at M0 bootstrap)
 # ---------------------------------------------------------------------------
 
-.PHONY: generated-headers generate generate-fresh go-vet go-build go-test go-coverage temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-m4-baseline-audit sandbox-quality-compare-test sandbox-m4-quality-sample-export sandbox-m4-quality-manifest-prepare sandbox-m4-quality-compare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
+.PHONY: generated-headers generate generate-fresh go-vet go-build go-test go-coverage temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-m4-baseline-audit sandbox-quality-compare-test sandbox-m4-subreport-generate sandbox-m4-quality-sample-export sandbox-m4-quality-manifest-prepare sandbox-m4-quality-compare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
 
 generated-headers: ## Validate generated files carry generator headers
 	@bash scripts/check_generated_headers.sh
@@ -441,7 +442,19 @@ sandbox-m4-baseline-audit: ## Manual M4 baseline audit retention: OUT=...
 	@go run ./scripts/sandbox_baseline_audit --out "$(OUT)"
 
 sandbox-quality-compare-test: ## Run focused M4 sandbox/direct SubReport comparison tests
-	@go test -race -count=1 ./scripts/sandbox_quality_compare ./scripts/sandbox_quality_manifest_prepare ./scripts/sandbox_quality_sample_export
+	@go test -race -count=1 ./scripts/sandbox_quality_compare ./scripts/sandbox_quality_manifest_prepare ./scripts/sandbox_quality_sample_export ./scripts/sandbox_m4_subreport_generate
+
+sandbox-m4-subreport-generate: ## Manual M4 sandbox SubReport generation: SNAPSHOT_ID=... SCENARIO=... CANDIDATE_ID=... OUT=...
+	@if [[ -z "$(SNAPSHOT_ID)" || -z "$(SCENARIO)" || -z "$(CANDIDATE_ID)" || -z "$(OUT)" ]]; then \
+		echo "[sandbox-m4-subreport-generate] usage: DATABASE_URL=<postgres-url> OPENCLARION_M4_SANDBOX_IMAGE_REF=<image@sha256:...> OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=<dir> make sandbox-m4-subreport-generate SNAPSHOT_ID=<id> SCENARIO=<single_alert|cascade|alert_storm> CANDIDATE_ID=<stable-id> [GROUP_INDEX=<n>] OUT=<summary.json>"; \
+		exit 2; \
+	fi
+	@go run ./scripts/sandbox_m4_subreport_generate \
+		--snapshot-id "$(SNAPSHOT_ID)" \
+		--scenario "$(SCENARIO)" \
+		--group-index "$(or $(GROUP_INDEX),0)" \
+		--candidate-id "$(CANDIDATE_ID)" \
+		--out "$(OUT)"
 
 sandbox-m4-quality-sample-export: ## Manual M4 quality sample export: SELECTION=... ROOT=...
 	@if [[ -z "$(SELECTION)" || -z "$(ROOT)" ]]; then \
