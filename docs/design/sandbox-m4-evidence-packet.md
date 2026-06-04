@@ -52,6 +52,21 @@ It is not a runtime enum or OpenClarion default.
 resolves runtime-smoke `evidence_ref` paths relative to the review evidence
 file's directory.
 
+For the local custom thin runner candidate, operators can produce the runtime
+smoke artifact directory while the target's ephemeral localhost registry still
+serves the digest-pinned image:
+
+```bash
+OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR=artifacts/samples/runtime-smokes \
+  OPENCLARION_CUSTOM_THIN_RUNNER_DIGEST_REF_OUT=artifacts/samples/runtime-smokes/digest-ref.txt \
+  make custom-thin-runner-smoke
+```
+
+This is only a retained lifecycle/security artifact path. The custom thin
+runner remains a candidate proof until a representative quality manifest,
+human review evidence, and verified M4 decision packet support a recorded
+`proceed` decision.
+
 The quality manifest still owns the real direct/sandbox SubReport file list,
 its `sample_basis`, and the per-case alert scenario labels. The decision gate
 checks that the generated comparison output covers `single_alert`, `cascade`,
