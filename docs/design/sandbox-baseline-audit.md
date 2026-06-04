@@ -27,6 +27,17 @@ The CI target is:
 make sandbox-baseline-audit
 ```
 
+For retained M4 decision evidence, operators can write the same audit output
+to a new file:
+
+```bash
+make sandbox-m4-baseline-audit \
+  OUT=artifacts/m4/baseline-audit.json
+```
+
+The retained output path must not already exist. The manual target preserves
+the CI target's checks; it only changes where the JSON evidence is written.
+
 This audit complements, but does not replace, the manual Docker smoke targets:
 
 - `make container-provider-smoke`

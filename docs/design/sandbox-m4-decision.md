@@ -11,6 +11,7 @@ business decision.
 files:
 
 - `--baseline-audit`: output from `make sandbox-baseline-audit`
+  or retained `make sandbox-m4-baseline-audit OUT=...`
 - `--quality-comparison`: output from `scripts/sandbox_quality_compare
   --manifest <file>` over representative direct/sandbox SubReport pairs
 - `--review-evidence`: human review and runtime smoke evidence for the

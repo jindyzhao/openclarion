@@ -115,6 +115,9 @@ func TestRunValidatesM4EvidenceFilesAndPacketOutputDir(t *testing.T) {
 	if len(manifestTarget.QualitySampleChecks) != 1 || manifestTarget.QualitySampleChecks[0].PairedCases != 3 {
 		t.Fatalf("quality sample checks = %#v, want three paired cases", manifestTarget.QualitySampleChecks)
 	}
+	if got := targetByName(t, out, "sandbox-m4-baseline-audit").Status; got != "ready" {
+		t.Fatalf("baseline audit status = %q, want ready", got)
+	}
 	if got := targetByName(t, out, "sandbox-m4-quality-compare").Status; got != "ready" {
 		t.Fatalf("quality compare status = %q, want ready", got)
 	}
@@ -165,6 +168,55 @@ func TestRunReportsM4QualityManifestSampleReadiness(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), sampleRoot) || strings.Contains(stdout.String(), outPath) || strings.Contains(stdout.String(), "payments-cpu") {
 		t.Fatalf("output leaked sample path or case id: %s", stdout.String())
+	}
+}
+
+func TestRunReportsM4BaselineAuditReadiness(t *testing.T) {
+	outPath := filepath.Join(t.TempDir(), "baseline-audit.json")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-baseline-audit"}, []string{
+		"OUT=" + outPath,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-baseline-audit")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready", target.Status)
+	}
+	if got := fileCheckByEnv(t, target.FileChecks, "OUT").Status; got != "ok" {
+		t.Fatalf("OUT status = %q, want ok", got)
+	}
+	if strings.Contains(stdout.String(), outPath) {
+		t.Fatalf("output leaked baseline audit output path: %s", stdout.String())
+	}
+}
+
+func TestRunBlocksM4BaselineAuditExistingOutputWithoutLeakingPath(t *testing.T) {
+	root := t.TempDir()
+	outPath := writeFile(t, root, "baseline-audit.json")
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-baseline-audit"}, []string{
+		"OUT=" + outPath,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-baseline-audit")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	if got := fileCheckByEnv(t, target.FileChecks, "OUT").Status; got != "exists" {
+		t.Fatalf("OUT status = %q, want exists", got)
+	}
+	if strings.Contains(stdout.String(), outPath) {
+		t.Fatalf("output leaked baseline audit output path: %s", stdout.String())
 	}
 }
 
