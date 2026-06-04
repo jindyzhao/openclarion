@@ -299,9 +299,11 @@ type packetCandidateEvaluation struct {
 }
 
 type packetReviewedCase struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	Notes  string `json:"notes"`
+	ID                   string   `json:"id"`
+	Scenario             string   `json:"scenario"`
+	RequiredEvidenceRefs []string `json:"required_evidence_refs"`
+	Status               string   `json:"status"`
+	Notes                string   `json:"notes"`
 }
 
 type packetRuntimeSmoke struct {
@@ -2363,6 +2365,19 @@ func validateReviewCaseList(cases []packetReviewedCase) error {
 			return fmt.Errorf("duplicate review evidence reviewed case %q", id)
 		}
 		seen[id] = true
+		scenario := strings.TrimSpace(item.Scenario)
+		if scenario == "" {
+			return fmt.Errorf("review evidence reviewed case %q scenario is required", id)
+		}
+		if scenario != item.Scenario {
+			return fmt.Errorf("review evidence reviewed case %q scenario must not contain leading or trailing whitespace", id)
+		}
+		if !reportprompt.Scenario(scenario).Valid() {
+			return fmt.Errorf("review evidence reviewed case %q scenario %q is unsupported", id, scenario)
+		}
+		if err := validateReviewedCaseRequiredEvidenceRefs(id, item.RequiredEvidenceRefs); err != nil {
+			return err
+		}
 		if strings.TrimSpace(item.Status) == "" {
 			return fmt.Errorf("review evidence reviewed case %q status is required", id)
 		}
@@ -2375,6 +2390,34 @@ func validateReviewCaseList(cases []packetReviewedCase) error {
 		if err := validateReviewEvidenceText(fmt.Sprintf("review evidence reviewed case %q notes", id), item.Notes); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func validateReviewedCaseRequiredEvidenceRefs(caseID string, refs []string) error {
+	if len(refs) == 0 {
+		return fmt.Errorf("review evidence reviewed case %q required_evidence_refs must contain at least one item", caseID)
+	}
+	seen := map[string]bool{}
+	hasSnapshotRef := false
+	for i, ref := range refs {
+		value, err := validateEvidenceRef(fmt.Sprintf("review evidence reviewed case %q required_evidence_refs[%d]", caseID, i), ref)
+		if err != nil {
+			return err
+		}
+		if seen[value] {
+			return fmt.Errorf("review evidence reviewed case %q duplicate required_evidence_refs value %q", caseID, value)
+		}
+		if strings.HasPrefix(value, requiredSnapshotRefPrefix) {
+			if !validQualitySnapshotRef(value) {
+				return fmt.Errorf("review evidence reviewed case %q required_evidence_refs[%d] snapshot evidence ref %q must use snapshot:<positive-id>", caseID, i, value)
+			}
+			hasSnapshotRef = true
+		}
+		seen[value] = true
+	}
+	if !hasSnapshotRef {
+		return fmt.Errorf("review evidence reviewed case %q required_evidence_refs must include one snapshot:<positive-id> reference", caseID)
 	}
 	return nil
 }
@@ -2431,15 +2474,22 @@ func validateReviewEvidenceText(field, raw string) error {
 }
 
 func validateReviewedCaseIDsMatchQuality(qualityCases []helperQualityCase, reviewedCases []packetReviewedCase) error {
-	reviewedByID := map[string]bool{}
+	reviewedByID := map[string]packetReviewedCase{}
 	for _, item := range reviewedCases {
-		reviewedByID[item.ID] = true
+		reviewedByID[item.ID] = item
 	}
 	qualityIDs := map[string]bool{}
 	for _, item := range qualityCases {
 		qualityIDs[item.ID] = true
-		if !reviewedByID[item.ID] {
+		review, ok := reviewedByID[item.ID]
+		if !ok {
 			return fmt.Errorf("review evidence missing reviewed case %q", item.ID)
+		}
+		if review.Scenario != item.Scenario {
+			return fmt.Errorf("review evidence reviewed case %q scenario = %q, want quality comparison scenario %q", item.ID, review.Scenario, item.Scenario)
+		}
+		if !equalStrings(review.RequiredEvidenceRefs, item.RequiredEvidenceRefs) {
+			return fmt.Errorf("review evidence reviewed case %q required_evidence_refs = %v, want quality comparison refs %v", item.ID, review.RequiredEvidenceRefs, item.RequiredEvidenceRefs)
 		}
 	}
 	for _, item := range reviewedCases {

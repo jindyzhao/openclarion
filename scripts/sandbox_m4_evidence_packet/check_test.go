@@ -2134,8 +2134,8 @@ func TestRunRejectsReviewCaseIDsThatDoNotMatchQualityCases(t *testing.T) {
 	qualityManifest := writeFile(t, dir, "quality-manifest.json", `{"cases":[{"id":"payments-cpu"}]}`)
 	reviewEvidence := writeFile(t, dir, "review-evidence.json", strings.Replace(
 		validReviewEvidence(),
-		`"id": "single-alert", "status": "pass"`,
-		`"id": "stale-single-alert", "status": "pass"`,
+		`"id": "single-alert", "scenario": "single_alert", "required_evidence_refs": ["snapshot:11", "alert:single"], "status": "pass"`,
+		`"id": "stale-single-alert", "scenario": "single_alert", "required_evidence_refs": ["snapshot:11", "alert:single"], "status": "pass"`,
 		1,
 	))
 	outDir := filepath.Join(dir, "packet")
@@ -2161,6 +2161,76 @@ func TestRunRejectsReviewCaseIDsThatDoNotMatchQualityCases(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(outDir, artifactNames["packet"])); !os.IsNotExist(statErr) {
 		t.Fatalf("packet artifact exists after reviewed case ID mismatch: %v", statErr)
+	}
+}
+
+func TestRunRejectsReviewCaseScenarioThatDoesNotMatchQualityCase(t *testing.T) {
+	dir := t.TempDir()
+	qualityManifest := writeFile(t, dir, "quality-manifest.json", `{"cases":[{"id":"payments-cpu"}]}`)
+	reviewEvidence := writeFile(t, dir, "review-evidence.json", strings.Replace(
+		validReviewEvidence(),
+		`"id": "cascade", "scenario": "cascade"`,
+		`"id": "cascade", "scenario": "single_alert"`,
+		1,
+	))
+	outDir := filepath.Join(dir, "packet")
+	runner := &fakeRunner{
+		responses: []fakeResponse{
+			{stdout: validBaselineOutput()},
+			{stdout: validQualityOutput()},
+			{stdout: validDecisionOutput()},
+		},
+	}
+
+	var stdout bytes.Buffer
+	err := runWithRunner(context.Background(), []string{
+		"--quality-manifest", qualityManifest,
+		"--review-evidence", reviewEvidence,
+		"--out-dir", outDir,
+	}, &stdout, runner)
+	if err == nil {
+		t.Fatal("run err = nil, want reviewed case scenario mismatch")
+	}
+	if !strings.Contains(err.Error(), `review evidence reviewed case "cascade" scenario = "single_alert", want quality comparison scenario "cascade"`) {
+		t.Fatalf("run err = %v, want reviewed case scenario mismatch", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outDir, artifactNames["packet"])); !os.IsNotExist(statErr) {
+		t.Fatalf("packet artifact exists after reviewed case scenario mismatch: %v", statErr)
+	}
+}
+
+func TestRunRejectsReviewCaseRequiredEvidenceRefsThatDoNotMatchQualityCase(t *testing.T) {
+	dir := t.TempDir()
+	qualityManifest := writeFile(t, dir, "quality-manifest.json", `{"cases":[{"id":"payments-cpu"}]}`)
+	reviewEvidence := writeFile(t, dir, "review-evidence.json", strings.Replace(
+		validReviewEvidence(),
+		`"id": "cascade", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:cascade"]`,
+		`"id": "cascade", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:stale-cascade"]`,
+		1,
+	))
+	outDir := filepath.Join(dir, "packet")
+	runner := &fakeRunner{
+		responses: []fakeResponse{
+			{stdout: validBaselineOutput()},
+			{stdout: validQualityOutput()},
+			{stdout: validDecisionOutput()},
+		},
+	}
+
+	var stdout bytes.Buffer
+	err := runWithRunner(context.Background(), []string{
+		"--quality-manifest", qualityManifest,
+		"--review-evidence", reviewEvidence,
+		"--out-dir", outDir,
+	}, &stdout, runner)
+	if err == nil {
+		t.Fatal("run err = nil, want reviewed case required_evidence_refs mismatch")
+	}
+	if !strings.Contains(err.Error(), `review evidence reviewed case "cascade" required_evidence_refs = [snapshot:12 alert:stale-cascade], want quality comparison refs [snapshot:12 alert:cascade]`) {
+		t.Fatalf("run err = %v, want reviewed case refs mismatch", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outDir, artifactNames["packet"])); !os.IsNotExist(statErr) {
+		t.Fatalf("packet artifact exists after reviewed case refs mismatch: %v", statErr)
 	}
 }
 
@@ -2514,11 +2584,11 @@ func validReviewEvidence() string {
 	    {"name": "container_provider_timeout_cleanup", "status": "pass", "source": "make container-provider-timeout-smoke", "evidence_ref": "artifacts/m4/runtime/container-provider-timeout-smoke.json", "evidence_sha256": "` + runtimeSmokeArtifactSHA256("artifacts/m4/runtime/container-provider-timeout-smoke.json") + `"},
 	    {"name": "container_provider_output_cap", "status": "pass", "source": "make container-provider-output-cap-smoke", "evidence_ref": "artifacts/m4/runtime/container-provider-output-cap-smoke.json", "evidence_sha256": "` + runtimeSmokeArtifactSHA256("artifacts/m4/runtime/container-provider-output-cap-smoke.json") + `"},
 	    {"name": "egress_allowdeny", "status": "pass", "source": "make egress-allowdeny-smoke", "evidence_ref": "artifacts/m4/runtime/egress-allowdeny-smoke.json", "evidence_sha256": "` + runtimeSmokeArtifactSHA256("artifacts/m4/runtime/egress-allowdeny-smoke.json") + `"}
-	  ],
+  ],
   "reviewed_cases": [
-    {"id": "single-alert", "status": "pass", "notes": "single-alert sample preserves evidence traceability"},
-    {"id": "cascade", "status": "pass", "notes": "cascade sample preserves evidence traceability"},
-    {"id": "alert-storm", "status": "pass", "notes": "alert-storm sample preserves evidence traceability"}
+    {"id": "single-alert", "scenario": "single_alert", "required_evidence_refs": ["snapshot:11", "alert:single"], "status": "pass", "notes": "single-alert sample preserves evidence traceability"},
+    {"id": "cascade", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:cascade"], "status": "pass", "notes": "cascade sample preserves evidence traceability"},
+    {"id": "alert-storm", "scenario": "alert_storm", "required_evidence_refs": ["snapshot:13", "alert:storm"], "status": "pass", "notes": "alert-storm sample preserves evidence traceability"}
   ],
   "human_review": {
     "status": "pass",

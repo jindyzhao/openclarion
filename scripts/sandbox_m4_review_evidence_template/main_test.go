@@ -28,8 +28,8 @@ func TestRunOutputsFailClosedDraftReviewEvidence(t *testing.T) {
 		"case_count": 2,
 		"sample_basis": "single-alert and cascade representative alert cases",
 		"cases": [
-			{"id": "single-alert"},
-			{"id": "cascade"}
+			{"id": "single-alert", "scenario": "single_alert", "required_evidence_refs": ["snapshot:11", "alert:single"]},
+			{"id": "cascade", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:cascade"]}
 		]
 	}`)
 	writeSmokeArtifacts(t, filepath.Join(dir, "artifacts"), "runtime")
@@ -87,6 +87,12 @@ func TestRunOutputsFailClosedDraftReviewEvidence(t *testing.T) {
 	}
 	if len(out.ReviewedCases) != 2 || out.ReviewedCases[0].ID != "single-alert" || out.ReviewedCases[0].Status != "fail" {
 		t.Fatalf("ReviewedCases = %+v, want fail-closed quality cases", out.ReviewedCases)
+	}
+	if out.ReviewedCases[0].Scenario != "single_alert" {
+		t.Fatalf("ReviewedCases[0].Scenario = %q, want quality scenario", out.ReviewedCases[0].Scenario)
+	}
+	if got, want := strings.Join(out.ReviewedCases[0].RequiredEvidenceRefs, ","), "snapshot:11,alert:single"; got != want {
+		t.Fatalf("ReviewedCases[0].RequiredEvidenceRefs = %v, want %s", out.ReviewedCases[0].RequiredEvidenceRefs, want)
 	}
 	if out.HumanReview.Status != "fail" || out.HumanReview.Reviewer != "openclarion-maintainer" {
 		t.Fatalf("HumanReview = %+v, want fail-closed reviewer block", out.HumanReview)
@@ -381,6 +387,38 @@ func TestRunRejectsInvalidCandidateID(t *testing.T) {
 	}
 }
 
+func TestRunRejectsQualityCaseWithoutRequiredEvidenceRefs(t *testing.T) {
+	dir := t.TempDir()
+	quality := writeTemplateFile(t, dir, "quality-comparison.json", `{
+		"tool": "sandbox_quality_compare",
+		"mode": "manifest",
+		"case_count": 1,
+		"sample_basis": "single-alert representative alert case",
+		"cases": [
+			{"id": "single-alert", "scenario": "single_alert"}
+		]
+	}`)
+	writeSmokeArtifacts(t, dir, "")
+
+	var stdout bytes.Buffer
+	err := run([]string{
+		"--quality-comparison", quality,
+		"--runtime-smoke-artifacts-root", dir,
+		"--selected-candidate", "runtime-candidate-a",
+		"--runtime-candidate", testRuntimeCandidate,
+		"--reviewer", "openclarion-maintainer",
+	}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want required_evidence_refs rejection")
+	}
+	if !strings.Contains(err.Error(), `quality comparison case "single-alert" required_evidence_refs`) {
+		t.Fatalf("run err = %v, want required_evidence_refs error", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on invalid quality comparison", stdout.String())
+	}
+}
+
 func writeTemplateQuality(t *testing.T, dir string) string {
 	t.Helper()
 	return writeTemplateFile(t, dir, "quality-comparison.json", `{
@@ -389,7 +427,7 @@ func writeTemplateQuality(t *testing.T, dir string) string {
 		"case_count": 1,
 		"sample_basis": "single-alert representative alert case",
 		"cases": [
-			{"id": "single-alert"}
+			{"id": "single-alert", "scenario": "single_alert", "required_evidence_refs": ["snapshot:11", "alert:single"]}
 		]
 	}`)
 }

@@ -16,10 +16,12 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 )
 
 const (
@@ -28,6 +30,8 @@ const (
 	maxRuntimeCandidateFileBytes = 4096
 	maxTextBytes                 = 2048
 	maxCandidateBytes            = 128
+	maxEvidenceRefRunes          = 120
+	requiredSnapshotRefPrefix    = "snapshot:"
 )
 
 var digestPinnedImageRE = regexp.MustCompile(`^[^\s@]+@sha256:[a-f0-9]{64}$`)
@@ -59,7 +63,9 @@ type qualityComparison struct {
 }
 
 type qualityCase struct {
-	ID string `json:"id"`
+	ID                   string   `json:"id"`
+	Scenario             string   `json:"scenario"`
+	RequiredEvidenceRefs []string `json:"required_evidence_refs"`
 }
 
 type reviewEvidence struct {
@@ -93,9 +99,11 @@ type runtimeSmoke struct {
 }
 
 type reviewedCase struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-	Notes  string `json:"notes"`
+	ID                   string   `json:"id"`
+	Scenario             string   `json:"scenario"`
+	RequiredEvidenceRefs []string `json:"required_evidence_refs"`
+	Status               string   `json:"status"`
+	Notes                string   `json:"notes"`
 }
 
 type humanReview struct {
@@ -229,14 +237,12 @@ func buildTemplate(cfg config) (reviewEvidence, error) {
 	}
 	reviewed := make([]reviewedCase, 0, len(quality.Cases))
 	for _, item := range quality.Cases {
-		id := strings.TrimSpace(item.ID)
-		if id == "" {
-			return reviewEvidence{}, errors.New("quality comparison case id is required")
-		}
 		reviewed = append(reviewed, reviewedCase{
-			ID:     id,
-			Status: "fail",
-			Notes:  "draft case review requires operator judgement before candidate acceptance",
+			ID:                   item.ID,
+			Scenario:             item.Scenario,
+			RequiredEvidenceRefs: append([]string(nil), item.RequiredEvidenceRefs...),
+			Status:               "fail",
+			Notes:                "draft case review requires operator judgement before candidate acceptance",
 		})
 	}
 	return reviewEvidence{
@@ -293,22 +299,107 @@ func parseQualityComparison(filePath string) (qualityComparison, error) {
 	}
 	seen := map[string]bool{}
 	for i, item := range quality.Cases {
-		id := strings.TrimSpace(item.ID)
-		if id == "" {
-			return qualityComparison{}, fmt.Errorf("quality comparison cases[%d].id is required", i)
-		}
-		if id != item.ID {
-			return qualityComparison{}, fmt.Errorf("quality comparison case id %q must not contain leading or trailing whitespace", item.ID)
-		}
-		if !validSingleLineBounded(id, maxCandidateBytes) {
-			return qualityComparison{}, fmt.Errorf("quality comparison cases[%d].id %q must be single-line and up to %d bytes", i, id, maxCandidateBytes)
+		id, err := validateQualityCaseID(i, item.ID)
+		if err != nil {
+			return qualityComparison{}, err
 		}
 		if seen[id] {
 			return qualityComparison{}, fmt.Errorf("duplicate quality comparison case id %q", id)
 		}
 		seen[id] = true
+		scenario, err := validateQualityCaseScenario(id, item.Scenario)
+		if err != nil {
+			return qualityComparison{}, err
+		}
+		quality.Cases[i].Scenario = scenario
+		refs, err := validateQualityRequiredEvidenceRefs(id, item.RequiredEvidenceRefs)
+		if err != nil {
+			return qualityComparison{}, err
+		}
+		quality.Cases[i].RequiredEvidenceRefs = refs
 	}
 	return quality, nil
+}
+
+func validateQualityCaseID(index int, raw string) (string, error) {
+	id := strings.TrimSpace(raw)
+	if id == "" {
+		return "", fmt.Errorf("quality comparison cases[%d].id is required", index)
+	}
+	if id != raw {
+		return "", fmt.Errorf("quality comparison case id %q must not contain leading or trailing whitespace", raw)
+	}
+	if !validSingleLineBounded(id, maxCandidateBytes) {
+		return "", fmt.Errorf("quality comparison cases[%d].id %q must be single-line and up to %d bytes", index, id, maxCandidateBytes)
+	}
+	return id, nil
+}
+
+func validateQualityCaseScenario(caseID, raw string) (string, error) {
+	scenario := strings.TrimSpace(raw)
+	if scenario == "" {
+		return "", fmt.Errorf("quality comparison case %q scenario is required", caseID)
+	}
+	if scenario != raw {
+		return "", fmt.Errorf("quality comparison case %q scenario must not contain leading or trailing whitespace", caseID)
+	}
+	if !reportprompt.Scenario(scenario).Valid() {
+		return "", fmt.Errorf("quality comparison case %q scenario %q is unsupported", caseID, scenario)
+	}
+	return scenario, nil
+}
+
+func validateQualityRequiredEvidenceRefs(caseID string, refs []string) ([]string, error) {
+	if len(refs) == 0 {
+		return nil, fmt.Errorf("quality comparison case %q required_evidence_refs must contain at least one item", caseID)
+	}
+	seen := map[string]bool{}
+	hasSnapshotRef := false
+	out := make([]string, 0, len(refs))
+	for i, ref := range refs {
+		value, err := validateEvidenceRef(fmt.Sprintf("quality comparison case %q required_evidence_refs[%d]", caseID, i), ref)
+		if err != nil {
+			return nil, err
+		}
+		if seen[value] {
+			return nil, fmt.Errorf("quality comparison case %q duplicate required_evidence_refs value %q", caseID, value)
+		}
+		if strings.HasPrefix(value, requiredSnapshotRefPrefix) {
+			if !validQualitySnapshotRef(value) {
+				return nil, fmt.Errorf("quality comparison case %q required_evidence_refs[%d] snapshot evidence ref %q must use snapshot:<positive-id>", caseID, i, value)
+			}
+			hasSnapshotRef = true
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	if !hasSnapshotRef {
+		return nil, fmt.Errorf("quality comparison case %q required_evidence_refs must include one snapshot:<positive-id> reference", caseID)
+	}
+	return out, nil
+}
+
+func validateEvidenceRef(field, raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", fmt.Errorf("%s is required", field)
+	}
+	if value != raw {
+		return "", fmt.Errorf("%s must not contain leading or trailing whitespace", field)
+	}
+	if strings.ContainsAny(raw, "\r\n\t") {
+		return "", fmt.Errorf("%s must be a single-line value", field)
+	}
+	if len([]rune(raw)) > maxEvidenceRefRunes {
+		return "", fmt.Errorf("%s exceeds %d runes", field, maxEvidenceRefRunes)
+	}
+	return raw, nil
+}
+
+func validQualitySnapshotRef(ref string) bool {
+	rawID := strings.TrimPrefix(ref, requiredSnapshotRefPrefix)
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	return err == nil && id > 0 && strconv.FormatInt(id, 10) == rawID
 }
 
 func readRuntimeCandidateFile(filePath string) (string, error) {
