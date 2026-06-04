@@ -18,11 +18,17 @@ import (
 )
 
 const (
-	maxProofBytes           int64 = 10 * 1024 * 1024
-	maxProofSessionIDBytes        = 128
-	maxProofWorkflowIDBytes       = 256
-	maxProofRunIDBytes            = 256
-	maxProofEvidenceBytes         = 512
+	maxProofBytes                int64 = 10 * 1024 * 1024
+	maxProofSessionIDBytes             = 128
+	maxProofWorkflowIDBytes            = 256
+	maxProofRunIDBytes                 = 256
+	maxProofEvidenceBytes              = 512
+	maxProofCloseReasonBytes           = 128
+	maxProofIdempotencyKeyBytes        = 256
+	maxProofProviderMessageBytes       = 512
+
+	closeNotificationClosedKind = "diagnosis_room.closed"
+	closeNotificationSentKind   = "diagnosis_room.close_notification_sent"
 )
 
 type smokeOutput struct {
@@ -37,6 +43,7 @@ type smokeOutput struct {
 	MessageLength      int             `json:"message_length"`
 	MessageSHA256      string          `json:"message_sha256"`
 	Browser            *browserProof   `json:"browser"`
+	CloseNotification  *closeProof     `json:"close_notification"`
 	Evidence           string          `json:"evidence"`
 }
 
@@ -69,6 +76,48 @@ type browserProof struct {
 	SubmittedMessageLength    int    `json:"submitted_message_length"`
 	SubmittedMessageSHA256    string `json:"submitted_message_sha256"`
 	CompletedTurnText         string `json:"completed_turn_text"`
+}
+
+type closeProof struct {
+	CheckedAt         string                 `json:"checked_at"`
+	Request           closeProofRequest      `json:"request"`
+	Signaled          bool                   `json:"signaled"`
+	Workflow          closeProofWorkflow     `json:"workflow"`
+	CloseEvent        closeProofEvent        `json:"close_event"`
+	NotificationEvent closeNotificationEvent `json:"notification_event"`
+}
+
+type closeProofRequest struct {
+	SessionID   string `json:"session_id"`
+	WorkflowID  string `json:"workflow_id"`
+	RunID       string `json:"run_id"`
+	Reason      string `json:"reason"`
+	WaitTimeout string `json:"wait_timeout"`
+}
+
+type closeProofWorkflow struct {
+	SessionID       string `json:"session_id"`
+	ChatSessionID   int64  `json:"chat_session_id"`
+	DiagnosisTaskID int64  `json:"diagnosis_task_id"`
+	Status          string `json:"status"`
+	TurnCount       int    `json:"turn_count"`
+	ClosedAt        string `json:"closed_at"`
+	CloseReason     string `json:"close_reason"`
+}
+
+type closeProofEvent struct {
+	ID         int64  `json:"id"`
+	Kind       string `json:"kind"`
+	OccurredAt string `json:"occurred_at"`
+}
+
+type closeNotificationEvent struct {
+	ID                int64  `json:"id"`
+	Kind              string `json:"kind"`
+	OccurredAt        string `json:"occurred_at"`
+	IdempotencyKey    string `json:"idempotency_key"`
+	ProviderMessageID string `json:"provider_message_id"`
+	ProviderStatus    string `json:"provider_status"`
 }
 
 var nowUTC = func() time.Time {
@@ -173,6 +222,9 @@ func validate(out smokeOutput) error {
 	if err := validateBrowserProof(*out.Browser, out.MessageLength, messageSHA256); err != nil {
 		return err
 	}
+	if out.CloseNotification != nil && !strings.Contains(evidence, "close_notification") {
+		return fmt.Errorf("evidence must mention close_notification when close_notification proof is present")
+	}
 
 	requestEvidenceSnapshotID, requestHasEvidenceSnapshot, err := validateProofRequest(out.Request, sessionID, out.MessageLength, messageSHA256, out.CreatedRoom != nil)
 	if err != nil {
@@ -192,10 +244,15 @@ func validate(out smokeOutput) error {
 	} else if hasEvidenceSnapshot {
 		return fmt.Errorf("request.evidence_snapshot_id must match evidence_snapshot_id")
 	}
-	if out.CreatedRoom == nil {
-		return nil
+	if out.CreatedRoom != nil {
+		if err := validateCreatedRoom(*out.CreatedRoom, sessionID, evidenceSnapshotID, hasEvidenceSnapshot); err != nil {
+			return err
+		}
 	}
-	return validateCreatedRoom(*out.CreatedRoom, sessionID, evidenceSnapshotID, hasEvidenceSnapshot)
+	if out.CloseNotification != nil {
+		return validateCloseProof(*out.CloseNotification, sessionID, out.Browser.AssistantTurnsAfter, out.CreatedRoom)
+	}
+	return nil
 }
 
 func validateProofRequest(req proofRequest, sessionID string, messageLength int, messageSHA256 string, createdRoom bool) (int64, bool, error) {
@@ -346,6 +403,181 @@ func validateCreatedRoom(room createdRoom, sessionID string, proofEvidenceSnapsh
 	return nil
 }
 
+func validateCloseProof(proof closeProof, sessionID string, assistantTurnsAfter int, room *createdRoom) error {
+	if _, err := validateCanonicalUTCTime("close_notification.checked_at", proof.CheckedAt); err != nil {
+		return err
+	}
+	if !proof.Signaled {
+		return fmt.Errorf("close_notification.signaled must be true")
+	}
+	requestSessionID, err := validateProofID("close_notification.request.session_id", proof.Request.SessionID, maxProofSessionIDBytes)
+	if err != nil {
+		return err
+	}
+	if requestSessionID != sessionID {
+		return fmt.Errorf("close_notification.request.session_id must match session_id")
+	}
+	workflowID, err := validateProofID("close_notification.request.workflow_id", proof.Request.WorkflowID, maxProofWorkflowIDBytes)
+	if err != nil {
+		return err
+	}
+	if workflowID != "diagnosis-room-"+sessionID {
+		return fmt.Errorf("close_notification.request.workflow_id must match the session workflow id")
+	}
+	if proof.Request.RunID != "" {
+		if _, err := validateProofID("close_notification.request.run_id", proof.Request.RunID, maxProofRunIDBytes); err != nil {
+			return err
+		}
+		if room != nil && proof.Request.RunID != room.RunID {
+			return fmt.Errorf("close_notification.request.run_id must match created_room.run_id")
+		}
+	}
+	reason, err := validateBoundedCleanString("close_notification.request.reason", proof.Request.Reason, maxProofCloseReasonBytes)
+	if err != nil {
+		return err
+	}
+	waitTimeout, err := validateRequiredCleanString("close_notification.request.wait_timeout", proof.Request.WaitTimeout)
+	if err != nil {
+		return err
+	}
+	parsedWaitTimeout, err := time.ParseDuration(waitTimeout)
+	if err != nil || parsedWaitTimeout <= 0 {
+		return fmt.Errorf("close_notification.request.wait_timeout must be a positive duration")
+	}
+
+	workflowSessionID, err := validateProofID("close_notification.workflow.session_id", proof.Workflow.SessionID, maxProofSessionIDBytes)
+	if err != nil {
+		return err
+	}
+	if workflowSessionID != sessionID {
+		return fmt.Errorf("close_notification.workflow.session_id must match session_id")
+	}
+	if proof.Workflow.ChatSessionID <= 0 {
+		return fmt.Errorf("close_notification.workflow.chat_session_id must be > 0")
+	}
+	if proof.Workflow.DiagnosisTaskID <= 0 {
+		return fmt.Errorf("close_notification.workflow.diagnosis_task_id must be > 0")
+	}
+	if room != nil {
+		if proof.Workflow.ChatSessionID != room.ChatSessionID {
+			return fmt.Errorf("close_notification.workflow.chat_session_id must match created_room.chat_session_id")
+		}
+		if proof.Workflow.DiagnosisTaskID != room.DiagnosisTaskID {
+			return fmt.Errorf("close_notification.workflow.diagnosis_task_id must match created_room.diagnosis_task_id")
+		}
+	}
+	status, err := validateRequiredCleanString("close_notification.workflow.status", proof.Workflow.Status)
+	if err != nil {
+		return err
+	}
+	if status != "closed" {
+		return fmt.Errorf("close_notification.workflow.status = %q, want closed", status)
+	}
+	if proof.Workflow.TurnCount != assistantTurnsAfter {
+		return fmt.Errorf("close_notification.workflow.turn_count must match browser.assistant_turns_after")
+	}
+	closedAt, err := validateCanonicalUTCTime("close_notification.workflow.closed_at", proof.Workflow.ClosedAt)
+	if err != nil {
+		return err
+	}
+	closeReason, err := validateBoundedCleanString("close_notification.workflow.close_reason", proof.Workflow.CloseReason, maxProofCloseReasonBytes)
+	if err != nil {
+		return err
+	}
+	if closeReason != reason {
+		return fmt.Errorf("close_notification.workflow.close_reason must match close_notification.request.reason")
+	}
+
+	closeEventAt, err := validateCloseProofEvent("close_notification.close_event", proof.CloseEvent, closeNotificationClosedKind)
+	if err != nil {
+		return err
+	}
+	if closeEventAt.Before(closedAt) {
+		return fmt.Errorf("close_notification.close_event.occurred_at must not be before workflow.closed_at")
+	}
+	notificationEventAt, err := validateCloseNotificationEvent(
+		proof.NotificationEvent,
+		closeNotificationSentKind,
+		proof.Workflow.DiagnosisTaskID,
+	)
+	if err != nil {
+		return err
+	}
+	if notificationEventAt.Before(closeEventAt) {
+		return fmt.Errorf("close_notification.notification_event.occurred_at must not be before close_event.occurred_at")
+	}
+	if proof.NotificationEvent.ID == proof.CloseEvent.ID {
+		return fmt.Errorf("close_notification.notification_event.id must differ from close_event.id")
+	}
+	return nil
+}
+
+func validateCloseProofEvent(field string, event closeProofEvent, wantKind string) (time.Time, error) {
+	if event.ID <= 0 {
+		return time.Time{}, fmt.Errorf("%s.id must be > 0", field)
+	}
+	kind, err := validateRequiredCleanString(field+".kind", event.Kind)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if kind != wantKind {
+		return time.Time{}, fmt.Errorf("%s.kind = %q, want %s", field, kind, wantKind)
+	}
+	occurredAt, err := validateCanonicalUTCTime(field+".occurred_at", event.OccurredAt)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return occurredAt, nil
+}
+
+func validateCloseNotificationEvent(event closeNotificationEvent, wantKind string, diagnosisTaskID int64) (time.Time, error) {
+	if event.ID <= 0 {
+		return time.Time{}, fmt.Errorf("close_notification.notification_event.id must be > 0")
+	}
+	kind, err := validateRequiredCleanString("close_notification.notification_event.kind", event.Kind)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if kind != wantKind {
+		return time.Time{}, fmt.Errorf("close_notification.notification_event.kind = %q, want %s", kind, wantKind)
+	}
+	occurredAt, err := validateCanonicalUTCTime("close_notification.notification_event.occurred_at", event.OccurredAt)
+	if err != nil {
+		return time.Time{}, err
+	}
+	idempotencyKey, err := validateBoundedCleanString(
+		"close_notification.notification_event.idempotency_key",
+		event.IdempotencyKey,
+		maxProofIdempotencyKeyBytes,
+	)
+	if err != nil {
+		return time.Time{}, err
+	}
+	wantPrefix := "diagnosis_room:" + strconv.FormatInt(diagnosisTaskID, 10) + ":"
+	if !strings.HasPrefix(idempotencyKey, wantPrefix) || !strings.HasSuffix(idempotencyKey, "/close_notification") {
+		return time.Time{}, fmt.Errorf("close_notification.notification_event.idempotency_key must match diagnosis-room close notification format")
+	}
+	if event.ProviderMessageID != "" {
+		if _, err := validateBoundedCleanString(
+			"close_notification.notification_event.provider_message_id",
+			event.ProviderMessageID,
+			maxProofProviderMessageBytes,
+		); err != nil {
+			return time.Time{}, err
+		}
+	}
+	status, err := validateRequiredCleanString("close_notification.notification_event.provider_status", event.ProviderStatus)
+	if err != nil {
+		return time.Time{}, err
+	}
+	switch status {
+	case "accepted", "delivered":
+		return occurredAt, nil
+	default:
+		return time.Time{}, fmt.Errorf("close_notification.notification_event.provider_status = %q, want accepted or delivered", status)
+	}
+}
+
 func completedTurnNumber(value string) (int, bool) {
 	if !strings.HasPrefix(value, "Turn ") || !strings.HasSuffix(value, " completed.") {
 		return 0, false
@@ -389,22 +621,26 @@ func validateHTTPURL(field, raw string) error {
 }
 
 func validateCheckedAt(raw string) (time.Time, error) {
+	return validateCanonicalUTCTime("checked_at", raw)
+}
+
+func validateCanonicalUTCTime(field, raw string) (time.Time, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
-		return time.Time{}, fmt.Errorf("checked_at must be non-empty")
+		return time.Time{}, fmt.Errorf("%s must be non-empty", field)
 	}
 	if value != raw {
-		return time.Time{}, fmt.Errorf("checked_at must not contain leading or trailing whitespace")
+		return time.Time{}, fmt.Errorf("%s must not contain leading or trailing whitespace", field)
 	}
 	checkedAt, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("checked_at must be RFC3339: %w", err)
+		return time.Time{}, fmt.Errorf("%s must be RFC3339: %w", field, err)
 	}
 	if checkedAt.UTC().Format(time.RFC3339Nano) != value {
-		return time.Time{}, fmt.Errorf("checked_at must be canonical UTC RFC3339")
+		return time.Time{}, fmt.Errorf("%s must be canonical UTC RFC3339", field)
 	}
 	if checkedAt.After(nowUTC()) {
-		return time.Time{}, fmt.Errorf("checked_at must not be in the future")
+		return time.Time{}, fmt.Errorf("%s must not be in the future", field)
 	}
 	return checkedAt.UTC(), nil
 }

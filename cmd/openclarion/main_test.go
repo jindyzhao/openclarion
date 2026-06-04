@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
@@ -466,6 +467,197 @@ func TestRunReportReplayCLITriggerWaitsForCompletion(t *testing.T) {
 	}
 }
 
+func TestParseDiagnosisRoomCloseCLIArgs(t *testing.T) {
+	cfg, err := parseDiagnosisRoomCloseCLIArgs([]string{
+		"--session-id", "diagnosis-session-abc",
+		"--run-id", "run-1",
+		"--reason", "live_smoke_completed",
+		"--wait-timeout", "3m",
+	})
+	if err != nil {
+		t.Fatalf("parseDiagnosisRoomCloseCLIArgs: %v", err)
+	}
+	if cfg.SessionID != "diagnosis-session-abc" ||
+		cfg.RunID != "run-1" ||
+		cfg.Reason != "live_smoke_completed" ||
+		cfg.WaitTimeout != 3*time.Minute {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+}
+
+func TestParseDiagnosisRoomCloseCLIArgsRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing session",
+			args: []string{},
+			want: "--session-id",
+		},
+		{
+			name: "session whitespace",
+			args: []string{"--session-id", " diagnosis-session-abc "},
+			want: "session-id must not contain leading or trailing whitespace",
+		},
+		{
+			name: "empty reason",
+			args: []string{"--session-id", "diagnosis-session-abc", "--reason", " "},
+			want: "--reason must be non-empty",
+		},
+		{
+			name: "reason whitespace",
+			args: []string{"--session-id", "diagnosis-session-abc", "--reason", " live_smoke_completed "},
+			want: "--reason must not contain leading or trailing whitespace",
+		},
+		{
+			name: "bad timeout",
+			args: []string{"--session-id", "diagnosis-session-abc", "--wait-timeout", "0s"},
+			want: "--wait-timeout",
+		},
+		{
+			name: "positional",
+			args: []string{"--session-id", "diagnosis-session-abc", "extra"},
+			want: "unexpected positional arguments",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseDiagnosisRoomCloseCLIArgs(tc.args)
+			if err == nil {
+				t.Fatal("parseDiagnosisRoomCloseCLIArgs: want error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %q, want substring %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestRunDiagnosisRoomCloseCLIWithDependenciesWritesProof(t *testing.T) {
+	checkedAt := time.Date(2026, 6, 4, 8, 0, 0, 123000000, time.UTC)
+	previousNow := diagnosisRoomCloseCLINowUTC
+	diagnosisRoomCloseCLINowUTC = func() time.Time { return checkedAt }
+	t.Cleanup(func() { diagnosisRoomCloseCLINowUTC = previousNow })
+
+	closedAt := time.Date(2026, 6, 4, 7, 59, 0, 0, time.UTC)
+	waiter := &recordingDiagnosisRoomCloseWaiter{
+		result: temporalpkg.DiagnosisRoomWorkflowResult{
+			SessionID:       "diagnosis-session-abc",
+			ChatSessionID:   202,
+			DiagnosisTaskID: 101,
+			Status:          "closed",
+			TurnCount:       1,
+			ClosedAt:        &closedAt,
+			CloseReason:     "live_smoke_completed",
+		},
+	}
+	loader := &recordingDiagnosisRoomCloseEventsLoader{
+		events: diagnosisRoomCloseEvents{
+			CloseEvent: domain.DiagnosisTaskEvent{
+				ID:         domain.DiagnosisTaskEventID(11),
+				TaskID:     domain.DiagnosisTaskID(101),
+				Kind:       diagnosisRoomCloseEventClosedKind,
+				OccurredAt: closedAt,
+			},
+			NotificationEvent: domain.DiagnosisTaskEvent{
+				ID:         domain.DiagnosisTaskEventID(12),
+				TaskID:     domain.DiagnosisTaskID(101),
+				Kind:       diagnosisRoomCloseEventNotificationSentKind,
+				OccurredAt: closedAt.Add(time.Microsecond),
+			},
+			Notification: diagnosisRoomCloseNotificationPayload{
+				IdempotencyKey:    "diagnosis_room:101:close-notification",
+				ProviderMessageID: "webhook-message-1",
+				ProviderStatus:    "accepted",
+			},
+		},
+	}
+	cfg := diagnosisRoomCloseCLIConfig{
+		SessionID:   "diagnosis-session-abc",
+		RunID:       "run-1",
+		Reason:      "live_smoke_completed",
+		WaitTimeout: 3 * time.Second,
+	}
+	var out bytes.Buffer
+	if err := runDiagnosisRoomCloseCLIWithDependencies(context.Background(), waiter, loader, cfg, &out); err != nil {
+		t.Fatalf("runDiagnosisRoomCloseCLIWithDependencies: %v", err)
+	}
+	if waiter.cfg != cfg {
+		t.Fatalf("waiter cfg = %+v, want %+v", waiter.cfg, cfg)
+	}
+	if loader.taskID != domain.DiagnosisTaskID(101) {
+		t.Fatalf("loader taskID = %d, want 101", loader.taskID)
+	}
+	var got diagnosisRoomCloseCLIOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode output: %v; raw=%s", err, out.String())
+	}
+	if got.CheckedAt != checkedAt.Format(time.RFC3339Nano) ||
+		!got.Signaled ||
+		got.Request.WorkflowID != "diagnosis-room-diagnosis-session-abc" ||
+		got.Request.RunID != "run-1" ||
+		got.Request.WaitTimeout != "3s" {
+		t.Fatalf("output request/signaled = %+v checked_at=%q", got.Request, got.CheckedAt)
+	}
+	if got.Workflow.Status != "closed" ||
+		got.Workflow.SessionID != "diagnosis-session-abc" ||
+		got.Workflow.DiagnosisTaskID != 101 ||
+		got.Workflow.ChatSessionID != 202 ||
+		got.Workflow.TurnCount != 1 ||
+		got.Workflow.CloseReason != "live_smoke_completed" {
+		t.Fatalf("workflow output = %+v", got.Workflow)
+	}
+	if got.CloseEvent.Kind != diagnosisRoomCloseEventClosedKind ||
+		got.NotificationEvent.Kind != diagnosisRoomCloseEventNotificationSentKind ||
+		got.NotificationEvent.IdempotencyKey != "diagnosis_room:101:close-notification" ||
+		got.NotificationEvent.ProviderMessageID != "webhook-message-1" ||
+		got.NotificationEvent.ProviderStatus != "accepted" {
+		t.Fatalf("event output = close %+v notification %+v", got.CloseEvent, got.NotificationEvent)
+	}
+}
+
+func TestRunDiagnosisRoomCloseCLIWithDependenciesRequiresNotificationEvent(t *testing.T) {
+	closedAt := time.Date(2026, 6, 4, 7, 59, 0, 0, time.UTC)
+	waiter := &recordingDiagnosisRoomCloseWaiter{
+		result: temporalpkg.DiagnosisRoomWorkflowResult{
+			SessionID:       "diagnosis-session-abc",
+			ChatSessionID:   202,
+			DiagnosisTaskID: 101,
+			Status:          "closed",
+			TurnCount:       1,
+			ClosedAt:        &closedAt,
+			CloseReason:     "live_smoke_completed",
+		},
+	}
+	loader := &recordingDiagnosisRoomCloseEventsLoader{
+		events: diagnosisRoomCloseEvents{
+			CloseEvent: domain.DiagnosisTaskEvent{
+				ID:         domain.DiagnosisTaskEventID(11),
+				TaskID:     domain.DiagnosisTaskID(101),
+				Kind:       diagnosisRoomCloseEventClosedKind,
+				OccurredAt: closedAt,
+			},
+		},
+	}
+	var out bytes.Buffer
+	err := runDiagnosisRoomCloseCLIWithDependencies(context.Background(), waiter, loader, diagnosisRoomCloseCLIConfig{
+		SessionID:   "diagnosis-session-abc",
+		Reason:      "live_smoke_completed",
+		WaitTimeout: time.Second,
+	}, &out)
+	if err == nil {
+		t.Fatal("runDiagnosisRoomCloseCLIWithDependencies: want missing notification event error")
+	}
+	if !strings.Contains(err.Error(), "close notification event is missing") {
+		t.Fatalf("err = %q, want notification event error", err.Error())
+	}
+	if out.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+}
+
 func mapGetenv(env map[string]string) getenvFunc {
 	return func(key string) string {
 		return env[key]
@@ -550,4 +742,24 @@ type recordingReportReplayCLIWaiter struct {
 func (w *recordingReportReplayCLIWaiter) WaitReportBatch(_ context.Context, handle ports.WorkflowHandle) (reportReplayCLIWorkflowResult, error) {
 	w.handle = handle
 	return w.result, nil
+}
+
+type recordingDiagnosisRoomCloseWaiter struct {
+	cfg    diagnosisRoomCloseCLIConfig
+	result temporalpkg.DiagnosisRoomWorkflowResult
+}
+
+func (w *recordingDiagnosisRoomCloseWaiter) SignalAndWaitDiagnosisRoomClose(_ context.Context, cfg diagnosisRoomCloseCLIConfig) (temporalpkg.DiagnosisRoomWorkflowResult, error) {
+	w.cfg = cfg
+	return w.result, nil
+}
+
+type recordingDiagnosisRoomCloseEventsLoader struct {
+	taskID domain.DiagnosisTaskID
+	events diagnosisRoomCloseEvents
+}
+
+func (l *recordingDiagnosisRoomCloseEventsLoader) LoadDiagnosisRoomCloseEvents(_ context.Context, taskID domain.DiagnosisTaskID) (diagnosisRoomCloseEvents, error) {
+	l.taskID = taskID
+	return l.events, nil
 }

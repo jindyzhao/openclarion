@@ -101,6 +101,14 @@ func TestRunAcceptsCreatedRoomLiveSmokeProof(t *testing.T) {
 	}
 }
 
+func TestRunAcceptsLiveSmokeProofWithCloseNotification(t *testing.T) {
+	path := writeSmokeProof(t, validCreatedProofWithCloseNotification())
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
 func TestRunRejectsSymlinkLiveSmokeProof(t *testing.T) {
 	target := writeSmokeProof(t, validExistingProof())
 	link := filepath.Join(t.TempDir(), "linked-output.json")
@@ -371,6 +379,13 @@ func TestRunRejectsInvalidLiveSmokeProof(t *testing.T) {
 			want: "evidence exceeds 512 bytes",
 		},
 		{
+			name: "close notification proof without evidence mention",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithCloseNotification(), `"evidence":"turn_result close_notification"`, `"evidence":"turn_result"`)
+			},
+			want: "evidence must mention close_notification",
+		},
+		{
 			name: "missing browser proof",
 			body: func(t *testing.T) string {
 				return removeProof(t, validExistingProof(), `,"browser":{"state_loaded":true,"turn_result_observed":true,"assistant_turns_before":0,"assistant_turns_after":1,"transcript_messages_before":0,"transcript_messages_after":2,"connection_status_after_turn":"connected","submitted_message_visible":true,"submitted_message_length":1,"submitted_message_sha256":"`+testMessageSHA256+`","completed_turn_text":"Turn 1 completed."}`)
@@ -516,6 +531,41 @@ func TestRunRejectsInvalidLiveSmokeProof(t *testing.T) {
 			want: "created_room.run_id exceeds 256 bytes",
 		},
 		{
+			name: "close notification not signaled",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithCloseNotification(), `"signaled":true`, `"signaled":false`)
+			},
+			want: "close_notification.signaled",
+		},
+		{
+			name: "close notification run id mismatch",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithCloseNotification(), `"run_id":"run"`, `"run_id":"other"`)
+			},
+			want: "close_notification.request.run_id",
+		},
+		{
+			name: "close notification workflow turn mismatch",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithCloseNotification(), `"turn_count":1`, `"turn_count":2`)
+			},
+			want: "close_notification.workflow.turn_count",
+		},
+		{
+			name: "close notification bad idempotency key",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithCloseNotification(), `"idempotency_key":"diagnosis_room:1:abcdef/close_notification"`, `"idempotency_key":"final_report:1/notification"`)
+			},
+			want: "idempotency_key",
+		},
+		{
+			name: "close notification bad provider status",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithCloseNotification(), `"provider_status":"accepted"`, `"provider_status":"queued"`)
+			},
+			want: "accepted or delivered",
+		},
+		{
 			name: "duplicate proof key",
 			body: func(t *testing.T) string {
 				return replaceProof(t, validExistingProof(), `"passed":true`, `"passed":true,"passed":false`)
@@ -559,6 +609,15 @@ func validExistingProof() string {
 
 func validCreatedProof() string {
 	return `{"passed":true,"checked_at":"2026-05-29T01:02:03Z","request":{"mode":"create_room","session_id":"s","evidence_snapshot_id":7,"message_length":1,"message_sha256":"` + testMessageSHA256 + `"},"web_base_url":"http://127.0.0.1:32101","api_base_url":"http://127.0.0.1:8080","session_id":"s","evidence_snapshot_id":7,"created_room":{"session_id":"s","evidence_snapshot_id":7,"diagnosis_task_id":1,"chat_session_id":1,"workflow_id":"diagnosis-room-s","run_id":"run"},"message_length":1,"message_sha256":"` + testMessageSHA256 + `","browser":{"state_loaded":true,"turn_result_observed":true,"assistant_turns_before":0,"assistant_turns_after":1,"transcript_messages_before":0,"transcript_messages_after":2,"connection_status_after_turn":"connected","submitted_message_visible":true,"submitted_message_length":1,"submitted_message_sha256":"` + testMessageSHA256 + `","completed_turn_text":"Turn 1 completed."},"evidence":"turn_result"}`
+}
+
+func validCreatedProofWithCloseNotification() string {
+	return strings.Replace(
+		validCreatedProof(),
+		`,"evidence":"turn_result"}`,
+		`,"close_notification":{"checked_at":"2026-05-29T01:03:00Z","request":{"session_id":"s","workflow_id":"diagnosis-room-s","run_id":"run","reason":"live_smoke_completed","wait_timeout":"2m0s"},"signaled":true,"workflow":{"session_id":"s","chat_session_id":1,"diagnosis_task_id":1,"status":"closed","turn_count":1,"closed_at":"2026-05-29T01:02:05Z","close_reason":"live_smoke_completed"},"close_event":{"id":2,"kind":"diagnosis_room.closed","occurred_at":"2026-05-29T01:02:05Z"},"notification_event":{"id":3,"kind":"diagnosis_room.close_notification_sent","occurred_at":"2026-05-29T01:02:05.000001Z","idempotency_key":"diagnosis_room:1:abcdef/close_notification","provider_message_id":"msg-1","provider_status":"accepted"}},"evidence":"turn_result close_notification"}`,
+		1,
+	)
 }
 
 func replaceProof(t *testing.T, body, old, replacement string) string {
