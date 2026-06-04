@@ -134,6 +134,28 @@ func TestRunRejectsMissingScenarioCoverage(t *testing.T) {
 	}
 }
 
+func TestRunRejectsDuplicateCaseIDAcrossScenarios(t *testing.T) {
+	root := t.TempDir()
+	writeCasePair(t, root, "single_alert", "shared-case", "11", "alert:cpu", "metric:queue")
+	writeCasePair(t, root, "cascade", "shared-case", "12", "metric:latency", "metric:errors")
+	writeCasePair(t, root, "alert_storm", "billing-errors", "13", "alert:errors", "metric:rate")
+
+	var stdout bytes.Buffer
+	err := run([]string{
+		"--root", root,
+		"--sample-basis", "representative alert samples from retained replay window 2026-06-04",
+	}, &stdout)
+	if err == nil {
+		t.Fatal("run err = nil, want duplicate case id rejection")
+	}
+	if !strings.Contains(err.Error(), `case id "shared-case"`) || !strings.Contains(err.Error(), "globally unique") {
+		t.Fatalf("run err = %v, want duplicate globally unique case id error", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on error", stdout.String())
+	}
+}
+
 func TestRunRejectsCaseWithoutSharedSnapshotRef(t *testing.T) {
 	root := t.TempDir()
 	writeReport(t, root, directRole, "single_alert", "payments-cpu", "11", "alert:cpu")
