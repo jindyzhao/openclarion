@@ -5,6 +5,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -29,6 +31,7 @@ const (
 	maxReadinessSampleBasisBytes   = 2048
 	maxReadinessQualityCaseIDBytes = 128
 	maxReadinessCloseReasonBytes   = 128
+	m4PacketVerificationTimeout    = 2 * time.Minute
 	directRole                     = "direct"
 	sandboxRole                    = "sandbox"
 )
@@ -54,6 +57,8 @@ var requiredM4EvidenceArtifacts = []m4EvidenceArtifact{
 	{Name: "review_evidence", Artifact: "review-evidence.json", JSON: true},
 	{Name: "packet_summary", Artifact: "packet.json", JSON: true},
 }
+
+var verifyM4EvidencePacket = verifyM4EvidencePacketWithGoRun
 
 type readinessOutput struct {
 	Tool    string            `json:"tool"`
@@ -446,8 +451,8 @@ func sandboxM4EvidenceChainReadiness(env envMap) targetReadiness {
 		Command: "OPENCLARION_M4_EVIDENCE_ROOT=... make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=sandbox-m4-evidence-chain",
 		Notes: []string{
 			"Preflight checks a retained M4 evidence working directory for the canonical artifact chain without printing local paths.",
-			"JSON artifacts are checked for duplicate object keys and trailing JSON before downstream helpers perform full semantic validation.",
-			"The target reports presence and SHA-256 digests only; it does not judge sample representativeness or accept a runtime baseline.",
+			"JSON artifacts are checked for duplicate object keys and trailing JSON before the packet verifier performs semantic validation when all canonical artifacts are present.",
+			"The target reports presence, SHA-256 digests, and packet verification status only; it does not judge sample representativeness or accept a runtime baseline.",
 		},
 	}
 	target.DirectoryChecks = append(target.DirectoryChecks, requiredDirectoryEnv(env, "OPENCLARION_M4_EVIDENCE_ROOT"))
@@ -1124,7 +1129,66 @@ func m4EvidenceChainChecks(root string) []evidenceChainCheck {
 	for _, artifact := range requiredM4EvidenceArtifacts {
 		checks = append(checks, checkM4EvidenceArtifact(root, artifact))
 	}
+	if evidenceChainChecksReady(checks) {
+		checks = append(checks, checkM4PacketSemanticVerification(root))
+	}
 	return checks
+}
+
+func checkM4PacketSemanticVerification(root string) evidenceChainCheck {
+	check := evidenceChainCheck{
+		Name:     "packet_semantic_verification",
+		Artifact: "packet.json",
+	}
+	if err := verifyM4EvidencePacket(root); err != nil {
+		check.Status = "invalid_packet"
+		check.Reason = err.Error()
+		return check
+	}
+	check.Status = "ok"
+	return check
+}
+
+func verifyM4EvidencePacketWithGoRun(root string) error {
+	repoRoot, err := findRepositoryRoot()
+	if err != nil {
+		return errors.New("packet verifier could not be launched")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), m4PacketVerificationTimeout)
+	defer cancel()
+	// #nosec G204 -- the executable and verifier arguments are fixed; root is
+	// an operator-selected evidence directory and verifier output is discarded.
+	cmd := exec.CommandContext(ctx, "go", "run", "./scripts/sandbox_m4_evidence_packet", "--verify-packet", root)
+	cmd.Dir = repoRoot
+	if _, err := cmd.CombinedOutput(); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return errors.New("packet verifier timed out")
+		}
+		return errors.New("packet verifier rejected retained packet")
+	}
+	return nil
+}
+
+func findRepositoryRoot() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	dir := wd
+	for {
+		modPath := filepath.Join(dir, "go.mod")
+		// #nosec G304 -- repository discovery only reads go.mod while walking
+		// parents from the current working directory.
+		raw, err := os.ReadFile(modPath)
+		if err == nil && strings.Contains(string(raw), "module github.com/openclarion/openclarion") {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", errors.New("repository root not found")
+		}
+		dir = parent
+	}
 }
 
 func checkM4EvidenceArtifact(root string, artifact m4EvidenceArtifact) evidenceChainCheck {

@@ -117,9 +117,12 @@ That preflight reports the canonical artifact chain by relative artifact name:
 baseline audit, runtime-smoke JSON files, `digest-ref.txt`, direct/sandbox
 sample directories, quality manifest, quality comparison, review evidence, and
 `packet.json`. Existing JSON files are checked for duplicate object keys and
-trailing JSON values before the helper reports their SHA-256 digests. The
-output is a gap audit only; it does not run Docker, compare report quality,
-judge sample representativeness, or accept a runtime baseline.
+trailing JSON values before the helper reports their SHA-256 digests. When all
+canonical artifacts are present, the preflight also invokes
+`sandbox_m4_evidence_packet --verify-packet` and reports a
+`packet_semantic_verification` status without printing verifier output or local
+paths. The output is a gap audit only; it does not run Docker, compare report
+quality, judge sample representativeness, or accept a runtime baseline.
 The packet helper validates that the copied manifest's `sample_basis`, case
 IDs, scenarios, and `required_evidence_refs` match the generated quality
 comparison output, then validates every copied direct/sandbox SubReport with
