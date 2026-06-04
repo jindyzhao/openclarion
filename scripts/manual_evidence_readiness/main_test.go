@@ -108,6 +108,39 @@ func TestRunReportsNextTargetUsesMilestoneSequence(t *testing.T) {
 	}
 }
 
+func TestRunOrdersAllTargetsByMilestoneSequence(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := run(nil, nil, &stdout); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	wantNames := []string{
+		"report-live-smoke",
+		"diagnosis-live-browser-smoke",
+		"sandbox-m4-baseline-audit",
+		"sandbox-m4-runtime-smoke-artifacts",
+		"sandbox-m4-quality-sample-export",
+		"sandbox-m4-quality-manifest-prepare",
+		"sandbox-m4-quality-compare",
+		"sandbox-m4-review-evidence-template",
+		"sandbox-m4-decision",
+		"sandbox-m4-evidence-packet",
+		"sandbox-m4-evidence-chain",
+	}
+	if len(out.Targets) != len(wantNames) {
+		t.Fatalf("targets = %d, want %d", len(out.Targets), len(wantNames))
+	}
+	for i, want := range wantNames {
+		if got := out.Targets[i].Name; got != want {
+			t.Fatalf("targets[%d].name = %q, want %q", i, got, want)
+		}
+	}
+	if out.Summary.NextTarget == nil || out.Summary.NextTarget.Name != "report-live-smoke" {
+		t.Fatalf("summary next target = %#v, want report-live-smoke", out.Summary.NextTarget)
+	}
+}
+
 func TestRunRejectsBadReportLiveInputsWithoutLeakingValues(t *testing.T) {
 	var stdout bytes.Buffer
 	futureStart := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)

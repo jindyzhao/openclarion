@@ -195,6 +195,7 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	selected = orderedTargetsBySequence(selected)
 	out := readinessOutput{
 		Tool:    toolName,
 		Status:  "ready",
@@ -215,6 +216,25 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
+}
+
+func orderedTargetsBySequence(targets []targetReadiness) []targetReadiness {
+	ordered := append([]targetReadiness(nil), targets...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		left := ordered[i].Sequence
+		right := ordered[j].Sequence
+		if left == right {
+			return false
+		}
+		if left == 0 {
+			return false
+		}
+		if right == 0 {
+			return true
+		}
+		return left < right
+	})
+	return ordered
 }
 
 func nextBlockedTarget(targets []targetReadiness) *nextTargetHint {
