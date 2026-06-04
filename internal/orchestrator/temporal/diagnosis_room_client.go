@@ -161,10 +161,37 @@ func diagnosisRoomWorkflowState(state DiagnosisRoomWorkflowState) ports.Diagnosi
 		LastActivityAt:  state.LastActivityAt,
 		ClosedAt:        state.ClosedAt,
 		CloseReason:     state.CloseReason,
+		FinalConclusion: diagnosisRoomFinalConclusionPort(state.FinalConclusion),
 		InFlight:        state.InFlight,
 		SeenMessageIDs:  seen,
 		Conversation:    conversation,
 	}
+}
+
+func diagnosisRoomFinalConclusionPort(in *DiagnosisRoomFinalConclusion) *ports.DiagnosisRoomFinalConclusion {
+	if in == nil {
+		return nil
+	}
+	out := &ports.DiagnosisRoomFinalConclusion{
+		Status:              in.Status,
+		Source:              in.Source,
+		Reason:              in.Reason,
+		AssistantTurnID:     domain.ChatTurnID(in.AssistantTurnID),
+		AssistantMessageID:  in.AssistantMessageID,
+		AssistantSequence:   in.AssistantSequence,
+		Content:             in.Content,
+		Confidence:          in.Confidence,
+		RequiresHumanReview: in.RequiresHumanReview,
+	}
+	if in.AssistantOccurredAt != nil {
+		occurredAt := *in.AssistantOccurredAt
+		out.AssistantOccurredAt = &occurredAt
+	}
+	if in.RequiresHumanReview != nil {
+		requiresHumanReview := *in.RequiresHumanReview
+		out.RequiresHumanReview = &requiresHumanReview
+	}
+	return out
 }
 
 var _ ports.DiagnosisRoomWorkflowClient = (*DiagnosisRoomClient)(nil)

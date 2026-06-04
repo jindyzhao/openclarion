@@ -93,6 +93,7 @@ type DiagnosisRoomWorkflowState struct {
 	LastActivityAt  time.Time
 	ClosedAt        *time.Time
 	CloseReason     string
+	FinalConclusion *DiagnosisRoomFinalConclusion
 	InFlight        bool
 	SeenMessageIDs  []string
 	Conversation    []diagnosisroom.ConversationTurn
@@ -109,6 +110,7 @@ type diagnosisRoomState struct {
 	lastActivityAt  time.Time
 	closedAt        *time.Time
 	closeReason     string
+	finalConclusion *DiagnosisRoomFinalConclusion
 	turnCount       int
 	diagnosisTaskID int64
 	chatSessionID   int64
@@ -346,6 +348,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			return DiagnosisRoomWorkflowResult{}, err
 		}
 		state.chatSessionID = closeResult.ChatSessionID
+		state.finalConclusion = copyDiagnosisRoomFinalConclusion(closeResult.FinalConclusion)
 		var notificationResult SendDiagnosisRoomCloseNotificationResult
 		if err := workflow.ExecuteActivity(closeCtx, (*Activities).SendDiagnosisRoomCloseNotification, CloseDiagnosisChatSessionInput{
 			SessionID:       state.input.SessionID,
@@ -409,6 +412,7 @@ func (s *diagnosisRoomState) snapshot() DiagnosisRoomWorkflowState {
 		LastActivityAt:  s.lastActivityAt,
 		ClosedAt:        s.closedAt,
 		CloseReason:     s.closeReason,
+		FinalConclusion: s.finalConclusion,
 		InFlight:        s.inFlight,
 		SeenMessageIDs:  seen,
 		Conversation:    s.conversationCopy(),
@@ -419,6 +423,22 @@ func (s *diagnosisRoomState) conversationCopy() []diagnosisroom.ConversationTurn
 	conversation := make([]diagnosisroom.ConversationTurn, len(s.conversation))
 	copy(conversation, s.conversation)
 	return conversation
+}
+
+func copyDiagnosisRoomFinalConclusion(in DiagnosisRoomFinalConclusion) *DiagnosisRoomFinalConclusion {
+	if strings.TrimSpace(in.Status) == "" {
+		return nil
+	}
+	out := in
+	if in.AssistantOccurredAt != nil {
+		occurredAt := *in.AssistantOccurredAt
+		out.AssistantOccurredAt = &occurredAt
+	}
+	if in.RequiresHumanReview != nil {
+		requiresHumanReview := *in.RequiresHumanReview
+		out.RequiresHumanReview = &requiresHumanReview
+	}
+	return &out
 }
 
 func (s *diagnosisRoomState) closeIfExpired(now time.Time) bool {

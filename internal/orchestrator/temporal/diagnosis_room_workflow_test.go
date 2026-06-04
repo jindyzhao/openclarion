@@ -81,6 +81,9 @@ func TestDiagnosisRoomWorkflow_SubmitTurnQueryAndCloseSignal(t *testing.T) {
 		queried.Conversation[1].Role != "assistant" {
 		t.Fatalf("conversation = %+v, want user + assistant turns", queried.Conversation)
 	}
+	if queried.FinalConclusion != nil {
+		t.Fatalf("open queried final conclusion = %+v, want nil", queried.FinalConclusion)
+	}
 
 	var result temporalpkg.DiagnosisRoomWorkflowResult
 	if err := env.GetWorkflowResult(&result); err != nil {
@@ -88,6 +91,13 @@ func TestDiagnosisRoomWorkflow_SubmitTurnQueryAndCloseSignal(t *testing.T) {
 	}
 	if result.Status != "closed" || result.CloseReason != "user_done" || result.ClosedAt == nil {
 		t.Fatalf("terminal result = %+v, want closed user_done", result)
+	}
+	if result.FinalConclusion == nil ||
+		result.FinalConclusion.Status != "available" ||
+		result.FinalConclusion.Source != "latest_assistant_turn" ||
+		result.FinalConclusion.Content != "CPU alert is still firing." ||
+		result.FinalConclusion.Confidence != "medium" {
+		t.Fatalf("terminal final conclusion = %+v", result.FinalConclusion)
 	}
 }
 
@@ -548,6 +558,12 @@ func registerDiagnosisRoomPersistenceActivities(t *testing.T, env *testsuite.Tes
 				ClosedAt:         got.ClosedAt,
 				CloseReason:      got.Reason,
 				LastActivityAt:   got.ClosedAt,
+				FinalConclusion: temporalpkg.DiagnosisRoomFinalConclusion{
+					Status:     "available",
+					Source:     "latest_assistant_turn",
+					Content:    "CPU alert is still firing.",
+					Confidence: "medium",
+				},
 			}, nil
 		},
 		activity.RegisterOptions{Name: "CloseDiagnosisChatSession"},

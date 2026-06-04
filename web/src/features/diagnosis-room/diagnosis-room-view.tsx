@@ -271,8 +271,16 @@ export function DiagnosisRoomView() {
               <StateRow label="Session" value={roomState?.session_id || sessionID || "-"} />
               <StateRow label="Status" value={roomState?.status || statusLabel(status)} />
               <StateRow label="Turns" value={roomState ? String(roomState.turn_count) : "-"} />
+              <StateRow label="Close reason" value={roomState?.close_reason || "-"} />
+              <StateRow label="Conclusion" value={finalConclusionLabel(roomState)} />
               <StateRow label="In flight" value={roomState?.in_flight ? "yes" : "no"} />
             </dl>
+            {roomState?.final_conclusion ? (
+              <div className="diagnosis-conclusion">
+                <div className="diagnosis-conclusion-title">Final conclusion</div>
+                <p>{finalConclusionText(roomState)}</p>
+              </div>
+            ) : null}
           </div>
         </section>
       </div>
@@ -337,6 +345,33 @@ function StateRow({ label, value }: { label: string; value: string }) {
       <dd>{value}</dd>
     </div>
   );
+}
+
+function finalConclusionLabel(state: DiagnosisStateFrame | null): string {
+  const conclusion = state?.final_conclusion;
+  if (!conclusion) {
+    return "-";
+  }
+  if (conclusion.status === "available") {
+    return conclusion.confidence ? `${conclusion.status} (${conclusion.confidence})` : conclusion.status;
+  }
+  return conclusion.status;
+}
+
+function finalConclusionText(state: DiagnosisStateFrame): string {
+  const conclusion = state.final_conclusion;
+  if (!conclusion) {
+    return "";
+  }
+  const content = conclusion.content?.trim();
+  if (content) {
+    return content;
+  }
+  const reason = conclusion.reason?.trim();
+  if (reason) {
+    return reason.replaceAll("_", " ");
+  }
+  return conclusion.status;
 }
 
 function statusLabel(status: DiagnosisConnectionStatus): string {

@@ -1001,6 +1001,7 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
 	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("H", diagnosisauth.DefaultTokenBytes)))
 	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
+	requiresHumanReview := true
 	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
 		Subject: "owner-1",
 		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
@@ -1009,6 +1010,7 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 		t.Fatalf("IssueTicket: %v", err)
 	}
 	startedAt := now.Add(time.Minute)
+	closedAt := startedAt.Add(2 * time.Second)
 	workflowClient := &fakeDiagnosisRoomWorkflowClient{
 		submitResult: ports.DiagnosisRoomSubmitTurnResult{
 			SessionID:           "session-1",
@@ -1031,12 +1033,25 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 			ChatSessionID:   domain.ChatSessionID(21),
 			DiagnosisTaskID: domain.DiagnosisTaskID(11),
 			OwnerSubject:    "owner-1",
-			Status:          "open",
+			Status:          "closed",
 			TurnCount:       1,
 			StartedAt:       startedAt,
-			LastActivityAt:  startedAt.Add(time.Second),
-			InFlight:        false,
-			SeenMessageIDs:  []string{"msg-1"},
+			LastActivityAt:  closedAt,
+			ClosedAt:        &closedAt,
+			CloseReason:     "user_done",
+			FinalConclusion: &ports.DiagnosisRoomFinalConclusion{
+				Status:              "available",
+				Source:              "latest_assistant_turn",
+				AssistantTurnID:     domain.ChatTurnID(32),
+				AssistantMessageID:  "msg-1/assistant",
+				AssistantSequence:   2,
+				AssistantOccurredAt: &startedAt,
+				Content:             "CPU alert is still firing.",
+				Confidence:          "medium",
+				RequiresHumanReview: &requiresHumanReview,
+			},
+			InFlight:       false,
+			SeenMessageIDs: []string{"msg-1"},
 			Conversation: []ports.DiagnosisRoomConversationTurn{
 				{Role: "user", Content: "Please investigate"},
 				{Role: "assistant", Content: "CPU alert is still firing."},
@@ -1101,6 +1116,16 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	}
 	if state.Type != diagnosisWSServerState || state.DiagnosisTaskID != 11 || len(state.Conversation) != 2 {
 		t.Fatalf("state = %+v", state)
+	}
+	if state.FinalConclusion == nil ||
+		state.FinalConclusion.Status != "available" ||
+		state.FinalConclusion.AssistantTurnID != 32 ||
+		state.FinalConclusion.AssistantMessageID != "msg-1/assistant" ||
+		state.FinalConclusion.Content != "CPU alert is still firing." ||
+		state.FinalConclusion.Confidence != "medium" ||
+		state.FinalConclusion.RequiresHumanReview == nil ||
+		!*state.FinalConclusion.RequiresHumanReview {
+		t.Fatalf("state final conclusion = %+v", state.FinalConclusion)
 	}
 	if querySession, queryCalled := workflowClient.querySnapshot(); queryCalled != 1 || querySession != "session-1" {
 		t.Fatalf("QueryDiagnosisRoom calls=%d session=%q, want 1/session-1", queryCalled, querySession)
