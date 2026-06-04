@@ -65,6 +65,151 @@ func TestRunReportsReadyLiveTargets(t *testing.T) {
 	}
 }
 
+func TestRunReportsReadyDiagnosisCloseNotificationPrerequisites(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_WEB_BASE_URL=https://web.example.test",
+		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+		"OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=1",
+		"OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT=2m",
+		"OPENCLARION_LIVE_CLOSE_REASON=live_smoke_completed",
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		"OPENCLARION_IM_WEBHOOK_URL=https://webhook.example.test/diagnosis",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("diagnosis status = %q, want ready", target.Status)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"web.example.test",
+		"secret-token",
+		"example.test/openclarion",
+		"127.0.0.1:7233",
+		"webhook.example.test",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked environment value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunBlocksDiagnosisCloseNotificationMissingPrerequisites(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_BEARER_TOKEN=secret-token",
+		"OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID=session-123",
+		"OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=true",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("diagnosis status = %q, want blocked", target.Status)
+	}
+	if !contains(target.MissingEnv, "DATABASE_URL") || !contains(target.MissingEnv, "TEMPORAL_HOST_PORT") {
+		t.Fatalf("missing env = %#v, want database and temporal prerequisites", target.MissingEnv)
+	}
+	if len(target.UnsatisfiedAlternatives) != 1 ||
+		target.UnsatisfiedAlternatives[0].Description != "close-notification worker IM configuration" {
+		t.Fatalf("alternatives = %#v, want close-notification worker alternative", target.UnsatisfiedAlternatives)
+	}
+	if strings.Contains(stdout.String(), "api.example.test") || strings.Contains(stdout.String(), "secret-token") || strings.Contains(stdout.String(), "session-123") {
+		t.Fatalf("output leaked live diagnosis values: %s", stdout.String())
+	}
+}
+
+func TestRunAcceptsDiagnosisCloseNotificationWorkerReadyAlternative(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_BEARER_TOKEN=secret-token",
+		"OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID=session-123",
+		"OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=YES",
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		"DIAGNOSIS_LIVE_SMOKE_ASSUME_WORKER_READY=1",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("diagnosis status = %q, want ready", target.Status)
+	}
+	if len(target.UnsatisfiedAlternatives) != 0 {
+		t.Fatalf("alternatives = %#v, want none", target.UnsatisfiedAlternatives)
+	}
+}
+
+func TestRunRejectsBadDiagnosisLiveInputsWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://operator:secret@api.example.test?token=secret",
+		"OPENCLARION_LIVE_WEB_BASE_URL=https://web.example.test/#secret",
+		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer token with spaces",
+		"OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID=session-123",
+		"OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=1",
+		"OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT=soon",
+		"OPENCLARION_LIVE_CLOSE_REASON= live_smoke_completed",
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		"OPENCLARION_IM_WEBHOOK_URL=https://operator:secret@webhook.example.test",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("diagnosis status = %q, want blocked", target.Status)
+	}
+	for _, name := range []string{
+		"OPENCLARION_LIVE_API_BASE_URL",
+		"OPENCLARION_LIVE_WEB_BASE_URL",
+		"OPENCLARION_LIVE_BEARER_TOKEN",
+		"OPENCLARION_IM_WEBHOOK_URL",
+		"OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT",
+		"OPENCLARION_LIVE_CLOSE_REASON",
+	} {
+		if !invalidEnvByName(target.InvalidEnv, name) {
+			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
+		}
+	}
+	for _, secret := range []string{
+		"operator",
+		"secret",
+		"api.example.test",
+		"web.example.test",
+		"token with spaces",
+		"webhook.example.test",
+		"soon",
+		"live_smoke_completed",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked invalid environment value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
 func TestRunValidatesM4EvidenceFilesAndPacketOutputDir(t *testing.T) {
 	root := t.TempDir()
 	baseline := writeFile(t, root, "baseline.json")
@@ -780,6 +925,15 @@ func fileCheckByEnv(t *testing.T, checks []fileCheck, name string) fileCheck {
 func contains(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
+func invalidEnvByName(values []invalidEnv, want string) bool {
+	for _, value := range values {
+		if value.Name == want {
 			return true
 		}
 	}

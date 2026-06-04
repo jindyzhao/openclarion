@@ -51,7 +51,18 @@ Optional variables:
   of starting local `next start`
 - `OPENCLARION_LIVE_WEB_PORT` for the local production Next.js server
 - `OPENCLARION_LIVE_DIAGNOSIS_MESSAGE` for the submitted turn text
+- `OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=1` to require the close path
+  after the browser turn. This also requires local `DATABASE_URL` and
+  `TEMPORAL_HOST_PORT` access for `openclarion diagnosis-room-close`, plus a
+  worker configured with `OPENCLARION_IM_WEBHOOK_URL`.
+- `DIAGNOSIS_LIVE_SMOKE_ASSUME_WORKER_READY=1` when the live worker is managed
+  outside the current shell but is already configured for close-notification IM
+  delivery.
 - `DIAGNOSIS_LIVE_BROWSER_SMOKE_OUTPUT` for the JSON proof path
+
+Run `make manual-evidence-readiness --target diagnosis-live-browser-smoke`
+before the live smoke to check these local prerequisites without printing
+tokens, URLs, session ids, or local paths.
 
 The harness validates the proof with
 `scripts/diagnosis_live_smoke_output` before reporting success. The checker
