@@ -101,15 +101,26 @@ Operators can generate a fail-closed draft review-evidence file from retained
 quality comparison output and runtime-smoke artifacts:
 
 ```bash
+make sandbox-m4-runtime-smoke-artifacts \
+  OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR=artifacts/m4/runtime \
+  OPENCLARION_AGENT_RUNTIME_IMAGE=registry.example.com/openclarion/runtime-candidate-a@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
 make sandbox-m4-review-evidence-template \
   QUALITY_COMPARISON=artifacts/samples/quality-comparison.json \
-  RUNTIME_SMOKE_ARTIFACTS_ROOT=artifacts/samples \
-  RUNTIME_SMOKE_REF_PREFIX=artifacts/m4/runtime \
+  RUNTIME_SMOKE_ARTIFACTS_ROOT=artifacts/m4/runtime \
   SELECTED_CANDIDATE=runtime-candidate-a \
   RUNTIME_CANDIDATE=registry.example.com/openclarion/runtime-candidate-a@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
   REVIEWER=openclarion-maintainer \
   OUT=artifacts/samples/review-evidence.json
 ```
+
+`make sandbox-m4-runtime-smoke-artifacts` is a manual Docker-backed convenience
+target. It runs the existing candidate runtime file-contract smoke, candidate
+Provider lifecycle smoke, Provider timeout cleanup smoke, Provider output-cap
+smoke, and egress allow/deny smoke, retaining the five canonical artifact
+filenames expected by the review-evidence template. The Provider timeout,
+output-cap, and egress proofs remain boundary proofs and use their existing
+smoke harness images unless the operator explicitly overrides those harnesses.
 
 The generator copies the quality `sample_basis` and case IDs, fills the
 canonical runtime-smoke names/sources, reads each retained smoke artifact
