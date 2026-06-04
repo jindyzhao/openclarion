@@ -61,6 +61,43 @@ func TestPRTitleCheckRejectsInvalidTitles(t *testing.T) {
 	}
 }
 
+func TestPRTitleCheckRejectsOverlongTitle(t *testing.T) {
+	root := newPRTitleFixture(t)
+	title := "docs: " + strings.Repeat("a", 115)
+	if got := len(title); got != 121 {
+		t.Fatalf("test title length = %d, want 121", got)
+	}
+
+	out, err := runPRTitleCheck(t, root, title)
+	if err == nil {
+		t.Fatalf("pr title check passed unexpectedly:\n%s", out)
+	}
+	for _, want := range []string{
+		"PR title is 121 characters",
+		"maximum is 120",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("pr title output = %q, want substring %q", out, want)
+		}
+	}
+}
+
+func TestPRTitleCheckAcceptsMaxLengthTitle(t *testing.T) {
+	root := newPRTitleFixture(t)
+	title := "docs: " + strings.Repeat("a", 114)
+	if got := len(title); got != 120 {
+		t.Fatalf("test title length = %d, want 120", got)
+	}
+
+	out, err := runPRTitleCheck(t, root, title)
+	if err != nil {
+		t.Fatalf("pr title check failed at max length: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "[pr-title-check] OK") {
+		t.Fatalf("pr title output = %q, want OK", out)
+	}
+}
+
 func TestPRTitleCheckRequiresTitle(t *testing.T) {
 	root := newPRTitleFixture(t)
 	out, err := runPRTitleCheck(t, root, "")
