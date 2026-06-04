@@ -79,6 +79,25 @@ func TestRunOutputsProceedDecision(t *testing.T) {
 	}
 }
 
+func TestRunAcceptsCurrentQualityComparisonCaseMetrics(t *testing.T) {
+	dir := t.TempDir()
+	baseline := writeEvidence(t, dir, "baseline.json", passingBaselineAuditJSON())
+	quality := writeEvidence(t, dir, "quality.json", passingQualityComparisonWithMetricsJSON())
+	review := writeEvidence(t, dir, "review.json", passingReviewEvidenceJSON())
+
+	out := runDecision(t, []string{
+		"--baseline-audit", baseline,
+		"--quality-comparison", quality,
+		"--review-evidence", review,
+	})
+	if out.Decision != "proceed" {
+		t.Fatalf("Decision = %q reasons=%v", out.Decision, out.Reasons)
+	}
+	if out.Evidence.CaseCount != 3 {
+		t.Fatalf("Evidence.CaseCount = %d, want 3", out.Evidence.CaseCount)
+	}
+}
+
 func TestRunRejectsSymlinkEvidenceFiles(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -1629,6 +1648,121 @@ func passingQualityComparisonJSON() string {
 			{"id": "payments-cpu", "scenario": "single_alert", "required_evidence_refs": ["snapshot:11", "alert:cpu"], "recommendation": "sandbox_candidate_improved", "review_required": true},
 			{"id": "checkout-latency", "scenario": "cascade", "required_evidence_refs": ["snapshot:12", "alert:latency"], "recommendation": "sandbox_candidate_improved", "review_required": true},
 			{"id": "billing-errors", "scenario": "alert_storm", "required_evidence_refs": ["snapshot:13", "alert:errors"], "recommendation": "equivalent_metrics", "review_required": true}
+		]
+	}`
+}
+
+func passingQualityComparisonWithMetricsJSON() string {
+	return `{
+		"tool": "sandbox_quality_compare",
+		"schema": "openclarion_sub_report",
+		"mode": "manifest",
+		"case_count": 3,
+		"sample_basis": "single-alert, cascade, and alert-storm representative alert cases",
+		"scenario_coverage": ["single_alert", "cascade", "alert_storm"],
+		"summary": {
+			"improved_count": 2,
+			"equivalent_count": 1,
+			"regressed_count": 0,
+			"needs_human_review_count": 0
+		},
+		"recommendation": "sandbox_batch_candidate_improved",
+		"review_required": true,
+		"cases": [
+			{
+				"id": "payments-cpu",
+				"scenario": "single_alert",
+				"required_evidence_refs": ["snapshot:11", "alert:cpu"],
+				"direct": {
+					"finding_count": 1,
+					"recommended_action_count": 1,
+					"high_priority_action_count": 0,
+					"unique_evidence_ref_count": 2,
+					"confidence_rank": 2,
+					"severity_rank": 2
+				},
+				"sandbox": {
+					"finding_count": 2,
+					"recommended_action_count": 1,
+					"high_priority_action_count": 0,
+					"unique_evidence_ref_count": 3,
+					"confidence_rank": 3,
+					"severity_rank": 2
+				},
+				"delta": {
+					"finding_count": 1,
+					"recommended_action_count": 0,
+					"high_priority_action_count": 0,
+					"unique_evidence_ref_count": 1,
+					"confidence_rank": 1,
+					"severity_rank": 0
+				},
+				"recommendation": "sandbox_candidate_improved",
+				"review_required": true,
+				"notes": ["sandbox cites more unique evidence references"]
+			},
+			{
+				"id": "checkout-latency",
+				"scenario": "cascade",
+				"required_evidence_refs": ["snapshot:12", "alert:latency"],
+				"direct": {
+					"finding_count": 1,
+					"recommended_action_count": 1,
+					"high_priority_action_count": 0,
+					"unique_evidence_ref_count": 2,
+					"confidence_rank": 2,
+					"severity_rank": 2
+				},
+				"sandbox": {
+					"finding_count": 2,
+					"recommended_action_count": 2,
+					"high_priority_action_count": 0,
+					"unique_evidence_ref_count": 2,
+					"confidence_rank": 2,
+					"severity_rank": 2
+				},
+				"delta": {
+					"finding_count": 1,
+					"recommended_action_count": 1,
+					"high_priority_action_count": 0,
+					"unique_evidence_ref_count": 0,
+					"confidence_rank": 0,
+					"severity_rank": 0
+				},
+				"recommendation": "sandbox_candidate_improved",
+				"review_required": true
+			},
+			{
+				"id": "billing-errors",
+				"scenario": "alert_storm",
+				"required_evidence_refs": ["snapshot:13", "alert:errors"],
+				"direct": {
+					"finding_count": 1,
+					"recommended_action_count": 1,
+					"high_priority_action_count": 1,
+					"unique_evidence_ref_count": 2,
+					"confidence_rank": 3,
+					"severity_rank": 3
+				},
+				"sandbox": {
+					"finding_count": 1,
+					"recommended_action_count": 1,
+					"high_priority_action_count": 1,
+					"unique_evidence_ref_count": 2,
+					"confidence_rank": 3,
+					"severity_rank": 3
+				},
+				"delta": {
+					"finding_count": 0,
+					"recommended_action_count": 0,
+					"high_priority_action_count": 0,
+					"unique_evidence_ref_count": 0,
+					"confidence_rank": 0,
+					"severity_rank": 0
+				},
+				"recommendation": "equivalent_metrics",
+				"review_required": true
+			}
 		]
 	}`
 }

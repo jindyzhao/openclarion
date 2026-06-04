@@ -116,11 +116,33 @@ type qualitySummary struct {
 }
 
 type qualityCase struct {
-	ID                   string   `json:"id"`
-	Scenario             string   `json:"scenario"`
-	RequiredEvidenceRefs []string `json:"required_evidence_refs"`
-	Recommendation       string   `json:"recommendation"`
-	ReviewRequired       bool     `json:"review_required"`
+	ID                   string        `json:"id"`
+	Scenario             string        `json:"scenario"`
+	RequiredEvidenceRefs []string      `json:"required_evidence_refs"`
+	Direct               reportMetrics `json:"direct"`
+	Sandbox              reportMetrics `json:"sandbox"`
+	Delta                reportDeltas  `json:"delta"`
+	Recommendation       string        `json:"recommendation"`
+	ReviewRequired       bool          `json:"review_required"`
+	Notes                []string      `json:"notes,omitempty"`
+}
+
+type reportMetrics struct {
+	FindingCount            int `json:"finding_count"`
+	RecommendedActionCount  int `json:"recommended_action_count"`
+	HighPriorityActionCount int `json:"high_priority_action_count"`
+	UniqueEvidenceRefCount  int `json:"unique_evidence_ref_count"`
+	ConfidenceRank          int `json:"confidence_rank"`
+	SeverityRank            int `json:"severity_rank"`
+}
+
+type reportDeltas struct {
+	FindingCount            int `json:"finding_count"`
+	RecommendedActionCount  int `json:"recommended_action_count"`
+	HighPriorityActionCount int `json:"high_priority_action_count"`
+	UniqueEvidenceRefCount  int `json:"unique_evidence_ref_count"`
+	ConfidenceRank          int `json:"confidence_rank"`
+	SeverityRank            int `json:"severity_rank"`
 }
 
 type reviewEvidence struct {
