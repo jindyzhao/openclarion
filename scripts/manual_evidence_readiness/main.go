@@ -109,7 +109,7 @@ func main() {
 func run(args []string, environ []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, diagnosis-live-browser-smoke")
+	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, diagnosis-live-browser-smoke")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -120,6 +120,7 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	env := environMap(environ)
 	targets := []targetReadiness{
 		reportLiveSmokeReadiness(env),
+		sandboxM4BaselineAuditReadiness(env),
 		sandboxM4QualityManifestPrepareReadiness(env),
 		sandboxM4QualityCompareReadiness(env),
 		sandboxM4RuntimeSmokeArtifactsReadiness(env),
@@ -149,6 +150,19 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
 	return enc.Encode(out)
+}
+
+func sandboxM4BaselineAuditReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:    "sandbox-m4-baseline-audit",
+		Command: "make sandbox-m4-baseline-audit OUT=...",
+		Notes: []string{
+			"Preflight validates only the retained output path; the audit helper still runs the same code-level sandbox baseline checks.",
+			"The manual target writes a new retained baseline-audit JSON file for the M4 decision evidence chain.",
+		},
+	}
+	target.FileChecks = append(target.FileChecks, requiredAbsentOutputFileEnv(env, "OUT"))
+	return finalize(target)
 }
 
 func sandboxM4QualityManifestPrepareReadiness(env envMap) targetReadiness {

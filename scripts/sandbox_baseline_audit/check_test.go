@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -40,6 +42,63 @@ func TestRunEmitsPassingBaselineAudit(t *testing.T) {
 		if out.Checks[i].Name != name || out.Checks[i].Status != "pass" {
 			t.Fatalf("Checks[%d] = %+v, want %s pass", i, out.Checks[i], name)
 		}
+	}
+}
+
+func TestRunWritesBaselineAuditOutputFile(t *testing.T) {
+	outPath := filepath.Join(t.TempDir(), "baseline-audit.json")
+
+	var stdout bytes.Buffer
+	if err := runWithArgs([]string{"--out", outPath}, &stdout); err != nil {
+		t.Fatalf("runWithArgs: %v", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty when --out is used", stdout.String())
+	}
+	// #nosec G304 -- test reads the temp output path produced by this run.
+	raw, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("read output: %v", err)
+	}
+	var out auditOutput
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal output %q: %v", raw, err)
+	}
+	if out.Tool != "sandbox_baseline_audit" || out.Status != "pass" || len(out.Checks) == 0 {
+		t.Fatalf("output = %+v, want passing baseline audit", out)
+	}
+}
+
+func TestRunRejectsExistingOutputFile(t *testing.T) {
+	outPath := filepath.Join(t.TempDir(), "baseline-audit.json")
+	if err := os.WriteFile(outPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("write existing output: %v", err)
+	}
+
+	var stdout bytes.Buffer
+	err := runWithArgs([]string{"--out", outPath}, &stdout)
+	if err == nil {
+		t.Fatal("runWithArgs err = nil, want existing output rejection")
+	}
+	if !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("runWithArgs err = %v, want already exists", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on output rejection", stdout.String())
+	}
+}
+
+func TestRunRejectsUnexpectedArguments(t *testing.T) {
+	var stdout bytes.Buffer
+	err := runWithArgs([]string{"unexpected"}, &stdout)
+	if err == nil {
+		t.Fatal("runWithArgs err = nil, want unexpected argument rejection")
+	}
+	if !strings.Contains(err.Error(), "unexpected arguments") {
+		t.Fatalf("runWithArgs err = %v, want unexpected arguments", err)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want empty on argument rejection", stdout.String())
 	}
 }
 

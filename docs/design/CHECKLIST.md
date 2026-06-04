@@ -129,6 +129,8 @@
   during the same ephemeral registry run
 - [x] code-level M4/M5 sandbox baseline audit exists
   (`make sandbox-baseline-audit`)
+- [x] manual retained baseline audit target exists
+  (`make sandbox-m4-baseline-audit`)
 - [x] offline sandbox/direct SubReport comparison helper validates both outputs
   through production schema parsing (`make sandbox-quality-compare-test`)
 - [x] manual quality manifest preparation from retained direct/sandbox pairs

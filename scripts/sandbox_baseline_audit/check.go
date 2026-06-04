@@ -5,11 +5,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	dockerprovider "github.com/openclarion/openclarion/internal/providers/container/docker"
@@ -33,13 +38,27 @@ type auditProbe struct {
 }
 
 func main() {
-	if err := run(os.Stdout); err != nil {
+	if err := runWithArgs(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "[sandbox-baseline-audit] %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func run(stdout io.Writer) error {
+	return runWithArgs(nil, stdout)
+}
+
+func runWithArgs(args []string, stdout io.Writer) error {
+	fs := flag.NewFlagSet("sandbox_baseline_audit", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	outPath := fs.String("out", "", "optional output audit JSON path; stdout is used when omitted")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
 	checks := []auditProbe{
 		{name: "fixed_file_contract", run: checkFixedFileContract},
 		{name: "batch_network_none_spec", run: checkBatchNetworkNoneSpec},
@@ -60,9 +79,65 @@ func run(stdout io.Writer) error {
 		}
 		out.Checks = append(out.Checks, auditCheck{Name: check.name, Status: "pass"})
 	}
-	enc := json.NewEncoder(stdout)
+	return writeJSONOutput(stdout, strings.TrimSpace(*outPath), out)
+}
+
+func writeJSONOutput(stdout io.Writer, outPath string, value any) error {
+	if outPath == "" || outPath == "-" {
+		return encodeJSON(stdout, value)
+	}
+	var buf bytes.Buffer
+	if err := encodeJSON(&buf, value); err != nil {
+		return err
+	}
+	return writeNewOutputFile(outPath, buf.Bytes())
+}
+
+func encodeJSON(w io.Writer, value any) error {
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	return enc.Encode(value)
+}
+
+func writeNewOutputFile(path string, raw []byte) error {
+	clean := filepath.Clean(strings.TrimSpace(path))
+	if clean == "" || clean == "." || clean == string(filepath.Separator) {
+		return errors.New("output file must not be empty, current directory, or filesystem root")
+	}
+	if info, err := os.Lstat(clean); err == nil {
+		if info.Mode().IsRegular() {
+			return fmt.Errorf("output file %s already exists", clean)
+		}
+		return fmt.Errorf("output path %s must be absent before helper output is written", clean)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat output file %s: %w", clean, err)
+	}
+	parent := filepath.Dir(clean)
+	info, err := os.Lstat(parent)
+	if errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("output parent directory %s does not exist", parent)
+	}
+	if err != nil {
+		return fmt.Errorf("stat output parent directory %s: %w", parent, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("output parent path %s must be a directory", parent)
+	}
+	// #nosec G304 -- this offline audit tool intentionally writes an
+	// operator-supplied retained evidence path after refusing overwrites.
+	f, err := os.OpenFile(clean, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return fmt.Errorf("create output file %s: %w", clean, err)
+	}
+	if _, err := f.Write(raw); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("write output file %s: %w", clean, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close output file %s: %w", clean, err)
+	}
+	return nil
 }
 
 func checkFixedFileContract() error {

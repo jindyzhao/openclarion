@@ -5,6 +5,7 @@ report-live-smoke	manual M2 live report smoke; requires real PostgreSQL, Tempora
 agent-runtime-smoke	manual M4 candidate runtime smoke; requires a digest-pinned sandbox image and Docker runtime
 custom-thin-runner-smoke	manual M4 local candidate smoke; builds an image and exercises Docker-backed runtime paths
 sandbox-m4-runtime-smoke-artifacts	manual M4 runtime-smoke artifact collection; requires a digest-pinned runtime image, Docker runtime, and empty output directory
+sandbox-m4-baseline-audit	manual M4 baseline audit retention; requires an absent output file selected by an operator
 sandbox-m4-quality-manifest-prepare	manual M4 quality manifest preparation; requires retained direct/sandbox SubReport sample files selected by an operator
 sandbox-m4-quality-compare	manual M4 quality comparison; requires retained quality manifest and direct/sandbox SubReport files selected by an operator
 sandbox-m4-decision	manual M4 runtime decision; requires retained baseline, quality-comparison, and human-review evidence files
