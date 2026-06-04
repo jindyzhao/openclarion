@@ -35,14 +35,15 @@ scenarios (`single_alert`, `cascade`, and `alert_storm`) before it can return
 identifier and every case must remain review-marked with non-empty
 `required_evidence_refs` that include a canonical `snapshot:<positive-id>`
 EvidenceSnapshot ref. Quality case IDs must be single-line, unpadded, and no
-more than 128 bytes; retained required evidence refs must be single-line and no
-more than 120 runes. These checks keep a stale or hand-edited quality artifact
-from bypassing the production parser contract or detaching a comparison case
-from its frozen evidence context. The gate also recomputes aggregate counts from
-`cases[].recommendation` and rejects quality artifacts whose `summary` does not
-match the case-derived counts, so editing only top-level fields cannot hide a
-regressed alert-analysis case. The review evidence `sample_basis` must exactly
-match the quality-comparison
+more than 128 bytes, and globally unique across the retained manifest, because
+review evidence binds by case ID. Retained required evidence refs must be
+single-line and no more than 120 runes. These checks keep a stale or
+hand-edited quality artifact from bypassing the production parser contract or
+detaching a comparison case from its frozen evidence context. The gate also
+recomputes aggregate counts from `cases[].recommendation` and rejects quality
+artifacts whose `summary` does not match the case-derived counts, so editing
+only top-level fields cannot hide a regressed alert-analysis case. The review
+evidence `sample_basis` must exactly match the quality-comparison
 `sample_basis`; reviewer commentary belongs in `human_review.notes` so stale
 review evidence cannot be attached to a different quality sample. Review
 evidence must also contain one `reviewed_cases` entry for each quality case and

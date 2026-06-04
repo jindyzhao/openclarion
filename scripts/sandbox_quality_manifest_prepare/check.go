@@ -143,6 +143,9 @@ func buildManifest(rootPath, sampleBasis string) (manifestFile, error) {
 	if err := requireScenarioCoverage(keys); err != nil {
 		return manifestFile{}, err
 	}
+	if err := requireUniqueCaseIDs(keys); err != nil {
+		return manifestFile{}, err
+	}
 	manifest := manifestFile{
 		SampleBasis: sampleBasis,
 		Cases:       make([]manifestCase, 0, len(keys)),
@@ -298,6 +301,17 @@ func requireScenarioCoverage(keys []caseKey) error {
 	}
 	if len(missing) != 0 {
 		return fmt.Errorf("quality sample root is missing paired report cases for required scenario(s): %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func requireUniqueCaseIDs(keys []caseKey) error {
+	seen := map[string]string{}
+	for _, key := range keys {
+		if previousScenario, exists := seen[key.ID]; exists {
+			return fmt.Errorf("quality sample case id %q is used by both scenario %q and scenario %q; case ids must be globally unique for downstream review evidence", key.ID, previousScenario, key.Scenario)
+		}
+		seen[key.ID] = key.Scenario
 	}
 	return nil
 }
