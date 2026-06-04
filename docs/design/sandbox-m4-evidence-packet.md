@@ -110,7 +110,7 @@ For a retained M4 evidence working directory, operators can also run:
 
 ```bash
 OPENCLARION_M4_EVIDENCE_ROOT=artifacts/m4/manual-YYYY-MM-DD \
-  make manual-evidence-readiness --target sandbox-m4-evidence-chain
+  make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=sandbox-m4-evidence-chain
 ```
 
 That preflight reports the canonical artifact chain by relative artifact name:

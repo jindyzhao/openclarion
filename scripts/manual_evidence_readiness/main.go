@@ -443,7 +443,7 @@ func sandboxM4EvidencePacketReadiness(env envMap) targetReadiness {
 func sandboxM4EvidenceChainReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
 		Name:    "sandbox-m4-evidence-chain",
-		Command: "OPENCLARION_M4_EVIDENCE_ROOT=... make manual-evidence-readiness --target sandbox-m4-evidence-chain",
+		Command: "OPENCLARION_M4_EVIDENCE_ROOT=... make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=sandbox-m4-evidence-chain",
 		Notes: []string{
 			"Preflight checks a retained M4 evidence working directory for the canonical artifact chain without printing local paths.",
 			"JSON artifacts are checked for duplicate object keys and trailing JSON before downstream helpers perform full semantic validation.",
