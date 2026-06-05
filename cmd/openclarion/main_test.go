@@ -167,8 +167,8 @@ func TestHTTPServerOptionsFromEnv_ConfiguresReportTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 1 {
-		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	if len(opts) != 2 {
+		t.Fatalf("len(opts) = %d, want 2", len(opts))
 	}
 }
 
@@ -177,8 +177,8 @@ func TestHTTPServerOptionsFromEnv_AllowsUnconfiguredTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 0 {
-		t.Fatalf("len(opts) = %d, want 0", len(opts))
+	if len(opts) != 1 {
+		t.Fatalf("len(opts) = %d, want 1", len(opts))
 	}
 }
 
@@ -205,8 +205,8 @@ func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv diagnosis: %v", err)
 	}
-	if len(opts) != 4 {
-		t.Fatalf("len(opts) = %d, want 4", len(opts))
+	if len(opts) != 5 {
+		t.Fatalf("len(opts) = %d, want 5", len(opts))
 	}
 	if originPolicy == nil {
 		t.Fatal("originPolicy is nil")

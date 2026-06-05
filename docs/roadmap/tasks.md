@@ -104,15 +104,21 @@ with evidence traceability links.
 This follow-up turns the read-only operations slice into a configurable alert
 operations surface without changing the alert-first product positioning.
 
-- [ ] ADR-backed alert operations configuration model
-- [ ] alert source profile persistence for Prometheus and future Alertmanager
+- [x] ADR-backed alert operations configuration model
+- [x] frontend console architecture foundation with ADR-backed Ant Design and
+      TanStack Query providers
+- [x] alert source settings form and table migrated onto the standardized
+      console component layer
+- [x] alert source profile persistence for Prometheus and future Alertmanager
       adapters
-- [ ] generated OpenAPI CRUD and connection-test contracts for alert source
-      profiles
-- [ ] grouping policy persistence and dry-run preview endpoint
+- [x] generated OpenAPI CRUD and sanitized connection-test contracts for alert
+      source profiles
+- [x] grouping policy persistence, generated CRUD contracts, frontend settings
+      route, and dry-run preview endpoint
+- [ ] secret-backed Prometheus and Alertmanager connection-test adapters
 - [ ] report workflow policy persistence and explicit enablement flow
 - [ ] notification channel profile persistence with `secret_ref` only
-- [ ] frontend settings pages backed by generated API types
+- [ ] remaining frontend settings pages backed by generated API types
 - [ ] no customer endpoints, bearer tokens, or secret values in code, tests,
       fixtures, retained artifacts, or browser durable state
 
@@ -217,6 +223,10 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-06-05 | jindyzhao | Grouping policy settings landed locally: OpenAPI, generated Go/TypeScript types, Ent schema and Atlas migration, configuration repository methods, non-persistent preview usecase, HTTP handlers, same-origin frontend route handlers, Ant Design settings route, formatter tests, and Playwright mock smoke coverage now support persisted grouping policies and bounded dry-run preview over recent persisted alert events. Preview does not call Prometheus or Alertmanager, does not create `AlertGroup` rows, and does not enable workflow bindings. |
+| 2026-06-05 | jindyzhao | Alert source connection-test contract landed locally: OpenAPI, generated Go/TypeScript types, transport handlers, usecase tests, runtime wiring, same-origin frontend route handlers, Ant Design row actions, and Playwright mock smoke coverage now support sanitized profile connection tests. Prometheus no-auth alert-listing checks are supported; bearer profiles remain blocked until secret resolution exists, and Alertmanager remains unsupported until its adapter lands. |
+| 2026-06-05 | jindyzhao | Alert source settings migrated locally onto the standardized console component layer: the route now uses Ant Design statistics, alerts, form controls, buttons, table columns, tags, and empty states while preserving generated OpenAPI types, feature-local parser tests, same-origin mutation route handlers, and the `secret_ref`-only credential boundary. |
+| 2026-06-05 | jindyzhao | Frontend console foundation started locally: ADR-0010 now records Ant Design, TanStack Query, same-origin mutation route handlers, and incremental settings-screen migration as the standardized operations-console direction. `web/` now has app-level Ant Design CSS-in-JS/style providers, a TanStack Query client provider, and an Ant Design-based shared `ReportShell` while preserving existing dashboard, report, diagnosis, and alert-source routes. Grouping/workflow/channel settings, connection-test APIs, and full Ant Design migration of feature forms remain pending. |
 | 2026-06-05 | jindyzhao | Manual evidence readiness target ordering tightened locally: default `make manual-evidence-readiness` output now sorts `targets[]` by the explicit milestone sequence, making the JSON artifact actionable in the same order as `summary.next_target`. This keeps the remaining proof path aligned for operators without adding CI, running live services, selecting representative samples, comparing quality, recording an M4 decision, or closing any retained-evidence item. |
 | 2026-06-05 | jindyzhao | Manual evidence readiness sequencing landed locally: `make manual-evidence-readiness` now tags remaining live/evidence targets with milestone, sequence, evidence goal, and dependency hints, and reports the next blocked target in the summary. This keeps the remaining M2/M5/M4 proof order explicit for operators without adding a CI gate, running external services, selecting samples, comparing quality, recording an M4 decision, or closing any pending retained-evidence checklist item. |
 | 2026-06-05 | jindyzhao | M4 quality manifest preparation now rejects case IDs reused across alert scenarios before writing retained quality manifests. Downstream review evidence and decision helpers bind cases by ID, so the manual sample-preparation path now fails closed before an operator can generate a manifest that later collides or attaches review evidence ambiguously. This does not select representative samples, compare quality, or record the M4 decision. |

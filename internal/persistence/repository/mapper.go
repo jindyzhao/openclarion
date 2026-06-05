@@ -234,6 +234,28 @@ func alertSourceProfileToDomain(p *ent.AlertSourceProfile) domain.AlertSourcePro
 	}
 }
 
+// groupingPolicyToDomain converts an Ent GroupingPolicy row to a domain entity.
+func groupingPolicyToDomain(p *ent.GroupingPolicy) domain.GroupingPolicy {
+	dimensionKeys := p.DimensionKeys
+	if dimensionKeys == nil {
+		dimensionKeys = []string{}
+	}
+	sourceFilter := p.SourceFilter
+	if sourceFilter == nil {
+		sourceFilter = []string{}
+	}
+	return domain.GroupingPolicy{
+		ID:            domain.GroupingPolicyID(p.ID),
+		Name:          p.Name,
+		DimensionKeys: dimensionKeys,
+		SeverityKey:   p.SeverityKey,
+		SourceFilter:  sourceFilter,
+		Enabled:       p.Enabled,
+		CreatedAt:     p.CreatedAt,
+		UpdatedAt:     p.UpdatedAt,
+	}
+}
+
 // alertEventIDsToEnt converts a slice of domain.AlertEventID
 // (int64) to a slice of Ent IDs (int). Used by LinkEventsToGroup
 // to feed AddEventIDs. The conversion is unconditional because

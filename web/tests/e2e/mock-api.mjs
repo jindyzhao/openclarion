@@ -100,7 +100,7 @@ const alertSources = [
     kind: "prometheus",
     base_url: "https://prometheus.example.test",
     auth_mode: "bearer",
-    secret_ref: "secret/openclarion/prometheus-token",
+    secret_ref: "secret/openclarion/prometheus-bearer",
     enabled: true,
     labels: {
       env: "prod",
@@ -125,6 +125,20 @@ const alertSources = [
   }
 ];
 
+let nextGroupingPolicyID = 2;
+const groupingPolicies = [
+  {
+    id: 1,
+    name: "Default alert grouping",
+    dimension_keys: ["alertname", "service"],
+    severity_key: "severity",
+    source_filter: ["prometheus"],
+    enabled: true,
+    created_at: "2026-06-05T04:00:00Z",
+    updated_at: "2026-06-05T04:00:00Z"
+  }
+];
+
 const server = createServer((request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
   if (request.method === "OPTIONS") {
@@ -136,9 +150,28 @@ const server = createServer((request, response) => {
     handleAlertSourceCollection(request, response);
     return;
   }
+  if (url.pathname === "/api/v1/config/grouping-policies") {
+    handleGroupingPolicyCollection(request, response);
+    return;
+  }
+  const alertSourceTestMatch = url.pathname.match(/^\/api\/v1\/config\/alert-sources\/(\d+)\/test$/);
+  if (alertSourceTestMatch) {
+    handleAlertSourceConnectionTest(request, response, Number.parseInt(alertSourceTestMatch[1], 10));
+    return;
+  }
   const alertSourceMatch = url.pathname.match(/^\/api\/v1\/config\/alert-sources\/(\d+)$/);
   if (alertSourceMatch) {
     handleAlertSourceProfile(request, response, Number.parseInt(alertSourceMatch[1], 10));
+    return;
+  }
+  const groupingPolicyPreviewMatch = url.pathname.match(/^\/api\/v1\/config\/grouping-policies\/(\d+)\/preview$/);
+  if (groupingPolicyPreviewMatch) {
+    handleGroupingPolicyPreview(request, response, Number.parseInt(groupingPolicyPreviewMatch[1], 10));
+    return;
+  }
+  const groupingPolicyMatch = url.pathname.match(/^\/api\/v1\/config\/grouping-policies\/(\d+)$/);
+  if (groupingPolicyMatch) {
+    handleGroupingPolicy(request, response, Number.parseInt(groupingPolicyMatch[1], 10));
     return;
   }
 
@@ -337,6 +370,54 @@ function handleAlertSourceProfile(request, response, profileID) {
     });
 }
 
+function handleAlertSourceConnectionTest(request, response, profileID) {
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  const profile = alertSources.find((item) => item.id === profileID);
+  if (!profile) {
+    writeJSON(response, 404, { error: "alert source profile not found" });
+    return;
+  }
+  if (profile.auth_mode === "bearer") {
+    writeJSON(response, 200, {
+      source_id: profile.id,
+      kind: profile.kind,
+      auth_mode: profile.auth_mode,
+      status: "blocked",
+      reason_code: "credentials_unavailable",
+      message: "Secret-backed connection tests require a server-side secret resolver.",
+      checked_at: "2026-06-05T04:00:00Z",
+      observed_alerts: 0
+    });
+    return;
+  }
+  if (profile.kind === "alertmanager") {
+    writeJSON(response, 200, {
+      source_id: profile.id,
+      kind: profile.kind,
+      auth_mode: profile.auth_mode,
+      status: "unsupported",
+      reason_code: "unsupported_kind",
+      message: "Alertmanager connection tests require the Alertmanager adapter.",
+      checked_at: "2026-06-05T04:00:00Z",
+      observed_alerts: 0
+    });
+    return;
+  }
+  writeJSON(response, 200, {
+    source_id: profile.id,
+    kind: profile.kind,
+    auth_mode: profile.auth_mode,
+    status: "success",
+    reason_code: "ok",
+    message: "Prometheus alert listing succeeded.",
+    checked_at: "2026-06-05T04:00:00Z",
+    observed_alerts: 2
+  });
+}
+
 function alertSourceProfileFromBody(id, body, createdAt = "2026-05-28T06:02:00Z") {
   const now = "2026-05-28T06:03:00Z";
   return {
@@ -348,6 +429,97 @@ function alertSourceProfileFromBody(id, body, createdAt = "2026-05-28T06:02:00Z"
     secret_ref: typeof body.secret_ref === "string" ? body.secret_ref : "",
     enabled: Boolean(body.enabled),
     labels: body.labels && typeof body.labels === "object" && !Array.isArray(body.labels) ? body.labels : {},
+    created_at: createdAt,
+    updated_at: now
+  };
+}
+
+function handleGroupingPolicyCollection(request, response) {
+  if (request.method === "GET") {
+    writeJSON(response, 200, { items: groupingPolicies });
+    return;
+  }
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const policy = groupingPolicyFromBody(nextGroupingPolicyID, body);
+      nextGroupingPolicyID += 1;
+      groupingPolicies.unshift(policy);
+      writeJSON(response, 201, policy);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function handleGroupingPolicy(request, response, policyID) {
+  if (request.method !== "PUT") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const index = groupingPolicies.findIndex((policy) => policy.id === policyID);
+      if (index < 0) {
+        writeJSON(response, 404, { error: "grouping policy not found" });
+        return;
+      }
+      const current = groupingPolicies[index];
+      const policy = groupingPolicyFromBody(policyID, body, current.created_at);
+      groupingPolicies[index] = policy;
+      writeJSON(response, 200, policy);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function handleGroupingPolicyPreview(request, response, policyID) {
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  const policy = groupingPolicies.find((item) => item.id === policyID);
+  if (!policy) {
+    writeJSON(response, 404, { error: "grouping policy not found" });
+    return;
+  }
+  writeJSON(response, 200, {
+    policy_id: policy.id,
+    events_scanned: 3,
+    events_matched: policy.source_filter.includes("prometheus") || policy.source_filter.length === 0 ? 2 : 0,
+    groups:
+      policy.source_filter.includes("prometheus") || policy.source_filter.length === 0
+        ? [
+            {
+              group_key: "0000000000000000000000000000000000000000000000000000000000000001",
+              dimensions: {
+                alertname: "HighCPU",
+                service: "checkout"
+              },
+              severity: "critical",
+              event_count: 2,
+              first_seen_at: "2026-06-05T04:00:00Z",
+              last_seen_at: "2026-06-05T04:01:00Z",
+              event_ids: [101, 102]
+            }
+          ]
+        : []
+  });
+}
+
+function groupingPolicyFromBody(id, body, createdAt = "2026-06-05T04:02:00Z") {
+  const now = "2026-06-05T04:03:00Z";
+  return {
+    id,
+    name: String(body.name ?? ""),
+    dimension_keys: Array.isArray(body.dimension_keys) ? body.dimension_keys.map(String) : [],
+    severity_key: String(body.severity_key ?? ""),
+    source_filter: Array.isArray(body.source_filter) ? body.source_filter.map(String) : [],
+    enabled: Boolean(body.enabled),
     created_at: createdAt,
     updated_at: now
   };

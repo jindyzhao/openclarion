@@ -110,18 +110,6 @@ export function labelsToText(labels: AlertSourceLabels): string {
     .join("\n");
 }
 
-export function formatDateTime(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "UTC"
-  }).format(date);
-}
-
 function validateBaseURL(raw: string): ParseResult<string> {
   if (raw === "") {
     return { ok: false, message: "Base URL is required." };

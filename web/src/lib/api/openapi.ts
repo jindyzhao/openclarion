@@ -92,6 +92,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config/alert-sources/{source_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test an alert source profile connection
+         * @description Performs a bounded backend connectivity test for a persisted alert source profile and returns sanitized status only.
+         */
+        post: operations["testAlertSourceProfileConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/grouping-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List grouping policies
+         * @description Returns operator-managed grouping policies.
+         */
+        get: operations["listGroupingPolicies"];
+        put?: never;
+        /**
+         * Create a grouping policy
+         * @description Stores operator-managed alert grouping configuration.
+         */
+        post: operations["createGroupingPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/grouping-policies/{policy_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a grouping policy
+         * @description Returns one operator-managed grouping policy.
+         */
+        get: operations["getGroupingPolicy"];
+        /**
+         * Replace a grouping policy
+         * @description Replaces mutable grouping policy metadata. Use enabled=false to disable a policy.
+         */
+        put: operations["replaceGroupingPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/grouping-policies/{policy_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview grouping policy
+         * @description Runs a bounded non-persistent grouping preview over recent persisted alert events.
+         */
+        post: operations["previewGroupingPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/alerts": {
         parameters: {
             query?: never;
@@ -298,6 +386,18 @@ export interface components {
          */
         AlertSourceAuthMode: "none" | "bearer";
         /**
+         * @description Sanitized connection-test outcome category.
+         * @example success
+         * @enum {string}
+         */
+        AlertSourceConnectionTestStatus: "success" | "failed" | "unsupported" | "blocked";
+        /**
+         * @description Stable machine-readable reason for the connection-test outcome.
+         * @example ok
+         * @enum {string}
+         */
+        AlertSourceConnectionTestReasonCode: "ok" | "unsupported_kind" | "credentials_unavailable" | "upstream_unreachable" | "upstream_error" | "invalid_profile";
+        /**
          * @description Operator labels for environment, ownership, or routing metadata.
          * @example {
          *       "env": "staging",
@@ -326,7 +426,7 @@ export interface components {
             auth_mode: components["schemas"]["AlertSourceAuthMode"];
             /**
              * @description Deployment-managed credential reference; never the credential value.
-             * @example secret/openclarion/prometheus-token
+             * @example secret/openclarion/prometheus-bearer
              */
             secret_ref: string;
             /**
@@ -360,12 +460,40 @@ export interface components {
             auth_mode: components["schemas"]["AlertSourceAuthMode"];
             /**
              * @description Submitted deployment-managed credential reference; never the credential value.
-             * @example secret/openclarion/prometheus-token
+             * @example secret/openclarion/prometheus-bearer
              */
             secret_ref?: string;
             /** @default false */
             enabled: boolean;
             labels?: components["schemas"]["AlertSourceLabels"];
+        };
+        /** @description Sanitized result for an explicit alert-source connectivity test. */
+        AlertSourceConnectionTestResult: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            source_id: number;
+            kind: components["schemas"]["AlertSourceKind"];
+            auth_mode: components["schemas"]["AlertSourceAuthMode"];
+            status: components["schemas"]["AlertSourceConnectionTestStatus"];
+            reason_code: components["schemas"]["AlertSourceConnectionTestReasonCode"];
+            /**
+             * @description Operator-facing sanitized message. It must not include endpoints, secret references, tokens, or raw upstream error text.
+             * @example Prometheus alert listing succeeded.
+             */
+            message: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-05T04:00:00Z
+             */
+            checked_at: string;
+            /**
+             * Format: int64
+             * @description Count of currently firing alerts observed during a successful provider-level test.
+             * @example 2
+             */
+            observed_alerts: number;
         };
         /** @description Alert source profile list response. */
         AlertSourceProfileListResponse: {
@@ -377,7 +505,7 @@ export interface components {
              *         "kind": "prometheus",
              *         "base_url": "https://prometheus.example.test",
              *         "auth_mode": "bearer",
-             *         "secret_ref": "secret/openclarion/prometheus-token",
+             *         "secret_ref": "secret/openclarion/prometheus-bearer",
              *         "enabled": true,
              *         "labels": {
              *           "env": "prod"
@@ -388,6 +516,162 @@ export interface components {
              *     ]
              */
             items: components["schemas"]["AlertSourceProfile"][];
+        };
+        /**
+         * @description Group severity computed from alert labels during grouping preview.
+         * @example warning
+         * @enum {string}
+         */
+        GroupingPolicyPreviewSeverity: "critical" | "warning" | "info" | "unknown";
+        /** @description Operator-managed grouping policy. */
+        GroupingPolicy: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            id: number;
+            /** @example Default alert grouping */
+            name: string;
+            /**
+             * @description Alert label keys used as deterministic grouping dimensions.
+             * @example [
+             *       "alertname",
+             *       "service"
+             *     ]
+             */
+            dimension_keys: string[];
+            /**
+             * @description Alert label key used to compute group severity.
+             * @example severity
+             */
+            severity_key: string;
+            /**
+             * @description Optional alert source identifiers; empty means all sources.
+             * @example [
+             *       "prometheus"
+             *     ]
+             */
+            source_filter: string[];
+            /**
+             * @description Whether operators enabled this policy for later binding.
+             * @example true
+             */
+            enabled: boolean;
+            /**
+             * Format: date-time
+             * @example 2026-06-05T04:00:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-05T04:10:00Z
+             */
+            updated_at: string;
+        };
+        /** @description Grouping policy metadata accepted by create and replace operations. */
+        GroupingPolicyWriteRequest: {
+            /** @example Default alert grouping */
+            name: string;
+            /**
+             * @example [
+             *       "alertname",
+             *       "service"
+             *     ]
+             */
+            dimension_keys: string[];
+            /** @example severity */
+            severity_key: string;
+            /**
+             * @example [
+             *       "prometheus"
+             *     ]
+             */
+            source_filter?: string[];
+            /** @default false */
+            enabled: boolean;
+        };
+        /** @description Grouping policy list response. */
+        GroupingPolicyListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "name": "Default alert grouping",
+             *         "dimension_keys": [
+             *           "alertname",
+             *           "service"
+             *         ],
+             *         "severity_key": "severity",
+             *         "source_filter": [
+             *           "prometheus"
+             *         ],
+             *         "enabled": true,
+             *         "created_at": "2026-06-05T04:00:00Z",
+             *         "updated_at": "2026-06-05T04:00:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["GroupingPolicy"][];
+        };
+        /** @description One non-persistent grouping preview sample. */
+        GroupingPolicyPreviewGroup: {
+            /** @example 0000000000000000000000000000000000000000000000000000000000000001 */
+            group_key: string;
+            /**
+             * @example {
+             *       "alertname": "HighCPU",
+             *       "service": "checkout"
+             *     }
+             */
+            dimensions: {
+                [key: string]: string;
+            };
+            severity: components["schemas"]["GroupingPolicyPreviewSeverity"];
+            /** Format: int64 */
+            event_count: number;
+            /** Format: date-time */
+            first_seen_at: string;
+            /** Format: date-time */
+            last_seen_at: string;
+            event_ids: number[];
+        };
+        /** @description Non-persistent preview result for one grouping policy. */
+        GroupingPolicyPreviewResult: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            policy_id: number;
+            /**
+             * Format: int64
+             * @example 3
+             */
+            events_scanned: number;
+            /**
+             * Format: int64
+             * @example 2
+             */
+            events_matched: number;
+            /**
+             * @example [
+             *       {
+             *         "group_key": "0000000000000000000000000000000000000000000000000000000000000001",
+             *         "dimensions": {
+             *           "alertname": "HighCPU",
+             *           "service": "checkout"
+             *         },
+             *         "severity": "critical",
+             *         "event_count": 2,
+             *         "first_seen_at": "2026-06-05T04:00:00Z",
+             *         "last_seen_at": "2026-06-05T04:01:00Z",
+             *         "event_ids": [
+             *           101,
+             *           102
+             *         ]
+             *       }
+             *     ]
+             */
+            groups: components["schemas"]["GroupingPolicyPreviewGroup"][];
         };
         /** @description Final report and latest notification delivery counters from the recent report window. */
         DashboardReportStats: {
@@ -956,6 +1240,8 @@ export interface components {
         ReportID: number;
         /** @description Alert source profile identifier. */
         AlertSourceProfileID: number;
+        /** @description Grouping policy identifier. */
+        GroupingPolicyID: number;
     };
     requestBodies: never;
     headers: never;
@@ -1200,6 +1486,316 @@ export interface operations {
                 };
             };
             /** @description Alert source profile replacement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    testAlertSourceProfileConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Alert source profile identifier. */
+                source_id: components["parameters"]["AlertSourceProfileID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sanitized alert source connection-test result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertSourceConnectionTestResult"];
+                };
+            };
+            /** @description Alert source connection-test request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Alert source profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Alert source connection test failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Alert source connection tester is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listGroupingPolicies: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grouping policies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupingPolicyListResponse"];
+                };
+            };
+            /** @description Grouping policy list parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Grouping policy list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createGroupingPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Grouping policy metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupingPolicyWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Grouping policy created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupingPolicy"];
+                };
+            };
+            /** @description Grouping policy request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Grouping policy conflicts with an existing policy */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Grouping policy creation failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getGroupingPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Grouping policy identifier. */
+                policy_id: components["parameters"]["GroupingPolicyID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grouping policy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupingPolicy"];
+                };
+            };
+            /** @description Grouping policy was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Grouping policy lookup failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    replaceGroupingPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Grouping policy identifier. */
+                policy_id: components["parameters"]["GroupingPolicyID"];
+            };
+            cookie?: never;
+        };
+        /** @description Replacement grouping policy metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GroupingPolicyWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Grouping policy replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupingPolicy"];
+                };
+            };
+            /** @description Grouping policy replacement request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replacement target policy was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replacement policy conflicts with an existing name */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Grouping policy replacement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    previewGroupingPolicy: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path: {
+                /** @description Grouping policy identifier. */
+                policy_id: components["parameters"]["GroupingPolicyID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Grouping policy preview result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupingPolicyPreviewResult"];
+                };
+            };
+            /** @description Grouping policy preview request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Grouping policy was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Grouping policy preview failed server-side */
             500: {
                 headers: {
                     [name: string]: unknown;

@@ -41,6 +41,7 @@ import (
 	transporthttp "github.com/openclarion/openclarion/internal/transport/http"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
+	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -418,6 +419,20 @@ func httpServerOptionsFromEnv(
 	if err != nil {
 		return nil, nil, err
 	}
+
+	alertSourceTester, err := alertsourcecheck.NewService(
+		func(profile domain.AlertSourceProfile) (ports.MetricsProvider, error) {
+			return metricsprometheus.NewProvider(
+				profile.BaseURL,
+				metricsprometheus.WithRoundTripperDecorator(outboundTransportDecorator(httpTracing)),
+			)
+		},
+		alertsourcecheck.WithClock(func() time.Time { return time.Now().UTC() }),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure alert source connection tester: %w", err)
+	}
+	opts = append(opts, transporthttp.WithAlertSourceConnectionTester(alertSourceTester))
 
 	if !anyEnv(getenv, "OPENCLARION_PROMETHEUS_URL", "OPENCLARION_PROMETHEUS_BEARER_TOKEN") {
 		logger.Warn("report HTTP trigger is disabled; set OPENCLARION_PROMETHEUS_URL to enable replay-window report triggers")

@@ -25,6 +25,20 @@ Current gate coverage:
 - `npm run deadcode`
 - `npm run audit`
 
+When a feature moves onto the standardized console layer, tests should cover:
+
+- form/view-model parsing separately from Ant Design rendering
+- mutation success and error handling around the same-origin route handler
+  boundary
+- TanStack Query invalidation behavior when a screen depends on client-managed
+  refresh
+- Playwright smoke coverage for the route-level operator workflow
+
+The alert source and grouping policy settings screens are the reference pattern
+for this split: feature-local `format.test.ts` files cover parser/view-model
+behavior, while Playwright covers the operator route workflow against the mocked
+API.
+
 The live diagnosis-room smoke is intentionally manual. It requires:
 
 - `OPENCLARION_LIVE_API_BASE_URL`

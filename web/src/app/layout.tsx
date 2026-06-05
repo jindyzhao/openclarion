@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
+import { AntdStyleRegistry } from "./antd-style-registry";
 import "./globals.css";
+import { Providers } from "./providers";
 
 export const metadata: Metadata = {
   title: "OpenClarion",
@@ -11,7 +13,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AntdStyleRegistry>
+          <Providers>{children}</Providers>
+        </AntdStyleRegistry>
+      </body>
     </html>
   );
 }

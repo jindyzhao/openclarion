@@ -4,6 +4,7 @@ import { requestSameOriginJSON } from "@/lib/api/browser";
 import type { ApiResult } from "@/lib/api/client";
 
 import type {
+  AlertSourceConnectionTestResult,
   AlertSourceProfile,
   AlertSourceProfileListResponse,
   AlertSourceProfileWriteRequest
@@ -26,5 +27,13 @@ export async function submitAlertSourceProfile(
   return requestSameOriginJSON<AlertSourceProfile>(`/api/config/alert-sources/${sourceID}`, {
     method: "PUT",
     body
+  });
+}
+
+export async function testAlertSourceConnection(
+  sourceID: number
+): Promise<ApiResult<AlertSourceConnectionTestResult>> {
+  return requestSameOriginJSON<AlertSourceConnectionTestResult>(`/api/config/alert-sources/${sourceID}/test`, {
+    method: "POST"
   });
 }

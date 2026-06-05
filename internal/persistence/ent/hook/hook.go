@@ -129,6 +129,18 @@ func (f FinalReportFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.FinalReportMutation", m)
 }
 
+// The GroupingPolicyFunc type is an adapter to allow the use of ordinary
+// function as GroupingPolicy mutator.
+type GroupingPolicyFunc func(context.Context, *ent.GroupingPolicyMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f GroupingPolicyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.GroupingPolicyMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupingPolicyMutation", m)
+}
+
 // The ReportNotificationDeliveryFunc type is an adapter to allow the use of ordinary
 // function as ReportNotificationDelivery mutator.
 type ReportNotificationDeliveryFunc func(context.Context, *ent.ReportNotificationDeliveryMutation) (ent.Value, error)

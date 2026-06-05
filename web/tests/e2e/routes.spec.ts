@@ -53,16 +53,50 @@ test("alert source settings route lists and creates profiles", async ({ page }) 
   await expect(page.getByRole("heading", { name: "Alert Sources" })).toBeVisible();
   await expect(page.getByText("Primary Prometheus")).toBeVisible();
 
+  const primaryPrometheusRow = page.getByRole("row", { name: /Primary Prometheus/ });
+  await primaryPrometheusRow.getByRole("button", { name: "Test" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "Secret-backed connection tests require a server-side secret resolver."
+  );
+  await expect(primaryPrometheusRow).toContainText("credentials_unavailable");
+
+  const settingsForm = page.locator("form");
   await page.getByLabel("Name").fill("Team Alertmanager");
-  await page.getByLabel("Kind").selectOption("alertmanager");
-  await page.getByLabel("Auth").selectOption("bearer");
+  await settingsForm.getByText("Alertmanager", { exact: true }).click();
+  await settingsForm.getByText("Bearer", { exact: true }).click();
   await page.getByLabel("Base URL").fill("https://alertmanager-team.example.test");
-  await page.getByLabel("Secret reference").fill("secret/openclarion/alertmanager-token");
+  await page.getByLabel("Secret reference").fill("secret/openclarion/alertmanager-bearer");
   await page.getByLabel("Labels").fill("env=prod\nowner=sre");
   await page.getByLabel("Enabled").check();
   await page.getByRole("button", { name: "Save Profile" }).click();
 
   await expect(page.getByRole("status")).toContainText("Profile saved.");
   await expect(page.getByText("Team Alertmanager")).toBeVisible();
-  await expect(page.getByText("secret/openclarion/alertmanager-token")).toBeVisible();
+  await expect(page.getByText("secret/openclarion/alertmanager-bearer")).toBeVisible();
+});
+
+test("grouping policy settings route previews and creates policies", async ({ page }) => {
+  await page.goto("/settings/grouping-policies");
+
+  await expect(page.getByRole("heading", { name: "Grouping Policies" })).toBeVisible();
+  await expect(page.getByText("Default alert grouping")).toBeVisible();
+
+  const defaultPolicyRow = page.getByRole("row", { name: /Default alert grouping/ });
+  await defaultPolicyRow.getByRole("button", { name: "Preview" }).click();
+  await expect(page.getByRole("status")).toContainText("Preview scanned 3 events and matched 2.");
+  await expect(defaultPolicyRow).toContainText("1 groups");
+  await expect(page.getByText("HighCPU")).toBeVisible();
+  await expect(page.getByText("101, 102")).toBeVisible();
+
+  const settingsForm = page.locator("form");
+  await page.getByLabel("Name").fill("Service grouping");
+  await page.getByLabel("Dimension keys").fill("service\ncluster");
+  await page.getByLabel("Severity key").fill("severity");
+  await page.getByLabel("Source filter").fill("prometheus");
+  await page.getByLabel("Enabled").check();
+  await settingsForm.getByRole("button", { name: "Save Policy" }).click();
+
+  await expect(page.getByRole("status")).toContainText("Policy saved.");
+  await expect(page.getByText("Service grouping")).toBeVisible();
+  await expect(page.getByText("cluster")).toBeVisible();
 });

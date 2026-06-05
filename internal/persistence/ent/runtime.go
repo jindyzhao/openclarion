@@ -15,6 +15,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/schema"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
@@ -698,6 +699,58 @@ func init() {
 	finalreportDescCreatedAt := finalreportFields[13].Descriptor()
 	// finalreport.DefaultCreatedAt holds the default value on creation for the created_at field.
 	finalreport.DefaultCreatedAt = finalreportDescCreatedAt.Default.(func() time.Time)
+	groupingpolicyFields := schema.GroupingPolicy{}.Fields()
+	_ = groupingpolicyFields
+	// groupingpolicyDescName is the schema descriptor for name field.
+	groupingpolicyDescName := groupingpolicyFields[0].Descriptor()
+	// groupingpolicy.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	groupingpolicy.NameValidator = func() func(string) error {
+		validators := groupingpolicyDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// groupingpolicyDescSeverityKey is the schema descriptor for severity_key field.
+	groupingpolicyDescSeverityKey := groupingpolicyFields[2].Descriptor()
+	// groupingpolicy.SeverityKeyValidator is a validator for the "severity_key" field. It is called by the builders before save.
+	groupingpolicy.SeverityKeyValidator = func() func(string) error {
+		validators := groupingpolicyDescSeverityKey.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(severity_key string) error {
+			for _, fn := range fns {
+				if err := fn(severity_key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// groupingpolicyDescEnabled is the schema descriptor for enabled field.
+	groupingpolicyDescEnabled := groupingpolicyFields[4].Descriptor()
+	// groupingpolicy.DefaultEnabled holds the default value on creation for the enabled field.
+	groupingpolicy.DefaultEnabled = groupingpolicyDescEnabled.Default.(bool)
+	// groupingpolicyDescCreatedAt is the schema descriptor for created_at field.
+	groupingpolicyDescCreatedAt := groupingpolicyFields[5].Descriptor()
+	// groupingpolicy.DefaultCreatedAt holds the default value on creation for the created_at field.
+	groupingpolicy.DefaultCreatedAt = groupingpolicyDescCreatedAt.Default.(func() time.Time)
+	// groupingpolicyDescUpdatedAt is the schema descriptor for updated_at field.
+	groupingpolicyDescUpdatedAt := groupingpolicyFields[6].Descriptor()
+	// groupingpolicy.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	groupingpolicy.DefaultUpdatedAt = groupingpolicyDescUpdatedAt.Default.(func() time.Time)
+	// groupingpolicy.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	groupingpolicy.UpdateDefaultUpdatedAt = groupingpolicyDescUpdatedAt.UpdateDefault.(func() time.Time)
 	reportnotificationdeliveryFields := schema.ReportNotificationDelivery{}.Fields()
 	_ = reportnotificationdeliveryFields
 	// reportnotificationdeliveryDescIdempotencyKey is the schema descriptor for idempotency_key field.

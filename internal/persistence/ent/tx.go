@@ -32,6 +32,8 @@ type Tx struct {
 	EvidenceSnapshot *EvidenceSnapshotClient
 	// FinalReport is the client for interacting with the FinalReport builders.
 	FinalReport *FinalReportClient
+	// GroupingPolicy is the client for interacting with the GroupingPolicy builders.
+	GroupingPolicy *GroupingPolicyClient
 	// ReportNotificationDelivery is the client for interacting with the ReportNotificationDelivery builders.
 	ReportNotificationDelivery *ReportNotificationDeliveryClient
 	// SubReport is the client for interacting with the SubReport builders.
@@ -177,6 +179,7 @@ func (tx *Tx) init() {
 	tx.DiagnosisTaskEvent = NewDiagnosisTaskEventClient(tx.config)
 	tx.EvidenceSnapshot = NewEvidenceSnapshotClient(tx.config)
 	tx.FinalReport = NewFinalReportClient(tx.config)
+	tx.GroupingPolicy = NewGroupingPolicyClient(tx.config)
 	tx.ReportNotificationDelivery = NewReportNotificationDeliveryClient(tx.config)
 	tx.SubReport = NewSubReportClient(tx.config)
 }

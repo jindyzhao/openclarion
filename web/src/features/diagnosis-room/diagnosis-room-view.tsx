@@ -32,6 +32,7 @@ type TranscriptTurn = DiagnosisConversationTurn & {
 export function DiagnosisRoomView() {
   const socketRef = useRef<WebSocket | null>(null);
   const logIDRef = useRef(0);
+  const [clientReady, setClientReady] = useState(false);
   const [apiBaseURL, setAPIBaseURL] = useState(defaultAPIBaseURL);
   const [sessionID, setSessionID] = useState("diagnosis-session-42");
   const [bearerToken, setBearerToken] = useState("");
@@ -44,7 +45,9 @@ export function DiagnosisRoomView() {
   const [log, setLog] = useState<LogEntry[]>([]);
 
   useEffect(() => {
+    const readyHandle = window.setTimeout(() => setClientReady(true), 0);
     return () => {
+      window.clearTimeout(readyHandle);
       socketRef.current?.close();
       socketRef.current = null;
     };
@@ -221,6 +224,7 @@ export function DiagnosisRoomView() {
                 <span>API base URL</span>
                 <input
                   autoComplete="url"
+                  disabled={!clientReady || busy}
                   name="apiBaseURL"
                   onChange={(event) => setAPIBaseURL(event.target.value)}
                   type="url"
@@ -231,6 +235,7 @@ export function DiagnosisRoomView() {
                 <span>Session ID</span>
                 <input
                   autoComplete="off"
+                  disabled={!clientReady || busy}
                   name="sessionID"
                   onChange={(event) => setSessionID(event.target.value)}
                   value={sessionID}
@@ -240,6 +245,7 @@ export function DiagnosisRoomView() {
                 <span>Bearer token</span>
                 <input
                   autoComplete="off"
+                  disabled={!clientReady || busy}
                   name="bearerToken"
                   onChange={(event) => setBearerToken(event.target.value)}
                   type="password"
@@ -247,7 +253,7 @@ export function DiagnosisRoomView() {
                 />
               </label>
               <div className="button-row">
-                <button className="button-primary" disabled={busy} type="submit">
+                <button className="button-primary" disabled={!clientReady || busy} type="submit">
                   Connect
                 </button>
                 <button className="button-secondary" disabled={!connected} onClick={handleQueryState} type="button">

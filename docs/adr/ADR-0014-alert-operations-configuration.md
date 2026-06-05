@@ -81,6 +81,27 @@ Connectivity tests and grouping previews are explicit backend operations. They
 return sanitized results and bounded samples. A successful test or preview does
 not automatically enable a profile; enablement is a separate audited action.
 
+Alert source connection tests use a dedicated action endpoint. The action reads
+the persisted profile by ID, performs bounded provider I/O in backend code, and
+returns only status, reason, checked time, kind, auth mode, and small counters.
+It must not echo the profile base URL, raw upstream errors, bearer tokens,
+secret references beyond the already-persisted profile contract, or sampled
+alert payloads. For the first implementation slice, Prometheus profiles with
+`auth_mode=none` may be tested through the existing Prometheus alert-listing
+provider. Prometheus profiles with `auth_mode=bearer` return a blocked result
+until a server-side secret resolver can exchange `secret_ref` for credentials.
+Alertmanager profiles return unsupported until an Alertmanager adapter lands.
+
+Grouping policies use a dedicated profile and preview endpoint. A policy stores
+the operator-facing name, deterministic alert label keys used as grouping
+dimensions, the severity label key, an optional source filter, and an enabled
+flag. The preview action loads the persisted policy by ID, reads only a bounded
+recent `AlertEvent` sample from PostgreSQL, applies the same pure grouping
+algorithm used by replay paths, and returns grouped counts, dimensions,
+severity, first/last observed timestamps, and bounded event identifiers. It
+must not call Prometheus or Alertmanager, persist `AlertGroup` rows, start
+workflows, or treat a successful preview as enablement.
+
 ### Workflow Boundary
 
 Workflow starts receive resolved policy identifiers and immutable request
@@ -153,14 +174,20 @@ This decision is confirmed when:
 ### Implementation Notes
 
 The first implementation slice should start with alert source profile
-persistence and generated API contracts. It should keep the existing
+persistence and generated API contracts, then add an explicit connection-test
+action before grouping and workflow policy screens. It should keep the existing
 environment-variable Prometheus live-smoke path until the profile-driven path
 has equivalent retained evidence. Alertmanager support should land as a
 separate provider adapter with fake coverage and contract tests, not as
-Prometheus-specific branching in frontend code.
+Prometheus-specific branching in frontend code. Secret-backed connectivity
+tests should be introduced only after a server-side secret resolver is available
+and tested without exposing raw secret values to OpenAPI responses, logs, or the
+browser.
 
 ## Changelog
 
 | Date | Author | Change |
 |------|--------|--------|
 | 2026-06-05 | jindyzhao | Initial proposal |
+| 2026-06-05 | jindyzhao | Added sanitized alert-source connection-test boundary |
+| 2026-06-05 | jindyzhao | Added grouping policy persistence and dry-run preview boundary |

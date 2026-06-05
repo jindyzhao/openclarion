@@ -22,6 +22,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
@@ -46,6 +47,7 @@ const (
 	TypeDiagnosisTaskEvent         = "DiagnosisTaskEvent"
 	TypeEvidenceSnapshot           = "EvidenceSnapshot"
 	TypeFinalReport                = "FinalReport"
+	TypeGroupingPolicy             = "GroupingPolicy"
 	TypeReportNotificationDelivery = "ReportNotificationDelivery"
 	TypeSubReport                  = "SubReport"
 )
@@ -9733,6 +9735,688 @@ func (m *FinalReportMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown FinalReport edge %s", name)
+}
+
+// GroupingPolicyMutation represents an operation that mutates the GroupingPolicy nodes in the graph.
+type GroupingPolicyMutation struct {
+	config
+	op                   Op
+	typ                  string
+	id                   *int
+	name                 *string
+	dimension_keys       *[]string
+	appenddimension_keys []string
+	severity_key         *string
+	source_filter        *[]string
+	appendsource_filter  []string
+	enabled              *bool
+	created_at           *time.Time
+	updated_at           *time.Time
+	clearedFields        map[string]struct{}
+	done                 bool
+	oldValue             func(context.Context) (*GroupingPolicy, error)
+	predicates           []predicate.GroupingPolicy
+}
+
+var _ ent.Mutation = (*GroupingPolicyMutation)(nil)
+
+// groupingpolicyOption allows management of the mutation configuration using functional options.
+type groupingpolicyOption func(*GroupingPolicyMutation)
+
+// newGroupingPolicyMutation creates new mutation for the GroupingPolicy entity.
+func newGroupingPolicyMutation(c config, op Op, opts ...groupingpolicyOption) *GroupingPolicyMutation {
+	m := &GroupingPolicyMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeGroupingPolicy,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withGroupingPolicyID sets the ID field of the mutation.
+func withGroupingPolicyID(id int) groupingpolicyOption {
+	return func(m *GroupingPolicyMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *GroupingPolicy
+		)
+		m.oldValue = func(ctx context.Context) (*GroupingPolicy, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().GroupingPolicy.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withGroupingPolicy sets the old GroupingPolicy of the mutation.
+func withGroupingPolicy(node *GroupingPolicy) groupingpolicyOption {
+	return func(m *GroupingPolicyMutation) {
+		m.oldValue = func(context.Context) (*GroupingPolicy, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m GroupingPolicyMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m GroupingPolicyMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *GroupingPolicyMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *GroupingPolicyMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().GroupingPolicy.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetName sets the "name" field.
+func (m *GroupingPolicyMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *GroupingPolicyMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the GroupingPolicy entity.
+// If the GroupingPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupingPolicyMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *GroupingPolicyMutation) ResetName() {
+	m.name = nil
+}
+
+// SetDimensionKeys sets the "dimension_keys" field.
+func (m *GroupingPolicyMutation) SetDimensionKeys(s []string) {
+	m.dimension_keys = &s
+	m.appenddimension_keys = nil
+}
+
+// DimensionKeys returns the value of the "dimension_keys" field in the mutation.
+func (m *GroupingPolicyMutation) DimensionKeys() (r []string, exists bool) {
+	v := m.dimension_keys
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDimensionKeys returns the old "dimension_keys" field's value of the GroupingPolicy entity.
+// If the GroupingPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupingPolicyMutation) OldDimensionKeys(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDimensionKeys is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDimensionKeys requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDimensionKeys: %w", err)
+	}
+	return oldValue.DimensionKeys, nil
+}
+
+// AppendDimensionKeys adds s to the "dimension_keys" field.
+func (m *GroupingPolicyMutation) AppendDimensionKeys(s []string) {
+	m.appenddimension_keys = append(m.appenddimension_keys, s...)
+}
+
+// AppendedDimensionKeys returns the list of values that were appended to the "dimension_keys" field in this mutation.
+func (m *GroupingPolicyMutation) AppendedDimensionKeys() ([]string, bool) {
+	if len(m.appenddimension_keys) == 0 {
+		return nil, false
+	}
+	return m.appenddimension_keys, true
+}
+
+// ResetDimensionKeys resets all changes to the "dimension_keys" field.
+func (m *GroupingPolicyMutation) ResetDimensionKeys() {
+	m.dimension_keys = nil
+	m.appenddimension_keys = nil
+}
+
+// SetSeverityKey sets the "severity_key" field.
+func (m *GroupingPolicyMutation) SetSeverityKey(s string) {
+	m.severity_key = &s
+}
+
+// SeverityKey returns the value of the "severity_key" field in the mutation.
+func (m *GroupingPolicyMutation) SeverityKey() (r string, exists bool) {
+	v := m.severity_key
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSeverityKey returns the old "severity_key" field's value of the GroupingPolicy entity.
+// If the GroupingPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupingPolicyMutation) OldSeverityKey(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSeverityKey is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSeverityKey requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSeverityKey: %w", err)
+	}
+	return oldValue.SeverityKey, nil
+}
+
+// ResetSeverityKey resets all changes to the "severity_key" field.
+func (m *GroupingPolicyMutation) ResetSeverityKey() {
+	m.severity_key = nil
+}
+
+// SetSourceFilter sets the "source_filter" field.
+func (m *GroupingPolicyMutation) SetSourceFilter(s []string) {
+	m.source_filter = &s
+	m.appendsource_filter = nil
+}
+
+// SourceFilter returns the value of the "source_filter" field in the mutation.
+func (m *GroupingPolicyMutation) SourceFilter() (r []string, exists bool) {
+	v := m.source_filter
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceFilter returns the old "source_filter" field's value of the GroupingPolicy entity.
+// If the GroupingPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupingPolicyMutation) OldSourceFilter(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceFilter is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceFilter requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceFilter: %w", err)
+	}
+	return oldValue.SourceFilter, nil
+}
+
+// AppendSourceFilter adds s to the "source_filter" field.
+func (m *GroupingPolicyMutation) AppendSourceFilter(s []string) {
+	m.appendsource_filter = append(m.appendsource_filter, s...)
+}
+
+// AppendedSourceFilter returns the list of values that were appended to the "source_filter" field in this mutation.
+func (m *GroupingPolicyMutation) AppendedSourceFilter() ([]string, bool) {
+	if len(m.appendsource_filter) == 0 {
+		return nil, false
+	}
+	return m.appendsource_filter, true
+}
+
+// ResetSourceFilter resets all changes to the "source_filter" field.
+func (m *GroupingPolicyMutation) ResetSourceFilter() {
+	m.source_filter = nil
+	m.appendsource_filter = nil
+}
+
+// SetEnabled sets the "enabled" field.
+func (m *GroupingPolicyMutation) SetEnabled(b bool) {
+	m.enabled = &b
+}
+
+// Enabled returns the value of the "enabled" field in the mutation.
+func (m *GroupingPolicyMutation) Enabled() (r bool, exists bool) {
+	v := m.enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEnabled returns the old "enabled" field's value of the GroupingPolicy entity.
+// If the GroupingPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupingPolicyMutation) OldEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEnabled: %w", err)
+	}
+	return oldValue.Enabled, nil
+}
+
+// ResetEnabled resets all changes to the "enabled" field.
+func (m *GroupingPolicyMutation) ResetEnabled() {
+	m.enabled = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *GroupingPolicyMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *GroupingPolicyMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the GroupingPolicy entity.
+// If the GroupingPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupingPolicyMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *GroupingPolicyMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *GroupingPolicyMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *GroupingPolicyMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the GroupingPolicy entity.
+// If the GroupingPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupingPolicyMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *GroupingPolicyMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// Where appends a list predicates to the GroupingPolicyMutation builder.
+func (m *GroupingPolicyMutation) Where(ps ...predicate.GroupingPolicy) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the GroupingPolicyMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *GroupingPolicyMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.GroupingPolicy, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *GroupingPolicyMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *GroupingPolicyMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (GroupingPolicy).
+func (m *GroupingPolicyMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *GroupingPolicyMutation) Fields() []string {
+	fields := make([]string, 0, 7)
+	if m.name != nil {
+		fields = append(fields, groupingpolicy.FieldName)
+	}
+	if m.dimension_keys != nil {
+		fields = append(fields, groupingpolicy.FieldDimensionKeys)
+	}
+	if m.severity_key != nil {
+		fields = append(fields, groupingpolicy.FieldSeverityKey)
+	}
+	if m.source_filter != nil {
+		fields = append(fields, groupingpolicy.FieldSourceFilter)
+	}
+	if m.enabled != nil {
+		fields = append(fields, groupingpolicy.FieldEnabled)
+	}
+	if m.created_at != nil {
+		fields = append(fields, groupingpolicy.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, groupingpolicy.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *GroupingPolicyMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case groupingpolicy.FieldName:
+		return m.Name()
+	case groupingpolicy.FieldDimensionKeys:
+		return m.DimensionKeys()
+	case groupingpolicy.FieldSeverityKey:
+		return m.SeverityKey()
+	case groupingpolicy.FieldSourceFilter:
+		return m.SourceFilter()
+	case groupingpolicy.FieldEnabled:
+		return m.Enabled()
+	case groupingpolicy.FieldCreatedAt:
+		return m.CreatedAt()
+	case groupingpolicy.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *GroupingPolicyMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case groupingpolicy.FieldName:
+		return m.OldName(ctx)
+	case groupingpolicy.FieldDimensionKeys:
+		return m.OldDimensionKeys(ctx)
+	case groupingpolicy.FieldSeverityKey:
+		return m.OldSeverityKey(ctx)
+	case groupingpolicy.FieldSourceFilter:
+		return m.OldSourceFilter(ctx)
+	case groupingpolicy.FieldEnabled:
+		return m.OldEnabled(ctx)
+	case groupingpolicy.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case groupingpolicy.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown GroupingPolicy field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupingPolicyMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case groupingpolicy.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	case groupingpolicy.FieldDimensionKeys:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDimensionKeys(v)
+		return nil
+	case groupingpolicy.FieldSeverityKey:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSeverityKey(v)
+		return nil
+	case groupingpolicy.FieldSourceFilter:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceFilter(v)
+		return nil
+	case groupingpolicy.FieldEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEnabled(v)
+		return nil
+	case groupingpolicy.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case groupingpolicy.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown GroupingPolicy field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *GroupingPolicyMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *GroupingPolicyMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *GroupingPolicyMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown GroupingPolicy numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *GroupingPolicyMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *GroupingPolicyMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *GroupingPolicyMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown GroupingPolicy nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *GroupingPolicyMutation) ResetField(name string) error {
+	switch name {
+	case groupingpolicy.FieldName:
+		m.ResetName()
+		return nil
+	case groupingpolicy.FieldDimensionKeys:
+		m.ResetDimensionKeys()
+		return nil
+	case groupingpolicy.FieldSeverityKey:
+		m.ResetSeverityKey()
+		return nil
+	case groupingpolicy.FieldSourceFilter:
+		m.ResetSourceFilter()
+		return nil
+	case groupingpolicy.FieldEnabled:
+		m.ResetEnabled()
+		return nil
+	case groupingpolicy.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case groupingpolicy.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown GroupingPolicy field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *GroupingPolicyMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *GroupingPolicyMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *GroupingPolicyMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *GroupingPolicyMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *GroupingPolicyMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *GroupingPolicyMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *GroupingPolicyMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown GroupingPolicy unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *GroupingPolicyMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown GroupingPolicy edge %s", name)
 }
 
 // ReportNotificationDeliveryMutation represents an operation that mutates the ReportNotificationDelivery nodes in the graph.

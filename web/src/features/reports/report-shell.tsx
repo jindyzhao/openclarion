@@ -1,34 +1,70 @@
+"use client";
+
+import {
+  AppstoreOutlined,
+  FileTextOutlined,
+  MessageOutlined,
+  PartitionOutlined,
+  SettingOutlined
+} from "@ant-design/icons";
+import { Layout, Menu, Typography } from "antd";
+import type { MenuProps } from "antd";
 import Link from "next/link";
 import type { ReactNode } from "react";
 
 type ReportShellProps = {
   children: ReactNode;
-  current: "dashboard" | "reports" | "diagnosis" | "settings";
+  current: "dashboard" | "reports" | "diagnosis" | "settings" | "grouping";
 };
+
+const navItems: MenuProps["items"] = [
+  {
+    icon: <AppstoreOutlined aria-label="Dashboard navigation icon" />,
+    key: "dashboard",
+    label: <Link href="/dashboard">Dashboard</Link>
+  },
+  {
+    icon: <FileTextOutlined aria-label="Reports navigation icon" />,
+    key: "reports",
+    label: <Link href="/reports">Reports</Link>
+  },
+  {
+    icon: <MessageOutlined aria-label="Diagnosis navigation icon" />,
+    key: "diagnosis",
+    label: <Link href="/diagnosis-room">Diagnosis</Link>
+  },
+  {
+    icon: <SettingOutlined aria-label="Settings navigation icon" />,
+    key: "settings",
+    label: <Link href="/settings/alert-sources">Sources</Link>
+  },
+  {
+    icon: <PartitionOutlined aria-label="Grouping navigation icon" />,
+    key: "grouping",
+    label: <Link href="/settings/grouping-policies">Grouping</Link>
+  }
+];
 
 export function ReportShell({ children, current }: ReportShellProps) {
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <Link className="brand" href="/dashboard">
-          OpenClarion
+    <Layout className="app-console-shell">
+      <Layout.Header className="app-console-header">
+        <Link className="app-console-brand" href="/dashboard">
+          <span className="app-console-brand-mark">OC</span>
+          <span className="app-console-brand-copy">
+            <Typography.Text className="app-console-title">OpenClarion</Typography.Text>
+            <Typography.Text className="app-console-context">Alert operations console</Typography.Text>
+          </span>
         </Link>
-        <nav aria-label="Primary" className="nav">
-          <Link aria-current={current === "dashboard" ? "page" : undefined} href="/dashboard">
-            Dashboard
-          </Link>
-          <Link aria-current={current === "reports" ? "page" : undefined} href="/reports">
-            Reports
-          </Link>
-          <Link aria-current={current === "diagnosis" ? "page" : undefined} href="/diagnosis-room">
-            Diagnosis
-          </Link>
-          <Link aria-current={current === "settings" ? "page" : undefined} href="/settings/alert-sources">
-            Settings
-          </Link>
-        </nav>
-      </header>
-      <main className="content">{children}</main>
-    </div>
+        <Menu
+          aria-label="Primary"
+          className="app-console-nav"
+          items={navItems}
+          mode="horizontal"
+          selectedKeys={[current]}
+        />
+      </Layout.Header>
+      <Layout.Content className="app-console-content">{children}</Layout.Content>
+    </Layout>
   );
 }

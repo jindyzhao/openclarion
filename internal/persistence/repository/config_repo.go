@@ -10,6 +10,7 @@ import (
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/persistence/ent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertsourceprofile"
+	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -110,6 +111,88 @@ func (r *configRepo) ListAlertSourceProfiles(ctx context.Context, limit int) ([]
 	out := make([]domain.AlertSourceProfile, len(rows))
 	for i, row := range rows {
 		out[i] = alertSourceProfileToDomain(row)
+	}
+	return out, nil
+}
+
+// SaveGroupingPolicy inserts one operator-managed grouping policy.
+func (r *configRepo) SaveGroupingPolicy(ctx context.Context, p domain.GroupingPolicy) (domain.GroupingPolicy, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.GroupingPolicy{}, err
+	}
+	builder := r.tx.GroupingPolicy.Create().
+		SetName(p.Name).
+		SetDimensionKeys(p.DimensionKeys).
+		SetSeverityKey(p.SeverityKey).
+		SetSourceFilter(p.SourceFilter).
+		SetEnabled(p.Enabled)
+	if !p.CreatedAt.IsZero() {
+		builder = builder.SetCreatedAt(p.CreatedAt)
+	}
+	if !p.UpdatedAt.IsZero() {
+		builder = builder.SetUpdatedAt(p.UpdatedAt)
+	}
+	saved, err := builder.Save(ctx)
+	if err != nil {
+		return domain.GroupingPolicy{}, asAlreadyExists(err)
+	}
+	return groupingPolicyToDomain(saved), nil
+}
+
+// UpdateGroupingPolicy persists mutable grouping policy fields.
+func (r *configRepo) UpdateGroupingPolicy(ctx context.Context, p domain.GroupingPolicy) (domain.GroupingPolicy, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.GroupingPolicy{}, err
+	}
+	if p.ID == 0 {
+		return domain.GroupingPolicy{}, fmt.Errorf("update grouping policy: id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	saved, err := r.tx.GroupingPolicy.UpdateOneID(int(p.ID)).
+		SetName(p.Name).
+		SetDimensionKeys(p.DimensionKeys).
+		SetSeverityKey(p.SeverityKey).
+		SetSourceFilter(p.SourceFilter).
+		SetEnabled(p.Enabled).
+		Save(ctx)
+	if err != nil {
+		return domain.GroupingPolicy{}, asAlreadyExists(asNotFound(err))
+	}
+	return groupingPolicyToDomain(saved), nil
+}
+
+// FindGroupingPolicyByID returns one grouping policy.
+func (r *configRepo) FindGroupingPolicyByID(ctx context.Context, id domain.GroupingPolicyID) (domain.GroupingPolicy, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.GroupingPolicy{}, err
+	}
+	if id == 0 {
+		return domain.GroupingPolicy{}, fmt.Errorf("find grouping policy: id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	row, err := r.tx.GroupingPolicy.Get(ctx, int(id))
+	if err != nil {
+		return domain.GroupingPolicy{}, asNotFound(err)
+	}
+	return groupingPolicyToDomain(row), nil
+}
+
+// ListGroupingPolicies returns the most recently updated grouping policies.
+func (r *configRepo) ListGroupingPolicies(ctx context.Context, limit int) ([]domain.GroupingPolicy, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list grouping policies: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.GroupingPolicy.Query().
+		Order(groupingpolicy.ByUpdatedAt(entsql.OrderDesc()), groupingpolicy.ByID(entsql.OrderDesc())).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list grouping policies: %w", err)
+	}
+	out := make([]domain.GroupingPolicy, len(rows))
+	for i, row := range rows {
+		out[i] = groupingPolicyToDomain(row)
 	}
 	return out, nil
 }

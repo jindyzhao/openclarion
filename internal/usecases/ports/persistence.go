@@ -373,6 +373,23 @@ type ConfigurationRepository interface {
 	// ListAlertSourceProfiles returns alert source profiles ordered by
 	// (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
 	ListAlertSourceProfiles(ctx context.Context, limit int) ([]domain.AlertSourceProfile, error)
+
+	// SaveGroupingPolicy inserts a new grouping policy. Duplicate policy names
+	// return a wrapped domain.ErrAlreadyExists. The returned policy has ID,
+	// CreatedAt, and UpdatedAt populated.
+	SaveGroupingPolicy(ctx context.Context, p domain.GroupingPolicy) (domain.GroupingPolicy, error)
+
+	// UpdateGroupingPolicy persists mutable grouping policy fields. The policy
+	// ID is required. Returns domain.ErrNotFound if the row is missing.
+	UpdateGroupingPolicy(ctx context.Context, p domain.GroupingPolicy) (domain.GroupingPolicy, error)
+
+	// FindGroupingPolicyByID returns one grouping policy by ID, or
+	// domain.ErrNotFound.
+	FindGroupingPolicyByID(ctx context.Context, id domain.GroupingPolicyID) (domain.GroupingPolicy, error)
+
+	// ListGroupingPolicies returns grouping policies ordered by
+	// (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListGroupingPolicies(ctx context.Context, limit int) ([]domain.GroupingPolicy, error)
 }
 
 // UnitOfWork bundles the three aggregate-root repositories under a

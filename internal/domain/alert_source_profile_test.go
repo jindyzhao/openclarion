@@ -12,7 +12,7 @@ func TestNewAlertSourceProfileValid(t *testing.T) {
 		AlertSourceKindPrometheus,
 		"https://prometheus.example.test/prometheus",
 		AlertSourceAuthModeBearer,
-		"secret/prometheus-token",
+		"secret/prometheus-bearer",
 		true,
 		map[string]string{" env ": " prod "},
 	)
