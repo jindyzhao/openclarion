@@ -132,7 +132,7 @@ func ReportBatchWorkflow(ctx workflow.Context, input ReportBatchWorkflowInput) (
 		}
 	}
 
-	childCtx := workflow.WithChildOptions(ctx, reportChildWorkflowOptions())
+	childCtx := workflow.WithChildOptions(ctx, reportChildWorkflowOptions(workflow.GetInfo(ctx).TaskQueueName))
 	futures := make([]workflow.ChildWorkflowFuture, len(input.Items))
 	for i, item := range input.Items {
 		futures[i] = workflow.ExecuteChildWorkflow(childCtx, ReportFanOutWorkflow, ReportFanOutWorkflowInput{
@@ -206,9 +206,9 @@ func FinalReportWorkflow(ctx workflow.Context, input FinalReportWorkflowInput) (
 	return result, nil
 }
 
-func reportChildWorkflowOptions() workflow.ChildWorkflowOptions {
+func reportChildWorkflowOptions(taskQueue string) workflow.ChildWorkflowOptions {
 	return workflow.ChildWorkflowOptions{
-		TaskQueue:                TaskQueue,
+		TaskQueue:                strings.TrimSpace(taskQueue),
 		WorkflowExecutionTimeout: 15 * time.Minute,
 		WorkflowTaskTimeout:      10 * time.Second,
 	}

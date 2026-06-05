@@ -51,6 +51,7 @@ import (
 type getenvFunc func(string) string
 
 const (
+	temporalTaskQueueEnv             = "OPENCLARION_TEMPORAL_TASK_QUEUE"
 	reportReplayCLICommand           = "report-replay"
 	reportReplayCLICreatedByWorkflow = "ReportReplayCLI"
 	defaultReportReplayCLILimit      = 10000
@@ -162,6 +163,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("dial temporal: %w", err)
 	}
 	defer tc.Close()
+	temporalTaskQueue, err := temporalTaskQueueFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	logger.Info("configured Temporal task queue", "task_queue", temporalTaskQueue)
 
 	activityOptions, err := reportActivityOptionsFromEnv(ctx, logger, os.Getenv, httpTracing)
 	if err != nil {
@@ -172,13 +178,16 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	activityOptions = append(activityOptions, diagnosisActivityOptions...)
-	w := temporalpkg.NewWorker(tc, uowFactory, activityOptions...)
+	w, err := temporalpkg.NewWorkerWithTaskQueue(tc, uowFactory, temporalTaskQueue, activityOptions...)
+	if err != nil {
+		return err
+	}
 	if err := w.Start(); err != nil {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}
 	defer w.Stop()
 
-	reportStarter, err := temporalpkg.NewReportStarter(tc)
+	reportStarter, err := temporalpkg.NewReportStarter(tc, temporalpkg.WithReportStarterTaskQueue(temporalTaskQueue))
 	if err != nil {
 		return err
 	}
@@ -186,7 +195,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	diagnosisRoomStarter, err := temporalpkg.NewDiagnosisRoomStarter(tc)
+	diagnosisRoomStarter, err := temporalpkg.NewDiagnosisRoomStarter(tc, temporalpkg.WithDiagnosisRoomStarterTaskQueue(temporalTaskQueue))
 	if err != nil {
 		return err
 	}
@@ -256,6 +265,24 @@ func envOrDefault(key, defaultVal string) string {
 		return v
 	}
 	return defaultVal
+}
+
+func temporalTaskQueueFromEnv(getenv getenvFunc) (string, error) {
+	if getenv == nil {
+		return temporalpkg.TaskQueue, nil
+	}
+	raw := getenv(temporalTaskQueueEnv)
+	taskQueue := strings.TrimSpace(raw)
+	if taskQueue == "" {
+		return temporalpkg.TaskQueue, nil
+	}
+	if taskQueue != raw {
+		return "", fmt.Errorf("%s must not contain leading or trailing whitespace", temporalTaskQueueEnv)
+	}
+	if strings.ContainsAny(taskQueue, "\r\n\t") {
+		return "", fmt.Errorf("%s must not contain control whitespace", temporalTaskQueueEnv)
+	}
+	return taskQueue, nil
 }
 
 func reportActivityOptionsFromEnv(
@@ -854,13 +881,25 @@ type diagnosisRoomCloseCLINotificationEvent struct {
 }
 
 type diagnosisRoomCloseNotificationPayload struct {
-	IdempotencyKey    string `json:"idempotency_key"`
-	ProviderMessageID string `json:"provider_message_id"`
-	ProviderStatus    string `json:"provider_status"`
+	Kind               string          `json:"kind"`
+	Source             string          `json:"source"`
+	SessionID          string          `json:"session_id"`
+	DiagnosisTaskID    int64           `json:"diagnosis_task_id"`
+	ChatSessionID      int64           `json:"chat_session_id"`
+	EvidenceSnapshotID int64           `json:"evidence_snapshot_id,omitempty"`
+	AlertGroupID       int64           `json:"alert_group_id,omitempty"`
+	OwnerSubject       string          `json:"owner_subject"`
+	TurnCount          int             `json:"turn_count"`
+	CloseReason        string          `json:"close_reason"`
+	IdempotencyKey     string          `json:"idempotency_key"`
+	ProviderMessageID  string          `json:"provider_message_id"`
+	ProviderStatus     string          `json:"provider_status"`
+	ProviderRaw        json.RawMessage `json:"provider_raw,omitempty"`
 }
 
 type diagnosisRoomCloseEventPayload struct {
 	Kind              string                                   `json:"kind"`
+	Source            string                                   `json:"source"`
 	SessionID         string                                   `json:"session_id"`
 	ChatSessionID     int64                                    `json:"chat_session_id"`
 	DiagnosisTaskID   int64                                    `json:"diagnosis_task_id"`
@@ -954,8 +993,12 @@ func runReportReplayCLI(
 		return fmt.Errorf("dial temporal: %w", err)
 	}
 	defer tc.Close()
+	temporalTaskQueue, err := temporalTaskQueueFromEnv(getenv)
+	if err != nil {
+		return err
+	}
 
-	starter, err := temporalpkg.NewReportStarter(tc)
+	starter, err := temporalpkg.NewReportStarter(tc, temporalpkg.WithReportStarterTaskQueue(temporalTaskQueue))
 	if err != nil {
 		return err
 	}
@@ -1424,7 +1467,7 @@ func diagnosisRoomCloseCLIOutputFromResult(
 			DiagnosisTaskID: result.DiagnosisTaskID,
 			Status:          result.Status,
 			TurnCount:       result.TurnCount,
-			ClosedAt:        result.ClosedAt.UTC().Format(time.RFC3339Nano),
+			ClosedAt:        retainedProofTime(*result.ClosedAt).Format(time.RFC3339Nano),
 			CloseReason:     result.CloseReason,
 			FinalConclusion: diagnosisRoomCloseCLIFinalConclusionFromTemporal(*result.FinalConclusion),
 		},
@@ -1474,10 +1517,10 @@ func validateDiagnosisRoomClosePayload(
 	if result.ClosedAt == nil || result.ClosedAt.IsZero() {
 		return fmt.Errorf("diagnosis room close result missing closed_at")
 	}
-	if !payload.ClosedAt.Equal(result.ClosedAt.UTC()) {
+	if !sameRetainedProofTime(payload.ClosedAt, *result.ClosedAt) {
 		return fmt.Errorf("diagnosis room close event payload closed_at = %s, want %s",
-			payload.ClosedAt.UTC().Format(time.RFC3339Nano),
-			result.ClosedAt.UTC().Format(time.RFC3339Nano))
+			retainedProofTime(payload.ClosedAt).Format(time.RFC3339Nano),
+			retainedProofTime(*result.ClosedAt).Format(time.RFC3339Nano))
 	}
 	if result.FinalConclusion == nil {
 		return fmt.Errorf("diagnosis room close result missing final_conclusion")
@@ -1539,7 +1582,7 @@ func diagnosisRoomCloseCLIFinalConclusionFromTemporal(
 		Confidence:         in.Confidence,
 	}
 	if in.AssistantOccurredAt != nil {
-		out.AssistantOccurredAt = in.AssistantOccurredAt.UTC().Format(time.RFC3339Nano)
+		out.AssistantOccurredAt = retainedProofTime(*in.AssistantOccurredAt).Format(time.RFC3339Nano)
 	}
 	if in.RequiresHumanReview != nil {
 		requiresHumanReview := *in.RequiresHumanReview
@@ -1555,8 +1598,16 @@ func sameOptionalTime(a, b *time.Time) bool {
 	case a == nil || b == nil:
 		return false
 	default:
-		return a.UTC().Equal(b.UTC())
+		return sameRetainedProofTime(*a, *b)
 	}
+}
+
+func retainedProofTime(t time.Time) time.Time {
+	return t.UTC().Truncate(time.Microsecond)
+}
+
+func sameRetainedProofTime(a, b time.Time) bool {
+	return retainedProofTime(a).Equal(retainedProofTime(b))
 }
 
 func sameOptionalBool(a, b *bool) bool {
