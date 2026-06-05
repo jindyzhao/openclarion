@@ -159,7 +159,9 @@ Alertmanager profile without starting workflows, trigger an explicit
 policy-driven replay, configure persisted report workflow schedule metadata
 without starting workflows from the browser, have the server map enabled
 schedules into Temporal Schedule registration options, retain
-validator-checked live proof with `request.policy_id`, and have the worker
+validator-checked policy replay proof with `request.policy_id`, retain
+validator-checked scheduled proof with `request.schedule_id`,
+`request.policy_id`, and a real Temporal Schedule action, and have the worker
 deliver through the bound notification channel when its backend secret resolver
 is configured, without rebuilding the control plane or placing secret material
 in the frontend.

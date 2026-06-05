@@ -89,22 +89,26 @@ injection, notification sequencing, report read APIs, the HTTP
 replay-to-workflow trigger, the CLI one-shot replay trigger, and a manual
 `make report-live-smoke` proof harness, the policy-driven
 `make report-policy-live-smoke` proof harness, and the scheduled-trigger proof
-harness are proven locally. The retained
-proof is validated by `scripts/report_live_smoke_output`, including canonical
-UTC timestamps for `checked_at` and the replay window, replay request metadata
-with optional `request.policy_id`, replay stats, and snapshot/SubReport
-consistency. The validator requires the
-replay window to be valid and no later than `checked_at`, the scenario to be
-one of the supported alert-analysis scenarios, the live proof to have explicit
-wait intent, and the workflow result notification status to be `accepted` or
-`delivered` and requires a matching `notification_idempotency_key` shaped as
-`final_report:<id>/notification`; a
-failed or pending notification cannot support live E2E acceptance. It also
-keeps retained workflow and run IDs whitespace-free and bounded, validates
-bounded single-line provider message ID formatting when the upstream supplies
-one, and bounds the retained notification idempotency key; Webhook 2xx
-responses without a stable upstream message ID remain acceptable because the IM
-provider contract permits that path. Live
+harness are proven locally. Replay proof is validated by
+`scripts/report_live_smoke_output`, including canonical UTC timestamps for
+`checked_at` and the replay window, replay request metadata with optional
+`request.policy_id`, replay stats, and snapshot/SubReport consistency. The
+replay validator requires the replay window to be valid and no later than
+`checked_at`, the scenario to be one of the supported alert-analysis
+scenarios, the live proof to have explicit wait intent, and the workflow
+result notification status to be `accepted` or `delivered` with a matching
+`notification_idempotency_key` shaped as `final_report:<id>/notification`; a
+failed or pending notification cannot support live E2E acceptance. Scheduled
+proof is validated separately by `scripts/report_schedule_live_smoke_output`,
+which requires `request.schedule_id`, `request.policy_id`, enabled persisted
+schedule metadata, a real Temporal Schedule action at or after the operator's
+observation time, launcher/report-batch workflow binding, FinalReport output,
+and accepted or delivered notification status. The validators also keep
+retained workflow and run IDs whitespace-free and bounded, validate bounded
+single-line provider message ID formatting when the upstream supplies one, and
+bound the retained notification idempotency key; Webhook 2xx responses without
+a stable upstream message ID remain acceptable because the IM provider contract
+permits that path. Live
 Prometheus/Alertmanager->Temporal->notification execution evidence remains
 pending. The current readiness preflights expect real database and Temporal
 addresses, a real alert-source profile or Prometheus endpoint, canonical UTC
