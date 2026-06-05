@@ -7,6 +7,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
+	"github.com/openclarion/openclarion/internal/persistence/ent/alertsourceprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
@@ -137,6 +138,86 @@ func init() {
 	alertgroup.DefaultUpdatedAt = alertgroupDescUpdatedAt.Default.(func() time.Time)
 	// alertgroup.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	alertgroup.UpdateDefaultUpdatedAt = alertgroupDescUpdatedAt.UpdateDefault.(func() time.Time)
+	alertsourceprofileFields := schema.AlertSourceProfile{}.Fields()
+	_ = alertsourceprofileFields
+	// alertsourceprofileDescName is the schema descriptor for name field.
+	alertsourceprofileDescName := alertsourceprofileFields[0].Descriptor()
+	// alertsourceprofile.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	alertsourceprofile.NameValidator = func() func(string) error {
+		validators := alertsourceprofileDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// alertsourceprofileDescKind is the schema descriptor for kind field.
+	alertsourceprofileDescKind := alertsourceprofileFields[1].Descriptor()
+	// alertsourceprofile.KindValidator is a validator for the "kind" field. It is called by the builders before save.
+	alertsourceprofile.KindValidator = func() func(string) error {
+		validators := alertsourceprofileDescKind.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(kind string) error {
+			for _, fn := range fns {
+				if err := fn(kind); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// alertsourceprofileDescBaseURL is the schema descriptor for base_url field.
+	alertsourceprofileDescBaseURL := alertsourceprofileFields[2].Descriptor()
+	// alertsourceprofile.BaseURLValidator is a validator for the "base_url" field. It is called by the builders before save.
+	alertsourceprofile.BaseURLValidator = func() func(string) error {
+		validators := alertsourceprofileDescBaseURL.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(base_url string) error {
+			for _, fn := range fns {
+				if err := fn(base_url); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// alertsourceprofileDescAuthMode is the schema descriptor for auth_mode field.
+	alertsourceprofileDescAuthMode := alertsourceprofileFields[3].Descriptor()
+	// alertsourceprofile.DefaultAuthMode holds the default value on creation for the auth_mode field.
+	alertsourceprofile.DefaultAuthMode = alertsourceprofileDescAuthMode.Default.(string)
+	// alertsourceprofile.AuthModeValidator is a validator for the "auth_mode" field. It is called by the builders before save.
+	alertsourceprofile.AuthModeValidator = alertsourceprofileDescAuthMode.Validators[0].(func(string) error)
+	// alertsourceprofileDescSecretRef is the schema descriptor for secret_ref field.
+	alertsourceprofileDescSecretRef := alertsourceprofileFields[4].Descriptor()
+	// alertsourceprofile.SecretRefValidator is a validator for the "secret_ref" field. It is called by the builders before save.
+	alertsourceprofile.SecretRefValidator = alertsourceprofileDescSecretRef.Validators[0].(func(string) error)
+	// alertsourceprofileDescEnabled is the schema descriptor for enabled field.
+	alertsourceprofileDescEnabled := alertsourceprofileFields[5].Descriptor()
+	// alertsourceprofile.DefaultEnabled holds the default value on creation for the enabled field.
+	alertsourceprofile.DefaultEnabled = alertsourceprofileDescEnabled.Default.(bool)
+	// alertsourceprofileDescCreatedAt is the schema descriptor for created_at field.
+	alertsourceprofileDescCreatedAt := alertsourceprofileFields[7].Descriptor()
+	// alertsourceprofile.DefaultCreatedAt holds the default value on creation for the created_at field.
+	alertsourceprofile.DefaultCreatedAt = alertsourceprofileDescCreatedAt.Default.(func() time.Time)
+	// alertsourceprofileDescUpdatedAt is the schema descriptor for updated_at field.
+	alertsourceprofileDescUpdatedAt := alertsourceprofileFields[8].Descriptor()
+	// alertsourceprofile.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	alertsourceprofile.DefaultUpdatedAt = alertsourceprofileDescUpdatedAt.Default.(func() time.Time)
+	// alertsourceprofile.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	alertsourceprofile.UpdateDefaultUpdatedAt = alertsourceprofileDescUpdatedAt.UpdateDefault.(func() time.Time)
 	chatsessionFields := schema.ChatSession{}.Fields()
 	_ = chatsessionFields
 	// chatsessionDescSessionKey is the schema descriptor for session_key field.

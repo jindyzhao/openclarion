@@ -99,6 +99,28 @@ Webhook receives notification.
 **Acceptance**: open browser -> view report list -> click into report detail
 with evidence traceability links.
 
+## M3.1: Operations Configuration
+
+This follow-up turns the read-only operations slice into a configurable alert
+operations surface without changing the alert-first product positioning.
+
+- [ ] ADR-backed alert operations configuration model
+- [ ] alert source profile persistence for Prometheus and future Alertmanager
+      adapters
+- [ ] generated OpenAPI CRUD and connection-test contracts for alert source
+      profiles
+- [ ] grouping policy persistence and dry-run preview endpoint
+- [ ] report workflow policy persistence and explicit enablement flow
+- [ ] notification channel profile persistence with `secret_ref` only
+- [ ] frontend settings pages backed by generated API types
+- [ ] no customer endpoints, bearer tokens, or secret values in code, tests,
+      fixtures, retained artifacts, or browser durable state
+
+**Acceptance**: an operator can add a Prometheus alert source profile, test it
+with sanitized feedback, preview grouping behavior, bind a report workflow
+policy, and enable it without rebuilding the control plane or placing secret
+material in the frontend.
+
 ## M4: Agent Sandbox Baseline and Exploration
 
 - [x] ContainerProvider interface

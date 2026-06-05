@@ -22,6 +22,8 @@
 //     DiagnosisTaskEvent lifecycle log
 //   - ReportRepository:    SubReport + FinalReport persistence and
 //     report read paths
+//   - ConfigurationRepository: operator-managed alert source and policy
+//     profiles that drive provider and workflow wiring
 //
 // Five entity-level repositories were rejected because they would
 // project the Ent table layout into the usecase layer, encouraging
@@ -31,7 +33,7 @@
 // follow the same layering rules: concrete implementations must
 // import this package, never the other way around.
 //
-// UnitOfWork groups the three repositories under one Postgres
+// UnitOfWork groups the aggregate repositories under one Postgres
 // transaction. Two entry points are provided:
 //
 //   - WithinTx(ctx, fn): the recommended default for usecase code.
@@ -352,6 +354,27 @@ type ReportRepository interface {
 	ListNotificationDeliveriesByFinalReport(ctx context.Context, finalReportID domain.FinalReportID, limit int) ([]domain.ReportNotificationDelivery, error)
 }
 
+// ConfigurationRepository covers operator-managed configuration profiles.
+type ConfigurationRepository interface {
+	// SaveAlertSourceProfile inserts a new alert source profile. Duplicate
+	// profile names return a wrapped domain.ErrAlreadyExists. The returned
+	// profile has ID, CreatedAt, and UpdatedAt populated.
+	SaveAlertSourceProfile(ctx context.Context, p domain.AlertSourceProfile) (domain.AlertSourceProfile, error)
+
+	// UpdateAlertSourceProfile persists mutable alert source profile fields.
+	// The profile ID is required. Returns domain.ErrNotFound if the row is
+	// missing.
+	UpdateAlertSourceProfile(ctx context.Context, p domain.AlertSourceProfile) (domain.AlertSourceProfile, error)
+
+	// FindAlertSourceProfileByID returns one alert source profile by ID, or
+	// domain.ErrNotFound.
+	FindAlertSourceProfileByID(ctx context.Context, id domain.AlertSourceProfileID) (domain.AlertSourceProfile, error)
+
+	// ListAlertSourceProfiles returns alert source profiles ordered by
+	// (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListAlertSourceProfiles(ctx context.Context, limit int) ([]domain.AlertSourceProfile, error)
+}
+
 // UnitOfWork bundles the three aggregate-root repositories under a
 // single Postgres transaction.
 //
@@ -376,6 +399,9 @@ type UnitOfWork interface {
 
 	// Reports returns the ReportRepository bound to this transaction.
 	Reports() ReportRepository
+
+	// Config returns the ConfigurationRepository bound to this transaction.
+	Config() ConfigurationRepository
 
 	// Commit finalises the transaction. After a successful Commit
 	// the UoW is closed; subsequent Commit / Rollback calls return

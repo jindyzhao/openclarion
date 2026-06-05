@@ -31,3 +31,23 @@ discovery, JWKS, and short-lived local operator ID token needed by the real
 `cmd/openclarion` OIDC verifier. It is only an identity helper: M5 acceptance
 still requires a real persisted `EvidenceSnapshot`, Temporal worker, sandbox
 provider, and retained `diagnosis-live-browser-smoke` proof.
+
+## Alert Source Settings
+
+The alert source settings route lives at `/settings/alert-sources`. The App
+Router page stays thin: it server-fetches `GET /api/v1/config/alert-sources`
+through `web/src/features/settings/alert-sources/api.ts`, then renders the
+feature-owned interactive view.
+
+Browser mutations do not call the Go API directly. They call same-origin Next.js
+route handlers under `/api/config/alert-sources`, and those route handlers use
+the server-side API base URL to forward create/replace requests. This keeps the
+browser away from deployment-specific backend addresses and keeps credential
+material outside durable browser state; the UI accepts only `secret_ref`, never
+a bearer token value.
+
+The feature mirrors the backend's configuration model: generated OpenAPI types
+are the DTO source, form parsing is local validation only, PostgreSQL-backed Go
+configuration APIs remain the source of truth, and future grouping/workflow/
+notification settings should reuse the same page -> feature -> same-origin
+route -> Go API layering.

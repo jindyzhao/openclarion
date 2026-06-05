@@ -213,6 +213,27 @@ func reportNotificationDeliveryToDomain(r *ent.ReportNotificationDelivery) domai
 	}
 }
 
+// alertSourceProfileToDomain converts an Ent AlertSourceProfile row to a
+// domain entity.
+func alertSourceProfileToDomain(p *ent.AlertSourceProfile) domain.AlertSourceProfile {
+	labels := p.Labels
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	return domain.AlertSourceProfile{
+		ID:        domain.AlertSourceProfileID(p.ID),
+		Name:      p.Name,
+		Kind:      domain.AlertSourceKind(p.Kind),
+		BaseURL:   p.BaseURL,
+		AuthMode:  domain.AlertSourceAuthMode(p.AuthMode),
+		SecretRef: p.SecretRef,
+		Enabled:   p.Enabled,
+		Labels:    labels,
+		CreatedAt: p.CreatedAt,
+		UpdatedAt: p.UpdatedAt,
+	}
+}
+
 // alertEventIDsToEnt converts a slice of domain.AlertEventID
 // (int64) to a slice of Ent IDs (int). Used by LinkEventsToGroup
 // to feed AddEventIDs. The conversion is unconditional because

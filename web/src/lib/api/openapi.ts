@@ -44,6 +44,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config/alert-sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List alert source profiles
+         * @description Returns operator-managed alert source profiles without credential values.
+         */
+        get: operations["listAlertSourceProfiles"];
+        put?: never;
+        /**
+         * Create an alert source profile
+         * @description Stores operator-managed alert source metadata. Secret material must be represented only by secret_ref.
+         */
+        post: operations["createAlertSourceProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/alert-sources/{source_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an alert source profile
+         * @description Returns one operator-managed alert source profile without credential values.
+         */
+        get: operations["getAlertSourceProfile"];
+        /**
+         * Replace an alert source profile
+         * @description Replaces mutable alert source profile metadata. Use enabled=false to disable a source.
+         */
+        put: operations["replaceAlertSourceProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/alerts": {
         parameters: {
             query?: never;
@@ -236,6 +284,110 @@ export interface components {
             firing: number;
             /** Format: int64 */
             resolved: number;
+        };
+        /**
+         * @description Supported alert source adapter kind.
+         * @example prometheus
+         * @enum {string}
+         */
+        AlertSourceKind: "prometheus" | "alertmanager";
+        /**
+         * @description Authentication mode for the alert source adapter.
+         * @example bearer
+         * @enum {string}
+         */
+        AlertSourceAuthMode: "none" | "bearer";
+        /**
+         * @description Operator labels for environment, ownership, or routing metadata.
+         * @example {
+         *       "env": "staging",
+         *       "owner": "platform"
+         *     }
+         */
+        AlertSourceLabels: {
+            [key: string]: string;
+        };
+        /** @description Operator-managed alert source profile without credential values. */
+        AlertSourceProfile: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            id: number;
+            /** @example Primary Prometheus */
+            name: string;
+            kind: components["schemas"]["AlertSourceKind"];
+            /**
+             * Format: uri
+             * @description HTTP(S) upstream endpoint root without userinfo, query, or fragment.
+             * @example https://prometheus.example.test
+             */
+            base_url: string;
+            auth_mode: components["schemas"]["AlertSourceAuthMode"];
+            /**
+             * @description Deployment-managed credential reference; never the credential value.
+             * @example secret/openclarion/prometheus-token
+             */
+            secret_ref: string;
+            /**
+             * @description Whether operators enabled this source for policy binding.
+             * @example true
+             */
+            enabled: boolean;
+            labels: components["schemas"]["AlertSourceLabels"];
+            /**
+             * Format: date-time
+             * @example 2026-05-28T06:00:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-05-28T06:10:00Z
+             */
+            updated_at: string;
+        };
+        /** @description Alert source profile metadata accepted by create and replace operations. */
+        AlertSourceProfileWriteRequest: {
+            /** @example Primary Prometheus */
+            name: string;
+            kind: components["schemas"]["AlertSourceKind"];
+            /**
+             * Format: uri
+             * @description Submitted HTTP(S) endpoint root without userinfo, query, or fragment.
+             * @example https://prometheus.example.test
+             */
+            base_url: string;
+            auth_mode: components["schemas"]["AlertSourceAuthMode"];
+            /**
+             * @description Submitted deployment-managed credential reference; never the credential value.
+             * @example secret/openclarion/prometheus-token
+             */
+            secret_ref?: string;
+            /** @default false */
+            enabled: boolean;
+            labels?: components["schemas"]["AlertSourceLabels"];
+        };
+        /** @description Alert source profile list response. */
+        AlertSourceProfileListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "name": "Primary Prometheus",
+             *         "kind": "prometheus",
+             *         "base_url": "https://prometheus.example.test",
+             *         "auth_mode": "bearer",
+             *         "secret_ref": "secret/openclarion/prometheus-token",
+             *         "enabled": true,
+             *         "labels": {
+             *           "env": "prod"
+             *         },
+             *         "created_at": "2026-05-28T06:00:00Z",
+             *         "updated_at": "2026-05-28T06:00:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["AlertSourceProfile"][];
         };
         /** @description Final report and latest notification delivery counters from the recent report window. */
         DashboardReportStats: {
@@ -802,6 +954,8 @@ export interface components {
         ListLimit: number;
         /** @description Final report identifier. */
         ReportID: number;
+        /** @description Alert source profile identifier. */
+        AlertSourceProfileID: number;
     };
     requestBodies: never;
     headers: never;
@@ -848,6 +1002,204 @@ export interface operations {
                 };
             };
             /** @description Dashboard summary failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listAlertSourceProfiles: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Alert source profiles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertSourceProfileListResponse"];
+                };
+            };
+            /** @description Alert source list parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Alert source list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createAlertSourceProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Alert source profile metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertSourceProfileWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Alert source profile created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertSourceProfile"];
+                };
+            };
+            /** @description Alert source profile request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Alert source profile conflicts with an existing profile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Alert source profile creation failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getAlertSourceProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Alert source profile identifier. */
+                source_id: components["parameters"]["AlertSourceProfileID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Alert source profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertSourceProfile"];
+                };
+            };
+            /** @description Alert source profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Alert source profile lookup failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    replaceAlertSourceProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Alert source profile identifier. */
+                source_id: components["parameters"]["AlertSourceProfileID"];
+            };
+            cookie?: never;
+        };
+        /** @description Replacement alert source profile metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertSourceProfileWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Alert source profile replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertSourceProfile"];
+                };
+            };
+            /** @description Alert source profile replacement request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replacement target profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replacement profile conflicts with an existing name */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Alert source profile replacement failed server-side */
             500: {
                 headers: {
                     [name: string]: unknown;

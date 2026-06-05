@@ -31,6 +31,7 @@ amend or supersede an accepted decision.
 | [ADR-0011](ADR-0011-ci-governance.md) | CI Governance and Quality Gates | Proposed |
 | [ADR-0012](ADR-0012-technology-validation.md) | Technology Stack Validation | Proposed |
 | [ADR-0013](ADR-0013-per-turn-container-invocation.md) | Per-Turn Container Invocation and File-Based Data Contract | Proposed |
+| [ADR-0014](ADR-0014-alert-operations-configuration.md) | Alert Operations Configuration | Proposed |
 
 ## Reading Order
 
@@ -40,8 +41,9 @@ amend or supersede an accepted decision.
 4. ADR-0009 - Go control plane
 5. ADR-0004 - workflow execution
 6. ADR-0002, ADR-0005, and ADR-0013 - AI runtime boundaries and container contract
-7. ADR-0007, ADR-0008, ADR-0010, ADR-0011 - engineering governance
-8. ADR-0012 - technology validation and risk assessment
+7. ADR-0014 - alert source, grouping, workflow, and notification configuration
+8. ADR-0007, ADR-0008, ADR-0010, ADR-0011 - engineering governance
+9. ADR-0012 - technology validation and risk assessment
 
 ## Creating ADRs
 

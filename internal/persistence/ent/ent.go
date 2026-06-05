@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
+	"github.com/openclarion/openclarion/internal/persistence/ent/alertsourceprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
@@ -85,6 +86,7 @@ func checkColumn(t, c string) error {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
 			alertevent.Table:                 alertevent.ValidColumn,
 			alertgroup.Table:                 alertgroup.ValidColumn,
+			alertsourceprofile.Table:         alertsourceprofile.ValidColumn,
 			chatsession.Table:                chatsession.ValidColumn,
 			chatturn.Table:                   chatturn.ValidColumn,
 			diagnosisauthticket.Table:        diagnosisauthticket.ValidColumn,

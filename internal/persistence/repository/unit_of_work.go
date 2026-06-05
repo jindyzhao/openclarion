@@ -183,6 +183,7 @@ type unitOfWork struct {
 	evidence  *evidenceRepo
 	diagnosis *diagnosisRepo
 	reports   *reportRepo
+	config    *configRepo
 }
 
 func newUnitOfWork(tx *ent.Tx) *unitOfWork {
@@ -191,6 +192,7 @@ func newUnitOfWork(tx *ent.Tx) *unitOfWork {
 	uow.evidence = &evidenceRepo{tx: tx, closed: &uow.closed}
 	uow.diagnosis = &diagnosisRepo{tx: tx, closed: &uow.closed}
 	uow.reports = &reportRepo{tx: tx, closed: &uow.closed}
+	uow.config = &configRepo{tx: tx, closed: &uow.closed}
 	return uow
 }
 
@@ -198,10 +200,11 @@ func newUnitOfWork(tx *ent.Tx) *unitOfWork {
 // repositories) after Commit or Rollback has been called.
 var errUoWClosed = errors.New("repository: unit of work is closed")
 
-func (u *unitOfWork) Alerts() ports.AlertRepository        { return u.alerts }
-func (u *unitOfWork) Evidence() ports.EvidenceRepository   { return u.evidence }
-func (u *unitOfWork) Diagnosis() ports.DiagnosisRepository { return u.diagnosis }
-func (u *unitOfWork) Reports() ports.ReportRepository      { return u.reports }
+func (u *unitOfWork) Alerts() ports.AlertRepository         { return u.alerts }
+func (u *unitOfWork) Evidence() ports.EvidenceRepository    { return u.evidence }
+func (u *unitOfWork) Diagnosis() ports.DiagnosisRepository  { return u.diagnosis }
+func (u *unitOfWork) Reports() ports.ReportRepository       { return u.reports }
+func (u *unitOfWork) Config() ports.ConfigurationRepository { return u.config }
 
 // Commit finalises the transaction. After a successful Commit the
 // UoW is closed; subsequent Commit / Rollback calls return

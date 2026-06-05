@@ -43,3 +43,7 @@ type ChatSessionID int64
 // ChatTurnID is the surrogate identifier of an append-only
 // diagnosis-room chat turn row.
 type ChatTurnID int64
+
+// AlertSourceProfileID is the surrogate identifier of an operator-managed
+// alert source configuration profile.
+type AlertSourceProfileID int64

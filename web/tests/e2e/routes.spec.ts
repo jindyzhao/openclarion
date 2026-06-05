@@ -46,3 +46,23 @@ test("diagnosis room route connects, queries state, and submits a turn", async (
   ).toBeVisible();
   await expect(page.getByText("Turn 1 completed.")).toBeVisible();
 });
+
+test("alert source settings route lists and creates profiles", async ({ page }) => {
+  await page.goto("/settings/alert-sources");
+
+  await expect(page.getByRole("heading", { name: "Alert Sources" })).toBeVisible();
+  await expect(page.getByText("Primary Prometheus")).toBeVisible();
+
+  await page.getByLabel("Name").fill("Team Alertmanager");
+  await page.getByLabel("Kind").selectOption("alertmanager");
+  await page.getByLabel("Auth").selectOption("bearer");
+  await page.getByLabel("Base URL").fill("https://alertmanager-team.example.test");
+  await page.getByLabel("Secret reference").fill("secret/openclarion/alertmanager-token");
+  await page.getByLabel("Labels").fill("env=prod\nowner=sre");
+  await page.getByLabel("Enabled").check();
+  await page.getByRole("button", { name: "Save Profile" }).click();
+
+  await expect(page.getByRole("status")).toContainText("Profile saved.");
+  await expect(page.getByText("Team Alertmanager")).toBeVisible();
+  await expect(page.getByText("secret/openclarion/alertmanager-token")).toBeVisible();
+});

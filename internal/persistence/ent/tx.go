@@ -16,6 +16,8 @@ type Tx struct {
 	AlertEvent *AlertEventClient
 	// AlertGroup is the client for interacting with the AlertGroup builders.
 	AlertGroup *AlertGroupClient
+	// AlertSourceProfile is the client for interacting with the AlertSourceProfile builders.
+	AlertSourceProfile *AlertSourceProfileClient
 	// ChatSession is the client for interacting with the ChatSession builders.
 	ChatSession *ChatSessionClient
 	// ChatTurn is the client for interacting with the ChatTurn builders.
@@ -167,6 +169,7 @@ func (tx *Tx) Client() *Client {
 func (tx *Tx) init() {
 	tx.AlertEvent = NewAlertEventClient(tx.config)
 	tx.AlertGroup = NewAlertGroupClient(tx.config)
+	tx.AlertSourceProfile = NewAlertSourceProfileClient(tx.config)
 	tx.ChatSession = NewChatSessionClient(tx.config)
 	tx.ChatTurn = NewChatTurnClient(tx.config)
 	tx.DiagnosisAuthTicket = NewDiagnosisAuthTicketClient(tx.config)

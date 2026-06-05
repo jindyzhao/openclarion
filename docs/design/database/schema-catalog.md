@@ -21,6 +21,7 @@ workflow.
 | `DiagnosisAuthTicket` | shipped at M5 local | short-lived WebSocket ticket metadata; stores `sha256(token)`, never the raw token |
 | `ChatSession` | shipped at M5 local | interactive diagnosis-room lifecycle anchored to `DiagnosisTask` |
 | `ChatTurn` | shipped at M5 local | append-only human, assistant, system, and tool messages |
+| `AlertSourceProfile` | shipped at M3.1 local | operator-managed alert source connection metadata; stores `secret_ref`, never secret values |
 | `AuditLog` | M2+ | security and lifecycle audit trail |
 
 ## Fingerprint Discipline (M1)
@@ -154,6 +155,24 @@ Each turn records `role`, `actor_subject`, `content`, `metadata`, and
 `occurred_at`. Workflow and WebSocket relay code still need to call this
 repository boundary before the full M5 room is accepted.
 
+## AlertSourceProfile
+
+`AlertSourceProfile` is the first M3.1 operations-configuration table. It
+records operator-managed alert source metadata for Prometheus and future
+Alertmanager adapters:
+
+* `name` is globally UNIQUE so operators have one stable display handle per
+  profile
+* `kind` is text (`prometheus` / `alertmanager`), not a database enum
+* `base_url` stores only an HTTP(S) base URL; domain validation rejects
+  userinfo, query strings, and fragments before persistence
+* `auth_mode` is text (`none` / `bearer`)
+* `secret_ref` stores only a deployment-managed secret reference, never a
+  bearer token or credential value
+* `enabled` is explicit so creating and testing a profile remains separate
+  from allowing policy binding
+* `labels` is JSONB for bounded operator metadata and has a GIN index
+
 ## Foreign Keys and Composite Indexes
 
 All inter-entity foreign keys are surfaced as explicit `field.Int`
@@ -194,7 +213,8 @@ The relations covered by the current schema are:
 Use JSONB for raw alert payloads, provider-specific evidence, tool
 results, and model metadata. Extract commonly queried fields into typed
 columns. Index JSONB columns with GIN where label-style query patterns
-exist (see `AlertEvent.labels` for the canonical example).
+exist (see `AlertEvent.labels` and `AlertSourceProfile.labels` for current
+examples).
 
 ## Retention
 
