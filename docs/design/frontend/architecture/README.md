@@ -7,8 +7,9 @@ The first frontend milestone renders persisted `FinalReport` and
 
 ## Console Foundation
 
-The frontend now uses ADR-0010 as the console architecture decision. The
-app-wide foundation is:
+The frontend now uses
+[ADR-0010](../../../adr/ADR-0010-frontend-architecture.md) as the console
+architecture decision. The app-wide foundation is:
 
 - Next.js App Router for route shells and first-load server fetches.
 - Generated OpenAPI TypeScript contracts for API DTOs.
@@ -28,6 +29,14 @@ Feature migration is incremental. The shared provider and shell may land before
 every feature screen is rewritten with Ant Design components. New settings
 surfaces should use the standardized console layer from the start.
 
+Interactive settings surfaces share a small query-state helper under
+`web/src/features/settings/`. Route pages still perform first-load server
+fetches, but browser refresh and create/replace/enable/disable mutations use
+TanStack Query query keys and invalidation instead of per-page list copies.
+Feature-specific action outputs, including connection-test, preview, and replay
+results, remain local session state unless the backend exposes them as durable
+configuration.
+
 The alert source settings screen is the first migrated interactive settings
 surface. It uses Ant Design statistics, alerts, forms, buttons, table columns,
 tags, and empty states while keeping OpenAPI-generated DTOs, local parser tests,
@@ -41,6 +50,49 @@ hold the last preview result for the active browser session, but persisted
 policy rows and preview execution stay in the Go API. A preview is a backend
 dry run over bounded persisted alert samples; it is not a Prometheus,
 Alertmanager, or workflow call.
+
+The report workflow policy settings screen follows the same architecture. The
+route is owned by `/settings/report-workflow-policies`, first-load reads use
+generated `ReportWorkflowPolicy` response contracts, and browser mutations go
+through same-origin handlers under `/api/config/report-workflow-policies`.
+Policy form saves create or replace disabled or previously enabled metadata
+only, including an optional report notification channel profile binding;
+explicit enable/disable row actions are the backend-owned state
+transition. A separate row-level replay action calls the backend policy replay
+endpoint with a bounded window and optional idempotency identifiers. A save or
+enable action is not a Temporal workflow start, and the replay action does not
+let the browser override the stored report scenario. This boundary follows
+[ADR-0014](../../../adr/ADR-0014-alert-operations-configuration.md).
+
+The notification channel settings screen follows the same architecture. The
+route is owned by `/settings/notification-channels`, first-load reads use
+generated `NotificationChannelProfile` response contracts, and browser
+mutations go through same-origin handlers under
+`/api/config/notification-channels`. The UI accepts only delivery metadata and
+`secret_ref` values; it does not accept endpoint URLs or credential values, does
+not resolve secrets. The row-level test action sends one controlled backend
+test notification for a persisted channel ID and renders only sanitized status,
+reason, message, and bounded provider acknowledgement metadata. Report workflow
+policies can reference report-capable channels by ID. Runtime delivery
+selection remains backend-owned and runs only from the report notification
+Activity when the worker is configured with a notification channel secret
+resolver, as defined by
+[ADR-0014](../../../adr/ADR-0014-alert-operations-configuration.md).
+
+The report workflow schedule settings screen follows the same architecture.
+The route is owned by `/settings/report-workflow-schedules`, first-load reads
+use generated `ReportWorkflowSchedule` response contracts, and browser
+mutations go through same-origin handlers under
+`/api/config/report-workflow-schedules`. Schedule form saves persist metadata
+only: report workflow policy ID, Temporal Schedule ID, interval/offset, replay
+window/delay, replay limit, and catch-up window. Explicit enable/disable row
+actions are backend-owned state transitions, and the backend validates that the
+bound report workflow policy is enabled before accepting schedule enablement.
+The frontend must not use browser timers, local cron state, direct Temporal
+calls, provider calls, secret resolution, or notification sending for scheduled
+report triggers. Temporal Schedule registration, reconciliation, and
+launcher-workflow execution remain backend work under
+[ADR-0014](../../../adr/ADR-0014-alert-operations-configuration.md).
 
 ## Interactive Diagnosis in M5
 
@@ -96,9 +148,10 @@ The feature mirrors the backend's configuration model: generated OpenAPI types
 are the DTO source, form parsing is local validation only, PostgreSQL-backed Go
 configuration APIs remain the source of truth, and future grouping/workflow/
 notification settings should reuse the same page -> feature -> same-origin
-route -> Go API layering. The rendered controls now use the shared Ant Design
-console layer; feature-local parsing remains in `format.ts` so API write-request
-validation stays testable without coupling tests to component rendering.
+route -> Go API layering plus the shared settings query-state helper. The
+rendered controls now use the shared Ant Design console layer; feature-local
+parsing remains in `format.ts` so API write-request validation stays testable
+without coupling tests to component rendering.
 
 ## Grouping Policy Settings
 
@@ -113,3 +166,53 @@ preview status, number of events scanned, number of events matched, and grouped
 samples returned by OpenAPI during the current session. It must not save preview
 results as durable configuration, create workflow bindings, or infer that a
 policy is production-ready only because preview returned groups.
+
+## Report Workflow Policy Settings
+
+The report workflow policy settings route lives at
+`/settings/report-workflow-policies`. Policy form controls capture display
+name, alert source profile ID, grouping policy ID, optional report notification
+channel profile ID, trigger mode, report scenario, and diagnosis follow-up mode.
+Enabled state is intentionally absent from the form.
+
+Enablement is a backend action, not a form field. The UI can render the
+persisted draft/enabled state and call row-level enable/disable actions for a
+persisted policy ID. The backend validates that the bound alert source and
+grouping policy are already enabled before accepting enablement. If a report
+notification channel is bound, the backend also validates that it is enabled and
+has the report delivery scope. The frontend must not call alert providers or
+notification providers, or treat a saved draft as active workflow routing.
+
+Impact preview is a backend action. The UI can call row-level impact preview
+for a persisted policy ID and render readiness status, reason codes, recent
+event/group counters, and bounded group samples as current-session action
+state. The backend reads persisted configuration and recent `AlertEvent` rows
+only; it does not call providers, resolve secrets, start Temporal workflows,
+send notifications, or persist grouping/snapshot output. A ready impact preview
+does not enable the policy.
+
+Replay is also a backend action. The UI can call row-level replay for an enabled
+policy ID with a replay window, limit, and optional correlation/workflow IDs.
+The backend resolves the stored alert source, grouping policy, source filter,
+report scenario, and server-side credentials before starting report generation.
+The UI may show the returned replay stats and workflow handle as session action
+state, but it must not store them as policy state or infer that future workflows
+should start automatically.
+
+## Notification Channel Settings
+
+The notification channel settings route lives at
+`/settings/notification-channels`. Profile form controls capture display name,
+adapter kind, deployment-managed secret reference, delivery scopes, enabled
+state, and labels.
+
+The profile remains a frontend configuration contract only. The frontend may
+save or replace a profile through generated OpenAPI write contracts, but it
+must not collect delivery endpoint URLs, credential values, or
+provider-specific secret material. It may request the backend to send one
+controlled test notification for a persisted channel ID and render the sanitized
+result during the current browser session, but it must not infer runtime report
+delivery from an enabled profile or successful test alone.
+Report workflow policies may reference a channel profile by ID; backend report
+notification Activities can send through that channel only when the worker has
+the notification channel secret resolver configured.

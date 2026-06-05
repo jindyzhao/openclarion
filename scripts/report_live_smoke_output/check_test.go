@@ -174,6 +174,11 @@ func TestRunRejectsIncompleteLiveSmokeOutput(t *testing.T) {
 			want: "request.limit",
 		},
 		{
+			name: "request policy id negative",
+			body: strings.Replace(validOutputWith(`"workflow_result":{"sub_report_ids":[1],"final_report_id":2,"notification_idempotency_key":"final_report:2/notification","notification_status":"accepted"}`), `"request":{"window_start"`, `"request":{"policy_id":-1,"window_start"`, 1),
+			want: "request.policy_id",
+		},
+		{
 			name: "request bad scenario",
 			body: strings.Replace(validOutputWith(`"workflow_result":{"sub_report_ids":[1],"final_report_id":2,"notification_idempotency_key":"final_report:2/notification","notification_status":"accepted"}`), `"scenario":"single_alert"`, `"scenario":"other"`, 1),
 			want: "request.scenario",

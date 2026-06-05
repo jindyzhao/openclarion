@@ -2,6 +2,9 @@
 
 import {
   AppstoreOutlined,
+  BellOutlined,
+  BranchesOutlined,
+  CalendarOutlined,
   FileTextOutlined,
   MessageOutlined,
   PartitionOutlined,
@@ -14,7 +17,7 @@ import type { ReactNode } from "react";
 
 type ReportShellProps = {
   children: ReactNode;
-  current: "dashboard" | "reports" | "diagnosis" | "settings" | "grouping";
+  current: "dashboard" | "reports" | "diagnosis" | "settings" | "grouping" | "workflow" | "schedules" | "channels";
 };
 
 const navItems: MenuProps["items"] = [
@@ -42,6 +45,21 @@ const navItems: MenuProps["items"] = [
     icon: <PartitionOutlined aria-label="Grouping navigation icon" />,
     key: "grouping",
     label: <Link href="/settings/grouping-policies">Grouping</Link>
+  },
+  {
+    icon: <BranchesOutlined aria-label="Workflow navigation icon" />,
+    key: "workflow",
+    label: <Link href="/settings/report-workflow-policies">Workflow</Link>
+  },
+  {
+    icon: <CalendarOutlined aria-label="Schedules navigation icon" />,
+    key: "schedules",
+    label: <Link href="/settings/report-workflow-schedules">Schedules</Link>
+  },
+  {
+    icon: <BellOutlined aria-label="Channels navigation icon" />,
+    key: "channels",
+    label: <Link href="/settings/notification-channels">Channels</Link>
   }
 ];
 

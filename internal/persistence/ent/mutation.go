@@ -23,8 +23,11 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
+	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
+	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
+	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
 
@@ -48,7 +51,10 @@ const (
 	TypeEvidenceSnapshot           = "EvidenceSnapshot"
 	TypeFinalReport                = "FinalReport"
 	TypeGroupingPolicy             = "GroupingPolicy"
+	TypeNotificationChannelProfile = "NotificationChannelProfile"
 	TypeReportNotificationDelivery = "ReportNotificationDelivery"
+	TypeReportWorkflowPolicy       = "ReportWorkflowPolicy"
+	TypeReportWorkflowSchedule     = "ReportWorkflowSchedule"
 	TypeSubReport                  = "SubReport"
 )
 
@@ -10419,6 +10425,726 @@ func (m *GroupingPolicyMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown GroupingPolicy edge %s", name)
 }
 
+// NotificationChannelProfileMutation represents an operation that mutates the NotificationChannelProfile nodes in the graph.
+type NotificationChannelProfileMutation struct {
+	config
+	op                    Op
+	typ                   string
+	id                    *int
+	name                  *string
+	kind                  *string
+	secret_ref            *string
+	delivery_scopes       *[]string
+	appenddelivery_scopes []string
+	enabled               *bool
+	labels                *map[string]string
+	created_at            *time.Time
+	updated_at            *time.Time
+	clearedFields         map[string]struct{}
+	done                  bool
+	oldValue              func(context.Context) (*NotificationChannelProfile, error)
+	predicates            []predicate.NotificationChannelProfile
+}
+
+var _ ent.Mutation = (*NotificationChannelProfileMutation)(nil)
+
+// notificationchannelprofileOption allows management of the mutation configuration using functional options.
+type notificationchannelprofileOption func(*NotificationChannelProfileMutation)
+
+// newNotificationChannelProfileMutation creates new mutation for the NotificationChannelProfile entity.
+func newNotificationChannelProfileMutation(c config, op Op, opts ...notificationchannelprofileOption) *NotificationChannelProfileMutation {
+	m := &NotificationChannelProfileMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeNotificationChannelProfile,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withNotificationChannelProfileID sets the ID field of the mutation.
+func withNotificationChannelProfileID(id int) notificationchannelprofileOption {
+	return func(m *NotificationChannelProfileMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *NotificationChannelProfile
+		)
+		m.oldValue = func(ctx context.Context) (*NotificationChannelProfile, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().NotificationChannelProfile.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withNotificationChannelProfile sets the old NotificationChannelProfile of the mutation.
+func withNotificationChannelProfile(node *NotificationChannelProfile) notificationchannelprofileOption {
+	return func(m *NotificationChannelProfileMutation) {
+		m.oldValue = func(context.Context) (*NotificationChannelProfile, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m NotificationChannelProfileMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m NotificationChannelProfileMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *NotificationChannelProfileMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *NotificationChannelProfileMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().NotificationChannelProfile.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetName sets the "name" field.
+func (m *NotificationChannelProfileMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *NotificationChannelProfileMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the NotificationChannelProfile entity.
+// If the NotificationChannelProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *NotificationChannelProfileMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *NotificationChannelProfileMutation) ResetName() {
+	m.name = nil
+}
+
+// SetKind sets the "kind" field.
+func (m *NotificationChannelProfileMutation) SetKind(s string) {
+	m.kind = &s
+}
+
+// Kind returns the value of the "kind" field in the mutation.
+func (m *NotificationChannelProfileMutation) Kind() (r string, exists bool) {
+	v := m.kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldKind returns the old "kind" field's value of the NotificationChannelProfile entity.
+// If the NotificationChannelProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *NotificationChannelProfileMutation) OldKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldKind: %w", err)
+	}
+	return oldValue.Kind, nil
+}
+
+// ResetKind resets all changes to the "kind" field.
+func (m *NotificationChannelProfileMutation) ResetKind() {
+	m.kind = nil
+}
+
+// SetSecretRef sets the "secret_ref" field.
+func (m *NotificationChannelProfileMutation) SetSecretRef(s string) {
+	m.secret_ref = &s
+}
+
+// SecretRef returns the value of the "secret_ref" field in the mutation.
+func (m *NotificationChannelProfileMutation) SecretRef() (r string, exists bool) {
+	v := m.secret_ref
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSecretRef returns the old "secret_ref" field's value of the NotificationChannelProfile entity.
+// If the NotificationChannelProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *NotificationChannelProfileMutation) OldSecretRef(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSecretRef is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSecretRef requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSecretRef: %w", err)
+	}
+	return oldValue.SecretRef, nil
+}
+
+// ResetSecretRef resets all changes to the "secret_ref" field.
+func (m *NotificationChannelProfileMutation) ResetSecretRef() {
+	m.secret_ref = nil
+}
+
+// SetDeliveryScopes sets the "delivery_scopes" field.
+func (m *NotificationChannelProfileMutation) SetDeliveryScopes(s []string) {
+	m.delivery_scopes = &s
+	m.appenddelivery_scopes = nil
+}
+
+// DeliveryScopes returns the value of the "delivery_scopes" field in the mutation.
+func (m *NotificationChannelProfileMutation) DeliveryScopes() (r []string, exists bool) {
+	v := m.delivery_scopes
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDeliveryScopes returns the old "delivery_scopes" field's value of the NotificationChannelProfile entity.
+// If the NotificationChannelProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *NotificationChannelProfileMutation) OldDeliveryScopes(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDeliveryScopes is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDeliveryScopes requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDeliveryScopes: %w", err)
+	}
+	return oldValue.DeliveryScopes, nil
+}
+
+// AppendDeliveryScopes adds s to the "delivery_scopes" field.
+func (m *NotificationChannelProfileMutation) AppendDeliveryScopes(s []string) {
+	m.appenddelivery_scopes = append(m.appenddelivery_scopes, s...)
+}
+
+// AppendedDeliveryScopes returns the list of values that were appended to the "delivery_scopes" field in this mutation.
+func (m *NotificationChannelProfileMutation) AppendedDeliveryScopes() ([]string, bool) {
+	if len(m.appenddelivery_scopes) == 0 {
+		return nil, false
+	}
+	return m.appenddelivery_scopes, true
+}
+
+// ResetDeliveryScopes resets all changes to the "delivery_scopes" field.
+func (m *NotificationChannelProfileMutation) ResetDeliveryScopes() {
+	m.delivery_scopes = nil
+	m.appenddelivery_scopes = nil
+}
+
+// SetEnabled sets the "enabled" field.
+func (m *NotificationChannelProfileMutation) SetEnabled(b bool) {
+	m.enabled = &b
+}
+
+// Enabled returns the value of the "enabled" field in the mutation.
+func (m *NotificationChannelProfileMutation) Enabled() (r bool, exists bool) {
+	v := m.enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEnabled returns the old "enabled" field's value of the NotificationChannelProfile entity.
+// If the NotificationChannelProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *NotificationChannelProfileMutation) OldEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEnabled: %w", err)
+	}
+	return oldValue.Enabled, nil
+}
+
+// ResetEnabled resets all changes to the "enabled" field.
+func (m *NotificationChannelProfileMutation) ResetEnabled() {
+	m.enabled = nil
+}
+
+// SetLabels sets the "labels" field.
+func (m *NotificationChannelProfileMutation) SetLabels(value map[string]string) {
+	m.labels = &value
+}
+
+// Labels returns the value of the "labels" field in the mutation.
+func (m *NotificationChannelProfileMutation) Labels() (r map[string]string, exists bool) {
+	v := m.labels
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldLabels returns the old "labels" field's value of the NotificationChannelProfile entity.
+// If the NotificationChannelProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *NotificationChannelProfileMutation) OldLabels(ctx context.Context) (v map[string]string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldLabels is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldLabels requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldLabels: %w", err)
+	}
+	return oldValue.Labels, nil
+}
+
+// ResetLabels resets all changes to the "labels" field.
+func (m *NotificationChannelProfileMutation) ResetLabels() {
+	m.labels = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *NotificationChannelProfileMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *NotificationChannelProfileMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the NotificationChannelProfile entity.
+// If the NotificationChannelProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *NotificationChannelProfileMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *NotificationChannelProfileMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *NotificationChannelProfileMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *NotificationChannelProfileMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the NotificationChannelProfile entity.
+// If the NotificationChannelProfile object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *NotificationChannelProfileMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *NotificationChannelProfileMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// Where appends a list predicates to the NotificationChannelProfileMutation builder.
+func (m *NotificationChannelProfileMutation) Where(ps ...predicate.NotificationChannelProfile) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the NotificationChannelProfileMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *NotificationChannelProfileMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.NotificationChannelProfile, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *NotificationChannelProfileMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *NotificationChannelProfileMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (NotificationChannelProfile).
+func (m *NotificationChannelProfileMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *NotificationChannelProfileMutation) Fields() []string {
+	fields := make([]string, 0, 8)
+	if m.name != nil {
+		fields = append(fields, notificationchannelprofile.FieldName)
+	}
+	if m.kind != nil {
+		fields = append(fields, notificationchannelprofile.FieldKind)
+	}
+	if m.secret_ref != nil {
+		fields = append(fields, notificationchannelprofile.FieldSecretRef)
+	}
+	if m.delivery_scopes != nil {
+		fields = append(fields, notificationchannelprofile.FieldDeliveryScopes)
+	}
+	if m.enabled != nil {
+		fields = append(fields, notificationchannelprofile.FieldEnabled)
+	}
+	if m.labels != nil {
+		fields = append(fields, notificationchannelprofile.FieldLabels)
+	}
+	if m.created_at != nil {
+		fields = append(fields, notificationchannelprofile.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, notificationchannelprofile.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *NotificationChannelProfileMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case notificationchannelprofile.FieldName:
+		return m.Name()
+	case notificationchannelprofile.FieldKind:
+		return m.Kind()
+	case notificationchannelprofile.FieldSecretRef:
+		return m.SecretRef()
+	case notificationchannelprofile.FieldDeliveryScopes:
+		return m.DeliveryScopes()
+	case notificationchannelprofile.FieldEnabled:
+		return m.Enabled()
+	case notificationchannelprofile.FieldLabels:
+		return m.Labels()
+	case notificationchannelprofile.FieldCreatedAt:
+		return m.CreatedAt()
+	case notificationchannelprofile.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *NotificationChannelProfileMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case notificationchannelprofile.FieldName:
+		return m.OldName(ctx)
+	case notificationchannelprofile.FieldKind:
+		return m.OldKind(ctx)
+	case notificationchannelprofile.FieldSecretRef:
+		return m.OldSecretRef(ctx)
+	case notificationchannelprofile.FieldDeliveryScopes:
+		return m.OldDeliveryScopes(ctx)
+	case notificationchannelprofile.FieldEnabled:
+		return m.OldEnabled(ctx)
+	case notificationchannelprofile.FieldLabels:
+		return m.OldLabels(ctx)
+	case notificationchannelprofile.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case notificationchannelprofile.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown NotificationChannelProfile field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *NotificationChannelProfileMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case notificationchannelprofile.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	case notificationchannelprofile.FieldKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetKind(v)
+		return nil
+	case notificationchannelprofile.FieldSecretRef:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSecretRef(v)
+		return nil
+	case notificationchannelprofile.FieldDeliveryScopes:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDeliveryScopes(v)
+		return nil
+	case notificationchannelprofile.FieldEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEnabled(v)
+		return nil
+	case notificationchannelprofile.FieldLabels:
+		v, ok := value.(map[string]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetLabels(v)
+		return nil
+	case notificationchannelprofile.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case notificationchannelprofile.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown NotificationChannelProfile field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *NotificationChannelProfileMutation) AddedFields() []string {
+	return nil
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *NotificationChannelProfileMutation) AddedField(name string) (ent.Value, bool) {
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *NotificationChannelProfileMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown NotificationChannelProfile numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *NotificationChannelProfileMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *NotificationChannelProfileMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *NotificationChannelProfileMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown NotificationChannelProfile nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *NotificationChannelProfileMutation) ResetField(name string) error {
+	switch name {
+	case notificationchannelprofile.FieldName:
+		m.ResetName()
+		return nil
+	case notificationchannelprofile.FieldKind:
+		m.ResetKind()
+		return nil
+	case notificationchannelprofile.FieldSecretRef:
+		m.ResetSecretRef()
+		return nil
+	case notificationchannelprofile.FieldDeliveryScopes:
+		m.ResetDeliveryScopes()
+		return nil
+	case notificationchannelprofile.FieldEnabled:
+		m.ResetEnabled()
+		return nil
+	case notificationchannelprofile.FieldLabels:
+		m.ResetLabels()
+		return nil
+	case notificationchannelprofile.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case notificationchannelprofile.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown NotificationChannelProfile field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *NotificationChannelProfileMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *NotificationChannelProfileMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *NotificationChannelProfileMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *NotificationChannelProfileMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *NotificationChannelProfileMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *NotificationChannelProfileMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *NotificationChannelProfileMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown NotificationChannelProfile unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *NotificationChannelProfileMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown NotificationChannelProfile edge %s", name)
+}
+
 // ReportNotificationDeliveryMutation represents an operation that mutates the ReportNotificationDelivery nodes in the graph.
 type ReportNotificationDeliveryMutation struct {
 	config
@@ -11381,6 +12107,2392 @@ func (m *ReportNotificationDeliveryMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown ReportNotificationDelivery edge %s", name)
+}
+
+// ReportWorkflowPolicyMutation represents an operation that mutates the ReportWorkflowPolicy nodes in the graph.
+type ReportWorkflowPolicyMutation struct {
+	config
+	op                                        Op
+	typ                                       string
+	id                                        *int
+	name                                      *string
+	alert_source_profile_id                   *int
+	addalert_source_profile_id                *int
+	grouping_policy_id                        *int
+	addgrouping_policy_id                     *int
+	report_notification_channel_profile_id    *int
+	addreport_notification_channel_profile_id *int
+	trigger_mode                              *string
+	report_scenario                           *string
+	diagnosis_follow_up                       *string
+	enabled                                   *bool
+	enabled_at                                *time.Time
+	disabled_at                               *time.Time
+	created_at                                *time.Time
+	updated_at                                *time.Time
+	clearedFields                             map[string]struct{}
+	done                                      bool
+	oldValue                                  func(context.Context) (*ReportWorkflowPolicy, error)
+	predicates                                []predicate.ReportWorkflowPolicy
+}
+
+var _ ent.Mutation = (*ReportWorkflowPolicyMutation)(nil)
+
+// reportworkflowpolicyOption allows management of the mutation configuration using functional options.
+type reportworkflowpolicyOption func(*ReportWorkflowPolicyMutation)
+
+// newReportWorkflowPolicyMutation creates new mutation for the ReportWorkflowPolicy entity.
+func newReportWorkflowPolicyMutation(c config, op Op, opts ...reportworkflowpolicyOption) *ReportWorkflowPolicyMutation {
+	m := &ReportWorkflowPolicyMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeReportWorkflowPolicy,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withReportWorkflowPolicyID sets the ID field of the mutation.
+func withReportWorkflowPolicyID(id int) reportworkflowpolicyOption {
+	return func(m *ReportWorkflowPolicyMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ReportWorkflowPolicy
+		)
+		m.oldValue = func(ctx context.Context) (*ReportWorkflowPolicy, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ReportWorkflowPolicy.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withReportWorkflowPolicy sets the old ReportWorkflowPolicy of the mutation.
+func withReportWorkflowPolicy(node *ReportWorkflowPolicy) reportworkflowpolicyOption {
+	return func(m *ReportWorkflowPolicyMutation) {
+		m.oldValue = func(context.Context) (*ReportWorkflowPolicy, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ReportWorkflowPolicyMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ReportWorkflowPolicyMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ReportWorkflowPolicyMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ReportWorkflowPolicyMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ReportWorkflowPolicy.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetName sets the "name" field.
+func (m *ReportWorkflowPolicyMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *ReportWorkflowPolicyMutation) ResetName() {
+	m.name = nil
+}
+
+// SetAlertSourceProfileID sets the "alert_source_profile_id" field.
+func (m *ReportWorkflowPolicyMutation) SetAlertSourceProfileID(i int) {
+	m.alert_source_profile_id = &i
+	m.addalert_source_profile_id = nil
+}
+
+// AlertSourceProfileID returns the value of the "alert_source_profile_id" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) AlertSourceProfileID() (r int, exists bool) {
+	v := m.alert_source_profile_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAlertSourceProfileID returns the old "alert_source_profile_id" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldAlertSourceProfileID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAlertSourceProfileID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAlertSourceProfileID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAlertSourceProfileID: %w", err)
+	}
+	return oldValue.AlertSourceProfileID, nil
+}
+
+// AddAlertSourceProfileID adds i to the "alert_source_profile_id" field.
+func (m *ReportWorkflowPolicyMutation) AddAlertSourceProfileID(i int) {
+	if m.addalert_source_profile_id != nil {
+		*m.addalert_source_profile_id += i
+	} else {
+		m.addalert_source_profile_id = &i
+	}
+}
+
+// AddedAlertSourceProfileID returns the value that was added to the "alert_source_profile_id" field in this mutation.
+func (m *ReportWorkflowPolicyMutation) AddedAlertSourceProfileID() (r int, exists bool) {
+	v := m.addalert_source_profile_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAlertSourceProfileID resets all changes to the "alert_source_profile_id" field.
+func (m *ReportWorkflowPolicyMutation) ResetAlertSourceProfileID() {
+	m.alert_source_profile_id = nil
+	m.addalert_source_profile_id = nil
+}
+
+// SetGroupingPolicyID sets the "grouping_policy_id" field.
+func (m *ReportWorkflowPolicyMutation) SetGroupingPolicyID(i int) {
+	m.grouping_policy_id = &i
+	m.addgrouping_policy_id = nil
+}
+
+// GroupingPolicyID returns the value of the "grouping_policy_id" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) GroupingPolicyID() (r int, exists bool) {
+	v := m.grouping_policy_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldGroupingPolicyID returns the old "grouping_policy_id" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldGroupingPolicyID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldGroupingPolicyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldGroupingPolicyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldGroupingPolicyID: %w", err)
+	}
+	return oldValue.GroupingPolicyID, nil
+}
+
+// AddGroupingPolicyID adds i to the "grouping_policy_id" field.
+func (m *ReportWorkflowPolicyMutation) AddGroupingPolicyID(i int) {
+	if m.addgrouping_policy_id != nil {
+		*m.addgrouping_policy_id += i
+	} else {
+		m.addgrouping_policy_id = &i
+	}
+}
+
+// AddedGroupingPolicyID returns the value that was added to the "grouping_policy_id" field in this mutation.
+func (m *ReportWorkflowPolicyMutation) AddedGroupingPolicyID() (r int, exists bool) {
+	v := m.addgrouping_policy_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetGroupingPolicyID resets all changes to the "grouping_policy_id" field.
+func (m *ReportWorkflowPolicyMutation) ResetGroupingPolicyID() {
+	m.grouping_policy_id = nil
+	m.addgrouping_policy_id = nil
+}
+
+// SetReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field.
+func (m *ReportWorkflowPolicyMutation) SetReportNotificationChannelProfileID(i int) {
+	m.report_notification_channel_profile_id = &i
+	m.addreport_notification_channel_profile_id = nil
+}
+
+// ReportNotificationChannelProfileID returns the value of the "report_notification_channel_profile_id" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) ReportNotificationChannelProfileID() (r int, exists bool) {
+	v := m.report_notification_channel_profile_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReportNotificationChannelProfileID returns the old "report_notification_channel_profile_id" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldReportNotificationChannelProfileID(ctx context.Context) (v *int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReportNotificationChannelProfileID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReportNotificationChannelProfileID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReportNotificationChannelProfileID: %w", err)
+	}
+	return oldValue.ReportNotificationChannelProfileID, nil
+}
+
+// AddReportNotificationChannelProfileID adds i to the "report_notification_channel_profile_id" field.
+func (m *ReportWorkflowPolicyMutation) AddReportNotificationChannelProfileID(i int) {
+	if m.addreport_notification_channel_profile_id != nil {
+		*m.addreport_notification_channel_profile_id += i
+	} else {
+		m.addreport_notification_channel_profile_id = &i
+	}
+}
+
+// AddedReportNotificationChannelProfileID returns the value that was added to the "report_notification_channel_profile_id" field in this mutation.
+func (m *ReportWorkflowPolicyMutation) AddedReportNotificationChannelProfileID() (r int, exists bool) {
+	v := m.addreport_notification_channel_profile_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearReportNotificationChannelProfileID clears the value of the "report_notification_channel_profile_id" field.
+func (m *ReportWorkflowPolicyMutation) ClearReportNotificationChannelProfileID() {
+	m.report_notification_channel_profile_id = nil
+	m.addreport_notification_channel_profile_id = nil
+	m.clearedFields[reportworkflowpolicy.FieldReportNotificationChannelProfileID] = struct{}{}
+}
+
+// ReportNotificationChannelProfileIDCleared returns if the "report_notification_channel_profile_id" field was cleared in this mutation.
+func (m *ReportWorkflowPolicyMutation) ReportNotificationChannelProfileIDCleared() bool {
+	_, ok := m.clearedFields[reportworkflowpolicy.FieldReportNotificationChannelProfileID]
+	return ok
+}
+
+// ResetReportNotificationChannelProfileID resets all changes to the "report_notification_channel_profile_id" field.
+func (m *ReportWorkflowPolicyMutation) ResetReportNotificationChannelProfileID() {
+	m.report_notification_channel_profile_id = nil
+	m.addreport_notification_channel_profile_id = nil
+	delete(m.clearedFields, reportworkflowpolicy.FieldReportNotificationChannelProfileID)
+}
+
+// SetTriggerMode sets the "trigger_mode" field.
+func (m *ReportWorkflowPolicyMutation) SetTriggerMode(s string) {
+	m.trigger_mode = &s
+}
+
+// TriggerMode returns the value of the "trigger_mode" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) TriggerMode() (r string, exists bool) {
+	v := m.trigger_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTriggerMode returns the old "trigger_mode" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldTriggerMode(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTriggerMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTriggerMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTriggerMode: %w", err)
+	}
+	return oldValue.TriggerMode, nil
+}
+
+// ResetTriggerMode resets all changes to the "trigger_mode" field.
+func (m *ReportWorkflowPolicyMutation) ResetTriggerMode() {
+	m.trigger_mode = nil
+}
+
+// SetReportScenario sets the "report_scenario" field.
+func (m *ReportWorkflowPolicyMutation) SetReportScenario(s string) {
+	m.report_scenario = &s
+}
+
+// ReportScenario returns the value of the "report_scenario" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) ReportScenario() (r string, exists bool) {
+	v := m.report_scenario
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReportScenario returns the old "report_scenario" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldReportScenario(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReportScenario is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReportScenario requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReportScenario: %w", err)
+	}
+	return oldValue.ReportScenario, nil
+}
+
+// ResetReportScenario resets all changes to the "report_scenario" field.
+func (m *ReportWorkflowPolicyMutation) ResetReportScenario() {
+	m.report_scenario = nil
+}
+
+// SetDiagnosisFollowUp sets the "diagnosis_follow_up" field.
+func (m *ReportWorkflowPolicyMutation) SetDiagnosisFollowUp(s string) {
+	m.diagnosis_follow_up = &s
+}
+
+// DiagnosisFollowUp returns the value of the "diagnosis_follow_up" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) DiagnosisFollowUp() (r string, exists bool) {
+	v := m.diagnosis_follow_up
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDiagnosisFollowUp returns the old "diagnosis_follow_up" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldDiagnosisFollowUp(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDiagnosisFollowUp is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDiagnosisFollowUp requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDiagnosisFollowUp: %w", err)
+	}
+	return oldValue.DiagnosisFollowUp, nil
+}
+
+// ResetDiagnosisFollowUp resets all changes to the "diagnosis_follow_up" field.
+func (m *ReportWorkflowPolicyMutation) ResetDiagnosisFollowUp() {
+	m.diagnosis_follow_up = nil
+}
+
+// SetEnabled sets the "enabled" field.
+func (m *ReportWorkflowPolicyMutation) SetEnabled(b bool) {
+	m.enabled = &b
+}
+
+// Enabled returns the value of the "enabled" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) Enabled() (r bool, exists bool) {
+	v := m.enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEnabled returns the old "enabled" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEnabled: %w", err)
+	}
+	return oldValue.Enabled, nil
+}
+
+// ResetEnabled resets all changes to the "enabled" field.
+func (m *ReportWorkflowPolicyMutation) ResetEnabled() {
+	m.enabled = nil
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (m *ReportWorkflowPolicyMutation) SetEnabledAt(t time.Time) {
+	m.enabled_at = &t
+}
+
+// EnabledAt returns the value of the "enabled_at" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) EnabledAt() (r time.Time, exists bool) {
+	v := m.enabled_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEnabledAt returns the old "enabled_at" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldEnabledAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEnabledAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEnabledAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEnabledAt: %w", err)
+	}
+	return oldValue.EnabledAt, nil
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (m *ReportWorkflowPolicyMutation) ClearEnabledAt() {
+	m.enabled_at = nil
+	m.clearedFields[reportworkflowpolicy.FieldEnabledAt] = struct{}{}
+}
+
+// EnabledAtCleared returns if the "enabled_at" field was cleared in this mutation.
+func (m *ReportWorkflowPolicyMutation) EnabledAtCleared() bool {
+	_, ok := m.clearedFields[reportworkflowpolicy.FieldEnabledAt]
+	return ok
+}
+
+// ResetEnabledAt resets all changes to the "enabled_at" field.
+func (m *ReportWorkflowPolicyMutation) ResetEnabledAt() {
+	m.enabled_at = nil
+	delete(m.clearedFields, reportworkflowpolicy.FieldEnabledAt)
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (m *ReportWorkflowPolicyMutation) SetDisabledAt(t time.Time) {
+	m.disabled_at = &t
+}
+
+// DisabledAt returns the value of the "disabled_at" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) DisabledAt() (r time.Time, exists bool) {
+	v := m.disabled_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDisabledAt returns the old "disabled_at" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldDisabledAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDisabledAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDisabledAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDisabledAt: %w", err)
+	}
+	return oldValue.DisabledAt, nil
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (m *ReportWorkflowPolicyMutation) ClearDisabledAt() {
+	m.disabled_at = nil
+	m.clearedFields[reportworkflowpolicy.FieldDisabledAt] = struct{}{}
+}
+
+// DisabledAtCleared returns if the "disabled_at" field was cleared in this mutation.
+func (m *ReportWorkflowPolicyMutation) DisabledAtCleared() bool {
+	_, ok := m.clearedFields[reportworkflowpolicy.FieldDisabledAt]
+	return ok
+}
+
+// ResetDisabledAt resets all changes to the "disabled_at" field.
+func (m *ReportWorkflowPolicyMutation) ResetDisabledAt() {
+	m.disabled_at = nil
+	delete(m.clearedFields, reportworkflowpolicy.FieldDisabledAt)
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ReportWorkflowPolicyMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ReportWorkflowPolicyMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ReportWorkflowPolicyMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ReportWorkflowPolicyMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ReportWorkflowPolicy entity.
+// If the ReportWorkflowPolicy object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowPolicyMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ReportWorkflowPolicyMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// Where appends a list predicates to the ReportWorkflowPolicyMutation builder.
+func (m *ReportWorkflowPolicyMutation) Where(ps ...predicate.ReportWorkflowPolicy) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ReportWorkflowPolicyMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ReportWorkflowPolicyMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ReportWorkflowPolicy, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ReportWorkflowPolicyMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ReportWorkflowPolicyMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ReportWorkflowPolicy).
+func (m *ReportWorkflowPolicyMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ReportWorkflowPolicyMutation) Fields() []string {
+	fields := make([]string, 0, 12)
+	if m.name != nil {
+		fields = append(fields, reportworkflowpolicy.FieldName)
+	}
+	if m.alert_source_profile_id != nil {
+		fields = append(fields, reportworkflowpolicy.FieldAlertSourceProfileID)
+	}
+	if m.grouping_policy_id != nil {
+		fields = append(fields, reportworkflowpolicy.FieldGroupingPolicyID)
+	}
+	if m.report_notification_channel_profile_id != nil {
+		fields = append(fields, reportworkflowpolicy.FieldReportNotificationChannelProfileID)
+	}
+	if m.trigger_mode != nil {
+		fields = append(fields, reportworkflowpolicy.FieldTriggerMode)
+	}
+	if m.report_scenario != nil {
+		fields = append(fields, reportworkflowpolicy.FieldReportScenario)
+	}
+	if m.diagnosis_follow_up != nil {
+		fields = append(fields, reportworkflowpolicy.FieldDiagnosisFollowUp)
+	}
+	if m.enabled != nil {
+		fields = append(fields, reportworkflowpolicy.FieldEnabled)
+	}
+	if m.enabled_at != nil {
+		fields = append(fields, reportworkflowpolicy.FieldEnabledAt)
+	}
+	if m.disabled_at != nil {
+		fields = append(fields, reportworkflowpolicy.FieldDisabledAt)
+	}
+	if m.created_at != nil {
+		fields = append(fields, reportworkflowpolicy.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, reportworkflowpolicy.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ReportWorkflowPolicyMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case reportworkflowpolicy.FieldName:
+		return m.Name()
+	case reportworkflowpolicy.FieldAlertSourceProfileID:
+		return m.AlertSourceProfileID()
+	case reportworkflowpolicy.FieldGroupingPolicyID:
+		return m.GroupingPolicyID()
+	case reportworkflowpolicy.FieldReportNotificationChannelProfileID:
+		return m.ReportNotificationChannelProfileID()
+	case reportworkflowpolicy.FieldTriggerMode:
+		return m.TriggerMode()
+	case reportworkflowpolicy.FieldReportScenario:
+		return m.ReportScenario()
+	case reportworkflowpolicy.FieldDiagnosisFollowUp:
+		return m.DiagnosisFollowUp()
+	case reportworkflowpolicy.FieldEnabled:
+		return m.Enabled()
+	case reportworkflowpolicy.FieldEnabledAt:
+		return m.EnabledAt()
+	case reportworkflowpolicy.FieldDisabledAt:
+		return m.DisabledAt()
+	case reportworkflowpolicy.FieldCreatedAt:
+		return m.CreatedAt()
+	case reportworkflowpolicy.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ReportWorkflowPolicyMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case reportworkflowpolicy.FieldName:
+		return m.OldName(ctx)
+	case reportworkflowpolicy.FieldAlertSourceProfileID:
+		return m.OldAlertSourceProfileID(ctx)
+	case reportworkflowpolicy.FieldGroupingPolicyID:
+		return m.OldGroupingPolicyID(ctx)
+	case reportworkflowpolicy.FieldReportNotificationChannelProfileID:
+		return m.OldReportNotificationChannelProfileID(ctx)
+	case reportworkflowpolicy.FieldTriggerMode:
+		return m.OldTriggerMode(ctx)
+	case reportworkflowpolicy.FieldReportScenario:
+		return m.OldReportScenario(ctx)
+	case reportworkflowpolicy.FieldDiagnosisFollowUp:
+		return m.OldDiagnosisFollowUp(ctx)
+	case reportworkflowpolicy.FieldEnabled:
+		return m.OldEnabled(ctx)
+	case reportworkflowpolicy.FieldEnabledAt:
+		return m.OldEnabledAt(ctx)
+	case reportworkflowpolicy.FieldDisabledAt:
+		return m.OldDisabledAt(ctx)
+	case reportworkflowpolicy.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case reportworkflowpolicy.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown ReportWorkflowPolicy field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ReportWorkflowPolicyMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case reportworkflowpolicy.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	case reportworkflowpolicy.FieldAlertSourceProfileID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAlertSourceProfileID(v)
+		return nil
+	case reportworkflowpolicy.FieldGroupingPolicyID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetGroupingPolicyID(v)
+		return nil
+	case reportworkflowpolicy.FieldReportNotificationChannelProfileID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReportNotificationChannelProfileID(v)
+		return nil
+	case reportworkflowpolicy.FieldTriggerMode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTriggerMode(v)
+		return nil
+	case reportworkflowpolicy.FieldReportScenario:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReportScenario(v)
+		return nil
+	case reportworkflowpolicy.FieldDiagnosisFollowUp:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDiagnosisFollowUp(v)
+		return nil
+	case reportworkflowpolicy.FieldEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEnabled(v)
+		return nil
+	case reportworkflowpolicy.FieldEnabledAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEnabledAt(v)
+		return nil
+	case reportworkflowpolicy.FieldDisabledAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDisabledAt(v)
+		return nil
+	case reportworkflowpolicy.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case reportworkflowpolicy.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ReportWorkflowPolicy field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ReportWorkflowPolicyMutation) AddedFields() []string {
+	var fields []string
+	if m.addalert_source_profile_id != nil {
+		fields = append(fields, reportworkflowpolicy.FieldAlertSourceProfileID)
+	}
+	if m.addgrouping_policy_id != nil {
+		fields = append(fields, reportworkflowpolicy.FieldGroupingPolicyID)
+	}
+	if m.addreport_notification_channel_profile_id != nil {
+		fields = append(fields, reportworkflowpolicy.FieldReportNotificationChannelProfileID)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ReportWorkflowPolicyMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case reportworkflowpolicy.FieldAlertSourceProfileID:
+		return m.AddedAlertSourceProfileID()
+	case reportworkflowpolicy.FieldGroupingPolicyID:
+		return m.AddedGroupingPolicyID()
+	case reportworkflowpolicy.FieldReportNotificationChannelProfileID:
+		return m.AddedReportNotificationChannelProfileID()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ReportWorkflowPolicyMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case reportworkflowpolicy.FieldAlertSourceProfileID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAlertSourceProfileID(v)
+		return nil
+	case reportworkflowpolicy.FieldGroupingPolicyID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddGroupingPolicyID(v)
+		return nil
+	case reportworkflowpolicy.FieldReportNotificationChannelProfileID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddReportNotificationChannelProfileID(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ReportWorkflowPolicy numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ReportWorkflowPolicyMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(reportworkflowpolicy.FieldReportNotificationChannelProfileID) {
+		fields = append(fields, reportworkflowpolicy.FieldReportNotificationChannelProfileID)
+	}
+	if m.FieldCleared(reportworkflowpolicy.FieldEnabledAt) {
+		fields = append(fields, reportworkflowpolicy.FieldEnabledAt)
+	}
+	if m.FieldCleared(reportworkflowpolicy.FieldDisabledAt) {
+		fields = append(fields, reportworkflowpolicy.FieldDisabledAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ReportWorkflowPolicyMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ReportWorkflowPolicyMutation) ClearField(name string) error {
+	switch name {
+	case reportworkflowpolicy.FieldReportNotificationChannelProfileID:
+		m.ClearReportNotificationChannelProfileID()
+		return nil
+	case reportworkflowpolicy.FieldEnabledAt:
+		m.ClearEnabledAt()
+		return nil
+	case reportworkflowpolicy.FieldDisabledAt:
+		m.ClearDisabledAt()
+		return nil
+	}
+	return fmt.Errorf("unknown ReportWorkflowPolicy nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ReportWorkflowPolicyMutation) ResetField(name string) error {
+	switch name {
+	case reportworkflowpolicy.FieldName:
+		m.ResetName()
+		return nil
+	case reportworkflowpolicy.FieldAlertSourceProfileID:
+		m.ResetAlertSourceProfileID()
+		return nil
+	case reportworkflowpolicy.FieldGroupingPolicyID:
+		m.ResetGroupingPolicyID()
+		return nil
+	case reportworkflowpolicy.FieldReportNotificationChannelProfileID:
+		m.ResetReportNotificationChannelProfileID()
+		return nil
+	case reportworkflowpolicy.FieldTriggerMode:
+		m.ResetTriggerMode()
+		return nil
+	case reportworkflowpolicy.FieldReportScenario:
+		m.ResetReportScenario()
+		return nil
+	case reportworkflowpolicy.FieldDiagnosisFollowUp:
+		m.ResetDiagnosisFollowUp()
+		return nil
+	case reportworkflowpolicy.FieldEnabled:
+		m.ResetEnabled()
+		return nil
+	case reportworkflowpolicy.FieldEnabledAt:
+		m.ResetEnabledAt()
+		return nil
+	case reportworkflowpolicy.FieldDisabledAt:
+		m.ResetDisabledAt()
+		return nil
+	case reportworkflowpolicy.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case reportworkflowpolicy.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown ReportWorkflowPolicy field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ReportWorkflowPolicyMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ReportWorkflowPolicyMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ReportWorkflowPolicyMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ReportWorkflowPolicyMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ReportWorkflowPolicyMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ReportWorkflowPolicyMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ReportWorkflowPolicyMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown ReportWorkflowPolicy unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ReportWorkflowPolicyMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown ReportWorkflowPolicy edge %s", name)
+}
+
+// ReportWorkflowScheduleMutation represents an operation that mutates the ReportWorkflowSchedule nodes in the graph.
+type ReportWorkflowScheduleMutation struct {
+	config
+	op                           Op
+	typ                          string
+	id                           *int
+	name                         *string
+	report_workflow_policy_id    *int
+	addreport_workflow_policy_id *int
+	temporal_schedule_id         *string
+	interval_ns                  *int64
+	addinterval_ns               *int64
+	offset_ns                    *int64
+	addoffset_ns                 *int64
+	replay_window_ns             *int64
+	addreplay_window_ns          *int64
+	replay_delay_ns              *int64
+	addreplay_delay_ns           *int64
+	replay_limit                 *int
+	addreplay_limit              *int
+	catchup_window_ns            *int64
+	addcatchup_window_ns         *int64
+	enabled                      *bool
+	enabled_at                   *time.Time
+	disabled_at                  *time.Time
+	created_at                   *time.Time
+	updated_at                   *time.Time
+	clearedFields                map[string]struct{}
+	done                         bool
+	oldValue                     func(context.Context) (*ReportWorkflowSchedule, error)
+	predicates                   []predicate.ReportWorkflowSchedule
+}
+
+var _ ent.Mutation = (*ReportWorkflowScheduleMutation)(nil)
+
+// reportworkflowscheduleOption allows management of the mutation configuration using functional options.
+type reportworkflowscheduleOption func(*ReportWorkflowScheduleMutation)
+
+// newReportWorkflowScheduleMutation creates new mutation for the ReportWorkflowSchedule entity.
+func newReportWorkflowScheduleMutation(c config, op Op, opts ...reportworkflowscheduleOption) *ReportWorkflowScheduleMutation {
+	m := &ReportWorkflowScheduleMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeReportWorkflowSchedule,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withReportWorkflowScheduleID sets the ID field of the mutation.
+func withReportWorkflowScheduleID(id int) reportworkflowscheduleOption {
+	return func(m *ReportWorkflowScheduleMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ReportWorkflowSchedule
+		)
+		m.oldValue = func(ctx context.Context) (*ReportWorkflowSchedule, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ReportWorkflowSchedule.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withReportWorkflowSchedule sets the old ReportWorkflowSchedule of the mutation.
+func withReportWorkflowSchedule(node *ReportWorkflowSchedule) reportworkflowscheduleOption {
+	return func(m *ReportWorkflowScheduleMutation) {
+		m.oldValue = func(context.Context) (*ReportWorkflowSchedule, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ReportWorkflowScheduleMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ReportWorkflowScheduleMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ReportWorkflowScheduleMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ReportWorkflowScheduleMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ReportWorkflowSchedule.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetName sets the "name" field.
+func (m *ReportWorkflowScheduleMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *ReportWorkflowScheduleMutation) ResetName() {
+	m.name = nil
+}
+
+// SetReportWorkflowPolicyID sets the "report_workflow_policy_id" field.
+func (m *ReportWorkflowScheduleMutation) SetReportWorkflowPolicyID(i int) {
+	m.report_workflow_policy_id = &i
+	m.addreport_workflow_policy_id = nil
+}
+
+// ReportWorkflowPolicyID returns the value of the "report_workflow_policy_id" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) ReportWorkflowPolicyID() (r int, exists bool) {
+	v := m.report_workflow_policy_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReportWorkflowPolicyID returns the old "report_workflow_policy_id" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldReportWorkflowPolicyID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReportWorkflowPolicyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReportWorkflowPolicyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReportWorkflowPolicyID: %w", err)
+	}
+	return oldValue.ReportWorkflowPolicyID, nil
+}
+
+// AddReportWorkflowPolicyID adds i to the "report_workflow_policy_id" field.
+func (m *ReportWorkflowScheduleMutation) AddReportWorkflowPolicyID(i int) {
+	if m.addreport_workflow_policy_id != nil {
+		*m.addreport_workflow_policy_id += i
+	} else {
+		m.addreport_workflow_policy_id = &i
+	}
+}
+
+// AddedReportWorkflowPolicyID returns the value that was added to the "report_workflow_policy_id" field in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedReportWorkflowPolicyID() (r int, exists bool) {
+	v := m.addreport_workflow_policy_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetReportWorkflowPolicyID resets all changes to the "report_workflow_policy_id" field.
+func (m *ReportWorkflowScheduleMutation) ResetReportWorkflowPolicyID() {
+	m.report_workflow_policy_id = nil
+	m.addreport_workflow_policy_id = nil
+}
+
+// SetTemporalScheduleID sets the "temporal_schedule_id" field.
+func (m *ReportWorkflowScheduleMutation) SetTemporalScheduleID(s string) {
+	m.temporal_schedule_id = &s
+}
+
+// TemporalScheduleID returns the value of the "temporal_schedule_id" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) TemporalScheduleID() (r string, exists bool) {
+	v := m.temporal_schedule_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTemporalScheduleID returns the old "temporal_schedule_id" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldTemporalScheduleID(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTemporalScheduleID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTemporalScheduleID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTemporalScheduleID: %w", err)
+	}
+	return oldValue.TemporalScheduleID, nil
+}
+
+// ResetTemporalScheduleID resets all changes to the "temporal_schedule_id" field.
+func (m *ReportWorkflowScheduleMutation) ResetTemporalScheduleID() {
+	m.temporal_schedule_id = nil
+}
+
+// SetIntervalNs sets the "interval_ns" field.
+func (m *ReportWorkflowScheduleMutation) SetIntervalNs(i int64) {
+	m.interval_ns = &i
+	m.addinterval_ns = nil
+}
+
+// IntervalNs returns the value of the "interval_ns" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) IntervalNs() (r int64, exists bool) {
+	v := m.interval_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIntervalNs returns the old "interval_ns" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldIntervalNs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIntervalNs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIntervalNs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIntervalNs: %w", err)
+	}
+	return oldValue.IntervalNs, nil
+}
+
+// AddIntervalNs adds i to the "interval_ns" field.
+func (m *ReportWorkflowScheduleMutation) AddIntervalNs(i int64) {
+	if m.addinterval_ns != nil {
+		*m.addinterval_ns += i
+	} else {
+		m.addinterval_ns = &i
+	}
+}
+
+// AddedIntervalNs returns the value that was added to the "interval_ns" field in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedIntervalNs() (r int64, exists bool) {
+	v := m.addinterval_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetIntervalNs resets all changes to the "interval_ns" field.
+func (m *ReportWorkflowScheduleMutation) ResetIntervalNs() {
+	m.interval_ns = nil
+	m.addinterval_ns = nil
+}
+
+// SetOffsetNs sets the "offset_ns" field.
+func (m *ReportWorkflowScheduleMutation) SetOffsetNs(i int64) {
+	m.offset_ns = &i
+	m.addoffset_ns = nil
+}
+
+// OffsetNs returns the value of the "offset_ns" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) OffsetNs() (r int64, exists bool) {
+	v := m.offset_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOffsetNs returns the old "offset_ns" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldOffsetNs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOffsetNs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOffsetNs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOffsetNs: %w", err)
+	}
+	return oldValue.OffsetNs, nil
+}
+
+// AddOffsetNs adds i to the "offset_ns" field.
+func (m *ReportWorkflowScheduleMutation) AddOffsetNs(i int64) {
+	if m.addoffset_ns != nil {
+		*m.addoffset_ns += i
+	} else {
+		m.addoffset_ns = &i
+	}
+}
+
+// AddedOffsetNs returns the value that was added to the "offset_ns" field in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedOffsetNs() (r int64, exists bool) {
+	v := m.addoffset_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetOffsetNs resets all changes to the "offset_ns" field.
+func (m *ReportWorkflowScheduleMutation) ResetOffsetNs() {
+	m.offset_ns = nil
+	m.addoffset_ns = nil
+}
+
+// SetReplayWindowNs sets the "replay_window_ns" field.
+func (m *ReportWorkflowScheduleMutation) SetReplayWindowNs(i int64) {
+	m.replay_window_ns = &i
+	m.addreplay_window_ns = nil
+}
+
+// ReplayWindowNs returns the value of the "replay_window_ns" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) ReplayWindowNs() (r int64, exists bool) {
+	v := m.replay_window_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReplayWindowNs returns the old "replay_window_ns" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldReplayWindowNs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReplayWindowNs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReplayWindowNs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReplayWindowNs: %w", err)
+	}
+	return oldValue.ReplayWindowNs, nil
+}
+
+// AddReplayWindowNs adds i to the "replay_window_ns" field.
+func (m *ReportWorkflowScheduleMutation) AddReplayWindowNs(i int64) {
+	if m.addreplay_window_ns != nil {
+		*m.addreplay_window_ns += i
+	} else {
+		m.addreplay_window_ns = &i
+	}
+}
+
+// AddedReplayWindowNs returns the value that was added to the "replay_window_ns" field in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedReplayWindowNs() (r int64, exists bool) {
+	v := m.addreplay_window_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetReplayWindowNs resets all changes to the "replay_window_ns" field.
+func (m *ReportWorkflowScheduleMutation) ResetReplayWindowNs() {
+	m.replay_window_ns = nil
+	m.addreplay_window_ns = nil
+}
+
+// SetReplayDelayNs sets the "replay_delay_ns" field.
+func (m *ReportWorkflowScheduleMutation) SetReplayDelayNs(i int64) {
+	m.replay_delay_ns = &i
+	m.addreplay_delay_ns = nil
+}
+
+// ReplayDelayNs returns the value of the "replay_delay_ns" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) ReplayDelayNs() (r int64, exists bool) {
+	v := m.replay_delay_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReplayDelayNs returns the old "replay_delay_ns" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldReplayDelayNs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReplayDelayNs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReplayDelayNs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReplayDelayNs: %w", err)
+	}
+	return oldValue.ReplayDelayNs, nil
+}
+
+// AddReplayDelayNs adds i to the "replay_delay_ns" field.
+func (m *ReportWorkflowScheduleMutation) AddReplayDelayNs(i int64) {
+	if m.addreplay_delay_ns != nil {
+		*m.addreplay_delay_ns += i
+	} else {
+		m.addreplay_delay_ns = &i
+	}
+}
+
+// AddedReplayDelayNs returns the value that was added to the "replay_delay_ns" field in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedReplayDelayNs() (r int64, exists bool) {
+	v := m.addreplay_delay_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetReplayDelayNs resets all changes to the "replay_delay_ns" field.
+func (m *ReportWorkflowScheduleMutation) ResetReplayDelayNs() {
+	m.replay_delay_ns = nil
+	m.addreplay_delay_ns = nil
+}
+
+// SetReplayLimit sets the "replay_limit" field.
+func (m *ReportWorkflowScheduleMutation) SetReplayLimit(i int) {
+	m.replay_limit = &i
+	m.addreplay_limit = nil
+}
+
+// ReplayLimit returns the value of the "replay_limit" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) ReplayLimit() (r int, exists bool) {
+	v := m.replay_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReplayLimit returns the old "replay_limit" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldReplayLimit(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReplayLimit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReplayLimit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReplayLimit: %w", err)
+	}
+	return oldValue.ReplayLimit, nil
+}
+
+// AddReplayLimit adds i to the "replay_limit" field.
+func (m *ReportWorkflowScheduleMutation) AddReplayLimit(i int) {
+	if m.addreplay_limit != nil {
+		*m.addreplay_limit += i
+	} else {
+		m.addreplay_limit = &i
+	}
+}
+
+// AddedReplayLimit returns the value that was added to the "replay_limit" field in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedReplayLimit() (r int, exists bool) {
+	v := m.addreplay_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetReplayLimit resets all changes to the "replay_limit" field.
+func (m *ReportWorkflowScheduleMutation) ResetReplayLimit() {
+	m.replay_limit = nil
+	m.addreplay_limit = nil
+}
+
+// SetCatchupWindowNs sets the "catchup_window_ns" field.
+func (m *ReportWorkflowScheduleMutation) SetCatchupWindowNs(i int64) {
+	m.catchup_window_ns = &i
+	m.addcatchup_window_ns = nil
+}
+
+// CatchupWindowNs returns the value of the "catchup_window_ns" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) CatchupWindowNs() (r int64, exists bool) {
+	v := m.catchup_window_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCatchupWindowNs returns the old "catchup_window_ns" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldCatchupWindowNs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCatchupWindowNs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCatchupWindowNs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCatchupWindowNs: %w", err)
+	}
+	return oldValue.CatchupWindowNs, nil
+}
+
+// AddCatchupWindowNs adds i to the "catchup_window_ns" field.
+func (m *ReportWorkflowScheduleMutation) AddCatchupWindowNs(i int64) {
+	if m.addcatchup_window_ns != nil {
+		*m.addcatchup_window_ns += i
+	} else {
+		m.addcatchup_window_ns = &i
+	}
+}
+
+// AddedCatchupWindowNs returns the value that was added to the "catchup_window_ns" field in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedCatchupWindowNs() (r int64, exists bool) {
+	v := m.addcatchup_window_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCatchupWindowNs resets all changes to the "catchup_window_ns" field.
+func (m *ReportWorkflowScheduleMutation) ResetCatchupWindowNs() {
+	m.catchup_window_ns = nil
+	m.addcatchup_window_ns = nil
+}
+
+// SetEnabled sets the "enabled" field.
+func (m *ReportWorkflowScheduleMutation) SetEnabled(b bool) {
+	m.enabled = &b
+}
+
+// Enabled returns the value of the "enabled" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) Enabled() (r bool, exists bool) {
+	v := m.enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEnabled returns the old "enabled" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEnabled: %w", err)
+	}
+	return oldValue.Enabled, nil
+}
+
+// ResetEnabled resets all changes to the "enabled" field.
+func (m *ReportWorkflowScheduleMutation) ResetEnabled() {
+	m.enabled = nil
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (m *ReportWorkflowScheduleMutation) SetEnabledAt(t time.Time) {
+	m.enabled_at = &t
+}
+
+// EnabledAt returns the value of the "enabled_at" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) EnabledAt() (r time.Time, exists bool) {
+	v := m.enabled_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEnabledAt returns the old "enabled_at" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldEnabledAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEnabledAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEnabledAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEnabledAt: %w", err)
+	}
+	return oldValue.EnabledAt, nil
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (m *ReportWorkflowScheduleMutation) ClearEnabledAt() {
+	m.enabled_at = nil
+	m.clearedFields[reportworkflowschedule.FieldEnabledAt] = struct{}{}
+}
+
+// EnabledAtCleared returns if the "enabled_at" field was cleared in this mutation.
+func (m *ReportWorkflowScheduleMutation) EnabledAtCleared() bool {
+	_, ok := m.clearedFields[reportworkflowschedule.FieldEnabledAt]
+	return ok
+}
+
+// ResetEnabledAt resets all changes to the "enabled_at" field.
+func (m *ReportWorkflowScheduleMutation) ResetEnabledAt() {
+	m.enabled_at = nil
+	delete(m.clearedFields, reportworkflowschedule.FieldEnabledAt)
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (m *ReportWorkflowScheduleMutation) SetDisabledAt(t time.Time) {
+	m.disabled_at = &t
+}
+
+// DisabledAt returns the value of the "disabled_at" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) DisabledAt() (r time.Time, exists bool) {
+	v := m.disabled_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDisabledAt returns the old "disabled_at" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldDisabledAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDisabledAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDisabledAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDisabledAt: %w", err)
+	}
+	return oldValue.DisabledAt, nil
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (m *ReportWorkflowScheduleMutation) ClearDisabledAt() {
+	m.disabled_at = nil
+	m.clearedFields[reportworkflowschedule.FieldDisabledAt] = struct{}{}
+}
+
+// DisabledAtCleared returns if the "disabled_at" field was cleared in this mutation.
+func (m *ReportWorkflowScheduleMutation) DisabledAtCleared() bool {
+	_, ok := m.clearedFields[reportworkflowschedule.FieldDisabledAt]
+	return ok
+}
+
+// ResetDisabledAt resets all changes to the "disabled_at" field.
+func (m *ReportWorkflowScheduleMutation) ResetDisabledAt() {
+	m.disabled_at = nil
+	delete(m.clearedFields, reportworkflowschedule.FieldDisabledAt)
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ReportWorkflowScheduleMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ReportWorkflowScheduleMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ReportWorkflowScheduleMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ReportWorkflowScheduleMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// Where appends a list predicates to the ReportWorkflowScheduleMutation builder.
+func (m *ReportWorkflowScheduleMutation) Where(ps ...predicate.ReportWorkflowSchedule) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ReportWorkflowScheduleMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ReportWorkflowScheduleMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ReportWorkflowSchedule, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ReportWorkflowScheduleMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ReportWorkflowScheduleMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ReportWorkflowSchedule).
+func (m *ReportWorkflowScheduleMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ReportWorkflowScheduleMutation) Fields() []string {
+	fields := make([]string, 0, 14)
+	if m.name != nil {
+		fields = append(fields, reportworkflowschedule.FieldName)
+	}
+	if m.report_workflow_policy_id != nil {
+		fields = append(fields, reportworkflowschedule.FieldReportWorkflowPolicyID)
+	}
+	if m.temporal_schedule_id != nil {
+		fields = append(fields, reportworkflowschedule.FieldTemporalScheduleID)
+	}
+	if m.interval_ns != nil {
+		fields = append(fields, reportworkflowschedule.FieldIntervalNs)
+	}
+	if m.offset_ns != nil {
+		fields = append(fields, reportworkflowschedule.FieldOffsetNs)
+	}
+	if m.replay_window_ns != nil {
+		fields = append(fields, reportworkflowschedule.FieldReplayWindowNs)
+	}
+	if m.replay_delay_ns != nil {
+		fields = append(fields, reportworkflowschedule.FieldReplayDelayNs)
+	}
+	if m.replay_limit != nil {
+		fields = append(fields, reportworkflowschedule.FieldReplayLimit)
+	}
+	if m.catchup_window_ns != nil {
+		fields = append(fields, reportworkflowschedule.FieldCatchupWindowNs)
+	}
+	if m.enabled != nil {
+		fields = append(fields, reportworkflowschedule.FieldEnabled)
+	}
+	if m.enabled_at != nil {
+		fields = append(fields, reportworkflowschedule.FieldEnabledAt)
+	}
+	if m.disabled_at != nil {
+		fields = append(fields, reportworkflowschedule.FieldDisabledAt)
+	}
+	if m.created_at != nil {
+		fields = append(fields, reportworkflowschedule.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, reportworkflowschedule.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ReportWorkflowScheduleMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case reportworkflowschedule.FieldName:
+		return m.Name()
+	case reportworkflowschedule.FieldReportWorkflowPolicyID:
+		return m.ReportWorkflowPolicyID()
+	case reportworkflowschedule.FieldTemporalScheduleID:
+		return m.TemporalScheduleID()
+	case reportworkflowschedule.FieldIntervalNs:
+		return m.IntervalNs()
+	case reportworkflowschedule.FieldOffsetNs:
+		return m.OffsetNs()
+	case reportworkflowschedule.FieldReplayWindowNs:
+		return m.ReplayWindowNs()
+	case reportworkflowschedule.FieldReplayDelayNs:
+		return m.ReplayDelayNs()
+	case reportworkflowschedule.FieldReplayLimit:
+		return m.ReplayLimit()
+	case reportworkflowschedule.FieldCatchupWindowNs:
+		return m.CatchupWindowNs()
+	case reportworkflowschedule.FieldEnabled:
+		return m.Enabled()
+	case reportworkflowschedule.FieldEnabledAt:
+		return m.EnabledAt()
+	case reportworkflowschedule.FieldDisabledAt:
+		return m.DisabledAt()
+	case reportworkflowschedule.FieldCreatedAt:
+		return m.CreatedAt()
+	case reportworkflowschedule.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ReportWorkflowScheduleMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case reportworkflowschedule.FieldName:
+		return m.OldName(ctx)
+	case reportworkflowschedule.FieldReportWorkflowPolicyID:
+		return m.OldReportWorkflowPolicyID(ctx)
+	case reportworkflowschedule.FieldTemporalScheduleID:
+		return m.OldTemporalScheduleID(ctx)
+	case reportworkflowschedule.FieldIntervalNs:
+		return m.OldIntervalNs(ctx)
+	case reportworkflowschedule.FieldOffsetNs:
+		return m.OldOffsetNs(ctx)
+	case reportworkflowschedule.FieldReplayWindowNs:
+		return m.OldReplayWindowNs(ctx)
+	case reportworkflowschedule.FieldReplayDelayNs:
+		return m.OldReplayDelayNs(ctx)
+	case reportworkflowschedule.FieldReplayLimit:
+		return m.OldReplayLimit(ctx)
+	case reportworkflowschedule.FieldCatchupWindowNs:
+		return m.OldCatchupWindowNs(ctx)
+	case reportworkflowschedule.FieldEnabled:
+		return m.OldEnabled(ctx)
+	case reportworkflowschedule.FieldEnabledAt:
+		return m.OldEnabledAt(ctx)
+	case reportworkflowschedule.FieldDisabledAt:
+		return m.OldDisabledAt(ctx)
+	case reportworkflowschedule.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case reportworkflowschedule.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown ReportWorkflowSchedule field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ReportWorkflowScheduleMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case reportworkflowschedule.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	case reportworkflowschedule.FieldReportWorkflowPolicyID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReportWorkflowPolicyID(v)
+		return nil
+	case reportworkflowschedule.FieldTemporalScheduleID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTemporalScheduleID(v)
+		return nil
+	case reportworkflowschedule.FieldIntervalNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIntervalNs(v)
+		return nil
+	case reportworkflowschedule.FieldOffsetNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOffsetNs(v)
+		return nil
+	case reportworkflowschedule.FieldReplayWindowNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReplayWindowNs(v)
+		return nil
+	case reportworkflowschedule.FieldReplayDelayNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReplayDelayNs(v)
+		return nil
+	case reportworkflowschedule.FieldReplayLimit:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReplayLimit(v)
+		return nil
+	case reportworkflowschedule.FieldCatchupWindowNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCatchupWindowNs(v)
+		return nil
+	case reportworkflowschedule.FieldEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEnabled(v)
+		return nil
+	case reportworkflowschedule.FieldEnabledAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEnabledAt(v)
+		return nil
+	case reportworkflowschedule.FieldDisabledAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDisabledAt(v)
+		return nil
+	case reportworkflowschedule.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case reportworkflowschedule.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ReportWorkflowSchedule field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedFields() []string {
+	var fields []string
+	if m.addreport_workflow_policy_id != nil {
+		fields = append(fields, reportworkflowschedule.FieldReportWorkflowPolicyID)
+	}
+	if m.addinterval_ns != nil {
+		fields = append(fields, reportworkflowschedule.FieldIntervalNs)
+	}
+	if m.addoffset_ns != nil {
+		fields = append(fields, reportworkflowschedule.FieldOffsetNs)
+	}
+	if m.addreplay_window_ns != nil {
+		fields = append(fields, reportworkflowschedule.FieldReplayWindowNs)
+	}
+	if m.addreplay_delay_ns != nil {
+		fields = append(fields, reportworkflowschedule.FieldReplayDelayNs)
+	}
+	if m.addreplay_limit != nil {
+		fields = append(fields, reportworkflowschedule.FieldReplayLimit)
+	}
+	if m.addcatchup_window_ns != nil {
+		fields = append(fields, reportworkflowschedule.FieldCatchupWindowNs)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ReportWorkflowScheduleMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case reportworkflowschedule.FieldReportWorkflowPolicyID:
+		return m.AddedReportWorkflowPolicyID()
+	case reportworkflowschedule.FieldIntervalNs:
+		return m.AddedIntervalNs()
+	case reportworkflowschedule.FieldOffsetNs:
+		return m.AddedOffsetNs()
+	case reportworkflowschedule.FieldReplayWindowNs:
+		return m.AddedReplayWindowNs()
+	case reportworkflowschedule.FieldReplayDelayNs:
+		return m.AddedReplayDelayNs()
+	case reportworkflowschedule.FieldReplayLimit:
+		return m.AddedReplayLimit()
+	case reportworkflowschedule.FieldCatchupWindowNs:
+		return m.AddedCatchupWindowNs()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ReportWorkflowScheduleMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case reportworkflowschedule.FieldReportWorkflowPolicyID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddReportWorkflowPolicyID(v)
+		return nil
+	case reportworkflowschedule.FieldIntervalNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddIntervalNs(v)
+		return nil
+	case reportworkflowschedule.FieldOffsetNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddOffsetNs(v)
+		return nil
+	case reportworkflowschedule.FieldReplayWindowNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddReplayWindowNs(v)
+		return nil
+	case reportworkflowschedule.FieldReplayDelayNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddReplayDelayNs(v)
+		return nil
+	case reportworkflowschedule.FieldReplayLimit:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddReplayLimit(v)
+		return nil
+	case reportworkflowschedule.FieldCatchupWindowNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCatchupWindowNs(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ReportWorkflowSchedule numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ReportWorkflowScheduleMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(reportworkflowschedule.FieldEnabledAt) {
+		fields = append(fields, reportworkflowschedule.FieldEnabledAt)
+	}
+	if m.FieldCleared(reportworkflowschedule.FieldDisabledAt) {
+		fields = append(fields, reportworkflowschedule.FieldDisabledAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ReportWorkflowScheduleMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ReportWorkflowScheduleMutation) ClearField(name string) error {
+	switch name {
+	case reportworkflowschedule.FieldEnabledAt:
+		m.ClearEnabledAt()
+		return nil
+	case reportworkflowschedule.FieldDisabledAt:
+		m.ClearDisabledAt()
+		return nil
+	}
+	return fmt.Errorf("unknown ReportWorkflowSchedule nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ReportWorkflowScheduleMutation) ResetField(name string) error {
+	switch name {
+	case reportworkflowschedule.FieldName:
+		m.ResetName()
+		return nil
+	case reportworkflowschedule.FieldReportWorkflowPolicyID:
+		m.ResetReportWorkflowPolicyID()
+		return nil
+	case reportworkflowschedule.FieldTemporalScheduleID:
+		m.ResetTemporalScheduleID()
+		return nil
+	case reportworkflowschedule.FieldIntervalNs:
+		m.ResetIntervalNs()
+		return nil
+	case reportworkflowschedule.FieldOffsetNs:
+		m.ResetOffsetNs()
+		return nil
+	case reportworkflowschedule.FieldReplayWindowNs:
+		m.ResetReplayWindowNs()
+		return nil
+	case reportworkflowschedule.FieldReplayDelayNs:
+		m.ResetReplayDelayNs()
+		return nil
+	case reportworkflowschedule.FieldReplayLimit:
+		m.ResetReplayLimit()
+		return nil
+	case reportworkflowschedule.FieldCatchupWindowNs:
+		m.ResetCatchupWindowNs()
+		return nil
+	case reportworkflowschedule.FieldEnabled:
+		m.ResetEnabled()
+		return nil
+	case reportworkflowschedule.FieldEnabledAt:
+		m.ResetEnabledAt()
+		return nil
+	case reportworkflowschedule.FieldDisabledAt:
+		m.ResetDisabledAt()
+		return nil
+	case reportworkflowschedule.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case reportworkflowschedule.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown ReportWorkflowSchedule field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ReportWorkflowScheduleMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ReportWorkflowScheduleMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ReportWorkflowScheduleMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ReportWorkflowScheduleMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ReportWorkflowScheduleMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown ReportWorkflowSchedule unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ReportWorkflowScheduleMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown ReportWorkflowSchedule edge %s", name)
 }
 
 // SubReportMutation represents an operation that mutates the SubReport nodes in the graph.

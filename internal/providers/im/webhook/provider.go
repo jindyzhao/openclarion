@@ -23,9 +23,10 @@ const (
 	defaultTimeout = 10 * time.Second
 	maxBodyBytes   = 1 << 20
 
-	headerIdempotencyKey  = "X-OpenClarion-Idempotency-Key"
-	headerReportID        = "X-OpenClarion-Final-Report-Id"
-	headerDiagnosisTaskID = "X-OpenClarion-Diagnosis-Task-Id"
+	headerIdempotencyKey        = "X-OpenClarion-Idempotency-Key"
+	headerReportID              = "X-OpenClarion-Final-Report-Id"
+	headerDiagnosisTaskID       = "X-OpenClarion-Diagnosis-Task-Id"
+	headerNotificationChannelID = "X-OpenClarion-Notification-Channel-Id"
 )
 
 // Config holds Webhook provider configuration.
@@ -75,13 +76,14 @@ func (p *Provider) SendNotification(ctx context.Context, req ports.IMNotificatio
 		return ports.IMDelivery{}, err
 	}
 	payload := webhookPayload{
-		IdempotencyKey:  req.IdempotencyKey,
-		FinalReportID:   req.FinalReportID,
-		DiagnosisTaskID: req.DiagnosisTaskID,
-		CorrelationKey:  req.CorrelationKey,
-		Title:           req.Title,
-		Body:            req.Body,
-		Severity:        req.Severity,
+		IdempotencyKey:        req.IdempotencyKey,
+		FinalReportID:         req.FinalReportID,
+		DiagnosisTaskID:       req.DiagnosisTaskID,
+		NotificationChannelID: req.NotificationChannelID,
+		CorrelationKey:        req.CorrelationKey,
+		Title:                 req.Title,
+		Body:                  req.Body,
+		Severity:              req.Severity,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -99,6 +101,9 @@ func (p *Provider) SendNotification(ctx context.Context, req ports.IMNotificatio
 	}
 	if req.DiagnosisTaskID != 0 {
 		httpReq.Header.Set(headerDiagnosisTaskID, fmt.Sprintf("%d", req.DiagnosisTaskID))
+	}
+	if req.NotificationChannelID != 0 {
+		httpReq.Header.Set(headerNotificationChannelID, fmt.Sprintf("%d", req.NotificationChannelID))
 	}
 	if p.bearerToken != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+p.bearerToken)
@@ -186,7 +191,7 @@ func validateNotification(req ports.IMNotification) error {
 	if strings.TrimSpace(req.IdempotencyKey) == "" {
 		return fmt.Errorf("webhook im: idempotency key must be non-empty")
 	}
-	if req.FinalReportID == 0 && req.DiagnosisTaskID == 0 {
+	if req.FinalReportID == 0 && req.DiagnosisTaskID == 0 && req.NotificationChannelID == 0 {
 		return fmt.Errorf("webhook im: notification subject id must be non-zero")
 	}
 	if strings.TrimSpace(req.Title) == "" {
@@ -241,13 +246,14 @@ func deliveryFromResponse(raw []byte) (ports.IMDelivery, error) {
 }
 
 type webhookPayload struct {
-	IdempotencyKey  string `json:"idempotency_key"`
-	FinalReportID   int64  `json:"final_report_id,omitempty"`
-	DiagnosisTaskID int64  `json:"diagnosis_task_id,omitempty"`
-	CorrelationKey  string `json:"correlation_key,omitempty"`
-	Title           string `json:"title"`
-	Body            string `json:"body"`
-	Severity        string `json:"severity,omitempty"`
+	IdempotencyKey        string `json:"idempotency_key"`
+	FinalReportID         int64  `json:"final_report_id,omitempty"`
+	DiagnosisTaskID       int64  `json:"diagnosis_task_id,omitempty"`
+	NotificationChannelID int64  `json:"notification_channel_id,omitempty"`
+	CorrelationKey        string `json:"correlation_key,omitempty"`
+	Title                 string `json:"title"`
+	Body                  string `json:"body"`
+	Severity              string `json:"severity,omitempty"`
 }
 
 type webhookResponse struct {

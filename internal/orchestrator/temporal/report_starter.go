@@ -124,6 +124,9 @@ func reportBatchInputFromStartRequest(req ports.ReportBatchStartRequest) (Report
 	if len(req.Items) == 0 {
 		return ReportBatchWorkflowInput{}, fmt.Errorf("report starter: items must be non-empty: %w", domain.ErrInvariantViolation)
 	}
+	if req.ReportNotificationChannelProfileID < 0 {
+		return ReportBatchWorkflowInput{}, fmt.Errorf("report starter: report_notification_channel_profile_id must be non-negative: %w", domain.ErrInvariantViolation)
+	}
 
 	items := make([]ReportBatchItem, len(req.Items))
 	for i, item := range req.Items {
@@ -145,7 +148,8 @@ func reportBatchInputFromStartRequest(req ports.ReportBatchStartRequest) (Report
 	}
 
 	return ReportBatchWorkflowInput{
-		CorrelationKey: correlationKey,
-		Items:          items,
+		CorrelationKey:                     correlationKey,
+		ReportNotificationChannelProfileID: int64(req.ReportNotificationChannelProfileID),
+		Items:                              items,
 	}, nil
 }

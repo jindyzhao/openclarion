@@ -20,8 +20,10 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+	"github.com/openclarion/openclarion/internal/usecases/reportpolicytrigger"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
+	temporalclient "go.temporal.io/sdk/client"
 )
 
 func TestReportActivityOptionsFromEnv_ConfiguresProviders(t *testing.T) {
@@ -44,7 +46,7 @@ func TestReportActivityOptionsFromEnv_ConfiguresProviders(t *testing.T) {
 		"OPENCLARION_IM_WEBHOOK_URL":          "https://example.invalid/report-hook",
 		"OPENCLARION_IM_WEBHOOK_BEARER_TOKEN": "webhook-bearer-value",
 	}
-	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(env), nil)
+	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(env), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
 	}
@@ -57,12 +59,22 @@ func TestReportActivityOptionsFromEnv_ConfiguresProviders(t *testing.T) {
 }
 
 func TestReportActivityOptionsFromEnv_AllowsUnconfiguredProviders(t *testing.T) {
-	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(nil), nil)
+	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(nil), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
 	}
 	if len(opts) != 0 {
 		t.Fatalf("len(opts) = %d, want 0", len(opts))
+	}
+}
+
+func TestReportActivityOptionsFromEnv_ConfiguresScheduledPolicyReplayer(t *testing.T) {
+	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(nil), emptyFactory{}, emptyStarter{}, nil)
+	if err != nil {
+		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("len(opts) = %d, want 1", len(opts))
 	}
 }
 
@@ -147,7 +159,7 @@ func TestReportActivityOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(tc.env), nil)
+			_, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(tc.env), nil, nil, nil)
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tc.wantSubstr)
 			}
@@ -158,27 +170,80 @@ func TestReportActivityOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
 	}
 }
 
+func TestReportActivityOptionsFromEnv_ConfiguresNotificationChannelProviderResolver(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(map[string]string{
+		notificationChannelSecretRefsEnv: `{"secret/openclarion/report-webhook-url":"https://example.invalid/report-hook"}`,
+	}), emptyFactory{}, nil, nil)
+	if err != nil {
+		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	}
+}
+
+func TestReportActivityOptionsFromEnv_RejectsInvalidNotificationChannelSecretResolver(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	_, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(map[string]string{
+		notificationChannelSecretRefsEnv: `{"secret/openclarion/report-webhook-url":"bad webhook url"}`,
+	}), emptyFactory{}, nil, nil)
+	if err == nil {
+		t.Fatal("expected notification channel secret resolver error, got nil")
+	}
+	if !strings.Contains(err.Error(), notificationChannelSecretRefsEnv) {
+		t.Fatalf("error = %q, want %s", err.Error(), notificationChannelSecretRefsEnv)
+	}
+	if strings.Contains(err.Error(), "bad webhook url") {
+		t.Fatalf("error leaked secret value: %v", err)
+	}
+}
+
+func TestReportActivityOptionsFromEnv_RejectsNotificationResolverWithoutUnitOfWork(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	_, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(map[string]string{
+		notificationChannelSecretRefsEnv: `{"secret/openclarion/report-webhook-url":"https://example.invalid/report-hook"}`,
+	}), nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected notification channel unit of work error, got nil")
+	}
+	if !strings.Contains(err.Error(), notificationChannelSecretRefsEnv) ||
+		!strings.Contains(err.Error(), "unit of work factory") {
+		t.Fatalf("error = %q, want notification channel unit of work rejection", err.Error())
+	}
+}
+
 func TestHTTPServerOptionsFromEnv_ConfiguresReportTrigger(t *testing.T) {
 	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
 	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_PROMETHEUS_URL":          "http://prometheus.example",
 		"OPENCLARION_PROMETHEUS_BEARER_TOKEN": "test-bearer-value",
-	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 2 {
-		t.Fatalf("len(opts) = %d, want 2", len(opts))
+	if len(opts) != 5 {
+		t.Fatalf("len(opts) = %d, want 5", len(opts))
 	}
 }
 
 func TestHTTPServerOptionsFromEnv_AllowsUnconfiguredTrigger(t *testing.T) {
-	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(nil), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(nil), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 1 {
-		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	if len(opts) != 4 {
+		t.Fatalf("len(opts) = %d, want 4", len(opts))
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_ConfiguresScheduleSynchronizer(t *testing.T) {
+	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(nil), emptyFactory{}, emptyStarter{}, nil, nil, nil, noopScheduleSyncer{}, nil)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 5 {
+		t.Fatalf("len(opts) = %d, want 5", len(opts))
 	}
 }
 
@@ -186,12 +251,12 @@ func TestHTTPServerOptionsFromEnv_ConfiguresAlertSourceSecretResolver(t *testing
 	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
 	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
 		alertSourceSecretRefsEnv: `{"secret/openclarion/prometheus-bearer":"test-bearer-value"}`,
-	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 1 {
-		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	if len(opts) != 4 {
+		t.Fatalf("len(opts) = %d, want 4", len(opts))
 	}
 }
 
@@ -199,7 +264,7 @@ func TestHTTPServerOptionsFromEnv_RejectsInvalidAlertSourceSecretResolver(t *tes
 	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
 	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
 		alertSourceSecretRefsEnv: `{"secret/openclarion/prometheus-bearer":"test bearer value"}`,
-	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected alert source secret resolver error, got nil")
 	}
@@ -211,11 +276,27 @@ func TestHTTPServerOptionsFromEnv_RejectsInvalidAlertSourceSecretResolver(t *tes
 	}
 }
 
+func TestHTTPServerOptionsFromEnv_RejectsInvalidNotificationChannelSecretResolver(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		notificationChannelSecretRefsEnv: `{"secret/openclarion/ops-webhook":"bad webhook url"}`,
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected notification channel secret resolver error, got nil")
+	}
+	if !strings.Contains(err.Error(), notificationChannelSecretRefsEnv) {
+		t.Fatalf("error = %q, want %s", err.Error(), notificationChannelSecretRefsEnv)
+	}
+	if strings.Contains(err.Error(), "bad webhook url") {
+		t.Fatalf("error leaked secret value: %v", err)
+	}
+}
+
 func TestHTTPServerOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
 	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
 	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_PROMETHEUS_BEARER_TOKEN": "test-bearer-value",
-	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected OPENCLARION_PROMETHEUS_URL error, got nil")
 	}
@@ -230,12 +311,12 @@ func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoom(t *testing.T) {
 		"OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL": " " + oidcServer.URL + " ",
 		"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID":  "openclarion-web",
 		"OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS": "http://127.0.0.1:32101",
-	}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil)
+	}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil, nil)
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv diagnosis: %v", err)
 	}
-	if len(opts) != 5 {
-		t.Fatalf("len(opts) = %d, want 5", len(opts))
+	if len(opts) != 8 {
+		t.Fatalf("len(opts) = %d, want 8", len(opts))
 	}
 	if originPolicy == nil {
 		t.Fatal("originPolicy is nil")
@@ -272,7 +353,7 @@ func TestHTTPServerOptionsFromEnv_RejectsCredentialedDiagnosisAllowedOrigin(t *t
 				"OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL": " " + oidcServer.URL + " ",
 				"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID":  "openclarion-web",
 				"OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS": tc.origin,
-			}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil)
+			}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil, nil)
 			if err == nil {
 				t.Fatal("expected credentialed allowed origin error, got nil")
 			}
@@ -297,7 +378,7 @@ func credentialedDiagnosisOrigin() string {
 func TestHTTPServerOptionsFromEnv_RejectsIncompleteDiagnosisConfig(t *testing.T) {
 	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID": "openclarion-web",
-	}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil)
+	}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil, nil)
 	if err == nil {
 		t.Fatal("expected diagnosis OIDC issuer error, got nil")
 	}
@@ -550,6 +631,399 @@ func TestRunReportReplayCLITriggerWaitsForCompletion(t *testing.T) {
 		got.WorkflowResult.NotificationStatus != "delivered" ||
 		len(got.WorkflowResult.SubReportIDs) != 2 {
 		t.Fatalf("workflow result = %+v", got.WorkflowResult)
+	}
+}
+
+func TestParseReportPolicyReplayCLIArgs(t *testing.T) {
+	cfg, err := parseReportPolicyReplayCLIArgs([]string{
+		"--policy-id", "42",
+		"--window-start", "2026-05-28T10:00:00Z",
+		"--window-end", "2026-05-28T11:00:00Z",
+		"--limit", "25",
+		"--correlation-key", "incident-1",
+		"--workflow-id", "report-batch-incident-1",
+		"--wait",
+		"--wait-timeout", "5m",
+	})
+	if err != nil {
+		t.Fatalf("parseReportPolicyReplayCLIArgs: %v", err)
+	}
+	if cfg.PolicyID != 42 ||
+		!cfg.WindowStart.Equal(time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)) ||
+		!cfg.WindowEnd.Equal(time.Date(2026, 5, 28, 11, 0, 0, 0, time.UTC)) ||
+		cfg.Limit != 25 ||
+		cfg.CorrelationKey != "incident-1" ||
+		cfg.WorkflowID != "report-batch-incident-1" ||
+		!cfg.Wait ||
+		cfg.WaitTimeout != 5*time.Minute {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+}
+
+func TestParseReportPolicyReplayCLIArgsRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing policy",
+			args: []string{"--window-start", "2026-05-28T10:00:00Z", "--window-end", "2026-05-28T11:00:00Z"},
+			want: "--policy-id",
+		},
+		{
+			name: "invalid start",
+			args: []string{"--policy-id", "42", "--window-start", "bad", "--window-end", "2026-05-28T11:00:00Z"},
+			want: "parse --window-start",
+		},
+		{
+			name: "invalid end",
+			args: []string{"--policy-id", "42", "--window-start", "2026-05-28T10:00:00Z", "--window-end", "not-time"},
+			want: "parse --window-end",
+		},
+		{
+			name: "bad limit",
+			args: []string{"--policy-id", "42", "--window-start", "2026-05-28T10:00:00Z", "--window-end", "2026-05-28T11:00:00Z", "--limit", "0"},
+			want: "--limit",
+		},
+		{
+			name: "bad wait timeout",
+			args: []string{"--policy-id", "42", "--window-start", "2026-05-28T10:00:00Z", "--window-end", "2026-05-28T11:00:00Z", "--wait", "--wait-timeout", "0s"},
+			want: "--wait-timeout",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseReportPolicyReplayCLIArgs(tc.args)
+			if err == nil {
+				t.Fatalf("parseReportPolicyReplayCLIArgs: want error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %q, want substring %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestRunReportPolicyReplayCLITriggerMapsRequestAndWritesJSON(t *testing.T) {
+	windowStart := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	windowEnd := windowStart.Add(time.Hour)
+	checkedAt := time.Date(2026, 5, 29, 1, 2, 3, 456000000, time.UTC)
+	previousNow := reportReplayCLINowUTC
+	reportReplayCLINowUTC = func() time.Time { return checkedAt }
+	t.Cleanup(func() { reportReplayCLINowUTC = previousNow })
+	trigger := &recordingReportPolicyReplayCLITrigger{
+		result: reportpolicytrigger.Result{
+			Policy: domain.ReportWorkflowPolicy{
+				ID:             42,
+				ReportScenario: domain.ReportWorkflowScenarioAlertStorm,
+			},
+			Trigger: reporttrigger.Result{
+				Replay: alertreplay.Result{
+					Stats: alertreplay.Stats{
+						Ingested:       alertingest.Stats{Total: 1, Saved: 1},
+						EventsLoaded:   1,
+						GroupsBuilt:    1,
+						GroupsSaved:    1,
+						SnapshotsSaved: 1,
+					},
+					Snapshots: []alertreplay.SnapshotRef{
+						{ID: domain.EvidenceSnapshotID(7), GroupIndex: 0, EventCount: 1},
+					},
+				},
+				Workflow: ports.WorkflowHandle{WorkflowID: "report-batch-1", RunID: "run-1"},
+				Started:  true,
+			},
+		},
+	}
+	waiter := &recordingReportReplayCLIWaiter{
+		result: reportReplayCLIWorkflowResult{
+			SubReportIDs:               []int64{11},
+			FinalReportID:              99,
+			NotificationIdempotencyKey: "final_report:99/notification",
+			ProviderMessageID:          "message-1",
+			NotificationStatus:         "accepted",
+		},
+	}
+
+	var out bytes.Buffer
+	err := runReportPolicyReplayCLITrigger(context.Background(), trigger, waiter, reportPolicyReplayCLIConfig{
+		PolicyID:       42,
+		WindowStart:    windowStart,
+		WindowEnd:      windowEnd,
+		Limit:          5,
+		CorrelationKey: "incident-1",
+		WorkflowID:     "report-batch-1",
+		Wait:           true,
+		WaitTimeout:    time.Minute,
+	}, &out)
+	if err != nil {
+		t.Fatalf("runReportPolicyReplayCLITrigger: %v", err)
+	}
+	if trigger.req.PolicyID != 42 ||
+		trigger.req.WindowStart != windowStart ||
+		trigger.req.WindowEnd != windowEnd ||
+		trigger.req.Limit != 5 ||
+		trigger.req.CorrelationKey != "incident-1" ||
+		trigger.req.WorkflowID != "report-batch-1" {
+		t.Fatalf("trigger req = %+v", trigger.req)
+	}
+	if waiter.handle.WorkflowID != "report-batch-1" || waiter.handle.RunID != "run-1" {
+		t.Fatalf("waiter handle = %+v", waiter.handle)
+	}
+	var got reportReplayCLIOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode output: %v; raw=%s", err, out.String())
+	}
+	if got.Request.PolicyID != 42 ||
+		got.Request.Scenario != string(reportprompt.ScenarioAlertStorm) ||
+		got.Request.CorrelationKey != "incident-1" ||
+		got.Request.WorkflowID != "report-batch-1" ||
+		!got.Request.Wait ||
+		got.Request.WaitTimeout != time.Minute.String() {
+		t.Fatalf("output request = %+v", got.Request)
+	}
+	if got.CheckedAt != checkedAt.Format(time.RFC3339Nano) {
+		t.Fatalf("checked_at = %q, want %q", got.CheckedAt, checkedAt.Format(time.RFC3339Nano))
+	}
+	if !got.Waited || got.WorkflowResult == nil || got.WorkflowResult.NotificationStatus != "accepted" {
+		t.Fatalf("workflow result = %+v waited=%v", got.WorkflowResult, got.Waited)
+	}
+}
+
+func TestParseReportScheduleLiveSmokeCLIArgs(t *testing.T) {
+	cfg, err := parseReportScheduleLiveSmokeCLIArgs([]string{
+		"--schedule-id", "9",
+		"--policy-id", "42",
+		"--temporal-schedule-id", "openclarion-report-policy-42-hourly",
+		"--observed-after", "2026-06-06T00:00:00Z",
+		"--wait-timeout", "10m",
+	})
+	if err != nil {
+		t.Fatalf("parseReportScheduleLiveSmokeCLIArgs: %v", err)
+	}
+	if cfg.ScheduleID != 9 ||
+		cfg.PolicyID != 42 ||
+		cfg.TemporalScheduleID != "openclarion-report-policy-42-hourly" ||
+		!cfg.ObservedAfter.Equal(time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC)) ||
+		cfg.WaitTimeout != 10*time.Minute {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+}
+
+func TestParseReportScheduleLiveSmokeCLIArgsRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing schedule",
+			args: []string{"--policy-id", "42"},
+			want: "--schedule-id",
+		},
+		{
+			name: "missing policy",
+			args: []string{"--schedule-id", "9"},
+			want: "--policy-id",
+		},
+		{
+			name: "bad temporal id whitespace",
+			args: []string{"--schedule-id", "9", "--policy-id", "42", "--temporal-schedule-id", "bad id"},
+			want: "--temporal-schedule-id",
+		},
+		{
+			name: "bad observed after",
+			args: []string{"--schedule-id", "9", "--policy-id", "42", "--observed-after", "soon"},
+			want: "parse --observed-after",
+		},
+		{
+			name: "bad wait timeout",
+			args: []string{"--schedule-id", "9", "--policy-id", "42", "--wait-timeout", "0s"},
+			want: "--wait-timeout",
+		},
+		{
+			name: "positional",
+			args: []string{"--schedule-id", "9", "--policy-id", "42", "extra"},
+			want: "unexpected positional arguments",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseReportScheduleLiveSmokeCLIArgs(tc.args)
+			if err == nil {
+				t.Fatal("parseReportScheduleLiveSmokeCLIArgs: want error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %q, want substring %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestNewestScheduleActionAtOrAfterSelectsLatestActualTime(t *testing.T) {
+	observedAfter := time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC)
+	newerActual := time.Date(2026, 6, 6, 0, 20, 0, 0, time.UTC)
+	olderActual := time.Date(2026, 6, 6, 0, 10, 0, 0, time.UTC)
+	actions := []temporalclient.ScheduleActionResult{
+		{
+			ScheduleTime: time.Date(2026, 6, 6, 0, 19, 0, 0, time.UTC),
+			ActualTime:   newerActual,
+			StartWorkflowResult: &temporalclient.ScheduleWorkflowExecution{
+				WorkflowID:          "launcher-newer",
+				FirstExecutionRunID: "run-newer",
+			},
+		},
+		{
+			ScheduleTime: time.Date(2026, 6, 6, 0, 9, 0, 0, time.UTC),
+			ActualTime:   olderActual,
+			StartWorkflowResult: &temporalclient.ScheduleWorkflowExecution{
+				WorkflowID:          "launcher-older",
+				FirstExecutionRunID: "run-older",
+			},
+		},
+		{
+			ScheduleTime:        time.Date(2026, 6, 6, 0, 29, 0, 0, time.UTC),
+			ActualTime:          time.Date(2026, 6, 6, 0, 30, 0, 0, time.UTC),
+			StartWorkflowResult: nil,
+		},
+		{
+			ScheduleTime: time.Date(2026, 6, 5, 23, 59, 0, 0, time.UTC),
+			ActualTime:   observedAfter.Add(-time.Second),
+			StartWorkflowResult: &temporalclient.ScheduleWorkflowExecution{
+				WorkflowID:          "before-window",
+				FirstExecutionRunID: "run-before",
+			},
+		},
+	}
+
+	got, ok := newestScheduleActionAtOrAfter(actions, observedAfter)
+	if !ok {
+		t.Fatal("newestScheduleActionAtOrAfter: want action")
+	}
+	if got.StartWorkflowResult.WorkflowID != "launcher-newer" || !got.ActualTime.Equal(newerActual) {
+		t.Fatalf("action = %+v", got)
+	}
+}
+
+func TestRunReportScheduleLiveSmokeCLIWithDependenciesWritesProof(t *testing.T) {
+	checkedAt := time.Date(2026, 6, 6, 1, 2, 3, 456000000, time.UTC)
+	previousNow := reportScheduleLiveSmokeCLINowUTC
+	reportScheduleLiveSmokeCLINowUTC = func() time.Time { return checkedAt }
+	t.Cleanup(func() { reportScheduleLiveSmokeCLINowUTC = previousNow })
+
+	observedAfter := time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC)
+	windowStart := time.Date(2026, 6, 5, 23, 45, 0, 0, time.UTC)
+	windowEnd := time.Date(2026, 6, 6, 0, 45, 0, 0, time.UTC)
+	waiter := &recordingReportScheduleLiveSmokeWaiter{
+		result: reportScheduleLiveSmokeWaitResult{
+			ScheduleAction: reportScheduleLiveSmokeCLIAction{
+				ScheduleTime: "2026-06-06T00:45:00Z",
+				ActualTime:   "2026-06-06T00:45:01Z",
+				WorkflowID:   "report-policy-schedule-9",
+				RunID:        "launcher-run-1",
+			},
+			LauncherWorkflow: temporalpkg.ReportPolicyScheduleLauncherWorkflowResult{
+				ScheduleID:                 9,
+				ReportWorkflowPolicyID:     42,
+				TemporalScheduleID:         "openclarion-report-policy-42-hourly",
+				FireTime:                   time.Date(2026, 6, 6, 0, 45, 0, 0, time.UTC),
+				WindowStart:                windowStart,
+				WindowEnd:                  windowEnd,
+				CorrelationKey:             "report-workflow-schedule:9:policy:42:2026-06-05T23:45:00Z:2026-06-06T00:45:00Z",
+				WorkflowID:                 "report-schedule-abc",
+				EventsLoaded:               2,
+				Snapshots:                  1,
+				ReportBatchWorkflowStarted: true,
+				ReportBatchWorkflowID:      "report-batch-1",
+				ReportBatchRunID:           "report-run-1",
+			},
+			ReportWorkflowResult: &reportReplayCLIWorkflowResult{
+				SubReportIDs:               []int64{11},
+				FinalReportID:              99,
+				NotificationIdempotencyKey: "final_report:99/notification",
+				ProviderMessageID:          "message-1",
+				NotificationStatus:         "accepted",
+			},
+		},
+	}
+	schedule := testReportWorkflowSchedule(t)
+	var out bytes.Buffer
+	err := runReportScheduleLiveSmokeCLIWithDependencies(context.Background(), waiter, schedule, reportScheduleLiveSmokeCLIConfig{
+		ScheduleID:         9,
+		PolicyID:           42,
+		TemporalScheduleID: "openclarion-report-policy-42-hourly",
+		ObservedAfter:      observedAfter,
+		WaitTimeout:        10 * time.Minute,
+	}, &out)
+	if err != nil {
+		t.Fatalf("runReportScheduleLiveSmokeCLIWithDependencies: %v", err)
+	}
+	if waiter.schedule.ID != schedule.ID || waiter.cfg.ObservedAfter != observedAfter {
+		t.Fatalf("waiter schedule/cfg = %+v %+v", waiter.schedule, waiter.cfg)
+	}
+	var got reportScheduleLiveSmokeCLIOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode output: %v; raw=%s", err, out.String())
+	}
+	if got.CheckedAt != checkedAt.Format(time.RFC3339Nano) ||
+		got.Request.ScheduleID != 9 ||
+		got.Request.PolicyID != 42 ||
+		got.Request.TemporalScheduleID != "openclarion-report-policy-42-hourly" ||
+		got.Request.ObservedAfter != observedAfter.Format(time.RFC3339Nano) ||
+		got.Request.WaitTimeout != "10m0s" ||
+		!got.PersistedSchedule.Enabled ||
+		got.PersistedSchedule.TemporalScheduleID != "openclarion-report-policy-42-hourly" ||
+		!got.Waited {
+		t.Fatalf("output request/schedule = %+v %+v checked_at=%q waited=%v", got.Request, got.PersistedSchedule, got.CheckedAt, got.Waited)
+	}
+	if got.ScheduleAction.WorkflowID != "report-policy-schedule-9" ||
+		got.LauncherWorkflow.ReportBatchWorkflowID != "report-batch-1" ||
+		got.ReportWorkflowResult == nil ||
+		got.ReportWorkflowResult.FinalReportID != 99 ||
+		got.ReportWorkflowResult.NotificationStatus != "accepted" {
+		t.Fatalf("output action/launcher/report = %+v %+v %+v", got.ScheduleAction, got.LauncherWorkflow, got.ReportWorkflowResult)
+	}
+}
+
+func TestRunReportScheduleLiveSmokeCLIWithDependenciesRejectsInvalidSchedule(t *testing.T) {
+	tests := []struct {
+		name     string
+		schedule domain.ReportWorkflowSchedule
+		cfg      reportScheduleLiveSmokeCLIConfig
+		want     string
+	}{
+		{
+			name:     "policy mismatch",
+			schedule: testReportWorkflowSchedule(t),
+			cfg:      reportScheduleLiveSmokeCLIConfig{ScheduleID: 9, PolicyID: 7, WaitTimeout: time.Minute},
+			want:     "schedule policy id",
+		},
+		{
+			name: "disabled",
+			schedule: func() domain.ReportWorkflowSchedule {
+				s := testReportWorkflowSchedule(t)
+				s.Enabled = false
+				return s
+			}(),
+			cfg:  reportScheduleLiveSmokeCLIConfig{ScheduleID: 9, PolicyID: 42, WaitTimeout: time.Minute},
+			want: "must be enabled",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			err := runReportScheduleLiveSmokeCLIWithDependencies(context.Background(), &recordingReportScheduleLiveSmokeWaiter{}, tc.schedule, tc.cfg, &out)
+			if err == nil {
+				t.Fatal("runReportScheduleLiveSmokeCLIWithDependencies: want error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %q, want substring %q", err.Error(), tc.want)
+			}
+			if out.Len() != 0 {
+				t.Fatalf("stdout = %q, want empty", out.String())
+			}
+		})
 	}
 }
 
@@ -916,6 +1390,30 @@ func testDiagnosisRoomCloseEventPayload(
 	}
 }
 
+func testReportWorkflowSchedule(t *testing.T) domain.ReportWorkflowSchedule {
+	t.Helper()
+	enabledAt := time.Date(2026, 6, 6, 0, 0, 0, 0, time.UTC)
+	schedule, err := domain.NewReportWorkflowSchedule(
+		"Hourly report",
+		42,
+		"openclarion-report-policy-42-hourly",
+		time.Hour,
+		15*time.Minute,
+		time.Hour,
+		0,
+		100,
+		10*time.Minute,
+		true,
+		&enabledAt,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewReportWorkflowSchedule: %v", err)
+	}
+	schedule.ID = 9
+	return schedule
+}
+
 func mapGetenv(env map[string]string) getenvFunc {
 	return func(key string) string {
 		return env[key]
@@ -966,6 +1464,12 @@ func (emptyStarter) StartReportBatch(context.Context, ports.ReportBatchStartRequ
 	return ports.WorkflowHandle{}, nil
 }
 
+type noopScheduleSyncer struct{}
+
+func (noopScheduleSyncer) SyncReportWorkflowSchedule(context.Context, domain.ReportWorkflowSchedule) error {
+	return nil
+}
+
 type noopDiagnosisRoomWorkflowClient struct{}
 
 func (noopDiagnosisRoomWorkflowClient) SubmitDiagnosisTurn(context.Context, ports.DiagnosisRoomSubmitTurnRequest) (ports.DiagnosisRoomSubmitTurnResult, error) {
@@ -992,6 +1496,16 @@ func (t *recordingReportReplayCLITrigger) ReplayAndStart(_ context.Context, req 
 	return t.result, nil
 }
 
+type recordingReportPolicyReplayCLITrigger struct {
+	req    reportpolicytrigger.Request
+	result reportpolicytrigger.Result
+}
+
+func (t *recordingReportPolicyReplayCLITrigger) ReplayAndStartDetailed(_ context.Context, req reportpolicytrigger.Request) (reportpolicytrigger.Result, error) {
+	t.req = req
+	return t.result, nil
+}
+
 type recordingReportReplayCLIWaiter struct {
 	handle ports.WorkflowHandle
 	result reportReplayCLIWorkflowResult
@@ -999,6 +1513,22 @@ type recordingReportReplayCLIWaiter struct {
 
 func (w *recordingReportReplayCLIWaiter) WaitReportBatch(_ context.Context, handle ports.WorkflowHandle) (reportReplayCLIWorkflowResult, error) {
 	w.handle = handle
+	return w.result, nil
+}
+
+type recordingReportScheduleLiveSmokeWaiter struct {
+	schedule domain.ReportWorkflowSchedule
+	cfg      reportScheduleLiveSmokeCLIConfig
+	result   reportScheduleLiveSmokeWaitResult
+}
+
+func (w *recordingReportScheduleLiveSmokeWaiter) WaitReportSchedule(
+	_ context.Context,
+	schedule domain.ReportWorkflowSchedule,
+	cfg reportScheduleLiveSmokeCLIConfig,
+) (reportScheduleLiveSmokeWaitResult, error) {
+	w.schedule = schedule
+	w.cfg = cfg
 	return w.result, nil
 }
 

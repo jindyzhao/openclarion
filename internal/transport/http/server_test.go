@@ -19,11 +19,14 @@ import (
 	authfake "github.com/openclarion/openclarion/internal/providers/auth/fake"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
+	"github.com/openclarion/openclarion/internal/usecases/alertmanagerwebhook"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
+	"github.com/openclarion/openclarion/internal/usecases/notificationchannelcheck"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+	"github.com/openclarion/openclarion/internal/usecases/reportpolicytrigger"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
 )
@@ -403,7 +406,8 @@ func TestAlertSourceProfileConnectionTestReturnsSanitizedResult(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if resp.Status != api.AlertSourceConnectionTestStatusBlocked || resp.ReasonCode != api.CredentialsUnavailable {
+	if resp.Status != api.AlertSourceConnectionTestStatusBlocked ||
+		resp.ReasonCode != api.AlertSourceConnectionTestReasonCodeCredentialsUnavailable {
 		t.Fatalf("response = %+v", resp)
 	}
 }
@@ -853,6 +857,933 @@ func TestGetReport_ReturnsNotFound(t *testing.T) {
 	}
 }
 
+func TestListReportWorkflowPoliciesReturnsPolicies(t *testing.T) {
+	createdAt := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
+	factory := &fakeUOWFactory{
+		configRepo: &fakeConfigRepo{
+			reportWorkflowPolicies: []domain.ReportWorkflowPolicy{
+				{
+					ID:                                 1,
+					Name:                               "Default report workflow",
+					AlertSourceProfileID:               1,
+					GroupingPolicyID:                   2,
+					ReportNotificationChannelProfileID: 3,
+					TriggerMode:                        domain.ReportWorkflowTriggerModeManualReplay,
+					ReportScenario:                     domain.ReportWorkflowScenarioSingleAlert,
+					DiagnosisFollowUp:                  domain.DiagnosisFollowUpModeSuggestRoom,
+					Enabled:                            false,
+					CreatedAt:                          createdAt,
+					UpdatedAt:                          createdAt,
+				},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/report-workflow-policies?limit=1", nil)
+	testHandler(factory).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if factory.configRepo.lastListLimit != 1 {
+		t.Fatalf("repo limit = %d, want 1", factory.configRepo.lastListLimit)
+	}
+	var body api.ReportWorkflowPolicyListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 || body.Items[0].Name != "Default report workflow" || body.Items[0].Enabled {
+		t.Fatalf("items = %+v", body.Items)
+	}
+	if !body.Items[0].EnabledAt.IsNull() || !body.Items[0].DisabledAt.IsNull() {
+		t.Fatalf("enablement timestamps should be explicit null: %+v", body.Items[0])
+	}
+	reportChannelID, err := body.Items[0].ReportNotificationChannelProfileID.Get()
+	if err != nil || reportChannelID != 3 {
+		t.Fatalf("report notification channel ID = %v, %v; want 3", reportChannelID, err)
+	}
+}
+
+func TestCreateReportWorkflowPolicyStoresDisabledDraft(t *testing.T) {
+	repo := &fakeConfigRepo{
+		alertSourceProfiles:         []domain.AlertSourceProfile{{ID: 1, Enabled: false}},
+		groupingPolicies:            []domain.GroupingPolicy{{ID: 2, Enabled: false}},
+		notificationChannelProfiles: []domain.NotificationChannelProfile{{ID: 3, Enabled: false}},
+		saveReportWorkflowPolicyResult: domain.ReportWorkflowPolicy{
+			ID:                                 7,
+			Name:                               "Default report workflow",
+			AlertSourceProfileID:               1,
+			GroupingPolicyID:                   2,
+			ReportNotificationChannelProfileID: 3,
+			TriggerMode:                        domain.ReportWorkflowTriggerModeManualReplay,
+			ReportScenario:                     domain.ReportWorkflowScenarioSingleAlert,
+			DiagnosisFollowUp:                  domain.DiagnosisFollowUpModeSuggestRoom,
+			Enabled:                            false,
+			CreatedAt:                          time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC),
+			UpdatedAt:                          time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC),
+		},
+	}
+
+	body := `{
+		"name":"Default report workflow",
+		"alert_source_profile_id":1,
+		"grouping_policy_id":2,
+		"report_notification_channel_profile_id":3,
+		"trigger_mode":"manual_replay",
+		"report_scenario":"single_alert",
+		"diagnosis_follow_up":"suggest_room"
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies", strings.NewReader(body))
+	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.savedReportWorkflowPolicy.Enabled {
+		t.Fatalf("saved policy should be disabled: %+v", repo.savedReportWorkflowPolicy)
+	}
+	if repo.savedReportWorkflowPolicy.ReportNotificationChannelProfileID != 3 {
+		t.Fatalf("saved report notification channel ID = %d, want 3", repo.savedReportWorkflowPolicy.ReportNotificationChannelProfileID)
+	}
+	var resp api.ReportWorkflowPolicy
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.ID != 7 || resp.ReportScenario != api.ReportWorkflowScenarioSingleAlert || resp.Enabled {
+		t.Fatalf("response = %+v", resp)
+	}
+	reportChannelID, err := resp.ReportNotificationChannelProfileID.Get()
+	if err != nil || reportChannelID != 3 {
+		t.Fatalf("response report notification channel ID = %v, %v; want 3", reportChannelID, err)
+	}
+}
+
+func TestEnableReportWorkflowPolicyRequiresReadyBindings(t *testing.T) {
+	repo := &fakeConfigRepo{
+		alertSourceProfiles: []domain.AlertSourceProfile{{ID: 1, Enabled: false}},
+		groupingPolicies:    []domain.GroupingPolicy{{ID: 2, Enabled: true}},
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{
+			{
+				ID:                   7,
+				Name:                 "Default report workflow",
+				AlertSourceProfileID: 1,
+				GroupingPolicyID:     2,
+				TriggerMode:          domain.ReportWorkflowTriggerModeManualReplay,
+				ReportScenario:       domain.ReportWorkflowScenarioSingleAlert,
+				DiagnosisFollowUp:    domain.DiagnosisFollowUpModeDisabled,
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/enable", nil)
+	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.updatedReportWorkflowPolicy.ID != 0 {
+		t.Fatalf("policy should not be updated on failed enablement: %+v", repo.updatedReportWorkflowPolicy)
+	}
+}
+
+func TestEnableAndDisableReportWorkflowPolicyToggleState(t *testing.T) {
+	repo := &fakeConfigRepo{
+		alertSourceProfiles: []domain.AlertSourceProfile{{ID: 1, Enabled: true}},
+		groupingPolicies:    []domain.GroupingPolicy{{ID: 2, Enabled: true}},
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{
+			{
+				ID:                   7,
+				Name:                 "Default report workflow",
+				AlertSourceProfileID: 1,
+				GroupingPolicyID:     2,
+				TriggerMode:          domain.ReportWorkflowTriggerModeManualReplay,
+				ReportScenario:       domain.ReportWorkflowScenarioSingleAlert,
+				DiagnosisFollowUp:    domain.DiagnosisFollowUpModeDisabled,
+			},
+		},
+	}
+
+	enableRec := httptest.NewRecorder()
+	enableReq := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/enable", nil)
+	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(enableRec, enableReq)
+	if enableRec.Code != stdhttp.StatusOK {
+		t.Fatalf("enable status = %d, want 200; body=%s", enableRec.Code, enableRec.Body.String())
+	}
+	var enabled api.ReportWorkflowPolicy
+	if err := json.NewDecoder(enableRec.Body).Decode(&enabled); err != nil {
+		t.Fatalf("decode enable: %v", err)
+	}
+	if !enabled.Enabled || enabled.EnabledAt.IsNull() || !enabled.DisabledAt.IsNull() {
+		t.Fatalf("enabled response = %+v", enabled)
+	}
+
+	disableRec := httptest.NewRecorder()
+	disableReq := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/disable", nil)
+	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(disableRec, disableReq)
+	if disableRec.Code != stdhttp.StatusOK {
+		t.Fatalf("disable status = %d, want 200; body=%s", disableRec.Code, disableRec.Body.String())
+	}
+	var disabled api.ReportWorkflowPolicy
+	if err := json.NewDecoder(disableRec.Body).Decode(&disabled); err != nil {
+		t.Fatalf("decode disable: %v", err)
+	}
+	if disabled.Enabled || !disabled.EnabledAt.IsNull() || disabled.DisabledAt.IsNull() {
+		t.Fatalf("disabled response = %+v", disabled)
+	}
+}
+
+func TestPreviewReportWorkflowPolicyImpactReturnsReadinessAndGroupingImpact(t *testing.T) {
+	base := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
+	repo := &fakeConfigRepo{
+		alertSourceProfiles: []domain.AlertSourceProfile{
+			{
+				ID:       1,
+				Kind:     domain.AlertSourceKindPrometheus,
+				AuthMode: domain.AlertSourceAuthModeBearer,
+				Enabled:  true,
+			},
+		},
+		groupingPolicies: []domain.GroupingPolicy{
+			{
+				ID:            2,
+				DimensionKeys: []string{"alertname"},
+				SeverityKey:   "severity",
+				SourceFilter:  []string{"prometheus"},
+				Enabled:       true,
+			},
+		},
+		notificationChannelProfiles: []domain.NotificationChannelProfile{
+			{
+				ID:             3,
+				Enabled:        true,
+				DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeReport},
+			},
+		},
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{
+			{
+				ID:                                 7,
+				Name:                               "Default report workflow",
+				AlertSourceProfileID:               1,
+				GroupingPolicyID:                   2,
+				ReportNotificationChannelProfileID: 3,
+				TriggerMode:                        domain.ReportWorkflowTriggerModeManualReplay,
+				ReportScenario:                     domain.ReportWorkflowScenarioSingleAlert,
+				DiagnosisFollowUp:                  domain.DiagnosisFollowUpModeSuggestRoom,
+			},
+		},
+	}
+	alerts := &fakeAlertRepo{
+		events: []domain.AlertEvent{
+			{
+				ID:       101,
+				Source:   "prometheus",
+				Labels:   map[string]string{"alertname": "checkout", "severity": "critical"},
+				StartsAt: base,
+			},
+			{
+				ID:       102,
+				Source:   "alertmanager",
+				Labels:   map[string]string{"alertname": "payments", "severity": "warning"},
+				StartsAt: base.Add(time.Minute),
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/impact-preview?limit=2", nil)
+	testHandler(&fakeUOWFactory{configRepo: repo, alertRepo: alerts}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if alerts.lastLimit != 2 {
+		t.Fatalf("alert limit = %d, want 2", alerts.lastLimit)
+	}
+	var body api.ReportWorkflowPolicyImpactPreviewResult
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.PolicyID != 7 ||
+		body.Status != api.ReportWorkflowPolicyImpactPreviewStatusReady ||
+		len(body.ReasonCodes) != 1 ||
+		body.ReasonCodes[0] != api.ReportWorkflowPolicyImpactPreviewReasonCodeOk {
+		t.Fatalf("readiness = %+v", body)
+	}
+	channelID, err := body.ReportNotificationChannelProfileID.Get()
+	if err != nil || channelID != 3 {
+		t.Fatalf("channel ID = %v, %v; want 3", channelID, err)
+	}
+	if !body.ReportNotificationChannelBound ||
+		!body.ReportNotificationChannelEnabled ||
+		!body.ReportNotificationChannelHasReportScope {
+		t.Fatalf("channel readiness = %+v", body)
+	}
+	if body.EventsScanned != 2 || body.EventsMatched != 1 || body.GroupsEstimated != 1 || len(body.Groups) != 1 {
+		t.Fatalf("impact counts = %+v", body)
+	}
+	if body.Groups[0].EventCount != 1 || body.Groups[0].Dimensions["alertname"] != "checkout" {
+		t.Fatalf("group = %+v", body.Groups[0])
+	}
+}
+
+func TestPreviewReportWorkflowPolicyImpactReturnsBlockedReadiness(t *testing.T) {
+	repo := &fakeConfigRepo{
+		alertSourceProfiles: []domain.AlertSourceProfile{
+			{ID: 1, Kind: domain.AlertSourceKindPrometheus, AuthMode: domain.AlertSourceAuthModeNone, Enabled: false},
+		},
+		groupingPolicies: []domain.GroupingPolicy{
+			{ID: 2, DimensionKeys: []string{"alertname"}, SeverityKey: "severity", SourceFilter: []string{"prometheus"}, Enabled: false},
+		},
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{
+			{
+				ID:                   7,
+				Name:                 "Default report workflow",
+				AlertSourceProfileID: 1,
+				GroupingPolicyID:     2,
+				TriggerMode:          domain.ReportWorkflowTriggerModeManualReplay,
+				ReportScenario:       domain.ReportWorkflowScenarioSingleAlert,
+				DiagnosisFollowUp:    domain.DiagnosisFollowUpModeDisabled,
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/impact-preview", nil)
+	testHandler(&fakeUOWFactory{configRepo: repo, alertRepo: &fakeAlertRepo{}}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.ReportWorkflowPolicyImpactPreviewResult
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Status != api.ReportWorkflowPolicyImpactPreviewStatusBlocked ||
+		len(body.ReasonCodes) != 2 ||
+		body.ReasonCodes[0] != api.ReportWorkflowPolicyImpactPreviewReasonCodeAlertSourceDisabled ||
+		body.ReasonCodes[1] != api.ReportWorkflowPolicyImpactPreviewReasonCodeGroupingPolicyDisabled {
+		t.Fatalf("readiness = %+v", body)
+	}
+	if !body.ReportNotificationChannelProfileID.IsNull() || body.ReportNotificationChannelBound {
+		t.Fatalf("unbound channel fields = %+v", body)
+	}
+}
+
+func TestReportWorkflowPolicyWriteRejectsInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		repo       *fakeConfigRepo
+		wantStatus int
+	}{
+		{
+			name:       "unknown_field",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-policies",
+			body:       `{"name":"Default","alert_source_profile_id":1,"grouping_policy_id":2,"extra":true}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "invalid_scenario",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-policies",
+			body:       `{"name":"Default","alert_source_profile_id":1,"grouping_policy_id":2,"report_scenario":"unknown"}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "invalid_notification_channel_id",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-policies",
+			body:       `{"name":"Default","alert_source_profile_id":1,"grouping_policy_id":2,"report_notification_channel_profile_id":0}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:   "missing_binding",
+			method: stdhttp.MethodPost,
+			path:   "/api/v1/config/report-workflow-policies",
+			body:   `{"name":"Default","alert_source_profile_id":1,"grouping_policy_id":2}`,
+			repo: &fakeConfigRepo{
+				alertSourceProfiles: []domain.AlertSourceProfile{{ID: 1}},
+			},
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "invalid_id",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-policies/0/enable",
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "missing_policy",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-policies/99/disable",
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusNotFound,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, strings.NewReader(tc.body))
+			testHandler(&fakeUOWFactory{configRepo: tc.repo}).ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestListReportWorkflowSchedulesReturnsSchedules(t *testing.T) {
+	createdAt := time.Date(2026, 6, 6, 2, 0, 0, 0, time.UTC)
+	factory := &fakeUOWFactory{
+		configRepo: &fakeConfigRepo{
+			reportWorkflowSchedules: []domain.ReportWorkflowSchedule{
+				{
+					ID:                     1,
+					Name:                   "Daily report window",
+					ReportWorkflowPolicyID: 7,
+					TemporalScheduleID:     "openclarion-report-policy-7-daily",
+					Interval:               24 * time.Hour,
+					Offset:                 6 * time.Hour,
+					ReplayWindow:           time.Hour,
+					ReplayDelay:            5 * time.Minute,
+					ReplayLimit:            10000,
+					CatchupWindow:          time.Hour,
+					Enabled:                false,
+					CreatedAt:              createdAt,
+					UpdatedAt:              createdAt,
+				},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/report-workflow-schedules?limit=1", nil)
+	testHandler(factory).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if factory.configRepo.lastListLimit != 1 {
+		t.Fatalf("repo limit = %d, want 1", factory.configRepo.lastListLimit)
+	}
+	var body api.ReportWorkflowScheduleListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 || body.Items[0].Name != "Daily report window" {
+		t.Fatalf("items = %+v", body.Items)
+	}
+	if body.Items[0].IntervalSeconds != 86400 ||
+		body.Items[0].OffsetSeconds != 21600 ||
+		body.Items[0].ReplayWindowSeconds != 3600 ||
+		body.Items[0].ReplayDelaySeconds != 300 ||
+		body.Items[0].CatchupWindowSeconds != 3600 {
+		t.Fatalf("duration fields = %+v", body.Items[0])
+	}
+}
+
+func TestCreateReportWorkflowScheduleStoresSecondsAsDurations(t *testing.T) {
+	repo := &fakeConfigRepo{
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{{ID: 7}},
+	}
+	body := `{
+		"name":"Daily report window",
+		"report_workflow_policy_id":7,
+		"temporal_schedule_id":"openclarion-report-policy-7-daily",
+		"interval_seconds":86400,
+		"offset_seconds":21600,
+		"replay_window_seconds":3600,
+		"replay_delay_seconds":300,
+		"replay_limit":10000,
+		"catchup_window_seconds":3600
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-schedules", strings.NewReader(body))
+	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.savedReportWorkflowSchedule.ReportWorkflowPolicyID != 7 ||
+		repo.savedReportWorkflowSchedule.Interval != 24*time.Hour ||
+		repo.savedReportWorkflowSchedule.Offset != 6*time.Hour ||
+		repo.savedReportWorkflowSchedule.ReplayWindow != time.Hour ||
+		repo.savedReportWorkflowSchedule.ReplayDelay != 5*time.Minute ||
+		repo.savedReportWorkflowSchedule.ReplayLimit != 10000 ||
+		repo.savedReportWorkflowSchedule.CatchupWindow != time.Hour {
+		t.Fatalf("saved schedule = %+v", repo.savedReportWorkflowSchedule)
+	}
+	var response api.ReportWorkflowSchedule
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if response.TemporalScheduleID != "openclarion-report-policy-7-daily" || response.Enabled {
+		t.Fatalf("response = %+v", response)
+	}
+}
+
+func TestReportWorkflowScheduleMutationSynchronizesSavedSchedule(t *testing.T) {
+	repo := &fakeConfigRepo{
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{{ID: 7}},
+	}
+	syncer := &recordingReportWorkflowScheduleSyncer{}
+	body := `{
+		"name":"Daily report window",
+		"report_workflow_policy_id":7,
+		"temporal_schedule_id":"openclarion-report-policy-7-daily",
+		"interval_seconds":86400,
+		"offset_seconds":21600,
+		"replay_window_seconds":3600,
+		"replay_delay_seconds":300,
+		"replay_limit":10000,
+		"catchup_window_seconds":3600
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-schedules", strings.NewReader(body))
+	testHandler(
+		&fakeUOWFactory{configRepo: repo},
+		WithReportWorkflowScheduleSynchronizer(syncer),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if syncer.calls != 1 ||
+		syncer.schedule.ID == 0 ||
+		syncer.schedule.TemporalScheduleID != "openclarion-report-policy-7-daily" ||
+		syncer.schedule.Enabled {
+		t.Fatalf("syncer = %+v", syncer)
+	}
+}
+
+func TestReportWorkflowScheduleSyncFailureReturnsServerError(t *testing.T) {
+	repo := &fakeConfigRepo{
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{{ID: 7}},
+	}
+	syncer := &recordingReportWorkflowScheduleSyncer{err: errors.New("temporal unavailable")}
+	body := `{
+		"name":"Daily report window",
+		"report_workflow_policy_id":7,
+		"temporal_schedule_id":"openclarion-report-policy-7-daily",
+		"interval_seconds":86400,
+		"offset_seconds":21600,
+		"replay_window_seconds":3600,
+		"replay_delay_seconds":300,
+		"replay_limit":10000,
+		"catchup_window_seconds":3600
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-schedules", strings.NewReader(body))
+	testHandler(
+		&fakeUOWFactory{configRepo: repo},
+		WithReportWorkflowScheduleSynchronizer(syncer),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "temporal unavailable") {
+		t.Fatalf("response leaked synchronizer error: %s", rec.Body.String())
+	}
+	if syncer.calls != 1 || repo.savedReportWorkflowSchedule.Name != "Daily report window" {
+		t.Fatalf("sync calls = %d saved = %+v", syncer.calls, repo.savedReportWorkflowSchedule)
+	}
+}
+
+func TestEnableReportWorkflowScheduleRequiresEnabledPolicy(t *testing.T) {
+	schedule := domain.ReportWorkflowSchedule{
+		ID:                     9,
+		Name:                   "Daily report window",
+		ReportWorkflowPolicyID: 7,
+		TemporalScheduleID:     "openclarion-report-policy-7-daily",
+		Interval:               24 * time.Hour,
+		Offset:                 6 * time.Hour,
+		ReplayWindow:           time.Hour,
+		ReplayDelay:            5 * time.Minute,
+		ReplayLimit:            10000,
+		CatchupWindow:          time.Hour,
+	}
+	repo := &fakeConfigRepo{
+		reportWorkflowPolicies:  []domain.ReportWorkflowPolicy{{ID: 7, Enabled: true}},
+		reportWorkflowSchedules: []domain.ReportWorkflowSchedule{schedule},
+	}
+	syncer := &recordingReportWorkflowScheduleSyncer{}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-schedules/9/enable", nil)
+	testHandler(
+		&fakeUOWFactory{configRepo: repo},
+		WithReportWorkflowScheduleSynchronizer(syncer),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if !repo.updatedReportWorkflowSchedule.Enabled || repo.updatedReportWorkflowSchedule.EnabledAt == nil {
+		t.Fatalf("updated schedule = %+v", repo.updatedReportWorkflowSchedule)
+	}
+	if syncer.calls != 1 || !syncer.schedule.Enabled || syncer.schedule.EnabledAt == nil {
+		t.Fatalf("syncer = %+v", syncer)
+	}
+
+	repo = &fakeConfigRepo{
+		reportWorkflowPolicies:  []domain.ReportWorkflowPolicy{{ID: 7, Enabled: false}},
+		reportWorkflowSchedules: []domain.ReportWorkflowSchedule{schedule},
+	}
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-schedules/9/enable", nil)
+	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("disabled policy status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestReportWorkflowScheduleWriteRejectsInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		repo       *fakeConfigRepo
+		wantStatus int
+	}{
+		{
+			name:       "unknown_field",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-schedules",
+			body:       `{"name":"Daily","report_workflow_policy_id":7,"temporal_schedule_id":"schedule-1","interval_seconds":86400,"offset_seconds":0,"replay_window_seconds":3600,"replay_delay_seconds":300,"replay_limit":10000,"catchup_window_seconds":3600,"extra":true}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "invalid_offset",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-schedules",
+			body:       `{"name":"Daily","report_workflow_policy_id":7,"temporal_schedule_id":"schedule-1","interval_seconds":3600,"offset_seconds":3600,"replay_window_seconds":3600,"replay_delay_seconds":300,"replay_limit":10000,"catchup_window_seconds":3600}`,
+			repo:       &fakeConfigRepo{reportWorkflowPolicies: []domain.ReportWorkflowPolicy{{ID: 7}}},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "negative_policy_id",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-schedules",
+			body:       `{"name":"Daily","report_workflow_policy_id":-7,"temporal_schedule_id":"schedule-1","interval_seconds":86400,"offset_seconds":0,"replay_window_seconds":3600,"replay_delay_seconds":300,"replay_limit":10000,"catchup_window_seconds":3600}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "oversized_duration",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-schedules",
+			body:       `{"name":"Daily","report_workflow_policy_id":7,"temporal_schedule_id":"schedule-1","interval_seconds":31536001,"offset_seconds":0,"replay_window_seconds":3600,"replay_delay_seconds":300,"replay_limit":10000,"catchup_window_seconds":3600}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "oversized_replay_limit",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-schedules",
+			body:       `{"name":"Daily","report_workflow_policy_id":7,"temporal_schedule_id":"schedule-1","interval_seconds":86400,"offset_seconds":0,"replay_window_seconds":3600,"replay_delay_seconds":300,"replay_limit":100001,"catchup_window_seconds":3600}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "missing_policy",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-schedules",
+			body:       `{"name":"Daily","report_workflow_policy_id":7,"temporal_schedule_id":"schedule-1","interval_seconds":86400,"offset_seconds":0,"replay_window_seconds":3600,"replay_delay_seconds":300,"replay_limit":10000,"catchup_window_seconds":3600}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "invalid_id",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-schedules/0/disable",
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "missing_schedule",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-schedules/99/disable",
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusNotFound,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, strings.NewReader(tc.body))
+			testHandler(&fakeUOWFactory{configRepo: tc.repo}).ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestListNotificationChannelProfilesReturnsProfiles(t *testing.T) {
+	createdAt := time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC)
+	factory := &fakeUOWFactory{
+		configRepo: &fakeConfigRepo{
+			notificationChannelProfiles: []domain.NotificationChannelProfile{
+				{
+					ID:             1,
+					Name:           "Operations webhook",
+					Kind:           domain.NotificationChannelKindWebhook,
+					SecretRef:      "secret/openclarion/ops-webhook",
+					DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeReport},
+					Enabled:        true,
+					Labels:         map[string]string{"owner": "sre"},
+					CreatedAt:      createdAt,
+					UpdatedAt:      createdAt,
+				},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/notification-channels?limit=1", nil)
+	testHandler(factory).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if factory.configRepo.lastListLimit != 1 {
+		t.Fatalf("repo limit = %d, want 1", factory.configRepo.lastListLimit)
+	}
+	var body api.NotificationChannelProfileListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 || body.Items[0].Name != "Operations webhook" || !body.Items[0].Enabled {
+		t.Fatalf("items = %+v", body.Items)
+	}
+	if body.Items[0].SecretRef != "secret/openclarion/ops-webhook" || body.Items[0].DeliveryScopes[0] != api.Report {
+		t.Fatalf("profile = %+v", body.Items[0])
+	}
+}
+
+func TestCreateNotificationChannelProfileStoresSecretRefOnly(t *testing.T) {
+	repo := &fakeConfigRepo{
+		saveNotificationChannelResult: domain.NotificationChannelProfile{
+			ID:             7,
+			Name:           "Operations webhook",
+			Kind:           domain.NotificationChannelKindWebhook,
+			SecretRef:      "secret/openclarion/ops-webhook",
+			DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeDiagnosisClose, domain.NotificationDeliveryScopeReport},
+			Enabled:        false,
+			Labels:         map[string]string{"owner": "sre"},
+			CreatedAt:      time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC),
+			UpdatedAt:      time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC),
+		},
+	}
+
+	body := `{
+		"name":"Operations webhook",
+		"kind":"webhook",
+		"secret_ref":"secret/openclarion/ops-webhook",
+		"delivery_scopes":["diagnosis_close","report"],
+		"enabled":false,
+		"labels":{"owner":"sre"}
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/notification-channels", strings.NewReader(body))
+	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.savedNotificationChannel.SecretRef != "secret/openclarion/ops-webhook" {
+		t.Fatalf("saved notification channel = %+v", repo.savedNotificationChannel)
+	}
+	if len(repo.savedNotificationChannel.DeliveryScopes) != 2 ||
+		repo.savedNotificationChannel.DeliveryScopes[0] != domain.NotificationDeliveryScopeDiagnosisClose ||
+		repo.savedNotificationChannel.DeliveryScopes[1] != domain.NotificationDeliveryScopeReport {
+		t.Fatalf("saved scopes = %+v", repo.savedNotificationChannel.DeliveryScopes)
+	}
+	var resp api.NotificationChannelProfile
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.ID != 7 || resp.Kind != api.Webhook || resp.Enabled {
+		t.Fatalf("response = %+v", resp)
+	}
+}
+
+func TestNotificationChannelProfileWriteRejectsInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		repo       *fakeConfigRepo
+		wantStatus int
+	}{
+		{
+			name:       "unknown_field",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/notification-channels",
+			body:       `{"name":"Operations webhook","kind":"webhook","secret_ref":"secret/ref","delivery_scopes":["report"],"extra":true}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "missing_secret_ref",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/notification-channels",
+			body:       `{"name":"Operations webhook","kind":"webhook","delivery_scopes":["report"]}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "empty_delivery_scopes",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/notification-channels",
+			body:       `{"name":"Operations webhook","kind":"webhook","secret_ref":"secret/ref","delivery_scopes":[]}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "invalid_id",
+			method:     stdhttp.MethodPut,
+			path:       "/api/v1/config/notification-channels/0",
+			body:       `{"name":"Operations webhook","kind":"webhook","secret_ref":"secret/ref","delivery_scopes":["report"]}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "missing_channel",
+			method:     stdhttp.MethodPut,
+			path:       "/api/v1/config/notification-channels/99",
+			body:       `{"name":"Operations webhook","kind":"webhook","secret_ref":"secret/ref","delivery_scopes":["report"]}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusNotFound,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, strings.NewReader(tc.body))
+			testHandler(&fakeUOWFactory{configRepo: tc.repo}).ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestNotificationChannelProfileTestReturnsSanitizedResult(t *testing.T) {
+	checkedAt := time.Date(2026, 6, 5, 10, 0, 0, 0, time.UTC)
+	repo := &fakeConfigRepo{
+		notificationChannelProfiles: []domain.NotificationChannelProfile{
+			{
+				ID:             1,
+				Name:           "Operations webhook",
+				Kind:           domain.NotificationChannelKindWebhook,
+				SecretRef:      "secret/openclarion/ops-webhook",
+				DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeReport},
+				Enabled:        false,
+				Labels:         map[string]string{"owner": "sre"},
+				CreatedAt:      checkedAt,
+				UpdatedAt:      checkedAt,
+			},
+		},
+	}
+	tester := &fakeNotificationChannelTester{
+		result: notificationchannelcheck.Result{
+			ChannelID:         1,
+			Kind:              domain.NotificationChannelKindWebhook,
+			Status:            notificationchannelcheck.StatusBlocked,
+			ReasonCode:        notificationchannelcheck.ReasonCredentialsUnavailable,
+			Message:           "Secret-backed notification channel tests require a server-side secret resolver.",
+			CheckedAt:         checkedAt,
+			ProviderMessageID: "",
+			ProviderStatus:    "",
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/notification-channels/1/test", nil)
+	testHandler(&fakeUOWFactory{configRepo: repo}, WithNotificationChannelTester(tester)).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if tester.called != 1 || tester.profile.ID != 1 || tester.profile.SecretRef == "" {
+		t.Fatalf("tester called=%d profile=%+v", tester.called, tester.profile)
+	}
+	if body := rec.Body.String(); strings.Contains(body, "secret/openclarion") || strings.Contains(body, "ops-webhook") {
+		t.Fatalf("response leaked secret reference: %s", body)
+	}
+	var resp api.NotificationChannelTestResult
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if resp.Status != api.NotificationChannelTestStatusBlocked ||
+		resp.ReasonCode != api.NotificationChannelTestReasonCodeCredentialsUnavailable {
+		t.Fatalf("response = %+v", resp)
+	}
+}
+
+func TestNotificationChannelProfileTestRejectsUnconfiguredAndMissingProfiles(t *testing.T) {
+	tests := []struct {
+		name       string
+		repo       *fakeConfigRepo
+		opts       []ServerOption
+		wantStatus int
+	}{
+		{
+			name:       "unconfigured",
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusServiceUnavailable,
+		},
+		{
+			name:       "not_found",
+			repo:       &fakeConfigRepo{},
+			opts:       []ServerOption{WithNotificationChannelTester(&fakeNotificationChannelTester{})},
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "invalid_id",
+			repo:       &fakeConfigRepo{},
+			opts:       []ServerOption{WithNotificationChannelTester(&fakeNotificationChannelTester{})},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := "/api/v1/config/notification-channels/99/test"
+			if tc.name == "invalid_id" {
+				path = "/api/v1/config/notification-channels/0/test"
+			}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, path, nil)
+			testHandler(&fakeUOWFactory{configRepo: tc.repo}, tc.opts...).ServeHTTP(rec, req)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestTriggerReportReplay_StartsReportWorkflow(t *testing.T) {
 	windowStart := time.Date(2026, 5, 27, 9, 0, 0, 0, time.UTC)
 	windowEnd := windowStart.Add(time.Hour)
@@ -923,6 +1854,131 @@ func TestTriggerReportReplay_StartsReportWorkflow(t *testing.T) {
 	}
 }
 
+func TestIngestAlertmanagerWebhook_AcceptsPayload(t *testing.T) {
+	ingestor := &fakeAlertmanagerWebhookIngestor{
+		result: alertmanagerwebhook.Result{
+			ProfileID:       7,
+			Received:        2,
+			SkippedResolved: 1,
+			TruncatedAlerts: 0,
+			Ingested:        alertingest.Stats{Total: 1, Saved: 1},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/alert-sources/7/webhooks/alertmanager",
+		strings.NewReader(`{"version":"4","status":"firing","alerts":[]}`),
+	)
+	req.Header.Set("Authorization", "Bearer webhook-token")
+	testHandler(&fakeUOWFactory{}, WithAlertmanagerWebhookIngestor(ingestor)).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	if ingestor.called != 1 {
+		t.Fatalf("ingestor calls = %d, want 1", ingestor.called)
+	}
+	if ingestor.req.ProfileID != 7 || ingestor.req.Authorization != "Bearer webhook-token" {
+		t.Fatalf("ingestor request = %+v", ingestor.req)
+	}
+	if string(ingestor.req.Body) != `{"version":"4","status":"firing","alerts":[]}` {
+		t.Fatalf("ingestor body = %s", ingestor.req.Body)
+	}
+
+	var body api.AlertmanagerWebhookIngestResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.SourceID != 7 || body.Received != 2 || body.SkippedResolved != 1 || body.Ingested.Saved != 1 {
+		t.Fatalf("response = %+v", body)
+	}
+}
+
+func TestIngestAlertmanagerWebhookRejectsUnconfiguredIngestor(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/alert-sources/7/webhooks/alertmanager",
+		strings.NewReader(`{"version":"4","status":"firing","alerts":[]}`),
+	)
+	testHandler(&fakeUOWFactory{}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestIngestAlertmanagerWebhookMapsUsecaseErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{name: "unauthorized", err: alertmanagerwebhook.ErrUnauthorized, wantStatus: stdhttp.StatusUnauthorized},
+		{name: "not_found", err: domain.ErrNotFound, wantStatus: stdhttp.StatusNotFound},
+		{name: "invariant", err: domain.ErrInvariantViolation, wantStatus: stdhttp.StatusBadRequest},
+		{name: "secret_unavailable", err: alertmanagerwebhook.ErrSecretResolverUnavailable, wantStatus: stdhttp.StatusServiceUnavailable},
+		{name: "unexpected", err: errors.New("database unavailable"), wantStatus: stdhttp.StatusInternalServerError},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ingestor := &fakeAlertmanagerWebhookIngestor{err: tc.err}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(
+				context.Background(),
+				stdhttp.MethodPost,
+				"/api/v1/alert-sources/7/webhooks/alertmanager",
+				strings.NewReader(`{"version":"4","status":"firing","alerts":[]}`),
+			)
+			testHandler(&fakeUOWFactory{}, WithAlertmanagerWebhookIngestor(ingestor)).ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestIngestAlertmanagerWebhookRejectsInvalidTransportRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "invalid_source_id",
+			path: "/api/v1/alert-sources/0/webhooks/alertmanager",
+			body: `{"version":"4","status":"firing","alerts":[]}`,
+		},
+		{
+			name: "overlarge_body",
+			path: "/api/v1/alert-sources/7/webhooks/alertmanager",
+			body: strings.Repeat("{", maxJSONRequestBodyBytes+1),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ingestor := &fakeAlertmanagerWebhookIngestor{}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, tc.path, strings.NewReader(tc.body))
+			testHandler(&fakeUOWFactory{}, WithAlertmanagerWebhookIngestor(ingestor)).ServeHTTP(rec, req)
+
+			if rec.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+			if ingestor.called != 0 {
+				t.Fatalf("ingestor calls = %d, want 0", ingestor.called)
+			}
+		})
+	}
+}
+
 func TestTriggerReportReplayRejectsUnconfiguredTrigger(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/report-triggers/replay-window", strings.NewReader(`{}`))
@@ -968,6 +2024,153 @@ func TestTriggerReportReplayRejectsInvalidRequest(t *testing.T) {
 			}
 			if trigger.called != 0 {
 				t.Fatalf("trigger calls = %d, want 0", trigger.called)
+			}
+		})
+	}
+}
+
+func TestTriggerReportWorkflowPolicyReplay_StartsReportWorkflow(t *testing.T) {
+	windowStart := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
+	windowEnd := windowStart.Add(time.Hour)
+	trigger := &fakeReportWorkflowPolicyReplayTrigger{
+		result: reporttrigger.Result{
+			Replay: alertreplay.Result{
+				Stats: alertreplay.Stats{
+					Ingested:       alertingest.Stats{Total: 1, Saved: 1},
+					EventsLoaded:   1,
+					GroupsBuilt:    1,
+					GroupsSaved:    1,
+					SnapshotsSaved: 1,
+					GroupsClosed:   1,
+				},
+				Snapshots: []alertreplay.SnapshotRef{
+					{ID: 9, GroupIndex: 0, EventCount: 1},
+				},
+			},
+			Workflow: ports.WorkflowHandle{WorkflowID: "report-batch-policy-1", RunID: "run-policy-1"},
+			Started:  true,
+		},
+	}
+
+	body := `{
+		"window_start":"2026-06-05T08:00:00Z",
+		"window_end":"2026-06-05T09:00:00Z",
+		"limit":5,
+		"correlation_key":"policy-window-1",
+		"workflow_id":"report-batch-policy-1"
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/replay-window", strings.NewReader(body))
+	testHandler(&fakeUOWFactory{}, WithReportWorkflowPolicyReplayTrigger(trigger)).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	if trigger.called != 1 {
+		t.Fatalf("trigger calls = %d, want 1", trigger.called)
+	}
+	if trigger.req.PolicyID != 7 ||
+		!trigger.req.WindowStart.Equal(windowStart) ||
+		!trigger.req.WindowEnd.Equal(windowEnd) ||
+		trigger.req.Limit != 5 ||
+		trigger.req.CorrelationKey != "policy-window-1" ||
+		trigger.req.WorkflowID != "report-batch-policy-1" {
+		t.Fatalf("trigger request = %+v", trigger.req)
+	}
+
+	var resp api.ReportReplayTriggerResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.Started || resp.WorkflowID != "report-batch-policy-1" || resp.RunID != "run-policy-1" {
+		t.Fatalf("response workflow = %+v", resp)
+	}
+	if len(resp.Snapshots) != 1 || resp.Snapshots[0].ID != 9 {
+		t.Fatalf("response snapshots = %+v", resp.Snapshots)
+	}
+}
+
+func TestTriggerReportWorkflowPolicyReplayRejectsUnconfiguredTrigger(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/replay-window", strings.NewReader(`{}`))
+	testHandler(&fakeUOWFactory{}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestTriggerReportWorkflowPolicyReplayRejectsInvalidRequest(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "limit_out_of_range",
+			path: "/api/v1/config/report-workflow-policies/7/replay-window",
+			body: `{"window_start":"2026-06-05T08:00:00Z","window_end":"2026-06-05T09:00:00Z","limit":0}`,
+		},
+		{
+			name: "unknown_field",
+			path: "/api/v1/config/report-workflow-policies/7/replay-window",
+			body: `{"window_start":"2026-06-05T08:00:00Z","window_end":"2026-06-05T09:00:00Z","extra":true}`,
+		},
+		{
+			name: "duplicate_key",
+			path: "/api/v1/config/report-workflow-policies/7/replay-window",
+			body: `{"window_start":"2026-06-05T08:00:00Z","window_end":"2026-06-05T09:00:00Z","limit":1,"limit":2}`,
+		},
+		{
+			name: "invalid_policy_id",
+			path: "/api/v1/config/report-workflow-policies/0/replay-window",
+			body: `{"window_start":"2026-06-05T08:00:00Z","window_end":"2026-06-05T09:00:00Z"}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			trigger := &fakeReportWorkflowPolicyReplayTrigger{}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, tc.path, strings.NewReader(tc.body))
+			testHandler(&fakeUOWFactory{}, WithReportWorkflowPolicyReplayTrigger(trigger)).ServeHTTP(rec, req)
+
+			if rec.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+			if trigger.called != 0 {
+				t.Fatalf("trigger calls = %d, want 0", trigger.called)
+			}
+		})
+	}
+}
+
+func TestTriggerReportWorkflowPolicyReplayMapsUsecaseErrors(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+	}{
+		{name: "not_found", err: domain.ErrNotFound, wantStatus: stdhttp.StatusNotFound},
+		{name: "binding_not_found", err: errors.Join(errors.New("binding missing"), domain.ErrNotFound), wantStatus: stdhttp.StatusNotFound},
+		{name: "invariant", err: domain.ErrInvariantViolation, wantStatus: stdhttp.StatusBadRequest},
+		{name: "unexpected", err: errors.New("temporal unavailable"), wantStatus: stdhttp.StatusInternalServerError},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			trigger := &fakeReportWorkflowPolicyReplayTrigger{err: tc.err}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(
+				context.Background(),
+				stdhttp.MethodPost,
+				"/api/v1/config/report-workflow-policies/7/replay-window",
+				strings.NewReader(`{"window_start":"2026-06-05T08:00:00Z","window_end":"2026-06-05T09:00:00Z"}`),
+			)
+			testHandler(&fakeUOWFactory{}, WithReportWorkflowPolicyReplayTrigger(trigger)).ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
 			}
 		})
 	}
@@ -2073,6 +3276,38 @@ func (t *fakeReportReplayTrigger) ReplayAndStart(_ context.Context, req reporttr
 	return t.result, nil
 }
 
+type fakeReportWorkflowPolicyReplayTrigger struct {
+	called int
+	req    reportpolicytrigger.Request
+	result reporttrigger.Result
+	err    error
+}
+
+func (t *fakeReportWorkflowPolicyReplayTrigger) ReplayAndStart(_ context.Context, req reportpolicytrigger.Request) (reporttrigger.Result, error) {
+	t.called++
+	t.req = req
+	if t.err != nil {
+		return reporttrigger.Result{}, t.err
+	}
+	return t.result, nil
+}
+
+type fakeAlertmanagerWebhookIngestor struct {
+	called int
+	req    alertmanagerwebhook.Request
+	result alertmanagerwebhook.Result
+	err    error
+}
+
+func (i *fakeAlertmanagerWebhookIngestor) Ingest(_ context.Context, req alertmanagerwebhook.Request) (alertmanagerwebhook.Result, error) {
+	i.called++
+	i.req = req
+	if i.err != nil {
+		return alertmanagerwebhook.Result{}, i.err
+	}
+	return i.result, nil
+}
+
 type fakeAlertSourceConnectionTester struct {
 	called  int
 	profile domain.AlertSourceProfile
@@ -2085,6 +3320,22 @@ func (t *fakeAlertSourceConnectionTester) TestAlertSourceConnection(_ context.Co
 	t.profile = profile
 	if t.err != nil {
 		return alertsourcecheck.Result{}, t.err
+	}
+	return t.result, nil
+}
+
+type fakeNotificationChannelTester struct {
+	called  int
+	profile domain.NotificationChannelProfile
+	result  notificationchannelcheck.Result
+	err     error
+}
+
+func (t *fakeNotificationChannelTester) TestNotificationChannel(_ context.Context, profile domain.NotificationChannelProfile) (notificationchannelcheck.Result, error) {
+	t.called++
+	t.profile = profile
+	if t.err != nil {
+		return notificationchannelcheck.Result{}, t.err
 	}
 	return t.result, nil
 }
@@ -2176,19 +3427,46 @@ type fakeReportRepo struct {
 
 type fakeConfigRepo struct {
 	ports.ConfigurationRepository
-	alertSourceProfiles        []domain.AlertSourceProfile
-	saveResult                 domain.AlertSourceProfile
-	updateResult               domain.AlertSourceProfile
-	saved                      domain.AlertSourceProfile
-	updated                    domain.AlertSourceProfile
-	groupingPolicies           []domain.GroupingPolicy
-	saveGroupingPolicyResult   domain.GroupingPolicy
-	updateGroupingPolicyResult domain.GroupingPolicy
-	savedGroupingPolicy        domain.GroupingPolicy
-	updatedGroupingPolicy      domain.GroupingPolicy
-	saveErr                    error
-	updateErr                  error
-	lastListLimit              int
+	alertSourceProfiles                []domain.AlertSourceProfile
+	saveResult                         domain.AlertSourceProfile
+	updateResult                       domain.AlertSourceProfile
+	saved                              domain.AlertSourceProfile
+	updated                            domain.AlertSourceProfile
+	groupingPolicies                   []domain.GroupingPolicy
+	saveGroupingPolicyResult           domain.GroupingPolicy
+	updateGroupingPolicyResult         domain.GroupingPolicy
+	savedGroupingPolicy                domain.GroupingPolicy
+	updatedGroupingPolicy              domain.GroupingPolicy
+	reportWorkflowPolicies             []domain.ReportWorkflowPolicy
+	saveReportWorkflowPolicyResult     domain.ReportWorkflowPolicy
+	updateReportWorkflowPolicyResult   domain.ReportWorkflowPolicy
+	savedReportWorkflowPolicy          domain.ReportWorkflowPolicy
+	updatedReportWorkflowPolicy        domain.ReportWorkflowPolicy
+	reportWorkflowSchedules            []domain.ReportWorkflowSchedule
+	saveReportWorkflowScheduleResult   domain.ReportWorkflowSchedule
+	updateReportWorkflowScheduleResult domain.ReportWorkflowSchedule
+	savedReportWorkflowSchedule        domain.ReportWorkflowSchedule
+	updatedReportWorkflowSchedule      domain.ReportWorkflowSchedule
+	notificationChannelProfiles        []domain.NotificationChannelProfile
+	saveNotificationChannelResult      domain.NotificationChannelProfile
+	updateNotificationChannelResult    domain.NotificationChannelProfile
+	savedNotificationChannel           domain.NotificationChannelProfile
+	updatedNotificationChannel         domain.NotificationChannelProfile
+	saveErr                            error
+	updateErr                          error
+	lastListLimit                      int
+}
+
+type recordingReportWorkflowScheduleSyncer struct {
+	calls    int
+	schedule domain.ReportWorkflowSchedule
+	err      error
+}
+
+func (r *recordingReportWorkflowScheduleSyncer) SyncReportWorkflowSchedule(_ context.Context, schedule domain.ReportWorkflowSchedule) error {
+	r.calls++
+	r.schedule = schedule
+	return r.err
 }
 
 func (r *fakeConfigRepo) ListAlertSourceProfiles(_ context.Context, limit int) ([]domain.AlertSourceProfile, error) {
@@ -2255,6 +3533,153 @@ func (r *fakeConfigRepo) FindGroupingPolicyByID(_ context.Context, id domain.Gro
 		}
 	}
 	return domain.GroupingPolicy{}, domain.ErrNotFound
+}
+
+func (r *fakeConfigRepo) ListReportWorkflowPolicies(_ context.Context, limit int) ([]domain.ReportWorkflowPolicy, error) {
+	r.lastListLimit = limit
+	if limit > len(r.reportWorkflowPolicies) {
+		limit = len(r.reportWorkflowPolicies)
+	}
+	return r.reportWorkflowPolicies[:limit], nil
+}
+
+func (r *fakeConfigRepo) SaveReportWorkflowPolicy(_ context.Context, policy domain.ReportWorkflowPolicy) (domain.ReportWorkflowPolicy, error) {
+	r.savedReportWorkflowPolicy = policy
+	if r.saveErr != nil {
+		return domain.ReportWorkflowPolicy{}, r.saveErr
+	}
+	if r.saveReportWorkflowPolicyResult.ID != 0 {
+		r.reportWorkflowPolicies = append(r.reportWorkflowPolicies, r.saveReportWorkflowPolicyResult)
+		return r.saveReportWorkflowPolicyResult, nil
+	}
+	policy.ID = domain.ReportWorkflowPolicyID(len(r.reportWorkflowPolicies) + 1)
+	r.reportWorkflowPolicies = append(r.reportWorkflowPolicies, policy)
+	return policy, nil
+}
+
+func (r *fakeConfigRepo) UpdateReportWorkflowPolicy(_ context.Context, policy domain.ReportWorkflowPolicy) (domain.ReportWorkflowPolicy, error) {
+	r.updatedReportWorkflowPolicy = policy
+	if r.updateErr != nil {
+		return domain.ReportWorkflowPolicy{}, r.updateErr
+	}
+	for i, existing := range r.reportWorkflowPolicies {
+		if existing.ID == policy.ID {
+			if r.updateReportWorkflowPolicyResult.ID != 0 {
+				r.reportWorkflowPolicies[i] = r.updateReportWorkflowPolicyResult
+				return r.updateReportWorkflowPolicyResult, nil
+			}
+			r.reportWorkflowPolicies[i] = policy
+			return policy, nil
+		}
+	}
+	return domain.ReportWorkflowPolicy{}, domain.ErrNotFound
+}
+
+func (r *fakeConfigRepo) FindReportWorkflowPolicyByID(_ context.Context, id domain.ReportWorkflowPolicyID) (domain.ReportWorkflowPolicy, error) {
+	for _, policy := range r.reportWorkflowPolicies {
+		if policy.ID == id {
+			return policy, nil
+		}
+	}
+	return domain.ReportWorkflowPolicy{}, domain.ErrNotFound
+}
+
+func (r *fakeConfigRepo) ListReportWorkflowSchedules(_ context.Context, limit int) ([]domain.ReportWorkflowSchedule, error) {
+	r.lastListLimit = limit
+	if limit > len(r.reportWorkflowSchedules) {
+		limit = len(r.reportWorkflowSchedules)
+	}
+	return r.reportWorkflowSchedules[:limit], nil
+}
+
+func (r *fakeConfigRepo) SaveReportWorkflowSchedule(_ context.Context, schedule domain.ReportWorkflowSchedule) (domain.ReportWorkflowSchedule, error) {
+	r.savedReportWorkflowSchedule = schedule
+	if r.saveErr != nil {
+		return domain.ReportWorkflowSchedule{}, r.saveErr
+	}
+	if r.saveReportWorkflowScheduleResult.ID != 0 {
+		r.reportWorkflowSchedules = append(r.reportWorkflowSchedules, r.saveReportWorkflowScheduleResult)
+		return r.saveReportWorkflowScheduleResult, nil
+	}
+	schedule.ID = domain.ReportWorkflowScheduleID(len(r.reportWorkflowSchedules) + 1)
+	r.reportWorkflowSchedules = append(r.reportWorkflowSchedules, schedule)
+	return schedule, nil
+}
+
+func (r *fakeConfigRepo) UpdateReportWorkflowSchedule(_ context.Context, schedule domain.ReportWorkflowSchedule) (domain.ReportWorkflowSchedule, error) {
+	r.updatedReportWorkflowSchedule = schedule
+	if r.updateErr != nil {
+		return domain.ReportWorkflowSchedule{}, r.updateErr
+	}
+	for i, existing := range r.reportWorkflowSchedules {
+		if existing.ID == schedule.ID {
+			if r.updateReportWorkflowScheduleResult.ID != 0 {
+				r.reportWorkflowSchedules[i] = r.updateReportWorkflowScheduleResult
+				return r.updateReportWorkflowScheduleResult, nil
+			}
+			r.reportWorkflowSchedules[i] = schedule
+			return schedule, nil
+		}
+	}
+	return domain.ReportWorkflowSchedule{}, domain.ErrNotFound
+}
+
+func (r *fakeConfigRepo) FindReportWorkflowScheduleByID(_ context.Context, id domain.ReportWorkflowScheduleID) (domain.ReportWorkflowSchedule, error) {
+	for _, schedule := range r.reportWorkflowSchedules {
+		if schedule.ID == id {
+			return schedule, nil
+		}
+	}
+	return domain.ReportWorkflowSchedule{}, domain.ErrNotFound
+}
+
+func (r *fakeConfigRepo) ListNotificationChannelProfiles(_ context.Context, limit int) ([]domain.NotificationChannelProfile, error) {
+	r.lastListLimit = limit
+	if limit > len(r.notificationChannelProfiles) {
+		limit = len(r.notificationChannelProfiles)
+	}
+	return r.notificationChannelProfiles[:limit], nil
+}
+
+func (r *fakeConfigRepo) SaveNotificationChannelProfile(_ context.Context, profile domain.NotificationChannelProfile) (domain.NotificationChannelProfile, error) {
+	r.savedNotificationChannel = profile
+	if r.saveErr != nil {
+		return domain.NotificationChannelProfile{}, r.saveErr
+	}
+	if r.saveNotificationChannelResult.ID != 0 {
+		r.notificationChannelProfiles = append(r.notificationChannelProfiles, r.saveNotificationChannelResult)
+		return r.saveNotificationChannelResult, nil
+	}
+	profile.ID = domain.NotificationChannelProfileID(len(r.notificationChannelProfiles) + 1)
+	r.notificationChannelProfiles = append(r.notificationChannelProfiles, profile)
+	return profile, nil
+}
+
+func (r *fakeConfigRepo) UpdateNotificationChannelProfile(_ context.Context, profile domain.NotificationChannelProfile) (domain.NotificationChannelProfile, error) {
+	r.updatedNotificationChannel = profile
+	if r.updateErr != nil {
+		return domain.NotificationChannelProfile{}, r.updateErr
+	}
+	for i, existing := range r.notificationChannelProfiles {
+		if existing.ID == profile.ID {
+			if r.updateNotificationChannelResult.ID != 0 {
+				r.notificationChannelProfiles[i] = r.updateNotificationChannelResult
+				return r.updateNotificationChannelResult, nil
+			}
+			r.notificationChannelProfiles[i] = profile
+			return profile, nil
+		}
+	}
+	return domain.NotificationChannelProfile{}, domain.ErrNotFound
+}
+
+func (r *fakeConfigRepo) FindNotificationChannelProfileByID(_ context.Context, id domain.NotificationChannelProfileID) (domain.NotificationChannelProfile, error) {
+	for _, profile := range r.notificationChannelProfiles {
+		if profile.ID == id {
+			return profile, nil
+		}
+	}
+	return domain.NotificationChannelProfile{}, domain.ErrNotFound
 }
 
 func (r *fakeReportRepo) ListFinalReports(_ context.Context, limit int) ([]domain.FinalReport, error) {

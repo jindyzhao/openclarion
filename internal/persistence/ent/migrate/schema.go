@@ -453,6 +453,51 @@ var (
 			},
 		},
 	}
+	// NotificationChannelProfilesColumns holds the columns for the "notification_channel_profiles" table.
+	NotificationChannelProfilesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
+		{Name: "kind", Type: field.TypeString, Size: 32, Default: "webhook"},
+		{Name: "secret_ref", Type: field.TypeString, Size: 256},
+		{Name: "delivery_scopes", Type: field.TypeJSON},
+		{Name: "enabled", Type: field.TypeBool, Default: false},
+		{Name: "labels", Type: field.TypeJSON},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+	}
+	// NotificationChannelProfilesTable holds the schema information for the "notification_channel_profiles" table.
+	NotificationChannelProfilesTable = &schema.Table{
+		Name:       "notification_channel_profiles",
+		Columns:    NotificationChannelProfilesColumns,
+		PrimaryKey: []*schema.Column{NotificationChannelProfilesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "notificationchannelprofile_kind_enabled",
+				Unique:  false,
+				Columns: []*schema.Column{NotificationChannelProfilesColumns[2], NotificationChannelProfilesColumns[5]},
+			},
+			{
+				Name:    "notificationchannelprofile_delivery_scopes",
+				Unique:  false,
+				Columns: []*schema.Column{NotificationChannelProfilesColumns[4]},
+				Annotation: &entsql.IndexAnnotation{
+					Types: map[string]string{
+						"postgres": "GIN",
+					},
+				},
+			},
+			{
+				Name:    "notificationchannelprofile_labels",
+				Unique:  false,
+				Columns: []*schema.Column{NotificationChannelProfilesColumns[6]},
+				Annotation: &entsql.IndexAnnotation{
+					Types: map[string]string{
+						"postgres": "GIN",
+					},
+				},
+			},
+		},
+	}
 	// ReportNotificationDeliveriesColumns holds the columns for the "report_notification_deliveries" table.
 	ReportNotificationDeliveriesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -490,6 +535,81 @@ var (
 				Name:    "reportnotificationdelivery_status_updated_at",
 				Unique:  false,
 				Columns: []*schema.Column{ReportNotificationDeliveriesColumns[4], ReportNotificationDeliveriesColumns[9]},
+			},
+		},
+	}
+	// ReportWorkflowPoliciesColumns holds the columns for the "report_workflow_policies" table.
+	ReportWorkflowPoliciesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
+		{Name: "alert_source_profile_id", Type: field.TypeInt},
+		{Name: "grouping_policy_id", Type: field.TypeInt},
+		{Name: "report_notification_channel_profile_id", Type: field.TypeInt, Nullable: true},
+		{Name: "trigger_mode", Type: field.TypeString, Size: 32, Default: "manual_replay"},
+		{Name: "report_scenario", Type: field.TypeString, Size: 32, Default: "single_alert"},
+		{Name: "diagnosis_follow_up", Type: field.TypeString, Size: 32, Default: "disabled"},
+		{Name: "enabled", Type: field.TypeBool, Default: false},
+		{Name: "enabled_at", Type: field.TypeTime, Nullable: true},
+		{Name: "disabled_at", Type: field.TypeTime, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+	}
+	// ReportWorkflowPoliciesTable holds the schema information for the "report_workflow_policies" table.
+	ReportWorkflowPoliciesTable = &schema.Table{
+		Name:       "report_workflow_policies",
+		Columns:    ReportWorkflowPoliciesColumns,
+		PrimaryKey: []*schema.Column{ReportWorkflowPoliciesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "reportworkflowpolicy_enabled_updated_at",
+				Unique:  false,
+				Columns: []*schema.Column{ReportWorkflowPoliciesColumns[8], ReportWorkflowPoliciesColumns[12]},
+			},
+			{
+				Name:    "reportworkflowpolicy_alert_source_profile_id_grouping_policy_id",
+				Unique:  false,
+				Columns: []*schema.Column{ReportWorkflowPoliciesColumns[2], ReportWorkflowPoliciesColumns[3]},
+			},
+			{
+				Name:    "reportworkflowpolicy_report_notification_channel_profile_id",
+				Unique:  false,
+				Columns: []*schema.Column{ReportWorkflowPoliciesColumns[4]},
+			},
+		},
+	}
+	// ReportWorkflowSchedulesColumns holds the columns for the "report_workflow_schedules" table.
+	ReportWorkflowSchedulesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
+		{Name: "report_workflow_policy_id", Type: field.TypeInt},
+		{Name: "temporal_schedule_id", Type: field.TypeString, Unique: true, Size: 200},
+		{Name: "interval_ns", Type: field.TypeInt64},
+		{Name: "offset_ns", Type: field.TypeInt64},
+		{Name: "replay_window_ns", Type: field.TypeInt64},
+		{Name: "replay_delay_ns", Type: field.TypeInt64},
+		{Name: "replay_limit", Type: field.TypeInt},
+		{Name: "catchup_window_ns", Type: field.TypeInt64},
+		{Name: "enabled", Type: field.TypeBool, Default: false},
+		{Name: "enabled_at", Type: field.TypeTime, Nullable: true},
+		{Name: "disabled_at", Type: field.TypeTime, Nullable: true},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+	}
+	// ReportWorkflowSchedulesTable holds the schema information for the "report_workflow_schedules" table.
+	ReportWorkflowSchedulesTable = &schema.Table{
+		Name:       "report_workflow_schedules",
+		Columns:    ReportWorkflowSchedulesColumns,
+		PrimaryKey: []*schema.Column{ReportWorkflowSchedulesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "reportworkflowschedule_enabled_updated_at",
+				Unique:  false,
+				Columns: []*schema.Column{ReportWorkflowSchedulesColumns[10], ReportWorkflowSchedulesColumns[14]},
+			},
+			{
+				Name:    "reportworkflowschedule_report_workflow_policy_id_enabled",
+				Unique:  false,
+				Columns: []*schema.Column{ReportWorkflowSchedulesColumns[2], ReportWorkflowSchedulesColumns[10]},
 			},
 		},
 	}
@@ -606,7 +726,10 @@ var (
 		EvidenceSnapshotsTable,
 		FinalReportsTable,
 		GroupingPoliciesTable,
+		NotificationChannelProfilesTable,
 		ReportNotificationDeliveriesTable,
+		ReportWorkflowPoliciesTable,
+		ReportWorkflowSchedulesTable,
 		SubReportsTable,
 		AlertEventGroupsTable,
 		FinalReportSubReportsTable,

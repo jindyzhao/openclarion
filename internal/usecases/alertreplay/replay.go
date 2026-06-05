@@ -69,6 +69,7 @@ type Request struct {
 	WindowStart       time.Time
 	WindowEnd         time.Time
 	Grouping          alertgrouping.Config
+	SourceFilter      []string
 	CreatedByWorkflow string
 	Limit             int
 }
@@ -239,8 +240,10 @@ func ReplayWindowForReport(
 		)
 	}
 
+	matchedEvents := filterEventsBySource(events, req.SourceFilter)
+
 	// Step 3: deterministic grouping.
-	drafts, err := alertgrouping.GroupEvents(events, req.Grouping)
+	drafts, err := alertgrouping.GroupEvents(matchedEvents, req.Grouping)
 	if err != nil {
 		return result, fmt.Errorf("alertreplay: group events: %w", err)
 	}
@@ -250,9 +253,9 @@ func ReplayWindowForReport(
 	}
 
 	// Step 4: reconstruct per-draft events.
-	eventByID := make(map[domain.AlertEventID]domain.AlertEvent, len(events))
-	for i := range events {
-		eventByID[events[i].ID] = events[i]
+	eventByID := make(map[domain.AlertEventID]domain.AlertEvent, len(matchedEvents))
+	for i := range matchedEvents {
+		eventByID[matchedEvents[i].ID] = matchedEvents[i]
 	}
 
 	// Step 5: per-group pipeline.
@@ -297,6 +300,23 @@ func ReplayWindowForReport(
 		return result, errors.Join(failures...)
 	}
 	return result, nil
+}
+
+func filterEventsBySource(events []domain.AlertEvent, sourceFilter []string) []domain.AlertEvent {
+	if len(sourceFilter) == 0 {
+		return events
+	}
+	allowed := make(map[string]struct{}, len(sourceFilter))
+	for _, source := range sourceFilter {
+		allowed[source] = struct{}{}
+	}
+	out := make([]domain.AlertEvent, 0, len(events))
+	for _, event := range events {
+		if _, ok := allowed[event.Source]; ok {
+			out = append(out, event)
+		}
+	}
+	return out
 }
 
 // validateRequest enforces orchestration-level invariants. Each

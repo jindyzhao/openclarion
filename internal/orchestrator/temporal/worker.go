@@ -41,5 +41,6 @@ func registerOpenClarionWorker(w worker.Worker, uowFactory ports.UnitOfWorkFacto
 	w.RegisterWorkflow(ReportFanOutWorkflow)
 	w.RegisterWorkflow(ReportBatchWorkflow)
 	w.RegisterWorkflow(FinalReportWorkflow)
+	w.RegisterWorkflow(ReportPolicyScheduleLauncherWorkflow)
 	w.RegisterActivity(NewActivities(uowFactory, opts...))
 }

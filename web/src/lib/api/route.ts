@@ -25,3 +25,22 @@ export function apiResultResponse<T>(result: ApiResult<T>, successStatus = 200):
     { status: result.error.status ?? 502 }
   );
 }
+
+export function parsePositiveIntegerRouteParam(value: string, label: string): ApiResult<number> {
+  const trimmed = value.trim();
+  if (!/^[0-9]+$/.test(trimmed)) {
+    return positiveIntegerRouteParamError(label);
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    return positiveIntegerRouteParamError(label);
+  }
+  return { ok: true, data: parsed };
+}
+
+function positiveIntegerRouteParamError(label: string): ApiResult<number> {
+  return {
+    ok: false,
+    error: { message: `${label} must be a positive integer.`, status: 400 }
+  };
+}

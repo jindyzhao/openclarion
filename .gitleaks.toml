@@ -48,3 +48,16 @@ id = "generic-api-key"
   paths = [
     '''(^|/)internal/persistence/migrations/atlas\.sum$''',
   ]
+
+# Owner: openclarion CI maintainers.
+# Expires: 2026-08-31.
+# Removal trigger: if the OpenAPI generator stops embedding the compressed
+# OpenAPI document as high-entropy string chunks, remove this path-scoped
+# allowlist. The public OpenAPI YAML remains scanned directly; this entry only
+# covers the generated Go representation of the same contract.
+  [[rules.allowlists]]
+  description = "Generated OpenAPI Go file embeds compressed spec chunks"
+  condition = "AND"
+  paths = [
+    '''(^|/)api/openapi\.gen\.go$''',
+  ]

@@ -34,8 +34,14 @@ type Tx struct {
 	FinalReport *FinalReportClient
 	// GroupingPolicy is the client for interacting with the GroupingPolicy builders.
 	GroupingPolicy *GroupingPolicyClient
+	// NotificationChannelProfile is the client for interacting with the NotificationChannelProfile builders.
+	NotificationChannelProfile *NotificationChannelProfileClient
 	// ReportNotificationDelivery is the client for interacting with the ReportNotificationDelivery builders.
 	ReportNotificationDelivery *ReportNotificationDeliveryClient
+	// ReportWorkflowPolicy is the client for interacting with the ReportWorkflowPolicy builders.
+	ReportWorkflowPolicy *ReportWorkflowPolicyClient
+	// ReportWorkflowSchedule is the client for interacting with the ReportWorkflowSchedule builders.
+	ReportWorkflowSchedule *ReportWorkflowScheduleClient
 	// SubReport is the client for interacting with the SubReport builders.
 	SubReport *SubReportClient
 
@@ -180,7 +186,10 @@ func (tx *Tx) init() {
 	tx.EvidenceSnapshot = NewEvidenceSnapshotClient(tx.config)
 	tx.FinalReport = NewFinalReportClient(tx.config)
 	tx.GroupingPolicy = NewGroupingPolicyClient(tx.config)
+	tx.NotificationChannelProfile = NewNotificationChannelProfileClient(tx.config)
 	tx.ReportNotificationDelivery = NewReportNotificationDeliveryClient(tx.config)
+	tx.ReportWorkflowPolicy = NewReportWorkflowPolicyClient(tx.config)
+	tx.ReportWorkflowSchedule = NewReportWorkflowScheduleClient(tx.config)
 	tx.SubReport = NewSubReportClient(tx.config)
 }
 

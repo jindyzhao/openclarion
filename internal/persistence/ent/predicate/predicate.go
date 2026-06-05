@@ -39,8 +39,17 @@ type FinalReport func(*sql.Selector)
 // GroupingPolicy is the predicate function for groupingpolicy builders.
 type GroupingPolicy func(*sql.Selector)
 
+// NotificationChannelProfile is the predicate function for notificationchannelprofile builders.
+type NotificationChannelProfile func(*sql.Selector)
+
 // ReportNotificationDelivery is the predicate function for reportnotificationdelivery builders.
 type ReportNotificationDelivery func(*sql.Selector)
+
+// ReportWorkflowPolicy is the predicate function for reportworkflowpolicy builders.
+type ReportWorkflowPolicy func(*sql.Selector)
+
+// ReportWorkflowSchedule is the predicate function for reportworkflowschedule builders.
+type ReportWorkflowSchedule func(*sql.Selector)
 
 // SubReport is the predicate function for subreport builders.
 type SubReport func(*sql.Selector)

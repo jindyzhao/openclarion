@@ -73,24 +73,35 @@ func (s *Service) Preview(ctx context.Context, req Request) (Result, error) {
 		return Result{}, err
 	}
 
-	matched := filterEventsBySource(events, policy.SourceFilter)
-	drafts, err := alertgrouping.GroupEvents(matched, alertgrouping.Config{
-		DimensionKeys: policy.DimensionKeys,
-		SeverityKey:   policy.SeverityKey,
-	})
-	if err != nil {
-		return Result{}, err
-	}
-	groups, err := previewGroups(drafts)
+	eventsMatched, groups, err := PreviewEvents(policy, events)
 	if err != nil {
 		return Result{}, err
 	}
 	return Result{
 		Policy:        policy,
 		EventsScanned: len(events),
-		EventsMatched: len(matched),
+		EventsMatched: eventsMatched,
 		Groups:        groups,
 	}, nil
+}
+
+// PreviewEvents applies the deterministic grouping preview algorithm to a
+// supplied AlertEvent sample. Callers own the sample boundary and persistence
+// transaction; this helper only filters, groups, and converts preview groups.
+func PreviewEvents(policy domain.GroupingPolicy, events []domain.AlertEvent) (int, []Group, error) {
+	matched := filterEventsBySource(events, policy.SourceFilter)
+	drafts, err := alertgrouping.GroupEvents(matched, alertgrouping.Config{
+		DimensionKeys: policy.DimensionKeys,
+		SeverityKey:   policy.SeverityKey,
+	})
+	if err != nil {
+		return 0, nil, err
+	}
+	groups, err := previewGroups(drafts)
+	if err != nil {
+		return 0, nil, err
+	}
+	return len(matched), groups, nil
 }
 
 func filterEventsBySource(events []domain.AlertEvent, sourceFilter []string) []domain.AlertEvent {

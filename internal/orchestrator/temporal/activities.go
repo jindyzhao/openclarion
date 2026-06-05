@@ -19,10 +19,12 @@ import (
 
 // Activities contains Temporal activity handlers and their dependencies.
 type Activities struct {
-	uowFactory        ports.UnitOfWorkFactory
-	llmProvider       ports.LLMProvider
-	imProvider        ports.IMProvider
-	containerProvider ports.ContainerProvider
+	uowFactory                   ports.UnitOfWorkFactory
+	llmProvider                  ports.LLMProvider
+	imProvider                   ports.IMProvider
+	notificationProviderResolver ports.NotificationChannelProviderResolver
+	containerProvider            ports.ContainerProvider
+	reportPolicyReplayer         reportPolicyReplayer
 }
 
 // ActivityOption configures optional dependencies for activity handlers.
@@ -43,6 +45,15 @@ func WithLLMProvider(provider ports.LLMProvider) ActivityOption {
 func WithIMProvider(provider ports.IMProvider) ActivityOption {
 	return func(a *Activities) {
 		a.imProvider = provider
+	}
+}
+
+// WithNotificationChannelProviderResolver injects the resolver used by report
+// notification Activities when a workflow input names a notification channel
+// profile.
+func WithNotificationChannelProviderResolver(resolver ports.NotificationChannelProviderResolver) ActivityOption {
+	return func(a *Activities) {
+		a.notificationProviderResolver = resolver
 	}
 }
 
@@ -358,18 +369,22 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 	return FinalReportWorkflowResult{FinalReportID: id}, nil
 }
 
-// SendReportNotification sends the persisted FinalReport notification
-// through the configured IMProvider. It loads the report by ID inside
-// the activity so notification can only happen after persistence has
-// produced a concrete FinalReport row.
+// SendReportNotification sends the persisted FinalReport notification through
+// the selected IMProvider. It loads the provider and report inside the Activity
+// so Workflow code only carries immutable IDs and notification can only happen
+// after persistence has produced a concrete FinalReport row.
 func (a *Activities) SendReportNotification(ctx context.Context, req ReportNotificationActivityInput) (ReportNotificationResult, error) {
-	if a.imProvider == nil {
-		return ReportNotificationResult{}, temporalsdk.NewNonRetryableApplicationError(
-			"send-report-notification: im provider is not configured", errTypeInvalidInput, nil)
-	}
 	if req.FinalReportID == 0 {
 		return ReportNotificationResult{}, temporalsdk.NewNonRetryableApplicationError(
 			"send-report-notification: final_report_id must be non-zero", errTypeInvalidInput, nil)
+	}
+	if req.ReportNotificationChannelProfileID < 0 {
+		return ReportNotificationResult{}, temporalsdk.NewNonRetryableApplicationError(
+			"send-report-notification: report_notification_channel_profile_id must be >= 0", errTypeInvalidInput, nil)
+	}
+	imProvider, err := a.reportNotificationProvider(ctx, domain.NotificationChannelProfileID(req.ReportNotificationChannelProfileID))
+	if err != nil {
+		return ReportNotificationResult{}, err
 	}
 
 	report, err := a.loadFinalReportForNotification(ctx, domain.FinalReportID(req.FinalReportID))
@@ -392,7 +407,7 @@ func (a *Activities) SendReportNotification(ctx context.Context, req ReportNotif
 		return reportNotificationResultFromDelivery(deliveryLog), nil
 	}
 
-	delivery, err := a.imProvider.SendNotification(ctx, notification)
+	delivery, err := imProvider.SendNotification(ctx, notification)
 	if err != nil {
 		if persistErr := a.markNotificationDeliveryFailed(ctx, deliveryLog, err); persistErr != nil {
 			return ReportNotificationResult{}, fmt.Errorf(
@@ -414,6 +429,29 @@ func (a *Activities) SendReportNotification(ctx context.Context, req ReportNotif
 		return ReportNotificationResult{}, mapActivityError(err, "send-report-notification persist delivered delivery")
 	}
 	return reportNotificationResultFromDelivery(saved), nil
+}
+
+func (a *Activities) reportNotificationProvider(ctx context.Context, channelProfileID domain.NotificationChannelProfileID) (ports.IMProvider, error) {
+	if channelProfileID == 0 {
+		if a.imProvider == nil {
+			return nil, temporalsdk.NewNonRetryableApplicationError(
+				"send-report-notification: im provider is not configured", errTypeInvalidInput, nil)
+		}
+		return a.imProvider, nil
+	}
+	if a.notificationProviderResolver == nil {
+		return nil, temporalsdk.NewNonRetryableApplicationError(
+			"send-report-notification: notification channel provider resolver is not configured", errTypeInvalidInput, nil)
+	}
+	provider, err := a.notificationProviderResolver.ResolveReportNotificationProvider(ctx, channelProfileID)
+	if err != nil {
+		return nil, mapActivityError(err, "send-report-notification resolve notification channel")
+	}
+	if provider == nil {
+		return nil, temporalsdk.NewNonRetryableApplicationError(
+			"send-report-notification: notification channel provider resolver returned nil provider", errTypeInvalidInput, nil)
+	}
+	return provider, nil
 }
 
 func (a *Activities) loadFinalReportForNotification(ctx context.Context, id domain.FinalReportID) (domain.FinalReport, error) {

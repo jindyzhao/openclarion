@@ -3,7 +3,8 @@
 PostgreSQL is the business source of truth. Ent schemas are the canonical
 application schema definitions; Atlas migrations are the canonical migration
 artifacts. See [migrations.md](./migrations.md) for the toolchain and
-workflow.
+workflow. Alert operations configuration tables follow
+[ADR-0014](../../adr/ADR-0014-alert-operations-configuration.md).
 
 ## Core Entities
 
@@ -22,6 +23,10 @@ workflow.
 | `ChatSession` | shipped at M5 local | interactive diagnosis-room lifecycle anchored to `DiagnosisTask` |
 | `ChatTurn` | shipped at M5 local | append-only human, assistant, system, and tool messages |
 | `AlertSourceProfile` | shipped at M3.1 local | operator-managed alert source connection metadata; stores `secret_ref`, never secret values |
+| `GroupingPolicy` | shipped at M3.1 local | operator-managed deterministic alert grouping configuration |
+| `ReportWorkflowPolicy` | shipped at M3.1 local | operator-managed report workflow binding and explicit enablement policy |
+| `ReportWorkflowSchedule` | shipped at M3.1 local | operator-managed schedule metadata for report workflow policies; Temporal registration remains a separate control-plane action |
+| `NotificationChannelProfile` | shipped at M3.1 local | operator-managed notification target metadata; stores `secret_ref`, never endpoint URLs or secret values |
 | `AuditLog` | M2+ | security and lifecycle audit trail |
 
 ## Fingerprint Discipline (M1)
@@ -172,6 +177,96 @@ Alertmanager adapters:
 * `enabled` is explicit so creating and testing a profile remains separate
   from allowing policy binding
 * `labels` is JSONB for bounded operator metadata and has a GIN index
+
+## GroupingPolicy
+
+`GroupingPolicy` records operator-managed deterministic grouping metadata:
+
+* `name` is globally UNIQUE so operators have one stable display handle per
+  policy
+* `dimension_keys` is JSONB for the ordered alert label keys used as grouping
+  dimensions
+* `severity_key` is text for the label key used to compute group severity
+* `source_filter` is JSONB for optional alert source identifiers; empty means
+  all persisted sources
+* `enabled` is explicit so saving and previewing a policy remain separate from
+  allowing report workflow binding
+
+## ReportWorkflowPolicy
+
+`ReportWorkflowPolicy` records operator-managed report workflow binding
+metadata. The table is a configuration table, not a workflow execution table:
+
+* `name` is globally UNIQUE so operators have one stable display handle per
+  policy
+* `alert_source_profile_id` and `grouping_policy_id` store positive binding
+  identifiers; backend usecases validate existence and enabled state before
+  enablement
+* `report_notification_channel_profile_id` is nullable; when set, backend
+  usecases validate the referenced notification channel exists, is enabled, and
+  includes the report delivery scope before workflow policy enablement, and the
+  report workflow start request carries this immutable ID into the notification
+  Activity
+* `trigger_mode` currently stores `manual_replay`
+* `report_scenario` stores `single_alert`, `cascade`, or `alert_storm`
+* `diagnosis_follow_up` stores `disabled` or `suggest_room`
+* `enabled`, `enabled_at`, and `disabled_at` record explicit operator actions;
+  create, update, enable, and disable do not start Temporal workflows
+
+Policy-driven replay is an action over this configuration table, not another
+column. The action resolves the enabled policy plus its enabled alert source and
+grouping policy before metrics-provider construction and workflow start.
+Notification provider construction is deferred to the notification Activity so
+workflow replay remains deterministic.
+
+## ReportWorkflowSchedule
+
+`ReportWorkflowSchedule` records operator-managed schedule metadata for one
+report workflow policy. The table is configuration state, not Temporal
+execution history:
+
+* `name` is globally UNIQUE so operators have one stable display handle per
+  schedule
+* `report_workflow_policy_id` stores the bound policy identifier; backend
+  usecases validate existence before save and enabled state before schedule
+  enablement
+* `temporal_schedule_id` is globally UNIQUE and stores the server-owned
+  Temporal Schedule identifier
+* `interval_ns` and `offset_ns` map to a Temporal interval schedule
+* `replay_window_ns` and `replay_delay_ns` define the alert replay window
+  relative to each schedule fire time
+* `replay_limit` caps alert events loaded for a scheduled replay
+* `catchup_window_ns` is the bounded Temporal Schedule catch-up window
+* `enabled`, `enabled_at`, and `disabled_at` record explicit operator actions;
+  create, update, enable, and disable do not register Temporal Schedules,
+  start report workflows, or call alert providers
+
+Temporal Schedule registration is a separate orchestration action over this
+configuration table. It must use skip overlap and immutable launcher-workflow
+inputs per [ADR-0014](../../adr/ADR-0014-alert-operations-configuration.md).
+
+## NotificationChannelProfile
+
+`NotificationChannelProfile` records operator-managed notification target
+metadata. The table is a configuration table, not a delivery log or provider
+runtime table:
+
+* `name` is globally UNIQUE so operators have one stable display handle per
+  channel
+* `kind` currently stores `webhook`; new adapters add contract values before UI
+  exposure
+* `secret_ref` stores only a deployment-managed secret reference, never an
+  endpoint URL, bearer token, or credential value
+* `delivery_scopes` is JSONB for the report and diagnosis-close delivery
+  scopes the profile can be bound to by configuration
+* `enabled` is explicit so saving profile metadata remains separate from
+  runtime workflow delivery binding
+* `labels` is JSONB for bounded operator metadata and has a GIN index
+
+Report notification Activities can resolve an enabled report-scoped channel
+profile into a Webhook IM provider when the worker is configured with a backend
+notification channel secret resolver. If a report workflow has no bound channel
+profile, the legacy environment-variable IM provider remains the fallback.
 
 ## Foreign Keys and Composite Indexes
 

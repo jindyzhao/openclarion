@@ -34,10 +34,13 @@ When a feature moves onto the standardized console layer, tests should cover:
   refresh
 - Playwright smoke coverage for the route-level operator workflow
 
-The alert source and grouping policy settings screens are the reference pattern
-for this split: feature-local `format.test.ts` files cover parser/view-model
-behavior, while Playwright covers the operator route workflow against the mocked
-API.
+The alert source, grouping policy, report workflow policy, and notification
+channel settings screens are the reference pattern for this split:
+feature-local `format.test.ts` files cover parser/view-model behavior, while
+TypeScript/lint coverage checks the shared settings query-state helper and
+Playwright covers the operator route workflow against the mocked API, including
+row-level test, preview, replay, and mutation actions where the backend exposes
+them.
 
 The live diagnosis-room smoke is intentionally manual. It requires:
 

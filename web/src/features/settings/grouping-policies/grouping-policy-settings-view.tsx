@@ -30,6 +30,12 @@ import { useMemo, useState } from "react";
 import type { ApiResult } from "@/lib/api/client";
 
 import { formatDateTime } from "../format";
+import {
+  settingsErrorMessage,
+  type SettingsNotice,
+  useSettingsList,
+  useSettingsMutation
+} from "../query-state";
 import { refreshGroupingPolicies, runGroupingPolicyPreview, submitGroupingPolicy } from "./client-api";
 import {
   emptyGroupingPolicyForm,
@@ -41,29 +47,45 @@ import type {
   GroupingPolicyFormState,
   GroupingPolicyListResponse,
   GroupingPolicyPreviewGroup,
-  GroupingPolicyPreviewResult
+  GroupingPolicyPreviewResult,
+  GroupingPolicyWriteRequest
 } from "./types";
 
 type GroupingPolicySettingsManagerProps = {
   result: ApiResult<GroupingPolicyListResponse>;
 };
 
-type NoticeState = {
-  kind: "info" | "error";
-  message: string;
+const groupingPoliciesQueryKey = ["settings", "grouping-policies"] as const;
+
+type SavePolicyVariables = {
+  body: GroupingPolicyWriteRequest;
+  policyID: number | null;
 };
 
 export function GroupingPolicySettingsManager({ result }: GroupingPolicySettingsManagerProps) {
   const [form] = Form.useForm<GroupingPolicyFormState>();
-  const [policies, setPolicies] = useState<GroupingPolicy[]>(result.ok ? result.data.items : []);
   const [editingID, setEditingID] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
   const [previewingID, setPreviewingID] = useState<number | null>(null);
   const [previewResults, setPreviewResults] = useState<Record<number, GroupingPolicyPreviewResult>>({});
   const [selectedPreviewID, setSelectedPreviewID] = useState<number | null>(null);
-  const [notice, setNotice] = useState<NoticeState | null>(
-    result.ok ? null : { kind: "error", message: result.error.message }
-  );
+  const {
+    items: policies,
+    notice,
+    query,
+    refresh,
+    setNotice
+  } = useSettingsList({
+    initialResult: result,
+    queryKey: groupingPoliciesQueryKey,
+    queryFn: refreshGroupingPolicies,
+    refreshMessage: "Policies refreshed.",
+    selectItems: (response) => response.items
+  });
+  const savePolicy = useSettingsMutation<SavePolicyVariables, GroupingPolicy>({
+    invalidateQueryKey: groupingPoliciesQueryKey,
+    mutationFn: ({ policyID, body }) => submitGroupingPolicy(policyID, body)
+  });
+  const busy = query.isFetching || savePolicy.isPending;
 
   const summary = useMemo(() => {
     const enabled = policies.filter((policy) => policy.enabled).length;
@@ -73,15 +95,7 @@ export function GroupingPolicySettingsManager({ result }: GroupingPolicySettings
   }, [policies]);
 
   async function handleRefresh() {
-    setBusy(true);
-    const refreshed = await refreshGroupingPolicies();
-    setBusy(false);
-    if (!refreshed.ok) {
-      setNotice({ kind: "error", message: refreshed.error.message });
-      return;
-    }
-    setPolicies(refreshed.data.items);
-    setNotice({ kind: "info", message: "Policies refreshed." });
+    await refresh();
   }
 
   async function handleSubmit(values: GroupingPolicyFormState) {
@@ -91,15 +105,13 @@ export function GroupingPolicySettingsManager({ result }: GroupingPolicySettings
       return;
     }
 
-    setBusy(true);
-    const saved = await submitGroupingPolicy(editingID, parsed.value);
-    setBusy(false);
-    if (!saved.ok) {
-      setNotice({ kind: "error", message: saved.error.message });
+    try {
+      await savePolicy.mutateAsync({ policyID: editingID, body: parsed.value });
+    } catch (error) {
+      setNotice({ kind: "error", message: settingsErrorMessage(error) });
       return;
     }
 
-    setPolicies((current) => upsertPolicy(current, saved.data));
     form.setFieldsValue(emptyGroupingPolicyForm());
     setEditingID(null);
     setNotice({ kind: "info", message: "Policy saved." });
@@ -251,14 +263,15 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-function Notice({ notice }: { notice: NoticeState }) {
+function Notice({ notice }: { notice: SettingsNotice }) {
+  const type = notice.kind === "error" ? "error" : notice.kind === "warning" ? "warning" : "success";
   return (
     <Alert
       description={notice.message}
       message={notice.kind === "error" ? "Request failed" : "Settings"}
       role={notice.kind === "error" ? "alert" : "status"}
       showIcon
-      type={notice.kind === "error" ? "error" : "success"}
+      type={type}
     />
   );
 }
@@ -471,11 +484,6 @@ function DimensionTags({ values }: { values: Record<string, string> }) {
       ))}
     </div>
   );
-}
-
-function upsertPolicy(current: GroupingPolicy[], saved: GroupingPolicy): GroupingPolicy[] {
-  const next = [saved, ...current.filter((policy) => policy.id !== saved.id)];
-  return next.sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
 }
 
 function normalizeFormValues(values: GroupingPolicyFormState): GroupingPolicyFormState {

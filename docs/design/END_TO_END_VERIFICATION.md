@@ -5,7 +5,7 @@
 > node has a concrete technical implementation path. Verdicts are classified
 > honestly — not everything is "proven".
 
-> Last updated: 2026-05-28
+> Last updated: 2026-06-06
 
 ## Verdict Scale
 
@@ -45,15 +45,15 @@ Alertmanager/Prometheus
 
 | Node | Operation | Implementation | Verdict |
 |------|-----------|----------------|---------|
-| A1 | Receive alerts | Prometheus provider + ingestion library exist; local E2E drives `POST /api/v1/report-triggers/replay-window` against a Prometheus-compatible API and loads one firing alert; `openclarion report-replay` provides the same one-shot replay path for operator-triggered live runs; scheduled/webhook trigger wiring and live external Prometheus verification remain pending | partial |
+| A1 | Receive alerts | Prometheus provider + ingestion library exist; local E2E drives `POST /api/v1/report-triggers/replay-window` against a Prometheus-compatible API and loads one firing alert; policy-driven replay can resolve an enabled alert source profile before replay; `openclarion report-replay` provides the legacy one-shot replay path and `openclarion report-policy-replay` provides the persisted-policy replay path for operator-triggered live runs; profile-bound Alertmanager webhook intake persists firing webhook alerts into `AlertEvent` rows without starting report workflows; scheduled trigger metadata, generated API, frontend settings, launcher workflow, ScheduleOptions registration mapping, persisted-schedule reconciliation, and scheduled-trigger proof harness are implemented locally. Live external Prometheus/Alertmanager scheduled verification remains pending | partial |
 | A2 | Deduplicate and group | Pure Go function, deterministic, no external dependency | proven |
 | A3 | Build evidence | `evidencebuild.BuildSnapshot` constructs deterministic EvidenceSnapshot payloads from persisted alert groups/events | proven |
-| A4 | Start Temporal workflow | `ReportWorkflowStarter` and Temporal `ReportStarter` can start `ReportBatchWorkflow` from replay snapshot refs with stable workflow IDs and duplicate-start policies; local E2E verifies HTTP trigger dispatch into a real Temporal dev server and worker, and CLI tests verify one-shot request/JSON/wait-result mapping; scheduled triggers and live external E2E verification remain pending | partial |
+| A4 | Start Temporal workflow | `ReportWorkflowStarter` and Temporal `ReportStarter` can start `ReportBatchWorkflow` from replay snapshot refs with stable workflow IDs and duplicate-start policies; local E2E verifies HTTP trigger dispatch into a real Temporal dev server and worker, policy-driven replay resolves enabled workflow policy bindings before start, and CLI tests verify legacy and persisted-policy one-shot request/JSON/wait-result mapping. `ReportPolicyScheduleLauncherWorkflow` now computes scheduled replay windows, delegates to a worker-injected policy replayer Activity, and `ReportWorkflowScheduleRegistrar` maps persisted schedules to Temporal `ScheduleOptions` with skip overlap and catch-up windows, creates missing Temporal Schedules, updates existing schedule specs/actions/policies, and synchronizes paused state during startup and after successful schedule mutations. `make report-schedule-live-smoke` waits for a real Temporal Schedule action, launcher workflow, downstream `ReportBatchWorkflow`, and validator-checked delivery JSON when run against real services; live external scheduled E2E verification remains pending until that retained proof is captured | partial |
 | A5 | Parallel SubReports | `ReportBatchWorkflow` starts one `ReportFanOutWorkflow` child per EvidenceSnapshot and fans in persisted SubReport IDs in input order | proven-local |
 | A6 | Call LLM | OpenAI-compatible provider exists; report Activities use injected `LLMProvider`; `cmd/openclarion` wires it from env with startup capability detection | proven-local |
 | A7 | Validate output | `santhosh-tekuri/jsonschema` Go library; check `finish_reason`, detect refusal/truncation | proven |
 | A8 | Reduce | `GenerateFinalReport` Activity reduces persisted SubReports through `reportprompt` + `llmretry` + `reportdraft` before persistence | proven |
-| A9 | Send notification | `FinalReportWorkflow` schedules `SendReportNotification` only after `GenerateFinalReport` returns a persisted ID; the Activity persists a pending delivery row before calling IMProvider, marks it delivered/failed afterwards, skips duplicate provider calls after delivered, and the Webhook provider posts JSON with idempotency headers | proven-local |
+| A9 | Send notification | `FinalReportWorkflow` schedules `SendReportNotification` only after `GenerateFinalReport` returns a persisted ID; the Activity can select either the legacy env-injected IMProvider or a profile-backed Webhook provider for a bound report notification channel, persists a pending delivery row before calling the selected provider, marks it delivered/failed afterwards, skips duplicate provider calls after delivered, and the Webhook provider posts JSON with idempotency headers | proven-local |
 | A10 | Persist | Ent ORM → PostgreSQL; **must run as Temporal Activity** (not in workflow code). Covers SubReport, FinalReport, fan-in links, and ReportNotificationDelivery rows | proven |
 
 ### Constraint: A6 Structured Output Provider Dependency
@@ -77,15 +77,23 @@ Strict schema preferred; fallback to `json_object` mode + client-side validation
 - **Idempotency keys**: LLM Activity and Webhook Activity must carry
   idempotency keys (e.g. `snapshotID + groupIndex`) to prevent duplicate
   reports/notifications on Temporal retry.
+- **Report artifact is not closure**: `FinalReport` is the final artifact of
+  the automated report workflow, not a final accountable incident conclusion.
+  Human-confirmed closure is recorded through the diagnosis-room close path or
+  a future explicit confirmation artifact, as defined in
+  [report-lifecycle.md](report-lifecycle.md).
 
 **Chain A conclusion**: local LLM validation, persistence, report
 Temporal workflow units, batch-level fan-out/fan-in, runtime provider
 injection, notification sequencing, report read APIs, the HTTP
 replay-to-workflow trigger, the CLI one-shot replay trigger, and a manual
-`make report-live-smoke` proof harness are proven locally. The retained proof
-is validated by `scripts/report_live_smoke_output`, including canonical UTC
-timestamps for `checked_at` and the replay window, replay request metadata,
-replay stats, and snapshot/SubReport consistency. The validator requires the
+`make report-live-smoke` proof harness, the policy-driven
+`make report-policy-live-smoke` proof harness, and the scheduled-trigger proof
+harness are proven locally. The retained
+proof is validated by `scripts/report_live_smoke_output`, including canonical
+UTC timestamps for `checked_at` and the replay window, replay request metadata
+with optional `request.policy_id`, replay stats, and snapshot/SubReport
+consistency. The validator requires the
 replay window to be valid and no later than `checked_at`, the scenario to be
 one of the supported alert-analysis scenarios, the live proof to have explicit
 wait intent, and the workflow result notification status to be `accepted` or
@@ -97,7 +105,16 @@ bounded single-line provider message ID formatting when the upstream supplies
 one, and bounds the retained notification idempotency key; Webhook 2xx
 responses without a stable upstream message ID remain acceptable because the IM
 provider contract permits that path. Live
-Prometheus->Temporal->Webhook execution evidence remains pending.
+Prometheus/Alertmanager->Temporal->notification execution evidence remains
+pending. The current readiness preflights expect real database and Temporal
+addresses, a real alert-source profile or Prometheus endpoint, canonical UTC
+replay or observation windows, and either worker-side LLM/notification
+configuration or an operator assertion that an externally managed worker is
+ready. The operator configuration sequence and required external inputs are
+documented in
+[alert-operations-live-proof-runbook.md](alert-operations-live-proof-runbook.md).
+Report live proof demonstrates automated report delivery; it does not by
+itself prove human-confirmed incident closure.
 
 ---
 
@@ -510,9 +527,13 @@ All three chains are technically feasible:
   report persistence, Temporal report workflow units, notification delivery
   logging, notification sequencing, and the HTTP replay-to-workflow trigger
   are proven locally, including a protocol-level E2E test that reaches a real
-  Temporal worker and Webhook provider. `make report-live-smoke` is available
-  to capture validator-checked proof against real services, but live external
-  Prometheus->Temporal->Webhook execution evidence remains pending.
+  Temporal worker and Webhook provider. `make report-live-smoke` and
+  `make report-policy-live-smoke` are available to capture validator-checked
+  proof against real services, and `make report-schedule-live-smoke` captures
+  the pending scheduled-trigger proof when run against real services, but live external
+  Prometheus/Alertmanager->Temporal->notification execution evidence remains
+  pending. The required operator configuration order is documented in
+  [alert-operations-live-proof-runbook.md](alert-operations-live-proof-runbook.md).
 - **Chain B** (M4): proven except production B5 egress wiring. The Docker
   Engine API, file-based contract, Provider live/timeout/output-cap smokes, and
   local proxy allow/deny topology are proven.

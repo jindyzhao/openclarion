@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"time"
-	"unicode"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/alertsourceprovider"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -41,14 +41,12 @@ const (
 )
 
 // ProviderCredentials contains resolved credentials for one provider call.
-type ProviderCredentials struct {
-	BearerToken string
-}
+type ProviderCredentials = alertsourceprovider.Credentials
 
 // MetricsProviderFactory builds a provider from a stored alert source profile
 // plus backend-resolved credentials. Implementations must not return providers
 // that expose credential values in error text returned to this package.
-type MetricsProviderFactory func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error)
+type MetricsProviderFactory = alertsourceprovider.MetricsProviderFactory
 
 // Clock supplies the check timestamp. It is injected so usecase code never
 // reads wall-clock time directly.
@@ -184,42 +182,27 @@ func (s *Service) resolveCredentials(
 	profile domain.AlertSourceProfile,
 	result Result,
 ) (ProviderCredentials, Result, bool) {
-	if profile.AuthMode == domain.AlertSourceAuthModeNone {
-		return ProviderCredentials{}, result, true
+	credentials, err := alertsourceprovider.ResolveCredentials(ctx, s.secretResolver, profile)
+	if err == nil {
+		return credentials, result, true
 	}
-	if s.secretResolver == nil {
+	result.Status = StatusBlocked
+	result.ReasonCode = ReasonCredentialsUnavailable
+	switch {
+	case errors.Is(err, alertsourceprovider.ErrSecretResolverUnavailable):
 		result.Status = StatusBlocked
 		result.ReasonCode = ReasonCredentialsUnavailable
 		result.Message = "Secret-backed connection tests require a server-side secret resolver."
-		return ProviderCredentials{}, result, false
-	}
-	secret, err := s.secretResolver.ResolveSecret(ctx, profile.SecretRef)
-	if err != nil {
-		result.Status = StatusBlocked
-		result.ReasonCode = ReasonCredentialsUnavailable
-		if errors.Is(err, ports.ErrSecretNotFound) {
-			result.Message = "Secret reference is not available to the server-side resolver."
-		} else {
-			result.Message = "Secret reference could not be resolved by the server-side resolver."
-		}
-		return ProviderCredentials{}, result, false
-	}
-	if secret.Value == "" || containsControlOrSpace(secret.Value) {
-		result.Status = StatusBlocked
-		result.ReasonCode = ReasonCredentialsUnavailable
+	case errors.Is(err, alertsourceprovider.ErrSecretNotFound):
+		result.Message = "Secret reference is not available to the server-side resolver."
+	case errors.Is(err, alertsourceprovider.ErrSecretResolveFailed):
+		result.Message = "Secret reference could not be resolved by the server-side resolver."
+	case errors.Is(err, alertsourceprovider.ErrCredentialUnusable):
 		result.Message = "Secret reference resolved to an unusable credential."
-		return ProviderCredentials{}, result, false
+	default:
+		result.Message = "Secret reference could not be resolved by the server-side resolver."
 	}
-	return ProviderCredentials{BearerToken: secret.Value}, result, true
-}
-
-func containsControlOrSpace(value string) bool {
-	for _, r := range value {
-		if unicode.IsControl(r) || unicode.IsSpace(r) {
-			return true
-		}
-	}
-	return false
+	return ProviderCredentials{}, result, false
 }
 
 func (s *Service) testProvider(

@@ -30,6 +30,14 @@ type recordingIMProvider struct {
 	err      error
 }
 
+type recordingNotificationProviderResolver struct {
+	mu       sync.Mutex
+	calls    int
+	profile  domain.NotificationChannelProfileID
+	provider ports.IMProvider
+	err      error
+}
+
 func newReportLLMProvider() *reportLLMProvider {
 	return &reportLLMProvider{calls: map[string]int{}}
 }
@@ -90,6 +98,26 @@ func (p *recordingIMProvider) Requests() []ports.IMNotification {
 	out := make([]ports.IMNotification, len(p.requests))
 	copy(out, p.requests)
 	return out
+}
+
+func (r *recordingNotificationProviderResolver) ResolveReportNotificationProvider(ctx context.Context, profileID domain.NotificationChannelProfileID) (ports.IMProvider, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls++
+	r.profile = profileID
+	if r.err != nil {
+		return nil, r.err
+	}
+	return r.provider, nil
+}
+
+func (r *recordingNotificationProviderResolver) LastCall() (int, domain.NotificationChannelProfileID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.calls, r.profile
 }
 
 func llmResponse(content string) ports.LLMResponse {
@@ -303,6 +331,58 @@ func TestReportActivities_SendReportNotificationLoadsPersistedReport(t *testing.
 	}
 }
 
+func TestReportActivities_SendReportNotificationUsesProfileResolver(t *testing.T) {
+	seed := seedDiagnosisTask(t, "report-notify-profile-resolver")
+	provider := newReportLLMProvider()
+	activities := temporalpkg.NewActivities(env.factory, temporalpkg.WithLLMProvider(provider))
+	ctx := context.Background()
+
+	sub, err := activities.GenerateSubReport(ctx, temporalpkg.ReportFanOutWorkflowInput{
+		EvidenceSnapshotID: int64(seed.SnapshotID),
+		Scenario:           "single_alert",
+		GroupIndex:         0,
+	})
+	if err != nil {
+		t.Fatalf("GenerateSubReport: %v", err)
+	}
+	final, err := activities.GenerateFinalReport(ctx, temporalpkg.FinalReportWorkflowInput{
+		CorrelationKey: "window-report-notify-profile-resolver",
+		SubReportIDs:   []int64{sub.SubReportID},
+	})
+	if err != nil {
+		t.Fatalf("GenerateFinalReport: %v", err)
+	}
+
+	im := &recordingIMProvider{delivery: ports.IMDelivery{
+		ProviderMessageID: "profile-msg-1",
+		Status:            "accepted",
+		Raw:               json.RawMessage(`{"message_id":"profile-msg-1","status":"accepted"}`),
+	}}
+	resolver := &recordingNotificationProviderResolver{provider: im}
+	notifyActivities := temporalpkg.NewActivities(
+		env.factory,
+		temporalpkg.WithNotificationChannelProviderResolver(resolver),
+	)
+
+	notification, err := notifyActivities.SendReportNotification(ctx, temporalpkg.ReportNotificationActivityInput{
+		FinalReportID:                      final.FinalReportID,
+		ReportNotificationChannelProfileID: 3,
+	})
+	if err != nil {
+		t.Fatalf("SendReportNotification: %v", err)
+	}
+	calls, profileID := resolver.LastCall()
+	if calls != 1 || profileID != 3 {
+		t.Fatalf("resolver calls=%d profileID=%d, want 1/3", calls, profileID)
+	}
+	if notification.ProviderMessageID != "profile-msg-1" || notification.Status != "accepted" {
+		t.Fatalf("notification = %+v", notification)
+	}
+	if len(im.Requests()) != 1 {
+		t.Fatalf("provider request count = %d, want 1", len(im.Requests()))
+	}
+}
+
 func TestReportActivities_SendReportNotificationPersistsFailure(t *testing.T) {
 	seed := seedDiagnosisTask(t, "report-notify-failure")
 	provider := newReportLLMProvider()
@@ -485,13 +565,15 @@ func TestFinalReportWorkflow_ExecutesGenerateFinalReportActivity(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	tw := suite.NewTestWorkflowEnvironment()
 	input := temporalpkg.FinalReportWorkflowInput{
-		CorrelationKey: "window-1",
-		SubReportIDs:   []int64{10, 11},
+		CorrelationKey:                     "window-1",
+		ReportNotificationChannelProfileID: 5,
+		SubReportIDs:                       []int64{10, 11},
 	}
 	tw.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.FinalReportWorkflowInput) (temporalpkg.FinalReportWorkflowResult, error) {
 			if got.CorrelationKey != input.CorrelationKey || len(got.SubReportIDs) != len(input.SubReportIDs) ||
-				got.SubReportIDs[0] != input.SubReportIDs[0] || got.SubReportIDs[1] != input.SubReportIDs[1] {
+				got.SubReportIDs[0] != input.SubReportIDs[0] || got.SubReportIDs[1] != input.SubReportIDs[1] ||
+				got.ReportNotificationChannelProfileID != input.ReportNotificationChannelProfileID {
 				t.Fatalf("activity input = %+v, want %+v", got, input)
 			}
 			return temporalpkg.FinalReportWorkflowResult{FinalReportID: 77}, nil
@@ -500,8 +582,8 @@ func TestFinalReportWorkflow_ExecutesGenerateFinalReportActivity(t *testing.T) {
 	)
 	tw.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.ReportNotificationActivityInput) (temporalpkg.ReportNotificationResult, error) {
-			if got.FinalReportID != 77 {
-				t.Fatalf("notification input FinalReportID = %d, want 77", got.FinalReportID)
+			if got.FinalReportID != 77 || got.ReportNotificationChannelProfileID != 5 {
+				t.Fatalf("notification input = %+v, want final report 77 channel profile 5", got)
 			}
 			return temporalpkg.ReportNotificationResult{
 				FinalReportID:              got.FinalReportID,
@@ -541,7 +623,8 @@ func TestReportBatchWorkflow_FansOutThenFinalizes(t *testing.T) {
 	tw.RegisterWorkflow(temporalpkg.FinalReportWorkflow)
 
 	input := temporalpkg.ReportBatchWorkflowInput{
-		CorrelationKey: "window-batch",
+		CorrelationKey:                     "window-batch",
+		ReportNotificationChannelProfileID: 5,
 		Items: []temporalpkg.ReportBatchItem{
 			{EvidenceSnapshotID: 7, Scenario: "single_alert", GroupIndex: 0},
 			{EvidenceSnapshotID: 8, Scenario: "cascade", GroupIndex: 1},
@@ -566,6 +649,9 @@ func TestReportBatchWorkflow_FansOutThenFinalizes(t *testing.T) {
 			if got.CorrelationKey != "window-batch" {
 				t.Fatalf("final correlation = %q, want window-batch", got.CorrelationKey)
 			}
+			if got.ReportNotificationChannelProfileID != 5 {
+				t.Fatalf("final channel profile = %d, want 5", got.ReportNotificationChannelProfileID)
+			}
 			want := []int64{70, 81}
 			if len(got.SubReportIDs) != len(want) || got.SubReportIDs[0] != want[0] || got.SubReportIDs[1] != want[1] {
 				t.Fatalf("final SubReportIDs = %+v, want %+v", got.SubReportIDs, want)
@@ -576,8 +662,8 @@ func TestReportBatchWorkflow_FansOutThenFinalizes(t *testing.T) {
 	)
 	tw.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.ReportNotificationActivityInput) (temporalpkg.ReportNotificationResult, error) {
-			if got.FinalReportID != 500 {
-				t.Fatalf("notification FinalReportID = %d, want 500", got.FinalReportID)
+			if got.FinalReportID != 500 || got.ReportNotificationChannelProfileID != 5 {
+				t.Fatalf("notification input = %+v, want final report 500 channel profile 5", got)
 			}
 			return temporalpkg.ReportNotificationResult{
 				FinalReportID:              got.FinalReportID,
@@ -650,6 +736,12 @@ func TestReportWorkflows_RejectInvalidInputBeforeActivity(t *testing.T) {
 			wantSubstr: "items[0].evidence_snapshot_id must be non-zero",
 		},
 		{
+			name:       "batch negative notification channel",
+			workflow:   temporalpkg.ReportBatchWorkflow,
+			input:      temporalpkg.ReportBatchWorkflowInput{CorrelationKey: "window", ReportNotificationChannelProfileID: -1, Items: []temporalpkg.ReportBatchItem{{EvidenceSnapshotID: 1, Scenario: "single_alert"}}},
+			wantSubstr: "report_notification_channel_profile_id must be >= 0",
+		},
+		{
 			name:       "final empty correlation",
 			workflow:   temporalpkg.FinalReportWorkflow,
 			input:      temporalpkg.FinalReportWorkflowInput{SubReportIDs: []int64{1}},
@@ -660,6 +752,12 @@ func TestReportWorkflows_RejectInvalidInputBeforeActivity(t *testing.T) {
 			workflow:   temporalpkg.FinalReportWorkflow,
 			input:      temporalpkg.FinalReportWorkflowInput{CorrelationKey: "window"},
 			wantSubstr: "sub_report_ids must be non-empty",
+		},
+		{
+			name:       "final negative notification channel",
+			workflow:   temporalpkg.FinalReportWorkflow,
+			input:      temporalpkg.FinalReportWorkflowInput{CorrelationKey: "window", ReportNotificationChannelProfileID: -1, SubReportIDs: []int64{1}},
+			wantSubstr: "report_notification_channel_profile_id must be >= 0",
 		},
 	}
 	for _, tc := range tests {

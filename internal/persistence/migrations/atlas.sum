@@ -1,4 +1,4 @@
-h1:b+wNCGqlF5Eut6r51RggH1pFI9lOPUnATGv7DjF6c5Q=
+h1:3N/avdCiNsUeqQHlSbhAQjHQcgDhBiy0KG8MhX+jNGQ=
 20260525060310_initial_schema.sql h1:64NVxLTQU+MCtwcBMJ37cEb9Vsab5DAbwAv2BbvvjWc=
 20260528022647_report_schemas.sql h1:rajY/BH2BPn9zUR5wRnmUzfDrASeM4j3QL0MnftCpEA=
 20260528034745_report_notification_deliveries.sql h1:FrskNYvYNbC19C6cT5hDmnFr1UR/YYhDEhnsh46e+vs=
@@ -6,3 +6,7 @@ h1:b+wNCGqlF5Eut6r51RggH1pFI9lOPUnATGv7DjF6c5Q=
 20260528132100_chat_sessions_turns.sql h1:g6mA61rgV+TRuSJyK/E7QdCy+S1h/zIjihNMRchcz64=
 20260605020627_alert_source_profiles.sql h1:9ZfX6j/CHcJ/SnKwoJ2ESe2AG8OGgEAZpmsXbu6ljPU=
 20260605052739_grouping_policies.sql h1:BB8pv/q51FOmA1cfEmnlzLZ4Niv/rRVCE+NUPShYvh4=
+20260605073507_report_workflow_policies.sql h1:jPMy6rqVGf30LXY/o+LgnhAntCZ8IdgOX0shCBhLHFY=
+20260605084634_notification_channel_profiles.sql h1:ITYuZDPtwByAm+omJ19DQtriz8WOmz7i1zRoLzWFf7E=
+20260605112001_report_workflow_notification_channel_binding.sql h1:PZMkwVQuqs0/CXloN594DSJpNbL18quBOLLqJNuzjP8=
+20260605151654_report_workflow_schedules.sql h1:I7T4wZbrJgDeNCvABKtlUur6nVIos+IgKhApaUk5X2Q=

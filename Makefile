@@ -44,9 +44,12 @@
 #   make generate-fresh   # validate make generate freshness and idempotence
 #   make go-licenses-check # validate Go dependency license allowlist
 #   make osv-scan         # validate npm lockfiles with OSV-Scanner
+#   make operations-config-hygiene # validate alert-operations endpoint and browser-state hygiene
 #   make manual-evidence-readiness # manual readiness preflight for remaining live/evidence targets
 #   make report-live-smoke # manual live M2 smoke against real services
-#   make report-live-smoke-output-test # M2 live report smoke proof validator tests
+#   make report-policy-live-smoke # manual live M3.1 profile-driven smoke against real services
+#   make report-schedule-live-smoke # manual M3.1 scheduled-trigger proof against real services
+#   make report-live-smoke-output-test # M2/M3.1 live report proof validator tests
 #   make agent-runtime-smoke # manual M4 smoke against a candidate sandbox image
 #   make custom-thin-runner-smoke # manual M4 smoke: local custom runner candidate
 #   make sandbox-m4-runtime-smoke-artifacts OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR=... OPENCLARION_AGENT_RUNTIME_IMAGE=...
@@ -151,7 +154,7 @@ help: ## Show this help
 pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
 	@go run ./scripts/pr_budget --budget "$(PR_BUDGET)" --mode "$(PR_BUDGET_MODE)" -- $(MAKE) ci
 
-ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test file-mode-check file-mode-check-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test branch-protection-check branch-protection-check-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
+ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test file-mode-check file-mode-check-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test branch-protection-check branch-protection-check-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan operations-config-hygiene operations-config-hygiene-test govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
 	@echo ""
 	@echo "[ci] all gates passed."
 
@@ -357,10 +360,16 @@ forbidden-agent-runtime: ## Reject control-plane agent-framework deps and hardco
 # Security gates (W1: supply-chain hardening)
 # ---------------------------------------------------------------------------
 
-.PHONY: secrets-scan govulncheck go-licenses-check osv-scan
+.PHONY: secrets-scan operations-config-hygiene operations-config-hygiene-test govulncheck go-licenses-check osv-scan
 
 secrets-scan: ## Detect leaked secrets via gitleaks (pinned version, .gitleaks.toml config)
 	@bash scripts/run_secrets_scan.sh
+
+operations-config-hygiene: ## Validate alert-operations endpoint and browser-state hygiene
+	@go run ./scripts/operations_config_hygiene
+
+operations-config-hygiene-test: ## Validate alert-operations hygiene checker behavior
+	@go test -race -count=1 ./scripts/operations_config_hygiene
 
 govulncheck: ## Detect known Go vulnerabilities in every first-party Go module
 	@for dir in $(GO_MODULE_DIRS); do \
@@ -421,8 +430,8 @@ go-coverage: ## Enforce handwritten Go package coverage floor
 temporal-workflow-tests: ## Run focused Temporal workflow integration and replay tests
 	@go test -race -count=1 ./internal/orchestrator/temporal
 
-report-live-smoke-output-test: ## Run focused M2 live report smoke proof validator tests
-	@go test -race -count=1 ./scripts/report_live_smoke_output
+report-live-smoke-output-test: ## Run focused M2/M3.1 live report proof validator tests
+	@go test -race -count=1 ./scripts/report_live_smoke_output ./scripts/report_schedule_live_smoke_output
 
 sandbox-security: ## Run focused M4 sandbox contract and Docker security-spec tests
 	@go test -race -count=1 ./internal/usecases/ports ./internal/providers/container/...
@@ -645,7 +654,7 @@ frontend-checks: frontend-install ci-frontend-typecheck ci-frontend-lint ci-fron
 # See ADR-0001 (PostgreSQL single source of truth) and
 # docs/design/database/migrations.md.
 
-.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness report-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke sandbox-m4-runtime-smoke-artifacts diagnosis-dev-oidc-issuer
+.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke sandbox-m4-runtime-smoke-artifacts diagnosis-dev-oidc-issuer
 
 ent-generate: ## Regenerate ent client + entity code from schemas under internal/persistence/ent/schema
 	@go generate $(ENT_PKG)/...
@@ -677,13 +686,19 @@ atlas-drift: ## Reject ent-schema vs migrations drift; runs in a temp copy so th
 atlas-smoke: ## Manual one-shot smoke: verify Dockerized Atlas can read the ent schema (M1-PR1 acceptance gate)
 	@ATLAS_IMAGE="$(ATLAS_IMAGE)" ENT_SCHEMA_URL="$(ENT_SCHEMA_URL)" bash scripts/check_atlas_smoke.sh
 
-manual-evidence-readiness: ## Manual readiness preflight for remaining M2/M4/M5 live and evidence targets
+manual-evidence-readiness: ## Manual readiness preflight for remaining M2/M3.1/M4/M5 live and evidence targets
 	@args=(); \
 	if [[ -n "$(MANUAL_EVIDENCE_TARGET)" ]]; then args+=(--target "$(MANUAL_EVIDENCE_TARGET)"); fi; \
 	go run ./scripts/manual_evidence_readiness "$${args[@]}"
 
 report-live-smoke: ## Manual M2 smoke: real Prometheus -> Temporal -> Webhook via report-replay --wait
 	@bash scripts/run_report_live_smoke.sh
+
+report-policy-live-smoke: ## Manual M3.1 smoke: profile-driven policy replay -> Temporal -> notification via report-policy-replay --wait
+	@bash scripts/run_report_policy_live_smoke.sh
+
+report-schedule-live-smoke: ## Manual M3.1 scheduled-trigger proof: Temporal Schedule action -> report delivery
+	@bash scripts/run_report_schedule_live_smoke.sh
 
 agent-runtime-smoke: ## Manual M4 smoke: candidate sandbox image satisfies ADR-0013 file I/O and security posture
 	@bash scripts/run_agent_runtime_smoke.sh

@@ -2,6 +2,7 @@ package repository
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/persistence/ent"
@@ -254,6 +255,94 @@ func groupingPolicyToDomain(p *ent.GroupingPolicy) domain.GroupingPolicy {
 		CreatedAt:     p.CreatedAt,
 		UpdatedAt:     p.UpdatedAt,
 	}
+}
+
+// reportWorkflowPolicyToDomain converts an Ent ReportWorkflowPolicy row to a
+// domain entity.
+func reportWorkflowPolicyToDomain(p *ent.ReportWorkflowPolicy) domain.ReportWorkflowPolicy {
+	reportNotificationChannelProfileID := domain.NotificationChannelProfileID(0)
+	if p.ReportNotificationChannelProfileID != nil {
+		reportNotificationChannelProfileID = domain.NotificationChannelProfileID(*p.ReportNotificationChannelProfileID)
+	}
+	return domain.ReportWorkflowPolicy{
+		ID:                                 domain.ReportWorkflowPolicyID(p.ID),
+		Name:                               p.Name,
+		AlertSourceProfileID:               domain.AlertSourceProfileID(p.AlertSourceProfileID),
+		GroupingPolicyID:                   domain.GroupingPolicyID(p.GroupingPolicyID),
+		ReportNotificationChannelProfileID: reportNotificationChannelProfileID,
+		TriggerMode:                        domain.ReportWorkflowTriggerMode(p.TriggerMode),
+		ReportScenario:                     domain.ReportWorkflowScenario(p.ReportScenario),
+		DiagnosisFollowUp:                  domain.DiagnosisFollowUpMode(p.DiagnosisFollowUp),
+		Enabled:                            p.Enabled,
+		EnabledAt:                          p.EnabledAt,
+		DisabledAt:                         p.DisabledAt,
+		CreatedAt:                          p.CreatedAt,
+		UpdatedAt:                          p.UpdatedAt,
+	}
+}
+
+// reportWorkflowScheduleToDomain converts an Ent ReportWorkflowSchedule row to
+// a domain entity.
+func reportWorkflowScheduleToDomain(s *ent.ReportWorkflowSchedule) domain.ReportWorkflowSchedule {
+	return domain.ReportWorkflowSchedule{
+		ID:                     domain.ReportWorkflowScheduleID(s.ID),
+		Name:                   s.Name,
+		ReportWorkflowPolicyID: domain.ReportWorkflowPolicyID(s.ReportWorkflowPolicyID),
+		TemporalScheduleID:     s.TemporalScheduleID,
+		Interval:               time.Duration(s.IntervalNs),
+		Offset:                 time.Duration(s.OffsetNs),
+		ReplayWindow:           time.Duration(s.ReplayWindowNs),
+		ReplayDelay:            time.Duration(s.ReplayDelayNs),
+		ReplayLimit:            s.ReplayLimit,
+		CatchupWindow:          time.Duration(s.CatchupWindowNs),
+		Enabled:                s.Enabled,
+		EnabledAt:              s.EnabledAt,
+		DisabledAt:             s.DisabledAt,
+		CreatedAt:              s.CreatedAt,
+		UpdatedAt:              s.UpdatedAt,
+	}
+}
+
+// notificationChannelProfileToDomain converts an Ent
+// NotificationChannelProfile row to a domain entity.
+func notificationChannelProfileToDomain(p *ent.NotificationChannelProfile) domain.NotificationChannelProfile {
+	labels := p.Labels
+	if labels == nil {
+		labels = map[string]string{}
+	}
+	return domain.NotificationChannelProfile{
+		ID:             domain.NotificationChannelProfileID(p.ID),
+		Name:           p.Name,
+		Kind:           domain.NotificationChannelKind(p.Kind),
+		SecretRef:      p.SecretRef,
+		DeliveryScopes: notificationDeliveryScopesToDomain(p.DeliveryScopes),
+		Enabled:        p.Enabled,
+		Labels:         labels,
+		CreatedAt:      p.CreatedAt,
+		UpdatedAt:      p.UpdatedAt,
+	}
+}
+
+func notificationDeliveryScopesToDomain(scopes []string) []domain.NotificationDeliveryScope {
+	if len(scopes) == 0 {
+		return []domain.NotificationDeliveryScope{}
+	}
+	out := make([]domain.NotificationDeliveryScope, len(scopes))
+	for i, scope := range scopes {
+		out[i] = domain.NotificationDeliveryScope(scope)
+	}
+	return out
+}
+
+func notificationDeliveryScopesToStrings(scopes []domain.NotificationDeliveryScope) []string {
+	if len(scopes) == 0 {
+		return []string{}
+	}
+	out := make([]string, len(scopes))
+	for i, scope := range scopes {
+		out[i] = string(scope)
+	}
+	return out
 }
 
 // alertEventIDsToEnt converts a slice of domain.AlertEventID

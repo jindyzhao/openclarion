@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-06-05
+> Last updated: 2026-06-06
 > Author: jindyzhao
 > Status: private incubation
 
@@ -116,16 +116,53 @@ operations surface without changing the alert-first product positioning.
 - [x] grouping policy persistence, generated CRUD contracts, frontend settings
       route, and dry-run preview endpoint
 - [x] secret-backed Prometheus and Alertmanager connection-test adapters
-- [ ] report workflow policy persistence and explicit enablement flow
-- [ ] notification channel profile persistence with `secret_ref` only
-- [ ] remaining frontend settings pages backed by generated API types
-- [ ] no customer endpoints, bearer tokens, or secret values in code, tests,
+- [x] report workflow policy persistence and explicit enablement flow
+- [x] notification channel profile persistence with `secret_ref` only
+- [x] notification channel frontend settings page backed by generated API types
+- [x] notification channel backend/frontend test action with sanitized feedback
+- [x] shared settings query/mutation state for interactive configuration
+      screens
+- [x] report workflow policy impact preview with binding readiness and bounded
+      recent-alert grouping impact
+- [x] explicit policy-driven report replay endpoint and frontend row action
+- [x] profile-bound Alertmanager webhook intake for firing alert ingestion
+      without workflow starts
+- [x] profile-driven report policy live-smoke harness and readiness preflight
+      for retained external proof
+- [ ] retained profile-driven live external proof with real alert source,
+      Temporal worker, LLM provider, and notification delivery
+- [x] scheduled report trigger domain model, persistence, and enablement
+      validation
+- [x] scheduled report trigger API and frontend settings for persisted schedule
+      metadata
+- [x] scheduled report trigger launcher workflow and Temporal Schedule
+      registration builder
+- [x] runtime schedule reconciliation from persisted enable/disable state
+- [x] scheduled-trigger live proof harness for retained external evidence
+      setup and validator-checked schedule action output
+- [ ] retained scheduled-trigger live proof with real alert source, Temporal
+      worker, LLM provider, and notification delivery
+- [x] optional report workflow policy binding to report-capable notification
+      channel profiles
+- [x] profile-backed report notification runtime delivery selection at the
+      Activity boundary
+- [x] no customer endpoints, bearer tokens, or secret values in code, tests,
       fixtures, retained artifacts, or browser durable state
 
-**Acceptance**: an operator can add a Prometheus alert source profile, test it
-with sanitized feedback, preview grouping behavior, bind a report workflow
-policy, and enable it without rebuilding the control plane or placing secret
-material in the frontend.
+**Acceptance**: an operator can add a Prometheus or Alertmanager alert source
+profile, test it with sanitized feedback, preview grouping behavior, bind a
+report workflow policy to an alert source, grouping policy, and optional report
+notification channel, test the notification channel with sanitized feedback,
+preview policy impact without provider I/O or workflow starts, enable the
+policy, ingest Alertmanager webhook firing alerts through an enabled
+Alertmanager profile without starting workflows, trigger an explicit
+policy-driven replay, configure persisted report workflow schedule metadata
+without starting workflows from the browser, have the server map enabled
+schedules into Temporal Schedule registration options, retain
+validator-checked live proof with `request.policy_id`, and have the worker
+deliver through the bound notification channel when its backend secret resolver
+is configured, without rebuilding the control plane or placing secret material
+in the frontend.
 
 ## M4: Agent Sandbox Baseline and Exploration
 
@@ -223,6 +260,23 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-06-06 | jindyzhao | Scheduled-trigger live proof harness landed locally: `make report-schedule-live-smoke` now checks schedule proof prerequisites, waits for a real Temporal Schedule action at or after the observation time, waits for launcher and report batch workflow completion, writes retained JSON, and validates that proof with `scripts/report_schedule_live_smoke_output`. Retained scheduled-trigger live proof against real services remains pending. |
+| 2026-06-06 | jindyzhao | Alertmanager webhook intake landed locally: `POST /api/v1/alert-sources/{source_id}/webhooks/alertmanager` binds to an enabled Alertmanager alert-source profile, checks bearer authorization through the alert-source secret resolver when configured, parses strict version 4 Alertmanager webhook payloads, persists firing alerts through the existing `AlertEvent` ingestion boundary, skips resolved alerts, and returns sanitized counters without report workflow starts, provider calls, grouping/snapshot writes, or notification sends. |
+| 2026-06-06 | jindyzhao | Runtime scheduled-trigger reconciliation landed locally: persisted report workflow schedules are synchronized into Temporal Schedules at startup and after successful schedule create, replace, enable, or disable actions; retained scheduled-trigger live proof remains pending. |
+| 2026-06-06 | jindyzhao | Scheduled report trigger launcher and registration builder landed locally: Temporal worker registration, scheduled replay Activity wiring, policy-replay audit source override, worker-side policy replayer injection, and `ReportWorkflowScheduleRegistrar` now cover local ScheduleOptions mapping. Runtime reconciliation and retained scheduled-trigger live proof remain pending. |
+| 2026-06-06 | jindyzhao | Report workflow schedule API and frontend settings landed locally as the API/frontend slice: generated contracts, HTTP handlers, same-origin frontend route handlers, Ant Design settings route, formatter tests, and Playwright mock smoke coverage support persisted schedule metadata and explicit enable/disable actions. |
+| 2026-06-05 | jindyzhao | Scheduled report trigger persistence landed locally: domain validation, Ent schema, Atlas migration, configuration repository methods, and usecase tests now store schedule metadata and explicit enablement while keeping API, frontend, launcher workflow, and Temporal Schedule registration pending. |
+| 2026-06-05 | jindyzhao | M3.1 remaining work clarified: the profile-driven live-smoke harness is landed, but retained live proof against real services and scheduled report trigger configuration remain open. Acceptance now names Prometheus or Alertmanager profiles explicitly without treating harness availability as live external evidence. |
+| 2026-06-05 | jindyzhao | Report workflow policy impact preview landed locally: persisted workflow policies now have a backend action and settings UI row action that review binding readiness and recent-alert grouping impact without calling alert providers, resolving secrets, starting Temporal workflows, sending notifications, or writing grouping/snapshot rows. |
+| 2026-06-05 | jindyzhao | Profile-driven report policy live-smoke harness landed locally: `openclarion report-policy-replay`, `make report-policy-live-smoke`, manual readiness preflight, and retained proof validation now bind external proof output to `request.policy_id`. This adds the M3.1 proof path without running real services or closing the pending live external E2E item. |
+| 2026-06-05 | jindyzhao | Notification channel test action landed locally: persisted channel rows now have a sanitized backend test endpoint, the Webhook provider can mark test sends with a notification-channel subject instead of a report or diagnosis ID, and the settings UI exposes a row-level Test action backed by generated OpenAPI types. The action does not create report delivery rows or expose endpoint, secret, token, or raw provider error details. |
+| 2026-06-05 | jindyzhao | Profile-backed report notification runtime selection landed locally: report workflow start requests now carry the optional notification channel profile ID into Temporal, `SendReportNotification` resolves enabled report-scoped channel profiles through a backend secret resolver when configured, and unbound notifications retain the legacy env-injected IMProvider fallback. Live external Prometheus->Temporal->Webhook evidence remains pending. |
+| 2026-06-05 | jindyzhao | Operations configuration hygiene landed locally: `make operations-config-hygiene` now scans the alert-operations configuration surface for non-placeholder HTTP(S) hosts, URL credentials outside test fixtures, URL query/fragment leakage outside test fixtures, and browser durable storage APIs in `web/src`. It complements gitleaks by enforcing the product-specific rule that settings screens and retained configuration examples do not hard-code customer endpoints or persist operator secrets in browser durable state. |
+| 2026-06-05 | jindyzhao | Report workflow notification channel binding landed locally: report workflow policies can now store an optional report notification channel profile ID, enablement validates enabled report-scoped channels when bound, and the frontend can edit and display the binding. |
+| 2026-06-05 | jindyzhao | Policy-driven report replay landed locally: the Go API now exposes an explicit report workflow policy replay action that resolves enabled policy/source/grouping state and backend credentials before starting report generation, applies grouping source filters during replay, and the frontend exposes a row-level Replay modal backed by generated OpenAPI types. The existing environment-variable live-smoke path remains until equivalent retained policy-driven live evidence is captured. |
+| 2026-06-05 | jindyzhao | Shared settings query state landed locally: alert source, grouping policy, report workflow policy, and notification channel settings screens now hydrate first-load data into TanStack Query, use shared refresh/error handling, and invalidate list queries after create/replace/enable/disable mutations. Connection-test and preview outputs remain feature-local session action state and are not durable configuration. |
+| 2026-06-05 | jindyzhao | Notification channel profile settings landed locally: OpenAPI, generated Go/TypeScript types, Ent schema and Atlas migration, configuration repository methods, HTTP handlers, same-origin frontend route handlers, Ant Design settings route, formatter tests, and Playwright mock smoke coverage now support persisted channel profiles. Profiles store only `secret_ref` values and do not resolve secrets, construct providers, send notifications, or replace the environment-variable Webhook runtime path. |
+| 2026-06-05 | jindyzhao | Report workflow policy settings landed locally: OpenAPI, generated Go/TypeScript types, Ent schema and Atlas migration, configuration repository methods, explicit enablement usecase, HTTP handlers, same-origin frontend route handlers, Ant Design settings route, formatter tests, and Playwright mock smoke coverage now support persisted workflow policies. Enablement validates bound alert source and grouping policy readiness and does not start Temporal workflows. |
 | 2026-06-05 | jindyzhao | Secret-backed and Alertmanager alert-source connection tests landed locally: the backend now has an explicit env-map secret resolver boundary for `secret_ref` values, Prometheus and Alertmanager connection-test factories receive resolved bearer credentials only inside provider construction, Alertmanager `/api/v2/alerts` checks are covered by `httptest`, and missing resolver entries return blocked sanitized results instead of leaking secret or endpoint details. This does not complete profile-driven report workflow enablement or replace the existing live Prometheus replay proof path. |
 | 2026-06-05 | jindyzhao | Grouping policy settings landed locally: OpenAPI, generated Go/TypeScript types, Ent schema and Atlas migration, configuration repository methods, non-persistent preview usecase, HTTP handlers, same-origin frontend route handlers, Ant Design settings route, formatter tests, and Playwright mock smoke coverage now support persisted grouping policies and bounded dry-run preview over recent persisted alert events. Preview does not call Prometheus or Alertmanager, does not create `AlertGroup` rows, and does not enable workflow bindings. |
 | 2026-06-05 | jindyzhao | Alert source connection-test contract landed locally: OpenAPI, generated Go/TypeScript types, transport handlers, usecase tests, runtime wiring, same-origin frontend route handlers, Ant Design row actions, and Playwright mock smoke coverage now support sanitized profile connection tests. The initial slice supported Prometheus no-auth alert-listing checks while leaving bearer-backed checks and Alertmanager adapter support to a follow-up row. |

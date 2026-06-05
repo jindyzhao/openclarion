@@ -115,6 +115,52 @@ func TestSendNotification_PostsDiagnosisTaskNotification(t *testing.T) {
 	}
 }
 
+func TestSendNotification_PostsNotificationChannelTestNotification(t *testing.T) {
+	var gotPayload webhookPayload
+	var gotReportID, gotDiagnosisTaskID, gotNotificationChannelID string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotReportID = r.Header.Get(headerReportID)
+		gotDiagnosisTaskID = r.Header.Get(headerDiagnosisTaskID)
+		gotNotificationChannelID = r.Header.Get(headerNotificationChannelID)
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	p, err := NewProvider(Config{URL: srv.URL})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	req := ports.IMNotification{
+		IdempotencyKey:        "notification_channel:9/test",
+		NotificationChannelID: 9,
+		CorrelationKey:        "notification-channel-test",
+		Title:                 "OpenClarion notification channel test",
+		Body:                  "This is a test notification from OpenClarion.",
+		Severity:              "info",
+	}
+	if _, err := p.SendNotification(context.Background(), req); err != nil {
+		t.Fatalf("SendNotification: %v", err)
+	}
+	if gotReportID != "" {
+		t.Fatalf("report id header = %q", gotReportID)
+	}
+	if gotDiagnosisTaskID != "" {
+		t.Fatalf("diagnosis task id header = %q", gotDiagnosisTaskID)
+	}
+	if gotNotificationChannelID != "9" {
+		t.Fatalf("notification channel id header = %q", gotNotificationChannelID)
+	}
+	if gotPayload.FinalReportID != 0 ||
+		gotPayload.DiagnosisTaskID != 0 ||
+		gotPayload.NotificationChannelID != 9 ||
+		gotPayload.CorrelationKey != "notification-channel-test" {
+		t.Fatalf("payload = %+v", gotPayload)
+	}
+}
+
 func TestSendNotification_EmptySuccessBodyDefaultsDelivered(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)

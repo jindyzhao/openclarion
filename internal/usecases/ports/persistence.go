@@ -390,6 +390,63 @@ type ConfigurationRepository interface {
 	// ListGroupingPolicies returns grouping policies ordered by
 	// (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
 	ListGroupingPolicies(ctx context.Context, limit int) ([]domain.GroupingPolicy, error)
+
+	// SaveReportWorkflowPolicy inserts a new report workflow policy.
+	// Duplicate policy names return a wrapped domain.ErrAlreadyExists. The
+	// returned policy has ID, CreatedAt, and UpdatedAt populated.
+	SaveReportWorkflowPolicy(ctx context.Context, p domain.ReportWorkflowPolicy) (domain.ReportWorkflowPolicy, error)
+
+	// UpdateReportWorkflowPolicy persists mutable report workflow policy
+	// fields. The policy ID is required. Returns domain.ErrNotFound if the
+	// row is missing.
+	UpdateReportWorkflowPolicy(ctx context.Context, p domain.ReportWorkflowPolicy) (domain.ReportWorkflowPolicy, error)
+
+	// FindReportWorkflowPolicyByID returns one report workflow policy by ID,
+	// or domain.ErrNotFound.
+	FindReportWorkflowPolicyByID(ctx context.Context, id domain.ReportWorkflowPolicyID) (domain.ReportWorkflowPolicy, error)
+
+	// ListReportWorkflowPolicies returns report workflow policies ordered by
+	// (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListReportWorkflowPolicies(ctx context.Context, limit int) ([]domain.ReportWorkflowPolicy, error)
+
+	// SaveReportWorkflowSchedule inserts a new report workflow schedule.
+	// Duplicate schedule names or Temporal Schedule IDs return a wrapped
+	// domain.ErrAlreadyExists. The returned schedule has ID, CreatedAt, and
+	// UpdatedAt populated.
+	SaveReportWorkflowSchedule(ctx context.Context, s domain.ReportWorkflowSchedule) (domain.ReportWorkflowSchedule, error)
+
+	// UpdateReportWorkflowSchedule persists mutable report workflow schedule
+	// fields. The schedule ID is required. Returns domain.ErrNotFound if the
+	// row is missing.
+	UpdateReportWorkflowSchedule(ctx context.Context, s domain.ReportWorkflowSchedule) (domain.ReportWorkflowSchedule, error)
+
+	// FindReportWorkflowScheduleByID returns one report workflow schedule by
+	// ID, or domain.ErrNotFound.
+	FindReportWorkflowScheduleByID(ctx context.Context, id domain.ReportWorkflowScheduleID) (domain.ReportWorkflowSchedule, error)
+
+	// ListReportWorkflowSchedules returns report workflow schedules ordered by
+	// (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListReportWorkflowSchedules(ctx context.Context, limit int) ([]domain.ReportWorkflowSchedule, error)
+
+	// SaveNotificationChannelProfile inserts a new notification channel
+	// profile. Duplicate profile names return a wrapped
+	// domain.ErrAlreadyExists. The returned profile has ID, CreatedAt, and
+	// UpdatedAt populated.
+	SaveNotificationChannelProfile(ctx context.Context, p domain.NotificationChannelProfile) (domain.NotificationChannelProfile, error)
+
+	// UpdateNotificationChannelProfile persists mutable notification channel
+	// profile fields. The profile ID is required. Returns domain.ErrNotFound
+	// if the row is missing.
+	UpdateNotificationChannelProfile(ctx context.Context, p domain.NotificationChannelProfile) (domain.NotificationChannelProfile, error)
+
+	// FindNotificationChannelProfileByID returns one notification channel
+	// profile by ID, or domain.ErrNotFound.
+	FindNotificationChannelProfileByID(ctx context.Context, id domain.NotificationChannelProfileID) (domain.NotificationChannelProfile, error)
+
+	// ListNotificationChannelProfiles returns notification channel profiles
+	// ordered by (updated_at DESC, id DESC), capped by limit. limit MUST be
+	// > 0.
+	ListNotificationChannelProfiles(ctx context.Context, limit int) ([]domain.NotificationChannelProfile, error)
 }
 
 // UnitOfWork bundles the three aggregate-root repositories under a

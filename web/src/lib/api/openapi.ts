@@ -112,6 +112,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/alert-sources/{source_id}/webhooks/alertmanager": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ingest an Alertmanager webhook payload
+         * @description Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts as AlertEvent rows, skips resolved alerts, and returns sanitized ingest counters without starting report workflows.
+         */
+        post: operations["ingestAlertmanagerWebhook"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config/grouping-policies": {
         parameters: {
             query?: never;
@@ -174,6 +194,290 @@ export interface paths {
          * @description Runs a bounded non-persistent grouping preview over recent persisted alert events.
          */
         post: operations["previewGroupingPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/report-workflow-policies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List report workflow policies
+         * @description Returns operator-managed report workflow policies.
+         */
+        get: operations["listReportWorkflowPolicies"];
+        put?: never;
+        /**
+         * Create a report workflow policy
+         * @description Stores report workflow policy metadata as a disabled draft. This operation does not enable or start workflows.
+         */
+        post: operations["createReportWorkflowPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/report-workflow-policies/{policy_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a report workflow policy
+         * @description Returns one operator-managed report workflow policy.
+         */
+        get: operations["getReportWorkflowPolicy"];
+        /**
+         * Replace a report workflow policy
+         * @description Replaces report workflow policy metadata while preserving explicit enabled state. This operation does not enable or start workflows.
+         */
+        put: operations["replaceReportWorkflowPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/report-workflow-policies/{policy_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable a report workflow policy
+         * @description Explicitly enables a report workflow policy after validating bound alert source, grouping policy, and optional report notification channel readiness. This action does not start workflows.
+         */
+        post: operations["enableReportWorkflowPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/report-workflow-policies/{policy_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disable a report workflow policy
+         * @description Explicitly disables a report workflow policy. This action does not cancel or start workflows.
+         */
+        post: operations["disableReportWorkflowPolicy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/report-workflow-policies/{policy_id}/impact-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview report workflow policy impact
+         * @description Reads one persisted report workflow policy, its bound alert source/grouping/channel configuration, and a bounded recent alert sample to return sanitized readiness and grouping impact. This action does not call alert providers, resolve secrets, start workflows, send notifications, or persist groups or snapshots.
+         */
+        post: operations["previewReportWorkflowPolicyImpact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/report-workflow-policies/{policy_id}/replay-window": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Replay an alert window with a report workflow policy
+         * @description Resolves the enabled report workflow policy and its bound alert source and grouping policy, replays the bounded alert window, persists EvidenceSnapshots, and starts the report batch workflow when snapshots are available.
+         */
+        post: operations["triggerReportWorkflowPolicyReplay"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/report-workflow-schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List report workflow schedules
+         * @description Returns operator-managed report workflow schedule metadata. This read does not inspect Temporal Schedule state.
+         */
+        get: operations["listReportWorkflowSchedules"];
+        put?: never;
+        /**
+         * Create a report workflow schedule
+         * @description Stores report workflow schedule metadata as a disabled draft. This operation does not register a Temporal Schedule, start workflows, call alert providers, resolve secrets, or send notifications.
+         */
+        post: operations["createReportWorkflowSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/report-workflow-schedules/{schedule_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a report workflow schedule
+         * @description Returns one operator-managed report workflow schedule without querying Temporal.
+         */
+        get: operations["getReportWorkflowSchedule"];
+        /**
+         * Replace a report workflow schedule
+         * @description Replaces report workflow schedule metadata while preserving explicit enabled state. This operation does not register a Temporal Schedule, start workflows, call alert providers, resolve secrets, or send notifications.
+         */
+        put: operations["replaceReportWorkflowSchedule"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/report-workflow-schedules/{schedule_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable a report workflow schedule
+         * @description Explicitly enables a report workflow schedule after validating that the bound report workflow policy is enabled. This action does not register or unpause a Temporal Schedule.
+         */
+        post: operations["enableReportWorkflowSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/report-workflow-schedules/{schedule_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disable a report workflow schedule
+         * @description Explicitly disables a report workflow schedule. This action pauses future starts only after the later Temporal registration slice wires schedule state to Temporal; it does not cancel already-started report workflows.
+         */
+        post: operations["disableReportWorkflowSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/notification-channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List notification channel profiles
+         * @description Returns operator-managed notification channel profiles without endpoint URLs or credential values.
+         */
+        get: operations["listNotificationChannelProfiles"];
+        put?: never;
+        /**
+         * Create a notification channel profile
+         * @description Stores notification channel metadata with a deployment-managed secret reference only. This operation does not send notifications.
+         */
+        post: operations["createNotificationChannelProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/notification-channels/{channel_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a notification channel profile
+         * @description Returns one operator-managed notification channel profile without endpoint URLs or credential values.
+         */
+        get: operations["getNotificationChannelProfile"];
+        /**
+         * Replace a notification channel profile
+         * @description Replaces mutable notification channel profile metadata. This operation does not send notifications.
+         */
+        put: operations["replaceNotificationChannelProfile"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/notification-channels/{channel_id}/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a notification channel profile
+         * @description Sends one bounded backend test notification for a persisted notification channel profile and returns sanitized status only. This action does not create report delivery records.
+         */
+        post: operations["testNotificationChannelProfile"];
         delete?: never;
         options?: never;
         head?: never;
@@ -518,6 +822,156 @@ export interface components {
             items: components["schemas"]["AlertSourceProfile"][];
         };
         /**
+         * @description Supported notification channel adapter kind.
+         * @example webhook
+         * @enum {string}
+         */
+        NotificationChannelKind: "webhook";
+        /**
+         * @description Notification flow that may use a channel once workflow binding is implemented.
+         * @example report
+         * @enum {string}
+         */
+        NotificationDeliveryScope: "report" | "diagnosis_close";
+        /**
+         * @description Sanitized notification-channel test outcome category.
+         * @example success
+         * @enum {string}
+         */
+        NotificationChannelTestStatus: "success" | "failed" | "unsupported" | "blocked";
+        /**
+         * @description Stable machine-readable reason for the notification-channel test outcome.
+         * @example ok
+         * @enum {string}
+         */
+        NotificationChannelTestReasonCode: "ok" | "unsupported_kind" | "credentials_unavailable" | "provider_unreachable" | "provider_error" | "invalid_profile";
+        /**
+         * @description Operator labels for notification ownership, environment, or routing metadata.
+         * @example {
+         *       "team": "ops",
+         *       "env": "test"
+         *     }
+         */
+        NotificationChannelLabels: {
+            [key: string]: string;
+        };
+        /** @description Operator-managed notification channel profile without endpoint URLs or credential values. */
+        NotificationChannelProfile: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            id: number;
+            /** @example Operations webhook */
+            name: string;
+            kind: components["schemas"]["NotificationChannelKind"];
+            /**
+             * @description Deployment-managed endpoint secret reference; never the endpoint URL or credential value.
+             * @example secret/example/ops-webhook
+             */
+            secret_ref: string;
+            /**
+             * @description Notification flows that may use this channel after later workflow binding.
+             * @example [
+             *       "report",
+             *       "diagnosis_close"
+             *     ]
+             */
+            delivery_scopes: components["schemas"]["NotificationDeliveryScope"][];
+            /**
+             * @description Whether operators enabled this channel for future notification binding.
+             * @example false
+             */
+            enabled: boolean;
+            labels: components["schemas"]["NotificationChannelLabels"];
+            /**
+             * Format: date-time
+             * @example 2026-06-05T09:00:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-05T09:10:00Z
+             */
+            updated_at: string;
+        };
+        /** @description Notification channel profile metadata accepted by create and replace operations. */
+        NotificationChannelProfileWriteRequest: {
+            /** @example Operations webhook */
+            name: string;
+            kind: components["schemas"]["NotificationChannelKind"];
+            /**
+             * @description Submitted deployment-managed endpoint secret reference; never the endpoint URL or credential value.
+             * @example secret/example/ops-webhook
+             */
+            secret_ref: string;
+            /**
+             * @example [
+             *       "report",
+             *       "diagnosis_close"
+             *     ]
+             */
+            delivery_scopes: components["schemas"]["NotificationDeliveryScope"][];
+            /** @default false */
+            enabled: boolean;
+            labels?: components["schemas"]["NotificationChannelLabels"];
+        };
+        /** @description Sanitized result for an explicit notification-channel delivery test. */
+        NotificationChannelTestResult: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            channel_id: number;
+            kind: components["schemas"]["NotificationChannelKind"];
+            status: components["schemas"]["NotificationChannelTestStatus"];
+            reason_code: components["schemas"]["NotificationChannelTestReasonCode"];
+            /**
+             * @description Operator-facing sanitized message. It must not include endpoint URLs, secret references, tokens, or raw provider error text.
+             * @example Notification channel test delivery succeeded.
+             */
+            message: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-05T10:00:00Z
+             */
+            checked_at: string;
+            /**
+             * @description Optional bounded provider acknowledgement identifier, when available from a successful provider response.
+             * @example msg-42
+             */
+            provider_message_id: string;
+            /**
+             * @description Optional bounded provider acknowledgement status, when available from a successful provider response.
+             * @example accepted
+             */
+            provider_status: string;
+        };
+        /** @description Notification channel profile list response. */
+        NotificationChannelProfileListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "name": "Operations webhook",
+             *         "kind": "webhook",
+             *         "secret_ref": "secret/example/ops-webhook",
+             *         "delivery_scopes": [
+             *           "report",
+             *           "diagnosis_close"
+             *         ],
+             *         "enabled": false,
+             *         "labels": {
+             *           "team": "ops"
+             *         },
+             *         "created_at": "2026-06-05T09:00:00Z",
+             *         "updated_at": "2026-06-05T09:00:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["NotificationChannelProfile"][];
+        };
+        /**
          * @description Group severity computed from alert labels during grouping preview.
          * @example warning
          * @enum {string}
@@ -612,6 +1066,426 @@ export interface components {
              *     ]
              */
             items: components["schemas"]["GroupingPolicy"][];
+        };
+        /**
+         * @description Supported report workflow trigger mode.
+         * @example manual_replay
+         * @enum {string}
+         */
+        ReportWorkflowTriggerMode: "manual_replay";
+        /**
+         * @description Report prompt scenario used for generated SubReports.
+         * @example single_alert
+         * @enum {string}
+         */
+        ReportWorkflowScenario: "single_alert" | "cascade" | "alert_storm";
+        /**
+         * @description Diagnosis-room handoff behavior after report creation.
+         * @example suggest_room
+         * @enum {string}
+         */
+        DiagnosisFollowUpMode: "disabled" | "suggest_room";
+        /** @description Operator-managed report workflow policy. Enabled state changes only through explicit action endpoints. */
+        ReportWorkflowPolicy: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            id: number;
+            /** @example Default report workflow */
+            name: string;
+            /**
+             * Format: int64
+             * @description Bound alert source profile identifier.
+             * @example 1
+             */
+            alert_source_profile_id: number;
+            /**
+             * Format: int64
+             * @description Bound grouping policy identifier.
+             * @example 1
+             */
+            grouping_policy_id: number;
+            /**
+             * Format: int64
+             * @description Optional notification channel profile identifier for final report delivery.
+             * @example 1
+             */
+            report_notification_channel_profile_id: number | null;
+            trigger_mode: components["schemas"]["ReportWorkflowTriggerMode"];
+            report_scenario: components["schemas"]["ReportWorkflowScenario"];
+            diagnosis_follow_up: components["schemas"]["DiagnosisFollowUpMode"];
+            /**
+             * @description Whether operators explicitly enabled this policy for workflow binding.
+             * @example false
+             */
+            enabled: boolean;
+            /**
+             * Format: date-time
+             * @description Time of the latest explicit enable action.
+             * @example 2026-06-05T08:05:00Z
+             */
+            enabled_at: string | null;
+            /**
+             * Format: date-time
+             * @description Time of the latest explicit disable action.
+             * @example null
+             */
+            disabled_at: string | null;
+            /**
+             * Format: date-time
+             * @example 2026-06-05T08:00:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-05T08:10:00Z
+             */
+            updated_at: string;
+        };
+        /** @description Report workflow policy metadata accepted by create and replace operations. Enabled state is action-only. */
+        ReportWorkflowPolicyWriteRequest: {
+            /** @example Default report workflow */
+            name: string;
+            /**
+             * Format: int64
+             * @example 1
+             */
+            alert_source_profile_id: number;
+            /**
+             * Format: int64
+             * @example 1
+             */
+            grouping_policy_id: number;
+            /**
+             * Format: int64
+             * @description Optional notification channel profile identifier for final report delivery.
+             * @example 1
+             */
+            report_notification_channel_profile_id?: number | null;
+            /**
+             * @default manual_replay
+             * @enum {string}
+             */
+            trigger_mode: "manual_replay";
+            /**
+             * @default single_alert
+             * @enum {string}
+             */
+            report_scenario: "single_alert" | "cascade" | "alert_storm";
+            /**
+             * @default disabled
+             * @enum {string}
+             */
+            diagnosis_follow_up: "disabled" | "suggest_room";
+        };
+        /** @description Report workflow policy list response. */
+        ReportWorkflowPolicyListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "name": "Default report workflow",
+             *         "alert_source_profile_id": 1,
+             *         "grouping_policy_id": 1,
+             *         "report_notification_channel_profile_id": null,
+             *         "trigger_mode": "manual_replay",
+             *         "report_scenario": "single_alert",
+             *         "diagnosis_follow_up": "suggest_room",
+             *         "enabled": false,
+             *         "enabled_at": null,
+             *         "disabled_at": null,
+             *         "created_at": "2026-06-05T08:00:00Z",
+             *         "updated_at": "2026-06-05T08:00:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["ReportWorkflowPolicy"][];
+        };
+        /** @description Operator-managed report workflow schedule metadata. Enabled state changes only through explicit action endpoints and does not imply Temporal registration in this slice. */
+        ReportWorkflowSchedule: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            id: number;
+            /** @example Daily report window */
+            name: string;
+            /**
+             * Format: int64
+             * @description Bound report workflow policy identifier.
+             * @example 1
+             */
+            report_workflow_policy_id: number;
+            /**
+             * @description Stable Temporal Schedule identifier reserved for the later registration slice.
+             * @example openclarion-report-policy-1-daily
+             */
+            temporal_schedule_id: string;
+            /**
+             * Format: int64
+             * @description Temporal interval cadence in whole seconds.
+             * @example 86400
+             */
+            interval_seconds: number;
+            /**
+             * Format: int64
+             * @description Temporal interval offset in whole seconds; must be less than interval_seconds.
+             * @example 21600
+             */
+            offset_seconds: number;
+            /**
+             * Format: int64
+             * @description Alert replay window duration computed from the scheduled fire time.
+             * @example 3600
+             */
+            replay_window_seconds: number;
+            /**
+             * Format: int64
+             * @description Delay subtracted from the scheduled fire time before computing the replay window end.
+             * @example 300
+             */
+            replay_delay_seconds: number;
+            /**
+             * Format: int32
+             * @description Maximum alert events loaded by the later launcher workflow.
+             * @example 10000
+             */
+            replay_limit: number;
+            /**
+             * Format: int64
+             * @description Bounded Temporal catch-up window in whole seconds.
+             * @example 3600
+             */
+            catchup_window_seconds: number;
+            /**
+             * @description Whether operators explicitly enabled this schedule metadata.
+             * @example false
+             */
+            enabled: boolean;
+            /**
+             * Format: date-time
+             * @description Time of the latest explicit enable action.
+             * @example 2026-06-06T02:05:00Z
+             */
+            enabled_at: string | null;
+            /**
+             * Format: date-time
+             * @description Time of the latest explicit disable action.
+             * @example null
+             */
+            disabled_at: string | null;
+            /**
+             * Format: date-time
+             * @example 2026-06-06T02:00:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-06T02:10:00Z
+             */
+            updated_at: string;
+        };
+        /** @description Report workflow schedule metadata accepted by create and replace operations. Enabled state is action-only. */
+        ReportWorkflowScheduleWriteRequest: {
+            /** @example Daily report window */
+            name: string;
+            /**
+             * Format: int64
+             * @example 1
+             */
+            report_workflow_policy_id: number;
+            /**
+             * @description Submitted Temporal Schedule identifier; must not contain whitespace or control characters.
+             * @example openclarion-report-policy-1-daily
+             */
+            temporal_schedule_id: string;
+            /** Format: int64 */
+            interval_seconds: number;
+            /** Format: int64 */
+            offset_seconds: number;
+            /** Format: int64 */
+            replay_window_seconds: number;
+            /** Format: int64 */
+            replay_delay_seconds: number;
+            /** Format: int32 */
+            replay_limit: number;
+            /** Format: int64 */
+            catchup_window_seconds: number;
+        };
+        /** @description Report workflow schedule list response. */
+        ReportWorkflowScheduleListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "name": "Daily report window",
+             *         "report_workflow_policy_id": 1,
+             *         "temporal_schedule_id": "openclarion-report-policy-1-daily",
+             *         "interval_seconds": 86400,
+             *         "offset_seconds": 21600,
+             *         "replay_window_seconds": 3600,
+             *         "replay_delay_seconds": 300,
+             *         "replay_limit": 10000,
+             *         "catchup_window_seconds": 3600,
+             *         "enabled": false,
+             *         "enabled_at": null,
+             *         "disabled_at": null,
+             *         "created_at": "2026-06-06T02:00:00Z",
+             *         "updated_at": "2026-06-06T02:00:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["ReportWorkflowSchedule"][];
+        };
+        /**
+         * @description Sanitized readiness category for a report workflow policy impact preview.
+         * @example ready
+         * @enum {string}
+         */
+        ReportWorkflowPolicyImpactPreviewStatus: "ready" | "review" | "blocked";
+        /**
+         * @description Stable machine-readable reason for the impact preview status.
+         * @example ok
+         * @enum {string}
+         */
+        ReportWorkflowPolicyImpactPreviewReasonCode: "ok" | "alert_source_disabled" | "grouping_policy_disabled" | "notification_channel_disabled" | "notification_channel_missing_report_scope" | "unsupported_trigger_mode" | "no_matching_events";
+        /** @description Non-persistent impact preview for one report workflow policy. The backend computes this from persisted configuration and a bounded recent AlertEvent sample without provider calls, secret resolution, workflow starts, notification sends, or group/snapshot persistence. */
+        ReportWorkflowPolicyImpactPreviewResult: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            policy_id: number;
+            status: components["schemas"]["ReportWorkflowPolicyImpactPreviewStatus"];
+            /**
+             * @example [
+             *       "ok"
+             *     ]
+             */
+            reason_codes: components["schemas"]["ReportWorkflowPolicyImpactPreviewReasonCode"][];
+            /**
+             * @description Operator-facing sanitized message. It must not include endpoint URLs, secret references, tokens, or raw provider error text.
+             * @example Report workflow policy impact preview is ready.
+             */
+            message: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-05T10:00:00Z
+             */
+            checked_at: string;
+            trigger_mode: components["schemas"]["ReportWorkflowTriggerMode"];
+            report_scenario: components["schemas"]["ReportWorkflowScenario"];
+            diagnosis_follow_up: components["schemas"]["DiagnosisFollowUpMode"];
+            /**
+             * Format: int64
+             * @example 1
+             */
+            alert_source_profile_id: number;
+            alert_source_kind: components["schemas"]["AlertSourceKind"];
+            alert_source_auth_mode: components["schemas"]["AlertSourceAuthMode"];
+            /** @example true */
+            alert_source_enabled: boolean;
+            /**
+             * Format: int64
+             * @example 1
+             */
+            grouping_policy_id: number;
+            /** @example true */
+            grouping_policy_enabled: boolean;
+            /**
+             * @example [
+             *       "alertname",
+             *       "service"
+             *     ]
+             */
+            grouping_dimension_keys: string[];
+            /** @example severity */
+            grouping_severity_key: string;
+            /**
+             * @example [
+             *       "prometheus"
+             *     ]
+             */
+            grouping_source_filter: string[];
+            /**
+             * Format: int64
+             * @description Optional notification channel profile identifier bound to final report delivery.
+             * @example 1
+             */
+            report_notification_channel_profile_id: number | null;
+            /** @example true */
+            report_notification_channel_bound: boolean;
+            /** @example true */
+            report_notification_channel_enabled: boolean;
+            /** @example true */
+            report_notification_channel_has_report_scope: boolean;
+            /**
+             * Format: int64
+             * @example 3
+             */
+            events_scanned: number;
+            /**
+             * Format: int64
+             * @example 2
+             */
+            events_matched: number;
+            /**
+             * Format: int64
+             * @example 1
+             */
+            groups_estimated: number;
+            /**
+             * @example [
+             *       {
+             *         "group_key": "0000000000000000000000000000000000000000000000000000000000000001",
+             *         "dimensions": {
+             *           "alertname": "HighCPU",
+             *           "service": "checkout"
+             *         },
+             *         "severity": "critical",
+             *         "event_count": 2,
+             *         "first_seen_at": "2026-06-05T04:00:00Z",
+             *         "last_seen_at": "2026-06-05T04:01:00Z",
+             *         "event_ids": [
+             *           101,
+             *           102
+             *         ]
+             *       }
+             *     ]
+             */
+            groups: components["schemas"]["GroupingPolicyPreviewGroup"][];
+        };
+        /** @description Request to replay an alert window through a stored report workflow policy. */
+        ReportWorkflowPolicyReplayRequest: {
+            /**
+             * Format: date-time
+             * @description Inclusive replay window start.
+             * @example 2026-06-05T08:00:00Z
+             */
+            window_start: string;
+            /**
+             * Format: date-time
+             * @description Exclusive replay window end.
+             * @example 2026-06-05T09:00:00Z
+             */
+            window_end: string;
+            /**
+             * Format: int32
+             * @description Maximum number of alert events to load from the window.
+             * @default 10000
+             */
+            limit: number;
+            /**
+             * @description Optional final-report idempotency key. Defaults to the policy ID and normalized replay window.
+             * @example incident-window-20260605T0800Z
+             */
+            correlation_key?: string;
+            /**
+             * @description Optional Temporal workflow ID. Defaults to a stable hash of the correlation key.
+             * @example report-batch-0bf4f5e1a8cb2d3299dcb4d280d5a6a0
+             */
+            workflow_id?: string;
         };
         /** @description One non-persistent grouping preview sample. */
         GroupingPolicyPreviewGroup: {
@@ -1045,6 +1919,152 @@ export interface components {
             /** Format: int64 */
             failed: number;
         };
+        /** @description Alertmanager webhook receiver payload accepted for alert ingestion. */
+        AlertmanagerWebhookPayload: {
+            /**
+             * @example 4
+             * @enum {string}
+             */
+            version: "4";
+            /** @example {}:{alertname="HighCPU"} */
+            groupKey?: string;
+            /**
+             * Format: int64
+             * @default 0
+             * @example 0
+             */
+            truncatedAlerts: number;
+            /**
+             * @example firing
+             * @enum {string}
+             */
+            status: "firing" | "resolved";
+            /** @example openclarion */
+            receiver?: string;
+            /**
+             * @example {
+             *       "alertname": "HighCPU"
+             *     }
+             */
+            groupLabels?: {
+                [key: string]: string;
+            };
+            /**
+             * @example {
+             *       "severity": "warning"
+             *     }
+             */
+            commonLabels?: {
+                [key: string]: string;
+            };
+            /**
+             * @example {
+             *       "summary": "CPU high"
+             *     }
+             */
+            commonAnnotations?: {
+                [key: string]: string;
+            };
+            /** @example https://alertmanager.example.test */
+            externalURL?: string;
+            /**
+             * @example [
+             *       {
+             *         "status": "firing",
+             *         "labels": {
+             *           "alertname": "HighCPU",
+             *           "instance": "api-1"
+             *         },
+             *         "annotations": {
+             *           "summary": "CPU high"
+             *         },
+             *         "startsAt": "2026-06-06T01:00:00Z"
+             *       }
+             *     ]
+             */
+            alerts: components["schemas"]["AlertmanagerWebhookAlert"][];
+        };
+        /** @description Single alert entry inside an Alertmanager webhook payload. */
+        AlertmanagerWebhookAlert: {
+            /**
+             * @example firing
+             * @enum {string}
+             */
+            status: "firing" | "resolved";
+            /**
+             * @example {
+             *       "alertname": "HighCPU",
+             *       "instance": "api-1"
+             *     }
+             */
+            labels: {
+                [key: string]: string;
+            };
+            /**
+             * @example {
+             *       "summary": "CPU high"
+             *     }
+             */
+            annotations: {
+                [key: string]: string;
+            };
+            /**
+             * Format: date-time
+             * @example 2026-06-06T01:00:00Z
+             */
+            startsAt: string;
+            /**
+             * Format: date-time
+             * @example 0001-01-01T00:00:00Z
+             */
+            endsAt?: string;
+            /** @example https://prometheus.example.test/graph */
+            generatorURL?: string;
+            /** @example abc123 */
+            fingerprint?: string;
+        };
+        /** @description Sanitized counters from Alertmanager webhook ingestion. */
+        AlertmanagerWebhookIngestResponse: {
+            /**
+             * Format: int64
+             * @example 2
+             */
+            source_id: number;
+            /**
+             * Format: int64
+             * @example 2
+             */
+            received: number;
+            /**
+             * Format: int64
+             * @example 1
+             */
+            skipped_resolved: number;
+            /**
+             * Format: int64
+             * @example 0
+             */
+            truncated_alerts: number;
+            /**
+             * @description Counter summary from webhook alert ingestion.
+             * @example {
+             *       "total": 1,
+             *       "saved": 1,
+             *       "duplicate": 0,
+             *       "failed": 0
+             *     }
+             */
+            ingested: {
+                /** Format: int64 */
+                total: number;
+                /** Format: int64 */
+                saved: number;
+                /** Format: int64 */
+                duplicate: number;
+                /** Format: int64 */
+                failed: number;
+            };
+        };
         /** @description EvidenceSnapshot reference returned by replay. */
         ReportReplaySnapshotRef: {
             /** Format: int64 */
@@ -1242,6 +2262,12 @@ export interface components {
         AlertSourceProfileID: number;
         /** @description Grouping policy identifier. */
         GroupingPolicyID: number;
+        /** @description Report workflow policy identifier. */
+        ReportWorkflowPolicyID: number;
+        /** @description Report workflow schedule identifier. */
+        ReportWorkflowScheduleID: number;
+        /** @description Notification channel profile identifier. */
+        NotificationChannelProfileID: number;
     };
     requestBodies: never;
     headers: never;
@@ -1555,6 +2581,79 @@ export interface operations {
             };
         };
     };
+    ingestAlertmanagerWebhook: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Alert source profile identifier. */
+                source_id: components["parameters"]["AlertSourceProfileID"];
+            };
+            cookie?: never;
+        };
+        /** @description Alertmanager webhook receiver payload. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AlertmanagerWebhookPayload"];
+            };
+        };
+        responses: {
+            /** @description Webhook payload was accepted and firing alerts were ingested */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertmanagerWebhookIngestResponse"];
+                };
+            };
+            /** @description Webhook request or payload is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Webhook authorization failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Alert source profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Alertmanager webhook ingest failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Webhook ingest wiring or credentials are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listGroupingPolicies: {
         parameters: {
             query?: {
@@ -1797,6 +2896,994 @@ export interface operations {
             };
             /** @description Grouping policy preview failed server-side */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listReportWorkflowPolicies: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report workflow policies */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowPolicyListResponse"];
+                };
+            };
+            /** @description Report workflow policy list parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createReportWorkflowPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Report workflow policy metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportWorkflowPolicyWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Report workflow policy created as a disabled draft */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowPolicy"];
+                };
+            };
+            /** @description Report workflow policy request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description A bound alert source or grouping policy was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy conflicts with an existing policy */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy creation failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getReportWorkflowPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Report workflow policy identifier. */
+                policy_id: components["parameters"]["ReportWorkflowPolicyID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report workflow policy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowPolicy"];
+                };
+            };
+            /** @description Report workflow policy was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy lookup failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    replaceReportWorkflowPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Report workflow policy identifier. */
+                policy_id: components["parameters"]["ReportWorkflowPolicyID"];
+            };
+            cookie?: never;
+        };
+        /** @description Replacement report workflow policy metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportWorkflowPolicyWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Report workflow policy replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowPolicy"];
+                };
+            };
+            /** @description Report workflow policy replacement request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replacement target or bound profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replacement policy conflicts with an existing name */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy replacement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    enableReportWorkflowPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Report workflow policy identifier. */
+                policy_id: components["parameters"]["ReportWorkflowPolicyID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report workflow policy enabled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowPolicy"];
+                };
+            };
+            /** @description Report workflow policy cannot be enabled */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy or binding was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy enablement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    disableReportWorkflowPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Report workflow policy identifier. */
+                policy_id: components["parameters"]["ReportWorkflowPolicyID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report workflow policy disabled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowPolicy"];
+                };
+            };
+            /** @description Report workflow policy disable request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy disablement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    previewReportWorkflowPolicyImpact: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path: {
+                /** @description Report workflow policy identifier. */
+                policy_id: components["parameters"]["ReportWorkflowPolicyID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sanitized report workflow policy impact preview result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowPolicyImpactPreviewResult"];
+                };
+            };
+            /** @description Impact preview request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy or binding was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Impact preview failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    triggerReportWorkflowPolicyReplay: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Report workflow policy identifier. */
+                policy_id: components["parameters"]["ReportWorkflowPolicyID"];
+            };
+            cookie?: never;
+        };
+        /** @description Replay window and optional workflow identity overrides. The report scenario is read from the stored policy. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportWorkflowPolicyReplayRequest"];
+            };
+        };
+        responses: {
+            /** @description Replay completed and report workflow start was accepted when snapshots existed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportReplayTriggerResponse"];
+                };
+            };
+            /** @description Replay request or policy readiness is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy or binding was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replay or workflow start failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Policy-driven report replay provider wiring is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listReportWorkflowSchedules: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report workflow schedules */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowScheduleListResponse"];
+                };
+            };
+            /** @description Report workflow schedule list parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow schedule list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createReportWorkflowSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Report workflow schedule metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportWorkflowScheduleWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Report workflow schedule created as a disabled draft */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowSchedule"];
+                };
+            };
+            /** @description Report workflow schedule request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Bound report workflow policy was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow schedule conflicts with an existing schedule */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow schedule creation failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getReportWorkflowSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Report workflow schedule identifier. */
+                schedule_id: components["parameters"]["ReportWorkflowScheduleID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report workflow schedule */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowSchedule"];
+                };
+            };
+            /** @description Report workflow schedule was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow schedule lookup failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    replaceReportWorkflowSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Report workflow schedule identifier. */
+                schedule_id: components["parameters"]["ReportWorkflowScheduleID"];
+            };
+            cookie?: never;
+        };
+        /** @description Replacement report workflow schedule metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportWorkflowScheduleWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Report workflow schedule replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowSchedule"];
+                };
+            };
+            /** @description Report workflow schedule replacement request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replacement target or bound policy was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replacement schedule conflicts with an existing Temporal Schedule ID */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow schedule replacement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    enableReportWorkflowSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Report workflow schedule identifier. */
+                schedule_id: components["parameters"]["ReportWorkflowScheduleID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report workflow schedule enabled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowSchedule"];
+                };
+            };
+            /** @description Report workflow schedule cannot be enabled */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow schedule or bound policy was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow schedule enablement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    disableReportWorkflowSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Report workflow schedule identifier. */
+                schedule_id: components["parameters"]["ReportWorkflowScheduleID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Report workflow schedule disabled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowSchedule"];
+                };
+            };
+            /** @description Report workflow schedule disable request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow schedule was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow schedule disablement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listNotificationChannelProfiles: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notification channel profiles */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannelProfileListResponse"];
+                };
+            };
+            /** @description Notification channel list parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Notification channel list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createNotificationChannelProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Notification channel profile metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationChannelProfileWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Notification channel profile created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannelProfile"];
+                };
+            };
+            /** @description Notification channel profile request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Notification channel profile conflicts with an existing profile */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Notification channel profile creation failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getNotificationChannelProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Notification channel profile identifier. */
+                channel_id: components["parameters"]["NotificationChannelProfileID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notification channel profile */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannelProfile"];
+                };
+            };
+            /** @description Notification channel profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Notification channel profile lookup failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    replaceNotificationChannelProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Notification channel profile identifier. */
+                channel_id: components["parameters"]["NotificationChannelProfileID"];
+            };
+            cookie?: never;
+        };
+        /** @description Replacement notification channel profile metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NotificationChannelProfileWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Notification channel profile replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannelProfile"];
+                };
+            };
+            /** @description Notification channel profile replacement request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replacement target profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replacement profile conflicts with an existing name */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Notification channel profile replacement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    testNotificationChannelProfile: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Notification channel profile identifier. */
+                channel_id: components["parameters"]["NotificationChannelProfileID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Sanitized notification channel test result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationChannelTestResult"];
+                };
+            };
+            /** @description Notification channel test request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Notification channel profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Notification channel test failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Notification channel tester is not configured */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

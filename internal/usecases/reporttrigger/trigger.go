@@ -18,10 +18,11 @@ import (
 
 // Request configures one replay-and-report trigger invocation.
 type Request struct {
-	Replay         alertreplay.Request
-	CorrelationKey string
-	WorkflowID     string
-	Scenario       reportprompt.Scenario
+	Replay                             alertreplay.Request
+	CorrelationKey                     string
+	WorkflowID                         string
+	Scenario                           reportprompt.Scenario
+	ReportNotificationChannelProfileID domain.NotificationChannelProfileID
 }
 
 // Result records both replay output and the optional workflow handle.
@@ -147,9 +148,10 @@ func BuildStartRequest(replay alertreplay.Result, req Request) (ports.ReportBatc
 	}
 
 	return ports.ReportBatchStartRequest{
-		WorkflowID:     workflowID,
-		CorrelationKey: correlationKey,
-		Items:          items,
+		WorkflowID:                         workflowID,
+		CorrelationKey:                     correlationKey,
+		ReportNotificationChannelProfileID: req.ReportNotificationChannelProfileID,
+		Items:                              items,
 	}, true, nil
 }
 

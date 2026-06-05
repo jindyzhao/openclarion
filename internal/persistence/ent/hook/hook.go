@@ -141,6 +141,18 @@ func (f GroupingPolicyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Val
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.GroupingPolicyMutation", m)
 }
 
+// The NotificationChannelProfileFunc type is an adapter to allow the use of ordinary
+// function as NotificationChannelProfile mutator.
+type NotificationChannelProfileFunc func(context.Context, *ent.NotificationChannelProfileMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f NotificationChannelProfileFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.NotificationChannelProfileMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.NotificationChannelProfileMutation", m)
+}
+
 // The ReportNotificationDeliveryFunc type is an adapter to allow the use of ordinary
 // function as ReportNotificationDelivery mutator.
 type ReportNotificationDeliveryFunc func(context.Context, *ent.ReportNotificationDeliveryMutation) (ent.Value, error)
@@ -151,6 +163,30 @@ func (f ReportNotificationDeliveryFunc) Mutate(ctx context.Context, m ent.Mutati
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ReportNotificationDeliveryMutation", m)
+}
+
+// The ReportWorkflowPolicyFunc type is an adapter to allow the use of ordinary
+// function as ReportWorkflowPolicy mutator.
+type ReportWorkflowPolicyFunc func(context.Context, *ent.ReportWorkflowPolicyMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ReportWorkflowPolicyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ReportWorkflowPolicyMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ReportWorkflowPolicyMutation", m)
+}
+
+// The ReportWorkflowScheduleFunc type is an adapter to allow the use of ordinary
+// function as ReportWorkflowSchedule mutator.
+type ReportWorkflowScheduleFunc func(context.Context, *ent.ReportWorkflowScheduleMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ReportWorkflowScheduleFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ReportWorkflowScheduleMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ReportWorkflowScheduleMutation", m)
 }
 
 // The SubReportFunc type is an adapter to allow the use of ordinary
