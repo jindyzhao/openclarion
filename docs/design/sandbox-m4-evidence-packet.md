@@ -113,16 +113,19 @@ OPENCLARION_M4_EVIDENCE_ROOT=artifacts/m4/manual-YYYY-MM-DD \
   make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=sandbox-m4-evidence-chain
 ```
 
-That preflight reports the canonical artifact chain by relative artifact name:
-baseline audit, runtime-smoke JSON files, `digest-ref.txt`, direct/sandbox
-sample directories, quality manifest, quality comparison, review evidence, and
-`packet.json`. Existing JSON files are checked for duplicate object keys and
-trailing JSON values before the helper reports their SHA-256 digests. When all
-canonical artifacts are present, the preflight also invokes
+That preflight accepts either the pre-packet working layout or the packet
+output layout. For a packet directory it reports the canonical artifact chain
+by relative artifact name: baseline audit, quality comparison, review evidence,
+decision output, packet summary, packet-local quality manifest, packet-local
+quality reports, and packet-local runtime-smoke artifacts. Existing JSON files
+are checked for duplicate object keys and trailing JSON values before the
+helper reports their SHA-256 digests. When all canonical packet artifacts are
+present, the preflight also invokes
 `sandbox_m4_evidence_packet --verify-packet` and reports a
 `packet_semantic_verification` status without printing verifier output or local
 paths. The output is a gap audit only; it does not run Docker, compare report
-quality, judge sample representativeness, or accept a runtime baseline.
+quality, judge sample representativeness, record a `proceed` decision, or
+accept a runtime baseline.
 The packet helper validates that the copied manifest's `sample_basis`, case
 IDs, scenarios, and `required_evidence_refs` match the generated quality
 comparison output, then validates every copied direct/sandbox SubReport with
@@ -153,13 +156,14 @@ refs must be single-line and no more than 120 runes.
 The packet helper also checks that the batch recommendation follows the
 case-derived summary before writing the quality artifact. Review evidence must
 include a non-future dated representative sample basis, an operator-supplied
-`selected_candidate`, at least one candidate evaluation with the selected
-candidate marked `pass`, an immutable `name@sha256:<64-hex-digest>` runtime
-candidate, and a matching immutable runtime ref on the selected candidate
-evaluation. Any pass-status candidate evaluation must cite all required
-runtime smoke names through `runtime_smoke_refs`, so the chosen generic
-candidate is tied to the same canonical runtime, Provider lifecycle, timeout,
-output-cap, and egress proofs that the decision gate evaluates. It also
+`selected_candidate`, at least one candidate evaluation for that selected
+candidate, and an immutable `name@sha256:<64-hex-digest>` runtime candidate.
+Any pass-status candidate evaluation must carry a matching immutable runtime
+ref and cite all required runtime smoke names through `runtime_smoke_refs`, so
+a pass claim is tied to the same canonical runtime, Provider lifecycle,
+timeout, output-cap, and egress proofs that the decision gate evaluates.
+Fail-closed review evidence can still be frozen into a retained `defer` packet
+for audit handoff; it does not satisfy the M4 acceptance decision. It also
 requires runtime smoke names to be exactly the required smoke set, canonical
 runtime smoke sources, distinct bounded single-line normalized relative
 `evidence_ref` values with no absolute paths, traversal, URI syntax,

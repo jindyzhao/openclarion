@@ -467,6 +467,44 @@ func TestRunRejectsOversizedRuntimeSmokeArtifact(t *testing.T) {
 	}
 }
 
+func TestRunAssemblesDeferPacketFromFailClosedReviewEvidence(t *testing.T) {
+	dir := t.TempDir()
+	qualityManifest := writeFile(t, dir, "quality-manifest.json", `{"cases":[{"id":"payments-cpu"}]}`)
+	reviewEvidence := writeFile(t, dir, "review-evidence.json", failClosedReviewEvidence())
+	outDir := filepath.Join(dir, "packet")
+	runner := &fakeRunner{
+		responses: []fakeResponse{
+			{stdout: validBaselineOutput()},
+			{stdout: validQualityOutput()},
+			{stdout: deferDecisionOutput()},
+		},
+	}
+
+	var stdout bytes.Buffer
+	if err := runWithRunner(context.Background(), []string{
+		"--quality-manifest", qualityManifest,
+		"--review-evidence", reviewEvidence,
+		"--out-dir", outDir,
+	}, &stdout, runner); err != nil {
+		t.Fatalf("runWithRunner: %v", err)
+	}
+
+	var out packetOutput
+	if err := json.NewDecoder(&stdout).Decode(&out); err != nil {
+		t.Fatalf("decode stdout %q: %v", stdout.String(), err)
+	}
+	if out.Decision != "defer" || !out.ReviewRequired {
+		t.Fatalf("Decision = %q ReviewRequired = %v, want defer and review_required", out.Decision, out.ReviewRequired)
+	}
+	packet, err := verifyPacket(outDir)
+	if err != nil {
+		t.Fatalf("verifyPacket: %v", err)
+	}
+	if packet.Decision != "defer" {
+		t.Fatalf("verified packet decision = %q, want defer", packet.Decision)
+	}
+}
+
 func TestRunPropagatesFailUnlessToDecision(t *testing.T) {
 	dir := t.TempDir()
 	qualityManifest := writeFile(t, dir, "quality-manifest.json", `{"cases":[{"id":"payments-cpu"}]}`)
@@ -2565,6 +2603,19 @@ func validDecisionOutput() string {
 }`
 }
 
+func deferDecisionOutput() string {
+	out := validDecisionOutput()
+	out = strings.Replace(out, `"decision": "proceed"`, `"decision": "defer"`, 1)
+	out = strings.Replace(out, `"representative_sample": true`, `"representative_sample": false`, 1)
+	out = strings.Replace(out, `"human_review_status": "pass"`, `"human_review_status": "fail"`, 1)
+	out = strings.Replace(out,
+		`"reasons": ["`+canonicalProceedReason+`"]`,
+		`"reasons": ["review evidence representative_sample must be true", "selected candidate \"runtime-candidate-a\" evaluation status = \"fail\", want pass", "human review status = \"fail\", want pass"]`,
+		1,
+	)
+	return out
+}
+
 func validReviewEvidence() string {
 	return `{
   "tool": "sandbox_m4_review_evidence",
@@ -2596,4 +2647,33 @@ func validReviewEvidence() string {
     "notes": "Representative alert-analysis scenarios reviewed."
   }
 }`
+}
+
+func failClosedReviewEvidence() string {
+	out := validReviewEvidence()
+	out = strings.Replace(out, `"representative_sample": true`, `"representative_sample": false`, 1)
+	out = strings.Replace(out,
+		`{"candidate": "runtime-candidate-a", "status": "pass", "runtime_candidate": "`+runtimeCandidateRef+`"`,
+		`{"candidate": "runtime-candidate-a", "status": "fail", "runtime_candidate": "`+runtimeCandidateRef+`"`,
+		1,
+	)
+	out = strings.Replace(out,
+		`"status": "pass",
+    "reviewer": "reviewer@example.com"`,
+		`"status": "fail",
+    "reviewer": "reviewer@example.com"`,
+		1,
+	)
+	for _, note := range []string{
+		"single-alert sample preserves evidence traceability",
+		"cascade sample preserves evidence traceability",
+		"alert-storm sample preserves evidence traceability",
+	} {
+		out = strings.Replace(out,
+			`"status": "pass", "notes": "`+note+`"`,
+			`"status": "fail", "notes": "`+note+`"`,
+			1,
+		)
+	}
+	return out
 }
