@@ -15,6 +15,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
+	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
@@ -62,6 +63,62 @@ func TestReportActivityOptionsFromEnv_AllowsUnconfiguredProviders(t *testing.T) 
 	}
 	if len(opts) != 0 {
 		t.Fatalf("len(opts) = %d, want 0", len(opts))
+	}
+}
+
+func TestTemporalTaskQueueFromEnv(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        map[string]string
+		want       string
+		wantSubstr string
+	}{
+		{
+			name: "default",
+			want: temporalpkg.TaskQueue,
+		},
+		{
+			name: "custom",
+			env: map[string]string{
+				"OPENCLARION_TEMPORAL_TASK_QUEUE": "openclarion-local-rehearsal",
+			},
+			want: "openclarion-local-rehearsal",
+		},
+		{
+			name: "leading whitespace",
+			env: map[string]string{
+				"OPENCLARION_TEMPORAL_TASK_QUEUE": " openclarion-local-rehearsal",
+			},
+			wantSubstr: "leading or trailing whitespace",
+		},
+		{
+			name: "tab",
+			env: map[string]string{
+				"OPENCLARION_TEMPORAL_TASK_QUEUE": "openclarion\tlocal",
+			},
+			wantSubstr: "control whitespace",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := temporalTaskQueueFromEnv(mapGetenv(tc.env))
+			if tc.wantSubstr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.wantSubstr)
+				}
+				if !strings.Contains(err.Error(), tc.wantSubstr) {
+					t.Fatalf("error = %q, want substring %q", err.Error(), tc.wantSubstr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("temporalTaskQueueFromEnv: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("task queue = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -689,6 +746,124 @@ func TestRunDiagnosisRoomCloseCLIWithDependenciesRequiresNotificationEvent(t *te
 	}
 	if out.Len() != 0 {
 		t.Fatalf("stdout = %q, want empty", out.String())
+	}
+}
+
+func TestDiagnosisRoomClosePayloadsDecodeLiveEventShape(t *testing.T) {
+	closePayload := []byte(`{
+		"kind": "diagnosis_room.closed",
+		"source": "DiagnosisRoomWorkflow",
+		"status": "closed",
+		"closed_at": "2026-06-05T07:45:20.308144+08:00",
+		"session_id": "diagnosis-session-abc",
+		"turn_count": 1,
+		"close_reason": "local_rehearsal_completed",
+		"owner_subject": "operator-1",
+		"chat_session_id": 202,
+		"final_conclusion": {
+			"source": "latest_assistant_turn",
+			"status": "available",
+			"content": "Local diagnosis conclusion.",
+			"confidence": "medium",
+			"assistant_turn_id": 303,
+			"assistant_sequence": 2,
+			"assistant_message_id": "msg-1/assistant",
+			"assistant_occurred_at": "2026-06-05T07:45:18.961702+08:00",
+			"requires_human_review": true
+		},
+		"diagnosis_task_id": 101,
+		"conclusion_version": "diagnosis-room-close.v1"
+	}`)
+	var closeOut diagnosisRoomCloseEventPayload
+	if err := strictjson.Unmarshal(closePayload, &closeOut); err != nil {
+		t.Fatalf("decode close payload: %v", err)
+	}
+	if closeOut.Source != "DiagnosisRoomWorkflow" ||
+		closeOut.FinalConclusion.Source != "latest_assistant_turn" ||
+		closeOut.FinalConclusion.AssistantTurnID != 303 {
+		t.Fatalf("close payload = %+v", closeOut)
+	}
+
+	notificationPayload := []byte(`{
+		"kind": "diagnosis_room.close_notification_sent",
+		"source": "DiagnosisRoomWorkflow",
+		"session_id": "diagnosis-session-abc",
+		"turn_count": 1,
+		"close_reason": "local_rehearsal_completed",
+		"provider_raw": {"status": "accepted", "message_id": "m5-local-close-1"},
+		"owner_subject": "operator-1",
+		"alert_group_id": 1,
+		"chat_session_id": 202,
+		"idempotency_key": "diagnosis_room:101:close-notification",
+		"provider_status": "accepted",
+		"diagnosis_task_id": 101,
+		"provider_message_id": "m5-local-close-1",
+		"evidence_snapshot_id": 1
+	}`)
+	var notificationOut diagnosisRoomCloseNotificationPayload
+	if err := strictjson.Unmarshal(notificationPayload, &notificationOut); err != nil {
+		t.Fatalf("decode notification payload: %v", err)
+	}
+	if notificationOut.Source != "DiagnosisRoomWorkflow" ||
+		notificationOut.ProviderStatus != "accepted" ||
+		notificationOut.ProviderMessageID != "m5-local-close-1" ||
+		len(notificationOut.ProviderRaw) == 0 {
+		t.Fatalf("notification payload = %+v", notificationOut)
+	}
+}
+
+func TestValidateDiagnosisRoomClosePayloadAcceptsPersistedMicrosecondPrecision(t *testing.T) {
+	closedAt := time.Date(2026, 6, 4, 23, 49, 59, 340646365, time.UTC)
+	assistantOccurredAt := closedAt.Add(-time.Second)
+	payloadClosedAt := closedAt.Truncate(time.Microsecond)
+	payloadAssistantOccurredAt := assistantOccurredAt.Truncate(time.Microsecond)
+	requiresHumanReview := true
+	result := temporalpkg.DiagnosisRoomWorkflowResult{
+		SessionID:       "diagnosis-session-abc",
+		ChatSessionID:   202,
+		DiagnosisTaskID: 101,
+		Status:          "closed",
+		TurnCount:       1,
+		ClosedAt:        &closedAt,
+		CloseReason:     "local_rehearsal_completed",
+		FinalConclusion: &temporalpkg.DiagnosisRoomFinalConclusion{
+			Status:              "available",
+			Source:              "latest_assistant_turn",
+			AssistantTurnID:     303,
+			AssistantMessageID:  "msg-1/assistant",
+			AssistantSequence:   2,
+			AssistantOccurredAt: &assistantOccurredAt,
+			Content:             "CPU alert is still firing.",
+			Confidence:          "medium",
+			RequiresHumanReview: &requiresHumanReview,
+		},
+	}
+	payload := diagnosisRoomCloseEventPayload{
+		Kind:            diagnosisRoomCloseEventClosedKind,
+		Source:          "DiagnosisRoomWorkflow",
+		SessionID:       result.SessionID,
+		ChatSessionID:   result.ChatSessionID,
+		DiagnosisTaskID: result.DiagnosisTaskID,
+		OwnerSubject:    "operator-1",
+		Status:          result.Status,
+		TurnCount:       result.TurnCount,
+		CloseReason:     result.CloseReason,
+		ClosedAt:        payloadClosedAt,
+		FinalConclusion: temporalpkg.DiagnosisRoomFinalConclusion{
+			Status:              result.FinalConclusion.Status,
+			Source:              result.FinalConclusion.Source,
+			AssistantTurnID:     result.FinalConclusion.AssistantTurnID,
+			AssistantMessageID:  result.FinalConclusion.AssistantMessageID,
+			AssistantSequence:   result.FinalConclusion.AssistantSequence,
+			AssistantOccurredAt: &payloadAssistantOccurredAt,
+			Content:             result.FinalConclusion.Content,
+			Confidence:          result.FinalConclusion.Confidence,
+			RequiresHumanReview: result.FinalConclusion.RequiresHumanReview,
+		},
+		ConclusionVersion: "diagnosis-room-close.v1",
+	}
+	if err := validateDiagnosisRoomClosePayload(result, payload); err != nil {
+		t.Fatalf("validateDiagnosisRoomClosePayload: %v", err)
 	}
 }
 

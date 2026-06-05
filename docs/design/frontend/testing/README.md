@@ -51,6 +51,11 @@ Optional variables:
   of starting local `next start`
 - `OPENCLARION_LIVE_WEB_PORT` for the local production Next.js server
 - `OPENCLARION_LIVE_DIAGNOSIS_MESSAGE` for the submitted turn text
+- `OPENCLARION_TEMPORAL_TASK_QUEUE` to isolate manual evidence runs from any
+  worker that may already poll the default `openclarion` queue. Use the same
+  value for the backend worker, `openclarion report-replay`, and
+  `make diagnosis-live-browser-smoke` when a rehearsal stack uses a dedicated
+  Temporal queue.
 - `OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=1` to require the close path
   after the browser turn. This also requires local `DATABASE_URL` and
   `TEMPORAL_HOST_PORT` access for `openclarion diagnosis-room-close`, plus a
