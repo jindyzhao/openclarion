@@ -18,7 +18,11 @@ values that must come from the operator environment before live proof can run.
 The configuration path follows the current upstream API semantics:
 
 - Prometheus connection tests use `GET /api/v1/alerts`, which returns the
-  standard Prometheus JSON envelope and active alert entries.
+  standard Prometheus JSON envelope and active alert entries. Upstream
+  documentation notes that this endpoint is newer and has weaker stability
+  guarantees than the broader API v1 surface, so OpenClarion treats it as an
+  adapter-specific connection-test capability rather than a broad provider
+  compatibility claim.
 - Alertmanager connection tests use `GET /api/v2/alerts` with active-alert
   filtering. Alertmanager webhook ingestion uses the version 4 grouped webhook
   payload shape with top-level group metadata and per-alert labels,
@@ -26,6 +30,40 @@ The configuration path follows the current upstream API semantics:
 - Scheduled report triggers use Temporal Schedules through the Go SDK schedule
   client. Registration must use `ScheduleWorkflowAction`, explicit skip
   overlap, bounded catch-up, and runtime describe/reconciliation checks.
+
+## Configuration Object Graph
+
+The frontend settings flow configures a graph of persisted profiles and
+policies. The graph is declarative until an operator chooses an explicit action.
+
+```text
+AlertSourceProfile
+        |
+        +--> connection test action
+        |
+        v
+ReportWorkflowPolicy ----> NotificationChannelProfile
+        |
+        +--> impact preview action
+        +--> explicit replay action
+        |
+        v
+ReportWorkflowSchedule
+        |
+        +--> Temporal Schedule reconciliation
+
+GroupingPolicy
+        |
+        +--> grouping preview action
+        |
+        +--> bound by ReportWorkflowPolicy
+```
+
+Saves create or replace metadata. They do not start workflows, call alert
+providers, resolve secrets, send notifications, create groups, build snapshots,
+or own timers. Actions are named separately so operators can test, preview,
+enable, replay, and prove the configuration without making form persistence a
+hidden trigger.
 
 ## Frontend Configuration Order
 
@@ -67,6 +105,24 @@ Operators should configure the browser-visible state in this order:
    limit, and catch-up window. The browser does not own timers, cron state,
    direct Temporal calls, provider calls, secret resolution, workflow starts, or
    notification sends.
+
+## Rule and Workflow Model
+
+Grouping rules and report workflows are configured as separate objects because
+they change at different rates and have different side effects.
+
+| Object | Operator intent | Side-effect boundary |
+|--------|-----------------|----------------------|
+| Alert source profile | Identify an alert adapter and credentials reference | Connection test only |
+| Grouping policy | Define labels, severity key, and optional source scope | Preview over persisted samples only |
+| Notification channel profile | Identify delivery target metadata and secret reference | Channel test only |
+| Report workflow policy | Bind source, grouping, scenario, follow-up, and delivery | Enable, preview, or replay actions |
+| Report workflow schedule | Bind a policy to a recurring replay window | Server-owned Temporal reconciliation |
+
+The report workflow policy is the operator-owned workflow contract. It owns the
+report scenario and binding IDs; replay requests only provide the policy ID,
+window, limit, and optional idempotency identifiers. This prevents browser
+forms from overriding workflow routing or report behavior at action time.
 
 ## Alertmanager Webhook Intake
 

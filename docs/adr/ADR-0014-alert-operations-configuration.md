@@ -91,15 +91,29 @@ configuration or action boundary; the browser never becomes the durable source
 of provider credentials, workflow routing, schedule timers, or notification
 delivery state.
 
+The operator configuration graph is intentionally declarative. An
+`AlertSourceProfile` describes where alert data can come from. A
+`GroupingPolicy` describes how persisted alert events should be grouped. A
+`NotificationChannelProfile` describes where report artifacts may be delivered.
+A `ReportWorkflowPolicy` binds those profiles and stores report behavior. A
+`ReportWorkflowSchedule` binds to one enabled report workflow policy and stores
+when the server should fire it. Only explicit action endpoints convert that
+configuration into side effects: connection tests perform bounded provider I/O,
+previews read bounded persisted samples, replay starts report generation, and
+schedule reconciliation converges PostgreSQL state into Temporal Schedule
+state. Saves remain metadata mutations.
+
 Alert source connection tests use a dedicated action endpoint. The action reads
 the persisted profile by ID, performs bounded provider I/O in backend code, and
 returns only status, reason, checked time, kind, auth mode, and small counters.
 It must not echo the profile base URL, raw upstream errors, bearer tokens,
 secret references beyond the already-persisted profile contract, or sampled
 alert payloads. Prometheus profiles are tested through the Prometheus
-`/api/v1/alerts` API. Alertmanager profiles are tested through the
-Alertmanager `/api/v2/alerts` API with query parameters that include active
-alerts and exclude silenced, inhibited, and unprocessed alerts. Profiles with
+`/api/v1/alerts` API, whose upstream documentation treats it as the active-alert
+endpoint while noting it has weaker stability guarantees than the overall API
+v1 surface. Alertmanager profiles are tested through the Alertmanager
+`/api/v2/alerts` API with query parameters that include active alerts and
+exclude silenced, inhibited, and unprocessed alerts. Profiles with
 `auth_mode=bearer` require a server-side secret resolver to exchange
 `secret_ref` for a bearer token. If the resolver is not configured, or the
 reference is unavailable, the action returns a blocked sanitized result rather
@@ -419,3 +433,4 @@ confirmation or diagnosis-room closure.
 | 2026-06-06 | jindyzhao | Added operator runbook projection for alert operations configuration and retained live-proof prerequisites |
 | 2026-06-06 | jindyzhao | Added report lifecycle boundary that separates automated report artifacts from human-confirmed final conclusions |
 | 2026-06-06 | jindyzhao | Added scheduled-trigger proof harness boundary for real Temporal Schedule action to report delivery verification |
+| 2026-06-06 | jindyzhao | Added declarative operator configuration graph and upstream API stability notes for Prometheus and Alertmanager adapters |

@@ -108,6 +108,28 @@ The live proof path should follow
 so operators configure alert sources, grouping rules, notification channels,
 workflow policies, and schedules in the intended order before retaining proof.
 
+### Console Configuration Graph
+
+The operations console presents persisted server-owned objects rather than a
+browser-owned wizard state. The durable graph is:
+
+```text
+alert source profile + grouping policy + notification channel profile
+        |
+        v
+report workflow policy
+        |
+        v
+report workflow schedule
+```
+
+The UI may guide operators through this graph, but it must preserve the action
+split from ADR-0014. Form saves mutate metadata only. Row actions perform
+connection tests, grouping previews, channel tests, impact previews, explicit
+policy replay, enable/disable, or schedule synchronization through backend
+APIs. A route component must not infer that a successful save, test, or preview
+means a workflow should start.
+
 ### Alert Source Configuration
 
 Operators configure Prometheus or Alertmanager through
