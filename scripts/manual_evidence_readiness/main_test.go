@@ -927,6 +927,52 @@ func TestRunReportsReadyM4EvidenceChainWithDigests(t *testing.T) {
 	}
 }
 
+func TestRunReportsReadyM4PacketEvidenceChainWithSemanticVerification(t *testing.T) {
+	var verifiedRoot string
+	withM4PacketVerifier(t, func(root string) error {
+		verifiedRoot = root
+		return nil
+	})
+	root := t.TempDir()
+	writeM4PacketEvidenceChainArtifacts(t, root)
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-evidence-chain"}, []string{
+		"OPENCLARION_M4_EVIDENCE_ROOT=" + root,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-evidence-chain")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready", target.Status)
+	}
+	if verifiedRoot != filepath.Clean(root) {
+		t.Fatalf("verified root = %q, want cleaned packet root", verifiedRoot)
+	}
+	qualityManifest := evidenceChainCheckByName(t, target.EvidenceChainChecks, "quality_manifest")
+	if qualityManifest.Status != "ok" || qualityManifest.Artifact != "quality-inputs/quality-manifest.json" || !lowerHexDigest(qualityManifest.SHA256) {
+		t.Fatalf("quality manifest check = %#v, want packet-local JSON with sha256", qualityManifest)
+	}
+	qualityReports := evidenceChainCheckByName(t, target.EvidenceChainChecks, "quality_reports")
+	if qualityReports.Status != "ok" || qualityReports.Artifact != "quality-inputs/reports" || qualityReports.SHA256 != "" {
+		t.Fatalf("quality reports check = %#v, want packet-local directory ok without sha256", qualityReports)
+	}
+	runtimeArtifacts := evidenceChainCheckByName(t, target.EvidenceChainChecks, "runtime_smoke_artifacts")
+	if runtimeArtifacts.Status != "ok" || runtimeArtifacts.Artifact != "runtime-smoke-artifacts" || runtimeArtifacts.SHA256 != "" {
+		t.Fatalf("runtime artifacts check = %#v, want packet-local directory ok without sha256", runtimeArtifacts)
+	}
+	semantic := evidenceChainCheckByName(t, target.EvidenceChainChecks, "packet_semantic_verification")
+	if semantic.Status != "ok" || semantic.SHA256 != "" {
+		t.Fatalf("semantic check = %#v, want ok without sha256", semantic)
+	}
+	if strings.Contains(stdout.String(), root) {
+		t.Fatalf("output leaked evidence root: %s", stdout.String())
+	}
+}
+
 func TestRunRejectsM4EvidenceChainWhenPacketVerifierFails(t *testing.T) {
 	withM4PacketVerifier(t, func(_ string) error {
 		return os.ErrInvalid
@@ -945,6 +991,35 @@ func TestRunRejectsM4EvidenceChainWhenPacketVerifierFails(t *testing.T) {
 	} {
 		writeFile(t, root, name)
 	}
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "sandbox-m4-evidence-chain"}, []string{
+		"OPENCLARION_M4_EVIDENCE_ROOT=" + root,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "sandbox-m4-evidence-chain")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	semantic := evidenceChainCheckByName(t, target.EvidenceChainChecks, "packet_semantic_verification")
+	if semantic.Status != "invalid_packet" || semantic.Reason != "invalid argument" {
+		t.Fatalf("semantic check = %#v, want invalid_packet with sanitized reason", semantic)
+	}
+	if strings.Contains(stdout.String(), root) {
+		t.Fatalf("output leaked evidence root: %s", stdout.String())
+	}
+}
+
+func TestRunRejectsM4PacketEvidenceChainWhenVerifierFails(t *testing.T) {
+	withM4PacketVerifier(t, func(_ string) error {
+		return os.ErrInvalid
+	})
+	root := t.TempDir()
+	writeM4PacketEvidenceChainArtifacts(t, root)
 
 	var stdout bytes.Buffer
 	err := run([]string{"--target", "sandbox-m4-evidence-chain"}, []string{
@@ -1180,6 +1255,23 @@ func writeM4EvidenceChainRuntimeArtifacts(t *testing.T, root string) {
 	} {
 		writeFileBody(t, root, filepath.Join("runtime-smokes", name), `{"status":"pass"}`+"\n")
 	}
+}
+
+func writeM4PacketEvidenceChainArtifacts(t *testing.T, root string) {
+	t.Helper()
+	for _, name := range []string{
+		"baseline-audit.json",
+		"quality-comparison.json",
+		"review-evidence.json",
+		"decision.json",
+	} {
+		writeFile(t, root, name)
+	}
+	writeFileBody(t, root, "packet.json", `{"tool":"sandbox_m4_evidence_packet"}`+"\n")
+	writeFile(t, root, "quality-inputs/quality-manifest.json")
+	writeFile(t, root, "quality-inputs/reports/direct/single_alert/payments-cpu.json")
+	writeFile(t, root, "quality-inputs/reports/sandbox/single_alert/payments-cpu.json")
+	writeFile(t, root, "runtime-smoke-artifacts/agent-runtime-smoke.json")
 }
 
 func evidenceChainCheckByName(t *testing.T, checks []evidenceChainCheck, name string) evidenceChainCheck {

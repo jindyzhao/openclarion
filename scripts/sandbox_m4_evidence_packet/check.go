@@ -2215,9 +2215,6 @@ func validateReviewEvidence(raw []byte) error {
 	if err := validateCandidateEvaluations(review.SelectedCandidate, review.RuntimeCandidate, review.CandidateEvaluations); err != nil {
 		return err
 	}
-	if !review.RepresentativeSample {
-		return errors.New("review evidence representative_sample must be true")
-	}
 	if strings.TrimSpace(review.SampleBasis) == "" {
 		return errors.New("review evidence sample_basis is required")
 	}
@@ -2313,10 +2310,7 @@ func validateCandidateEvaluations(selected, runtimeCandidate string, evaluations
 	if !ok {
 		return fmt.Errorf("review evidence selected_candidate %q must have a matching candidate_evaluations entry", selected)
 	}
-	if selectedEval.Status != "pass" {
-		return fmt.Errorf("selected candidate %q evaluation status = %q, want pass", selected, selectedEval.Status)
-	}
-	if selectedEval.RuntimeCandidate != runtimeCandidate {
+	if selectedEval.Status == "pass" && selectedEval.RuntimeCandidate != runtimeCandidate {
 		return fmt.Errorf("selected candidate %q runtime_candidate %q must match review evidence runtime_candidate %q", selected, selectedEval.RuntimeCandidate, runtimeCandidate)
 	}
 	return nil

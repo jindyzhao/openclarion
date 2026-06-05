@@ -60,6 +60,17 @@ var requiredM4EvidenceArtifacts = []m4EvidenceArtifact{
 	{Name: "packet_summary", Artifact: "packet.json", JSON: true},
 }
 
+var requiredM4PacketEvidenceArtifacts = []m4EvidenceArtifact{
+	{Name: "baseline_audit", Artifact: "baseline-audit.json", JSON: true},
+	{Name: "quality_comparison", Artifact: "quality-comparison.json", JSON: true},
+	{Name: "review_evidence", Artifact: "review-evidence.json", JSON: true},
+	{Name: "decision", Artifact: "decision.json", JSON: true},
+	{Name: "packet_summary", Artifact: "packet.json", JSON: true},
+	{Name: "quality_manifest", Artifact: "quality-inputs/quality-manifest.json", JSON: true},
+	{Name: "quality_reports", Artifact: "quality-inputs/reports", Directory: true},
+	{Name: "runtime_smoke_artifacts", Artifact: "runtime-smoke-artifacts", Directory: true},
+}
+
 var verifyM4EvidencePacket = verifyM4EvidencePacketWithGoRun
 
 type readinessOutput struct {
@@ -606,8 +617,8 @@ func sandboxM4EvidenceChainReadiness(env envMap) targetReadiness {
 		DependsOn:    []string{"sandbox-m4-evidence-packet"},
 		Command:      "OPENCLARION_M4_EVIDENCE_ROOT=... make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=sandbox-m4-evidence-chain",
 		Notes: []string{
-			"Preflight checks a retained M4 evidence working directory for the canonical artifact chain without printing local paths.",
-			"JSON artifacts are checked for duplicate object keys and trailing JSON before the packet verifier performs semantic validation when all canonical artifacts are present.",
+			"Preflight checks a retained M4 evidence working directory or packet directory for the canonical artifact chain without printing local paths.",
+			"JSON artifacts are checked for duplicate object keys and trailing JSON before the packet verifier performs semantic validation when all canonical packet artifacts are present.",
 			"The target reports presence, SHA-256 digests, and packet verification status only; it does not judge sample representativeness or accept a runtime baseline.",
 		},
 	}
@@ -1390,14 +1401,45 @@ func runtimeCandidateFileReference(filePath string) bool {
 }
 
 func m4EvidenceChainChecks(root string) []evidenceChainCheck {
-	checks := make([]evidenceChainCheck, 0, len(requiredM4EvidenceArtifacts))
-	for _, artifact := range requiredM4EvidenceArtifacts {
+	artifacts := requiredM4EvidenceArtifacts
+	if m4EvidencePacketRoot(root) {
+		artifacts = requiredM4PacketEvidenceArtifacts
+	}
+	checks := make([]evidenceChainCheck, 0, len(artifacts)+1)
+	for _, artifact := range artifacts {
 		checks = append(checks, checkM4EvidenceArtifact(root, artifact))
 	}
 	if evidenceChainChecksReady(checks) {
 		checks = append(checks, checkM4PacketSemanticVerification(root))
 	}
 	return checks
+}
+
+func m4EvidencePacketRoot(root string) bool {
+	if m4PacketSummaryTool(root) {
+		return true
+	}
+	for _, artifact := range []string{"quality-inputs", "runtime-smoke-artifacts"} {
+		info, err := os.Lstat(filepath.Join(root, filepath.FromSlash(artifact)))
+		if err == nil && info.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func m4PacketSummaryTool(root string) bool {
+	raw, err := readBoundedArtifact(filepath.Join(root, "packet.json"))
+	if err != nil || len(raw) > maxReadinessArtifactBytes {
+		return false
+	}
+	var summary struct {
+		Tool string `json:"tool"`
+	}
+	if err := json.Unmarshal(raw, &summary); err != nil {
+		return false
+	}
+	return summary.Tool == "sandbox_m4_evidence_packet"
 }
 
 func checkM4PacketSemanticVerification(root string) evidenceChainCheck {
