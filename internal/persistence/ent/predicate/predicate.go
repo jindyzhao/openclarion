@@ -12,6 +12,9 @@ type AlertEvent func(*sql.Selector)
 // AlertGroup is the predicate function for alertgroup builders.
 type AlertGroup func(*sql.Selector)
 
+// AlertSourceProfile is the predicate function for alertsourceprofile builders.
+type AlertSourceProfile func(*sql.Selector)
+
 // ChatSession is the predicate function for chatsession builders.
 type ChatSession func(*sql.Selector)
 

@@ -92,6 +92,42 @@ var (
 			},
 		},
 	}
+	// AlertSourceProfilesColumns holds the columns for the "alert_source_profiles" table.
+	AlertSourceProfilesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
+		{Name: "kind", Type: field.TypeString, Size: 32},
+		{Name: "base_url", Type: field.TypeString, Size: 2048},
+		{Name: "auth_mode", Type: field.TypeString, Size: 32, Default: "none"},
+		{Name: "secret_ref", Type: field.TypeString, Nullable: true, Size: 256},
+		{Name: "enabled", Type: field.TypeBool, Default: false},
+		{Name: "labels", Type: field.TypeJSON},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+	}
+	// AlertSourceProfilesTable holds the schema information for the "alert_source_profiles" table.
+	AlertSourceProfilesTable = &schema.Table{
+		Name:       "alert_source_profiles",
+		Columns:    AlertSourceProfilesColumns,
+		PrimaryKey: []*schema.Column{AlertSourceProfilesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "alertsourceprofile_kind_enabled",
+				Unique:  false,
+				Columns: []*schema.Column{AlertSourceProfilesColumns[2], AlertSourceProfilesColumns[6]},
+			},
+			{
+				Name:    "alertsourceprofile_labels",
+				Unique:  false,
+				Columns: []*schema.Column{AlertSourceProfilesColumns[7]},
+				Annotation: &entsql.IndexAnnotation{
+					Types: map[string]string{
+						"postgres": "GIN",
+					},
+				},
+			},
+		},
+	}
 	// ChatSessionsColumns holds the columns for the "chat_sessions" table.
 	ChatSessionsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -527,6 +563,7 @@ var (
 	Tables = []*schema.Table{
 		AlertEventsTable,
 		AlertGroupsTable,
+		AlertSourceProfilesTable,
 		ChatSessionsTable,
 		ChatTurnsTable,
 		DiagnosisAuthTicketsTable,

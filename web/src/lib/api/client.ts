@@ -11,15 +11,31 @@ export type ApiResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: ApiError };
 
+export type RequestJSONOptions = {
+  method?: "GET" | "POST" | "PUT";
+  body?: unknown;
+  headers?: HeadersInit;
+};
+
 const defaultAPIBaseURL = "http://localhost:8080";
 
-export async function requestJSON<T>(path: string): Promise<ApiResult<T>> {
+export async function requestJSON<T>(path: string, options: RequestJSONOptions = {}): Promise<ApiResult<T>> {
   const baseURL = process.env.OPENCLARION_API_BASE_URL ?? defaultAPIBaseURL;
   let response: Response;
   try {
+    const headers = new Headers(options.headers);
+    if (!headers.has("accept")) {
+      headers.set("accept", "application/json");
+    }
+    if (options.body !== undefined && !headers.has("content-type")) {
+      headers.set("content-type", "application/json");
+    }
+
     response = await fetch(new URL(path, baseURL), {
       cache: "no-store",
-      headers: { accept: "application/json" }
+      method: options.method ?? "GET",
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body)
     });
   } catch (error) {
     return {
@@ -38,8 +54,14 @@ export async function requestJSON<T>(path: string): Promise<ApiResult<T>> {
     };
   }
 
+  if (response.status === httpNoContent) {
+    return { ok: true, data: undefined as T };
+  }
+
   return { ok: true, data: (await response.json()) as T };
 }
+
+const httpNoContent = 204;
 
 async function errorMessage(response: Response): Promise<string> {
   try {

@@ -232,6 +232,189 @@ func TestGetDashboard_ReturnsRecentCounters(t *testing.T) {
 	}
 }
 
+func TestListAlertSourceProfilesReturnsProfiles(t *testing.T) {
+	createdAt := time.Date(2026, 6, 5, 3, 0, 0, 0, time.UTC)
+	factory := &fakeUOWFactory{
+		configRepo: &fakeConfigRepo{
+			alertSourceProfiles: []domain.AlertSourceProfile{
+				{
+					ID:        1,
+					Name:      "Primary Prometheus",
+					Kind:      domain.AlertSourceKindPrometheus,
+					BaseURL:   "https://prometheus.example.test",
+					AuthMode:  domain.AlertSourceAuthModeBearer,
+					SecretRef: "secret/openclarion/prometheus-token",
+					Enabled:   false,
+					Labels:    map[string]string{"env": "staging"},
+					CreatedAt: createdAt,
+					UpdatedAt: createdAt,
+				},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/alert-sources?limit=1", nil)
+	testHandler(factory).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if factory.configRepo.lastListLimit != 1 {
+		t.Fatalf("repo limit = %d, want 1", factory.configRepo.lastListLimit)
+	}
+	var body api.AlertSourceProfileListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(body.Items))
+	}
+	got := body.Items[0]
+	if got.Name != "Primary Prometheus" || got.Kind != api.Prometheus || got.SecretRef != "secret/openclarion/prometheus-token" {
+		t.Fatalf("unexpected profile: %+v", got)
+	}
+}
+
+func TestCreateAlertSourceProfileSavesSanitizedProfile(t *testing.T) {
+	repo := &fakeConfigRepo{
+		saveResult: domain.AlertSourceProfile{
+			ID:        1,
+			Name:      "Primary Prometheus",
+			Kind:      domain.AlertSourceKindPrometheus,
+			BaseURL:   "https://prometheus.example.test",
+			AuthMode:  domain.AlertSourceAuthModeBearer,
+			SecretRef: "secret/openclarion/prometheus-token",
+			Enabled:   true,
+			Labels:    map[string]string{"env": "staging"},
+			CreatedAt: time.Date(2026, 6, 5, 3, 0, 0, 0, time.UTC),
+			UpdatedAt: time.Date(2026, 6, 5, 3, 0, 0, 0, time.UTC),
+		},
+	}
+	body := `{
+		"name":" Primary Prometheus ",
+		"kind":"prometheus",
+		"base_url":"https://prometheus.example.test",
+		"auth_mode":"bearer",
+		"secret_ref":"secret/openclarion/prometheus-token",
+		"enabled":true,
+		"labels":{" env ":" staging "}
+	}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/alert-sources", strings.NewReader(body))
+	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.saved.Name != "Primary Prometheus" || repo.saved.Labels["env"] != "staging" {
+		t.Fatalf("saved profile was not normalized: %+v", repo.saved)
+	}
+	var resp api.AlertSourceProfile
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if resp.ID != 1 || resp.SecretRef != "secret/openclarion/prometheus-token" || !resp.Enabled {
+		t.Fatalf("response = %+v", resp)
+	}
+}
+
+func TestReplaceAlertSourceProfileDisablesSource(t *testing.T) {
+	repo := &fakeConfigRepo{
+		updateResult: domain.AlertSourceProfile{
+			ID:        7,
+			Name:      "Primary Alertmanager",
+			Kind:      domain.AlertSourceKindAlertmanager,
+			BaseURL:   "https://alertmanager.example.test",
+			AuthMode:  domain.AlertSourceAuthModeNone,
+			Enabled:   false,
+			Labels:    map[string]string{},
+			CreatedAt: time.Date(2026, 6, 5, 3, 0, 0, 0, time.UTC),
+			UpdatedAt: time.Date(2026, 6, 5, 3, 5, 0, 0, time.UTC),
+		},
+	}
+	body := `{
+		"name":"Primary Alertmanager",
+		"kind":"alertmanager",
+		"base_url":"https://alertmanager.example.test",
+		"auth_mode":"none",
+		"enabled":false
+	}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPut, "/api/v1/config/alert-sources/7", strings.NewReader(body))
+	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.updated.ID != 7 || repo.updated.Enabled {
+		t.Fatalf("updated = %+v, want id 7 disabled", repo.updated)
+	}
+}
+
+func TestAlertSourceProfileWriteRejectsInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		wantStatus int
+		repoErr    error
+	}{
+		{
+			name:       "unknown_field",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/alert-sources",
+			body:       `{"name":"Prom","kind":"prometheus","base_url":"https://prometheus.example.test","auth_mode":"none","extra":true}`,
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "userinfo_url",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/alert-sources",
+			body:       `{"name":"Prom","kind":"prometheus","base_url":"https://user@prometheus.example.test","auth_mode":"none"}`,
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "bearer_missing_secret_ref",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/alert-sources",
+			body:       `{"name":"Prom","kind":"prometheus","base_url":"https://prometheus.example.test","auth_mode":"bearer"}`,
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "duplicate_name",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/alert-sources",
+			body:       `{"name":"Prom","kind":"prometheus","base_url":"https://prometheus.example.test","auth_mode":"none"}`,
+			wantStatus: stdhttp.StatusConflict,
+			repoErr:    domain.ErrAlreadyExists,
+		},
+		{
+			name:       "replace_not_found",
+			method:     stdhttp.MethodPut,
+			path:       "/api/v1/config/alert-sources/99",
+			body:       `{"name":"Prom","kind":"prometheus","base_url":"https://prometheus.example.test","auth_mode":"none"}`,
+			wantStatus: stdhttp.StatusNotFound,
+			repoErr:    domain.ErrNotFound,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeConfigRepo{saveErr: tc.repoErr, updateErr: tc.repoErr}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, strings.NewReader(tc.body))
+			testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 	finalCreatedAt := time.Date(2026, 5, 27, 10, 5, 0, 0, time.UTC)
 	subCreatedAt := finalCreatedAt.Add(-time.Minute)
@@ -1523,6 +1706,7 @@ type fakeUOWFactory struct {
 	alertRepo    *fakeAlertRepo
 	evidenceRepo *fakeEvidenceRepo
 	reportRepo   *fakeReportRepo
+	configRepo   *fakeConfigRepo
 	err          error
 }
 
@@ -1543,14 +1727,14 @@ func (t *fakeReportReplayTrigger) ReplayAndStart(_ context.Context, req reporttr
 }
 
 func (f *fakeUOWFactory) Begin(context.Context) (ports.UnitOfWork, error) {
-	return &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, reportRepo: f.reportRepo}, f.err
+	return &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, reportRepo: f.reportRepo, configRepo: f.configRepo}, f.err
 }
 
 func (f *fakeUOWFactory) WithinTx(ctx context.Context, fn func(context.Context, ports.UnitOfWork) error) error {
 	if f.err != nil {
 		return f.err
 	}
-	return fn(ctx, &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, reportRepo: f.reportRepo})
+	return fn(ctx, &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, reportRepo: f.reportRepo, configRepo: f.configRepo})
 }
 
 type fakeUOW struct {
@@ -1558,6 +1742,7 @@ type fakeUOW struct {
 	alertRepo    ports.AlertRepository
 	evidenceRepo ports.EvidenceRepository
 	reportRepo   ports.ReportRepository
+	configRepo   ports.ConfigurationRepository
 }
 
 func (u *fakeUOW) Alerts() ports.AlertRepository {
@@ -1574,6 +1759,10 @@ func (u *fakeUOW) Diagnosis() ports.DiagnosisRepository {
 
 func (u *fakeUOW) Reports() ports.ReportRepository {
 	return u.reportRepo
+}
+
+func (u *fakeUOW) Config() ports.ConfigurationRepository {
+	return u.configRepo
 }
 
 func (u *fakeUOW) Commit(context.Context) error {
@@ -1620,6 +1809,51 @@ type fakeReportRepo struct {
 	lastListLimit       int
 	lastSubReportsLimit int
 	lastDeliveryLimit   int
+}
+
+type fakeConfigRepo struct {
+	ports.ConfigurationRepository
+	alertSourceProfiles []domain.AlertSourceProfile
+	saveResult          domain.AlertSourceProfile
+	updateResult        domain.AlertSourceProfile
+	saved               domain.AlertSourceProfile
+	updated             domain.AlertSourceProfile
+	saveErr             error
+	updateErr           error
+	lastListLimit       int
+}
+
+func (r *fakeConfigRepo) ListAlertSourceProfiles(_ context.Context, limit int) ([]domain.AlertSourceProfile, error) {
+	r.lastListLimit = limit
+	if limit > len(r.alertSourceProfiles) {
+		limit = len(r.alertSourceProfiles)
+	}
+	return r.alertSourceProfiles[:limit], nil
+}
+
+func (r *fakeConfigRepo) SaveAlertSourceProfile(_ context.Context, profile domain.AlertSourceProfile) (domain.AlertSourceProfile, error) {
+	r.saved = profile
+	if r.saveErr != nil {
+		return domain.AlertSourceProfile{}, r.saveErr
+	}
+	return r.saveResult, nil
+}
+
+func (r *fakeConfigRepo) UpdateAlertSourceProfile(_ context.Context, profile domain.AlertSourceProfile) (domain.AlertSourceProfile, error) {
+	r.updated = profile
+	if r.updateErr != nil {
+		return domain.AlertSourceProfile{}, r.updateErr
+	}
+	return r.updateResult, nil
+}
+
+func (r *fakeConfigRepo) FindAlertSourceProfileByID(_ context.Context, id domain.AlertSourceProfileID) (domain.AlertSourceProfile, error) {
+	for _, profile := range r.alertSourceProfiles {
+		if profile.ID == id {
+			return profile, nil
+		}
+	}
+	return domain.AlertSourceProfile{}, domain.ErrNotFound
 }
 
 func (r *fakeReportRepo) ListFinalReports(_ context.Context, limit int) ([]domain.FinalReport, error) {

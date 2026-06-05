@@ -33,6 +33,18 @@ func (f AlertGroupFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, 
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AlertGroupMutation", m)
 }
 
+// The AlertSourceProfileFunc type is an adapter to allow the use of ordinary
+// function as AlertSourceProfile mutator.
+type AlertSourceProfileFunc func(context.Context, *ent.AlertSourceProfileMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f AlertSourceProfileFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.AlertSourceProfileMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.AlertSourceProfileMutation", m)
+}
+
 // The ChatSessionFunc type is an adapter to allow the use of ordinary
 // function as ChatSession mutator.
 type ChatSessionFunc func(context.Context, *ent.ChatSessionMutation) (ent.Value, error)

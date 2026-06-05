@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 type ReportShellProps = {
   children: ReactNode;
-  current: "dashboard" | "reports" | "diagnosis";
+  current: "dashboard" | "reports" | "diagnosis" | "settings";
 };
 
 export function ReportShell({ children, current }: ReportShellProps) {
@@ -22,6 +22,9 @@ export function ReportShell({ children, current }: ReportShellProps) {
           </Link>
           <Link aria-current={current === "diagnosis" ? "page" : undefined} href="/diagnosis-room">
             Diagnosis
+          </Link>
+          <Link aria-current={current === "settings" ? "page" : undefined} href="/settings/alert-sources">
+            Settings
           </Link>
         </nav>
       </header>

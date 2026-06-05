@@ -1,0 +1,59 @@
+"use client";
+
+import type { ApiResult, RequestJSONOptions } from "./client";
+import type { components } from "./openapi";
+
+type ErrorResponse = components["schemas"]["ErrorResponse"];
+
+export async function requestSameOriginJSON<T>(path: string, options: RequestJSONOptions = {}): Promise<ApiResult<T>> {
+  let response: Response;
+  try {
+    const headers = new Headers(options.headers);
+    if (!headers.has("accept")) {
+      headers.set("accept", "application/json");
+    }
+    if (options.body !== undefined && !headers.has("content-type")) {
+      headers.set("content-type", "application/json");
+    }
+
+    response = await fetch(path, {
+      cache: "no-store",
+      method: options.method ?? "GET",
+      headers,
+      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: { message: error instanceof Error ? error.message : "Request failed." }
+    };
+  }
+
+  if (!response.ok) {
+    return {
+      ok: false,
+      error: {
+        message: await errorMessage(response),
+        status: response.status
+      }
+    };
+  }
+
+  if (response.status === 204) {
+    return { ok: true, data: undefined as T };
+  }
+
+  return { ok: true, data: (await response.json()) as T };
+}
+
+async function errorMessage(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as Partial<ErrorResponse>;
+    if (typeof body.error === "string" && body.error.trim() !== "") {
+      return body.error;
+    }
+  } catch {
+    // Fall through to the HTTP status line.
+  }
+  return response.statusText || `HTTP ${response.status}`;
+}

@@ -92,10 +92,53 @@ const dashboard = {
   }
 };
 
+let nextAlertSourceID = 3;
+const alertSources = [
+  {
+    id: 1,
+    name: "Primary Prometheus",
+    kind: "prometheus",
+    base_url: "https://prometheus.example.test",
+    auth_mode: "bearer",
+    secret_ref: "secret/openclarion/prometheus-token",
+    enabled: true,
+    labels: {
+      env: "prod",
+      owner: "platform"
+    },
+    created_at: "2026-05-28T06:00:00Z",
+    updated_at: "2026-05-28T06:00:00Z"
+  },
+  {
+    id: 2,
+    name: "Staging Alertmanager",
+    kind: "alertmanager",
+    base_url: "https://alertmanager-staging.example.test",
+    auth_mode: "none",
+    secret_ref: "",
+    enabled: false,
+    labels: {
+      env: "staging"
+    },
+    created_at: "2026-05-28T06:00:00Z",
+    updated_at: "2026-05-28T06:00:00Z"
+  }
+];
+
 const server = createServer((request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
   if (request.method === "OPTIONS") {
     writeJSON(response, 204, null);
+    return;
+  }
+
+  if (url.pathname === "/api/v1/config/alert-sources") {
+    handleAlertSourceCollection(request, response);
+    return;
+  }
+  const alertSourceMatch = url.pathname.match(/^\/api\/v1\/config\/alert-sources\/(\d+)$/);
+  if (alertSourceMatch) {
+    handleAlertSourceProfile(request, response, Number.parseInt(alertSourceMatch[1], 10));
     return;
   }
 
@@ -229,7 +272,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
 function writeJSON(response, status, body) {
   response.writeHead(status, {
     "access-control-allow-headers": "authorization, content-type, accept",
-    "access-control-allow-methods": "GET, POST, OPTIONS",
+    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
     "access-control-allow-origin": "*",
     "content-type": "application/json"
   });
@@ -249,6 +292,65 @@ function readJSON(request) {
     });
     request.on("error", reject);
   });
+}
+
+function handleAlertSourceCollection(request, response) {
+  if (request.method === "GET") {
+    writeJSON(response, 200, { items: alertSources });
+    return;
+  }
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const profile = alertSourceProfileFromBody(nextAlertSourceID, body);
+      nextAlertSourceID += 1;
+      alertSources.unshift(profile);
+      writeJSON(response, 201, profile);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function handleAlertSourceProfile(request, response, profileID) {
+  if (request.method !== "PUT") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const index = alertSources.findIndex((profile) => profile.id === profileID);
+      if (index < 0) {
+        writeJSON(response, 404, { error: "alert source profile not found" });
+        return;
+      }
+      const current = alertSources[index];
+      const profile = alertSourceProfileFromBody(profileID, body, current.created_at);
+      alertSources[index] = profile;
+      writeJSON(response, 200, profile);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function alertSourceProfileFromBody(id, body, createdAt = "2026-05-28T06:02:00Z") {
+  const now = "2026-05-28T06:03:00Z";
+  return {
+    id,
+    name: String(body.name ?? ""),
+    kind: body.kind === "alertmanager" ? "alertmanager" : "prometheus",
+    base_url: String(body.base_url ?? ""),
+    auth_mode: body.auth_mode === "bearer" ? "bearer" : "none",
+    secret_ref: typeof body.secret_ref === "string" ? body.secret_ref : "",
+    enabled: Boolean(body.enabled),
+    labels: body.labels && typeof body.labels === "object" && !Array.isArray(body.labels) ? body.labels : {},
+    created_at: createdAt,
+    updated_at: now
+  };
 }
 
 function handleDiagnosisFrame(socket, sessionID, state, payload) {
