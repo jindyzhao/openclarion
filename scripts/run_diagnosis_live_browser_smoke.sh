@@ -39,6 +39,7 @@ fi
 close_notification_required="${OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION:-${DIAGNOSIS_LIVE_REQUIRE_CLOSE_NOTIFICATION:-}}"
 if env_truthy "$close_notification_required"; then
   require_env DATABASE_URL
+  require_env TEMPORAL_HOST_PORT
 fi
 
 if ((${#missing[@]} > 0)); then
