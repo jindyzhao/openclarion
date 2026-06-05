@@ -182,6 +182,35 @@ func TestHTTPServerOptionsFromEnv_AllowsUnconfiguredTrigger(t *testing.T) {
 	}
 }
 
+func TestHTTPServerOptionsFromEnv_ConfiguresAlertSourceSecretResolver(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		alertSourceSecretRefsEnv: `{"secret/openclarion/prometheus-bearer":"test-bearer-value"}`,
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_RejectsInvalidAlertSourceSecretResolver(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		alertSourceSecretRefsEnv: `{"secret/openclarion/prometheus-bearer":"test bearer value"}`,
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected alert source secret resolver error, got nil")
+	}
+	if !strings.Contains(err.Error(), alertSourceSecretRefsEnv) {
+		t.Fatalf("error = %q, want %s", err.Error(), alertSourceSecretRefsEnv)
+	}
+	if strings.Contains(err.Error(), "test bearer value") {
+		t.Fatalf("error leaked secret value: %v", err)
+	}
+}
+
 func TestHTTPServerOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
 	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
 	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{

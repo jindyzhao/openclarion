@@ -36,6 +36,9 @@ configuration or replace backend-owned policy/profile identifiers.
 Connection-test contracts are action results, not profile state. Frontend code
 may cache the last result for display during the current browser session, but
 must not persist it as durable configuration or use it as an enablement flag.
+Bearer-backed connection tests depend on backend secret resolution; the
+frontend continues to send only persisted profile IDs and renders only the
+sanitized result contract.
 
 Grouping preview contracts follow the same action-result rule. A preview result
 is computed by the backend from bounded persisted alert samples and can be shown

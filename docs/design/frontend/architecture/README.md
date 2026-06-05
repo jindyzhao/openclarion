@@ -87,9 +87,10 @@ Connection tests are backend actions, not frontend probes. The UI may trigger a
 test for a persisted profile ID and render the sanitized status, reason, and
 small counters returned by OpenAPI, but it must not expose the upstream base URL
 in test output or infer workflow enablement from a successful test. Prometheus
-no-auth tests can report live alert-listing reachability. Bearer-backed tests
-remain blocked until the backend has a secret resolver, and Alertmanager remains
-unsupported until its adapter is implemented.
+and Alertmanager tests can report live alert-listing reachability through the
+backend adapters. Bearer-backed tests require the backend secret resolver to
+map the persisted `secret_ref` to a token; missing resolver entries remain a
+blocked backend result and are not handled in the browser.
 
 The feature mirrors the backend's configuration model: generated OpenAPI types
 are the DTO source, form parsing is local validation only, PostgreSQL-backed Go

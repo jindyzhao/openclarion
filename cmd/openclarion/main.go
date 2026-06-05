@@ -36,7 +36,9 @@ import (
 	containerdocker "github.com/openclarion/openclarion/internal/providers/container/docker"
 	imwebhook "github.com/openclarion/openclarion/internal/providers/im/webhook"
 	openaillm "github.com/openclarion/openclarion/internal/providers/llm/openai"
+	metricsalertmanager "github.com/openclarion/openclarion/internal/providers/metrics/alertmanager"
 	metricsprometheus "github.com/openclarion/openclarion/internal/providers/metrics/prometheus"
+	secretenvmap "github.com/openclarion/openclarion/internal/providers/secrets/envmap"
 	"github.com/openclarion/openclarion/internal/strictjson"
 	transporthttp "github.com/openclarion/openclarion/internal/transport/http"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
@@ -52,7 +54,9 @@ import (
 type getenvFunc func(string) string
 
 const (
-	temporalTaskQueueEnv             = "OPENCLARION_TEMPORAL_TASK_QUEUE"
+	temporalTaskQueueEnv = "OPENCLARION_TEMPORAL_TASK_QUEUE"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	alertSourceSecretRefsEnv         = "OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON"
 	reportReplayCLICommand           = "report-replay"
 	reportReplayCLICreatedByWorkflow = "ReportReplayCLI"
 	defaultReportReplayCLILimit      = 10000
@@ -420,14 +424,42 @@ func httpServerOptionsFromEnv(
 		return nil, nil, err
 	}
 
-	alertSourceTester, err := alertsourcecheck.NewService(
-		func(profile domain.AlertSourceProfile) (ports.MetricsProvider, error) {
-			return metricsprometheus.NewProvider(
-				profile.BaseURL,
-				metricsprometheus.WithRoundTripperDecorator(outboundTransportDecorator(httpTracing)),
-			)
-		},
+	secretResolver, err := alertSourceSecretResolverFromEnv(getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	alertSourceCheckOptions := []alertsourcecheck.Option{
 		alertsourcecheck.WithClock(func() time.Time { return time.Now().UTC() }),
+		alertsourcecheck.WithAlertmanagerFactory(func(
+			profile domain.AlertSourceProfile,
+			credentials alertsourcecheck.ProviderCredentials,
+		) (ports.MetricsProvider, error) {
+			providerOpts := []metricsalertmanager.Option{
+				metricsalertmanager.WithRoundTripperDecorator(outboundTransportDecorator(httpTracing)),
+			}
+			if credentials.BearerToken != "" {
+				providerOpts = append(providerOpts, metricsalertmanager.WithBearer(credentials.BearerToken))
+			}
+			return metricsalertmanager.NewProvider(profile.BaseURL, providerOpts...)
+		}),
+	}
+	if secretResolver != nil {
+		alertSourceCheckOptions = append(alertSourceCheckOptions, alertsourcecheck.WithSecretResolver(secretResolver))
+	}
+	alertSourceTester, err := alertsourcecheck.NewService(
+		func(
+			profile domain.AlertSourceProfile,
+			credentials alertsourcecheck.ProviderCredentials,
+		) (ports.MetricsProvider, error) {
+			providerOpts := []metricsprometheus.Option{
+				metricsprometheus.WithRoundTripperDecorator(outboundTransportDecorator(httpTracing)),
+			}
+			if credentials.BearerToken != "" {
+				providerOpts = append(providerOpts, metricsprometheus.WithBearer(credentials.BearerToken))
+			}
+			return metricsprometheus.NewProvider(profile.BaseURL, providerOpts...)
+		},
+		alertSourceCheckOptions...,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure alert source connection tester: %w", err)
@@ -472,6 +504,18 @@ func httpServerOptionsFromEnv(
 	}
 	opts = append(opts, diagnosisOpts...)
 	return opts, originPolicy, nil
+}
+
+func alertSourceSecretResolverFromEnv(getenv getenvFunc) (ports.SecretResolver, error) {
+	raw := strings.TrimSpace(getenv(alertSourceSecretRefsEnv))
+	if raw == "" {
+		return nil, nil
+	}
+	resolver, err := secretenvmap.NewResolverFromJSON(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s is invalid: %w", alertSourceSecretRefsEnv, err)
+	}
+	return resolver, nil
 }
 
 func diagnosisServerOptionsFromEnv(

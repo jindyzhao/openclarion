@@ -68,9 +68,9 @@ is the manual M5 browser proof harness for a real backend/worker stack.
 ## Next Operations Slice
 
 The remaining operations settings slices are report workflow policies,
-notification channels, secret-backed/Alertmanager connection adapters, and
-impact-preview actions. These screens must consume generated OpenAPI types and
-call backend configuration APIs; they must not own durable configuration or
-workflow routing in local component state. Connection tests, grouping previews,
-dry-runs, and enablement remain separate backend actions so operators can review
-impact before a profile or workflow becomes active.
+notification channels, profile-driven replay enablement, and impact-preview
+actions. These screens must consume generated OpenAPI types and call backend
+configuration APIs; they must not own durable configuration or workflow routing
+in local component state. Connection tests, grouping previews, dry-runs, and
+enablement remain separate backend actions so operators can review impact
+before a profile or workflow becomes active.
