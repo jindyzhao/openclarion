@@ -535,7 +535,7 @@ sandbox-m4-review-evidence-template: ## Manual M4 review evidence template: QUAL
 	go run ./scripts/sandbox_m4_review_evidence_template "$${args[@]}"
 
 sandbox-m4-evidence-packet-test: ## Run focused M4 sandbox evidence packet tests
-	@go test -race -count=1 ./scripts/sandbox_m4_evidence_packet
+	@go test -race -count=1 ./scripts/sandbox_m4_evidence_packet ./scripts/sandbox_m4_runtime_smoke_artifacts
 
 sandbox-m4-evidence-packet: ## Manual M4 evidence packet: QUALITY_MANIFEST=... REVIEW_EVIDENCE=... OUT_DIR=...
 	@if [[ -z "$(QUALITY_MANIFEST)" || -z "$(REVIEW_EVIDENCE)" || -z "$(OUT_DIR)" ]]; then \

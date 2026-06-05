@@ -196,3 +196,4 @@ implementation change within the existing contract.
 |------|--------|--------|
 | 2026-05-19 | jindyzhao | Initial proposal |
 | 2026-05-28 | jindyzhao | Link M4 runtime selection gate and clarify that OpenClaw/Hermes/custom thin runner adoption is an image-adapter decision, not a control-plane contract change |
+| 2026-06-06 | jindyzhao | Clarify that retained M4 runtime-smoke bundles are validated before review handoff, keeping ADR-0013 runtime evidence tied to canonical one-shot file-contract, provider lifecycle, timeout, output-cap, and egress artifacts |

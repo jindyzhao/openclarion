@@ -145,6 +145,8 @@
   (`make sandbox-m4-decision-test`; manual `make sandbox-m4-decision`)
 - [x] M4 retained runtime-smoke artifact collection target exists
   (`make sandbox-m4-runtime-smoke-artifacts`)
+- [x] retained runtime-smoke artifact bundle validation exists
+  (`scripts/sandbox_m4_runtime_smoke_artifacts`)
 - [x] fail-closed M4 review-evidence template helper exists
   (`make sandbox-m4-review-evidence-template`)
 - [x] M4 decision evidence packet assembler exists

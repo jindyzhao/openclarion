@@ -116,5 +116,7 @@ for artifact in "${expected_artifacts[@]}"; do
   fi
 done
 
+go run ./scripts/sandbox_m4_runtime_smoke_artifacts --root "$artifacts_dir" >/dev/null
+
 echo "[sandbox-m4-runtime-smoke-artifacts] OK - retained runtime-smoke artifacts:" >&2
 printf '[sandbox-m4-runtime-smoke-artifacts] %s\n' "${expected_artifacts[@]}" >&2
