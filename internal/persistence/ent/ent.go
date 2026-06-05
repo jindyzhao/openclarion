@@ -22,6 +22,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
@@ -94,6 +95,7 @@ func checkColumn(t, c string) error {
 			diagnosistaskevent.Table:         diagnosistaskevent.ValidColumn,
 			evidencesnapshot.Table:           evidencesnapshot.ValidColumn,
 			finalreport.Table:                finalreport.ValidColumn,
+			groupingpolicy.Table:             groupingpolicy.ValidColumn,
 			reportnotificationdelivery.Table: reportnotificationdelivery.ValidColumn,
 			subreport.Table:                  subreport.ValidColumn,
 		})

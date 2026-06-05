@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { diagnosisWebSocketURL, issueDiagnosisWSTicket, parseDiagnosisServerFrame } from "./transport";
+import { defaultAPIBaseURL, diagnosisWebSocketURL, issueDiagnosisWSTicket, parseDiagnosisServerFrame } from "./transport";
+
+describe("defaultAPIBaseURL", () => {
+  it("uses a stable SSR and browser-safe local API default", () => {
+    expect(defaultAPIBaseURL()).toBe("http://localhost:8080");
+  });
+});
 
 describe("diagnosisWebSocketURL", () => {
   it("maps HTTP API URLs to WebSocket URLs with session and ticket query values", () => {

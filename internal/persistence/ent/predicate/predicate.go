@@ -36,6 +36,9 @@ type EvidenceSnapshot func(*sql.Selector)
 // FinalReport is the predicate function for finalreport builders.
 type FinalReport func(*sql.Selector)
 
+// GroupingPolicy is the predicate function for groupingpolicy builders.
+type GroupingPolicy func(*sql.Selector)
+
 // ReportNotificationDelivery is the predicate function for reportnotificationdelivery builders.
 type ReportNotificationDelivery func(*sql.Selector)
 

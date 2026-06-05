@@ -20,6 +20,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
+	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -243,7 +244,7 @@ func TestListAlertSourceProfilesReturnsProfiles(t *testing.T) {
 					Kind:      domain.AlertSourceKindPrometheus,
 					BaseURL:   "https://prometheus.example.test",
 					AuthMode:  domain.AlertSourceAuthModeBearer,
-					SecretRef: "secret/openclarion/prometheus-token",
+					SecretRef: "secret/openclarion/prometheus-bearer",
 					Enabled:   false,
 					Labels:    map[string]string{"env": "staging"},
 					CreatedAt: createdAt,
@@ -271,7 +272,7 @@ func TestListAlertSourceProfilesReturnsProfiles(t *testing.T) {
 		t.Fatalf("len(items) = %d, want 1", len(body.Items))
 	}
 	got := body.Items[0]
-	if got.Name != "Primary Prometheus" || got.Kind != api.Prometheus || got.SecretRef != "secret/openclarion/prometheus-token" {
+	if got.Name != "Primary Prometheus" || got.Kind != api.Prometheus || got.SecretRef != "secret/openclarion/prometheus-bearer" {
 		t.Fatalf("unexpected profile: %+v", got)
 	}
 }
@@ -284,7 +285,7 @@ func TestCreateAlertSourceProfileSavesSanitizedProfile(t *testing.T) {
 			Kind:      domain.AlertSourceKindPrometheus,
 			BaseURL:   "https://prometheus.example.test",
 			AuthMode:  domain.AlertSourceAuthModeBearer,
-			SecretRef: "secret/openclarion/prometheus-token",
+			SecretRef: "secret/openclarion/prometheus-bearer",
 			Enabled:   true,
 			Labels:    map[string]string{"env": "staging"},
 			CreatedAt: time.Date(2026, 6, 5, 3, 0, 0, 0, time.UTC),
@@ -296,7 +297,7 @@ func TestCreateAlertSourceProfileSavesSanitizedProfile(t *testing.T) {
 		"kind":"prometheus",
 		"base_url":"https://prometheus.example.test",
 		"auth_mode":"bearer",
-		"secret_ref":"secret/openclarion/prometheus-token",
+		"secret_ref":"secret/openclarion/prometheus-bearer",
 		"enabled":true,
 		"labels":{" env ":" staging "}
 	}`
@@ -315,7 +316,7 @@ func TestCreateAlertSourceProfileSavesSanitizedProfile(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if resp.ID != 1 || resp.SecretRef != "secret/openclarion/prometheus-token" || !resp.Enabled {
+	if resp.ID != 1 || resp.SecretRef != "secret/openclarion/prometheus-bearer" || !resp.Enabled {
 		t.Fatalf("response = %+v", resp)
 	}
 }
@@ -351,6 +352,100 @@ func TestReplaceAlertSourceProfileDisablesSource(t *testing.T) {
 	}
 	if repo.updated.ID != 7 || repo.updated.Enabled {
 		t.Fatalf("updated = %+v, want id 7 disabled", repo.updated)
+	}
+}
+
+func TestAlertSourceProfileConnectionTestReturnsSanitizedResult(t *testing.T) {
+	checkedAt := time.Date(2026, 6, 5, 4, 0, 0, 0, time.UTC)
+	repo := &fakeConfigRepo{
+		alertSourceProfiles: []domain.AlertSourceProfile{
+			{
+				ID:        1,
+				Name:      "Primary Prometheus",
+				Kind:      domain.AlertSourceKindPrometheus,
+				BaseURL:   "https://prometheus.example.test",
+				AuthMode:  domain.AlertSourceAuthModeBearer,
+				SecretRef: "secret/openclarion/prometheus-bearer",
+				Enabled:   true,
+				Labels:    map[string]string{"env": "prod"},
+				CreatedAt: checkedAt,
+				UpdatedAt: checkedAt,
+			},
+		},
+	}
+	tester := &fakeAlertSourceConnectionTester{
+		result: alertsourcecheck.Result{
+			SourceID:       1,
+			Kind:           domain.AlertSourceKindPrometheus,
+			AuthMode:       domain.AlertSourceAuthModeBearer,
+			Status:         alertsourcecheck.StatusBlocked,
+			ReasonCode:     alertsourcecheck.ReasonCredentialsUnavailable,
+			Message:        "Secret-backed connection tests require a server-side secret resolver.",
+			CheckedAt:      checkedAt,
+			ObservedAlerts: 0,
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/alert-sources/1/test", nil)
+	testHandler(&fakeUOWFactory{configRepo: repo}, WithAlertSourceConnectionTester(tester)).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if tester.called != 1 || tester.profile.ID != 1 || tester.profile.BaseURL == "" {
+		t.Fatalf("tester called=%d profile=%+v", tester.called, tester.profile)
+	}
+	if body := rec.Body.String(); strings.Contains(body, "https://prometheus.example.test") || strings.Contains(body, "secret/openclarion") {
+		t.Fatalf("response leaked endpoint or secret reference: %s", body)
+	}
+	var resp api.AlertSourceConnectionTestResult
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if resp.Status != api.AlertSourceConnectionTestStatusBlocked || resp.ReasonCode != api.CredentialsUnavailable {
+		t.Fatalf("response = %+v", resp)
+	}
+}
+
+func TestAlertSourceProfileConnectionTestRejectsUnconfiguredAndMissingProfiles(t *testing.T) {
+	tests := []struct {
+		name       string
+		repo       *fakeConfigRepo
+		opts       []ServerOption
+		wantStatus int
+	}{
+		{
+			name:       "unconfigured",
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusServiceUnavailable,
+		},
+		{
+			name:       "not_found",
+			repo:       &fakeConfigRepo{},
+			opts:       []ServerOption{WithAlertSourceConnectionTester(&fakeAlertSourceConnectionTester{})},
+			wantStatus: stdhttp.StatusNotFound,
+		},
+		{
+			name:       "invalid_id",
+			repo:       &fakeConfigRepo{},
+			opts:       []ServerOption{WithAlertSourceConnectionTester(&fakeAlertSourceConnectionTester{})},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path := "/api/v1/config/alert-sources/99/test"
+			if tc.name == "invalid_id" {
+				path = "/api/v1/config/alert-sources/0/test"
+			}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, path, nil)
+			testHandler(&fakeUOWFactory{configRepo: tc.repo}, tc.opts...).ServeHTTP(rec, req)
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
 	}
 }
 
@@ -407,6 +502,258 @@ func TestAlertSourceProfileWriteRejectsInvalidInputs(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, strings.NewReader(tc.body))
 			testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestListGroupingPoliciesReturnsPolicies(t *testing.T) {
+	createdAt := time.Date(2026, 6, 5, 4, 0, 0, 0, time.UTC)
+	factory := &fakeUOWFactory{
+		configRepo: &fakeConfigRepo{
+			groupingPolicies: []domain.GroupingPolicy{
+				{
+					ID:            1,
+					Name:          "Default alert grouping",
+					DimensionKeys: []string{"alertname", "service"},
+					SeverityKey:   "severity",
+					SourceFilter:  []string{"prometheus"},
+					Enabled:       true,
+					CreatedAt:     createdAt,
+					UpdatedAt:     createdAt,
+				},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/grouping-policies?limit=1", nil)
+	testHandler(factory).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if factory.configRepo.lastListLimit != 1 {
+		t.Fatalf("repo limit = %d, want 1", factory.configRepo.lastListLimit)
+	}
+	var body api.GroupingPolicyListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 || body.Items[0].Name != "Default alert grouping" {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestCreateGroupingPolicySavesNormalizedPolicy(t *testing.T) {
+	repo := &fakeConfigRepo{
+		saveGroupingPolicyResult: domain.GroupingPolicy{
+			ID:            1,
+			Name:          "Default alert grouping",
+			DimensionKeys: []string{"alertname", "service"},
+			SeverityKey:   "severity",
+			SourceFilter:  []string{"prometheus"},
+			Enabled:       true,
+			CreatedAt:     time.Date(2026, 6, 5, 4, 0, 0, 0, time.UTC),
+			UpdatedAt:     time.Date(2026, 6, 5, 4, 0, 0, 0, time.UTC),
+		},
+	}
+	body := `{
+		"name":" Default alert grouping ",
+		"dimension_keys":["service","alertname","service"],
+		"severity_key":" severity ",
+		"source_filter":["prometheus","prometheus"],
+		"enabled":true
+	}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/grouping-policies", strings.NewReader(body))
+	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.savedGroupingPolicy.Name != "Default alert grouping" ||
+		len(repo.savedGroupingPolicy.DimensionKeys) != 2 ||
+		repo.savedGroupingPolicy.DimensionKeys[0] != "alertname" ||
+		repo.savedGroupingPolicy.SeverityKey != "severity" {
+		t.Fatalf("saved policy was not normalized: %+v", repo.savedGroupingPolicy)
+	}
+	var resp api.GroupingPolicy
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if resp.ID != 1 || !resp.Enabled || len(resp.SourceFilter) != 1 {
+		t.Fatalf("response = %+v", resp)
+	}
+}
+
+func TestReplaceGroupingPolicyDisablesPolicy(t *testing.T) {
+	repo := &fakeConfigRepo{
+		updateGroupingPolicyResult: domain.GroupingPolicy{
+			ID:            7,
+			Name:          "Service grouping",
+			DimensionKeys: []string{"service"},
+			SeverityKey:   "severity",
+			SourceFilter:  []string{},
+			Enabled:       false,
+			CreatedAt:     time.Date(2026, 6, 5, 4, 0, 0, 0, time.UTC),
+			UpdatedAt:     time.Date(2026, 6, 5, 4, 5, 0, 0, time.UTC),
+		},
+	}
+	body := `{
+		"name":"Service grouping",
+		"dimension_keys":["service"],
+		"severity_key":"severity",
+		"enabled":false
+	}`
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPut, "/api/v1/config/grouping-policies/7", strings.NewReader(body))
+	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.updatedGroupingPolicy.ID != 7 || repo.updatedGroupingPolicy.Enabled {
+		t.Fatalf("updated = %+v, want id 7 disabled", repo.updatedGroupingPolicy)
+	}
+}
+
+func TestPreviewGroupingPolicyReturnsBoundedGroups(t *testing.T) {
+	createdAt := time.Date(2026, 6, 5, 4, 0, 0, 0, time.UTC)
+	repo := &fakeConfigRepo{
+		groupingPolicies: []domain.GroupingPolicy{
+			{
+				ID:            1,
+				Name:          "Default alert grouping",
+				DimensionKeys: []string{"alertname"},
+				SeverityKey:   "severity",
+				SourceFilter:  []string{"prometheus"},
+				Enabled:       true,
+				CreatedAt:     createdAt,
+				UpdatedAt:     createdAt,
+			},
+		},
+	}
+	alerts := &fakeAlertRepo{
+		events: []domain.AlertEvent{
+			{
+				ID:       101,
+				Source:   "prometheus",
+				Labels:   map[string]string{"alertname": "HighCPU", "severity": "warning"},
+				StartsAt: createdAt,
+			},
+			{
+				ID:       102,
+				Source:   "prometheus",
+				Labels:   map[string]string{"alertname": "HighCPU", "severity": "critical"},
+				StartsAt: createdAt.Add(time.Minute),
+			},
+			{
+				ID:       103,
+				Source:   "alertmanager",
+				Labels:   map[string]string{"alertname": "DiskFull", "severity": "info"},
+				StartsAt: createdAt.Add(2 * time.Minute),
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/grouping-policies/1/preview?limit=3", nil)
+	testHandler(&fakeUOWFactory{configRepo: repo, alertRepo: alerts}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if alerts.lastLimit != 3 {
+		t.Fatalf("alert list limit = %d, want 3", alerts.lastLimit)
+	}
+	var resp api.GroupingPolicyPreviewResult
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if resp.PolicyID != 1 || resp.EventsScanned != 3 || resp.EventsMatched != 2 {
+		t.Fatalf("response counts = %+v", resp)
+	}
+	if len(resp.Groups) != 1 || resp.Groups[0].Severity != api.GroupingPolicyPreviewSeverityCritical {
+		t.Fatalf("groups = %+v", resp.Groups)
+	}
+	if resp.Groups[0].Dimensions["alertname"] != "HighCPU" || len(resp.Groups[0].EventIds) != 2 {
+		t.Fatalf("group detail = %+v", resp.Groups[0])
+	}
+}
+
+func TestGroupingPolicyWriteAndPreviewRejectInvalidInputs(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		wantStatus int
+		repoErr    error
+	}{
+		{
+			name:       "unknown_field",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/grouping-policies",
+			body:       `{"name":"Policy","dimension_keys":["alertname"],"severity_key":"severity","extra":true}`,
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "dimension_whitespace",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/grouping-policies",
+			body:       `{"name":"Policy","dimension_keys":["alert name"],"severity_key":"severity"}`,
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "duplicate_name",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/grouping-policies",
+			body:       `{"name":"Policy","dimension_keys":["alertname"],"severity_key":"severity"}`,
+			wantStatus: stdhttp.StatusConflict,
+			repoErr:    domain.ErrAlreadyExists,
+		},
+		{
+			name:       "replace_not_found",
+			method:     stdhttp.MethodPut,
+			path:       "/api/v1/config/grouping-policies/99",
+			body:       `{"name":"Policy","dimension_keys":["alertname"],"severity_key":"severity"}`,
+			wantStatus: stdhttp.StatusNotFound,
+			repoErr:    domain.ErrNotFound,
+		},
+		{
+			name:       "preview_invalid_id",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/grouping-policies/0/preview",
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
+			name:       "preview_not_found",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/grouping-policies/99/preview",
+			wantStatus: stdhttp.StatusNotFound,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &fakeConfigRepo{
+				saveErr:   tc.repoErr,
+				updateErr: tc.repoErr,
+			}
+			rec := httptest.NewRecorder()
+			var body *strings.Reader
+			if tc.body == "" {
+				body = strings.NewReader("")
+			} else {
+				body = strings.NewReader(tc.body)
+			}
+			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, body)
+			testHandler(&fakeUOWFactory{configRepo: repo, alertRepo: &fakeAlertRepo{}}).ServeHTTP(rec, req)
 
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
@@ -1726,6 +2073,22 @@ func (t *fakeReportReplayTrigger) ReplayAndStart(_ context.Context, req reporttr
 	return t.result, nil
 }
 
+type fakeAlertSourceConnectionTester struct {
+	called  int
+	profile domain.AlertSourceProfile
+	result  alertsourcecheck.Result
+	err     error
+}
+
+func (t *fakeAlertSourceConnectionTester) TestAlertSourceConnection(_ context.Context, profile domain.AlertSourceProfile) (alertsourcecheck.Result, error) {
+	t.called++
+	t.profile = profile
+	if t.err != nil {
+		return alertsourcecheck.Result{}, t.err
+	}
+	return t.result, nil
+}
+
 func (f *fakeUOWFactory) Begin(context.Context) (ports.UnitOfWork, error) {
 	return &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, reportRepo: f.reportRepo, configRepo: f.configRepo}, f.err
 }
@@ -1813,14 +2176,19 @@ type fakeReportRepo struct {
 
 type fakeConfigRepo struct {
 	ports.ConfigurationRepository
-	alertSourceProfiles []domain.AlertSourceProfile
-	saveResult          domain.AlertSourceProfile
-	updateResult        domain.AlertSourceProfile
-	saved               domain.AlertSourceProfile
-	updated             domain.AlertSourceProfile
-	saveErr             error
-	updateErr           error
-	lastListLimit       int
+	alertSourceProfiles        []domain.AlertSourceProfile
+	saveResult                 domain.AlertSourceProfile
+	updateResult               domain.AlertSourceProfile
+	saved                      domain.AlertSourceProfile
+	updated                    domain.AlertSourceProfile
+	groupingPolicies           []domain.GroupingPolicy
+	saveGroupingPolicyResult   domain.GroupingPolicy
+	updateGroupingPolicyResult domain.GroupingPolicy
+	savedGroupingPolicy        domain.GroupingPolicy
+	updatedGroupingPolicy      domain.GroupingPolicy
+	saveErr                    error
+	updateErr                  error
+	lastListLimit              int
 }
 
 func (r *fakeConfigRepo) ListAlertSourceProfiles(_ context.Context, limit int) ([]domain.AlertSourceProfile, error) {
@@ -1854,6 +2222,39 @@ func (r *fakeConfigRepo) FindAlertSourceProfileByID(_ context.Context, id domain
 		}
 	}
 	return domain.AlertSourceProfile{}, domain.ErrNotFound
+}
+
+func (r *fakeConfigRepo) ListGroupingPolicies(_ context.Context, limit int) ([]domain.GroupingPolicy, error) {
+	r.lastListLimit = limit
+	if limit > len(r.groupingPolicies) {
+		limit = len(r.groupingPolicies)
+	}
+	return r.groupingPolicies[:limit], nil
+}
+
+func (r *fakeConfigRepo) SaveGroupingPolicy(_ context.Context, policy domain.GroupingPolicy) (domain.GroupingPolicy, error) {
+	r.savedGroupingPolicy = policy
+	if r.saveErr != nil {
+		return domain.GroupingPolicy{}, r.saveErr
+	}
+	return r.saveGroupingPolicyResult, nil
+}
+
+func (r *fakeConfigRepo) UpdateGroupingPolicy(_ context.Context, policy domain.GroupingPolicy) (domain.GroupingPolicy, error) {
+	r.updatedGroupingPolicy = policy
+	if r.updateErr != nil {
+		return domain.GroupingPolicy{}, r.updateErr
+	}
+	return r.updateGroupingPolicyResult, nil
+}
+
+func (r *fakeConfigRepo) FindGroupingPolicyByID(_ context.Context, id domain.GroupingPolicyID) (domain.GroupingPolicy, error) {
+	for _, policy := range r.groupingPolicies {
+		if policy.ID == id {
+			return policy, nil
+		}
+	}
+	return domain.GroupingPolicy{}, domain.ErrNotFound
 }
 
 func (r *fakeReportRepo) ListFinalReports(_ context.Context, limit int) ([]domain.FinalReport, error) {

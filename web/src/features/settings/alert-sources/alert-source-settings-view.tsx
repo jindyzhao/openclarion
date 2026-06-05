@@ -1,21 +1,38 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { ApiOutlined, EditOutlined, PlusOutlined, ReloadOutlined, SaveOutlined } from "@ant-design/icons";
+import {
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  Col,
+  Empty,
+  Form,
+  Input,
+  Row,
+  Segmented,
+  Space,
+  Statistic,
+  Table,
+  Tag,
+  Typography
+} from "antd";
+import type { TableColumnsType } from "antd";
+import { useMemo, useState } from "react";
 
 import type { ApiResult } from "@/lib/api/client";
 
-import { refreshAlertSourceProfiles, submitAlertSourceProfile } from "./client-api";
+import { formatDateTime } from "../format";
+import { refreshAlertSourceProfiles, submitAlertSourceProfile, testAlertSourceConnection } from "./client-api";
 import {
   emptyAlertSourceForm,
   formStateToWriteRequest,
-  formatDateTime,
-  labelsToText,
   profileToFormState
 } from "./format";
 import type {
-  AlertSourceAuthMode,
+  AlertSourceConnectionTestResult,
   AlertSourceFormState,
-  AlertSourceKind,
   AlertSourceProfile,
   AlertSourceProfileListResponse
 } from "./types";
@@ -25,18 +42,21 @@ type AlertSourceSettingsManagerProps = {
 };
 
 type NoticeState = {
-  kind: "info" | "error";
+  kind: "info" | "warning" | "error";
   message: string;
 };
 
 export function AlertSourceSettingsManager({ result }: AlertSourceSettingsManagerProps) {
+  const [form] = Form.useForm<AlertSourceFormState>();
   const [profiles, setProfiles] = useState<AlertSourceProfile[]>(result.ok ? result.data.items : []);
-  const [form, setForm] = useState<AlertSourceFormState>(emptyAlertSourceForm());
   const [editingID, setEditingID] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [testingID, setTestingID] = useState<number | null>(null);
+  const [testResults, setTestResults] = useState<Record<number, AlertSourceConnectionTestResult>>({});
   const [notice, setNotice] = useState<NoticeState | null>(
     result.ok ? null : { kind: "error", message: result.error.message }
   );
+  const authMode = Form.useWatch("authMode", form) ?? "none";
 
   const summary = useMemo(() => {
     const enabled = profiles.filter((profile) => profile.enabled).length;
@@ -57,9 +77,8 @@ export function AlertSourceSettingsManager({ result }: AlertSourceSettingsManage
     setNotice({ kind: "info", message: "Profiles refreshed." });
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const parsed = formStateToWriteRequest(form);
+  async function handleSubmit(values: AlertSourceFormState) {
+    const parsed = formStateToWriteRequest(normalizeFormValues(values));
     if (!parsed.ok) {
       setNotice({ kind: "error", message: parsed.message });
       return;
@@ -74,273 +93,381 @@ export function AlertSourceSettingsManager({ result }: AlertSourceSettingsManage
     }
 
     setProfiles((current) => upsertProfile(current, saved.data));
-    setForm(emptyAlertSourceForm());
+    form.setFieldsValue(emptyAlertSourceForm());
     setEditingID(null);
     setNotice({ kind: "info", message: "Profile saved." });
   }
 
+  async function handleTest(profile: AlertSourceProfile) {
+    setTestingID(profile.id);
+    const tested = await testAlertSourceConnection(profile.id);
+    setTestingID(null);
+    if (!tested.ok) {
+      setNotice({ kind: "error", message: tested.error.message });
+      return;
+    }
+
+    setTestResults((current) => ({ ...current, [profile.id]: tested.data }));
+    setNotice({ kind: noticeKindForConnectionStatus(tested.data.status), message: tested.data.message });
+  }
+
   function editProfile(profile: AlertSourceProfile) {
     setEditingID(profile.id);
-    setForm(profileToFormState(profile));
+    form.setFieldsValue(profileToFormState(profile));
     setNotice(null);
   }
 
   function resetForm() {
     setEditingID(null);
-    setForm(emptyAlertSourceForm());
+    form.setFieldsValue(emptyAlertSourceForm());
     setNotice(null);
   }
 
   return (
     <div className="stack">
-      <section className="metric-grid settings-metrics" aria-label="Alert source metrics">
+      <Row aria-label="Alert source metrics" gutter={[12, 12]}>
         <MetricCard label="Profiles" value={profiles.length} />
         <MetricCard label="Enabled" value={summary.enabled} />
         <MetricCard label="Prometheus" value={summary.prometheus} />
         <MetricCard label="Alertmanager" value={summary.alertmanager} />
-      </section>
+      </Row>
 
       {notice ? <Notice notice={notice} /> : null}
 
-      <div className="settings-grid">
-        <section className="panel">
-          <div className="panel-header settings-panel-header">
-            <h2>{editingID === null ? "New Alert Source" : `Edit Source #${editingID}`}</h2>
-            {editingID === null ? null : (
-              <button className="button-secondary button-compact" onClick={resetForm} type="button">
-                New
-              </button>
-            )}
-          </div>
-          <div className="panel-body">
-            <form className="settings-form" onSubmit={handleSubmit}>
-              <label>
-                <span>Name</span>
-                <input
-                  autoComplete="off"
-                  name="name"
-                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                  value={form.name}
-                />
-              </label>
+      <Row align="top" className="settings-console-grid" gutter={[16, 16]}>
+        <Col lg={8} md={24} xs={24}>
+          <Card
+            extra={
+              editingID === null ? null : (
+                <Button disabled={busy} icon={<PlusOutlined />} onClick={resetForm} type="default">
+                  New
+                </Button>
+              )
+            }
+            title={editingID === null ? "New Alert Source" : `Edit Source #${editingID}`}
+          >
+            <Form<AlertSourceFormState>
+              disabled={busy}
+              form={form}
+              initialValues={emptyAlertSourceForm()}
+              layout="vertical"
+              onFinish={handleSubmit}
+              onValuesChange={(changed: Partial<AlertSourceFormState>) => {
+                if (changed.authMode === "none") {
+                  form.setFieldValue("secretRef", "");
+                }
+              }}
+            >
+              <Form.Item
+                label="Name"
+                name="name"
+                rules={[
+                  { required: true, message: "Profile name is required." },
+                  { max: 120, message: "Profile name must be 120 characters or fewer." }
+                ]}
+              >
+                <Input autoComplete="off" />
+              </Form.Item>
 
-              <div className="settings-form-row">
-                <label>
-                  <span>Kind</span>
-                  <select
-                    name="kind"
-                    onChange={(event) =>
-                      setForm((current) => ({ ...current, kind: event.target.value as AlertSourceKind }))
-                    }
-                    value={form.kind}
-                  >
-                    <option value="prometheus">Prometheus</option>
-                    <option value="alertmanager">Alertmanager</option>
-                  </select>
-                </label>
-                <label>
-                  <span>Auth</span>
-                  <select
-                    name="authMode"
-                    onChange={(event) =>
-                      setForm((current) => ({
-                        ...current,
-                        authMode: event.target.value as AlertSourceAuthMode,
-                        secretRef: event.target.value === "none" ? "" : current.secretRef
-                      }))
-                    }
-                    value={form.authMode}
-                  >
-                    <option value="none">None</option>
-                    <option value="bearer">Bearer</option>
-                  </select>
-                </label>
-              </div>
+              <Row gutter={12}>
+                <Col sm={12} xs={24}>
+                  <Form.Item label="Kind" name="kind" rules={[{ required: true, message: "Kind is required." }]}>
+                    <Segmented
+                      block
+                      options={[
+                        { value: "prometheus", label: "Prometheus" },
+                        { value: "alertmanager", label: "Alertmanager" }
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+                <Col sm={12} xs={24}>
+                  <Form.Item label="Auth" name="authMode" rules={[{ required: true, message: "Auth mode is required." }]}>
+                    <Segmented
+                      block
+                      options={[
+                        { value: "none", label: "None" },
+                        { value: "bearer", label: "Bearer" }
+                      ]}
+                    />
+                  </Form.Item>
+                </Col>
+              </Row>
 
-              <label>
-                <span>Base URL</span>
-                <input
-                  autoComplete="url"
-                  name="baseURL"
-                  onChange={(event) => setForm((current) => ({ ...current, baseURL: event.target.value }))}
-                  type="url"
-                  value={form.baseURL}
-                />
-              </label>
+              <Form.Item
+                label="Base URL"
+                name="baseURL"
+                rules={[
+                  { required: true, message: "Base URL is required." },
+                  { type: "url", message: "Base URL must be a valid URL." }
+                ]}
+              >
+                <Input autoComplete="url" />
+              </Form.Item>
 
-              <label>
-                <span>Secret reference</span>
-                <input
-                  autoComplete="off"
-                  disabled={form.authMode === "none"}
-                  name="secretRef"
-                  onChange={(event) => setForm((current) => ({ ...current, secretRef: event.target.value }))}
-                  value={form.secretRef}
-                />
-              </label>
+              <Form.Item
+                label="Secret reference"
+                name="secretRef"
+                rules={[
+                  ...(authMode === "bearer"
+                    ? [{ required: true, message: "Bearer auth requires a secret reference." }]
+                    : []),
+                  { pattern: /^\S*$/, message: "Secret reference must not contain whitespace." }
+                ]}
+              >
+                <Input autoComplete="off" disabled={authMode === "none"} />
+              </Form.Item>
 
-              <label>
-                <span>Labels</span>
-                <textarea
-                  name="labels"
-                  onChange={(event) => setForm((current) => ({ ...current, labelsText: event.target.value }))}
-                  placeholder={"env=prod\nowner=platform"}
-                  rows={4}
-                  value={form.labelsText}
-                />
-              </label>
+              <Form.Item label="Labels" name="labelsText">
+                <Input.TextArea autoSize={{ minRows: 4, maxRows: 8 }} placeholder={"env=prod\nowner=platform"} />
+              </Form.Item>
 
-              <label className="settings-checkbox">
-                <input
-                  checked={form.enabled}
-                  name="enabled"
-                  onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))}
-                  type="checkbox"
-                />
-                <span>Enabled</span>
-              </label>
+              <Form.Item name="enabled" valuePropName="checked">
+                <Checkbox>Enabled</Checkbox>
+              </Form.Item>
 
-              <div className="button-row">
-                <button className="button-primary" disabled={busy} type="submit">
+              <Space wrap>
+                <Button htmlType="submit" icon={<SaveOutlined />} loading={busy} type="primary">
                   Save Profile
-                </button>
-                <button className="button-secondary" disabled={busy} onClick={resetForm} type="button">
+                </Button>
+                <Button disabled={busy} onClick={resetForm} type="default">
                   Reset
-                </button>
-              </div>
-            </form>
-          </div>
-        </section>
+                </Button>
+              </Space>
+            </Form>
+          </Card>
+        </Col>
 
-        <section className="panel">
-          <div className="panel-header settings-panel-header">
-            <h2>Configured Sources</h2>
-            <button className="button-secondary button-compact" disabled={busy} onClick={handleRefresh} type="button">
-              Refresh
-            </button>
-          </div>
-          <div className="panel-body panel-body-flush">
-            {profiles.length === 0 ? (
-              <div className="notice settings-empty">
-                <strong>No alert sources configured.</strong>
-              </div>
-            ) : (
-              <AlertSourceTable onEdit={editProfile} profiles={profiles} />
-            )}
-          </div>
-        </section>
-      </div>
+        <Col lg={16} md={24} xs={24}>
+          <Card
+            extra={
+              <Button disabled={busy} icon={<ReloadOutlined />} loading={busy} onClick={handleRefresh} type="default">
+                Refresh
+              </Button>
+            }
+            title="Configured Sources"
+          >
+            <AlertSourceTable
+              busy={busy}
+              onEdit={editProfile}
+              onTest={handleTest}
+              profiles={profiles}
+              testResults={testResults}
+              testingID={testingID}
+            />
+          </Card>
+        </Col>
+      </Row>
     </div>
   );
 }
 
 function MetricCard({ label, value }: { label: string; value: number }) {
   return (
-    <section className="metric-card">
-      <div className="metric-value">{new Intl.NumberFormat("en-US").format(value)}</div>
-      <div className="metric-label">{label}</div>
-    </section>
+    <Col lg={6} sm={12} xs={24}>
+      <Card className="settings-stat-card">
+        <Statistic title={label} value={value} />
+      </Card>
+    </Col>
   );
 }
 
 function Notice({ notice }: { notice: NoticeState }) {
+  const type = notice.kind === "error" ? "error" : notice.kind === "warning" ? "warning" : "success";
   return (
-    <div className={notice.kind === "error" ? "notice notice-error" : "notice"} role={notice.kind === "error" ? "alert" : "status"}>
-      <strong>{notice.kind === "error" ? "Request failed" : "Settings"}</strong>
-      <div>{notice.message}</div>
-    </div>
+    <Alert
+      description={notice.message}
+      message={notice.kind === "error" ? "Request failed" : notice.kind === "warning" ? "Connection review" : "Settings"}
+      role={notice.kind === "error" ? "alert" : "status"}
+      showIcon
+      type={type}
+    />
   );
 }
 
 function AlertSourceTable({
   profiles,
-  onEdit
+  busy,
+  onEdit,
+  onTest,
+  testResults,
+  testingID
 }: {
   profiles: AlertSourceProfile[];
+  busy: boolean;
   onEdit: (profile: AlertSourceProfile) => void;
+  onTest: (profile: AlertSourceProfile) => void;
+  testResults: Record<number, AlertSourceConnectionTestResult>;
+  testingID: number | null;
 }) {
+  const columns: TableColumnsType<AlertSourceProfile> = [
+    {
+      dataIndex: "name",
+      key: "name",
+      title: "Name",
+      render: (_value, profile) => (
+        <Space direction="vertical" size={0}>
+          <Typography.Text strong>{profile.name}</Typography.Text>
+          <Typography.Text type="secondary">#{profile.id}</Typography.Text>
+        </Space>
+      )
+    },
+    {
+      dataIndex: "kind",
+      key: "kind",
+      title: "Kind",
+      render: (_value, profile) => <Tag color={profile.kind === "alertmanager" ? "red" : "blue"}>{profile.kind}</Tag>
+    },
+    {
+      dataIndex: "base_url",
+      key: "base_url",
+      title: "Endpoint",
+      render: (_value, profile) => (
+        <Typography.Text className="settings-url-cell">{profile.base_url}</Typography.Text>
+      )
+    },
+    {
+      dataIndex: "auth_mode",
+      key: "auth",
+      title: "Auth",
+      render: (_value, profile) => (
+        <Space direction="vertical" size={2}>
+          <Tag color={profile.auth_mode === "bearer" ? "gold" : "green"}>{profile.auth_mode}</Tag>
+          {profile.secret_ref === "" ? null : (
+            <Typography.Text className="settings-secret-ref" type="secondary">
+              {profile.secret_ref}
+            </Typography.Text>
+          )}
+        </Space>
+      )
+    },
+    {
+      dataIndex: "enabled",
+      key: "state",
+      title: "State",
+      render: (_value, profile) => (
+        <Tag color={profile.enabled ? "green" : "default"}>{profile.enabled ? "enabled" : "disabled"}</Tag>
+      )
+    },
+    {
+      dataIndex: "labels",
+      key: "labels",
+      title: "Labels",
+      render: (_value, profile) => <Labels labels={profile.labels} />
+    },
+    {
+      key: "last_test",
+      title: "Last Test",
+      render: (_value, profile) => <ConnectionTestResult result={testResults[profile.id]} />
+    },
+    {
+      dataIndex: "updated_at",
+      key: "updated",
+      title: "Updated",
+      render: (_value, profile) => formatDateTime(profile.updated_at)
+    },
+    {
+      key: "action",
+      title: "Action",
+      render: (_value, profile) => (
+        <Space wrap>
+          <Button
+            disabled={busy || (testingID !== null && testingID !== profile.id)}
+            icon={<ApiOutlined />}
+            loading={testingID === profile.id}
+            onClick={() => onTest(profile)}
+            type="link"
+          >
+            Test
+          </Button>
+          <Button disabled={busy || testingID !== null} icon={<EditOutlined />} onClick={() => onEdit(profile)} type="link">
+            Edit
+          </Button>
+        </Space>
+      )
+    }
+  ];
+
   return (
-    <div className="table-wrap settings-table-wrap">
-      <table className="settings-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Kind</th>
-            <th>Endpoint</th>
-            <th>Auth</th>
-            <th>State</th>
-            <th>Labels</th>
-            <th>Updated</th>
-            <th>Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          {profiles.map((profile) => (
-            <tr key={profile.id}>
-              <td className="title-cell">
-                {profile.name}
-                <div className="muted">#{profile.id}</div>
-              </td>
-              <td>
-                <span className={kindClass(profile.kind)}>{profile.kind}</span>
-              </td>
-              <td className="settings-url-cell">{profile.base_url}</td>
-              <td>
-                <span className={profile.auth_mode === "bearer" ? "pill pill-warning" : "pill pill-ok"}>
-                  {profile.auth_mode}
-                </span>
-                {profile.secret_ref === "" ? null : <div className="muted settings-secret-ref">{profile.secret_ref}</div>}
-              </td>
-              <td>
-                <span className={profile.enabled ? "pill pill-ok" : "pill pill-info"}>
-                  {profile.enabled ? "enabled" : "disabled"}
-                </span>
-              </td>
-              <td>
-                <Labels labels={profile.labels} />
-              </td>
-              <td>{formatDateTime(profile.updated_at)}</td>
-              <td>
-                <button className="link-button" onClick={() => onEdit(profile)} type="button">
-                  Edit
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Table<AlertSourceProfile>
+      columns={columns}
+      dataSource={profiles}
+      loading={busy}
+      locale={{ emptyText: <Empty description="No alert sources configured." /> }}
+      pagination={false}
+      rowKey="id"
+      scroll={{ x: 1120 }}
+    />
+  );
+}
+
+function ConnectionTestResult({ result }: { result?: AlertSourceConnectionTestResult }) {
+  if (!result) {
+    return <Typography.Text type="secondary">Not tested</Typography.Text>;
+  }
+  return (
+    <Space direction="vertical" size={2}>
+      <Tag color={connectionStatusColor(result.status)}>{result.status}</Tag>
+      <Typography.Text type="secondary">{result.reason_code}</Typography.Text>
+      {result.status === "success" ? (
+        <Typography.Text type="secondary">{result.observed_alerts} firing alerts</Typography.Text>
+      ) : null}
+    </Space>
   );
 }
 
 function Labels({ labels }: { labels: AlertSourceProfile["labels"] }) {
-  const text = labelsToText(labels);
-  if (text === "") {
-    return <span className="muted">None</span>;
+  const entries = Object.entries(labels).sort(([left], [right]) => left.localeCompare(right));
+  if (entries.length === 0) {
+    return <Typography.Text type="secondary">None</Typography.Text>;
   }
   return (
     <div className="label-stack">
-      {Object.entries(labels)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, value]) => (
-          <span className="label-chip" key={key}>
-            {key}={value}
-          </span>
-        ))}
+      {entries.map(([key, value]) => (
+        <Tag key={key}>
+          {key}={value}
+        </Tag>
+      ))}
     </div>
   );
-}
-
-function kindClass(kind: AlertSourceKind): string {
-  switch (kind) {
-    case "alertmanager":
-      return "pill pill-critical";
-    case "prometheus":
-      return "pill pill-info";
-  }
 }
 
 function upsertProfile(current: AlertSourceProfile[], saved: AlertSourceProfile): AlertSourceProfile[] {
   const next = [saved, ...current.filter((profile) => profile.id !== saved.id)];
   return next.sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
+}
+
+function normalizeFormValues(values: AlertSourceFormState): AlertSourceFormState {
+  return {
+    ...emptyAlertSourceForm(),
+    ...values,
+    enabled: Boolean(values.enabled),
+    secretRef: values.secretRef ?? "",
+    labelsText: values.labelsText ?? ""
+  };
+}
+
+function connectionStatusColor(status: AlertSourceConnectionTestResult["status"]) {
+  switch (status) {
+    case "success":
+      return "green";
+    case "blocked":
+      return "gold";
+    case "unsupported":
+      return "default";
+    case "failed":
+      return "red";
+  }
+}
+
+function noticeKindForConnectionStatus(status: AlertSourceConnectionTestResult["status"]): NoticeState["kind"] {
+  switch (status) {
+    case "success":
+      return "info";
+    case "blocked":
+    case "unsupported":
+      return "warning";
+    case "failed":
+      return "error";
+  }
 }

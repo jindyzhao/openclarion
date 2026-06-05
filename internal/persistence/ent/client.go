@@ -25,6 +25,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
@@ -54,6 +55,8 @@ type Client struct {
 	EvidenceSnapshot *EvidenceSnapshotClient
 	// FinalReport is the client for interacting with the FinalReport builders.
 	FinalReport *FinalReportClient
+	// GroupingPolicy is the client for interacting with the GroupingPolicy builders.
+	GroupingPolicy *GroupingPolicyClient
 	// ReportNotificationDelivery is the client for interacting with the ReportNotificationDelivery builders.
 	ReportNotificationDelivery *ReportNotificationDeliveryClient
 	// SubReport is the client for interacting with the SubReport builders.
@@ -79,6 +82,7 @@ func (c *Client) init() {
 	c.DiagnosisTaskEvent = NewDiagnosisTaskEventClient(c.config)
 	c.EvidenceSnapshot = NewEvidenceSnapshotClient(c.config)
 	c.FinalReport = NewFinalReportClient(c.config)
+	c.GroupingPolicy = NewGroupingPolicyClient(c.config)
 	c.ReportNotificationDelivery = NewReportNotificationDeliveryClient(c.config)
 	c.SubReport = NewSubReportClient(c.config)
 }
@@ -183,6 +187,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		DiagnosisTaskEvent:         NewDiagnosisTaskEventClient(cfg),
 		EvidenceSnapshot:           NewEvidenceSnapshotClient(cfg),
 		FinalReport:                NewFinalReportClient(cfg),
+		GroupingPolicy:             NewGroupingPolicyClient(cfg),
 		ReportNotificationDelivery: NewReportNotificationDeliveryClient(cfg),
 		SubReport:                  NewSubReportClient(cfg),
 	}, nil
@@ -214,6 +219,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		DiagnosisTaskEvent:         NewDiagnosisTaskEventClient(cfg),
 		EvidenceSnapshot:           NewEvidenceSnapshotClient(cfg),
 		FinalReport:                NewFinalReportClient(cfg),
+		GroupingPolicy:             NewGroupingPolicyClient(cfg),
 		ReportNotificationDelivery: NewReportNotificationDeliveryClient(cfg),
 		SubReport:                  NewSubReportClient(cfg),
 	}, nil
@@ -247,7 +253,8 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession, c.ChatTurn,
 		c.DiagnosisAuthTicket, c.DiagnosisTask, c.DiagnosisTaskEvent,
-		c.EvidenceSnapshot, c.FinalReport, c.ReportNotificationDelivery, c.SubReport,
+		c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
+		c.ReportNotificationDelivery, c.SubReport,
 	} {
 		n.Use(hooks...)
 	}
@@ -259,7 +266,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession, c.ChatTurn,
 		c.DiagnosisAuthTicket, c.DiagnosisTask, c.DiagnosisTaskEvent,
-		c.EvidenceSnapshot, c.FinalReport, c.ReportNotificationDelivery, c.SubReport,
+		c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
+		c.ReportNotificationDelivery, c.SubReport,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -288,6 +296,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.EvidenceSnapshot.mutate(ctx, m)
 	case *FinalReportMutation:
 		return c.FinalReport.mutate(ctx, m)
+	case *GroupingPolicyMutation:
+		return c.GroupingPolicy.mutate(ctx, m)
 	case *ReportNotificationDeliveryMutation:
 		return c.ReportNotificationDelivery.mutate(ctx, m)
 	case *SubReportMutation:
@@ -1867,6 +1877,139 @@ func (c *FinalReportClient) mutate(ctx context.Context, m *FinalReportMutation) 
 	}
 }
 
+// GroupingPolicyClient is a client for the GroupingPolicy schema.
+type GroupingPolicyClient struct {
+	config
+}
+
+// NewGroupingPolicyClient returns a client for the GroupingPolicy from the given config.
+func NewGroupingPolicyClient(c config) *GroupingPolicyClient {
+	return &GroupingPolicyClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `groupingpolicy.Hooks(f(g(h())))`.
+func (c *GroupingPolicyClient) Use(hooks ...Hook) {
+	c.hooks.GroupingPolicy = append(c.hooks.GroupingPolicy, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `groupingpolicy.Intercept(f(g(h())))`.
+func (c *GroupingPolicyClient) Intercept(interceptors ...Interceptor) {
+	c.inters.GroupingPolicy = append(c.inters.GroupingPolicy, interceptors...)
+}
+
+// Create returns a builder for creating a GroupingPolicy entity.
+func (c *GroupingPolicyClient) Create() *GroupingPolicyCreate {
+	mutation := newGroupingPolicyMutation(c.config, OpCreate)
+	return &GroupingPolicyCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of GroupingPolicy entities.
+func (c *GroupingPolicyClient) CreateBulk(builders ...*GroupingPolicyCreate) *GroupingPolicyCreateBulk {
+	return &GroupingPolicyCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *GroupingPolicyClient) MapCreateBulk(slice any, setFunc func(*GroupingPolicyCreate, int)) *GroupingPolicyCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &GroupingPolicyCreateBulk{err: fmt.Errorf("calling to GroupingPolicyClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*GroupingPolicyCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &GroupingPolicyCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for GroupingPolicy.
+func (c *GroupingPolicyClient) Update() *GroupingPolicyUpdate {
+	mutation := newGroupingPolicyMutation(c.config, OpUpdate)
+	return &GroupingPolicyUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *GroupingPolicyClient) UpdateOne(_m *GroupingPolicy) *GroupingPolicyUpdateOne {
+	mutation := newGroupingPolicyMutation(c.config, OpUpdateOne, withGroupingPolicy(_m))
+	return &GroupingPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *GroupingPolicyClient) UpdateOneID(id int) *GroupingPolicyUpdateOne {
+	mutation := newGroupingPolicyMutation(c.config, OpUpdateOne, withGroupingPolicyID(id))
+	return &GroupingPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for GroupingPolicy.
+func (c *GroupingPolicyClient) Delete() *GroupingPolicyDelete {
+	mutation := newGroupingPolicyMutation(c.config, OpDelete)
+	return &GroupingPolicyDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *GroupingPolicyClient) DeleteOne(_m *GroupingPolicy) *GroupingPolicyDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *GroupingPolicyClient) DeleteOneID(id int) *GroupingPolicyDeleteOne {
+	builder := c.Delete().Where(groupingpolicy.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &GroupingPolicyDeleteOne{builder}
+}
+
+// Query returns a query builder for GroupingPolicy.
+func (c *GroupingPolicyClient) Query() *GroupingPolicyQuery {
+	return &GroupingPolicyQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeGroupingPolicy},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a GroupingPolicy entity by its id.
+func (c *GroupingPolicyClient) Get(ctx context.Context, id int) (*GroupingPolicy, error) {
+	return c.Query().Where(groupingpolicy.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *GroupingPolicyClient) GetX(ctx context.Context, id int) *GroupingPolicy {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *GroupingPolicyClient) Hooks() []Hook {
+	return c.hooks.GroupingPolicy
+}
+
+// Interceptors returns the client interceptors.
+func (c *GroupingPolicyClient) Interceptors() []Interceptor {
+	return c.inters.GroupingPolicy
+}
+
+func (c *GroupingPolicyClient) mutate(ctx context.Context, m *GroupingPolicyMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&GroupingPolicyCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&GroupingPolicyUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&GroupingPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&GroupingPolicyDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown GroupingPolicy mutation op: %q", m.Op())
+	}
+}
+
 // ReportNotificationDeliveryClient is a client for the ReportNotificationDelivery schema.
 type ReportNotificationDeliveryClient struct {
 	config
@@ -2186,11 +2329,12 @@ type (
 	hooks struct {
 		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatTurn,
 		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, EvidenceSnapshot,
-		FinalReport, ReportNotificationDelivery, SubReport []ent.Hook
+		FinalReport, GroupingPolicy, ReportNotificationDelivery, SubReport []ent.Hook
 	}
 	inters struct {
 		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatTurn,
 		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, EvidenceSnapshot,
-		FinalReport, ReportNotificationDelivery, SubReport []ent.Interceptor
+		FinalReport, GroupingPolicy, ReportNotificationDelivery,
+		SubReport []ent.Interceptor
 	}
 )

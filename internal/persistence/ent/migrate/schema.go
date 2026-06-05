@@ -419,6 +419,40 @@ var (
 			},
 		},
 	}
+	// GroupingPoliciesColumns holds the columns for the "grouping_policies" table.
+	GroupingPoliciesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
+		{Name: "dimension_keys", Type: field.TypeJSON},
+		{Name: "severity_key", Type: field.TypeString, Size: 64},
+		{Name: "source_filter", Type: field.TypeJSON},
+		{Name: "enabled", Type: field.TypeBool, Default: false},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+	}
+	// GroupingPoliciesTable holds the schema information for the "grouping_policies" table.
+	GroupingPoliciesTable = &schema.Table{
+		Name:       "grouping_policies",
+		Columns:    GroupingPoliciesColumns,
+		PrimaryKey: []*schema.Column{GroupingPoliciesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "groupingpolicy_enabled_updated_at",
+				Unique:  false,
+				Columns: []*schema.Column{GroupingPoliciesColumns[5], GroupingPoliciesColumns[7]},
+			},
+			{
+				Name:    "groupingpolicy_source_filter",
+				Unique:  false,
+				Columns: []*schema.Column{GroupingPoliciesColumns[4]},
+				Annotation: &entsql.IndexAnnotation{
+					Types: map[string]string{
+						"postgres": "GIN",
+					},
+				},
+			},
+		},
+	}
 	// ReportNotificationDeliveriesColumns holds the columns for the "report_notification_deliveries" table.
 	ReportNotificationDeliveriesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -571,6 +605,7 @@ var (
 		DiagnosisTaskEventsTable,
 		EvidenceSnapshotsTable,
 		FinalReportsTable,
+		GroupingPoliciesTable,
 		ReportNotificationDeliveriesTable,
 		SubReportsTable,
 		AlertEventGroupsTable,

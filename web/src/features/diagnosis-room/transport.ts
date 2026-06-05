@@ -86,10 +86,7 @@ export function nextDiagnosisMessageID(): string {
 }
 
 export function defaultAPIBaseURL(): string {
-  if (typeof window === "undefined") {
-    return "http://localhost:8080";
-  }
-  return window.location.origin;
+  return "http://localhost:8080";
 }
 
 function normalizeAPIBaseURL(raw: string): URL {

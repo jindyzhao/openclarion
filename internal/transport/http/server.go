@@ -16,6 +16,7 @@ import (
 	"github.com/openclarion/openclarion/internal/observability/correlation"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
+	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
@@ -39,11 +40,12 @@ const (
 // touch the database; intentionally not used yet so that the DI
 // graph is stable before workflow code lands.
 type Server struct {
-	logger        *slog.Logger
-	uowFactory    ports.UnitOfWorkFactory
-	reportTrigger ReportReplayTrigger
-	roomStarter   DiagnosisRoomStarter
-	diagnosis     diagnosisConfig
+	logger            *slog.Logger
+	uowFactory        ports.UnitOfWorkFactory
+	reportTrigger     ReportReplayTrigger
+	roomStarter       DiagnosisRoomStarter
+	alertSourceTester AlertSourceConnectionTester
+	diagnosis         diagnosisConfig
 }
 
 // ReportReplayTrigger is the transport-facing report trigger usecase.
@@ -54,6 +56,12 @@ type ReportReplayTrigger interface {
 // DiagnosisRoomStarter is the transport-facing room creation usecase.
 type DiagnosisRoomStarter interface {
 	Start(ctx context.Context, req diagnosisroomstart.Request) (diagnosisroomstart.Result, error)
+}
+
+// AlertSourceConnectionTester is the transport-facing alert source
+// connectivity check usecase.
+type AlertSourceConnectionTester interface {
+	TestAlertSourceConnection(ctx context.Context, profile domain.AlertSourceProfile) (alertsourcecheck.Result, error)
 }
 
 // ServerOption customises optional HTTP handlers.
@@ -70,6 +78,13 @@ func WithReportReplayTrigger(trigger ReportReplayTrigger) ServerOption {
 func WithDiagnosisRoomStarter(starter DiagnosisRoomStarter) ServerOption {
 	return func(s *Server) {
 		s.roomStarter = starter
+	}
+}
+
+// WithAlertSourceConnectionTester enables alert source connection-test actions.
+func WithAlertSourceConnectionTester(tester AlertSourceConnectionTester) ServerOption {
+	return func(s *Server) {
+		s.alertSourceTester = tester
 	}
 }
 

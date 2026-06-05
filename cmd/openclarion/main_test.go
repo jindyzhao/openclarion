@@ -167,8 +167,8 @@ func TestHTTPServerOptionsFromEnv_ConfiguresReportTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 1 {
-		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	if len(opts) != 2 {
+		t.Fatalf("len(opts) = %d, want 2", len(opts))
 	}
 }
 
@@ -177,8 +177,37 @@ func TestHTTPServerOptionsFromEnv_AllowsUnconfiguredTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 0 {
-		t.Fatalf("len(opts) = %d, want 0", len(opts))
+	if len(opts) != 1 {
+		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_ConfiguresAlertSourceSecretResolver(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		alertSourceSecretRefsEnv: `{"secret/openclarion/prometheus-bearer":"test-bearer-value"}`,
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_RejectsInvalidAlertSourceSecretResolver(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		alertSourceSecretRefsEnv: `{"secret/openclarion/prometheus-bearer":"test bearer value"}`,
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected alert source secret resolver error, got nil")
+	}
+	if !strings.Contains(err.Error(), alertSourceSecretRefsEnv) {
+		t.Fatalf("error = %q, want %s", err.Error(), alertSourceSecretRefsEnv)
+	}
+	if strings.Contains(err.Error(), "test bearer value") {
+		t.Fatalf("error leaked secret value: %v", err)
 	}
 }
 
@@ -205,8 +234,8 @@ func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv diagnosis: %v", err)
 	}
-	if len(opts) != 4 {
-		t.Fatalf("len(opts) = %d, want 4", len(opts))
+	if len(opts) != 5 {
+		t.Fatalf("len(opts) = %d, want 5", len(opts))
 	}
 	if originPolicy == nil {
 		t.Fatal("originPolicy is nil")

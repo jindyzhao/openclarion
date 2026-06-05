@@ -3,6 +3,7 @@ package ports
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strconv"
 	"time"
 )
@@ -61,6 +62,25 @@ type ActiveAlert struct {
 // firing.
 type MetricsProvider interface {
 	ListActiveAlerts(ctx context.Context) ([]ActiveAlert, error)
+}
+
+// ErrSecretNotFound is returned by SecretResolver implementations when the
+// referenced deployment-managed secret does not exist in the configured
+// resolver boundary. The error intentionally does not include the secret value.
+var ErrSecretNotFound = errors.New("secret not found")
+
+// Secret is the provider-neutral resolved secret value. It is intentionally
+// small until OpenClarion needs credential shapes beyond bearer tokens.
+type Secret struct {
+	Value string
+}
+
+// SecretResolver resolves deployment-managed secret references into short-lived
+// in-process values for backend provider calls. Resolved values must never be
+// returned through OpenAPI responses, frontend state, logs, or retained proof
+// artifacts.
+type SecretResolver interface {
+	ResolveSecret(ctx context.Context, ref string) (Secret, error)
 }
 
 // AuthRole is the small V1 role vocabulary understood by usecase-level

@@ -35,7 +35,7 @@ describe("alert source settings formatting", () => {
       name: "Primary Prometheus",
       baseURL: "https://prometheus.example.test",
       authMode: "bearer" as const,
-      secretRef: "secret/openclarion/prometheus-token",
+      secretRef: "secret/openclarion/prometheus-bearer",
       enabled: true,
       labelsText: "env=prod"
     };
@@ -47,7 +47,7 @@ describe("alert source settings formatting", () => {
         kind: "prometheus",
         base_url: "https://prometheus.example.test",
         auth_mode: "bearer",
-        secret_ref: "secret/openclarion/prometheus-token",
+        secret_ref: "secret/openclarion/prometheus-bearer",
         enabled: true,
         labels: { env: "prod" }
       }
@@ -75,7 +75,7 @@ describe("alert source settings formatting", () => {
         ...emptyAlertSourceForm(),
         name: "None with secret",
         baseURL: "https://prometheus.example.test",
-        secretRef: "secret/openclarion/prometheus-token"
+        secretRef: "secret/openclarion/prometheus-bearer"
       }).ok
     ).toBe(false);
   });

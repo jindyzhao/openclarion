@@ -116,7 +116,7 @@ paths:
                         kind: prometheus
                         base_url: https://prometheus.example.test
                         auth_mode: bearer
-                        secret_ref: secret/openclarion/prometheus-token
+                        secret_ref: secret/openclarion/prometheus-bearer
                         enabled: false
                         labels:
                           env: staging
@@ -162,7 +162,7 @@ paths:
                   kind: prometheus
                   base_url: https://prometheus.example.test
                   auth_mode: bearer
-                  secret_ref: secret/openclarion/prometheus-token
+                  secret_ref: secret/openclarion/prometheus-bearer
                   enabled: false
                   labels:
                     env: staging
@@ -181,7 +181,7 @@ paths:
                     kind: prometheus
                     base_url: https://prometheus.example.test
                     auth_mode: bearer
-                    secret_ref: secret/openclarion/prometheus-token
+                    secret_ref: secret/openclarion/prometheus-bearer
                     enabled: false
                     labels:
                       env: staging
@@ -241,7 +241,7 @@ paths:
                     kind: prometheus
                     base_url: https://prometheus.example.test
                     auth_mode: bearer
-                    secret_ref: secret/openclarion/prometheus-token
+                    secret_ref: secret/openclarion/prometheus-bearer
                     enabled: true
                     labels:
                       env: prod
@@ -289,7 +289,7 @@ paths:
                   kind: prometheus
                   base_url: https://prometheus.example.test
                   auth_mode: bearer
-                  secret_ref: secret/openclarion/prometheus-token
+                  secret_ref: secret/openclarion/prometheus-bearer
                   enabled: false
                   labels:
                     env: prod
@@ -308,7 +308,7 @@ paths:
                     kind: prometheus
                     base_url: https://prometheus.example.test
                     auth_mode: bearer
-                    secret_ref: secret/openclarion/prometheus-token
+                    secret_ref: secret/openclarion/prometheus-bearer
                     enabled: false
                     labels:
                       env: prod
@@ -354,6 +354,411 @@ paths:
                 server-error:
                   value:
                     error: replace alert source profile failed
+  /api/v1/config/alert-sources/{source_id}/test:
+    post:
+      operationId: testAlertSourceProfileConnection
+      summary: Test an alert source profile connection
+      description: Performs a bounded backend connectivity test for a persisted alert source profile and returns sanitized status only.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/AlertSourceProfileID"
+      responses:
+        "200":
+          description: Sanitized alert source connection-test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertSourceConnectionTestResult"
+              examples:
+                success:
+                  value:
+                    source_id: 1
+                    kind: prometheus
+                    auth_mode: none
+                    status: success
+                    reason_code: ok
+                    message: Prometheus alert listing succeeded.
+                    checked_at: "2026-06-05T04:00:00Z"
+                    observed_alerts: 2
+                blocked:
+                  value:
+                    source_id: 2
+                    kind: prometheus
+                    auth_mode: bearer
+                    status: blocked
+                    reason_code: credentials_unavailable
+                    message: Secret-backed connection tests require a server-side secret resolver.
+                    checked_at: "2026-06-05T04:00:00Z"
+                    observed_alerts: 0
+        "400":
+          description: Alert source connection-test request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: source_id must be positive
+        "404":
+          description: Alert source profile was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: alert source profile not found
+        "503":
+          description: Alert source connection tester is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: alert source connection tester is not configured
+        "500":
+          description: Alert source connection test failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: test alert source connection failed
+  /api/v1/config/grouping-policies:
+    get:
+      operationId: listGroupingPolicies
+      summary: List grouping policies
+      description: Returns operator-managed grouping policies.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Grouping policies
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupingPolicyListResponse"
+              examples:
+                policies:
+                  value:
+                    items:
+                      - id: 1
+                        name: Default alert grouping
+                        dimension_keys:
+                          - alertname
+                          - service
+                        severity_key: severity
+                        source_filter:
+                          - prometheus
+                        enabled: true
+                        created_at: "2026-06-05T04:00:00Z"
+                        updated_at: "2026-06-05T04:00:00Z"
+        "400":
+          description: Grouping policy list parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-limit:
+                  value:
+                    error: "limit must be between 1 and 500"
+        "500":
+          description: Grouping policy list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: list grouping policies failed
+    post:
+      operationId: createGroupingPolicy
+      summary: Create a grouping policy
+      description: Stores operator-managed alert grouping configuration.
+      tags:
+        - config
+      requestBody:
+        description: Grouping policy metadata.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GroupingPolicyWriteRequest"
+            examples:
+              default-policy:
+                value:
+                  name: Default alert grouping
+                  dimension_keys:
+                    - alertname
+                    - service
+                  severity_key: severity
+                  source_filter:
+                    - prometheus
+                  enabled: true
+      responses:
+        "201":
+          description: Grouping policy created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupingPolicy"
+              examples:
+                created:
+                  value:
+                    id: 1
+                    name: Default alert grouping
+                    dimension_keys:
+                      - alertname
+                      - service
+                    severity_key: severity
+                    source_filter:
+                      - prometheus
+                    enabled: true
+                    created_at: "2026-06-05T04:00:00Z"
+                    updated_at: "2026-06-05T04:00:00Z"
+        "400":
+          description: Grouping policy request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: "grouping policy: dimension key must not contain whitespace or control characters"
+        "409":
+          description: Grouping policy conflicts with an existing policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                duplicate:
+                  value:
+                    error: grouping policy already exists
+        "500":
+          description: Grouping policy creation failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: create grouping policy failed
+  /api/v1/config/grouping-policies/{policy_id}:
+    get:
+      operationId: getGroupingPolicy
+      summary: Get a grouping policy
+      description: Returns one operator-managed grouping policy.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/GroupingPolicyID"
+      responses:
+        "200":
+          description: Grouping policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupingPolicy"
+              examples:
+                policy:
+                  value:
+                    id: 1
+                    name: Default alert grouping
+                    dimension_keys:
+                      - alertname
+                      - service
+                    severity_key: severity
+                    source_filter:
+                      - prometheus
+                    enabled: true
+                    created_at: "2026-06-05T04:00:00Z"
+                    updated_at: "2026-06-05T04:00:00Z"
+        "404":
+          description: Grouping policy was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: grouping policy not found
+        "500":
+          description: Grouping policy lookup failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: get grouping policy failed
+    put:
+      operationId: replaceGroupingPolicy
+      summary: Replace a grouping policy
+      description: Replaces mutable grouping policy metadata. Use enabled=false to disable a policy.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/GroupingPolicyID"
+      requestBody:
+        description: Replacement grouping policy metadata.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GroupingPolicyWriteRequest"
+            examples:
+              disable-policy:
+                value:
+                  name: Default alert grouping
+                  dimension_keys:
+                    - alertname
+                    - service
+                  severity_key: severity
+                  source_filter:
+                    - prometheus
+                  enabled: false
+      responses:
+        "200":
+          description: Grouping policy replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupingPolicy"
+              examples:
+                replaced:
+                  value:
+                    id: 1
+                    name: Default alert grouping
+                    dimension_keys:
+                      - alertname
+                      - service
+                    severity_key: severity
+                    source_filter:
+                      - prometheus
+                    enabled: false
+                    created_at: "2026-06-05T04:00:00Z"
+                    updated_at: "2026-06-05T04:10:00Z"
+        "400":
+          description: Grouping policy replacement request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: "grouping policy: severity_key must be non-empty"
+        "404":
+          description: Replacement target policy was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: grouping policy not found
+        "409":
+          description: Replacement policy conflicts with an existing name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                duplicate:
+                  value:
+                    error: grouping policy already exists
+        "500":
+          description: Grouping policy replacement failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: replace grouping policy failed
+  /api/v1/config/grouping-policies/{policy_id}/preview:
+    post:
+      operationId: previewGroupingPolicy
+      summary: Preview grouping policy
+      description: Runs a bounded non-persistent grouping preview over recent persisted alert events.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/GroupingPolicyID"
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Grouping policy preview result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupingPolicyPreviewResult"
+              examples:
+                preview:
+                  value:
+                    policy_id: 1
+                    events_scanned: 3
+                    events_matched: 2
+                    groups:
+                      - group_key: "0000000000000000000000000000000000000000000000000000000000000001"
+                        dimensions:
+                          alertname: HighCPU
+                          service: checkout
+                        severity: critical
+                        event_count: 2
+                        first_seen_at: "2026-06-05T04:00:00Z"
+                        last_seen_at: "2026-06-05T04:01:00Z"
+                        event_ids:
+                          - 101
+                          - 102
+        "400":
+          description: Grouping policy preview request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: policy_id must be positive
+        "404":
+          description: Grouping policy was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: grouping policy not found
+        "500":
+          description: Grouping policy preview failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: preview grouping policy failed
   /api/v1/alerts:
     get:
       operationId: listAlerts
@@ -904,6 +1309,15 @@ components:
         type: integer
         format: int64
         minimum: 1
+    GroupingPolicyID:
+      name: policy_id
+      in: path
+      description: Grouping policy identifier.
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
   schemas:
     HealthResponse:
       type: object
@@ -988,6 +1402,28 @@ components:
         - bearer
       examples:
         - bearer
+    AlertSourceConnectionTestStatus:
+      type: string
+      description: Sanitized connection-test outcome category.
+      enum:
+        - success
+        - failed
+        - unsupported
+        - blocked
+      examples:
+        - success
+    AlertSourceConnectionTestReasonCode:
+      type: string
+      description: Stable machine-readable reason for the connection-test outcome.
+      enum:
+        - ok
+        - unsupported_kind
+        - credentials_unavailable
+        - upstream_unreachable
+        - upstream_error
+        - invalid_profile
+      examples:
+        - ok
     AlertSourceLabels:
       type: object
       description: Operator labels for environment, ownership, or routing metadata.
@@ -1028,7 +1464,7 @@ components:
           maxLength: 256
           description: Deployment-managed credential reference; never the credential value.
           examples:
-            - secret/openclarion/prometheus-token
+            - secret/openclarion/prometheus-bearer
         enabled:
           type: boolean
           description: Whether operators enabled this source for policy binding.
@@ -1083,7 +1519,7 @@ components:
           maxLength: 256
           description: Submitted deployment-managed credential reference; never the credential value.
           examples:
-            - secret/openclarion/prometheus-token
+            - secret/openclarion/prometheus-bearer
         enabled:
           type: boolean
           default: false
@@ -1095,6 +1531,52 @@ components:
         - base_url
         - auth_mode
       additionalProperties: false
+    AlertSourceConnectionTestResult:
+      type: object
+      description: Sanitized result for an explicit alert-source connectivity test.
+      properties:
+        source_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        kind:
+          $ref: "#/components/schemas/AlertSourceKind"
+        auth_mode:
+          $ref: "#/components/schemas/AlertSourceAuthMode"
+        status:
+          $ref: "#/components/schemas/AlertSourceConnectionTestStatus"
+        reason_code:
+          $ref: "#/components/schemas/AlertSourceConnectionTestReasonCode"
+        message:
+          type: string
+          minLength: 1
+          maxLength: 240
+          description: Operator-facing sanitized message. It must not include endpoints, secret references, tokens, or raw upstream error text.
+          examples:
+            - Prometheus alert listing succeeded.
+        checked_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-05T04:00:00Z"
+        observed_alerts:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Count of currently firing alerts observed during a successful provider-level test.
+          examples:
+            - 2
+      required:
+        - source_id
+        - kind
+        - auth_mode
+        - status
+        - reason_code
+        - message
+        - checked_at
+        - observed_alerts
     AlertSourceProfileListResponse:
       type: object
       description: Alert source profile list response.
@@ -1108,7 +1590,7 @@ components:
                 kind: prometheus
                 base_url: https://prometheus.example.test
                 auth_mode: bearer
-                secret_ref: secret/openclarion/prometheus-token
+                secret_ref: secret/openclarion/prometheus-bearer
                 enabled: true
                 labels:
                   env: prod
@@ -1118,6 +1600,239 @@ components:
             $ref: "#/components/schemas/AlertSourceProfile"
       required:
         - items
+    GroupingPolicyPreviewSeverity:
+      type: string
+      description: Group severity computed from alert labels during grouping preview.
+      enum:
+        - critical
+        - warning
+        - info
+        - unknown
+      examples:
+        - warning
+    GroupingPolicy:
+      type: object
+      description: Operator-managed grouping policy.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - Default alert grouping
+        dimension_keys:
+          type: array
+          minItems: 1
+          maxItems: 16
+          description: Alert label keys used as deterministic grouping dimensions.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          examples:
+            - - alertname
+              - service
+        severity_key:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Alert label key used to compute group severity.
+          examples:
+            - severity
+        source_filter:
+          type: array
+          maxItems: 16
+          description: Optional alert source identifiers; empty means all sources.
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          examples:
+            - - prometheus
+        enabled:
+          type: boolean
+          description: Whether operators enabled this policy for later binding.
+          examples:
+            - true
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-05T04:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-05T04:10:00Z"
+      required:
+        - id
+        - name
+        - dimension_keys
+        - severity_key
+        - source_filter
+        - enabled
+        - created_at
+        - updated_at
+    GroupingPolicyWriteRequest:
+      type: object
+      description: Grouping policy metadata accepted by create and replace operations.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - Default alert grouping
+        dimension_keys:
+          type: array
+          minItems: 1
+          maxItems: 16
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          examples:
+            - - alertname
+              - service
+        severity_key:
+          type: string
+          minLength: 1
+          maxLength: 64
+          examples:
+            - severity
+        source_filter:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          examples:
+            - - prometheus
+        enabled:
+          type: boolean
+          default: false
+      required:
+        - name
+        - dimension_keys
+        - severity_key
+      additionalProperties: false
+    GroupingPolicyListResponse:
+      type: object
+      description: Grouping policy list response.
+      properties:
+        items:
+          type: array
+          examples:
+            -
+              - id: 1
+                name: Default alert grouping
+                dimension_keys:
+                  - alertname
+                  - service
+                severity_key: severity
+                source_filter:
+                  - prometheus
+                enabled: true
+                created_at: "2026-06-05T04:00:00Z"
+                updated_at: "2026-06-05T04:00:00Z"
+          items:
+            $ref: "#/components/schemas/GroupingPolicy"
+      required:
+        - items
+    GroupingPolicyPreviewGroup:
+      type: object
+      description: One non-persistent grouping preview sample.
+      properties:
+        group_key:
+          type: string
+          minLength: 64
+          maxLength: 64
+          examples:
+            - "0000000000000000000000000000000000000000000000000000000000000001"
+        dimensions:
+          type: object
+          additionalProperties:
+            type: string
+          examples:
+            - alertname: HighCPU
+              service: checkout
+        severity:
+          $ref: "#/components/schemas/GroupingPolicyPreviewSeverity"
+        event_count:
+          type: integer
+          format: int64
+          minimum: 0
+        first_seen_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        event_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+            minimum: 1
+      required:
+        - group_key
+        - dimensions
+        - severity
+        - event_count
+        - first_seen_at
+        - last_seen_at
+        - event_ids
+    GroupingPolicyPreviewResult:
+      type: object
+      description: Non-persistent preview result for one grouping policy.
+      properties:
+        policy_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        events_scanned:
+          type: integer
+          format: int64
+          minimum: 0
+          examples:
+            - 3
+        events_matched:
+          type: integer
+          format: int64
+          minimum: 0
+          examples:
+            - 2
+        groups:
+          type: array
+          examples:
+            -
+              - group_key: "0000000000000000000000000000000000000000000000000000000000000001"
+                dimensions:
+                  alertname: HighCPU
+                  service: checkout
+                severity: critical
+                event_count: 2
+                first_seen_at: "2026-06-05T04:00:00Z"
+                last_seen_at: "2026-06-05T04:01:00Z"
+                event_ids:
+                  - 101
+                  - 102
+          items:
+            $ref: "#/components/schemas/GroupingPolicyPreviewGroup"
+      required:
+        - policy_id
+        - events_scanned
+        - events_matched
+        - groups
     DashboardReportStats:
       type: object
       description: Final report and latest notification delivery counters from the recent report window.

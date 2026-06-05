@@ -47,3 +47,7 @@ type ChatTurnID int64
 // AlertSourceProfileID is the surrogate identifier of an operator-managed
 // alert source configuration profile.
 type AlertSourceProfileID int64
+
+// GroupingPolicyID is the surrogate identifier of an operator-managed
+// grouping policy profile.
+type GroupingPolicyID int64

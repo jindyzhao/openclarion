@@ -8,6 +8,7 @@ import (
 
 	"github.com/openclarion/openclarion/api"
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -108,6 +109,44 @@ func (s *Server) ReplaceAlertSourceProfile(w http.ResponseWriter, r *http.Reques
 	writeAlertSourceProfileMutationResult(r.Context(), w, s.logger, err, "replace alert source profile failed", saved, http.StatusOK)
 }
 
+// TestAlertSourceProfileConnection implements api.ServerInterface.
+func (s *Server) TestAlertSourceProfileConnection(w http.ResponseWriter, r *http.Request, sourceID int64) {
+	if sourceID <= 0 {
+		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "source_id must be positive", nil)
+		return
+	}
+	if s.alertSourceTester == nil {
+		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "alert source connection tester is not configured", nil)
+		return
+	}
+
+	var profile domain.AlertSourceProfile
+	err := s.uowFactory.WithinTx(r.Context(), func(ctx context.Context, uow ports.UnitOfWork) error {
+		var ferr error
+		profile, ferr = uow.Config().FindAlertSourceProfileByID(ctx, domain.AlertSourceProfileID(sourceID))
+		return ferr
+	})
+	if errors.Is(err, domain.ErrNotFound) {
+		writeError(r.Context(), w, s.logger, http.StatusNotFound, "alert source profile not found", nil)
+		return
+	}
+	if err != nil {
+		writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "get alert source profile failed", err)
+		return
+	}
+
+	result, err := s.alertSourceTester.TestAlertSourceConnection(r.Context(), profile)
+	if errors.Is(err, domain.ErrInvariantViolation) {
+		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if err != nil {
+		writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "test alert source connection failed", err)
+		return
+	}
+	writeJSON(r.Context(), w, s.logger, http.StatusOK, alertSourceConnectionTestResponse(result))
+}
+
 func decodeAlertSourceProfileWriteRequest(w http.ResponseWriter, r *http.Request) (api.AlertSourceProfileWriteRequest, error) {
 	var body api.AlertSourceProfileWriteRequest
 	if err := decodeStrictJSONRequestBody(w, r, &body); err != nil {
@@ -196,5 +235,18 @@ func alertSourceProfileResponse(profile domain.AlertSourceProfile) api.AlertSour
 		Labels:    labels,
 		CreatedAt: profile.CreatedAt,
 		UpdatedAt: profile.UpdatedAt,
+	}
+}
+
+func alertSourceConnectionTestResponse(result alertsourcecheck.Result) api.AlertSourceConnectionTestResult {
+	return api.AlertSourceConnectionTestResult{
+		SourceID:       int64(result.SourceID),
+		Kind:           api.AlertSourceKind(result.Kind),
+		AuthMode:       api.AlertSourceAuthMode(result.AuthMode),
+		Status:         api.AlertSourceConnectionTestStatus(result.Status),
+		ReasonCode:     api.AlertSourceConnectionTestReasonCode(result.ReasonCode),
+		Message:        result.Message,
+		CheckedAt:      result.CheckedAt,
+		ObservedAlerts: int64(result.ObservedAlerts),
 	}
 }

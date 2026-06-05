@@ -1,6 +1,7 @@
 import { requestJSON, type ApiResult } from "@/lib/api/client";
 
 import type {
+  AlertSourceConnectionTestResult,
   AlertSourceProfile,
   AlertSourceProfileListResponse,
   AlertSourceProfileWriteRequest
@@ -29,5 +30,16 @@ export async function replaceAlertSourceProfile(
   return requestJSON<AlertSourceProfile>(`/api/v1/config/alert-sources/${sourceID}`, {
     method: "PUT",
     body
+  });
+}
+
+export async function testAlertSourceProfileConnection(
+  sourceID: number
+): Promise<ApiResult<AlertSourceConnectionTestResult>> {
+  if (!Number.isSafeInteger(sourceID) || sourceID < 1) {
+    return { ok: false, error: { message: "Alert source profile ID must be a positive integer.", status: 400 } };
+  }
+  return requestJSON<AlertSourceConnectionTestResult>(`/api/v1/config/alert-sources/${sourceID}/test`, {
+    method: "POST"
   });
 }
