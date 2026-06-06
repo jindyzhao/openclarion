@@ -169,6 +169,8 @@ state.
 | Database | `DATABASE_URL` for the PostgreSQL instance containing the configured profiles and alert data |
 | Temporal | `TEMPORAL_HOST_PORT` for the Temporal service used by the worker and proof command |
 | Replay window | `REPORT_WINDOW_START` and `REPORT_WINDOW_END` as canonical UTC timestamps |
+| Headless M2 alert source | `OPENCLARION_PROMETHEUS_URL` for the legacy environment-configured Prometheus adapter used by `make report-live-smoke`; any optional bearer value must stay in environment-managed secret configuration only |
+| Headless M2 output | Optional `REPORT_LIVE_SMOKE_OUTPUT` pointing at a new local JSON proof path when retaining the M2 smoke artifact instead of relying on the temporary output path |
 | Policy proof | `REPORT_WORKFLOW_POLICY_ID` for an enabled report workflow policy |
 | Schedule proof | `REPORT_WORKFLOW_SCHEDULE_ID` and `REPORT_WORKFLOW_POLICY_ID` for an enabled schedule/policy binding |
 | Output retention | `REPORT_POLICY_LIVE_SMOKE_OUTPUT` or `REPORT_SCHEDULE_LIVE_SMOKE_OUTPUT` pointing at a new local JSON proof path |
@@ -182,13 +184,26 @@ state.
 Run readiness checks before running live proof:
 
 ```bash
+export REPORT_LIVE_SMOKE_OUTPUT=/path/to/new-m2-proof.json
 export REPORT_POLICY_LIVE_SMOKE_OUTPUT=/path/to/new-policy-proof.json
 export REPORT_SCHEDULE_LIVE_SMOKE_OUTPUT=/path/to/new-schedule-proof.json
+make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=report-live-smoke
 make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=report-policy-live-smoke
 make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=report-schedule-live-smoke
+make report-live-smoke
 make report-policy-live-smoke
 make report-schedule-live-smoke
 ```
+
+`make report-live-smoke` is the M2 headless proof prerequisite for the later
+profile-driven proof targets. It uses the legacy environment-configured
+Prometheus adapter through `OPENCLARION_PROMETHEUS_URL`, calls
+`openclarion report-replay --wait`, and validates retained JSON through
+`scripts/report_live_smoke_output`. The default `make manual-evidence-readiness`
+summary keeps this target first until PostgreSQL, Temporal, Prometheus, replay
+window, worker LLM, and Webhook delivery inputs are present. A passing readiness
+check still does not prove live delivery; only a validator-checked retained
+artifact from real services can close the M2 proof item.
 
 `make report-policy-live-smoke` runs the profile-driven replay path and writes
 validator-checked JSON with `request.policy_id` to the explicit

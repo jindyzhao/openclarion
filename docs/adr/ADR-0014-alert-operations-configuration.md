@@ -178,6 +178,16 @@ checks that the path is absent and creatable without printing it, and
 is blocked. A successful run writes only to that explicit output before running
 the retained proof validator. Readiness output alone is not proof.
 
+The existing M2 `make report-live-smoke` retained artifact remains the first
+live-proof ordering target before closing profile-driven or scheduled-trigger
+proof. That target uses the legacy environment-configured Prometheus adapter
+through `OPENCLARION_PROMETHEUS_URL` and proves the report-generation,
+Temporal, LLM, and notification delivery path before the persisted
+configuration proof targets add policy and schedule bindings. Passing readiness
+for the M2 target does not prove live delivery; closing the evidence item still
+requires running the target against real services and retaining a
+validator-checked artifact.
+
 Report workflow output follows the lifecycle boundary in
 [report-lifecycle.md](../design/report-lifecycle.md). A persisted
 `FinalReport` is the final artifact of the automated report workflow, not the
