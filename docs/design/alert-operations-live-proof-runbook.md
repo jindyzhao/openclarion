@@ -163,6 +163,8 @@ state.
 Run readiness checks before running live proof:
 
 ```bash
+export REPORT_POLICY_LIVE_SMOKE_OUTPUT=/path/to/new-policy-proof.json
+export REPORT_SCHEDULE_LIVE_SMOKE_OUTPUT=/path/to/new-schedule-proof.json
 make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=report-policy-live-smoke
 make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=report-schedule-live-smoke
 make report-policy-live-smoke
@@ -170,7 +172,10 @@ make report-schedule-live-smoke
 ```
 
 `make report-policy-live-smoke` runs the profile-driven replay path and writes
-validator-checked JSON with `request.policy_id`. It proves the enabled
+validator-checked JSON with `request.policy_id` to the explicit
+`REPORT_POLICY_LIVE_SMOKE_OUTPUT` path. Readiness rejects a missing or already
+existing output path without printing it, and the proof script fails before
+writing when that readiness target is blocked. The command proves the enabled
 report-workflow-policy path only when it runs against real database, Temporal,
 alert source, worker, LLM, and notification delivery configuration.
 
@@ -180,8 +185,9 @@ waits for a Temporal Schedule action at or after
 `REPORT_SCHEDULE_OBSERVED_AFTER`, waits for the launcher workflow and the
 downstream `ReportBatchWorkflow`, and writes validator-checked JSON linking the
 schedule configuration, launcher workflow, report batch workflow, final report,
-and notification delivery. The command only proves scheduled delivery when it
-runs against real database, Temporal, alert source, worker, LLM, and
+and notification delivery. The script fails before writing when scheduled
+readiness is blocked. The command only proves scheduled delivery when it runs
+against real database, Temporal, alert source, worker, LLM, and
 notification delivery configuration with retained output.
 
 ## Non-Goals

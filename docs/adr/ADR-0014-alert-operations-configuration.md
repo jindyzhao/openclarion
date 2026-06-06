@@ -151,6 +151,14 @@ scenario; the frontend does not override scenario at replay time. The replay
 path applies the bound grouping dimensions, severity key, and source filter
 before starting the report batch workflow.
 
+Profile-driven live proof must produce retained evidence explicitly. The
+operator supplies `REPORT_POLICY_LIVE_SMOKE_OUTPUT` as a new local JSON path,
+`make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=report-policy-live-smoke`
+checks that the path is absent and creatable without printing it, and
+`make report-policy-live-smoke` fails before writing when that readiness target
+is blocked. A successful run writes only to that explicit output before running
+the retained proof validator. Readiness output alone is not proof.
+
 Report workflow output follows the lifecycle boundary in
 [report-lifecycle.md](../design/report-lifecycle.md). A persisted
 `FinalReport` is the final artifact of the automated report workflow, not the

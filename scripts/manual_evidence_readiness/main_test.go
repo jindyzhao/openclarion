@@ -207,12 +207,14 @@ func TestRunRejectsBadReportLiveInputsWithoutLeakingValues(t *testing.T) {
 func TestRunReportsReadyReportPolicyLiveTarget(t *testing.T) {
 	var stdout bytes.Buffer
 	windowStart, windowEnd := pastReportWindow()
+	output := filepath.Join(t.TempDir(), "policy-proof.json")
 	err := run([]string{"--target", "report-policy-live-smoke"}, []string{
 		"DATABASE_URL=postgres://example.test/openclarion",
 		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
 		"REPORT_WORKFLOW_POLICY_ID=42",
 		"REPORT_WINDOW_START=" + windowStart,
 		"REPORT_WINDOW_END=" + windowEnd,
+		"REPORT_POLICY_LIVE_SMOKE_OUTPUT=" + output,
 		"REPORT_REPLAY_LIMIT=20",
 		"REPORT_WAIT_TIMEOUT=3m",
 		"REPORT_CORRELATION_KEY=policy-proof-001",
@@ -233,16 +235,40 @@ func TestRunReportsReadyReportPolicyLiveTarget(t *testing.T) {
 	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
 		t.Fatalf("target has unexpected blockers: %#v", target)
 	}
+	if got := fileCheckByEnv(t, target.FileChecks, "REPORT_POLICY_LIVE_SMOKE_OUTPUT").Status; got != "ok" {
+		t.Fatalf("REPORT_POLICY_LIVE_SMOKE_OUTPUT status = %q, want ok", got)
+	}
 	for _, secret := range []string{
 		"example.test",
 		"127.0.0.1:7233",
 		"resolved-token",
 		"webhook.example.test",
 		"policy-proof-001",
+		output,
 	} {
 		if strings.Contains(stdout.String(), secret) {
 			t.Fatalf("output leaked policy live value %q: %s", secret, stdout.String())
 		}
+	}
+}
+
+func TestRunRequireReadyFailsWhenSelectedTargetIsBlocked(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "report-policy-live-smoke", "--require-ready"}, nil, &stdout)
+	if err == nil {
+		t.Fatal("run succeeded, want blocked target error")
+	}
+	if !strings.Contains(err.Error(), "selected readiness target is blocked") {
+		t.Fatalf("error = %v, want blocked target message", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "report-policy-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	if !missingEnvByName(target.MissingEnv, "REPORT_POLICY_LIVE_SMOKE_OUTPUT") {
+		t.Fatalf("missing env = %#v, want REPORT_POLICY_LIVE_SMOKE_OUTPUT", target.MissingEnv)
 	}
 }
 
@@ -351,12 +377,14 @@ func TestRunRejectsBadReportScheduleLiveInputsWithoutLeakingValues(t *testing.T)
 func TestRunReportsReportPolicyLiveAcceptsWorkerReadyAlternative(t *testing.T) {
 	var stdout bytes.Buffer
 	windowStart, windowEnd := pastReportWindow()
+	output := filepath.Join(t.TempDir(), "policy-proof.json")
 	err := run([]string{"--target", "report-policy-live-smoke"}, []string{
 		"DATABASE_URL=postgres://example.test/openclarion",
 		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
 		"REPORT_WORKFLOW_POLICY_ID=42",
 		"REPORT_WINDOW_START=" + windowStart,
 		"REPORT_WINDOW_END=" + windowEnd,
+		"REPORT_POLICY_LIVE_SMOKE_OUTPUT=" + output,
 		"REPORT_LIVE_SMOKE_ASSUME_WORKER_READY=1",
 	}, &stdout)
 	if err != nil {
@@ -377,12 +405,17 @@ func TestRunRejectsBadReportPolicyLiveInputsWithoutLeakingValues(t *testing.T) {
 	var stdout bytes.Buffer
 	futureStart := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
 	futureEnd := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
+	output := filepath.Join(t.TempDir(), "policy-proof.json")
+	if err := os.WriteFile(output, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write output: %v", err)
+	}
 	err := run([]string{"--target", "report-policy-live-smoke"}, []string{
 		"DATABASE_URL=postgres://example.test/openclarion",
 		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
 		"REPORT_WORKFLOW_POLICY_ID=0",
 		"REPORT_WINDOW_START=" + futureStart,
 		"REPORT_WINDOW_END=" + futureEnd,
+		"REPORT_POLICY_LIVE_SMOKE_OUTPUT=" + output,
 		"REPORT_REPLAY_LIMIT=0",
 		"REPORT_WAIT_TIMEOUT=soon",
 		"REPORT_CORRELATION_KEY=policy proof",
@@ -416,6 +449,9 @@ func TestRunRejectsBadReportPolicyLiveInputsWithoutLeakingValues(t *testing.T) {
 			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
 		}
 	}
+	if got := fileCheckByEnv(t, target.FileChecks, "REPORT_POLICY_LIVE_SMOKE_OUTPUT").Status; got != "exists" {
+		t.Fatalf("REPORT_POLICY_LIVE_SMOKE_OUTPUT status = %q, want exists", got)
+	}
 	for _, secret := range []string{
 		"example.test",
 		"operator",
@@ -426,6 +462,7 @@ func TestRunRejectsBadReportPolicyLiveInputsWithoutLeakingValues(t *testing.T) {
 		"policy proof",
 		"workflow\nsecret",
 		"soon",
+		output,
 	} {
 		if strings.Contains(stdout.String(), secret) {
 			t.Fatalf("output leaked invalid policy live value %q: %s", secret, stdout.String())
@@ -1425,6 +1462,15 @@ func contains(values []string, want string) bool {
 func invalidEnvByName(values []invalidEnv, want string) bool {
 	for _, value := range values {
 		if value.Name == want {
+			return true
+		}
+	}
+	return false
+}
+
+func missingEnvByName(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
 			return true
 		}
 	}

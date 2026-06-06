@@ -24,6 +24,7 @@ require_env TEMPORAL_HOST_PORT
 require_env REPORT_WORKFLOW_POLICY_ID
 require_env REPORT_WINDOW_START
 require_env REPORT_WINDOW_END
+require_env REPORT_POLICY_LIVE_SMOKE_OUTPUT
 
 if ((${#missing[@]} > 0)); then
   printf '[report-policy-live-smoke] missing required env:' >&2
@@ -59,7 +60,7 @@ fi
 
 limit="${REPORT_REPLAY_LIMIT:-10000}"
 wait_timeout="${REPORT_WAIT_TIMEOUT:-20m}"
-output="${REPORT_POLICY_LIVE_SMOKE_OUTPUT:-$(mktemp -t openclarion-report-policy-live-smoke.XXXXXX.json)}"
+output="$REPORT_POLICY_LIVE_SMOKE_OUTPUT"
 
 args=(
   report-policy-replay
@@ -81,6 +82,7 @@ fi
 mkdir -p "$(dirname "$output")"
 
 echo "[report-policy-live-smoke] running policy-driven report replay and waiting for workflow completion..." >&2
+go run ./scripts/manual_evidence_readiness --target report-policy-live-smoke --require-ready >/dev/null
 go run ./cmd/openclarion "${args[@]}" >"$output"
 
 go run ./scripts/report_live_smoke_output "$output"

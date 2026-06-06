@@ -182,6 +182,7 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	target := fs.String("target", "all", "target to check: all, report-live-smoke, report-policy-live-smoke, report-schedule-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-sample-export, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, sandbox-m4-evidence-chain, diagnosis-live-browser-smoke")
+	requireReady := fs.Bool("require-ready", false, "return a non-zero exit status when any selected target is blocked")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -229,7 +230,13 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	enc := json.NewEncoder(stdout)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	if err := enc.Encode(out); err != nil {
+		return err
+	}
+	if *requireReady && out.Status != "ready" {
+		return fmt.Errorf("selected readiness target is blocked")
+	}
+	return nil
 }
 
 func orderedTargetsBySequence(targets []targetReadiness) []targetReadiness {
@@ -489,6 +496,7 @@ func reportPolicyLiveSmokeReadiness(env envMap) targetReadiness {
 		"REPORT_WORKFLOW_POLICY_ID",
 		"REPORT_WINDOW_START",
 		"REPORT_WINDOW_END",
+		"REPORT_POLICY_LIVE_SMOKE_OUTPUT",
 	)
 	if envPresent(env, "REPORT_WORKFLOW_POLICY_ID") {
 		if err := validateReadinessPositiveInteger(env["REPORT_WORKFLOW_POLICY_ID"]); err != nil {
@@ -574,6 +582,7 @@ func reportPolicyLiveSmokeReadiness(env envMap) targetReadiness {
 			},
 		})
 	}
+	target.FileChecks = append(target.FileChecks, requiredAbsentOutputFileEnv(env, "REPORT_POLICY_LIVE_SMOKE_OUTPUT"))
 	return finalize(target)
 }
 

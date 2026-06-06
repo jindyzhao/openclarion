@@ -112,10 +112,12 @@ permits that path. Live
 Prometheus/Alertmanager->Temporal->notification execution evidence remains
 pending. The current readiness preflights expect real database and Temporal
 addresses, a real alert-source profile or Prometheus endpoint, canonical UTC
-replay or observation windows, and either worker-side LLM/notification
-configuration or an operator assertion that an externally managed worker is
-ready. The operator configuration sequence and required external inputs are
-documented in
+replay or observation windows, explicit retained output paths for policy and
+scheduled proof, and either worker-side LLM/notification configuration or an
+operator assertion that an externally managed worker is ready. The policy and
+scheduled proof scripts invoke readiness in require-ready mode before writing
+retained JSON. The operator configuration sequence and required external inputs
+are documented in
 [alert-operations-live-proof-runbook.md](alert-operations-live-proof-runbook.md).
 Report live proof demonstrates automated report delivery; it does not by
 itself prove human-confirmed incident closure.

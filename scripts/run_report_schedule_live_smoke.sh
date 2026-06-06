@@ -75,7 +75,7 @@ fi
 mkdir -p "$(dirname "$output")"
 
 echo "[report-schedule-live-smoke] waiting for a real Temporal Schedule action after $observed_after..." >&2
-MANUAL_EVIDENCE_TARGET=report-schedule-live-smoke make --no-print-directory manual-evidence-readiness >/dev/null
+go run ./scripts/manual_evidence_readiness --target report-schedule-live-smoke --require-ready >/dev/null
 go run ./cmd/openclarion "${args[@]}" >"$output"
 
 go run ./scripts/report_schedule_live_smoke_output "$output"
