@@ -107,6 +107,8 @@ operations surface without changing the alert-first product positioning.
 - [x] ADR-backed alert operations configuration model
 - [x] frontend console architecture foundation with ADR-backed Ant Design and
       TanStack Query providers
+- [x] settings overview route for the declarative alert operations
+      configuration graph
 - [x] alert source settings form and table migrated onto the standardized
       console component layer
 - [x] alert source profile persistence for Prometheus and future Alertmanager
@@ -262,6 +264,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-06-06 | jindyzhao | M3.1 settings overview landed locally: `/settings` now renders the declarative alert-operations configuration graph, profile/policy counts, action-boundary cards, and the retained live-proof blocker while linking to the existing source, grouping, notification, workflow, and schedule settings surfaces without adding browser-owned configuration or new backend contracts. |
 | 2026-06-06 | jindyzhao | M3.1 live-smoke retention hardened locally: `make report-policy-live-smoke` now requires an explicit `REPORT_POLICY_LIVE_SMOKE_OUTPUT` retained JSON path, and both policy and schedule live-proof scripts invoke readiness with `--require-ready` before writing retained JSON. This improves retained evidence setup without running external services or closing the pending live proof items. |
 | 2026-06-06 | jindyzhao | Scheduled-trigger live proof harness landed locally: `make report-schedule-live-smoke` now checks schedule proof prerequisites, waits for a real Temporal Schedule action at or after the observation time, waits for launcher and report batch workflow completion, writes retained JSON, and validates that proof with `scripts/report_schedule_live_smoke_output`. Retained scheduled-trigger live proof against real services remains pending. |
 | 2026-06-06 | jindyzhao | M4 runtime-smoke artifact bundle validation landed locally: `make sandbox-m4-runtime-smoke-artifacts` now runs `scripts/sandbox_m4_runtime_smoke_artifacts` after collecting the five canonical proof files, so bad, missing, extra, symlinked, wrong-source, mutable-image, or wrong-mode runtime-smoke artifacts fail before review-evidence handoff. This does not run Docker in CI, select representative samples, compare report quality, record an M4 decision, or accept a runtime baseline. |

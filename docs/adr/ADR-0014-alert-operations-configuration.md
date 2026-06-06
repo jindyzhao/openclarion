@@ -103,6 +103,15 @@ previews read bounded persisted samples, replay starts report generation, and
 schedule reconciliation converges PostgreSQL state into Temporal Schedule
 state. Saves remain metadata mutations.
 
+The frontend exposes this graph through a `/settings` overview route before the
+individual settings pages. The overview reads existing profile and policy counts
+through the same server-owned APIs used by the feature pages, links to each
+configuration surface, and labels the proof boundary explicitly. It must not
+create a second source of truth, persist browser-local configuration, start
+workflows, call providers, or collect credentials. The existing feature routes
+remain the only browser entry points for profile edits, row-level tests,
+previews, replay, and schedule enablement actions.
+
 Alert source connection tests use a dedicated action endpoint. The action reads
 the persisted profile by ID, performs bounded provider I/O in backend code, and
 returns only status, reason, checked time, kind, auth mode, and small counters.
@@ -316,6 +325,9 @@ This decision is confirmed when:
   backend resolver to deliver through an enabled report-scoped bound profile
 * frontend settings pages use generated OpenAPI types and do not persist real
   bearer tokens or URLs outside user-submitted API calls
+* the frontend settings overview renders the declarative configuration graph
+  from server-owned profile and policy reads without adding browser-owned
+  workflow or credential state
 * `make operations-config-hygiene` passes, proving the alert-operations
   configuration surface does not hard-code customer endpoints or use browser
   durable storage for operator configuration
@@ -416,6 +428,15 @@ reviewable report artifacts with confidence and missing-evidence guidance,
 while final incident conclusions are recorded only through explicit human
 confirmation or diagnosis-room closure.
 
+The frontend `/settings` overview follows the Next.js App Router boundary used
+by the rest of the console: the route page stays thin, performs first-load
+server reads through generated API-backed helpers, and delegates the interactive
+display to a feature-owned component. Ant Design provides the compact control
+surface for the configuration graph and action-boundary cards. TanStack Query
+continues to live in the individual mutation-heavy settings screens, where
+successful mutations invalidate the related list query instead of duplicating
+durable state in the overview.
+
 ## Changelog
 
 | Date | Author | Change |
@@ -442,3 +463,4 @@ confirmation or diagnosis-room closure.
 | 2026-06-06 | jindyzhao | Added report lifecycle boundary that separates automated report artifacts from human-confirmed final conclusions |
 | 2026-06-06 | jindyzhao | Added scheduled-trigger proof harness boundary for real Temporal Schedule action to report delivery verification |
 | 2026-06-06 | jindyzhao | Added declarative operator configuration graph and upstream API stability notes for Prometheus and Alertmanager adapters |
+| 2026-06-06 | jindyzhao | Added frontend settings overview boundary for the declarative configuration graph without browser-owned workflow or credential state |

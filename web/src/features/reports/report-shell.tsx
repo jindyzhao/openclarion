@@ -2,6 +2,7 @@
 
 import {
   AppstoreOutlined,
+  ApiOutlined,
   BellOutlined,
   BranchesOutlined,
   CalendarOutlined,
@@ -17,7 +18,16 @@ import type { ReactNode } from "react";
 
 type ReportShellProps = {
   children: ReactNode;
-  current: "dashboard" | "reports" | "diagnosis" | "settings" | "grouping" | "workflow" | "schedules" | "channels";
+  current:
+    | "dashboard"
+    | "reports"
+    | "diagnosis"
+    | "settings"
+    | "sources"
+    | "grouping"
+    | "workflow"
+    | "schedules"
+    | "channels";
 };
 
 const navItems: MenuProps["items"] = [
@@ -39,6 +49,11 @@ const navItems: MenuProps["items"] = [
   {
     icon: <SettingOutlined aria-label="Settings navigation icon" />,
     key: "settings",
+    label: <Link href="/settings">Settings</Link>
+  },
+  {
+    icon: <ApiOutlined aria-label="Alert sources navigation icon" />,
+    key: "sources",
     label: <Link href="/settings/alert-sources">Sources</Link>
   },
   {

@@ -752,6 +752,55 @@ tr:last-child td {
   overflow-wrap: anywhere;
 }
 
+.settings-overview-flow {
+  overflow-x: auto;
+}
+
+.settings-overview-steps {
+  min-width: 760px;
+}
+
+.settings-overview-card {
+  height: 100%;
+}
+
+.settings-overview-card .ant-card-body {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-overview-card-body {
+  display: flex;
+  min-height: 72px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-overview-count {
+  font-size: 30px;
+  font-weight: 760;
+  line-height: 1;
+}
+
+.settings-overview-boundary {
+  height: 100%;
+  padding: 16px;
+}
+
+.settings-overview-boundary-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-overview-boundary-copy {
+  margin: 12px 0 0 !important;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
 @media (max-width: 760px) {
   .app-console-header {
     grid-template-columns: 1fr;
@@ -797,5 +846,10 @@ tr:last-child td {
 
   .status-line {
     white-space: normal;
+  }
+
+  .settings-overview-card-body,
+  .settings-overview-boundary-title {
+    flex-direction: column;
   }
 }

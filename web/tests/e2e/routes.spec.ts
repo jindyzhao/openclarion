@@ -47,6 +47,17 @@ test("diagnosis room route connects, queries state, and submits a turn", async (
   await expect(page.getByText("Turn 1 completed.")).toBeVisible();
 });
 
+test("settings overview route renders the alert operations configuration graph", async ({ page }) => {
+  await page.goto("/settings");
+
+  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+  await expect(page.getByLabel("Alert operations configuration sequence")).toContainText("Source");
+  await expect(page.getByLabel("Settings surfaces")).toContainText("Alert sources");
+  await expect(page.getByLabel("Settings surfaces")).toContainText("Workflow policies");
+  await expect(page.getByText("Live proof gate")).toBeVisible();
+  await expect(page.getByText(/configuration objects/)).toBeVisible();
+});
+
 test("alert source settings route lists and creates profiles", async ({ page }) => {
   await page.goto("/settings/alert-sources");
 

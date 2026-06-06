@@ -69,37 +69,42 @@ hidden trigger.
 
 Operators should configure the browser-visible state in this order:
 
-1. **Alert source profile** at `/settings/alert-sources`.
+1. **Settings overview** at `/settings`.
+   Review the declarative configuration graph and current profile counts before
+   entering the individual configuration surfaces. The overview reads
+   server-owned state only; it does not persist drafts, start workflows, call
+   providers, or resolve secrets.
+2. **Alert source profile** at `/settings/alert-sources`.
    Create a Prometheus or Alertmanager profile with display name, source kind,
    base URL, auth mode, optional `secret_ref`, enabled state, and labels. The
    browser submits metadata only; it never stores bearer values.
-2. **Connection test** from the alert source row action.
+3. **Connection test** from the alert source row action.
    The backend performs bounded provider I/O and returns sanitized status,
    reason, checked time, kind, auth mode, and small alert counters. A passing
    test does not enable any workflow policy by itself.
-3. **Grouping policy** at `/settings/grouping-policies`.
+4. **Grouping policy** at `/settings/grouping-policies`.
    Configure grouping dimension label keys, severity label key, optional source
    filter, and enabled state. Preview runs only against bounded persisted
    `AlertEvent` samples.
-4. **Notification channel profile** at `/settings/notification-channels`.
+5. **Notification channel profile** at `/settings/notification-channels`.
    Configure display name, adapter kind, delivery scopes, enabled state,
    labels, and `secret_ref`. The browser must not collect endpoint URLs or
    credentials. The row-level test action sends one controlled backend test for
    the persisted channel ID and returns sanitized feedback.
-5. **Report workflow policy** at `/settings/report-workflow-policies`.
+6. **Report workflow policy** at `/settings/report-workflow-policies`.
    Bind the enabled alert source, enabled grouping policy, report scenario,
    diagnosis follow-up mode, and optional report-capable notification channel.
    Saves are metadata changes. Enable and disable are separate backend actions.
-6. **Impact preview** from the report workflow policy row action.
+7. **Impact preview** from the report workflow policy row action.
    The backend reviews binding readiness and recent persisted alert samples
    without provider I/O, secret resolution, workflow starts, or notification
    sends.
-7. **Explicit policy replay** from the report workflow policy row action.
+8. **Explicit policy replay** from the report workflow policy row action.
    The browser sends only policy ID, replay window, limit, and optional
    idempotency identifiers. Backend code resolves the stored policy, alert
    source, grouping policy, scenario, and server-side credentials before
    starting report generation.
-8. **Report workflow schedule** at `/settings/report-workflow-schedules`.
+9. **Report workflow schedule** at `/settings/report-workflow-schedules`.
    Configure persisted schedule metadata for one report workflow policy:
    Temporal Schedule ID, interval and offset, replay window and delay, replay
    limit, and catch-up window. The browser does not own timers, cron state,
