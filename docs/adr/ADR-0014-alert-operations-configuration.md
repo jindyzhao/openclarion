@@ -112,6 +112,13 @@ workflows, call providers, or collect credentials. The existing feature routes
 remain the only browser entry points for profile edits, row-level tests,
 previews, replay, and schedule enablement actions.
 
+The overview may compute a display-only next setup stage from those
+server-fetched counts. Missing object types can be shown as the next navigation
+target, and a complete object graph can point at retained live proof as the next
+gate. Counts are not readiness proof: they do not prove connection tests,
+preview results, enabled policy bindings, Temporal Schedule convergence,
+worker readiness, notification delivery, or retained external evidence.
+
 Alert source connection tests use a dedicated action endpoint. The action reads
 the persisted profile by ID, performs bounded provider I/O in backend code, and
 returns only status, reason, checked time, kind, auth mode, and small counters.

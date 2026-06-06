@@ -51,6 +51,9 @@ test("settings overview route renders the alert operations configuration graph",
   await expect(page.getByLabel("Alert operations configuration sequence")).toContainText("Source");
   await expect(page.getByLabel("Settings surfaces")).toContainText("Alert sources");
   await expect(page.getByLabel("Settings surfaces")).toContainText("Workflow policies");
+  await expect(page.getByLabel("Next setup stage")).toContainText("Retained live proof");
+  await expect(page.getByLabel("Next setup stage")).toContainText("Proof pending");
+  await expect(page.getByLabel("Settings surfaces")).toContainText("Ready");
   await expect(page.getByText("Live proof gate")).toBeVisible();
   await expect(page.getByText(/configuration objects/)).toBeVisible();
 });

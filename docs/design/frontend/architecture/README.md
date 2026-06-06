@@ -37,6 +37,15 @@ Feature-specific action outputs, including connection-test, preview, and replay
 results, remain local session state unless the backend exposes them as durable
 configuration.
 
+The settings overview route is a count-driven navigation projection over the
+server-owned configuration graph described by
+[ADR-0014](../../../adr/ADR-0014-alert-operations-configuration.md). It can mark
+configuration object types as ready, missing, or unavailable based on first-load
+reads and can move the next setup stage to retained proof after every object
+type exists. It must not store a browser-local wizard state or treat nonzero
+counts as proof that connections, previews, enablement, schedule reconciliation,
+or live delivery have succeeded.
+
 The alert source settings screen is the first migrated interactive settings
 surface. It uses Ant Design statistics, alerts, forms, buttons, table columns,
 tags, and empty states while keeping OpenAPI-generated DTOs, local parser tests,

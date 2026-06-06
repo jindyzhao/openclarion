@@ -86,6 +86,14 @@ mocked OpenClarion API/WebSocket endpoint using the production Next.js server.
 `make diagnosis-live-browser-smoke` is the manual M5 browser proof harness for
 a real backend/worker stack.
 
+The `/settings` overview is a display projection over server-fetched object
+counts. It can show which configuration object type is missing next and can
+move the next step to retained proof once alert sources, grouping policies,
+notification channels, workflow policies, and schedules all exist. It is not a
+browser wizard and must not store setup state, claim readiness from counts,
+start workflows, call providers, resolve secrets, or replace the retained proof
+commands defined by [ADR-0014](../../adr/ADR-0014-alert-operations-configuration.md).
+
 ## Next Operations Slice
 
 The remaining operations work is real-stack proof and scheduled trigger

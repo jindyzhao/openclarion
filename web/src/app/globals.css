@@ -625,6 +625,20 @@ tr:last-child td {
   min-width: 760px;
 }
 
+.settings-overview-next {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px;
+}
+
+.settings-overview-next h2 {
+  margin: 2px 0 0 !important;
+  font-size: 18px !important;
+  line-height: 1.25 !important;
+}
+
 .settings-overview-card {
   height: 100%;
 }
@@ -713,7 +727,8 @@ tr:last-child td {
   }
 
   .settings-overview-card-body,
-  .settings-overview-boundary-title {
+  .settings-overview-boundary-title,
+  .settings-overview-next {
     flex-direction: column;
   }
 }

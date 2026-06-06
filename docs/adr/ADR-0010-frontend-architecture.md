@@ -62,6 +62,15 @@ modules may keep local draft view models when they are useful for parsing or
 validation, but the rendered controls should not keep parallel hand-built
 component systems once the shared console layer is available.
 
+The settings overview route is a console navigation surface, not a browser
+wizard. It may derive setup progress from server-fetched profile and policy
+counts, render Ant Design `Steps` status for the next missing configuration
+object, and point operators at the retained proof gate once every required
+object type exists. It must not persist browser-local setup state, infer
+workflow readiness from counts alone, start workflows, call providers, resolve
+secrets, or claim retained proof before the backend proof harnesses run against
+real services.
+
 ## Frontend Layers
 
 | Layer | Responsibility |
@@ -119,3 +128,4 @@ component systems once the shared console layer is available.
 | 2026-06-05 | jindyzhao | Added standardized operations console foundation with Ant Design, TanStack Query, same-origin mutation routes, and incremental migration policy |
 | 2026-06-05 | jindyzhao | Clarified that touched interactive settings screens should migrate forms, feedback, tables, and statistics to the standardized Ant Design console layer |
 | 2026-06-06 | jindyzhao | Aligned diagnosis-room ticket issuance with the same-origin BFF boundary and documented the separate WebSocket ingress/base URL responsibility |
+| 2026-06-06 | jindyzhao | Documented the count-driven settings overview readiness display as a navigation projection rather than browser-owned setup state |

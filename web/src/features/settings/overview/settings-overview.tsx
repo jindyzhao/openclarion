@@ -34,7 +34,6 @@ type Stage = {
   icon: ReactNode;
   key: string;
   title: string;
-  tone: "active" | "draft" | "proof";
 };
 
 export function SettingsOverview({ counts }: SettingsOverviewProps) {
@@ -45,8 +44,7 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
       href: "/settings/alert-sources",
       icon: <ApiOutlined aria-hidden="true" />,
       key: "sources",
-      title: "Alert sources",
-      tone: "active"
+      title: "Alert sources"
     },
     {
       count: counts.groupingPolicies,
@@ -54,8 +52,7 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
       href: "/settings/grouping-policies",
       icon: <PartitionOutlined aria-hidden="true" />,
       key: "grouping",
-      title: "Grouping",
-      tone: "active"
+      title: "Grouping"
     },
     {
       count: counts.notificationChannels,
@@ -63,8 +60,7 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
       href: "/settings/notification-channels",
       icon: <BellOutlined aria-hidden="true" />,
       key: "channels",
-      title: "Notifications",
-      tone: "active"
+      title: "Notifications"
     },
     {
       count: counts.workflowPolicies,
@@ -72,8 +68,7 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
       href: "/settings/report-workflow-policies",
       icon: <BranchesOutlined aria-hidden="true" />,
       key: "workflow",
-      title: "Workflow policies",
-      tone: "active"
+      title: "Workflow policies"
     },
     {
       count: counts.workflowSchedules,
@@ -81,10 +76,13 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
       href: "/settings/report-workflow-schedules",
       icon: <CalendarOutlined aria-hidden="true" />,
       key: "schedules",
-      title: "Schedules",
-      tone: "draft"
+      title: "Schedules"
     }
   ];
+  const nextStageIndex = stages.findIndex((stage) => !isReadyCount(stage.count));
+  const currentStep = nextStageIndex === -1 ? stages.length : nextStageIndex;
+  const nextStage = nextStageIndex === -1 ? null : stages[nextStageIndex] ?? null;
+  const allConfigurationPresent = nextStage === null;
 
   return (
     <div className="stack">
@@ -96,19 +94,39 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
           <Steps
             aria-label="Alert operations configuration sequence"
             className="settings-overview-steps"
-            current={3}
+            current={currentStep}
             items={[
-              { icon: <ApiOutlined />, title: "Source" },
-              { icon: <PartitionOutlined />, title: "Grouping" },
-              { icon: <BellOutlined />, title: "Channel" },
-              { icon: <BranchesOutlined />, title: "Policy" },
-              { icon: <CalendarOutlined />, title: "Schedule" },
-              { icon: <PlayCircleOutlined />, title: "Proof" }
+              ...stages.map((stage, index) => ({
+                icon: stage.icon,
+                status: stepStatus(stage.count, index, currentStep),
+                title: shortStageTitle(stage.title)
+              })),
+              {
+                icon: <PlayCircleOutlined />,
+                status: allConfigurationPresent ? "process" : "wait",
+                title: "Proof"
+              }
             ]}
             responsive={false}
             type="inline"
           />
         </div>
+      </section>
+
+      <section aria-label="Next setup stage" className="panel settings-overview-next">
+        <div>
+          <Typography.Text className="muted">Next setup</Typography.Text>
+          <Typography.Title level={2}>
+            {nextStage === null ? "Retained live proof" : nextStage.title}
+          </Typography.Title>
+        </div>
+        {nextStage === null ? (
+          <Tag color="gold">Proof pending</Tag>
+        ) : (
+          <Button href={nextStage.href} icon={<RadarChartOutlined />} type="primary">
+            Configure
+          </Button>
+        )}
       </section>
 
       <Row aria-label="Settings surfaces" gutter={[16, 16]}>
@@ -120,9 +138,7 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
                   <div className="settings-overview-count">{formatCount(stage.count)}</div>
                   <Typography.Text className="muted">{stage.countLabel}</Typography.Text>
                 </div>
-                <Tag color={stage.tone === "draft" ? "gold" : "green"}>
-                  {stage.tone === "draft" ? "server-owned" : "configured"}
-                </Tag>
+                <ReadinessTag count={stage.count} />
               </div>
               <Button block href={stage.href} icon={<RadarChartOutlined />} type="default">
                 Open
@@ -160,10 +176,14 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
       </Row>
 
       <Alert
-        message="Live proof gate"
+        message={allConfigurationPresent ? "Live proof gate" : "Configuration gate"}
         showIcon
-        type="warning"
-        description="Profile-driven replay and scheduled-trigger acceptance still require real PostgreSQL, Temporal, alert-source, LLM, and notification delivery inputs."
+        type={allConfigurationPresent ? "warning" : "info"}
+        description={
+          allConfigurationPresent
+            ? "Profile-driven replay and scheduled-trigger acceptance still require real PostgreSQL, Temporal, alert-source, LLM, and notification delivery inputs."
+            : "Retained proof starts only after the alert source, grouping, notification, workflow policy, and schedule objects exist server-side."
+        }
       />
     </div>
   );
@@ -208,4 +228,47 @@ function formatCount(count: number | null): string {
     return "-";
   }
   return count.toString();
+}
+
+function isReadyCount(count: number | null): boolean {
+  return count !== null && count > 0;
+}
+
+function shortStageTitle(title: string): string {
+  switch (title) {
+    case "Alert sources":
+      return "Source";
+    case "Workflow policies":
+      return "Policy";
+    case "Notifications":
+      return "Channel";
+    case "Schedules":
+      return "Schedule";
+    default:
+      return title;
+  }
+}
+
+function stepStatus(
+  count: number | null,
+  index: number,
+  currentStep: number
+): "error" | "finish" | "process" | "wait" {
+  if (count === null) {
+    return index === currentStep ? "error" : "wait";
+  }
+  if (count > 0) {
+    return "finish";
+  }
+  return index === currentStep ? "process" : "wait";
+}
+
+function ReadinessTag({ count }: { count: number | null }) {
+  if (count === null) {
+    return <Tag color="red">Unavailable</Tag>;
+  }
+  if (count === 0) {
+    return <Tag color="gold">Needs setup</Tag>;
+  }
+  return <Tag color="green">Ready</Tag>;
 }
