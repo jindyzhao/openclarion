@@ -45,7 +45,7 @@ Alertmanager/Prometheus
 
 | Node | Operation | Implementation | Verdict |
 |------|-----------|----------------|---------|
-| A1 | Receive alerts | Prometheus provider + ingestion library exist; local E2E drives `POST /api/v1/report-triggers/replay-window` against a Prometheus-compatible API and loads one firing alert; policy-driven replay can resolve an enabled alert source profile before replay; `openclarion report-replay` provides the legacy one-shot replay path and `openclarion report-policy-replay` provides the persisted-policy replay path for operator-triggered live runs; profile-bound Alertmanager webhook intake persists firing webhook alerts into `AlertEvent` rows without starting report workflows; scheduled trigger metadata, generated API, frontend settings, launcher workflow, ScheduleOptions registration mapping, persisted-schedule reconciliation, and scheduled-trigger proof harness are implemented locally. Live external Prometheus/Alertmanager scheduled verification remains pending | partial |
+| A1 | Receive alerts | Prometheus provider + ingestion library exist; local E2E drives `POST /api/v1/report-triggers/replay-window` against a Prometheus-compatible API and loads one firing alert; policy-driven replay can resolve an enabled alert source profile before replay; `openclarion report-replay` provides the legacy one-shot replay path and `openclarion report-policy-replay` provides the persisted-policy replay path for operator-triggered live runs; profile-bound Alertmanager webhook intake persists firing webhook alerts into `AlertEvent` rows without starting report workflows; scheduled trigger metadata, generated API, frontend settings, launcher workflow, ScheduleOptions registration mapping, persisted-schedule reconciliation, and scheduled-trigger proof harness are implemented locally. Live external verification remains pending in the required order: M2 headless Prometheus proof, persisted policy replay proof, then scheduled-trigger proof | partial |
 | A2 | Deduplicate and group | Pure Go function, deterministic, no external dependency | proven |
 | A3 | Build evidence | `evidencebuild.BuildSnapshot` constructs deterministic EvidenceSnapshot payloads from persisted alert groups/events | proven |
 | A4 | Start Temporal workflow | `ReportWorkflowStarter` and Temporal `ReportStarter` can start `ReportBatchWorkflow` from replay snapshot refs with stable workflow IDs and duplicate-start policies; local E2E verifies HTTP trigger dispatch into a real Temporal dev server and worker, policy-driven replay resolves enabled workflow policy bindings before start, and CLI tests verify legacy and persisted-policy one-shot request/JSON/wait-result mapping. `ReportPolicyScheduleLauncherWorkflow` now computes scheduled replay windows, delegates to a worker-injected policy replayer Activity, and `ReportWorkflowScheduleRegistrar` maps persisted schedules to Temporal `ScheduleOptions` with skip overlap and catch-up windows, creates missing Temporal Schedules, updates existing schedule specs/actions/policies, and synchronizes paused state during startup and after successful schedule mutations. `make report-schedule-live-smoke` waits for a real Temporal Schedule action, launcher workflow, downstream `ReportBatchWorkflow`, and validator-checked delivery JSON when run against real services; live external scheduled E2E verification remains pending until that retained proof is captured | partial |
@@ -89,7 +89,11 @@ injection, notification sequencing, report read APIs, the HTTP
 replay-to-workflow trigger, the CLI one-shot replay trigger, and a manual
 `make report-live-smoke` proof harness, the policy-driven
 `make report-policy-live-smoke` proof harness, and the scheduled-trigger proof
-harness are proven locally. Replay proof is validated by
+harness are proven locally. The acceptance order follows
+[ADR-0014](../adr/ADR-0014-alert-operations-configuration.md): first retain
+the M2 headless `make report-live-smoke` artifact against the legacy
+environment-configured Prometheus adapter, then retain profile-driven policy
+replay proof, then retain scheduled-trigger proof. Replay proof is validated by
 `scripts/report_live_smoke_output`, including canonical UTC timestamps for
 `checked_at` and the replay window, replay request metadata with optional
 `request.policy_id`, replay stats, and snapshot/SubReport consistency. The
@@ -112,12 +116,12 @@ permits that path. Live
 Prometheus/Alertmanager->Temporal->notification execution evidence remains
 pending. The current readiness preflights expect real database and Temporal
 addresses, a real alert-source profile or Prometheus endpoint, canonical UTC
-replay or observation windows, explicit retained output paths for policy and
-scheduled proof, and either worker-side LLM/notification configuration or an
-operator assertion that an externally managed worker is ready. The policy and
-scheduled proof scripts invoke readiness in require-ready mode before writing
-retained JSON. The operator configuration sequence and required external inputs
-are documented in
+replay or observation windows, explicit retained output paths when retaining
+M2, policy, or scheduled proof, and either worker-side LLM/notification
+configuration or an operator assertion that an externally managed worker is
+ready. The policy and scheduled proof scripts invoke readiness in require-ready
+mode before writing retained JSON. The operator configuration sequence and
+required external inputs are documented in
 [alert-operations-live-proof-runbook.md](alert-operations-live-proof-runbook.md).
 Report live proof demonstrates automated report delivery; it does not by
 itself prove human-confirmed incident closure.
@@ -533,12 +537,13 @@ All three chains are technically feasible:
   report persistence, Temporal report workflow units, notification delivery
   logging, notification sequencing, and the HTTP replay-to-workflow trigger
   are proven locally, including a protocol-level E2E test that reaches a real
-  Temporal worker and Webhook provider. `make report-live-smoke` and
-  `make report-policy-live-smoke` are available to capture validator-checked
-  proof against real services, and `make report-schedule-live-smoke` captures
-  the pending scheduled-trigger proof when run against real services, but live external
-  Prometheus/Alertmanager->Temporal->notification execution evidence remains
-  pending. The required operator configuration order is documented in
+  Temporal worker and Webhook provider. `make report-live-smoke` is the first
+  retained real-service proof target; `make report-policy-live-smoke` extends
+  that proof to persisted policy replay, and `make report-schedule-live-smoke`
+  captures the scheduled-trigger proof after a real Temporal Schedule action.
+  Live external Prometheus/Alertmanager->Temporal->notification execution
+  evidence remains pending until those validator-checked artifacts are retained.
+  The required operator configuration order is documented in
   [alert-operations-live-proof-runbook.md](alert-operations-live-proof-runbook.md).
 - **Chain B** (M4): proven except production B5 egress wiring. The Docker
   Engine API, file-based contract, Provider live/timeout/output-cap smokes, and
