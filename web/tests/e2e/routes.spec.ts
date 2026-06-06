@@ -24,15 +24,12 @@ test("report routes render list, detail, and evidence traceability", async ({ pa
 });
 
 test("diagnosis room route connects, queries state, and submits a turn", async ({ page }) => {
-  const apiPort = process.env.OPENCLARION_PLAYWRIGHT_API_PORT ?? "38280";
-
   await page.goto("/diagnosis-room");
 
   await expect(page.getByRole("heading", { name: "Diagnosis Room" })).toBeVisible();
-  await page.getByLabel("API base URL").fill(`http://127.0.0.1:${apiPort}`);
   await page.getByLabel("Session ID").fill("diagnosis-session-42");
   await page.getByLabel("Bearer token").fill("test-bearer-value");
-  await page.getByRole("button", { exact: true, name: "Connect" }).click();
+  await page.getByRole("button", { name: /Connect/ }).click();
 
   await expect(page.getByRole("status", { name: "Connection status" })).toHaveText("connected");
   await expect(page.getByText("owner-1", { exact: true })).toBeVisible();

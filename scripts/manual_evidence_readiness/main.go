@@ -874,6 +874,14 @@ func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 			})
 		}
 	}
+	if envPresent(env, "OPENCLARION_LIVE_BROWSER_WS_BASE_URL") {
+		if err := validateReadinessBrowserWSBaseURL(env["OPENCLARION_LIVE_BROWSER_WS_BASE_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_BROWSER_WS_BASE_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
 	if envPresent(env, "OPENCLARION_LIVE_BEARER_TOKEN") && !validReadinessBearerToken(env["OPENCLARION_LIVE_BEARER_TOKEN"]) {
 		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
 			Name:   "OPENCLARION_LIVE_BEARER_TOKEN",
@@ -1524,7 +1532,33 @@ func validateReadinessWebhookURL(raw string) error {
 	return err
 }
 
+func validateReadinessBrowserWSBaseURL(raw string) error {
+	parsed, err := parseReadinessURLWithSchemes(raw, map[string]struct{}{
+		"http":  {},
+		"https": {},
+		"ws":    {},
+		"wss":   {},
+	})
+	if err != nil {
+		return err
+	}
+	if parsed.RawQuery != "" {
+		return errors.New("must not include a query string")
+	}
+	if parsed.Fragment != "" {
+		return errors.New("must not include a fragment")
+	}
+	return nil
+}
+
 func parseReadinessURL(raw string) (*url.URL, error) {
+	return parseReadinessURLWithSchemes(raw, map[string]struct{}{
+		"http":  {},
+		"https": {},
+	})
+}
+
+func parseReadinessURLWithSchemes(raw string, allowedSchemes map[string]struct{}) (*url.URL, error) {
 	value := strings.TrimSpace(raw)
 	if value != raw {
 		return nil, errors.New("must not contain leading or trailing whitespace")
@@ -1536,8 +1570,8 @@ func parseReadinessURL(raw string) (*url.URL, error) {
 	if err != nil {
 		return nil, errors.New("must be a valid URL")
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, errors.New("must use http or https")
+	if _, ok := allowedSchemes[parsed.Scheme]; !ok {
+		return nil, errors.New("must use an allowed URL scheme")
 	}
 	if parsed.Host == "" {
 		return nil, errors.New("must include a host")

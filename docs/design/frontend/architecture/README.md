@@ -107,10 +107,19 @@ The short-conversation diagnosis room is a V1-required M5 milestone. It requires
 It does not include automatic conversation compression, long sessions, or
 streaming token-level partial responses in V1.
 
-The M5 route now lives at `/diagnosis-room`. It keeps ticket issuance and
-WebSocket frame handling inside `web/src/features/diagnosis-room/`, while the
-route page remains a thin App Router wrapper. The automated route smoke proves
-the browser path against a mocked API/WebSocket endpoint. The manual `make
+The M5 route now lives at `/diagnosis-room`. The route page remains a thin App
+Router wrapper over `web/src/features/diagnosis-room/`, the rendered controls
+use the standardized Ant Design console layer, and ticket issuance goes through
+a same-origin Next.js route handler at `/api/diagnosis/ws-ticket`. The browser
+may hold an operator bearer token only in transient form/action state; it sends
+that token to the same-origin route, and the route forwards only the
+`Authorization` header plus generated-contract JSON body to the Go API. The
+non-OpenAPI WebSocket frame handling stays local to the diagnosis-room feature.
+Production deployments should route `/ws/diagnosis` through the same browser
+origin; local and manual smoke runs can provide an explicit browser WebSocket
+base URL. That explicit base URL must be an HTTP(S) or WS(S) base URL without
+userinfo, query string, or fragment state. The automated route smoke proves the
+browser path against a mocked API/WebSocket endpoint. The manual `make
 diagnosis-live-browser-smoke` gate uses `web/playwright.live.config.ts` for the
 same browser path against a real backend/worker stack; captured live evidence
 remains a separate M5 acceptance item.

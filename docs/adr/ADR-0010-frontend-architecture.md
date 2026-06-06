@@ -43,6 +43,16 @@ The standardized console layer is:
 * TanStack Query for client-side cache, refresh, polling, and mutation
   invalidation in interactive settings surfaces.
 
+Diagnosis-room ticket issuance also uses the same-origin route-handler boundary.
+The browser may hold an operator bearer token only as transient form/action
+state and sends it to the Next.js route, which forwards only the
+`Authorization` header and generated-contract JSON body to the Go API. The
+WebSocket upgrade remains a non-OpenAPI backend route; production deployments
+should expose it on the same browser origin through ingress, while local and
+manual smoke runs may provide an explicit browser WebSocket base URL. Any
+explicit browser WebSocket base URL must be an HTTP(S) or WS(S) base URL without
+userinfo, query string, or fragment state.
+
 This is an architecture foundation decision, not a requirement to rewrite every
 existing page in one change.
 
@@ -96,7 +106,8 @@ component systems once the shared console layer is available.
 * browser mutations that cross deployment or secret boundaries use same-origin
   route handlers
 * report viewer is delivered before interactive diagnosis room
-* WebSocket logic is isolated in diagnosis-room feature modules
+* diagnosis-room ticket issuance uses a same-origin route handler, while
+  WebSocket logic is isolated in diagnosis-room feature modules
 * settings screens do not hardcode customer Prometheus or Alertmanager endpoints
   and do not store secret values in durable browser state
 
@@ -107,3 +118,4 @@ component systems once the shared console layer is available.
 | 2026-05-18 | jindyzhao | Initial proposal |
 | 2026-06-05 | jindyzhao | Added standardized operations console foundation with Ant Design, TanStack Query, same-origin mutation routes, and incremental migration policy |
 | 2026-06-05 | jindyzhao | Clarified that touched interactive settings screens should migrate forms, feedback, tables, and statistics to the standardized Ant Design console layer |
+| 2026-06-06 | jindyzhao | Aligned diagnosis-room ticket issuance with the same-origin BFF boundary and documented the separate WebSocket ingress/base URL responsibility |

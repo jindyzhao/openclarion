@@ -569,6 +569,7 @@ func TestRunRejectsBadDiagnosisLiveInputsWithoutLeakingValues(t *testing.T) {
 	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
 		"OPENCLARION_LIVE_API_BASE_URL=https://operator:secret@api.example.test?token=secret",
 		"OPENCLARION_LIVE_WEB_BASE_URL=https://web.example.test/#secret",
+		"OPENCLARION_LIVE_BROWSER_WS_BASE_URL=wss://operator:secret@ws.example.test/socket?token=secret",
 		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer token with spaces",
 		"OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID=session-123",
 		"OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=1",
@@ -590,6 +591,7 @@ func TestRunRejectsBadDiagnosisLiveInputsWithoutLeakingValues(t *testing.T) {
 	for _, name := range []string{
 		"OPENCLARION_LIVE_API_BASE_URL",
 		"OPENCLARION_LIVE_WEB_BASE_URL",
+		"OPENCLARION_LIVE_BROWSER_WS_BASE_URL",
 		"OPENCLARION_LIVE_BEARER_TOKEN",
 		"OPENCLARION_IM_WEBHOOK_URL",
 		"OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT",
@@ -604,6 +606,7 @@ func TestRunRejectsBadDiagnosisLiveInputsWithoutLeakingValues(t *testing.T) {
 		"secret",
 		"api.example.test",
 		"web.example.test",
+		"ws.example.test",
 		"token with spaces",
 		"webhook.example.test",
 		"soon",

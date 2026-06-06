@@ -2,6 +2,8 @@
 
 Frontend request and response types must be generated from `api/openapi.yaml`.
 Feature modules may define view models, but not duplicate API DTOs.
+The frontend route and same-origin mutation boundary follows
+[ADR-0010](../../../adr/ADR-0010-frontend-architecture.md).
 Alert operations configuration contracts follow
 [ADR-0014](../../../adr/ADR-0014-alert-operations-configuration.md).
 
@@ -30,8 +32,8 @@ Current API-backed features:
   `NotificationChannelProfileWriteRequest`,
   `NotificationChannelProfileListResponse`, and the notification-channel test
   result contract
-- `/diagnosis-room` uses generated diagnosis ticket and room-create contracts,
-  plus feature-local WebSocket frame types
+- `/diagnosis-room` uses generated diagnosis ticket and room-create contracts
+  through a same-origin ticket route, plus feature-local WebSocket frame types
 
 Upcoming operations settings features must add OpenAPI schemas before frontend
 implementation. Frontend modules may define form draft view models, but saved
@@ -84,3 +86,14 @@ provider acknowledgement metadata, and must not persist the result as profile
 state or treat it as report delivery enablement. Runtime delivery selection is
 backend-owned and can only happen from report notification Activity code when a
 workflow carries a bound channel profile ID.
+
+Diagnosis-room ticket contracts are authentication bootstrap action contracts,
+not durable browser state. The frontend sends `DiagnosisWSTicketRequest` to the
+same-origin `/api/diagnosis/ws-ticket` route with a transient bearer token in
+the request header; the route forwards the generated-contract body to
+`POST /api/v1/diagnosis/ws-ticket` and returns the ticket plus the browser
+WebSocket URL selected by deployment configuration. The browser must not expose
+a free-form backend API base URL field for this path, persist bearer tokens, or
+duplicate WebSocket frame DTOs into OpenAPI. WebSocket frames remain local
+feature types because `/ws/diagnosis` is an upgrade route rather than an
+OpenAPI JSON endpoint.

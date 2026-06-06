@@ -1,26 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { defaultAPIBaseURL, diagnosisWebSocketURL, issueDiagnosisWSTicket, parseDiagnosisServerFrame } from "./transport";
-
-describe("defaultAPIBaseURL", () => {
-  it("uses a stable SSR and browser-safe local API default", () => {
-    expect(defaultAPIBaseURL()).toBe("http://localhost:8080");
-  });
-});
-
-describe("diagnosisWebSocketURL", () => {
-  it("maps HTTP API URLs to WebSocket URLs with session and ticket query values", () => {
-    expect(diagnosisWebSocketURL("http://api.example.test/base", "session-1", "ticket-1")).toBe(
-      "ws://api.example.test/ws/diagnosis?session_id=session-1&ticket=ticket-1"
-    );
-  });
-
-  it("maps HTTPS API URLs to secure WebSocket URLs", () => {
-    expect(diagnosisWebSocketURL("https://api.example.test", "session-1", "ticket-1")).toBe(
-      "wss://api.example.test/ws/diagnosis?session_id=session-1&ticket=ticket-1"
-    );
-  });
-});
+import { issueDiagnosisWSTicket, parseDiagnosisServerFrame } from "./transport";
 
 describe("parseDiagnosisServerFrame", () => {
   it("accepts known server frame types", () => {
@@ -37,42 +17,47 @@ describe("parseDiagnosisServerFrame", () => {
 });
 
 describe("issueDiagnosisWSTicket", () => {
-  it("posts a generated-contract-shaped request with bearer auth", async () => {
+  it("posts a generated-contract-shaped request to the same-origin ticket route", async () => {
+    const originalFetch = globalThis.fetch;
     const fetcher = vi.fn(async () => {
       return new Response(
         JSON.stringify({
           ticket: "ticket-1",
           session_id: "session-1",
-          expires_at: "2026-05-28T10:00:30Z"
+          expires_at: "2026-05-28T10:00:30Z",
+          websocket_url: "ws://api.example.test/ws/diagnosis?session_id=session-1&ticket=ticket-1"
         }),
         { status: 201, headers: { "content-type": "application/json" } }
       );
     });
+    globalThis.fetch = fetcher as unknown as typeof fetch;
 
-    const result = await issueDiagnosisWSTicket(
-      "https://api.example.test",
-      "token-1",
-      " session-1 ",
-      fetcher as unknown as typeof fetch
-    );
+    try {
+      const result = await issueDiagnosisWSTicket("token-1", " session-1 ");
 
-    expect(result).toEqual({
-      ok: true,
-      data: {
-        ticket: "ticket-1",
-        session_id: "session-1",
-        expires_at: "2026-05-28T10:00:30Z"
-      }
-    });
-    expect(fetcher).toHaveBeenCalledWith(
-      new URL("https://api.example.test/api/v1/diagnosis/ws-ticket"),
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({
-          authorization: "Bearer token-1"
-        }),
-        body: JSON.stringify({ session_id: "session-1" })
-      })
-    );
+      expect(result).toEqual({
+        ok: true,
+        data: {
+          ticket: "ticket-1",
+          session_id: "session-1",
+          expires_at: "2026-05-28T10:00:30Z",
+          websocket_url: "ws://api.example.test/ws/diagnosis?session_id=session-1&ticket=ticket-1"
+        }
+      });
+      expect(fetcher).toHaveBeenCalledWith(
+        "/api/diagnosis/ws-ticket",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.any(Headers),
+          body: JSON.stringify({ session_id: "session-1" })
+        })
+      );
+      const calls = fetcher.mock.calls as unknown as Array<[RequestInfo | URL, RequestInit | undefined]>;
+      const request = calls[0]?.[1];
+      expect(request).toBeDefined();
+      expect((request?.headers as Headers).get("authorization")).toBe("Bearer token-1");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
