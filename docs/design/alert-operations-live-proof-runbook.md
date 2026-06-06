@@ -72,8 +72,12 @@ Operators should configure the browser-visible state in this order:
 1. **Settings overview** at `/settings`.
    Review the declarative configuration graph and current profile counts before
    entering the individual configuration surfaces. The overview reads
-   server-owned state only; it does not persist drafts, start workflows, call
-   providers, or resolve secrets.
+   server-owned state only. After the graph contains at least one object for
+   each required profile/policy/schedule type, the overview separates the
+   retained proof handoff into policy replay and scheduled-trigger targets.
+   These cards are display-only readiness projections; they do not persist
+   drafts, start workflows, call providers, resolve secrets, schedule timers, or
+   prove acceptance by themselves.
 2. **Alert source profile** at `/settings/alert-sources`.
    Create a Prometheus or Alertmanager profile with display name, source kind,
    base URL, auth mode, optional `secret_ref`, enabled state, and labels. The
@@ -128,6 +132,16 @@ The report workflow policy is the operator-owned workflow contract. It owns the
 report scenario and binding IDs; replay requests only provide the policy ID,
 window, limit, and optional idempotency identifiers. This prevents browser
 forms from overriding workflow routing or report behavior at action time.
+
+The `/settings` overview projects the same model for handoff. Its policy replay
+target points operators to the manual policy-replay proof chain: PostgreSQL,
+Temporal, alert source, worker LLM, and notification delivery must all be real
+operator-provided services before retained evidence can pass. Its scheduled
+trigger target points to the separate schedule proof chain: an enabled persisted
+schedule, a real Temporal Schedule action, launcher workflow execution, report
+delivery, and retained validator output. These targets are intentionally
+separate because a successful policy replay does not prove schedule firing, and
+a schedule action without downstream report delivery does not prove acceptance.
 
 ## Alertmanager Webhook Intake
 
