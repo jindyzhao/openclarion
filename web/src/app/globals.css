@@ -643,9 +643,17 @@ tr:last-child td {
   height: 100%;
 }
 
+.settings-overview-proof-card {
+  height: 100%;
+}
+
 .settings-overview-card .ant-card-body {
   display: grid;
   gap: 16px;
+}
+
+.settings-overview-proof-card .ant-card-body {
+  height: 100%;
 }
 
 .settings-overview-card-body {
@@ -660,6 +668,19 @@ tr:last-child td {
   font-size: 30px;
   font-weight: 760;
   line-height: 1;
+}
+
+.settings-overview-proof-body {
+  display: grid;
+  min-height: 88px;
+  align-content: space-between;
+  gap: 14px;
+}
+
+.settings-overview-proof-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 0;
 }
 
 .settings-overview-boundary {

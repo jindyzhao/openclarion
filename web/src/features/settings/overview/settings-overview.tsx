@@ -36,6 +36,13 @@ type Stage = {
   title: string;
 };
 
+type ProofTarget = {
+  evidence: string[];
+  icon: ReactNode;
+  key: string;
+  title: string;
+};
+
 export function SettingsOverview({ counts }: SettingsOverviewProps) {
   const stages: Stage[] = [
     {
@@ -83,6 +90,20 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
   const currentStep = nextStageIndex === -1 ? stages.length : nextStageIndex;
   const nextStage = nextStageIndex === -1 ? null : stages[nextStageIndex] ?? null;
   const allConfigurationPresent = nextStage === null;
+  const proofTargets: ProofTarget[] = [
+    {
+      evidence: ["PostgreSQL", "Temporal", "Alert source", "LLM", "Notification"],
+      icon: <PlayCircleOutlined aria-hidden="true" />,
+      key: "policy-replay",
+      title: "Policy replay"
+    },
+    {
+      evidence: ["Enabled schedule", "Temporal action", "Launcher workflow", "Report delivery"],
+      icon: <CalendarOutlined aria-hidden="true" />,
+      key: "scheduled-trigger",
+      title: "Scheduled trigger"
+    }
+  ];
 
   return (
     <div className="stack">
@@ -128,6 +149,25 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
           </Button>
         )}
       </section>
+
+      <Row aria-label="Retained proof targets" gutter={[16, 16]}>
+        {proofTargets.map((target) => (
+          <Col key={target.key} lg={12} xs={24}>
+            <Card className="settings-overview-proof-card" title={<CardTitle icon={target.icon} title={target.title} />}>
+              <div className="settings-overview-proof-body">
+                <Tag color={allConfigurationPresent ? "gold" : "default"}>
+                  {allConfigurationPresent ? "Pending external inputs" : "Waiting for graph"}
+                </Tag>
+                <div className="settings-overview-proof-tags" aria-label={`${target.title} evidence`}>
+                  {target.evidence.map((item) => (
+                    <Tag key={item}>{item}</Tag>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          </Col>
+        ))}
+      </Row>
 
       <Row aria-label="Settings surfaces" gutter={[16, 16]}>
         {stages.map((stage) => (
@@ -181,8 +221,8 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
         type={allConfigurationPresent ? "warning" : "info"}
         description={
           allConfigurationPresent
-            ? "Profile-driven replay and scheduled-trigger acceptance still require real PostgreSQL, Temporal, alert-source, LLM, and notification delivery inputs."
-            : "Retained proof starts only after the alert source, grouping, notification, workflow policy, and schedule objects exist server-side."
+            ? "Policy replay and scheduled-trigger acceptance still require retained proof against real PostgreSQL, Temporal, alert-source, LLM, and notification delivery inputs."
+            : "Retained proof targets activate only after the alert source, grouping, notification, workflow policy, and schedule objects exist server-side."
         }
       />
     </div>
