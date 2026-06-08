@@ -39,7 +39,7 @@ export default defineConfig({
     },
     {
       name: "next",
-      command: `OPENCLARION_API_BASE_URL=${apiBaseURL} npm run start -- --hostname ${host} --port ${webPort}`,
+      command: `OPENCLARION_API_BASE_URL=${apiBaseURL} OPENCLARION_BROWSER_WS_BASE_URL=${apiBaseURL} npm run start -- --hostname ${host} --port ${webPort}`,
       url: baseURL,
       reuseExistingServer: !isCI,
       timeout: 120_000

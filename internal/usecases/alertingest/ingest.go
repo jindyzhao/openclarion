@@ -1,12 +1,6 @@
-// Package alertingest persists upstream MetricsProvider output as
-// domain.AlertEvent rows. It exposes a single entry point,
-// IngestOnce, which queries the provider once and writes each
-// returned alert in its own UnitOfWork transaction.
-//
-// Trigger choice is intentional out of scope at this PR: callers
-// (CLI subcommand, scheduled workflow, HTTP endpoint, etc.) are
-// expected to land in a later PR alongside the grouping algorithm.
-// Until then this package is consumed by tests only.
+// Package alertingest persists upstream alert batches as domain.AlertEvent
+// rows. IngestOnce queries a MetricsProvider first; IngestAlerts accepts an
+// already-materialized push-style batch such as an Alertmanager webhook.
 package alertingest
 
 import (
@@ -43,10 +37,9 @@ type Stats struct {
 	Failed    int
 }
 
-// IngestOnce queries the provider once and persists each returned
-// alert as a domain.AlertEvent. Per-alert work runs in its own
-// UnitOfWork transaction so a failure on one alert does not affect
-// the others.
+// IngestOnce queries the provider once and persists each returned alert as a
+// domain.AlertEvent. Per-alert work runs in its own UnitOfWork transaction so
+// a failure on one alert does not affect the others.
 //
 // Error semantics:
 //
@@ -70,7 +63,14 @@ func IngestOnce(ctx context.Context, provider ports.MetricsProvider, factory por
 	if err != nil {
 		return Stats{}, fmt.Errorf("list active alerts: %w", err)
 	}
+	return IngestAlerts(ctx, alerts, factory)
+}
 
+// IngestAlerts persists an already-materialized batch of active alerts through
+// the same AlertEvent boundary as IngestOnce. It is used by push-style alert
+// sources, such as Alertmanager webhooks, that already carry alert payloads in
+// the inbound request.
+func IngestAlerts(ctx context.Context, alerts []ports.ActiveAlert, factory ports.UnitOfWorkFactory) (Stats, error) {
 	stats := Stats{Total: len(alerts)}
 	var failures []error
 

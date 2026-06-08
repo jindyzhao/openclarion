@@ -6,6 +6,8 @@ import (
 	"errors"
 	"strconv"
 	"time"
+
+	"github.com/openclarion/openclarion/internal/domain"
 )
 
 // ActiveAlert is the minimal projection of an upstream metrics
@@ -201,14 +203,17 @@ type LLMProvider interface {
 // final report notification the intended key shape is
 // "final_report:<id>/notification"; M5 diagnosis-room notifications
 // use their own diagnosis-room scoped key and set DiagnosisTaskID.
+// Notification-channel test actions set NotificationChannelID so test
+// messages do not masquerade as report or diagnosis-task notifications.
 type IMNotification struct {
-	IdempotencyKey  string
-	FinalReportID   int64
-	DiagnosisTaskID int64
-	CorrelationKey  string
-	Title           string
-	Body            string
-	Severity        string
+	IdempotencyKey        string
+	FinalReportID         int64
+	DiagnosisTaskID       int64
+	NotificationChannelID int64
+	CorrelationKey        string
+	Title                 string
+	Body                  string
+	Severity              string
 }
 
 // IMDelivery records provider-level delivery metadata. Concrete
@@ -244,4 +249,12 @@ func (e *IMError) Error() string {
 // request.
 type IMProvider interface {
 	SendNotification(ctx context.Context, req IMNotification) (IMDelivery, error)
+}
+
+// NotificationChannelProviderResolver resolves a persisted notification channel
+// profile into a provider for one report notification Activity. Implementations
+// may read mutable configuration and resolve deployment-managed secrets, so
+// callers must invoke it from Activities or other non-workflow boundaries.
+type NotificationChannelProviderResolver interface {
+	ResolveReportNotificationProvider(ctx context.Context, channelProfileID domain.NotificationChannelProfileID) (IMProvider, error)
 }

@@ -71,9 +71,10 @@ func TestBuildStartRequest_ExplicitValuesAndNoSnapshots(t *testing.T) {
 		},
 	}
 	startReq, ok, err := BuildStartRequest(replay, Request{
-		CorrelationKey: " incident-42 ",
-		WorkflowID:     " report-workflow-42 ",
-		Scenario:       reportprompt.ScenarioCascade,
+		CorrelationKey:                     " incident-42 ",
+		WorkflowID:                         " report-workflow-42 ",
+		Scenario:                           reportprompt.ScenarioCascade,
+		ReportNotificationChannelProfileID: 3,
 	})
 	if err != nil {
 		t.Fatalf("BuildStartRequest explicit: %v", err)
@@ -83,6 +84,9 @@ func TestBuildStartRequest_ExplicitValuesAndNoSnapshots(t *testing.T) {
 	}
 	if startReq.CorrelationKey != "incident-42" || startReq.WorkflowID != "report-workflow-42" {
 		t.Fatalf("startReq identity = %+v", startReq)
+	}
+	if startReq.ReportNotificationChannelProfileID != 3 {
+		t.Fatalf("ReportNotificationChannelProfileID = %d, want 3", startReq.ReportNotificationChannelProfileID)
 	}
 	if got := startReq.Items[0]; got != (ports.ReportBatchStartItem{
 		EvidenceSnapshotID: 201,

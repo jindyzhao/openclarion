@@ -16,7 +16,10 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
+	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
+	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
+	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
 	"github.com/openclarion/openclarion/internal/persistence/ent/schema"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
@@ -751,6 +754,64 @@ func init() {
 	groupingpolicy.DefaultUpdatedAt = groupingpolicyDescUpdatedAt.Default.(func() time.Time)
 	// groupingpolicy.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	groupingpolicy.UpdateDefaultUpdatedAt = groupingpolicyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	notificationchannelprofileFields := schema.NotificationChannelProfile{}.Fields()
+	_ = notificationchannelprofileFields
+	// notificationchannelprofileDescName is the schema descriptor for name field.
+	notificationchannelprofileDescName := notificationchannelprofileFields[0].Descriptor()
+	// notificationchannelprofile.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	notificationchannelprofile.NameValidator = func() func(string) error {
+		validators := notificationchannelprofileDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// notificationchannelprofileDescKind is the schema descriptor for kind field.
+	notificationchannelprofileDescKind := notificationchannelprofileFields[1].Descriptor()
+	// notificationchannelprofile.DefaultKind holds the default value on creation for the kind field.
+	notificationchannelprofile.DefaultKind = notificationchannelprofileDescKind.Default.(string)
+	// notificationchannelprofile.KindValidator is a validator for the "kind" field. It is called by the builders before save.
+	notificationchannelprofile.KindValidator = notificationchannelprofileDescKind.Validators[0].(func(string) error)
+	// notificationchannelprofileDescSecretRef is the schema descriptor for secret_ref field.
+	notificationchannelprofileDescSecretRef := notificationchannelprofileFields[2].Descriptor()
+	// notificationchannelprofile.SecretRefValidator is a validator for the "secret_ref" field. It is called by the builders before save.
+	notificationchannelprofile.SecretRefValidator = func() func(string) error {
+		validators := notificationchannelprofileDescSecretRef.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(secret_ref string) error {
+			for _, fn := range fns {
+				if err := fn(secret_ref); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// notificationchannelprofileDescEnabled is the schema descriptor for enabled field.
+	notificationchannelprofileDescEnabled := notificationchannelprofileFields[4].Descriptor()
+	// notificationchannelprofile.DefaultEnabled holds the default value on creation for the enabled field.
+	notificationchannelprofile.DefaultEnabled = notificationchannelprofileDescEnabled.Default.(bool)
+	// notificationchannelprofileDescCreatedAt is the schema descriptor for created_at field.
+	notificationchannelprofileDescCreatedAt := notificationchannelprofileFields[6].Descriptor()
+	// notificationchannelprofile.DefaultCreatedAt holds the default value on creation for the created_at field.
+	notificationchannelprofile.DefaultCreatedAt = notificationchannelprofileDescCreatedAt.Default.(func() time.Time)
+	// notificationchannelprofileDescUpdatedAt is the schema descriptor for updated_at field.
+	notificationchannelprofileDescUpdatedAt := notificationchannelprofileFields[7].Descriptor()
+	// notificationchannelprofile.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	notificationchannelprofile.DefaultUpdatedAt = notificationchannelprofileDescUpdatedAt.Default.(func() time.Time)
+	// notificationchannelprofile.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	notificationchannelprofile.UpdateDefaultUpdatedAt = notificationchannelprofileDescUpdatedAt.UpdateDefault.(func() time.Time)
 	reportnotificationdeliveryFields := schema.ReportNotificationDelivery{}.Fields()
 	_ = reportnotificationdeliveryFields
 	// reportnotificationdeliveryDescIdempotencyKey is the schema descriptor for idempotency_key field.
@@ -799,6 +860,150 @@ func init() {
 	reportnotificationdelivery.DefaultUpdatedAt = reportnotificationdeliveryDescUpdatedAt.Default.(func() time.Time)
 	// reportnotificationdelivery.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	reportnotificationdelivery.UpdateDefaultUpdatedAt = reportnotificationdeliveryDescUpdatedAt.UpdateDefault.(func() time.Time)
+	reportworkflowpolicyFields := schema.ReportWorkflowPolicy{}.Fields()
+	_ = reportworkflowpolicyFields
+	// reportworkflowpolicyDescName is the schema descriptor for name field.
+	reportworkflowpolicyDescName := reportworkflowpolicyFields[0].Descriptor()
+	// reportworkflowpolicy.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	reportworkflowpolicy.NameValidator = func() func(string) error {
+		validators := reportworkflowpolicyDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// reportworkflowpolicyDescAlertSourceProfileID is the schema descriptor for alert_source_profile_id field.
+	reportworkflowpolicyDescAlertSourceProfileID := reportworkflowpolicyFields[1].Descriptor()
+	// reportworkflowpolicy.AlertSourceProfileIDValidator is a validator for the "alert_source_profile_id" field. It is called by the builders before save.
+	reportworkflowpolicy.AlertSourceProfileIDValidator = reportworkflowpolicyDescAlertSourceProfileID.Validators[0].(func(int) error)
+	// reportworkflowpolicyDescGroupingPolicyID is the schema descriptor for grouping_policy_id field.
+	reportworkflowpolicyDescGroupingPolicyID := reportworkflowpolicyFields[2].Descriptor()
+	// reportworkflowpolicy.GroupingPolicyIDValidator is a validator for the "grouping_policy_id" field. It is called by the builders before save.
+	reportworkflowpolicy.GroupingPolicyIDValidator = reportworkflowpolicyDescGroupingPolicyID.Validators[0].(func(int) error)
+	// reportworkflowpolicyDescReportNotificationChannelProfileID is the schema descriptor for report_notification_channel_profile_id field.
+	reportworkflowpolicyDescReportNotificationChannelProfileID := reportworkflowpolicyFields[3].Descriptor()
+	// reportworkflowpolicy.ReportNotificationChannelProfileIDValidator is a validator for the "report_notification_channel_profile_id" field. It is called by the builders before save.
+	reportworkflowpolicy.ReportNotificationChannelProfileIDValidator = reportworkflowpolicyDescReportNotificationChannelProfileID.Validators[0].(func(int) error)
+	// reportworkflowpolicyDescTriggerMode is the schema descriptor for trigger_mode field.
+	reportworkflowpolicyDescTriggerMode := reportworkflowpolicyFields[4].Descriptor()
+	// reportworkflowpolicy.DefaultTriggerMode holds the default value on creation for the trigger_mode field.
+	reportworkflowpolicy.DefaultTriggerMode = reportworkflowpolicyDescTriggerMode.Default.(string)
+	// reportworkflowpolicy.TriggerModeValidator is a validator for the "trigger_mode" field. It is called by the builders before save.
+	reportworkflowpolicy.TriggerModeValidator = reportworkflowpolicyDescTriggerMode.Validators[0].(func(string) error)
+	// reportworkflowpolicyDescReportScenario is the schema descriptor for report_scenario field.
+	reportworkflowpolicyDescReportScenario := reportworkflowpolicyFields[5].Descriptor()
+	// reportworkflowpolicy.DefaultReportScenario holds the default value on creation for the report_scenario field.
+	reportworkflowpolicy.DefaultReportScenario = reportworkflowpolicyDescReportScenario.Default.(string)
+	// reportworkflowpolicy.ReportScenarioValidator is a validator for the "report_scenario" field. It is called by the builders before save.
+	reportworkflowpolicy.ReportScenarioValidator = reportworkflowpolicyDescReportScenario.Validators[0].(func(string) error)
+	// reportworkflowpolicyDescDiagnosisFollowUp is the schema descriptor for diagnosis_follow_up field.
+	reportworkflowpolicyDescDiagnosisFollowUp := reportworkflowpolicyFields[6].Descriptor()
+	// reportworkflowpolicy.DefaultDiagnosisFollowUp holds the default value on creation for the diagnosis_follow_up field.
+	reportworkflowpolicy.DefaultDiagnosisFollowUp = reportworkflowpolicyDescDiagnosisFollowUp.Default.(string)
+	// reportworkflowpolicy.DiagnosisFollowUpValidator is a validator for the "diagnosis_follow_up" field. It is called by the builders before save.
+	reportworkflowpolicy.DiagnosisFollowUpValidator = reportworkflowpolicyDescDiagnosisFollowUp.Validators[0].(func(string) error)
+	// reportworkflowpolicyDescEnabled is the schema descriptor for enabled field.
+	reportworkflowpolicyDescEnabled := reportworkflowpolicyFields[7].Descriptor()
+	// reportworkflowpolicy.DefaultEnabled holds the default value on creation for the enabled field.
+	reportworkflowpolicy.DefaultEnabled = reportworkflowpolicyDescEnabled.Default.(bool)
+	// reportworkflowpolicyDescCreatedAt is the schema descriptor for created_at field.
+	reportworkflowpolicyDescCreatedAt := reportworkflowpolicyFields[10].Descriptor()
+	// reportworkflowpolicy.DefaultCreatedAt holds the default value on creation for the created_at field.
+	reportworkflowpolicy.DefaultCreatedAt = reportworkflowpolicyDescCreatedAt.Default.(func() time.Time)
+	// reportworkflowpolicyDescUpdatedAt is the schema descriptor for updated_at field.
+	reportworkflowpolicyDescUpdatedAt := reportworkflowpolicyFields[11].Descriptor()
+	// reportworkflowpolicy.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	reportworkflowpolicy.DefaultUpdatedAt = reportworkflowpolicyDescUpdatedAt.Default.(func() time.Time)
+	// reportworkflowpolicy.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	reportworkflowpolicy.UpdateDefaultUpdatedAt = reportworkflowpolicyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	reportworkflowscheduleFields := schema.ReportWorkflowSchedule{}.Fields()
+	_ = reportworkflowscheduleFields
+	// reportworkflowscheduleDescName is the schema descriptor for name field.
+	reportworkflowscheduleDescName := reportworkflowscheduleFields[0].Descriptor()
+	// reportworkflowschedule.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	reportworkflowschedule.NameValidator = func() func(string) error {
+		validators := reportworkflowscheduleDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// reportworkflowscheduleDescReportWorkflowPolicyID is the schema descriptor for report_workflow_policy_id field.
+	reportworkflowscheduleDescReportWorkflowPolicyID := reportworkflowscheduleFields[1].Descriptor()
+	// reportworkflowschedule.ReportWorkflowPolicyIDValidator is a validator for the "report_workflow_policy_id" field. It is called by the builders before save.
+	reportworkflowschedule.ReportWorkflowPolicyIDValidator = reportworkflowscheduleDescReportWorkflowPolicyID.Validators[0].(func(int) error)
+	// reportworkflowscheduleDescTemporalScheduleID is the schema descriptor for temporal_schedule_id field.
+	reportworkflowscheduleDescTemporalScheduleID := reportworkflowscheduleFields[2].Descriptor()
+	// reportworkflowschedule.TemporalScheduleIDValidator is a validator for the "temporal_schedule_id" field. It is called by the builders before save.
+	reportworkflowschedule.TemporalScheduleIDValidator = func() func(string) error {
+		validators := reportworkflowscheduleDescTemporalScheduleID.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(temporal_schedule_id string) error {
+			for _, fn := range fns {
+				if err := fn(temporal_schedule_id); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// reportworkflowscheduleDescIntervalNs is the schema descriptor for interval_ns field.
+	reportworkflowscheduleDescIntervalNs := reportworkflowscheduleFields[3].Descriptor()
+	// reportworkflowschedule.IntervalNsValidator is a validator for the "interval_ns" field. It is called by the builders before save.
+	reportworkflowschedule.IntervalNsValidator = reportworkflowscheduleDescIntervalNs.Validators[0].(func(int64) error)
+	// reportworkflowscheduleDescOffsetNs is the schema descriptor for offset_ns field.
+	reportworkflowscheduleDescOffsetNs := reportworkflowscheduleFields[4].Descriptor()
+	// reportworkflowschedule.OffsetNsValidator is a validator for the "offset_ns" field. It is called by the builders before save.
+	reportworkflowschedule.OffsetNsValidator = reportworkflowscheduleDescOffsetNs.Validators[0].(func(int64) error)
+	// reportworkflowscheduleDescReplayWindowNs is the schema descriptor for replay_window_ns field.
+	reportworkflowscheduleDescReplayWindowNs := reportworkflowscheduleFields[5].Descriptor()
+	// reportworkflowschedule.ReplayWindowNsValidator is a validator for the "replay_window_ns" field. It is called by the builders before save.
+	reportworkflowschedule.ReplayWindowNsValidator = reportworkflowscheduleDescReplayWindowNs.Validators[0].(func(int64) error)
+	// reportworkflowscheduleDescReplayDelayNs is the schema descriptor for replay_delay_ns field.
+	reportworkflowscheduleDescReplayDelayNs := reportworkflowscheduleFields[6].Descriptor()
+	// reportworkflowschedule.ReplayDelayNsValidator is a validator for the "replay_delay_ns" field. It is called by the builders before save.
+	reportworkflowschedule.ReplayDelayNsValidator = reportworkflowscheduleDescReplayDelayNs.Validators[0].(func(int64) error)
+	// reportworkflowscheduleDescReplayLimit is the schema descriptor for replay_limit field.
+	reportworkflowscheduleDescReplayLimit := reportworkflowscheduleFields[7].Descriptor()
+	// reportworkflowschedule.ReplayLimitValidator is a validator for the "replay_limit" field. It is called by the builders before save.
+	reportworkflowschedule.ReplayLimitValidator = reportworkflowscheduleDescReplayLimit.Validators[0].(func(int) error)
+	// reportworkflowscheduleDescCatchupWindowNs is the schema descriptor for catchup_window_ns field.
+	reportworkflowscheduleDescCatchupWindowNs := reportworkflowscheduleFields[8].Descriptor()
+	// reportworkflowschedule.CatchupWindowNsValidator is a validator for the "catchup_window_ns" field. It is called by the builders before save.
+	reportworkflowschedule.CatchupWindowNsValidator = reportworkflowscheduleDescCatchupWindowNs.Validators[0].(func(int64) error)
+	// reportworkflowscheduleDescEnabled is the schema descriptor for enabled field.
+	reportworkflowscheduleDescEnabled := reportworkflowscheduleFields[9].Descriptor()
+	// reportworkflowschedule.DefaultEnabled holds the default value on creation for the enabled field.
+	reportworkflowschedule.DefaultEnabled = reportworkflowscheduleDescEnabled.Default.(bool)
+	// reportworkflowscheduleDescCreatedAt is the schema descriptor for created_at field.
+	reportworkflowscheduleDescCreatedAt := reportworkflowscheduleFields[12].Descriptor()
+	// reportworkflowschedule.DefaultCreatedAt holds the default value on creation for the created_at field.
+	reportworkflowschedule.DefaultCreatedAt = reportworkflowscheduleDescCreatedAt.Default.(func() time.Time)
+	// reportworkflowscheduleDescUpdatedAt is the schema descriptor for updated_at field.
+	reportworkflowscheduleDescUpdatedAt := reportworkflowscheduleFields[13].Descriptor()
+	// reportworkflowschedule.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	reportworkflowschedule.DefaultUpdatedAt = reportworkflowscheduleDescUpdatedAt.Default.(func() time.Time)
+	// reportworkflowschedule.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	reportworkflowschedule.UpdateDefaultUpdatedAt = reportworkflowscheduleDescUpdatedAt.UpdateDefault.(func() time.Time)
 	subreportFields := schema.SubReport{}.Fields()
 	_ = subreportFields
 	// subreportDescIdempotencyKey is the schema descriptor for idempotency_key field.

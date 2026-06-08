@@ -6,6 +6,8 @@ const providedBaseURL = process.env.OPENCLARION_LIVE_WEB_BASE_URL?.trim();
 const localBaseURL = `http://${host}:${webPort}`;
 const baseURL = providedBaseURL && providedBaseURL !== "" ? providedBaseURL : localBaseURL;
 const isCI = Boolean(process.env.CI);
+const liveAPIBaseURL = process.env.OPENCLARION_LIVE_API_BASE_URL?.trim() ?? "";
+const liveWSBaseURL = process.env.OPENCLARION_LIVE_BROWSER_WS_BASE_URL?.trim() || liveAPIBaseURL;
 
 export default defineConfig({
   testDir: "./tests/live",
@@ -32,9 +34,13 @@ export default defineConfig({
       ? undefined
       : {
           name: "next-live",
-          command: `npm run start -- --hostname ${host} --port ${webPort}`,
+          command: `OPENCLARION_API_BASE_URL=${shellQuote(liveAPIBaseURL)} OPENCLARION_BROWSER_WS_BASE_URL=${shellQuote(liveWSBaseURL)} npm run start -- --hostname ${host} --port ${webPort}`,
           url: localBaseURL,
           reuseExistingServer: !isCI,
           timeout: 120_000
         }
 });
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}

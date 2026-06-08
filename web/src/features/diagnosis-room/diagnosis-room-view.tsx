@@ -1,15 +1,34 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import {
+  ApiOutlined,
+  DisconnectOutlined,
+  ReloadOutlined,
+  SendOutlined
+} from "@ant-design/icons";
+import { useMutation } from "@tanstack/react-query";
+import {
+  Alert,
+  Button,
+  Card,
+  Descriptions,
+  Empty,
+  Form,
+  Input,
+  List,
+  Space,
+  Tag,
+  Typography
+} from "antd";
+import { useEffect, useRef, useState } from "react";
 
 import { ReportShell } from "@/features/reports/report-shell";
 
 import {
-  defaultAPIBaseURL,
-  diagnosisWebSocketURL,
   issueDiagnosisWSTicket,
   nextDiagnosisMessageID,
-  parseDiagnosisServerFrame
+  parseDiagnosisServerFrame,
+  type DiagnosisWSTicketBundle
 } from "./transport";
 import type {
   DiagnosisClientFrame,
@@ -18,6 +37,15 @@ import type {
   DiagnosisServerFrame,
   DiagnosisStateFrame
 } from "./types";
+
+type ConnectionFormValues = {
+  sessionID: string;
+  bearerToken: string;
+};
+
+type ComposerValues = {
+  message: string;
+};
 
 type LogEntry = {
   id: number;
@@ -29,14 +57,18 @@ type TranscriptTurn = DiagnosisConversationTurn & {
   id: string;
 };
 
+class DiagnosisActionError extends Error {
+  constructor(message: string, readonly status?: number) {
+    super(message);
+    this.name = "DiagnosisActionError";
+  }
+}
+
 export function DiagnosisRoomView() {
   const socketRef = useRef<WebSocket | null>(null);
   const logIDRef = useRef(0);
-  const [clientReady, setClientReady] = useState(false);
-  const [apiBaseURL, setAPIBaseURL] = useState(defaultAPIBaseURL);
-  const [sessionID, setSessionID] = useState("diagnosis-session-42");
-  const [bearerToken, setBearerToken] = useState("");
-  const [message, setMessage] = useState("");
+  const [connectionForm] = Form.useForm<ConnectionFormValues>();
+  const [composerForm] = Form.useForm<ComposerValues>();
   const [status, setStatus] = useState<DiagnosisConnectionStatus>("idle");
   const [socketOpen, setSocketOpen] = useState(false);
   const [readySubject, setReadySubject] = useState("");
@@ -44,22 +76,29 @@ export function DiagnosisRoomView() {
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [log, setLog] = useState<LogEntry[]>([]);
 
+  const ticketMutation = useMutation<DiagnosisWSTicketBundle, DiagnosisActionError, ConnectionFormValues>({
+    mutationFn: async (values) => {
+      const result = await issueDiagnosisWSTicket(values.bearerToken, values.sessionID);
+      if (!result.ok) {
+        throw new DiagnosisActionError(result.error.message, result.error.status);
+      }
+      return result.data;
+    }
+  });
+
   useEffect(() => {
-    const readyHandle = window.setTimeout(() => setClientReady(true), 0);
     return () => {
-      window.clearTimeout(readyHandle);
       socketRef.current?.close();
       socketRef.current = null;
     };
   }, []);
 
   const connected = status === "connected" && socketOpen;
-  const busy = status === "ticketing" || status === "connecting";
+  const busy = ticketMutation.isPending || status === "connecting";
 
-  async function handleConnect(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmedSessionID = sessionID.trim();
-    const trimmedBearer = bearerToken.trim();
+  async function handleConnect(values: ConnectionFormValues) {
+    const trimmedSessionID = values.sessionID.trim();
+    const trimmedBearer = values.bearerToken.trim();
     if (trimmedSessionID === "" || trimmedBearer === "") {
       pushLog("error", "Session and bearer token are required.");
       setStatus("error");
@@ -73,18 +112,23 @@ export function DiagnosisRoomView() {
     setReadySubject("");
     setRoomState(null);
     setTranscript([]);
+    ticketMutation.reset();
     pushLog("info", "Requesting WebSocket ticket.");
 
-    const ticket = await issueDiagnosisWSTicket(apiBaseURL, trimmedBearer, trimmedSessionID);
-    if (!ticket.ok) {
+    let ticket: DiagnosisWSTicketBundle;
+    try {
+      ticket = await ticketMutation.mutateAsync({
+        bearerToken: trimmedBearer,
+        sessionID: trimmedSessionID
+      });
+    } catch (error) {
       setStatus("error");
-      pushLog("error", ticket.error.status ? `HTTP ${ticket.error.status}: ${ticket.error.message}` : ticket.error.message);
+      pushLog("error", diagnosisActionErrorMessage(error));
       return;
     }
 
     setStatus("connecting");
-    const url = diagnosisWebSocketURL(apiBaseURL, ticket.data.session_id, ticket.data.ticket);
-    const socket = new WebSocket(url);
+    const socket = new WebSocket(ticket.websocket_url);
     socketRef.current = socket;
 
     socket.onopen = () => {
@@ -156,9 +200,8 @@ export function DiagnosisRoomView() {
     }
   }
 
-  function handleSend(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmed = message.trim();
+  function handleSend(values: ComposerValues) {
+    const trimmed = values.message.trim();
     if (!connected || trimmed === "") {
       return;
     }
@@ -172,7 +215,7 @@ export function DiagnosisRoomView() {
         content: trimmed
       }
     ]);
-    setMessage("");
+    composerForm.resetFields();
   }
 
   function handleQueryState() {
@@ -208,148 +251,117 @@ export function DiagnosisRoomView() {
           <h1>Diagnosis Room</h1>
           <p>Short-conversation investigation for an alert diagnosis session.</p>
         </div>
-        <span aria-label="Connection status" className={statusClass(status)} role="status">
+        <Tag aria-label="Connection status" color={statusColor(status)} role="status">
           {statusLabel(status)}
-        </span>
+        </Tag>
       </section>
 
       <div className="diagnosis-layout">
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Connection</h2>
-          </div>
-          <div className="panel-body">
-            <form className="diagnosis-form" onSubmit={handleConnect}>
-              <label>
-                <span>API base URL</span>
-                <input
-                  autoComplete="url"
-                  disabled={!clientReady || busy}
-                  name="apiBaseURL"
-                  onChange={(event) => setAPIBaseURL(event.target.value)}
-                  type="url"
-                  value={apiBaseURL}
-                />
-              </label>
-              <label>
-                <span>Session ID</span>
-                <input
-                  autoComplete="off"
-                  disabled={!clientReady || busy}
-                  name="sessionID"
-                  onChange={(event) => setSessionID(event.target.value)}
-                  value={sessionID}
-                />
-              </label>
-              <label>
-                <span>Bearer token</span>
-                <input
-                  autoComplete="off"
-                  disabled={!clientReady || busy}
-                  name="bearerToken"
-                  onChange={(event) => setBearerToken(event.target.value)}
-                  type="password"
-                  value={bearerToken}
-                />
-              </label>
-              <div className="button-row">
-                <button className="button-primary" disabled={!clientReady || busy} type="submit">
-                  Connect
-                </button>
-                <button className="button-secondary" disabled={!connected} onClick={handleQueryState} type="button">
-                  Refresh State
-                </button>
-                <button className="button-secondary" disabled={status === "idle"} onClick={handleDisconnect} type="button">
-                  Disconnect
-                </button>
-              </div>
-            </form>
-          </div>
-        </section>
+        <Card className="settings-overview-card" title="Connection">
+          <Form<ConnectionFormValues>
+            form={connectionForm}
+            initialValues={{ bearerToken: "", sessionID: "diagnosis-session-42" }}
+            layout="vertical"
+            onFinish={handleConnect}
+          >
+            <Form.Item
+              label="Session ID"
+              name="sessionID"
+              rules={[{ required: true, message: "Session ID is required." }]}
+            >
+              <Input autoComplete="off" disabled={busy} />
+            </Form.Item>
+            <Form.Item
+              label="Bearer token"
+              name="bearerToken"
+              rules={[{ required: true, message: "Bearer token is required." }]}
+            >
+              <Input.Password autoComplete="off" disabled={busy} />
+            </Form.Item>
+            <Space wrap>
+              <Button
+                disabled={busy}
+                htmlType="submit"
+                icon={<ApiOutlined />}
+                loading={ticketMutation.isPending}
+                type="primary"
+              >
+                Connect
+              </Button>
+              <Button disabled={!connected} icon={<ReloadOutlined />} onClick={handleQueryState}>
+                Refresh State
+              </Button>
+              <Button disabled={status === "idle"} icon={<DisconnectOutlined />} onClick={handleDisconnect}>
+                Disconnect
+              </Button>
+            </Space>
+          </Form>
+        </Card>
 
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Room State</h2>
-          </div>
-          <div className="panel-body">
-            <dl className="diagnosis-state">
-              <StateRow label="Subject" value={readySubject || roomState?.owner_subject || "-"} />
-              <StateRow label="Session" value={roomState?.session_id || sessionID || "-"} />
-              <StateRow label="Status" value={roomState?.status || statusLabel(status)} />
-              <StateRow label="Turns" value={roomState ? String(roomState.turn_count) : "-"} />
-              <StateRow label="Close reason" value={roomState?.close_reason || "-"} />
-              <StateRow label="Conclusion" value={finalConclusionLabel(roomState)} />
-              <StateRow label="In flight" value={roomState?.in_flight ? "yes" : "no"} />
-            </dl>
-            {roomState?.final_conclusion ? (
-              <div className="diagnosis-conclusion">
-                <div className="diagnosis-conclusion-title">Final conclusion</div>
-                <p>{finalConclusionText(roomState)}</p>
-              </div>
-            ) : null}
-          </div>
-        </section>
+        <Card className="settings-overview-card" title="Room State">
+          <Descriptions column={1} size="small">
+            <Descriptions.Item label="Subject">{readySubject || roomState?.owner_subject || "-"}</Descriptions.Item>
+            <Descriptions.Item label="Session">{roomState?.session_id || connectionForm.getFieldValue("sessionID") || "-"}</Descriptions.Item>
+            <Descriptions.Item label="Status">{roomState?.status || statusLabel(status)}</Descriptions.Item>
+            <Descriptions.Item label="Turns">{roomState ? String(roomState.turn_count) : "-"}</Descriptions.Item>
+            <Descriptions.Item label="Close reason">{roomState?.close_reason || "-"}</Descriptions.Item>
+            <Descriptions.Item label="Conclusion">{finalConclusionLabel(roomState)}</Descriptions.Item>
+            <Descriptions.Item label="In flight">{roomState?.in_flight ? "yes" : "no"}</Descriptions.Item>
+          </Descriptions>
+          {roomState?.final_conclusion ? (
+            <Alert
+              className="diagnosis-conclusion"
+              description={finalConclusionText(roomState)}
+              message="Final conclusion"
+              showIcon
+              type="success"
+            />
+          ) : null}
+        </Card>
       </div>
 
-      <section className="panel diagnosis-room-panel">
-        <div className="panel-header diagnosis-room-header">
-          <h2>Transcript</h2>
-          <span className="muted">{transcript.length} message(s)</span>
-        </div>
-        <div className="panel-body diagnosis-transcript" aria-live="polite">
-          {transcript.length === 0 ? (
-            <div className="notice">No transcript messages.</div>
-          ) : (
-            transcript.map((turn) => (
+      <Card
+        className="diagnosis-room-panel settings-overview-card"
+        extra={<Typography.Text type="secondary">{transcript.length} message(s)</Typography.Text>}
+        title="Transcript"
+      >
+        {transcript.length === 0 ? (
+          <Empty description="No transcript messages" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        ) : (
+          <div aria-live="polite" className="diagnosis-transcript">
+            {transcript.map((turn) => (
               <article className={`diagnosis-turn diagnosis-turn-${turn.role}`} key={turn.id}>
                 <div className="diagnosis-turn-role">{turn.role}</div>
                 <p>{turn.content}</p>
               </article>
-            ))
-          )}
-        </div>
-        <form className="diagnosis-composer" onSubmit={handleSend}>
-          <label>
-            <span>Message</span>
-            <textarea
-              name="message"
-              onChange={(event) => setMessage(event.target.value)}
-              rows={3}
-              value={message}
-            />
-          </label>
-          <button className="button-primary" disabled={!connected || message.trim() === ""} type="submit">
+            ))}
+          </div>
+        )}
+
+        <Form<ComposerValues> className="diagnosis-composer" form={composerForm} layout="vertical" onFinish={handleSend}>
+          <Form.Item label="Message" name="message" rules={[{ required: true, message: "Message is required." }]}>
+            <Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} disabled={!connected} />
+          </Form.Item>
+          <Button disabled={!connected} htmlType="submit" icon={<SendOutlined />} type="primary">
             Send
-          </button>
-        </form>
-      </section>
+          </Button>
+        </Form>
+      </Card>
 
       {log.length > 0 ? (
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Events</h2>
-          </div>
-          <div className="panel-body">
-            <ul className="diagnosis-log">
-              {log.map((entry) => (
-                <li className={entry.level === "error" ? "diagnosis-log-error" : undefined} key={entry.id}>
-                  {entry.message}
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
+        <Card className="settings-overview-card" title="Events">
+          <List
+            dataSource={log}
+            renderItem={(entry) => (
+              <List.Item className={entry.level === "error" ? "diagnosis-log-error" : undefined}>
+                {entry.message}
+              </List.Item>
+            )}
+            size="small"
+          />
+        </Card>
       ) : null}
     </ReportShell>
-  );
-}
-
-function StateRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <dt>{label}</dt>
-      <dd>{value}</dd>
-    </div>
   );
 }
 
@@ -397,16 +409,26 @@ function statusLabel(status: DiagnosisConnectionStatus): string {
   }
 }
 
-function statusClass(status: DiagnosisConnectionStatus): string {
+function statusColor(status: DiagnosisConnectionStatus): string {
   switch (status) {
     case "connected":
-      return "pill pill-ok";
+      return "success";
     case "error":
-      return "pill pill-critical";
+      return "error";
     case "ticketing":
     case "connecting":
-      return "pill pill-warning";
+      return "warning";
     default:
-      return "pill pill-info";
+      return "processing";
   }
+}
+
+function diagnosisActionErrorMessage(error: unknown): string {
+  if (error instanceof DiagnosisActionError && error.status) {
+    return `HTTP ${error.status}: ${error.message}`;
+  }
+  if (error instanceof Error && error.message.trim() !== "") {
+    return error.message;
+  }
+  return "Request failed.";
 }

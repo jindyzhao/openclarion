@@ -139,6 +139,63 @@ const groupingPolicies = [
   }
 ];
 
+let nextReportWorkflowPolicyID = 2;
+const reportWorkflowPolicies = [
+  {
+    id: 1,
+    name: "Default report workflow",
+    alert_source_profile_id: 1,
+    grouping_policy_id: 1,
+    report_notification_channel_profile_id: null,
+    trigger_mode: "manual_replay",
+    report_scenario: "single_alert",
+    diagnosis_follow_up: "suggest_room",
+    enabled: true,
+    enabled_at: "2026-06-05T08:05:00Z",
+    disabled_at: null,
+    created_at: "2026-06-05T08:00:00Z",
+    updated_at: "2026-06-05T08:05:00Z"
+  }
+];
+
+let nextReportWorkflowScheduleID = 2;
+const reportWorkflowSchedules = [
+  {
+    id: 1,
+    name: "Daily report window",
+    report_workflow_policy_id: 1,
+    temporal_schedule_id: "openclarion-report-policy-1-daily",
+    interval_seconds: 86400,
+    offset_seconds: 21600,
+    replay_window_seconds: 3600,
+    replay_delay_seconds: 300,
+    replay_limit: 10000,
+    catchup_window_seconds: 3600,
+    enabled: false,
+    enabled_at: null,
+    disabled_at: null,
+    created_at: "2026-06-06T02:00:00Z",
+    updated_at: "2026-06-06T02:00:00Z"
+  }
+];
+
+let nextNotificationChannelID = 2;
+const notificationChannels = [
+  {
+    id: 1,
+    name: "Operations webhook",
+    kind: "webhook",
+    secret_ref: "secret/example/ops-webhook",
+    delivery_scopes: ["report"],
+    enabled: false,
+    labels: {
+      team: "ops"
+    },
+    created_at: "2026-06-05T09:00:00Z",
+    updated_at: "2026-06-05T09:00:00Z"
+  }
+];
+
 const server = createServer((request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
   if (request.method === "OPTIONS") {
@@ -152,6 +209,18 @@ const server = createServer((request, response) => {
   }
   if (url.pathname === "/api/v1/config/grouping-policies") {
     handleGroupingPolicyCollection(request, response);
+    return;
+  }
+  if (url.pathname === "/api/v1/config/report-workflow-policies") {
+    handleReportWorkflowPolicyCollection(request, response);
+    return;
+  }
+  if (url.pathname === "/api/v1/config/report-workflow-schedules") {
+    handleReportWorkflowScheduleCollection(request, response);
+    return;
+  }
+  if (url.pathname === "/api/v1/config/notification-channels") {
+    handleNotificationChannelCollection(request, response);
     return;
   }
   const alertSourceTestMatch = url.pathname.match(/^\/api\/v1\/config\/alert-sources\/(\d+)\/test$/);
@@ -172,6 +241,87 @@ const server = createServer((request, response) => {
   const groupingPolicyMatch = url.pathname.match(/^\/api\/v1\/config\/grouping-policies\/(\d+)$/);
   if (groupingPolicyMatch) {
     handleGroupingPolicy(request, response, Number.parseInt(groupingPolicyMatch[1], 10));
+    return;
+  }
+  const reportWorkflowPolicyEnableMatch = url.pathname.match(
+    /^\/api\/v1\/config\/report-workflow-policies\/(\d+)\/enable$/
+  );
+  if (reportWorkflowPolicyEnableMatch) {
+    handleReportWorkflowPolicyEnablement(request, response, Number.parseInt(reportWorkflowPolicyEnableMatch[1], 10), true);
+    return;
+  }
+  const reportWorkflowPolicyDisableMatch = url.pathname.match(
+    /^\/api\/v1\/config\/report-workflow-policies\/(\d+)\/disable$/
+  );
+  if (reportWorkflowPolicyDisableMatch) {
+    handleReportWorkflowPolicyEnablement(
+      request,
+      response,
+      Number.parseInt(reportWorkflowPolicyDisableMatch[1], 10),
+      false
+    );
+    return;
+  }
+  const reportWorkflowPolicyImpactPreviewMatch = url.pathname.match(
+    /^\/api\/v1\/config\/report-workflow-policies\/(\d+)\/impact-preview$/
+  );
+  if (reportWorkflowPolicyImpactPreviewMatch) {
+    handleReportWorkflowPolicyImpactPreview(
+      request,
+      response,
+      Number.parseInt(reportWorkflowPolicyImpactPreviewMatch[1], 10)
+    );
+    return;
+  }
+  const reportWorkflowPolicyReplayMatch = url.pathname.match(
+    /^\/api\/v1\/config\/report-workflow-policies\/(\d+)\/replay-window$/
+  );
+  if (reportWorkflowPolicyReplayMatch) {
+    handleReportWorkflowPolicyReplay(request, response, Number.parseInt(reportWorkflowPolicyReplayMatch[1], 10));
+    return;
+  }
+  const reportWorkflowPolicyMatch = url.pathname.match(/^\/api\/v1\/config\/report-workflow-policies\/(\d+)$/);
+  if (reportWorkflowPolicyMatch) {
+    handleReportWorkflowPolicy(request, response, Number.parseInt(reportWorkflowPolicyMatch[1], 10));
+    return;
+  }
+  const reportWorkflowScheduleEnableMatch = url.pathname.match(
+    /^\/api\/v1\/config\/report-workflow-schedules\/(\d+)\/enable$/
+  );
+  if (reportWorkflowScheduleEnableMatch) {
+    handleReportWorkflowScheduleEnablement(
+      request,
+      response,
+      Number.parseInt(reportWorkflowScheduleEnableMatch[1], 10),
+      true
+    );
+    return;
+  }
+  const reportWorkflowScheduleDisableMatch = url.pathname.match(
+    /^\/api\/v1\/config\/report-workflow-schedules\/(\d+)\/disable$/
+  );
+  if (reportWorkflowScheduleDisableMatch) {
+    handleReportWorkflowScheduleEnablement(
+      request,
+      response,
+      Number.parseInt(reportWorkflowScheduleDisableMatch[1], 10),
+      false
+    );
+    return;
+  }
+  const reportWorkflowScheduleMatch = url.pathname.match(/^\/api\/v1\/config\/report-workflow-schedules\/(\d+)$/);
+  if (reportWorkflowScheduleMatch) {
+    handleReportWorkflowSchedule(request, response, Number.parseInt(reportWorkflowScheduleMatch[1], 10));
+    return;
+  }
+  const notificationChannelTestMatch = url.pathname.match(/^\/api\/v1\/config\/notification-channels\/(\d+)\/test$/);
+  if (notificationChannelTestMatch) {
+    handleNotificationChannelTest(request, response, Number.parseInt(notificationChannelTestMatch[1], 10));
+    return;
+  }
+  const notificationChannelMatch = url.pathname.match(/^\/api\/v1\/config\/notification-channels\/(\d+)$/);
+  if (notificationChannelMatch) {
+    handleNotificationChannel(request, response, Number.parseInt(notificationChannelMatch[1], 10));
     return;
   }
 
@@ -520,6 +670,429 @@ function groupingPolicyFromBody(id, body, createdAt = "2026-06-05T04:02:00Z") {
     severity_key: String(body.severity_key ?? ""),
     source_filter: Array.isArray(body.source_filter) ? body.source_filter.map(String) : [],
     enabled: Boolean(body.enabled),
+    created_at: createdAt,
+    updated_at: now
+  };
+}
+
+function handleReportWorkflowPolicyCollection(request, response) {
+  if (request.method === "GET") {
+    writeJSON(response, 200, { items: reportWorkflowPolicies });
+    return;
+  }
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const policy = reportWorkflowPolicyFromBody(nextReportWorkflowPolicyID, body);
+      nextReportWorkflowPolicyID += 1;
+      reportWorkflowPolicies.unshift(policy);
+      writeJSON(response, 201, policy);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function handleReportWorkflowPolicy(request, response, policyID) {
+  if (request.method !== "PUT") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const index = reportWorkflowPolicies.findIndex((policy) => policy.id === policyID);
+      if (index < 0) {
+        writeJSON(response, 404, { error: "report workflow policy not found" });
+        return;
+      }
+      const current = reportWorkflowPolicies[index];
+      const policy = {
+        ...reportWorkflowPolicyFromBody(policyID, body, current.created_at),
+        enabled: current.enabled,
+        enabled_at: current.enabled_at,
+        disabled_at: current.disabled_at
+      };
+      reportWorkflowPolicies[index] = policy;
+      writeJSON(response, 200, policy);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function handleReportWorkflowPolicyEnablement(request, response, policyID, enabled) {
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  const index = reportWorkflowPolicies.findIndex((policy) => policy.id === policyID);
+  if (index < 0) {
+    writeJSON(response, 404, { error: "report workflow policy not found" });
+    return;
+  }
+  const policy = reportWorkflowPolicies[index];
+  if (enabled) {
+    const source = alertSources.find((item) => item.id === policy.alert_source_profile_id);
+    const grouping = groupingPolicies.find((item) => item.id === policy.grouping_policy_id);
+    if (!source?.enabled || !grouping?.enabled) {
+      writeJSON(response, 400, {
+        error: "report workflow policy: alert source profile must be enabled before workflow policy enablement"
+      });
+      return;
+    }
+  }
+  const now = "2026-06-05T08:05:00Z";
+  const updated = {
+    ...policy,
+    enabled,
+    enabled_at: enabled ? now : null,
+    disabled_at: enabled ? null : now,
+    updated_at: now
+  };
+  reportWorkflowPolicies[index] = updated;
+  writeJSON(response, 200, updated);
+}
+
+function handleReportWorkflowPolicyImpactPreview(request, response, policyID) {
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  const policy = reportWorkflowPolicies.find((item) => item.id === policyID);
+  if (!policy) {
+    writeJSON(response, 404, { error: "report workflow policy not found" });
+    return;
+  }
+  const source = alertSources.find((item) => item.id === policy.alert_source_profile_id);
+  const grouping = groupingPolicies.find((item) => item.id === policy.grouping_policy_id);
+  const channel =
+    policy.report_notification_channel_profile_id === null
+      ? null
+      : notificationChannels.find((item) => item.id === policy.report_notification_channel_profile_id) ?? null;
+  if (!source || !grouping) {
+    writeJSON(response, 404, { error: "report workflow policy binding not found" });
+    return;
+  }
+  const reasonCodes = [];
+  if (!source.enabled) {
+    reasonCodes.push("alert_source_disabled");
+  }
+  if (!grouping.enabled) {
+    reasonCodes.push("grouping_policy_disabled");
+  }
+  if (channel && !channel.enabled) {
+    reasonCodes.push("notification_channel_disabled");
+  }
+  if (channel && !channel.delivery_scopes.includes("report")) {
+    reasonCodes.push("notification_channel_missing_report_scope");
+  }
+  const blocked = reasonCodes.length > 0;
+  const status = blocked ? "blocked" : "ready";
+  writeJSON(response, 200, {
+    policy_id: policy.id,
+    status,
+    reason_codes: blocked ? reasonCodes : ["ok"],
+    message: blocked
+      ? "Report workflow policy impact preview is blocked by configuration readiness."
+      : "Report workflow policy impact preview is ready.",
+    checked_at: "2026-06-05T10:00:00Z",
+    trigger_mode: policy.trigger_mode,
+    report_scenario: policy.report_scenario,
+    diagnosis_follow_up: policy.diagnosis_follow_up,
+    alert_source_profile_id: source.id,
+    alert_source_kind: source.kind,
+    alert_source_auth_mode: source.auth_mode,
+    alert_source_enabled: source.enabled,
+    grouping_policy_id: grouping.id,
+    grouping_policy_enabled: grouping.enabled,
+    grouping_dimension_keys: grouping.dimension_keys,
+    grouping_severity_key: grouping.severity_key,
+    grouping_source_filter: grouping.source_filter,
+    report_notification_channel_profile_id: policy.report_notification_channel_profile_id,
+    report_notification_channel_bound: channel !== null,
+    report_notification_channel_enabled: channel?.enabled ?? false,
+    report_notification_channel_has_report_scope: channel?.delivery_scopes.includes("report") ?? false,
+    events_scanned: 2,
+    events_matched: blocked ? 0 : 1,
+    groups_estimated: blocked ? 0 : 1,
+    groups: blocked
+      ? []
+      : [
+          {
+            group_key: "0000000000000000000000000000000000000000000000000000000000000001",
+            dimensions: {
+              alertname: "HighCPU",
+              service: "checkout"
+            },
+            severity: "critical",
+            event_count: 1,
+            first_seen_at: "2026-06-05T04:00:00Z",
+            last_seen_at: "2026-06-05T04:01:00Z",
+            event_ids: [101]
+          }
+        ]
+  });
+}
+
+function handleReportWorkflowPolicyReplay(request, response, policyID) {
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const policy = reportWorkflowPolicies.find((item) => item.id === policyID);
+      if (!policy) {
+        writeJSON(response, 404, { error: "report workflow policy not found" });
+        return;
+      }
+      if (!policy.enabled) {
+        writeJSON(response, 400, { error: "report policy trigger: report workflow policy must be enabled before replay" });
+        return;
+      }
+      if (!body.window_start || !body.window_end) {
+        writeJSON(response, 400, { error: "window_start and window_end are required" });
+        return;
+      }
+      writeJSON(response, 202, {
+        started: true,
+        workflow_id: "report-batch-policy-smoke",
+        run_id: "run-policy-smoke",
+        stats: {
+          ingested: {
+            total: 1,
+            saved: 1,
+            duplicate: 0,
+            failed: 0
+          },
+          events_loaded: 1,
+          groups_built: 1,
+          groups_saved: 1,
+          groups_refreshed: 0,
+          groups_existing: 0,
+          snapshots_saved: 1,
+          snapshots_duplicate: 0,
+          groups_closed: 1,
+          failed: 0
+        },
+        snapshots: [
+          {
+            id: 7,
+            group_index: 0,
+            event_count: 1
+          }
+        ]
+      });
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function reportWorkflowPolicyFromBody(id, body, createdAt = "2026-06-05T08:02:00Z") {
+  const now = "2026-06-05T08:03:00Z";
+  return {
+    id,
+    name: String(body.name ?? ""),
+    alert_source_profile_id: Number.parseInt(String(body.alert_source_profile_id ?? "0"), 10),
+    grouping_policy_id: Number.parseInt(String(body.grouping_policy_id ?? "0"), 10),
+    report_notification_channel_profile_id:
+      body.report_notification_channel_profile_id === null || body.report_notification_channel_profile_id === undefined
+        ? null
+        : Number.parseInt(String(body.report_notification_channel_profile_id), 10),
+    trigger_mode: "manual_replay",
+    report_scenario: ["single_alert", "cascade", "alert_storm"].includes(body.report_scenario)
+      ? body.report_scenario
+      : "single_alert",
+    diagnosis_follow_up: body.diagnosis_follow_up === "suggest_room" ? "suggest_room" : "disabled",
+    enabled: false,
+    enabled_at: null,
+    disabled_at: null,
+    created_at: createdAt,
+    updated_at: now
+  };
+}
+
+function handleReportWorkflowScheduleCollection(request, response) {
+  if (request.method === "GET") {
+    writeJSON(response, 200, { items: reportWorkflowSchedules });
+    return;
+  }
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const schedule = reportWorkflowScheduleFromBody(nextReportWorkflowScheduleID, body);
+      nextReportWorkflowScheduleID += 1;
+      reportWorkflowSchedules.unshift(schedule);
+      writeJSON(response, 201, schedule);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function handleReportWorkflowSchedule(request, response, scheduleID) {
+  if (request.method !== "PUT") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const index = reportWorkflowSchedules.findIndex((schedule) => schedule.id === scheduleID);
+      if (index < 0) {
+        writeJSON(response, 404, { error: "report workflow schedule not found" });
+        return;
+      }
+      const current = reportWorkflowSchedules[index];
+      const schedule = {
+        ...reportWorkflowScheduleFromBody(scheduleID, body, current.created_at),
+        enabled: current.enabled,
+        enabled_at: current.enabled_at,
+        disabled_at: current.disabled_at
+      };
+      reportWorkflowSchedules[index] = schedule;
+      writeJSON(response, 200, schedule);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function handleReportWorkflowScheduleEnablement(request, response, scheduleID, enabled) {
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  const index = reportWorkflowSchedules.findIndex((schedule) => schedule.id === scheduleID);
+  if (index < 0) {
+    writeJSON(response, 404, { error: "report workflow schedule not found" });
+    return;
+  }
+  const schedule = reportWorkflowSchedules[index];
+  if (enabled) {
+    const policy = reportWorkflowPolicies.find((item) => item.id === schedule.report_workflow_policy_id);
+    if (!policy?.enabled) {
+      writeJSON(response, 400, {
+        error: "report workflow schedule: report workflow policy must be enabled before schedule enablement"
+      });
+      return;
+    }
+  }
+  const now = "2026-06-06T02:05:00Z";
+  const updated = {
+    ...schedule,
+    enabled,
+    enabled_at: enabled ? now : null,
+    disabled_at: enabled ? null : now,
+    updated_at: now
+  };
+  reportWorkflowSchedules[index] = updated;
+  writeJSON(response, 200, updated);
+}
+
+function reportWorkflowScheduleFromBody(id, body, createdAt = "2026-06-06T02:02:00Z") {
+  const now = "2026-06-06T02:03:00Z";
+  return {
+    id,
+    name: String(body.name ?? ""),
+    report_workflow_policy_id: Number.parseInt(String(body.report_workflow_policy_id ?? "0"), 10),
+    temporal_schedule_id: String(body.temporal_schedule_id ?? ""),
+    interval_seconds: Number.parseInt(String(body.interval_seconds ?? "0"), 10),
+    offset_seconds: Number.parseInt(String(body.offset_seconds ?? "0"), 10),
+    replay_window_seconds: Number.parseInt(String(body.replay_window_seconds ?? "0"), 10),
+    replay_delay_seconds: Number.parseInt(String(body.replay_delay_seconds ?? "0"), 10),
+    replay_limit: Number.parseInt(String(body.replay_limit ?? "0"), 10),
+    catchup_window_seconds: Number.parseInt(String(body.catchup_window_seconds ?? "0"), 10),
+    enabled: false,
+    enabled_at: null,
+    disabled_at: null,
+    created_at: createdAt,
+    updated_at: now
+  };
+}
+
+function handleNotificationChannelCollection(request, response) {
+  if (request.method === "GET") {
+    writeJSON(response, 200, { items: notificationChannels });
+    return;
+  }
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const channel = notificationChannelFromBody(nextNotificationChannelID, body);
+      nextNotificationChannelID += 1;
+      notificationChannels.unshift(channel);
+      writeJSON(response, 201, channel);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function handleNotificationChannel(request, response, channelID) {
+  if (request.method !== "PUT") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const index = notificationChannels.findIndex((channel) => channel.id === channelID);
+      if (index < 0) {
+        writeJSON(response, 404, { error: "notification channel profile not found" });
+        return;
+      }
+      const current = notificationChannels[index];
+      const channel = notificationChannelFromBody(channelID, body, current.created_at);
+      notificationChannels[index] = channel;
+      writeJSON(response, 200, channel);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function handleNotificationChannelTest(request, response, channelID) {
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  const channel = notificationChannels.find((item) => item.id === channelID);
+  if (!channel) {
+    writeJSON(response, 404, { error: "notification channel profile not found" });
+    return;
+  }
+  writeJSON(response, 200, {
+    channel_id: channel.id,
+    kind: channel.kind,
+    status: "blocked",
+    reason_code: "credentials_unavailable",
+    message: "Secret-backed notification channel tests require a server-side secret resolver.",
+    checked_at: "2026-06-05T10:00:00Z",
+    provider_message_id: "",
+    provider_status: ""
+  });
+}
+
+function notificationChannelFromBody(id, body, createdAt = "2026-06-05T09:02:00Z") {
+  const now = "2026-06-05T09:03:00Z";
+  const scopes = Array.isArray(body.delivery_scopes) ? body.delivery_scopes.map(String) : [];
+  return {
+    id,
+    name: String(body.name ?? ""),
+    kind: "webhook",
+    secret_ref: String(body.secret_ref ?? ""),
+    delivery_scopes: scopes.filter((scope) => scope === "report" || scope === "diagnosis_close"),
+    enabled: Boolean(body.enabled),
+    labels: body.labels && typeof body.labels === "object" && !Array.isArray(body.labels) ? body.labels : {},
     created_at: createdAt,
     updated_at: now
   };

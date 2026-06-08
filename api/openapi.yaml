@@ -431,6 +431,118 @@ paths:
                 server-error:
                   value:
                     error: test alert source connection failed
+  /api/v1/alert-sources/{source_id}/webhooks/alertmanager:
+    post:
+      operationId: ingestAlertmanagerWebhook
+      summary: Ingest an Alertmanager webhook payload
+      description: Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts as AlertEvent rows, skips resolved alerts, and returns sanitized ingest counters without starting report workflows.
+      tags:
+        - alerts
+      parameters:
+        - $ref: "#/components/parameters/AlertSourceProfileID"
+      requestBody:
+        description: Alertmanager webhook receiver payload.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertmanagerWebhookPayload"
+            examples:
+              firing:
+                value:
+                  version: "4"
+                  groupKey: '{}:{alertname="HighCPU"}'
+                  truncatedAlerts: 0
+                  status: firing
+                  receiver: openclarion
+                  groupLabels:
+                    alertname: HighCPU
+                  commonLabels:
+                    severity: warning
+                  commonAnnotations:
+                    summary: CPU high
+                  externalURL: https://alertmanager.example.test
+                  alerts:
+                    - status: firing
+                      labels:
+                        alertname: HighCPU
+                        instance: api-1
+                        severity: warning
+                      annotations:
+                        summary: CPU high
+                      startsAt: "2026-06-06T01:00:00Z"
+                      endsAt: "0001-01-01T00:00:00Z"
+                      generatorURL: https://prometheus.example.test/graph
+                      fingerprint: abc123
+      responses:
+        "202":
+          description: Webhook payload was accepted and firing alerts were ingested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AlertmanagerWebhookIngestResponse"
+              examples:
+                accepted:
+                  value:
+                    source_id: 2
+                    received: 2
+                    skipped_resolved: 1
+                    truncated_alerts: 0
+                    ingested:
+                      total: 1
+                      saved: 1
+                      duplicate: 0
+                      failed: 0
+        "400":
+          description: Webhook request or payload is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: alertmanager webhook payload is invalid
+        "401":
+          description: Webhook authorization failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthorized:
+                  value:
+                    error: alertmanager webhook authorization failed
+        "404":
+          description: Alert source profile was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: alert source profile not found
+        "503":
+          description: Webhook ingest wiring or credentials are not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: alertmanager webhook ingest is not configured
+        "500":
+          description: Alertmanager webhook ingest failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: ingest alertmanager webhook failed
   /api/v1/config/grouping-policies:
     get:
       operationId: listGroupingPolicies
@@ -759,6 +871,1356 @@ paths:
                 server-error:
                   value:
                     error: preview grouping policy failed
+  /api/v1/config/report-workflow-policies:
+    get:
+      operationId: listReportWorkflowPolicies
+      summary: List report workflow policies
+      description: Returns operator-managed report workflow policies.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Report workflow policies
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowPolicyListResponse"
+              examples:
+                policies:
+                  value:
+                    items:
+                      - id: 1
+                        name: Default report workflow
+                        alert_source_profile_id: 1
+                        grouping_policy_id: 1
+                        report_notification_channel_profile_id: 1
+                        trigger_mode: manual_replay
+                        report_scenario: single_alert
+                        diagnosis_follow_up: suggest_room
+                        enabled: false
+                        enabled_at: null
+                        disabled_at: null
+                        created_at: "2026-06-05T08:00:00Z"
+                        updated_at: "2026-06-05T08:00:00Z"
+        "400":
+          description: Report workflow policy list parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-limit:
+                  value:
+                    error: "limit must be between 1 and 500"
+        "500":
+          description: Report workflow policy list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: list report workflow policies failed
+    post:
+      operationId: createReportWorkflowPolicy
+      summary: Create a report workflow policy
+      description: Stores report workflow policy metadata as a disabled draft. This operation does not enable or start workflows.
+      tags:
+        - config
+      requestBody:
+        description: Report workflow policy metadata.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportWorkflowPolicyWriteRequest"
+            examples:
+              default-policy:
+                value:
+                  name: Default report workflow
+                  alert_source_profile_id: 1
+                  grouping_policy_id: 1
+                  report_notification_channel_profile_id: 1
+                  trigger_mode: manual_replay
+                  report_scenario: single_alert
+                  diagnosis_follow_up: suggest_room
+      responses:
+        "201":
+          description: Report workflow policy created as a disabled draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowPolicy"
+              examples:
+                created:
+                  value:
+                    id: 1
+                    name: Default report workflow
+                    alert_source_profile_id: 1
+                    grouping_policy_id: 1
+                    report_notification_channel_profile_id: 1
+                    trigger_mode: manual_replay
+                    report_scenario: single_alert
+                    diagnosis_follow_up: suggest_room
+                    enabled: false
+                    enabled_at: null
+                    disabled_at: null
+                    created_at: "2026-06-05T08:00:00Z"
+                    updated_at: "2026-06-05T08:00:00Z"
+        "400":
+          description: Report workflow policy request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: "report workflow policy: report_scenario \"unknown\" is unsupported"
+        "404":
+          description: A bound alert source or grouping policy was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missing-binding:
+                  value:
+                    error: report workflow policy binding not found
+        "409":
+          description: Report workflow policy conflicts with an existing policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                duplicate:
+                  value:
+                    error: report workflow policy already exists
+        "500":
+          description: Report workflow policy creation failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: create report workflow policy failed
+  /api/v1/config/report-workflow-policies/{policy_id}:
+    get:
+      operationId: getReportWorkflowPolicy
+      summary: Get a report workflow policy
+      description: Returns one operator-managed report workflow policy.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ReportWorkflowPolicyID"
+      responses:
+        "200":
+          description: Report workflow policy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowPolicy"
+              examples:
+                policy:
+                  value:
+                    id: 1
+                    name: Default report workflow
+                    alert_source_profile_id: 1
+                    grouping_policy_id: 1
+                    report_notification_channel_profile_id: 1
+                    trigger_mode: manual_replay
+                    report_scenario: single_alert
+                    diagnosis_follow_up: suggest_room
+                    enabled: true
+                    enabled_at: "2026-06-05T08:05:00Z"
+                    disabled_at: null
+                    created_at: "2026-06-05T08:00:00Z"
+                    updated_at: "2026-06-05T08:05:00Z"
+        "404":
+          description: Report workflow policy was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: report workflow policy not found
+        "500":
+          description: Report workflow policy lookup failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: get report workflow policy failed
+    put:
+      operationId: replaceReportWorkflowPolicy
+      summary: Replace a report workflow policy
+      description: Replaces report workflow policy metadata while preserving explicit enabled state. This operation does not enable or start workflows.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ReportWorkflowPolicyID"
+      requestBody:
+        description: Replacement report workflow policy metadata.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportWorkflowPolicyWriteRequest"
+            examples:
+              cascade-policy:
+                value:
+                  name: Cascade report workflow
+                  alert_source_profile_id: 1
+                  grouping_policy_id: 1
+                  report_notification_channel_profile_id: 1
+                  trigger_mode: manual_replay
+                  report_scenario: cascade
+                  diagnosis_follow_up: suggest_room
+      responses:
+        "200":
+          description: Report workflow policy replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowPolicy"
+              examples:
+                replaced:
+                  value:
+                    id: 1
+                    name: Cascade report workflow
+                    alert_source_profile_id: 1
+                    grouping_policy_id: 1
+                    report_notification_channel_profile_id: 1
+                    trigger_mode: manual_replay
+                    report_scenario: cascade
+                    diagnosis_follow_up: suggest_room
+                    enabled: false
+                    enabled_at: null
+                    disabled_at: null
+                    created_at: "2026-06-05T08:00:00Z"
+                    updated_at: "2026-06-05T08:10:00Z"
+        "400":
+          description: Report workflow policy replacement request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: "report workflow policy: alert source profile must be enabled before workflow policy enablement"
+        "404":
+          description: Replacement target or bound profile was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: report workflow policy not found
+        "409":
+          description: Replacement policy conflicts with an existing name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                duplicate:
+                  value:
+                    error: report workflow policy already exists
+        "500":
+          description: Report workflow policy replacement failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: replace report workflow policy failed
+  /api/v1/config/report-workflow-policies/{policy_id}/enable:
+    post:
+      operationId: enableReportWorkflowPolicy
+      summary: Enable a report workflow policy
+      description: Explicitly enables a report workflow policy after validating bound alert source, grouping policy, and optional report notification channel readiness. This action does not start workflows.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ReportWorkflowPolicyID"
+      responses:
+        "200":
+          description: Report workflow policy enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowPolicy"
+              examples:
+                enabled:
+                  value:
+                    id: 1
+                    name: Default report workflow
+                    alert_source_profile_id: 1
+                    grouping_policy_id: 1
+                    report_notification_channel_profile_id: 1
+                    trigger_mode: manual_replay
+                    report_scenario: single_alert
+                    diagnosis_follow_up: suggest_room
+                    enabled: true
+                    enabled_at: "2026-06-05T08:05:00Z"
+                    disabled_at: null
+                    created_at: "2026-06-05T08:00:00Z"
+                    updated_at: "2026-06-05T08:05:00Z"
+        "400":
+          description: Report workflow policy cannot be enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                disabled-source:
+                  value:
+                    error: "report workflow policy: alert source profile must be enabled before workflow policy enablement"
+        "404":
+          description: Report workflow policy or binding was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: report workflow policy not found
+        "500":
+          description: Report workflow policy enablement failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: enable report workflow policy failed
+  /api/v1/config/report-workflow-policies/{policy_id}/disable:
+    post:
+      operationId: disableReportWorkflowPolicy
+      summary: Disable a report workflow policy
+      description: Explicitly disables a report workflow policy. This action does not cancel or start workflows.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ReportWorkflowPolicyID"
+      responses:
+        "200":
+          description: Report workflow policy disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowPolicy"
+              examples:
+                disabled:
+                  value:
+                    id: 1
+                    name: Default report workflow
+                    alert_source_profile_id: 1
+                    grouping_policy_id: 1
+                    report_notification_channel_profile_id: 1
+                    trigger_mode: manual_replay
+                    report_scenario: single_alert
+                    diagnosis_follow_up: suggest_room
+                    enabled: false
+                    enabled_at: null
+                    disabled_at: "2026-06-05T08:15:00Z"
+                    created_at: "2026-06-05T08:00:00Z"
+                    updated_at: "2026-06-05T08:15:00Z"
+        "400":
+          description: Report workflow policy disable request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: policy_id must be positive
+        "404":
+          description: Report workflow policy was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: report workflow policy not found
+        "500":
+          description: Report workflow policy disablement failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: disable report workflow policy failed
+  /api/v1/config/report-workflow-policies/{policy_id}/impact-preview:
+    post:
+      operationId: previewReportWorkflowPolicyImpact
+      summary: Preview report workflow policy impact
+      description: Reads one persisted report workflow policy, its bound alert source/grouping/channel configuration, and a bounded recent alert sample to return sanitized readiness and grouping impact. This action does not call alert providers, resolve secrets, start workflows, send notifications, or persist groups or snapshots.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ReportWorkflowPolicyID"
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Sanitized report workflow policy impact preview result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowPolicyImpactPreviewResult"
+              examples:
+                ready:
+                  value:
+                    policy_id: 1
+                    status: ready
+                    reason_codes:
+                      - ok
+                    message: Report workflow policy impact preview is ready.
+                    checked_at: "2026-06-05T10:00:00Z"
+                    trigger_mode: manual_replay
+                    report_scenario: single_alert
+                    diagnosis_follow_up: suggest_room
+                    alert_source_profile_id: 1
+                    alert_source_kind: prometheus
+                    alert_source_auth_mode: bearer
+                    alert_source_enabled: true
+                    grouping_policy_id: 1
+                    grouping_policy_enabled: true
+                    grouping_dimension_keys:
+                      - alertname
+                      - service
+                    grouping_severity_key: severity
+                    grouping_source_filter:
+                      - prometheus
+                    report_notification_channel_profile_id: 1
+                    report_notification_channel_bound: true
+                    report_notification_channel_enabled: true
+                    report_notification_channel_has_report_scope: true
+                    events_scanned: 3
+                    events_matched: 2
+                    groups_estimated: 1
+                    groups:
+                      - group_key: "0000000000000000000000000000000000000000000000000000000000000001"
+                        dimensions:
+                          alertname: HighCPU
+                          service: checkout
+                        severity: critical
+                        event_count: 2
+                        first_seen_at: "2026-06-05T04:00:00Z"
+                        last_seen_at: "2026-06-05T04:01:00Z"
+                        event_ids:
+                          - 101
+                          - 102
+        "400":
+          description: Impact preview request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: policy_id must be positive
+        "404":
+          description: Report workflow policy or binding was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: report workflow policy not found
+        "500":
+          description: Impact preview failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: preview report workflow policy impact failed
+  /api/v1/config/report-workflow-policies/{policy_id}/replay-window:
+    post:
+      operationId: triggerReportWorkflowPolicyReplay
+      summary: Replay an alert window with a report workflow policy
+      description: Resolves the enabled report workflow policy and its bound alert source and grouping policy, replays the bounded alert window, persists EvidenceSnapshots, and starts the report batch workflow when snapshots are available.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ReportWorkflowPolicyID"
+      requestBody:
+        description: Replay window and optional workflow identity overrides. The report scenario is read from the stored policy.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportWorkflowPolicyReplayRequest"
+            examples:
+              one-hour-window:
+                value:
+                  window_start: "2026-06-05T08:00:00Z"
+                  window_end: "2026-06-05T09:00:00Z"
+                  limit: 10000
+      responses:
+        "202":
+          description: Replay completed and report workflow start was accepted when snapshots existed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportReplayTriggerResponse"
+              examples:
+                started:
+                  value:
+                    started: true
+                    workflow_id: report-batch-0bf4f5e1a8cb2d3299dcb4d280d5a6a0
+                    run_id: 7a2a1f6f-f114-4f6d-92d7-9b59f1c9f6f4
+                    stats:
+                      ingested:
+                        total: 20
+                        saved: 20
+                        duplicate: 0
+                        failed: 0
+                      events_loaded: 20
+                      groups_built: 4
+                      groups_saved: 4
+                      groups_refreshed: 0
+                      groups_existing: 0
+                      snapshots_saved: 4
+                      snapshots_duplicate: 0
+                      groups_closed: 4
+                      failed: 0
+                    snapshots:
+                      - id: 7
+                        group_index: 0
+                        event_count: 5
+        "400":
+          description: Replay request or policy readiness is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                disabled-policy:
+                  value:
+                    error: "report policy trigger: report workflow policy must be enabled before replay"
+        "404":
+          description: Report workflow policy or binding was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: report workflow policy not found
+        "503":
+          description: Policy-driven report replay provider wiring is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: report workflow policy replay trigger is not configured
+        "500":
+          description: Replay or workflow start failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: trigger report workflow policy replay failed
+  /api/v1/config/report-workflow-schedules:
+    get:
+      operationId: listReportWorkflowSchedules
+      summary: List report workflow schedules
+      description: Returns operator-managed report workflow schedule metadata. This read does not inspect Temporal Schedule state.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Report workflow schedules
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowScheduleListResponse"
+              examples:
+                schedules:
+                  value:
+                    items:
+                      - id: 1
+                        name: Daily report window
+                        report_workflow_policy_id: 1
+                        temporal_schedule_id: openclarion-report-policy-1-daily
+                        interval_seconds: 86400
+                        offset_seconds: 21600
+                        replay_window_seconds: 3600
+                        replay_delay_seconds: 300
+                        replay_limit: 10000
+                        catchup_window_seconds: 3600
+                        enabled: false
+                        enabled_at: null
+                        disabled_at: null
+                        created_at: "2026-06-06T02:00:00Z"
+                        updated_at: "2026-06-06T02:00:00Z"
+        "400":
+          description: Report workflow schedule list parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-limit:
+                  value:
+                    error: "limit must be between 1 and 500"
+        "500":
+          description: Report workflow schedule list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: list report workflow schedules failed
+    post:
+      operationId: createReportWorkflowSchedule
+      summary: Create a report workflow schedule
+      description: Stores report workflow schedule metadata as a disabled draft. This operation does not register a Temporal Schedule, start workflows, call alert providers, resolve secrets, or send notifications.
+      tags:
+        - config
+      requestBody:
+        description: Report workflow schedule metadata.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportWorkflowScheduleWriteRequest"
+            examples:
+              daily:
+                value:
+                  name: Daily report window
+                  report_workflow_policy_id: 1
+                  temporal_schedule_id: openclarion-report-policy-1-daily
+                  interval_seconds: 86400
+                  offset_seconds: 21600
+                  replay_window_seconds: 3600
+                  replay_delay_seconds: 300
+                  replay_limit: 10000
+                  catchup_window_seconds: 3600
+      responses:
+        "201":
+          description: Report workflow schedule created as a disabled draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowSchedule"
+              examples:
+                created:
+                  value:
+                    id: 1
+                    name: Daily report window
+                    report_workflow_policy_id: 1
+                    temporal_schedule_id: openclarion-report-policy-1-daily
+                    interval_seconds: 86400
+                    offset_seconds: 21600
+                    replay_window_seconds: 3600
+                    replay_delay_seconds: 300
+                    replay_limit: 10000
+                    catchup_window_seconds: 3600
+                    enabled: false
+                    enabled_at: null
+                    disabled_at: null
+                    created_at: "2026-06-06T02:00:00Z"
+                    updated_at: "2026-06-06T02:00:00Z"
+        "400":
+          description: Report workflow schedule request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: "report workflow schedule: offset must be less than interval"
+        "404":
+          description: Bound report workflow policy was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                missing-binding:
+                  value:
+                    error: report workflow schedule binding not found
+        "409":
+          description: Report workflow schedule conflicts with an existing schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                duplicate:
+                  value:
+                    error: report workflow schedule already exists
+        "500":
+          description: Report workflow schedule creation failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: create report workflow schedule failed
+  /api/v1/config/report-workflow-schedules/{schedule_id}:
+    get:
+      operationId: getReportWorkflowSchedule
+      summary: Get a report workflow schedule
+      description: Returns one operator-managed report workflow schedule without querying Temporal.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ReportWorkflowScheduleID"
+      responses:
+        "200":
+          description: Report workflow schedule
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowSchedule"
+              examples:
+                schedule:
+                  value:
+                    id: 1
+                    name: Daily report window
+                    report_workflow_policy_id: 1
+                    temporal_schedule_id: openclarion-report-policy-1-daily
+                    interval_seconds: 86400
+                    offset_seconds: 21600
+                    replay_window_seconds: 3600
+                    replay_delay_seconds: 300
+                    replay_limit: 10000
+                    catchup_window_seconds: 3600
+                    enabled: true
+                    enabled_at: "2026-06-06T02:05:00Z"
+                    disabled_at: null
+                    created_at: "2026-06-06T02:00:00Z"
+                    updated_at: "2026-06-06T02:05:00Z"
+        "404":
+          description: Report workflow schedule was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: report workflow schedule not found
+        "500":
+          description: Report workflow schedule lookup failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: get report workflow schedule failed
+    put:
+      operationId: replaceReportWorkflowSchedule
+      summary: Replace a report workflow schedule
+      description: Replaces report workflow schedule metadata while preserving explicit enabled state. This operation does not register a Temporal Schedule, start workflows, call alert providers, resolve secrets, or send notifications.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ReportWorkflowScheduleID"
+      requestBody:
+        description: Replacement report workflow schedule metadata.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportWorkflowScheduleWriteRequest"
+            examples:
+              six-hour:
+                value:
+                  name: Six-hour report window
+                  report_workflow_policy_id: 1
+                  temporal_schedule_id: openclarion-report-policy-1-6h
+                  interval_seconds: 21600
+                  offset_seconds: 0
+                  replay_window_seconds: 3600
+                  replay_delay_seconds: 300
+                  replay_limit: 10000
+                  catchup_window_seconds: 1800
+      responses:
+        "200":
+          description: Report workflow schedule replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowSchedule"
+              examples:
+                replaced:
+                  value:
+                    id: 1
+                    name: Six-hour report window
+                    report_workflow_policy_id: 1
+                    temporal_schedule_id: openclarion-report-policy-1-6h
+                    interval_seconds: 21600
+                    offset_seconds: 0
+                    replay_window_seconds: 3600
+                    replay_delay_seconds: 300
+                    replay_limit: 10000
+                    catchup_window_seconds: 1800
+                    enabled: false
+                    enabled_at: null
+                    disabled_at: null
+                    created_at: "2026-06-06T02:00:00Z"
+                    updated_at: "2026-06-06T02:10:00Z"
+        "400":
+          description: Report workflow schedule replacement request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: "report workflow schedule: replay_limit must be positive"
+        "404":
+          description: Replacement target or bound policy was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: report workflow schedule not found
+        "409":
+          description: Replacement schedule conflicts with an existing Temporal Schedule ID
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                duplicate:
+                  value:
+                    error: report workflow schedule already exists
+        "500":
+          description: Report workflow schedule replacement failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: replace report workflow schedule failed
+  /api/v1/config/report-workflow-schedules/{schedule_id}/enable:
+    post:
+      operationId: enableReportWorkflowSchedule
+      summary: Enable a report workflow schedule
+      description: Explicitly enables a report workflow schedule after validating that the bound report workflow policy is enabled. This action does not register or unpause a Temporal Schedule.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ReportWorkflowScheduleID"
+      responses:
+        "200":
+          description: Report workflow schedule enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowSchedule"
+              examples:
+                enabled:
+                  value:
+                    id: 1
+                    name: Daily report window
+                    report_workflow_policy_id: 1
+                    temporal_schedule_id: openclarion-report-policy-1-daily
+                    interval_seconds: 86400
+                    offset_seconds: 21600
+                    replay_window_seconds: 3600
+                    replay_delay_seconds: 300
+                    replay_limit: 10000
+                    catchup_window_seconds: 3600
+                    enabled: true
+                    enabled_at: "2026-06-06T02:05:00Z"
+                    disabled_at: null
+                    created_at: "2026-06-06T02:00:00Z"
+                    updated_at: "2026-06-06T02:05:00Z"
+        "400":
+          description: Report workflow schedule cannot be enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                disabled-policy:
+                  value:
+                    error: "report workflow schedule: report workflow policy must be enabled before schedule enablement"
+        "404":
+          description: Report workflow schedule or bound policy was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: report workflow schedule not found
+        "500":
+          description: Report workflow schedule enablement failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: enable report workflow schedule failed
+  /api/v1/config/report-workflow-schedules/{schedule_id}/disable:
+    post:
+      operationId: disableReportWorkflowSchedule
+      summary: Disable a report workflow schedule
+      description: Explicitly disables a report workflow schedule. This action pauses future starts only after the later Temporal registration slice wires schedule state to Temporal; it does not cancel already-started report workflows.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ReportWorkflowScheduleID"
+      responses:
+        "200":
+          description: Report workflow schedule disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowSchedule"
+              examples:
+                disabled:
+                  value:
+                    id: 1
+                    name: Daily report window
+                    report_workflow_policy_id: 1
+                    temporal_schedule_id: openclarion-report-policy-1-daily
+                    interval_seconds: 86400
+                    offset_seconds: 21600
+                    replay_window_seconds: 3600
+                    replay_delay_seconds: 300
+                    replay_limit: 10000
+                    catchup_window_seconds: 3600
+                    enabled: false
+                    enabled_at: null
+                    disabled_at: "2026-06-06T02:15:00Z"
+                    created_at: "2026-06-06T02:00:00Z"
+                    updated_at: "2026-06-06T02:15:00Z"
+        "400":
+          description: Report workflow schedule disable request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: schedule_id must be positive
+        "404":
+          description: Report workflow schedule was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: report workflow schedule not found
+        "500":
+          description: Report workflow schedule disablement failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: disable report workflow schedule failed
+  /api/v1/config/notification-channels:
+    get:
+      operationId: listNotificationChannelProfiles
+      summary: List notification channel profiles
+      description: Returns operator-managed notification channel profiles without endpoint URLs or credential values.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Notification channel profiles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannelProfileListResponse"
+              examples:
+                channels:
+                  value:
+                    items:
+                      - id: 1
+                        name: Operations webhook
+                        kind: webhook
+                        secret_ref: secret/example/ops-webhook
+                        delivery_scopes:
+                          - report
+                          - diagnosis_close
+                        enabled: false
+                        labels:
+                          team: ops
+                        created_at: "2026-06-05T09:00:00Z"
+                        updated_at: "2026-06-05T09:00:00Z"
+        "400":
+          description: Notification channel list parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-limit:
+                  value:
+                    error: "limit must be between 1 and 500"
+        "500":
+          description: Notification channel list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: list notification channel profiles failed
+    post:
+      operationId: createNotificationChannelProfile
+      summary: Create a notification channel profile
+      description: Stores notification channel metadata with a deployment-managed secret reference only. This operation does not send notifications.
+      tags:
+        - config
+      requestBody:
+        description: Notification channel profile metadata.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelProfileWriteRequest"
+            examples:
+              webhook:
+                value:
+                  name: Operations webhook
+                  kind: webhook
+                  secret_ref: secret/example/ops-webhook
+                  delivery_scopes:
+                    - report
+                    - diagnosis_close
+                  enabled: false
+                  labels:
+                    team: ops
+      responses:
+        "201":
+          description: Notification channel profile created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannelProfile"
+              examples:
+                created:
+                  value:
+                    id: 1
+                    name: Operations webhook
+                    kind: webhook
+                    secret_ref: secret/example/ops-webhook
+                    delivery_scopes:
+                      - report
+                      - diagnosis_close
+                    enabled: false
+                    labels:
+                      team: ops
+                    created_at: "2026-06-05T09:00:00Z"
+                    updated_at: "2026-06-05T09:00:00Z"
+        "400":
+          description: Notification channel profile request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: "notification channel profile: secret_ref must be non-empty"
+        "409":
+          description: Notification channel profile conflicts with an existing profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                duplicate:
+                  value:
+                    error: notification channel profile already exists
+        "500":
+          description: Notification channel profile creation failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: create notification channel profile failed
+  /api/v1/config/notification-channels/{channel_id}:
+    get:
+      operationId: getNotificationChannelProfile
+      summary: Get a notification channel profile
+      description: Returns one operator-managed notification channel profile without endpoint URLs or credential values.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/NotificationChannelProfileID"
+      responses:
+        "200":
+          description: Notification channel profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannelProfile"
+              examples:
+                channel:
+                  value:
+                    id: 1
+                    name: Operations webhook
+                    kind: webhook
+                    secret_ref: secret/example/ops-webhook
+                    delivery_scopes:
+                      - report
+                      - diagnosis_close
+                    enabled: true
+                    labels:
+                      team: ops
+                    created_at: "2026-06-05T09:00:00Z"
+                    updated_at: "2026-06-05T09:05:00Z"
+        "404":
+          description: Notification channel profile was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: notification channel profile not found
+        "500":
+          description: Notification channel profile lookup failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: get notification channel profile failed
+    put:
+      operationId: replaceNotificationChannelProfile
+      summary: Replace a notification channel profile
+      description: Replaces mutable notification channel profile metadata. This operation does not send notifications.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/NotificationChannelProfileID"
+      requestBody:
+        description: Replacement notification channel profile metadata.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NotificationChannelProfileWriteRequest"
+            examples:
+              disable-channel:
+                value:
+                  name: Operations webhook
+                  kind: webhook
+                  secret_ref: secret/example/ops-webhook
+                  delivery_scopes:
+                    - report
+                  enabled: false
+                  labels:
+                    team: ops
+      responses:
+        "200":
+          description: Notification channel profile replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannelProfile"
+              examples:
+                replaced:
+                  value:
+                    id: 1
+                    name: Operations webhook
+                    kind: webhook
+                    secret_ref: secret/example/ops-webhook
+                    delivery_scopes:
+                      - report
+                    enabled: false
+                    labels:
+                      team: ops
+                    created_at: "2026-06-05T09:00:00Z"
+                    updated_at: "2026-06-05T09:10:00Z"
+        "400":
+          description: Notification channel profile replacement request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: "notification channel profile: delivery_scopes must be non-empty"
+        "404":
+          description: Replacement target profile was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: notification channel profile not found
+        "409":
+          description: Replacement profile conflicts with an existing name
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                duplicate:
+                  value:
+                    error: notification channel profile already exists
+        "500":
+          description: Notification channel profile replacement failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: replace notification channel profile failed
+  /api/v1/config/notification-channels/{channel_id}/test:
+    post:
+      operationId: testNotificationChannelProfile
+      summary: Test a notification channel profile
+      description: Sends one bounded backend test notification for a persisted notification channel profile and returns sanitized status only. This action does not create report delivery records.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/NotificationChannelProfileID"
+      responses:
+        "200":
+          description: Sanitized notification channel test result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationChannelTestResult"
+              examples:
+                success:
+                  value:
+                    channel_id: 1
+                    kind: webhook
+                    status: success
+                    reason_code: ok
+                    message: Notification channel test delivery succeeded.
+                    checked_at: "2026-06-05T10:00:00Z"
+                    provider_message_id: msg-42
+                    provider_status: accepted
+                blocked:
+                  value:
+                    channel_id: 2
+                    kind: webhook
+                    status: blocked
+                    reason_code: credentials_unavailable
+                    message: Secret-backed notification channel tests require a server-side secret resolver.
+                    checked_at: "2026-06-05T10:00:00Z"
+                    provider_message_id: ""
+                    provider_status: ""
+        "400":
+          description: Notification channel test request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: channel_id must be positive
+        "404":
+          description: Notification channel profile was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: notification channel profile not found
+        "503":
+          description: Notification channel tester is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: notification channel tester is not configured
+        "500":
+          description: Notification channel test failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: test notification channel failed
   /api/v1/alerts:
     get:
       operationId: listAlerts
@@ -1318,6 +2780,33 @@ components:
         type: integer
         format: int64
         minimum: 1
+    ReportWorkflowPolicyID:
+      name: policy_id
+      in: path
+      description: Report workflow policy identifier.
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    ReportWorkflowScheduleID:
+      name: schedule_id
+      in: path
+      description: Report workflow schedule identifier.
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    NotificationChannelProfileID:
+      name: channel_id
+      in: path
+      description: Notification channel profile identifier.
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
   schemas:
     HealthResponse:
       type: object
@@ -1600,6 +3089,225 @@ components:
             $ref: "#/components/schemas/AlertSourceProfile"
       required:
         - items
+    NotificationChannelKind:
+      type: string
+      description: Supported notification channel adapter kind.
+      enum:
+        - webhook
+      examples:
+        - webhook
+    NotificationDeliveryScope:
+      type: string
+      description: Notification flow that may use a channel once workflow binding is implemented.
+      enum:
+        - report
+        - diagnosis_close
+      examples:
+        - report
+    NotificationChannelTestStatus:
+      type: string
+      description: Sanitized notification-channel test outcome category.
+      enum:
+        - success
+        - failed
+        - unsupported
+        - blocked
+      examples:
+        - success
+    NotificationChannelTestReasonCode:
+      type: string
+      description: Stable machine-readable reason for the notification-channel test outcome.
+      enum:
+        - ok
+        - unsupported_kind
+        - credentials_unavailable
+        - provider_unreachable
+        - provider_error
+        - invalid_profile
+      examples:
+        - ok
+    NotificationChannelLabels:
+      type: object
+      description: Operator labels for notification ownership, environment, or routing metadata.
+      additionalProperties:
+        type: string
+      examples:
+        - team: ops
+          env: test
+    NotificationChannelProfile:
+      type: object
+      description: Operator-managed notification channel profile without endpoint URLs or credential values.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - Operations webhook
+        kind:
+          $ref: "#/components/schemas/NotificationChannelKind"
+        secret_ref:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Deployment-managed endpoint secret reference; never the endpoint URL or credential value.
+          examples:
+            - secret/example/ops-webhook
+        delivery_scopes:
+          type: array
+          minItems: 1
+          maxItems: 2
+          description: Notification flows that may use this channel after later workflow binding.
+          items:
+            $ref: "#/components/schemas/NotificationDeliveryScope"
+          examples:
+            - - report
+              - diagnosis_close
+        enabled:
+          type: boolean
+          description: Whether operators enabled this channel for future notification binding.
+          examples:
+            - false
+        labels:
+          $ref: "#/components/schemas/NotificationChannelLabels"
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-05T09:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-05T09:10:00Z"
+      required:
+        - id
+        - name
+        - kind
+        - secret_ref
+        - delivery_scopes
+        - enabled
+        - labels
+        - created_at
+        - updated_at
+    NotificationChannelProfileWriteRequest:
+      type: object
+      description: Notification channel profile metadata accepted by create and replace operations.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - Operations webhook
+        kind:
+          $ref: "#/components/schemas/NotificationChannelKind"
+        secret_ref:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Submitted deployment-managed endpoint secret reference; never the endpoint URL or credential value.
+          examples:
+            - secret/example/ops-webhook
+        delivery_scopes:
+          type: array
+          minItems: 1
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/NotificationDeliveryScope"
+          examples:
+            - - report
+              - diagnosis_close
+        enabled:
+          type: boolean
+          default: false
+        labels:
+          $ref: "#/components/schemas/NotificationChannelLabels"
+      required:
+        - name
+        - kind
+        - secret_ref
+        - delivery_scopes
+      additionalProperties: false
+    NotificationChannelTestResult:
+      type: object
+      description: Sanitized result for an explicit notification-channel delivery test.
+      properties:
+        channel_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        kind:
+          $ref: "#/components/schemas/NotificationChannelKind"
+        status:
+          $ref: "#/components/schemas/NotificationChannelTestStatus"
+        reason_code:
+          $ref: "#/components/schemas/NotificationChannelTestReasonCode"
+        message:
+          type: string
+          minLength: 1
+          maxLength: 240
+          description: Operator-facing sanitized message. It must not include endpoint URLs, secret references, tokens, or raw provider error text.
+          examples:
+            - Notification channel test delivery succeeded.
+        checked_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-05T10:00:00Z"
+        provider_message_id:
+          type: string
+          maxLength: 128
+          description: Optional bounded provider acknowledgement identifier, when available from a successful provider response.
+          examples:
+            - msg-42
+        provider_status:
+          type: string
+          maxLength: 64
+          description: Optional bounded provider acknowledgement status, when available from a successful provider response.
+          examples:
+            - accepted
+      required:
+        - channel_id
+        - kind
+        - status
+        - reason_code
+        - message
+        - checked_at
+        - provider_message_id
+        - provider_status
+    NotificationChannelProfileListResponse:
+      type: object
+      description: Notification channel profile list response.
+      properties:
+        items:
+          type: array
+          examples:
+            -
+              - id: 1
+                name: Operations webhook
+                kind: webhook
+                secret_ref: secret/example/ops-webhook
+                delivery_scopes:
+                  - report
+                  - diagnosis_close
+                enabled: false
+                labels:
+                  team: ops
+                created_at: "2026-06-05T09:00:00Z"
+                updated_at: "2026-06-05T09:00:00Z"
+          items:
+            $ref: "#/components/schemas/NotificationChannelProfile"
+      required:
+        - items
     GroupingPolicyPreviewSeverity:
       type: string
       description: Group severity computed from alert labels during grouping preview.
@@ -1746,6 +3454,640 @@ components:
             $ref: "#/components/schemas/GroupingPolicy"
       required:
         - items
+    ReportWorkflowTriggerMode:
+      type: string
+      description: Supported report workflow trigger mode.
+      enum:
+        - manual_replay
+      examples:
+        - manual_replay
+    ReportWorkflowScenario:
+      type: string
+      description: Report prompt scenario used for generated SubReports.
+      enum:
+        - single_alert
+        - cascade
+        - alert_storm
+      examples:
+        - single_alert
+    DiagnosisFollowUpMode:
+      type: string
+      description: Diagnosis-room handoff behavior after report creation.
+      enum:
+        - disabled
+        - suggest_room
+      examples:
+        - suggest_room
+    ReportWorkflowPolicy:
+      type: object
+      description: Operator-managed report workflow policy. Enabled state changes only through explicit action endpoints.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - Default report workflow
+        alert_source_profile_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Bound alert source profile identifier.
+          examples:
+            - 1
+        grouping_policy_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Bound grouping policy identifier.
+          examples:
+            - 1
+        report_notification_channel_profile_id:
+          type:
+            - integer
+            - "null"
+          format: int64
+          minimum: 1
+          description: Optional notification channel profile identifier for final report delivery.
+          examples:
+            - 1
+        trigger_mode:
+          $ref: "#/components/schemas/ReportWorkflowTriggerMode"
+        report_scenario:
+          $ref: "#/components/schemas/ReportWorkflowScenario"
+        diagnosis_follow_up:
+          $ref: "#/components/schemas/DiagnosisFollowUpMode"
+        enabled:
+          type: boolean
+          description: Whether operators explicitly enabled this policy for workflow binding.
+          examples:
+            - false
+        enabled_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Time of the latest explicit enable action.
+          examples:
+            - "2026-06-05T08:05:00Z"
+        disabled_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Time of the latest explicit disable action.
+          examples:
+            - null
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-05T08:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-05T08:10:00Z"
+      required:
+        - id
+        - name
+        - alert_source_profile_id
+        - grouping_policy_id
+        - report_notification_channel_profile_id
+        - trigger_mode
+        - report_scenario
+        - diagnosis_follow_up
+        - enabled
+        - enabled_at
+        - disabled_at
+        - created_at
+        - updated_at
+    ReportWorkflowPolicyWriteRequest:
+      type: object
+      description: Report workflow policy metadata accepted by create and replace operations. Enabled state is action-only.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - Default report workflow
+        alert_source_profile_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        grouping_policy_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        report_notification_channel_profile_id:
+          type:
+            - integer
+            - "null"
+          format: int64
+          minimum: 1
+          description: Optional notification channel profile identifier for final report delivery.
+          examples:
+            - 1
+        trigger_mode:
+          type: string
+          enum:
+            - manual_replay
+          default: manual_replay
+        report_scenario:
+          type: string
+          enum:
+            - single_alert
+            - cascade
+            - alert_storm
+          default: single_alert
+        diagnosis_follow_up:
+          type: string
+          enum:
+            - disabled
+            - suggest_room
+          default: disabled
+      required:
+        - name
+        - alert_source_profile_id
+        - grouping_policy_id
+      additionalProperties: false
+    ReportWorkflowPolicyListResponse:
+      type: object
+      description: Report workflow policy list response.
+      properties:
+        items:
+          type: array
+          examples:
+            -
+              - id: 1
+                name: Default report workflow
+                alert_source_profile_id: 1
+                grouping_policy_id: 1
+                report_notification_channel_profile_id: null
+                trigger_mode: manual_replay
+                report_scenario: single_alert
+                diagnosis_follow_up: suggest_room
+                enabled: false
+                enabled_at: null
+                disabled_at: null
+                created_at: "2026-06-05T08:00:00Z"
+                updated_at: "2026-06-05T08:00:00Z"
+          items:
+            $ref: "#/components/schemas/ReportWorkflowPolicy"
+      required:
+        - items
+    ReportWorkflowSchedule:
+      type: object
+      description: Operator-managed report workflow schedule metadata. Enabled state changes only through explicit action endpoints and does not imply Temporal registration in this slice.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - Daily report window
+        report_workflow_policy_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Bound report workflow policy identifier.
+          examples:
+            - 1
+        temporal_schedule_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Stable Temporal Schedule identifier reserved for the later registration slice.
+          examples:
+            - openclarion-report-policy-1-daily
+        interval_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 31536000
+          description: Temporal interval cadence in whole seconds.
+          examples:
+            - 86400
+        offset_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 31536000
+          description: Temporal interval offset in whole seconds; must be less than interval_seconds.
+          examples:
+            - 21600
+        replay_window_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 31536000
+          description: Alert replay window duration computed from the scheduled fire time.
+          examples:
+            - 3600
+        replay_delay_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 31536000
+          description: Delay subtracted from the scheduled fire time before computing the replay window end.
+          examples:
+            - 300
+        replay_limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100000
+          description: Maximum alert events loaded by the later launcher workflow.
+          examples:
+            - 10000
+        catchup_window_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 31536000
+          description: Bounded Temporal catch-up window in whole seconds.
+          examples:
+            - 3600
+        enabled:
+          type: boolean
+          description: Whether operators explicitly enabled this schedule metadata.
+          examples:
+            - false
+        enabled_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Time of the latest explicit enable action.
+          examples:
+            - "2026-06-06T02:05:00Z"
+        disabled_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Time of the latest explicit disable action.
+          examples:
+            - null
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-06T02:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-06T02:10:00Z"
+      required:
+        - id
+        - name
+        - report_workflow_policy_id
+        - temporal_schedule_id
+        - interval_seconds
+        - offset_seconds
+        - replay_window_seconds
+        - replay_delay_seconds
+        - replay_limit
+        - catchup_window_seconds
+        - enabled
+        - enabled_at
+        - disabled_at
+        - created_at
+        - updated_at
+    ReportWorkflowScheduleWriteRequest:
+      type: object
+      description: Report workflow schedule metadata accepted by create and replace operations. Enabled state is action-only.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - Daily report window
+        report_workflow_policy_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        temporal_schedule_id:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Submitted Temporal Schedule identifier; must not contain whitespace or control characters.
+          examples:
+            - openclarion-report-policy-1-daily
+        interval_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 31536000
+        offset_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 31536000
+        replay_window_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 31536000
+        replay_delay_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 31536000
+        replay_limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100000
+        catchup_window_seconds:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 31536000
+      required:
+        - name
+        - report_workflow_policy_id
+        - temporal_schedule_id
+        - interval_seconds
+        - offset_seconds
+        - replay_window_seconds
+        - replay_delay_seconds
+        - replay_limit
+        - catchup_window_seconds
+      additionalProperties: false
+    ReportWorkflowScheduleListResponse:
+      type: object
+      description: Report workflow schedule list response.
+      properties:
+        items:
+          type: array
+          examples:
+            -
+              - id: 1
+                name: Daily report window
+                report_workflow_policy_id: 1
+                temporal_schedule_id: openclarion-report-policy-1-daily
+                interval_seconds: 86400
+                offset_seconds: 21600
+                replay_window_seconds: 3600
+                replay_delay_seconds: 300
+                replay_limit: 10000
+                catchup_window_seconds: 3600
+                enabled: false
+                enabled_at: null
+                disabled_at: null
+                created_at: "2026-06-06T02:00:00Z"
+                updated_at: "2026-06-06T02:00:00Z"
+          items:
+            $ref: "#/components/schemas/ReportWorkflowSchedule"
+      required:
+        - items
+    ReportWorkflowPolicyImpactPreviewStatus:
+      type: string
+      description: Sanitized readiness category for a report workflow policy impact preview.
+      enum:
+        - ready
+        - review
+        - blocked
+      examples:
+        - ready
+    ReportWorkflowPolicyImpactPreviewReasonCode:
+      type: string
+      description: Stable machine-readable reason for the impact preview status.
+      enum:
+        - ok
+        - alert_source_disabled
+        - grouping_policy_disabled
+        - notification_channel_disabled
+        - notification_channel_missing_report_scope
+        - unsupported_trigger_mode
+        - no_matching_events
+      examples:
+        - ok
+    ReportWorkflowPolicyImpactPreviewResult:
+      type: object
+      description: Non-persistent impact preview for one report workflow policy. The backend computes this from persisted configuration and a bounded recent AlertEvent sample without provider calls, secret resolution, workflow starts, notification sends, or group/snapshot persistence.
+      properties:
+        policy_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        status:
+          $ref: "#/components/schemas/ReportWorkflowPolicyImpactPreviewStatus"
+        reason_codes:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ReportWorkflowPolicyImpactPreviewReasonCode"
+          examples:
+            - - ok
+        message:
+          type: string
+          minLength: 1
+          maxLength: 240
+          description: Operator-facing sanitized message. It must not include endpoint URLs, secret references, tokens, or raw provider error text.
+          examples:
+            - Report workflow policy impact preview is ready.
+        checked_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-05T10:00:00Z"
+        trigger_mode:
+          $ref: "#/components/schemas/ReportWorkflowTriggerMode"
+        report_scenario:
+          $ref: "#/components/schemas/ReportWorkflowScenario"
+        diagnosis_follow_up:
+          $ref: "#/components/schemas/DiagnosisFollowUpMode"
+        alert_source_profile_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        alert_source_kind:
+          $ref: "#/components/schemas/AlertSourceKind"
+        alert_source_auth_mode:
+          $ref: "#/components/schemas/AlertSourceAuthMode"
+        alert_source_enabled:
+          type: boolean
+          examples:
+            - true
+        grouping_policy_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        grouping_policy_enabled:
+          type: boolean
+          examples:
+            - true
+        grouping_dimension_keys:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          examples:
+            - - alertname
+              - service
+        grouping_severity_key:
+          type: string
+          minLength: 1
+          maxLength: 64
+          examples:
+            - severity
+        grouping_source_filter:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 64
+          examples:
+            - - prometheus
+        report_notification_channel_profile_id:
+          type:
+            - integer
+            - "null"
+          format: int64
+          minimum: 1
+          description: Optional notification channel profile identifier bound to final report delivery.
+          examples:
+            - 1
+        report_notification_channel_bound:
+          type: boolean
+          examples:
+            - true
+        report_notification_channel_enabled:
+          type: boolean
+          examples:
+            - true
+        report_notification_channel_has_report_scope:
+          type: boolean
+          examples:
+            - true
+        events_scanned:
+          type: integer
+          format: int64
+          minimum: 0
+          examples:
+            - 3
+        events_matched:
+          type: integer
+          format: int64
+          minimum: 0
+          examples:
+            - 2
+        groups_estimated:
+          type: integer
+          format: int64
+          minimum: 0
+          examples:
+            - 1
+        groups:
+          type: array
+          examples:
+            -
+              - group_key: "0000000000000000000000000000000000000000000000000000000000000001"
+                dimensions:
+                  alertname: HighCPU
+                  service: checkout
+                severity: critical
+                event_count: 2
+                first_seen_at: "2026-06-05T04:00:00Z"
+                last_seen_at: "2026-06-05T04:01:00Z"
+                event_ids:
+                  - 101
+                  - 102
+          items:
+            $ref: "#/components/schemas/GroupingPolicyPreviewGroup"
+      required:
+        - policy_id
+        - status
+        - reason_codes
+        - message
+        - checked_at
+        - trigger_mode
+        - report_scenario
+        - diagnosis_follow_up
+        - alert_source_profile_id
+        - alert_source_kind
+        - alert_source_auth_mode
+        - alert_source_enabled
+        - grouping_policy_id
+        - grouping_policy_enabled
+        - grouping_dimension_keys
+        - grouping_severity_key
+        - grouping_source_filter
+        - report_notification_channel_profile_id
+        - report_notification_channel_bound
+        - report_notification_channel_enabled
+        - report_notification_channel_has_report_scope
+        - events_scanned
+        - events_matched
+        - groups_estimated
+        - groups
+    ReportWorkflowPolicyReplayRequest:
+      type: object
+      description: Request to replay an alert window through a stored report workflow policy.
+      properties:
+        window_start:
+          type: string
+          format: date-time
+          description: Inclusive replay window start.
+          examples:
+            - "2026-06-05T08:00:00Z"
+        window_end:
+          type: string
+          format: date-time
+          description: Exclusive replay window end.
+          examples:
+            - "2026-06-05T09:00:00Z"
+        limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100000
+          default: 10000
+          description: Maximum number of alert events to load from the window.
+        correlation_key:
+          type: string
+          description: Optional final-report idempotency key. Defaults to the policy ID and normalized replay window.
+          examples:
+            - incident-window-20260605T0800Z
+        workflow_id:
+          type: string
+          description: Optional Temporal workflow ID. Defaults to a stable hash of the correlation key.
+          examples:
+            - report-batch-0bf4f5e1a8cb2d3299dcb4d280d5a6a0
+      required:
+        - window_start
+        - window_end
+      additionalProperties: false
     GroupingPolicyPreviewGroup:
       type: object
       description: One non-persistent grouping preview sample.
@@ -2344,6 +4686,182 @@ components:
         - saved
         - duplicate
         - failed
+    AlertmanagerWebhookPayload:
+      type: object
+      description: Alertmanager webhook receiver payload accepted for alert ingestion.
+      properties:
+        version:
+          type: string
+          enum:
+            - "4"
+          examples:
+            - "4"
+        groupKey:
+          type: string
+          examples:
+            - '{}:{alertname="HighCPU"}'
+        truncatedAlerts:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+          examples:
+            - 0
+        status:
+          type: string
+          enum:
+            - firing
+            - resolved
+          examples:
+            - firing
+        receiver:
+          type: string
+          examples:
+            - openclarion
+        groupLabels:
+          type: object
+          additionalProperties:
+            type: string
+          examples:
+            - alertname: HighCPU
+        commonLabels:
+          type: object
+          additionalProperties:
+            type: string
+          examples:
+            - severity: warning
+        commonAnnotations:
+          type: object
+          additionalProperties:
+            type: string
+          examples:
+            - summary: CPU high
+        externalURL:
+          type: string
+          examples:
+            - https://alertmanager.example.test
+        alerts:
+          type: array
+          maxItems: 10000
+          items:
+            $ref: "#/components/schemas/AlertmanagerWebhookAlert"
+          examples:
+            - - status: firing
+                labels:
+                  alertname: HighCPU
+                  instance: api-1
+                annotations:
+                  summary: CPU high
+                startsAt: "2026-06-06T01:00:00Z"
+      required:
+        - version
+        - status
+        - alerts
+      additionalProperties: false
+    AlertmanagerWebhookAlert:
+      type: object
+      description: Single alert entry inside an Alertmanager webhook payload.
+      properties:
+        status:
+          type: string
+          enum:
+            - firing
+            - resolved
+          examples:
+            - firing
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+          examples:
+            - alertname: HighCPU
+              instance: api-1
+        annotations:
+          type: object
+          additionalProperties:
+            type: string
+          examples:
+            - summary: CPU high
+        startsAt:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-06T01:00:00Z"
+        endsAt:
+          type: string
+          format: date-time
+          examples:
+            - "0001-01-01T00:00:00Z"
+        generatorURL:
+          type: string
+          examples:
+            - https://prometheus.example.test/graph
+        fingerprint:
+          type: string
+          examples:
+            - abc123
+      required:
+        - status
+        - labels
+        - annotations
+        - startsAt
+      additionalProperties: false
+    AlertmanagerWebhookIngestResponse:
+      type: object
+      description: Sanitized counters from Alertmanager webhook ingestion.
+      properties:
+        source_id:
+          type: integer
+          format: int64
+          examples:
+            - 2
+        received:
+          type: integer
+          format: int64
+          examples:
+            - 2
+        skipped_resolved:
+          type: integer
+          format: int64
+          examples:
+            - 1
+        truncated_alerts:
+          type: integer
+          format: int64
+          examples:
+            - 0
+        ingested:
+          type: object
+          description: Counter summary from webhook alert ingestion.
+          properties:
+            total:
+              type: integer
+              format: int64
+            saved:
+              type: integer
+              format: int64
+            duplicate:
+              type: integer
+              format: int64
+            failed:
+              type: integer
+              format: int64
+          required:
+            - total
+            - saved
+            - duplicate
+            - failed
+          examples:
+            - total: 1
+              saved: 1
+              duplicate: 0
+              failed: 0
+      required:
+        - source_id
+        - received
+        - skipped_resolved
+        - truncated_alerts
+        - ingested
     ReportReplaySnapshotRef:
       type: object
       description: EvidenceSnapshot reference returned by replay.

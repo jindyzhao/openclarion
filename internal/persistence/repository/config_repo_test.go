@@ -267,6 +267,436 @@ func TestConfigRepo_ListGroupingPoliciesOrdersByUpdatedAt(t *testing.T) {
 	})
 }
 
+func TestConfigRepo_SaveFindUpdateAndListReportWorkflowPolicy(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+	var saved domain.ReportWorkflowPolicy
+
+	if err := integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var err error
+		saved, err = uow.Config().SaveReportWorkflowPolicy(ctx, mustNewReportWorkflowPolicy(t, "Default report workflow"))
+		return err
+	}); err != nil {
+		t.Fatalf("save policy: %v", err)
+	}
+	if saved.ID == 0 || saved.CreatedAt.IsZero() || saved.UpdatedAt.IsZero() {
+		t.Fatalf("saved policy missing generated fields: %+v", saved)
+	}
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Config().FindReportWorkflowPolicyByID(ctx, saved.ID)
+		if err != nil {
+			t.Fatalf("FindReportWorkflowPolicyByID: %v", err)
+		}
+		if got.Name != "Default report workflow" ||
+			got.AlertSourceProfileID != 1 ||
+			got.GroupingPolicyID != 2 ||
+			got.ReportNotificationChannelProfileID != 3 ||
+			got.Enabled {
+			t.Fatalf("got = %+v", got)
+		}
+	})
+
+	enabledAt := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
+	updated := saved
+	updated.Name = "Cascade report workflow"
+	updated.ReportScenario = domain.ReportWorkflowScenarioCascade
+	updated.DiagnosisFollowUp = domain.DiagnosisFollowUpModeSuggestRoom
+	updated.ReportNotificationChannelProfileID = 0
+	updated.Enabled = true
+	updated.EnabledAt = &enabledAt
+	updated.DisabledAt = nil
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Config().UpdateReportWorkflowPolicy(ctx, updated)
+		if err != nil {
+			t.Fatalf("UpdateReportWorkflowPolicy: %v", err)
+		}
+		if got.Name != "Cascade report workflow" ||
+			got.ReportNotificationChannelProfileID != 0 ||
+			!got.Enabled ||
+			got.EnabledAt == nil ||
+			got.DisabledAt != nil {
+			t.Fatalf("updated policy = %+v", got)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		listed, err := uow.Config().ListReportWorkflowPolicies(ctx, 10)
+		if err != nil {
+			t.Fatalf("ListReportWorkflowPolicies: %v", err)
+		}
+		if len(listed) != 1 || listed[0].Name != "Cascade report workflow" {
+			t.Fatalf("listed = %+v", listed)
+		}
+	})
+}
+
+func TestConfigRepo_ReportWorkflowPolicyUniqueName(t *testing.T) {
+	resetDB(t)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		if _, err := uow.Config().SaveReportWorkflowPolicy(ctx, mustNewReportWorkflowPolicy(t, "Default report workflow")); err != nil {
+			t.Fatalf("initial save: %v", err)
+		}
+	})
+
+	err := integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, serr := uow.Config().SaveReportWorkflowPolicy(ctx, mustNewReportWorkflowPolicy(t, "Default report workflow"))
+		return serr
+	})
+	if !errors.Is(err, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate save err = %v, want ErrAlreadyExists", err)
+	}
+}
+
+func TestConfigRepo_ReportWorkflowPolicyNotFoundAndInvalidInput(t *testing.T) {
+	resetDB(t)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		_, err := uow.Config().FindReportWorkflowPolicyByID(ctx, 404)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("find missing err = %v, want ErrNotFound", err)
+		}
+		_, err = uow.Config().FindReportWorkflowPolicyByID(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("find zero err = %v, want ErrInvariantViolation", err)
+		}
+		_, err = uow.Config().ListReportWorkflowPolicies(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("list zero err = %v, want ErrInvariantViolation", err)
+		}
+		policy := mustNewReportWorkflowPolicy(t, "Missing")
+		_, err = uow.Config().UpdateReportWorkflowPolicy(ctx, policy)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("update zero id err = %v, want ErrInvariantViolation", err)
+		}
+		policy.ID = 404
+		_, err = uow.Config().UpdateReportWorkflowPolicy(ctx, policy)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("update missing err = %v, want ErrNotFound", err)
+		}
+	})
+}
+
+func TestConfigRepo_ListReportWorkflowPoliciesOrdersByUpdatedAt(t *testing.T) {
+	resetDB(t)
+	base := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		oldest := mustNewReportWorkflowPolicy(t, "Oldest")
+		oldest.UpdatedAt = base
+		if _, err := uow.Config().SaveReportWorkflowPolicy(ctx, oldest); err != nil {
+			t.Fatalf("save oldest: %v", err)
+		}
+		newest := mustNewReportWorkflowPolicy(t, "Newest")
+		newest.AlertSourceProfileID = 3
+		newest.GroupingPolicyID = 4
+		newest.UpdatedAt = base.Add(time.Minute)
+		if _, err := uow.Config().SaveReportWorkflowPolicy(ctx, newest); err != nil {
+			t.Fatalf("save newest: %v", err)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		listed, err := uow.Config().ListReportWorkflowPolicies(ctx, 1)
+		if err != nil {
+			t.Fatalf("ListReportWorkflowPolicies: %v", err)
+		}
+		if len(listed) != 1 || listed[0].Name != "Newest" {
+			t.Fatalf("listed = %+v, want Newest first", listed)
+		}
+	})
+}
+
+func TestConfigRepo_SaveFindUpdateAndListReportWorkflowSchedule(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+	var saved domain.ReportWorkflowSchedule
+
+	if err := integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var err error
+		saved, err = uow.Config().SaveReportWorkflowSchedule(ctx, mustNewReportWorkflowSchedule(t, "Hourly reports"))
+		return err
+	}); err != nil {
+		t.Fatalf("save schedule: %v", err)
+	}
+	if saved.ID == 0 || saved.CreatedAt.IsZero() || saved.UpdatedAt.IsZero() {
+		t.Fatalf("saved schedule missing generated fields: %+v", saved)
+	}
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Config().FindReportWorkflowScheduleByID(ctx, saved.ID)
+		if err != nil {
+			t.Fatalf("FindReportWorkflowScheduleByID: %v", err)
+		}
+		if got.Name != "Hourly reports" ||
+			got.ReportWorkflowPolicyID != 7 ||
+			got.TemporalScheduleID != "openclarion-report-policy-7-hourly" ||
+			got.Interval != time.Hour ||
+			got.ReplayWindow != 30*time.Minute ||
+			got.ReplayDelay != 2*time.Minute ||
+			got.ReplayLimit != 1000 ||
+			got.CatchupWindow != 10*time.Minute ||
+			got.Enabled {
+			t.Fatalf("got = %+v", got)
+		}
+	})
+
+	enabledAt := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
+	updated := saved
+	updated.Name = "Thirty minute reports"
+	updated.TemporalScheduleID = "openclarion-report-policy-7-30m"
+	updated.Interval = 30 * time.Minute
+	updated.Offset = time.Minute
+	updated.ReplayWindow = 15 * time.Minute
+	updated.ReplayLimit = 500
+	updated.Enabled = true
+	updated.EnabledAt = &enabledAt
+	updated.DisabledAt = nil
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Config().UpdateReportWorkflowSchedule(ctx, updated)
+		if err != nil {
+			t.Fatalf("UpdateReportWorkflowSchedule: %v", err)
+		}
+		if got.Name != "Thirty minute reports" ||
+			got.TemporalScheduleID != "openclarion-report-policy-7-30m" ||
+			got.Interval != 30*time.Minute ||
+			got.Offset != time.Minute ||
+			!got.Enabled ||
+			got.EnabledAt == nil ||
+			got.DisabledAt != nil {
+			t.Fatalf("updated schedule = %+v", got)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		listed, err := uow.Config().ListReportWorkflowSchedules(ctx, 10)
+		if err != nil {
+			t.Fatalf("ListReportWorkflowSchedules: %v", err)
+		}
+		if len(listed) != 1 || listed[0].Name != "Thirty minute reports" {
+			t.Fatalf("listed = %+v", listed)
+		}
+	})
+}
+
+func TestConfigRepo_ReportWorkflowScheduleUniqueNameAndTemporalID(t *testing.T) {
+	resetDB(t)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		if _, err := uow.Config().SaveReportWorkflowSchedule(ctx, mustNewReportWorkflowSchedule(t, "Hourly reports")); err != nil {
+			t.Fatalf("initial save: %v", err)
+		}
+	})
+
+	err := integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, serr := uow.Config().SaveReportWorkflowSchedule(ctx, mustNewReportWorkflowSchedule(t, "Hourly reports"))
+		return serr
+	})
+	if !errors.Is(err, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate name save err = %v, want ErrAlreadyExists", err)
+	}
+
+	err = integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+		schedule := mustNewReportWorkflowSchedule(t, "Another schedule")
+		schedule.TemporalScheduleID = "openclarion-report-policy-7-hourly"
+		_, serr := uow.Config().SaveReportWorkflowSchedule(ctx, schedule)
+		return serr
+	})
+	if !errors.Is(err, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate temporal id save err = %v, want ErrAlreadyExists", err)
+	}
+}
+
+func TestConfigRepo_ReportWorkflowScheduleNotFoundAndInvalidInput(t *testing.T) {
+	resetDB(t)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		_, err := uow.Config().FindReportWorkflowScheduleByID(ctx, 404)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("find missing err = %v, want ErrNotFound", err)
+		}
+		_, err = uow.Config().FindReportWorkflowScheduleByID(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("find zero err = %v, want ErrInvariantViolation", err)
+		}
+		_, err = uow.Config().ListReportWorkflowSchedules(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("list zero err = %v, want ErrInvariantViolation", err)
+		}
+		schedule := mustNewReportWorkflowSchedule(t, "Missing")
+		_, err = uow.Config().UpdateReportWorkflowSchedule(ctx, schedule)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("update zero id err = %v, want ErrInvariantViolation", err)
+		}
+		schedule.ID = 404
+		_, err = uow.Config().UpdateReportWorkflowSchedule(ctx, schedule)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("update missing err = %v, want ErrNotFound", err)
+		}
+	})
+}
+
+func TestConfigRepo_ListReportWorkflowSchedulesOrdersByUpdatedAt(t *testing.T) {
+	resetDB(t)
+	base := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		oldest := mustNewReportWorkflowSchedule(t, "Oldest")
+		oldest.UpdatedAt = base
+		if _, err := uow.Config().SaveReportWorkflowSchedule(ctx, oldest); err != nil {
+			t.Fatalf("save oldest: %v", err)
+		}
+		newest := mustNewReportWorkflowSchedule(t, "Newest")
+		newest.TemporalScheduleID = "openclarion-report-policy-7-newest"
+		newest.UpdatedAt = base.Add(time.Minute)
+		if _, err := uow.Config().SaveReportWorkflowSchedule(ctx, newest); err != nil {
+			t.Fatalf("save newest: %v", err)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		listed, err := uow.Config().ListReportWorkflowSchedules(ctx, 1)
+		if err != nil {
+			t.Fatalf("ListReportWorkflowSchedules: %v", err)
+		}
+		if len(listed) != 1 || listed[0].Name != "Newest" {
+			t.Fatalf("listed = %+v, want Newest first", listed)
+		}
+	})
+}
+
+func TestConfigRepo_SaveFindUpdateAndListNotificationChannelProfile(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+	var saved domain.NotificationChannelProfile
+
+	if err := integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var err error
+		saved, err = uow.Config().SaveNotificationChannelProfile(ctx, mustNewNotificationChannelProfile(t, "Operations webhook"))
+		return err
+	}); err != nil {
+		t.Fatalf("save profile: %v", err)
+	}
+	if saved.ID == 0 || saved.CreatedAt.IsZero() || saved.UpdatedAt.IsZero() {
+		t.Fatalf("saved profile missing generated fields: %+v", saved)
+	}
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Config().FindNotificationChannelProfileByID(ctx, saved.ID)
+		if err != nil {
+			t.Fatalf("FindNotificationChannelProfileByID: %v", err)
+		}
+		if got.Name != "Operations webhook" ||
+			got.SecretRef != "secret/openclarion/ops-webhook" ||
+			len(got.DeliveryScopes) != 2 ||
+			!got.Enabled {
+			t.Fatalf("got = %+v", got)
+		}
+	})
+
+	updated := saved
+	updated.Name = "Report webhook"
+	updated.DeliveryScopes = []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeReport}
+	updated.Enabled = false
+	updated.Labels = map[string]string{"owner": "platform"}
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Config().UpdateNotificationChannelProfile(ctx, updated)
+		if err != nil {
+			t.Fatalf("UpdateNotificationChannelProfile: %v", err)
+		}
+		if got.Name != "Report webhook" || got.Enabled || len(got.DeliveryScopes) != 1 || got.Labels["owner"] != "platform" {
+			t.Fatalf("updated profile = %+v", got)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		listed, err := uow.Config().ListNotificationChannelProfiles(ctx, 10)
+		if err != nil {
+			t.Fatalf("ListNotificationChannelProfiles: %v", err)
+		}
+		if len(listed) != 1 || listed[0].Name != "Report webhook" {
+			t.Fatalf("listed = %+v", listed)
+		}
+	})
+}
+
+func TestConfigRepo_NotificationChannelProfileUniqueName(t *testing.T) {
+	resetDB(t)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		if _, err := uow.Config().SaveNotificationChannelProfile(ctx, mustNewNotificationChannelProfile(t, "Operations webhook")); err != nil {
+			t.Fatalf("initial save: %v", err)
+		}
+	})
+
+	err := integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, serr := uow.Config().SaveNotificationChannelProfile(ctx, mustNewNotificationChannelProfile(t, "Operations webhook"))
+		return serr
+	})
+	if !errors.Is(err, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate save err = %v, want ErrAlreadyExists", err)
+	}
+}
+
+func TestConfigRepo_NotificationChannelProfileNotFoundAndInvalidInput(t *testing.T) {
+	resetDB(t)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		_, err := uow.Config().FindNotificationChannelProfileByID(ctx, 404)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("find missing err = %v, want ErrNotFound", err)
+		}
+		_, err = uow.Config().FindNotificationChannelProfileByID(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("find zero err = %v, want ErrInvariantViolation", err)
+		}
+		_, err = uow.Config().ListNotificationChannelProfiles(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("list zero err = %v, want ErrInvariantViolation", err)
+		}
+		profile := mustNewNotificationChannelProfile(t, "Missing")
+		_, err = uow.Config().UpdateNotificationChannelProfile(ctx, profile)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("update zero id err = %v, want ErrInvariantViolation", err)
+		}
+		profile.ID = 404
+		_, err = uow.Config().UpdateNotificationChannelProfile(ctx, profile)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("update missing err = %v, want ErrNotFound", err)
+		}
+	})
+}
+
+func TestConfigRepo_ListNotificationChannelProfilesOrdersByUpdatedAt(t *testing.T) {
+	resetDB(t)
+	base := time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		oldest := mustNewNotificationChannelProfile(t, "Oldest")
+		oldest.UpdatedAt = base
+		if _, err := uow.Config().SaveNotificationChannelProfile(ctx, oldest); err != nil {
+			t.Fatalf("save oldest: %v", err)
+		}
+		newest := mustNewNotificationChannelProfile(t, "Newest")
+		newest.SecretRef = "secret/openclarion/newest-webhook"
+		newest.UpdatedAt = base.Add(time.Minute)
+		if _, err := uow.Config().SaveNotificationChannelProfile(ctx, newest); err != nil {
+			t.Fatalf("save newest: %v", err)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		listed, err := uow.Config().ListNotificationChannelProfiles(ctx, 1)
+		if err != nil {
+			t.Fatalf("ListNotificationChannelProfiles: %v", err)
+		}
+		if len(listed) != 1 || listed[0].Name != "Newest" {
+			t.Fatalf("listed = %+v, want Newest first", listed)
+		}
+	})
+}
+
 func mustNewAlertSourceProfile(t *testing.T, name string) domain.AlertSourceProfile {
 	t.Helper()
 	profile, err := domain.NewAlertSourceProfile(
@@ -297,4 +727,65 @@ func mustNewGroupingPolicy(t *testing.T, name string) domain.GroupingPolicy {
 		t.Fatalf("NewGroupingPolicy: %v", err)
 	}
 	return policy
+}
+
+func mustNewReportWorkflowPolicy(t *testing.T, name string) domain.ReportWorkflowPolicy {
+	t.Helper()
+	policy, err := domain.NewReportWorkflowPolicy(
+		name,
+		domain.AlertSourceProfileID(1),
+		domain.GroupingPolicyID(2),
+		domain.NotificationChannelProfileID(3),
+		domain.ReportWorkflowTriggerModeManualReplay,
+		domain.ReportWorkflowScenarioSingleAlert,
+		domain.DiagnosisFollowUpModeDisabled,
+		false,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewReportWorkflowPolicy: %v", err)
+	}
+	return policy
+}
+
+func mustNewReportWorkflowSchedule(t *testing.T, name string) domain.ReportWorkflowSchedule {
+	t.Helper()
+	schedule, err := domain.NewReportWorkflowSchedule(
+		name,
+		domain.ReportWorkflowPolicyID(7),
+		"openclarion-report-policy-7-hourly",
+		time.Hour,
+		0,
+		30*time.Minute,
+		2*time.Minute,
+		1000,
+		10*time.Minute,
+		false,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewReportWorkflowSchedule: %v", err)
+	}
+	return schedule
+}
+
+func mustNewNotificationChannelProfile(t *testing.T, name string) domain.NotificationChannelProfile {
+	t.Helper()
+	profile, err := domain.NewNotificationChannelProfile(
+		name,
+		domain.NotificationChannelKindWebhook,
+		"secret/openclarion/ops-webhook",
+		[]domain.NotificationDeliveryScope{
+			domain.NotificationDeliveryScopeDiagnosisClose,
+			domain.NotificationDeliveryScopeReport,
+		},
+		true,
+		map[string]string{"owner": "sre"},
+	)
+	if err != nil {
+		t.Fatalf("NewNotificationChannelProfile: %v", err)
+	}
+	return profile
 }

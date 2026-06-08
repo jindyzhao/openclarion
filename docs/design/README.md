@@ -40,6 +40,8 @@ Application Services
 |----------|---------|
 | [architecture.md](architecture.md) | layering contract and orchestrator ports |
 | [alert-first-signal-extension.md](alert-first-signal-extension.md) | alert-first, signal-capable extension boundary |
+| [report-lifecycle.md](report-lifecycle.md) | lifecycle boundary between automated report artifacts and human-confirmed conclusions |
+| [alert-operations-live-proof-runbook.md](alert-operations-live-proof-runbook.md) | operator configuration and retained live-proof sequence for alert operations |
 | [insight-pipeline-agent-workspace.md](insight-pipeline-agent-workspace.md) | logical boundary between automated insight reports and human agent workspace |
 | [agent-runtime-selection.md](agent-runtime-selection.md) | M4/M5 sandbox runtime selection gate |
 | [agent-tool-scripts.md](agent-tool-scripts.md) | M4 sandbox metric/topology tool helper contract |

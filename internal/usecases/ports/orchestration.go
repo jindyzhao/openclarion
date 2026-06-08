@@ -19,9 +19,10 @@ type ReportBatchStartItem struct {
 // ReportBatchStartRequest describes an idempotent request to start
 // the report batch workflow for a replay window.
 type ReportBatchStartRequest struct {
-	WorkflowID     string
-	CorrelationKey string
-	Items          []ReportBatchStartItem
+	WorkflowID                         string
+	CorrelationKey                     string
+	ReportNotificationChannelProfileID domain.NotificationChannelProfileID
+	Items                              []ReportBatchStartItem
 }
 
 // WorkflowHandle is the provider-neutral handle returned after a

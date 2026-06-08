@@ -23,6 +23,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openclarion/openclarion/internal/providers/secrets/envmap"
 	"github.com/openclarion/openclarion/internal/strictjson"
 )
 
@@ -180,7 +181,8 @@ func main() {
 func run(args []string, environ []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	target := fs.String("target", "all", "target to check: all, report-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-sample-export, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, sandbox-m4-evidence-chain, diagnosis-live-browser-smoke")
+	target := fs.String("target", "all", "target to check: all, report-live-smoke, report-policy-live-smoke, report-schedule-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-sample-export, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, sandbox-m4-evidence-chain, diagnosis-live-browser-smoke")
+	requireReady := fs.Bool("require-ready", false, "return a non-zero exit status when any selected target is blocked")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -191,6 +193,8 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	env := environMap(environ)
 	targets := []targetReadiness{
 		reportLiveSmokeReadiness(env),
+		reportPolicyLiveSmokeReadiness(env),
+		reportScheduleLiveSmokeReadiness(env),
 		sandboxM4BaselineAuditReadiness(env),
 		sandboxM4QualitySampleExportReadiness(env),
 		sandboxM4QualityManifestPrepareReadiness(env),
@@ -226,7 +230,13 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	enc := json.NewEncoder(stdout)
 	enc.SetEscapeHTML(false)
 	enc.SetIndent("", "  ")
-	return enc.Encode(out)
+	if err := enc.Encode(out); err != nil {
+		return err
+	}
+	if *requireReady && out.Status != "ready" {
+		return fmt.Errorf("selected readiness target is blocked")
+	}
+	return nil
 }
 
 func orderedTargetsBySequence(targets []targetReadiness) []targetReadiness {
@@ -455,7 +465,7 @@ func reportLiveSmokeReadiness(env envMap) targetReadiness {
 			})
 		}
 	}
-	if !allPresent(env, "OPENCLARION_LLM_MODEL", "OPENCLARION_IM_WEBHOOK_URL") && !envEquals(env, "REPORT_LIVE_SMOKE_ASSUME_WORKER_READY", "1") {
+	if !allPresent(env, "OPENCLARION_LLM_MODEL", "OPENCLARION_IM_WEBHOOK_URL") && !envFlagEnabled(env, "REPORT_LIVE_SMOKE_ASSUME_WORKER_READY") {
 		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
 			Description: "worker provider configuration",
 			Options: []string{
@@ -464,6 +474,209 @@ func reportLiveSmokeReadiness(env envMap) targetReadiness {
 			},
 		})
 	}
+	return finalize(target)
+}
+
+func reportPolicyLiveSmokeReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:         "report-policy-live-smoke",
+		Milestone:    "M3.1",
+		Sequence:     15,
+		EvidenceGoal: "Retain the profile-driven report workflow policy replay proof for alert operations configuration.",
+		DependsOn:    []string{"report-live-smoke"},
+		Command:      "make report-policy-live-smoke",
+		Notes: []string{
+			"Preflight only checks local configuration; it does not connect to PostgreSQL, Temporal, alert source providers, LLM, or notification services.",
+			"The stored report workflow policy owns the report scenario; this target intentionally has no REPORT_SCENARIO override.",
+		},
+	}
+	target.MissingEnv = missingEnv(env,
+		"DATABASE_URL",
+		"TEMPORAL_HOST_PORT",
+		"REPORT_WORKFLOW_POLICY_ID",
+		"REPORT_WINDOW_START",
+		"REPORT_WINDOW_END",
+		"REPORT_POLICY_LIVE_SMOKE_OUTPUT",
+	)
+	if envPresent(env, "REPORT_WORKFLOW_POLICY_ID") {
+		if err := validateReadinessPositiveInteger(env["REPORT_WORKFLOW_POLICY_ID"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_WORKFLOW_POLICY_ID",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON") {
+		if err := validateReadinessSecretRefsJSON(env["OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON") {
+		if err := validateReadinessSecretRefsJSON(env["OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") {
+		if err := validateReadinessWebhookURL(env["OPENCLARION_IM_WEBHOOK_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_IM_WEBHOOK_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_WINDOW_START") || envPresent(env, "REPORT_WINDOW_END") {
+		if err := validateReadinessReportWindow(env["REPORT_WINDOW_START"], env["REPORT_WINDOW_END"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_WINDOW_START/REPORT_WINDOW_END",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_REPLAY_LIMIT") {
+		if err := validateReadinessPositiveInteger(env["REPORT_REPLAY_LIMIT"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_REPLAY_LIMIT",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_WAIT_TIMEOUT") {
+		if err := validateReadinessPositiveDuration(env["REPORT_WAIT_TIMEOUT"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_WAIT_TIMEOUT",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_CORRELATION_KEY") {
+		if err := validateReadinessOptionalID(env["REPORT_CORRELATION_KEY"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_CORRELATION_KEY",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_WORKFLOW_ID") {
+		if err := validateReadinessOptionalID(env["REPORT_WORKFLOW_ID"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_WORKFLOW_ID",
+				Reason: err.Error(),
+			})
+		}
+	}
+	workerNotificationConfigured := envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") ||
+		envPresent(env, "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON")
+	if (!envPresent(env, "OPENCLARION_LLM_MODEL") || !workerNotificationConfigured) &&
+		!envFlagEnabled(env, "REPORT_LIVE_SMOKE_ASSUME_WORKER_READY") {
+		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
+			Description: "report-capable worker configuration",
+			Options: []string{
+				"OPENCLARION_LLM_MODEL + (OPENCLARION_IM_WEBHOOK_URL or OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON)",
+				"REPORT_LIVE_SMOKE_ASSUME_WORKER_READY=1",
+			},
+		})
+	}
+	target.FileChecks = append(target.FileChecks, requiredAbsentOutputFileEnv(env, "REPORT_POLICY_LIVE_SMOKE_OUTPUT"))
+	return finalize(target)
+}
+
+func reportScheduleLiveSmokeReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:         "report-schedule-live-smoke",
+		Milestone:    "M3.1",
+		Sequence:     16,
+		EvidenceGoal: "Prepare retained scheduled-trigger proof for report workflow schedules.",
+		DependsOn:    []string{"report-policy-live-smoke"},
+		Command:      "make report-schedule-live-smoke",
+		Notes: []string{
+			"Readiness only checks local configuration; it does not connect to PostgreSQL, Temporal, alert source providers, LLM, or notification services.",
+			"The target command waits for a real Temporal Schedule action at or after REPORT_SCHEDULE_OBSERVED_AFTER and validates retained JSON.",
+			"Scheduled-trigger live proof remains pending until an operator runs the target against a real enabled schedule and retains delivery evidence.",
+			"Use Temporal Schedule Describe or the Temporal UI to confirm the stored schedule is registered, unpaused when enabled, uses skip overlap, and has upcoming action times.",
+		},
+	}
+	target.MissingEnv = missingEnv(env,
+		"DATABASE_URL",
+		"TEMPORAL_HOST_PORT",
+		"REPORT_WORKFLOW_SCHEDULE_ID",
+		"REPORT_WORKFLOW_POLICY_ID",
+		"REPORT_SCHEDULE_LIVE_SMOKE_OUTPUT",
+	)
+	if envPresent(env, "REPORT_WORKFLOW_SCHEDULE_ID") {
+		if err := validateReadinessPositiveInteger(env["REPORT_WORKFLOW_SCHEDULE_ID"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_WORKFLOW_SCHEDULE_ID",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_WORKFLOW_POLICY_ID") {
+		if err := validateReadinessPositiveInteger(env["REPORT_WORKFLOW_POLICY_ID"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_WORKFLOW_POLICY_ID",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "TEMPORAL_SCHEDULE_ID") {
+		if err := validateReadinessOptionalID(env["TEMPORAL_SCHEDULE_ID"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "TEMPORAL_SCHEDULE_ID",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON") {
+		if err := validateReadinessSecretRefsJSON(env["OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON") {
+		if err := validateReadinessSecretRefsJSON(env["OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") {
+		if err := validateReadinessWebhookURL(env["OPENCLARION_IM_WEBHOOK_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_IM_WEBHOOK_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "REPORT_SCHEDULE_WAIT_TIMEOUT") {
+		if err := validateReadinessPositiveDuration(env["REPORT_SCHEDULE_WAIT_TIMEOUT"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "REPORT_SCHEDULE_WAIT_TIMEOUT",
+				Reason: err.Error(),
+			})
+		}
+	}
+	workerNotificationConfigured := envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") ||
+		envPresent(env, "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON")
+	if (!envPresent(env, "OPENCLARION_LLM_MODEL") || !workerNotificationConfigured) &&
+		!envFlagEnabled(env, "REPORT_LIVE_SMOKE_ASSUME_WORKER_READY") {
+		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
+			Description: "scheduled report-capable worker configuration",
+			Options: []string{
+				"OPENCLARION_LLM_MODEL + (OPENCLARION_IM_WEBHOOK_URL or OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON)",
+				"REPORT_LIVE_SMOKE_ASSUME_WORKER_READY=1",
+			},
+		})
+	}
+	target.FileChecks = append(target.FileChecks, requiredAbsentOutputFileEnv(env, "REPORT_SCHEDULE_LIVE_SMOKE_OUTPUT"))
 	return finalize(target)
 }
 
@@ -661,6 +874,14 @@ func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 			})
 		}
 	}
+	if envPresent(env, "OPENCLARION_LIVE_BROWSER_WS_BASE_URL") {
+		if err := validateReadinessBrowserWSBaseURL(env["OPENCLARION_LIVE_BROWSER_WS_BASE_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_BROWSER_WS_BASE_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
 	if envPresent(env, "OPENCLARION_LIVE_BEARER_TOKEN") && !validReadinessBearerToken(env["OPENCLARION_LIVE_BEARER_TOKEN"]) {
 		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
 			Name:   "OPENCLARION_LIVE_BEARER_TOKEN",
@@ -687,7 +908,7 @@ func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 			"DATABASE_URL",
 			"TEMPORAL_HOST_PORT",
 		)...)
-		if !envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") && !envEquals(env, "DIAGNOSIS_LIVE_SMOKE_ASSUME_WORKER_READY", "1") {
+		if !envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") && !envFlagEnabled(env, "DIAGNOSIS_LIVE_SMOKE_ASSUME_WORKER_READY") {
 			target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
 				Description: "close-notification worker IM configuration",
 				Options: []string{
@@ -1108,11 +1329,11 @@ func allPresent(env envMap, names ...string) bool {
 	return true
 }
 
-func envEquals(env envMap, name, want string) bool {
+func envFlagEnabled(env envMap, name string) bool {
 	if !envPresent(env, name) {
 		return false
 	}
-	return strings.TrimSpace(env[name]) == want
+	return strings.TrimSpace(env[name]) == "1"
 }
 
 func closeNotificationProofRequired(env envMap) bool {
@@ -1212,6 +1433,13 @@ func validateReadinessOptionalID(raw string) error {
 	return nil
 }
 
+func validateReadinessSecretRefsJSON(raw string) error {
+	if _, err := envmap.NewResolverFromJSON(raw); err != nil {
+		return errors.New("must be a strict JSON object with non-empty single-token string keys and values")
+	}
+	return nil
+}
+
 func validateReadinessReportWindow(rawStart, rawEnd string) error {
 	if strings.TrimSpace(rawStart) == "" || strings.TrimSpace(rawEnd) == "" {
 		return nil
@@ -1304,7 +1532,33 @@ func validateReadinessWebhookURL(raw string) error {
 	return err
 }
 
+func validateReadinessBrowserWSBaseURL(raw string) error {
+	parsed, err := parseReadinessURLWithSchemes(raw, map[string]struct{}{
+		"http":  {},
+		"https": {},
+		"ws":    {},
+		"wss":   {},
+	})
+	if err != nil {
+		return err
+	}
+	if parsed.RawQuery != "" {
+		return errors.New("must not include a query string")
+	}
+	if parsed.Fragment != "" {
+		return errors.New("must not include a fragment")
+	}
+	return nil
+}
+
 func parseReadinessURL(raw string) (*url.URL, error) {
+	return parseReadinessURLWithSchemes(raw, map[string]struct{}{
+		"http":  {},
+		"https": {},
+	})
+}
+
+func parseReadinessURLWithSchemes(raw string, allowedSchemes map[string]struct{}) (*url.URL, error) {
 	value := strings.TrimSpace(raw)
 	if value != raw {
 		return nil, errors.New("must not contain leading or trailing whitespace")
@@ -1316,8 +1570,8 @@ func parseReadinessURL(raw string) (*url.URL, error) {
 	if err != nil {
 		return nil, errors.New("must be a valid URL")
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return nil, errors.New("must use http or https")
+	if _, ok := allowedSchemes[parsed.Scheme]; !ok {
+		return nil, errors.New("must use an allowed URL scheme")
 	}
 	if parsed.Host == "" {
 		return nil, errors.New("must include a host")

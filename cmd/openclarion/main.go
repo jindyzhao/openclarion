@@ -42,11 +42,16 @@ import (
 	"github.com/openclarion/openclarion/internal/strictjson"
 	transporthttp "github.com/openclarion/openclarion/internal/transport/http"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
+	"github.com/openclarion/openclarion/internal/usecases/alertmanagerwebhook"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
+	"github.com/openclarion/openclarion/internal/usecases/alertsourceprovider"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
+	"github.com/openclarion/openclarion/internal/usecases/notificationchannelcheck"
+	"github.com/openclarion/openclarion/internal/usecases/notificationchannelprovider"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+	"github.com/openclarion/openclarion/internal/usecases/reportpolicytrigger"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
 )
@@ -56,11 +61,17 @@ type getenvFunc func(string) string
 const (
 	temporalTaskQueueEnv = "OPENCLARION_TEMPORAL_TASK_QUEUE"
 	// #nosec G101 -- environment variable name only; values are read at runtime.
-	alertSourceSecretRefsEnv         = "OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON"
-	reportReplayCLICommand           = "report-replay"
-	reportReplayCLICreatedByWorkflow = "ReportReplayCLI"
-	defaultReportReplayCLILimit      = 10000
-	defaultReportReplayCLIWait       = 20 * time.Minute
+	alertSourceSecretRefsEnv = "OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	notificationChannelSecretRefsEnv   = "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON"
+	reportReplayCLICommand             = "report-replay"
+	reportPolicyReplayCLICommand       = "report-policy-replay"
+	reportScheduleLiveSmokeCLICommand  = "report-schedule-live-smoke"
+	reportReplayCLICreatedByWorkflow   = "ReportReplayCLI"
+	defaultReportReplayCLILimit        = 10000
+	defaultReportReplayCLIWait         = 20 * time.Minute
+	defaultReportScheduleLiveSmokeWait = 30 * time.Minute
+	defaultReportScheduleLiveSmokePoll = 5 * time.Second
 
 	diagnosisRoomCloseCLICommand    = "diagnosis-room-close"
 	defaultDiagnosisRoomCloseReason = "live_smoke_completed"
@@ -71,6 +82,10 @@ const (
 )
 
 var reportReplayCLINowUTC = func() time.Time {
+	return time.Now().UTC()
+}
+
+var reportScheduleLiveSmokeCLINowUTC = func() time.Time {
 	return time.Now().UTC()
 }
 
@@ -99,10 +114,14 @@ func dispatch(ctx context.Context, logger *slog.Logger, args []string, stdout io
 		return run(ctx, logger)
 	case reportReplayCLICommand:
 		return runReportReplayCLI(ctx, logger, os.Getenv, args[1:], stdout)
+	case reportPolicyReplayCLICommand:
+		return runReportPolicyReplayCLI(ctx, logger, os.Getenv, args[1:], stdout)
+	case reportScheduleLiveSmokeCLICommand:
+		return runReportScheduleLiveSmokeCLI(ctx, logger, os.Getenv, args[1:], stdout)
 	case diagnosisRoomCloseCLICommand:
 		return runDiagnosisRoomCloseCLI(ctx, logger, os.Getenv, args[1:], stdout)
 	default:
-		return fmt.Errorf("unknown command %q (expected: serve, %s, or %s)", args[0], reportReplayCLICommand, diagnosisRoomCloseCLICommand)
+		return fmt.Errorf("unknown command %q (expected: serve, %s, %s, %s, or %s)", args[0], reportReplayCLICommand, reportPolicyReplayCLICommand, reportScheduleLiveSmokeCLICommand, diagnosisRoomCloseCLICommand)
 	}
 }
 
@@ -174,7 +193,19 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	}
 	logger.Info("configured Temporal task queue", "task_queue", temporalTaskQueue)
 
-	activityOptions, err := reportActivityOptionsFromEnv(ctx, logger, os.Getenv, httpTracing)
+	reportStarter, err := temporalpkg.NewReportStarter(tc, temporalpkg.WithReportStarterTaskQueue(temporalTaskQueue))
+	if err != nil {
+		return err
+	}
+	scheduleRegistrar, err := temporalpkg.NewReportWorkflowScheduleRegistrar(
+		tc,
+		temporalpkg.WithReportWorkflowScheduleRegistrarTaskQueue(temporalTaskQueue),
+	)
+	if err != nil {
+		return err
+	}
+
+	activityOptions, err := reportActivityOptionsFromEnv(ctx, logger, os.Getenv, uowFactory, reportStarter, httpTracing)
 	if err != nil {
 		return err
 	}
@@ -191,11 +222,19 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}
 	defer w.Stop()
-
-	reportStarter, err := temporalpkg.NewReportStarter(tc, temporalpkg.WithReportStarterTaskQueue(temporalTaskQueue))
+	reconcileResult, err := reconcileReportWorkflowSchedules(ctx, uowFactory, scheduleRegistrar)
 	if err != nil {
-		return err
+		return fmt.Errorf("reconcile report workflow schedules: %w", err)
 	}
+	if reconcileResult.Total > 0 {
+		logger.Info(
+			"reconciled report workflow schedules",
+			"total", reconcileResult.Total,
+			"created", reconcileResult.Created,
+			"updated", reconcileResult.Updated,
+		)
+	}
+
 	diagnosisRoomClient, err := temporalpkg.NewDiagnosisRoomClient(tc)
 	if err != nil {
 		return err
@@ -208,7 +247,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("configure diagnosis WebSocket ticket store: %w", err)
 	}
-	serverOptions, originPolicy, err := httpServerOptionsFromEnv(logger, os.Getenv, uowFactory, reportStarter, diagnosisRoomClient, diagnosisRoomStarter, ticketStore, httpTracing)
+	serverOptions, originPolicy, err := httpServerOptionsFromEnv(logger, os.Getenv, uowFactory, reportStarter, diagnosisRoomClient, diagnosisRoomStarter, ticketStore, scheduleRegistrar, httpTracing)
 	if err != nil {
 		return err
 	}
@@ -294,6 +333,8 @@ func reportActivityOptionsFromEnv(
 	ctx context.Context,
 	logger *slog.Logger,
 	getenv getenvFunc,
+	uowFactory ports.UnitOfWorkFactory,
+	starter ports.ReportWorkflowStarter,
 	httpTracing *observabilitytracing.HTTPTracing,
 ) ([]temporalpkg.ActivityOption, error) {
 	var opts []temporalpkg.ActivityOption
@@ -324,26 +365,91 @@ func reportActivityOptionsFromEnv(
 	imConfigured := anyEnv(getenv,
 		"OPENCLARION_IM_WEBHOOK_URL",
 		"OPENCLARION_IM_WEBHOOK_BEARER_TOKEN",
+		"OPENCLARION_IM_WEBHOOK_FORMAT",
 	)
 	if imConfigured {
 		url := strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_URL"))
 		if url == "" {
 			return nil, fmt.Errorf("OPENCLARION_IM_WEBHOOK_URL is required when configuring the report IM provider")
 		}
+		format := strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_FORMAT"))
 		provider, err := imwebhook.NewProvider(imwebhook.Config{
 			URL:         url,
 			BearerToken: strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_BEARER_TOKEN")),
+			Format:      format,
 			HTTPClient:  outboundHTTPClient(httpTracing, 10*time.Second),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("configure report IM provider: %w", err)
 		}
 		opts = append(opts, temporalpkg.WithIMProvider(provider))
-		logger.Info("configured report IM provider", "provider", "webhook")
+		if format == "" {
+			format = "generic"
+		}
+		logger.Info("configured report IM provider", "provider", "webhook", "format", strings.ToLower(format))
 	}
 
-	if !llmConfigured || !imConfigured {
-		logger.Warn("report provider wiring is incomplete; report workflows require OPENCLARION_LLM_* and OPENCLARION_IM_WEBHOOK_* configuration before production use")
+	notificationChannelSecretResolver, err := notificationChannelSecretResolverFromEnv(getenv)
+	if err != nil {
+		return nil, err
+	}
+	if notificationChannelSecretResolver != nil {
+		if uowFactory == nil {
+			return nil, fmt.Errorf("%s requires a unit of work factory", notificationChannelSecretRefsEnv)
+		}
+		webhookFactory := func(
+			_ domain.NotificationChannelProfile,
+			credentials notificationchannelprovider.WebhookCredentials,
+		) (ports.IMProvider, error) {
+			return imwebhook.NewProvider(imwebhook.Config{
+				URL:        credentials.URL,
+				HTTPClient: outboundHTTPClient(httpTracing, 10*time.Second),
+			})
+		}
+		builder, err := notificationchannelprovider.NewBuilder(
+			webhookFactory,
+			notificationchannelprovider.WithSecretResolver(notificationChannelSecretResolver),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("configure notification channel provider builder: %w", err)
+		}
+		resolver, err := notificationchannelprovider.NewResolver(uowFactory, builder)
+		if err != nil {
+			return nil, fmt.Errorf("configure notification channel provider resolver: %w", err)
+		}
+		opts = append(opts, temporalpkg.WithNotificationChannelProviderResolver(resolver))
+		logger.Info("configured notification channel provider resolver", "provider", "webhook")
+	}
+
+	if !llmConfigured || (!imConfigured && notificationChannelSecretResolver == nil) {
+		logger.Warn("report provider wiring is incomplete; report workflows require OPENCLARION_LLM_* and either OPENCLARION_IM_WEBHOOK_* for unbound delivery or OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON for profile-bound delivery before production use")
+	}
+	if notificationChannelSecretResolver != nil && !imConfigured {
+		logger.Info("legacy report IM provider is not configured; unbound report notification delivery requires OPENCLARION_IM_WEBHOOK_*")
+	}
+
+	if uowFactory != nil && starter != nil {
+		secretResolver, err := alertSourceSecretResolverFromEnv(getenv)
+		if err != nil {
+			return nil, err
+		}
+		prometheusProfileFactory, alertmanagerProfileFactory := alertSourceMetricsProviderFactories(httpTracing)
+		providerBuilderOptions := []alertsourceprovider.Option{
+			alertsourceprovider.WithAlertmanagerFactory(alertmanagerProfileFactory),
+		}
+		if secretResolver != nil {
+			providerBuilderOptions = append(providerBuilderOptions, alertsourceprovider.WithSecretResolver(secretResolver))
+		}
+		alertSourceProviders, err := alertsourceprovider.NewBuilder(prometheusProfileFactory, providerBuilderOptions...)
+		if err != nil {
+			return nil, fmt.Errorf("configure scheduled report policy provider builder: %w", err)
+		}
+		policyReplayer, err := reportpolicytrigger.NewService(uowFactory, starter, alertSourceProviders)
+		if err != nil {
+			return nil, fmt.Errorf("configure scheduled report policy replayer: %w", err)
+		}
+		opts = append(opts, temporalpkg.WithReportPolicyReplayer(policyReplayer))
+		logger.Info("configured scheduled report policy replayer", "providers", "profile")
 	}
 	return opts, nil
 }
@@ -416,6 +522,7 @@ func httpServerOptionsFromEnv(
 	diagnosisWorkflows ports.DiagnosisRoomWorkflowClient,
 	diagnosisStarter ports.DiagnosisRoomWorkflowStarter,
 	diagnosisTickets diagnosisauth.Store,
+	scheduleSyncer transporthttp.ReportWorkflowScheduleSynchronizer,
 	httpTracing *observabilitytracing.HTTPTracing,
 ) ([]transporthttp.ServerOption, *browserOriginPolicy, error) {
 	var opts []transporthttp.ServerOption
@@ -428,43 +535,90 @@ func httpServerOptionsFromEnv(
 	if err != nil {
 		return nil, nil, err
 	}
+	prometheusProfileFactory, alertmanagerProfileFactory := alertSourceMetricsProviderFactories(httpTracing)
 	alertSourceCheckOptions := []alertsourcecheck.Option{
 		alertsourcecheck.WithClock(func() time.Time { return time.Now().UTC() }),
-		alertsourcecheck.WithAlertmanagerFactory(func(
-			profile domain.AlertSourceProfile,
-			credentials alertsourcecheck.ProviderCredentials,
-		) (ports.MetricsProvider, error) {
-			providerOpts := []metricsalertmanager.Option{
-				metricsalertmanager.WithRoundTripperDecorator(outboundTransportDecorator(httpTracing)),
-			}
-			if credentials.BearerToken != "" {
-				providerOpts = append(providerOpts, metricsalertmanager.WithBearer(credentials.BearerToken))
-			}
-			return metricsalertmanager.NewProvider(profile.BaseURL, providerOpts...)
-		}),
+		alertsourcecheck.WithAlertmanagerFactory(alertmanagerProfileFactory),
 	}
 	if secretResolver != nil {
 		alertSourceCheckOptions = append(alertSourceCheckOptions, alertsourcecheck.WithSecretResolver(secretResolver))
 	}
 	alertSourceTester, err := alertsourcecheck.NewService(
-		func(
-			profile domain.AlertSourceProfile,
-			credentials alertsourcecheck.ProviderCredentials,
-		) (ports.MetricsProvider, error) {
-			providerOpts := []metricsprometheus.Option{
-				metricsprometheus.WithRoundTripperDecorator(outboundTransportDecorator(httpTracing)),
-			}
-			if credentials.BearerToken != "" {
-				providerOpts = append(providerOpts, metricsprometheus.WithBearer(credentials.BearerToken))
-			}
-			return metricsprometheus.NewProvider(profile.BaseURL, providerOpts...)
-		},
+		prometheusProfileFactory,
 		alertSourceCheckOptions...,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure alert source connection tester: %w", err)
 	}
 	opts = append(opts, transporthttp.WithAlertSourceConnectionTester(alertSourceTester))
+
+	webhookOptions := []alertmanagerwebhook.Option{}
+	if secretResolver != nil {
+		webhookOptions = append(webhookOptions, alertmanagerwebhook.WithSecretResolver(secretResolver))
+	}
+	webhookIngestor, err := alertmanagerwebhook.NewService(uowFactory, webhookOptions...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure alertmanager webhook ingestor: %w", err)
+	}
+	opts = append(opts, transporthttp.WithAlertmanagerWebhookIngestor(webhookIngestor))
+	logger.Info("configured alertmanager webhook ingestor", "provider", "profile")
+
+	notificationChannelSecretResolver, err := notificationChannelSecretResolverFromEnv(getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	notificationWebhookFactory := func(
+		_ domain.NotificationChannelProfile,
+		credentials notificationchannelprovider.WebhookCredentials,
+	) (ports.IMProvider, error) {
+		return imwebhook.NewProvider(imwebhook.Config{
+			URL:        credentials.URL,
+			HTTPClient: outboundHTTPClient(httpTracing, 10*time.Second),
+		})
+	}
+	notificationBuilderOptions := []notificationchannelprovider.Option{}
+	if notificationChannelSecretResolver != nil {
+		notificationBuilderOptions = append(
+			notificationBuilderOptions,
+			notificationchannelprovider.WithSecretResolver(notificationChannelSecretResolver),
+		)
+	}
+	notificationProviderBuilder, err := notificationchannelprovider.NewBuilder(
+		notificationWebhookFactory,
+		notificationBuilderOptions...,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure notification channel provider builder: %w", err)
+	}
+	notificationChannelTester, err := notificationchannelcheck.NewService(
+		notificationProviderBuilder,
+		notificationchannelcheck.WithClock(func() time.Time { return time.Now().UTC() }),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure notification channel tester: %w", err)
+	}
+	opts = append(opts, transporthttp.WithNotificationChannelTester(notificationChannelTester))
+
+	providerBuilderOptions := []alertsourceprovider.Option{
+		alertsourceprovider.WithAlertmanagerFactory(alertmanagerProfileFactory),
+	}
+	if secretResolver != nil {
+		providerBuilderOptions = append(providerBuilderOptions, alertsourceprovider.WithSecretResolver(secretResolver))
+	}
+	alertSourceProviders, err := alertsourceprovider.NewBuilder(prometheusProfileFactory, providerBuilderOptions...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure alert source provider builder: %w", err)
+	}
+	policyTrigger, err := reportpolicytrigger.NewService(uowFactory, starter, alertSourceProviders)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure report workflow policy replay trigger: %w", err)
+	}
+	opts = append(opts, transporthttp.WithReportWorkflowPolicyReplayTrigger(policyTrigger))
+	logger.Info("configured report workflow policy replay trigger", "providers", "profile")
+	if scheduleSyncer != nil {
+		opts = append(opts, transporthttp.WithReportWorkflowScheduleSynchronizer(scheduleSyncer))
+		logger.Info("configured report workflow schedule synchronizer", "provider", "temporal")
+	}
 
 	if !anyEnv(getenv, "OPENCLARION_PROMETHEUS_URL", "OPENCLARION_PROMETHEUS_BEARER_TOKEN") {
 		logger.Warn("report HTTP trigger is disabled; set OPENCLARION_PROMETHEUS_URL to enable replay-window report triggers")
@@ -506,6 +660,71 @@ func httpServerOptionsFromEnv(
 	return opts, originPolicy, nil
 }
 
+func alertSourceMetricsProviderFactories(
+	httpTracing *observabilitytracing.HTTPTracing,
+) (alertsourceprovider.MetricsProviderFactory, alertsourceprovider.MetricsProviderFactory) {
+	prometheusProfileFactory := func(
+		profile domain.AlertSourceProfile,
+		credentials alertsourceprovider.Credentials,
+	) (ports.MetricsProvider, error) {
+		providerOpts := []metricsprometheus.Option{
+			metricsprometheus.WithRoundTripperDecorator(outboundTransportDecorator(httpTracing)),
+		}
+		if credentials.BearerToken != "" {
+			providerOpts = append(providerOpts, metricsprometheus.WithBearer(credentials.BearerToken))
+		}
+		return metricsprometheus.NewProvider(profile.BaseURL, providerOpts...)
+	}
+	alertmanagerProfileFactory := func(
+		profile domain.AlertSourceProfile,
+		credentials alertsourceprovider.Credentials,
+	) (ports.MetricsProvider, error) {
+		providerOpts := []metricsalertmanager.Option{
+			metricsalertmanager.WithRoundTripperDecorator(outboundTransportDecorator(httpTracing)),
+		}
+		if credentials.BearerToken != "" {
+			providerOpts = append(providerOpts, metricsalertmanager.WithBearer(credentials.BearerToken))
+		}
+		return metricsalertmanager.NewProvider(profile.BaseURL, providerOpts...)
+	}
+	return prometheusProfileFactory, alertmanagerProfileFactory
+}
+
+type reportWorkflowScheduleReconciler interface {
+	Reconcile(context.Context, []domain.ReportWorkflowSchedule) (temporalpkg.ReportWorkflowScheduleReconcileResult, error)
+}
+
+func reconcileReportWorkflowSchedules(
+	ctx context.Context,
+	uowFactory ports.UnitOfWorkFactory,
+	reconciler reportWorkflowScheduleReconciler,
+) (temporalpkg.ReportWorkflowScheduleReconcileResult, error) {
+	if uowFactory == nil {
+		return temporalpkg.ReportWorkflowScheduleReconcileResult{}, fmt.Errorf("report workflow schedule reconciliation requires a unit of work factory: %w", domain.ErrInvariantViolation)
+	}
+	if reconciler == nil {
+		return temporalpkg.ReportWorkflowScheduleReconcileResult{}, fmt.Errorf("report workflow schedule reconciliation requires a synchronizer: %w", domain.ErrInvariantViolation)
+	}
+
+	limit := temporalpkg.DefaultReportWorkflowScheduleReconcileLimit
+	var schedules []domain.ReportWorkflowSchedule
+	err := uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		if uow == nil {
+			return fmt.Errorf("report workflow schedule reconciliation: unit of work is nil: %w", domain.ErrInvariantViolation)
+		}
+		var lerr error
+		schedules, lerr = uow.Config().ListReportWorkflowSchedules(ctx, limit+1)
+		return lerr
+	})
+	if err != nil {
+		return temporalpkg.ReportWorkflowScheduleReconcileResult{}, err
+	}
+	if len(schedules) > limit {
+		return temporalpkg.ReportWorkflowScheduleReconcileResult{}, fmt.Errorf("report workflow schedule reconciliation exceeds %d schedules: %w", limit, domain.ErrInvariantViolation)
+	}
+	return reconciler.Reconcile(ctx, schedules)
+}
+
 func alertSourceSecretResolverFromEnv(getenv getenvFunc) (ports.SecretResolver, error) {
 	raw := strings.TrimSpace(getenv(alertSourceSecretRefsEnv))
 	if raw == "" {
@@ -514,6 +733,18 @@ func alertSourceSecretResolverFromEnv(getenv getenvFunc) (ports.SecretResolver, 
 	resolver, err := secretenvmap.NewResolverFromJSON(raw)
 	if err != nil {
 		return nil, fmt.Errorf("%s is invalid: %w", alertSourceSecretRefsEnv, err)
+	}
+	return resolver, nil
+}
+
+func notificationChannelSecretResolverFromEnv(getenv getenvFunc) (ports.SecretResolver, error) {
+	raw := strings.TrimSpace(getenv(notificationChannelSecretRefsEnv))
+	if raw == "" {
+		return nil, nil
+	}
+	resolver, err := secretenvmap.NewResolverFromJSON(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s is invalid: %w", notificationChannelSecretRefsEnv, err)
 	}
 	return resolver, nil
 }
@@ -809,12 +1040,39 @@ type reportReplayCLIConfig struct {
 	WaitTimeout    time.Duration
 }
 
+type reportPolicyReplayCLIConfig struct {
+	PolicyID       domain.ReportWorkflowPolicyID
+	WindowStart    time.Time
+	WindowEnd      time.Time
+	Limit          int
+	CorrelationKey string
+	WorkflowID     string
+	Wait           bool
+	WaitTimeout    time.Duration
+}
+
+type reportScheduleLiveSmokeCLIConfig struct {
+	ScheduleID         domain.ReportWorkflowScheduleID
+	PolicyID           domain.ReportWorkflowPolicyID
+	TemporalScheduleID string
+	ObservedAfter      time.Time
+	WaitTimeout        time.Duration
+}
+
 type reportReplayCLITrigger interface {
 	ReplayAndStart(ctx context.Context, req reporttrigger.Request) (reporttrigger.Result, error)
 }
 
+type reportPolicyReplayCLITrigger interface {
+	ReplayAndStartDetailed(ctx context.Context, req reportpolicytrigger.Request) (reportpolicytrigger.Result, error)
+}
+
 type reportReplayCLIWorkflowWaiter interface {
 	WaitReportBatch(ctx context.Context, handle ports.WorkflowHandle) (reportReplayCLIWorkflowResult, error)
+}
+
+type reportScheduleLiveSmokeWaiter interface {
+	WaitReportSchedule(ctx context.Context, schedule domain.ReportWorkflowSchedule, cfg reportScheduleLiveSmokeCLIConfig) (reportScheduleLiveSmokeWaitResult, error)
 }
 
 type reportReplayCLIOutput struct {
@@ -830,6 +1088,7 @@ type reportReplayCLIOutput struct {
 }
 
 type reportReplayCLIProofRequest struct {
+	PolicyID       int64  `json:"policy_id,omitempty"`
 	WindowStart    string `json:"window_start"`
 	WindowEnd      string `json:"window_end"`
 	Limit          int    `json:"limit"`
@@ -872,6 +1131,66 @@ type reportReplayCLIWorkflowResult struct {
 	NotificationIdempotencyKey string  `json:"notification_idempotency_key"`
 	ProviderMessageID          string  `json:"provider_message_id"`
 	NotificationStatus         string  `json:"notification_status"`
+}
+
+type reportScheduleLiveSmokeCLIOutput struct {
+	CheckedAt            string                             `json:"checked_at"`
+	Request              reportScheduleLiveSmokeCLIRequest  `json:"request"`
+	PersistedSchedule    reportScheduleLiveSmokeCLISchedule `json:"persisted_schedule"`
+	Waited               bool                               `json:"waited"`
+	ScheduleAction       reportScheduleLiveSmokeCLIAction   `json:"schedule_action"`
+	LauncherWorkflow     reportScheduleLiveSmokeCLILauncher `json:"launcher_workflow"`
+	ReportWorkflowResult *reportReplayCLIWorkflowResult     `json:"report_workflow_result,omitempty"`
+}
+
+type reportScheduleLiveSmokeCLIRequest struct {
+	ScheduleID         int64  `json:"schedule_id"`
+	PolicyID           int64  `json:"policy_id"`
+	TemporalScheduleID string `json:"temporal_schedule_id,omitempty"`
+	ObservedAfter      string `json:"observed_after"`
+	WaitTimeout        string `json:"wait_timeout"`
+}
+
+type reportScheduleLiveSmokeCLISchedule struct {
+	ID                     int64  `json:"id"`
+	ReportWorkflowPolicyID int64  `json:"report_workflow_policy_id"`
+	TemporalScheduleID     string `json:"temporal_schedule_id"`
+	Enabled                bool   `json:"enabled"`
+	Interval               string `json:"interval"`
+	Offset                 string `json:"offset"`
+	ReplayWindow           string `json:"replay_window"`
+	ReplayDelay            string `json:"replay_delay"`
+	ReplayLimit            int    `json:"replay_limit"`
+	CatchupWindow          string `json:"catchup_window"`
+}
+
+type reportScheduleLiveSmokeCLIAction struct {
+	ScheduleTime string `json:"schedule_time"`
+	ActualTime   string `json:"actual_time"`
+	WorkflowID   string `json:"workflow_id"`
+	RunID        string `json:"run_id"`
+}
+
+type reportScheduleLiveSmokeCLILauncher struct {
+	ScheduleID                 int64  `json:"schedule_id"`
+	ReportWorkflowPolicyID     int64  `json:"report_workflow_policy_id"`
+	TemporalScheduleID         string `json:"temporal_schedule_id"`
+	FireTime                   string `json:"fire_time"`
+	WindowStart                string `json:"window_start"`
+	WindowEnd                  string `json:"window_end"`
+	CorrelationKey             string `json:"correlation_key"`
+	WorkflowID                 string `json:"workflow_id"`
+	EventsLoaded               int    `json:"events_loaded"`
+	Snapshots                  int    `json:"snapshots"`
+	ReportBatchWorkflowStarted bool   `json:"report_batch_workflow_started"`
+	ReportBatchWorkflowID      string `json:"report_batch_workflow_id"`
+	ReportBatchRunID           string `json:"report_batch_run_id"`
+}
+
+type reportScheduleLiveSmokeWaitResult struct {
+	ScheduleAction       reportScheduleLiveSmokeCLIAction
+	LauncherWorkflow     temporalpkg.ReportPolicyScheduleLauncherWorkflowResult
+	ReportWorkflowResult *reportReplayCLIWorkflowResult
 }
 
 type diagnosisRoomCloseCLIConfig struct {
@@ -998,6 +1317,10 @@ type temporalReportReplayCLIWaiter struct {
 	client temporalclient.Client
 }
 
+type temporalReportScheduleLiveSmokeWaiter struct {
+	client temporalclient.Client
+}
+
 func runReportReplayCLI(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -1023,7 +1346,7 @@ func runReportReplayCLI(
 		}
 	}()
 
-	temporalAddr := envOrDefaultFrom(getenv, "TEMPORAL_HOST_PORT", "localhost:7233")
+	temporalAddr := temporalHostPortFrom(getenv)
 	traceConfig, err := observabilitytracing.ConfigFromEnv(getenv)
 	if err != nil {
 		return err
@@ -1080,6 +1403,162 @@ func runReportReplayCLI(
 	return runReportReplayCLITrigger(ctx, service, temporalReportReplayCLIWaiter{client: tc}, cfg, stdout)
 }
 
+func runReportPolicyReplayCLI(
+	ctx context.Context,
+	logger *slog.Logger,
+	getenv getenvFunc,
+	args []string,
+	stdout io.Writer,
+) error {
+	cfg, err := parseReportPolicyReplayCLIArgs(args)
+	if err != nil {
+		return err
+	}
+	dsn := strings.TrimSpace(getenv("DATABASE_URL"))
+	if dsn == "" {
+		return fmt.Errorf("DATABASE_URL is required")
+	}
+	entClient, err := repository.OpenPostgres(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("open postgres: %w", err)
+	}
+	defer func() {
+		if cerr := entClient.Close(); cerr != nil {
+			logger.Warn("close ent client", "error", cerr)
+		}
+	}()
+
+	traceConfig, err := observabilitytracing.ConfigFromEnv(getenv)
+	if err != nil {
+		return err
+	}
+	httpTracing, err := observabilitytracing.NewHTTPTracing(ctx, traceConfig)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpTracing.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("shutdown OpenTelemetry tracing", "error", err)
+		}
+	}()
+	temporalInterceptors, err := temporalClientInterceptors(httpTracing)
+	if err != nil {
+		return err
+	}
+	tc, err := temporalclient.Dial(temporalclient.Options{
+		HostPort:     temporalHostPortFrom(getenv),
+		Logger:       temporallog.NewStructuredLogger(logger),
+		Interceptors: temporalInterceptors,
+	})
+	if err != nil {
+		return fmt.Errorf("dial temporal: %w", err)
+	}
+	defer tc.Close()
+	temporalTaskQueue, err := temporalTaskQueueFromEnv(getenv)
+	if err != nil {
+		return err
+	}
+	starter, err := temporalpkg.NewReportStarter(tc, temporalpkg.WithReportStarterTaskQueue(temporalTaskQueue))
+	if err != nil {
+		return err
+	}
+
+	secretResolver, err := alertSourceSecretResolverFromEnv(getenv)
+	if err != nil {
+		return err
+	}
+	prometheusProfileFactory, alertmanagerProfileFactory := alertSourceMetricsProviderFactories(httpTracing)
+	providerBuilderOptions := []alertsourceprovider.Option{
+		alertsourceprovider.WithAlertmanagerFactory(alertmanagerProfileFactory),
+	}
+	if secretResolver != nil {
+		providerBuilderOptions = append(providerBuilderOptions, alertsourceprovider.WithSecretResolver(secretResolver))
+	}
+	alertSourceProviders, err := alertsourceprovider.NewBuilder(prometheusProfileFactory, providerBuilderOptions...)
+	if err != nil {
+		return fmt.Errorf("configure report policy CLI provider builder: %w", err)
+	}
+	service, err := reportpolicytrigger.NewService(repository.NewFactory(entClient), starter, alertSourceProviders)
+	if err != nil {
+		return fmt.Errorf("configure report policy CLI trigger service: %w", err)
+	}
+	return runReportPolicyReplayCLITrigger(ctx, service, temporalReportReplayCLIWaiter{client: tc}, cfg, stdout)
+}
+
+func runReportScheduleLiveSmokeCLI(
+	ctx context.Context,
+	logger *slog.Logger,
+	getenv getenvFunc,
+	args []string,
+	stdout io.Writer,
+) error {
+	cfg, err := parseReportScheduleLiveSmokeCLIArgs(args)
+	if err != nil {
+		return err
+	}
+	if cfg.ObservedAfter.IsZero() {
+		cfg.ObservedAfter = reportScheduleLiveSmokeCLINowUTC()
+	}
+	dsn := strings.TrimSpace(getenv("DATABASE_URL"))
+	if dsn == "" {
+		return fmt.Errorf("DATABASE_URL is required")
+	}
+	entClient, err := repository.OpenPostgres(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("open postgres: %w", err)
+	}
+	defer func() {
+		if cerr := entClient.Close(); cerr != nil {
+			logger.Warn("close ent client", "error", cerr)
+		}
+	}()
+
+	factory := repository.NewFactory(entClient)
+	var schedule domain.ReportWorkflowSchedule
+	if err := factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		if uow == nil {
+			return fmt.Errorf("report schedule live smoke: unit of work is nil: %w", domain.ErrInvariantViolation)
+		}
+		var serr error
+		schedule, serr = uow.Config().FindReportWorkflowScheduleByID(ctx, cfg.ScheduleID)
+		return serr
+	}); err != nil {
+		return fmt.Errorf("load report workflow schedule: %w", err)
+	}
+
+	traceConfig, err := observabilitytracing.ConfigFromEnv(getenv)
+	if err != nil {
+		return err
+	}
+	httpTracing, err := observabilitytracing.NewHTTPTracing(ctx, traceConfig)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpTracing.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("shutdown OpenTelemetry tracing", "error", err)
+		}
+	}()
+	temporalInterceptors, err := temporalClientInterceptors(httpTracing)
+	if err != nil {
+		return err
+	}
+	tc, err := temporalclient.Dial(temporalclient.Options{
+		HostPort:     temporalHostPortFrom(getenv),
+		Logger:       temporallog.NewStructuredLogger(logger),
+		Interceptors: temporalInterceptors,
+	})
+	if err != nil {
+		return fmt.Errorf("dial temporal: %w", err)
+	}
+	defer tc.Close()
+	return runReportScheduleLiveSmokeCLIWithDependencies(ctx, temporalReportScheduleLiveSmokeWaiter{client: tc}, schedule, cfg, stdout)
+}
+
 func parseReportReplayCLIArgs(args []string) (reportReplayCLIConfig, error) {
 	var rawStart, rawEnd, rawScenario string
 	cfg := reportReplayCLIConfig{Limit: defaultReportReplayCLILimit}
@@ -1131,6 +1610,114 @@ func parseReportReplayCLIArgs(args []string) (reportReplayCLIConfig, error) {
 	return cfg, nil
 }
 
+func parseReportPolicyReplayCLIArgs(args []string) (reportPolicyReplayCLIConfig, error) {
+	var rawStart, rawEnd string
+	var rawPolicyID int64
+	cfg := reportPolicyReplayCLIConfig{Limit: defaultReportReplayCLILimit}
+	fs := flag.NewFlagSet(reportPolicyReplayCLICommand, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.Int64Var(&rawPolicyID, "policy-id", 0, "enabled report workflow policy ID")
+	fs.StringVar(&rawStart, "window-start", "", "inclusive replay window start (RFC3339)")
+	fs.StringVar(&rawEnd, "window-end", "", "exclusive replay window end (RFC3339)")
+	fs.IntVar(&cfg.Limit, "limit", defaultReportReplayCLILimit, "maximum alert events to load")
+	fs.StringVar(&cfg.CorrelationKey, "correlation-key", "", "optional final-report correlation key")
+	fs.StringVar(&cfg.WorkflowID, "workflow-id", "", "optional Temporal workflow ID")
+	fs.BoolVar(&cfg.Wait, "wait", false, "wait for the report workflow to complete")
+	fs.DurationVar(&cfg.WaitTimeout, "wait-timeout", defaultReportReplayCLIWait, "maximum duration to wait when --wait is set")
+	if err := fs.Parse(args); err != nil {
+		return reportPolicyReplayCLIConfig{}, fmt.Errorf("%w\n%s", err, reportPolicyReplayCLIUsage())
+	}
+	if fs.NArg() != 0 {
+		return reportPolicyReplayCLIConfig{}, fmt.Errorf("unexpected positional arguments: %s\n%s", strings.Join(fs.Args(), " "), reportPolicyReplayCLIUsage())
+	}
+	if rawPolicyID <= 0 {
+		return reportPolicyReplayCLIConfig{}, fmt.Errorf("--policy-id must be > 0 (got %d)\n%s", rawPolicyID, reportPolicyReplayCLIUsage())
+	}
+	if strings.TrimSpace(rawStart) == "" {
+		return reportPolicyReplayCLIConfig{}, fmt.Errorf("--window-start is required\n%s", reportPolicyReplayCLIUsage())
+	}
+	windowStart, err := time.Parse(time.RFC3339, strings.TrimSpace(rawStart))
+	if err != nil {
+		return reportPolicyReplayCLIConfig{}, fmt.Errorf("parse --window-start: %w\n%s", err, reportPolicyReplayCLIUsage())
+	}
+	if strings.TrimSpace(rawEnd) == "" {
+		return reportPolicyReplayCLIConfig{}, fmt.Errorf("--window-end is required\n%s", reportPolicyReplayCLIUsage())
+	}
+	windowEnd, err := time.Parse(time.RFC3339, strings.TrimSpace(rawEnd))
+	if err != nil {
+		return reportPolicyReplayCLIConfig{}, fmt.Errorf("parse --window-end: %w\n%s", err, reportPolicyReplayCLIUsage())
+	}
+	if cfg.Limit <= 0 {
+		return reportPolicyReplayCLIConfig{}, fmt.Errorf("--limit must be > 0 (got %d)\n%s", cfg.Limit, reportPolicyReplayCLIUsage())
+	}
+	if cfg.Wait && cfg.WaitTimeout <= 0 {
+		return reportPolicyReplayCLIConfig{}, fmt.Errorf("--wait-timeout must be > 0 when --wait is set (got %s)\n%s", cfg.WaitTimeout, reportPolicyReplayCLIUsage())
+	}
+	cfg.PolicyID = domain.ReportWorkflowPolicyID(rawPolicyID)
+	cfg.WindowStart = windowStart
+	cfg.WindowEnd = windowEnd
+	cfg.CorrelationKey = strings.TrimSpace(cfg.CorrelationKey)
+	cfg.WorkflowID = strings.TrimSpace(cfg.WorkflowID)
+	return cfg, nil
+}
+
+func parseReportScheduleLiveSmokeCLIArgs(args []string) (reportScheduleLiveSmokeCLIConfig, error) {
+	var rawScheduleID, rawPolicyID int64
+	var rawObservedAfter string
+	cfg := reportScheduleLiveSmokeCLIConfig{WaitTimeout: defaultReportScheduleLiveSmokeWait}
+	fs := flag.NewFlagSet(reportScheduleLiveSmokeCLICommand, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.Int64Var(&rawScheduleID, "schedule-id", 0, "persisted report workflow schedule ID")
+	fs.Int64Var(&rawPolicyID, "policy-id", 0, "expected bound report workflow policy ID")
+	fs.StringVar(&cfg.TemporalScheduleID, "temporal-schedule-id", "", "optional expected Temporal Schedule ID")
+	fs.StringVar(&rawObservedAfter, "observed-after", "", "only accept schedule actions at or after this RFC3339 time")
+	fs.DurationVar(&cfg.WaitTimeout, "wait-timeout", defaultReportScheduleLiveSmokeWait, "maximum duration to wait for a schedule action and report delivery")
+	if err := fs.Parse(args); err != nil {
+		return reportScheduleLiveSmokeCLIConfig{}, fmt.Errorf("%w\n%s", err, reportScheduleLiveSmokeCLIUsage())
+	}
+	if fs.NArg() != 0 {
+		return reportScheduleLiveSmokeCLIConfig{}, fmt.Errorf("unexpected positional arguments: %s\n%s", strings.Join(fs.Args(), " "), reportScheduleLiveSmokeCLIUsage())
+	}
+	if rawScheduleID <= 0 {
+		return reportScheduleLiveSmokeCLIConfig{}, fmt.Errorf("--schedule-id must be > 0 (got %d)\n%s", rawScheduleID, reportScheduleLiveSmokeCLIUsage())
+	}
+	if rawPolicyID <= 0 {
+		return reportScheduleLiveSmokeCLIConfig{}, fmt.Errorf("--policy-id must be > 0 (got %d)\n%s", rawPolicyID, reportScheduleLiveSmokeCLIUsage())
+	}
+	cfg.TemporalScheduleID = strings.TrimSpace(cfg.TemporalScheduleID)
+	if cfg.TemporalScheduleID != "" {
+		if err := validateCLIIdentifier("--temporal-schedule-id", cfg.TemporalScheduleID); err != nil {
+			return reportScheduleLiveSmokeCLIConfig{}, fmt.Errorf("%w\n%s", err, reportScheduleLiveSmokeCLIUsage())
+		}
+	}
+	if strings.TrimSpace(rawObservedAfter) != "" {
+		observedAfter, err := time.Parse(time.RFC3339, strings.TrimSpace(rawObservedAfter))
+		if err != nil {
+			return reportScheduleLiveSmokeCLIConfig{}, fmt.Errorf("parse --observed-after: %w\n%s", err, reportScheduleLiveSmokeCLIUsage())
+		}
+		cfg.ObservedAfter = observedAfter.UTC()
+	}
+	if cfg.WaitTimeout <= 0 {
+		return reportScheduleLiveSmokeCLIConfig{}, fmt.Errorf("--wait-timeout must be > 0 (got %s)\n%s", cfg.WaitTimeout, reportScheduleLiveSmokeCLIUsage())
+	}
+	cfg.ScheduleID = domain.ReportWorkflowScheduleID(rawScheduleID)
+	cfg.PolicyID = domain.ReportWorkflowPolicyID(rawPolicyID)
+	return cfg, nil
+}
+
+func validateCLIIdentifier(label, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s must be non-empty", label)
+	}
+	if strings.TrimSpace(value) != value {
+		return fmt.Errorf("%s must not contain leading or trailing whitespace", label)
+	}
+	if strings.ContainsAny(value, "\r\n\t ") {
+		return fmt.Errorf("%s must not contain whitespace", label)
+	}
+	return nil
+}
+
 func runReportReplayCLITrigger(
 	ctx context.Context,
 	trigger reportReplayCLITrigger,
@@ -1177,6 +1764,157 @@ func runReportReplayCLITrigger(
 		return fmt.Errorf("write report replay output: %w", err)
 	}
 	return nil
+}
+
+func runReportPolicyReplayCLITrigger(
+	ctx context.Context,
+	trigger reportPolicyReplayCLITrigger,
+	waiter reportReplayCLIWorkflowWaiter,
+	cfg reportPolicyReplayCLIConfig,
+	stdout io.Writer,
+) error {
+	if trigger == nil {
+		return fmt.Errorf("report policy replay trigger must be configured")
+	}
+	result, err := trigger.ReplayAndStartDetailed(ctx, reportpolicytrigger.Request{
+		PolicyID:       cfg.PolicyID,
+		WindowStart:    cfg.WindowStart,
+		WindowEnd:      cfg.WindowEnd,
+		Limit:          cfg.Limit,
+		CorrelationKey: cfg.CorrelationKey,
+		WorkflowID:     cfg.WorkflowID,
+	})
+	if err != nil {
+		return err
+	}
+	scenario := reportprompt.Scenario(result.Policy.ReportScenario)
+	if !scenario.Valid() {
+		return fmt.Errorf("report policy replay resolved unsupported scenario %q", result.Policy.ReportScenario)
+	}
+	replayCfg := reportReplayCLIConfig{
+		WindowStart:    cfg.WindowStart,
+		WindowEnd:      cfg.WindowEnd,
+		Limit:          cfg.Limit,
+		CorrelationKey: cfg.CorrelationKey,
+		WorkflowID:     cfg.WorkflowID,
+		Scenario:       scenario,
+		Wait:           cfg.Wait,
+		WaitTimeout:    cfg.WaitTimeout,
+	}
+	out := reportReplayCLIOutputFromResult(result.Trigger, replayCfg)
+	out.Request.PolicyID = int64(cfg.PolicyID)
+	if cfg.Wait && result.Trigger.Started {
+		if waiter == nil {
+			return fmt.Errorf("report replay workflow waiter must be configured when --wait is set")
+		}
+		waitCtx, cancel := context.WithTimeout(ctx, cfg.WaitTimeout)
+		defer cancel()
+		workflowResult, err := waiter.WaitReportBatch(waitCtx, result.Trigger.Workflow)
+		if err != nil {
+			return err
+		}
+		out.Waited = true
+		out.WorkflowResult = &workflowResult
+	}
+	out.CheckedAt = reportReplayCLINowUTC().Format(time.RFC3339Nano)
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		return fmt.Errorf("write report policy replay output: %w", err)
+	}
+	return nil
+}
+
+func runReportScheduleLiveSmokeCLIWithDependencies(
+	ctx context.Context,
+	waiter reportScheduleLiveSmokeWaiter,
+	schedule domain.ReportWorkflowSchedule,
+	cfg reportScheduleLiveSmokeCLIConfig,
+	stdout io.Writer,
+) error {
+	if waiter == nil {
+		return fmt.Errorf("report schedule live smoke waiter must be configured")
+	}
+	if schedule.ID != cfg.ScheduleID {
+		return fmt.Errorf("report schedule live smoke: loaded schedule id %d does not match request %d", schedule.ID, cfg.ScheduleID)
+	}
+	if schedule.ReportWorkflowPolicyID != cfg.PolicyID {
+		return fmt.Errorf("report schedule live smoke: schedule policy id %d does not match request %d", schedule.ReportWorkflowPolicyID, cfg.PolicyID)
+	}
+	if cfg.TemporalScheduleID != "" && strings.TrimSpace(schedule.TemporalScheduleID) != cfg.TemporalScheduleID {
+		return fmt.Errorf("report schedule live smoke: schedule Temporal ID %q does not match request %q", strings.TrimSpace(schedule.TemporalScheduleID), cfg.TemporalScheduleID)
+	}
+	if strings.TrimSpace(schedule.TemporalScheduleID) == "" {
+		return fmt.Errorf("report schedule live smoke: persisted Temporal Schedule ID must be non-empty")
+	}
+	if !schedule.Enabled {
+		return fmt.Errorf("report schedule live smoke: persisted schedule %d must be enabled", schedule.ID)
+	}
+	if cfg.ObservedAfter.IsZero() {
+		cfg.ObservedAfter = reportScheduleLiveSmokeCLINowUTC()
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, cfg.WaitTimeout)
+	defer cancel()
+	result, err := waiter.WaitReportSchedule(waitCtx, schedule, cfg)
+	if err != nil {
+		return err
+	}
+	out := reportScheduleLiveSmokeCLIOutputFromResult(schedule, cfg, result)
+	out.CheckedAt = reportScheduleLiveSmokeCLINowUTC().Format(time.RFC3339Nano)
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		return fmt.Errorf("write report schedule live smoke output: %w", err)
+	}
+	return nil
+}
+
+func reportScheduleLiveSmokeCLIOutputFromResult(
+	schedule domain.ReportWorkflowSchedule,
+	cfg reportScheduleLiveSmokeCLIConfig,
+	result reportScheduleLiveSmokeWaitResult,
+) reportScheduleLiveSmokeCLIOutput {
+	launcher := result.LauncherWorkflow
+	return reportScheduleLiveSmokeCLIOutput{
+		Request: reportScheduleLiveSmokeCLIRequest{
+			ScheduleID:         int64(cfg.ScheduleID),
+			PolicyID:           int64(cfg.PolicyID),
+			TemporalScheduleID: cfg.TemporalScheduleID,
+			ObservedAfter:      cfg.ObservedAfter.UTC().Format(time.RFC3339Nano),
+			WaitTimeout:        cfg.WaitTimeout.String(),
+		},
+		PersistedSchedule: reportScheduleLiveSmokeCLISchedule{
+			ID:                     int64(schedule.ID),
+			ReportWorkflowPolicyID: int64(schedule.ReportWorkflowPolicyID),
+			TemporalScheduleID:     strings.TrimSpace(schedule.TemporalScheduleID),
+			Enabled:                schedule.Enabled,
+			Interval:               schedule.Interval.String(),
+			Offset:                 schedule.Offset.String(),
+			ReplayWindow:           schedule.ReplayWindow.String(),
+			ReplayDelay:            schedule.ReplayDelay.String(),
+			ReplayLimit:            schedule.ReplayLimit,
+			CatchupWindow:          schedule.CatchupWindow.String(),
+		},
+		Waited:         true,
+		ScheduleAction: result.ScheduleAction,
+		LauncherWorkflow: reportScheduleLiveSmokeCLILauncher{
+			ScheduleID:                 launcher.ScheduleID,
+			ReportWorkflowPolicyID:     launcher.ReportWorkflowPolicyID,
+			TemporalScheduleID:         strings.TrimSpace(launcher.TemporalScheduleID),
+			FireTime:                   launcher.FireTime.UTC().Format(time.RFC3339Nano),
+			WindowStart:                launcher.WindowStart.UTC().Format(time.RFC3339Nano),
+			WindowEnd:                  launcher.WindowEnd.UTC().Format(time.RFC3339Nano),
+			CorrelationKey:             strings.TrimSpace(launcher.CorrelationKey),
+			WorkflowID:                 strings.TrimSpace(launcher.WorkflowID),
+			EventsLoaded:               launcher.EventsLoaded,
+			Snapshots:                  launcher.Snapshots,
+			ReportBatchWorkflowStarted: launcher.ReportBatchWorkflowStarted,
+			ReportBatchWorkflowID:      strings.TrimSpace(launcher.ReportBatchWorkflowID),
+			ReportBatchRunID:           strings.TrimSpace(launcher.ReportBatchRunID),
+		},
+		ReportWorkflowResult: result.ReportWorkflowResult,
+	}
 }
 
 func reportReplayCLIOutputFromResult(result reporttrigger.Result, cfg reportReplayCLIConfig) reportReplayCLIOutput {
@@ -1244,6 +1982,129 @@ func (w temporalReportReplayCLIWaiter) WaitReportBatch(ctx context.Context, hand
 	}, nil
 }
 
+func (w temporalReportScheduleLiveSmokeWaiter) WaitReportSchedule(
+	ctx context.Context,
+	schedule domain.ReportWorkflowSchedule,
+	cfg reportScheduleLiveSmokeCLIConfig,
+) (reportScheduleLiveSmokeWaitResult, error) {
+	if w.client == nil {
+		return reportScheduleLiveSmokeWaitResult{}, fmt.Errorf("report schedule live smoke waiter: Temporal client must be non-nil")
+	}
+	scheduleID := strings.TrimSpace(schedule.TemporalScheduleID)
+	if scheduleID == "" {
+		return reportScheduleLiveSmokeWaitResult{}, fmt.Errorf("report schedule live smoke waiter: Temporal Schedule ID must be non-empty")
+	}
+	handle := w.client.ScheduleClient().GetHandle(ctx, scheduleID)
+	if handle == nil {
+		return reportScheduleLiveSmokeWaitResult{}, fmt.Errorf("report schedule live smoke waiter: Temporal schedule handle is nil for %q", scheduleID)
+	}
+
+	ticker := time.NewTicker(defaultReportScheduleLiveSmokePoll)
+	defer ticker.Stop()
+	for {
+		result, ok, err := w.describeAndWaitReportSchedule(ctx, handle, cfg.ObservedAfter)
+		if err != nil {
+			return reportScheduleLiveSmokeWaitResult{}, err
+		}
+		if ok {
+			return result, nil
+		}
+		select {
+		case <-ctx.Done():
+			return reportScheduleLiveSmokeWaitResult{}, fmt.Errorf("wait for report schedule action %q after %s: %w", scheduleID, cfg.ObservedAfter.UTC().Format(time.RFC3339Nano), ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func (w temporalReportScheduleLiveSmokeWaiter) describeAndWaitReportSchedule(
+	ctx context.Context,
+	handle temporalclient.ScheduleHandle,
+	observedAfter time.Time,
+) (reportScheduleLiveSmokeWaitResult, bool, error) {
+	desc, err := handle.Describe(ctx)
+	if err != nil {
+		return reportScheduleLiveSmokeWaitResult{}, false, fmt.Errorf("describe report schedule: %w", err)
+	}
+	if desc.Schedule.State != nil && desc.Schedule.State.Paused {
+		return reportScheduleLiveSmokeWaitResult{}, false, fmt.Errorf("report schedule %q is paused", handle.GetID())
+	}
+	action, ok := newestScheduleActionAtOrAfter(desc.Info.RecentActions, observedAfter)
+	if !ok {
+		return reportScheduleLiveSmokeWaitResult{}, false, nil
+	}
+	workflowID := strings.TrimSpace(action.StartWorkflowResult.WorkflowID)
+	runID := strings.TrimSpace(action.StartWorkflowResult.FirstExecutionRunID)
+	if workflowID == "" {
+		return reportScheduleLiveSmokeWaitResult{}, false, fmt.Errorf("report schedule %q action has empty workflow ID", handle.GetID())
+	}
+	if runID == "" {
+		return reportScheduleLiveSmokeWaitResult{}, false, fmt.Errorf("report schedule %q action has empty run ID", handle.GetID())
+	}
+
+	var launcher temporalpkg.ReportPolicyScheduleLauncherWorkflowResult
+	if err := w.client.GetWorkflow(ctx, workflowID, runID).Get(ctx, &launcher); err != nil {
+		return reportScheduleLiveSmokeWaitResult{}, false, fmt.Errorf("wait schedule launcher workflow %q/%q: %w", workflowID, runID, err)
+	}
+	if !launcher.ReportBatchWorkflowStarted {
+		return reportScheduleLiveSmokeWaitResult{}, false, fmt.Errorf("schedule launcher workflow %q/%q did not start a report batch workflow", workflowID, runID)
+	}
+	reportWorkflowID := strings.TrimSpace(launcher.ReportBatchWorkflowID)
+	reportRunID := strings.TrimSpace(launcher.ReportBatchRunID)
+	if reportWorkflowID == "" {
+		return reportScheduleLiveSmokeWaitResult{}, false, fmt.Errorf("schedule launcher workflow %q/%q returned empty report batch workflow ID", workflowID, runID)
+	}
+	if reportRunID == "" {
+		return reportScheduleLiveSmokeWaitResult{}, false, fmt.Errorf("schedule launcher workflow %q/%q returned empty report batch run ID", workflowID, runID)
+	}
+	var reportResult temporalpkg.ReportBatchWorkflowResult
+	if err := w.client.GetWorkflow(ctx, reportWorkflowID, reportRunID).Get(ctx, &reportResult); err != nil {
+		return reportScheduleLiveSmokeWaitResult{}, false, fmt.Errorf("wait report batch workflow %q/%q: %w", reportWorkflowID, reportRunID, err)
+	}
+	mappedReport := reportReplayCLIWorkflowResult{
+		SubReportIDs:               append([]int64(nil), reportResult.SubReportIDs...),
+		FinalReportID:              reportResult.FinalReportID,
+		NotificationIdempotencyKey: reportResult.NotificationIdempotencyKey,
+		ProviderMessageID:          reportResult.ProviderMessageID,
+		NotificationStatus:         reportResult.NotificationStatus,
+	}
+	return reportScheduleLiveSmokeWaitResult{
+		ScheduleAction: reportScheduleLiveSmokeCLIAction{
+			ScheduleTime: action.ScheduleTime.UTC().Format(time.RFC3339Nano),
+			ActualTime:   action.ActualTime.UTC().Format(time.RFC3339Nano),
+			WorkflowID:   workflowID,
+			RunID:        runID,
+		},
+		LauncherWorkflow:     launcher,
+		ReportWorkflowResult: &mappedReport,
+	}, true, nil
+}
+
+func newestScheduleActionAtOrAfter(
+	actions []temporalclient.ScheduleActionResult,
+	observedAfter time.Time,
+) (temporalclient.ScheduleActionResult, bool) {
+	observedAfter = observedAfter.UTC()
+	var newest temporalclient.ScheduleActionResult
+	var newestActual time.Time
+	found := false
+	for _, action := range actions {
+		if action.StartWorkflowResult == nil || action.ActualTime.IsZero() {
+			continue
+		}
+		actualTime := action.ActualTime.UTC()
+		if actualTime.Before(observedAfter) {
+			continue
+		}
+		if !found || actualTime.After(newestActual) {
+			newest = action
+			newestActual = actualTime
+			found = true
+		}
+	}
+	return newest, found
+}
+
 func runDiagnosisRoomCloseCLI(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -1269,7 +2130,7 @@ func runDiagnosisRoomCloseCLI(
 		}
 	}()
 
-	temporalAddr := envOrDefaultFrom(getenv, "TEMPORAL_HOST_PORT", "localhost:7233")
+	temporalAddr := temporalHostPortFrom(getenv)
 	traceConfig, err := observabilitytracing.ConfigFromEnv(getenv)
 	if err != nil {
 		return err
@@ -1686,11 +2547,11 @@ func diagnosisRoomCloseCLIUsage() string {
 		" [--run-id run] [--reason live_smoke_completed] [--wait-timeout 2m]"
 }
 
-func envOrDefaultFrom(getenv getenvFunc, key, defaultVal string) string {
-	if v := strings.TrimSpace(getenv(key)); v != "" {
+func temporalHostPortFrom(getenv getenvFunc) string {
+	if v := strings.TrimSpace(getenv("TEMPORAL_HOST_PORT")); v != "" {
 		return v
 	}
-	return defaultVal
+	return "localhost:7233"
 }
 
 func reportReplayCLIUsage() string {
@@ -1698,4 +2559,20 @@ func reportReplayCLIUsage() string {
 		" --window-start " + strconv.Quote("2026-05-28T10:00:00Z") +
 		" --window-end " + strconv.Quote("2026-05-28T11:00:00Z") +
 		" [--limit 10000] [--correlation-key key] [--workflow-id id] [--scenario single_alert|cascade|alert_storm] [--wait] [--wait-timeout 20m]"
+}
+
+func reportPolicyReplayCLIUsage() string {
+	return "usage: openclarion " + reportPolicyReplayCLICommand +
+		" --policy-id 123" +
+		" --window-start " + strconv.Quote("2026-05-28T10:00:00Z") +
+		" --window-end " + strconv.Quote("2026-05-28T11:00:00Z") +
+		" [--limit 10000] [--correlation-key key] [--workflow-id id] [--wait] [--wait-timeout 20m]"
+}
+
+func reportScheduleLiveSmokeCLIUsage() string {
+	return "usage: openclarion " + reportScheduleLiveSmokeCLICommand +
+		" --schedule-id 123 --policy-id 456" +
+		" [--temporal-schedule-id openclarion-report-policy-456-daily]" +
+		" [--observed-after " + strconv.Quote("2026-06-06T00:00:00Z") + "]" +
+		" [--wait-timeout 30m]"
 }

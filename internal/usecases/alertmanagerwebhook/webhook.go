@@ -1,0 +1,301 @@
+// Package alertmanagerwebhook ingests Alertmanager webhook receiver payloads
+// through the existing AlertEvent persistence boundary.
+package alertmanagerwebhook
+
+import (
+	"context"
+	"crypto/subtle"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/usecases/alertingest"
+	"github.com/openclarion/openclarion/internal/usecases/ports"
+)
+
+const (
+	sourceName             = "alertmanager"
+	supportedVersion       = "4"
+	statusFiring           = "firing"
+	statusResolved         = "resolved"
+	maxWebhookAlertEntries = 10000
+)
+
+var (
+	// ErrUnauthorized means the inbound webhook did not present the expected
+	// bearer authorization for a bearer-backed alert source profile.
+	ErrUnauthorized = errors.New("alertmanager webhook authorization failed")
+	// ErrSecretResolverUnavailable means the profile requires bearer auth but
+	// the deployment did not configure a server-side secret resolver.
+	ErrSecretResolverUnavailable = errors.New("alertmanager webhook secret resolver unavailable")
+	// ErrSecretNotFound means the configured resolver could not find the
+	// profile's secret reference.
+	ErrSecretNotFound = errors.New("alertmanager webhook secret not found")
+	// ErrSecretResolveFailed means the configured resolver failed for a reason
+	// other than a missing secret.
+	ErrSecretResolveFailed = errors.New("alertmanager webhook secret resolve failed")
+)
+
+// Request identifies one inbound Alertmanager webhook delivery.
+type Request struct {
+	ProfileID     domain.AlertSourceProfileID
+	Authorization string
+	Body          json.RawMessage
+}
+
+// Result is the sanitized response surface for one webhook ingest.
+type Result struct {
+	ProfileID       domain.AlertSourceProfileID
+	Received        int
+	SkippedResolved int
+	TruncatedAlerts int
+	Ingested        alertingest.Stats
+}
+
+// Service validates the bound alert source profile, checks inbound
+// authorization when required, parses the webhook payload, and persists firing
+// alerts through alertingest.
+type Service struct {
+	uowFactory     ports.UnitOfWorkFactory
+	secretResolver ports.SecretResolver
+}
+
+// Option customizes Service construction.
+type Option func(*Service)
+
+// WithSecretResolver enables bearer-backed webhook authorization.
+func WithSecretResolver(resolver ports.SecretResolver) Option {
+	return func(s *Service) {
+		s.secretResolver = resolver
+	}
+}
+
+// NewService constructs an Alertmanager webhook ingest service.
+func NewService(uowFactory ports.UnitOfWorkFactory, opts ...Option) (*Service, error) {
+	if uowFactory == nil {
+		return nil, fmt.Errorf("alertmanager webhook: unit of work factory must be non-nil: %w", domain.ErrInvariantViolation)
+	}
+	service := &Service{uowFactory: uowFactory}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(service)
+		}
+	}
+	return service, nil
+}
+
+// Ingest validates and persists one Alertmanager webhook payload.
+func (s *Service) Ingest(ctx context.Context, req Request) (Result, error) {
+	if s == nil {
+		return Result{}, fmt.Errorf("alertmanager webhook: service must be non-nil: %w", domain.ErrInvariantViolation)
+	}
+	if req.ProfileID <= 0 {
+		return Result{}, fmt.Errorf("alertmanager webhook: profile_id must be positive: %w", domain.ErrInvariantViolation)
+	}
+	if len(req.Body) == 0 {
+		return Result{}, fmt.Errorf("alertmanager webhook: request body must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+
+	profile, err := s.loadProfile(ctx, req.ProfileID)
+	if err != nil {
+		return Result{}, err
+	}
+	if err := validateProfile(profile); err != nil {
+		return Result{}, err
+	}
+	if err := s.authorize(ctx, profile, req.Authorization); err != nil {
+		return Result{}, err
+	}
+
+	decoded, err := decodePayload(req.Body)
+	if err != nil {
+		return Result{}, err
+	}
+	stats, err := alertingest.IngestAlerts(ctx, decoded.alerts, s.uowFactory)
+	result := Result{
+		ProfileID:       req.ProfileID,
+		Received:        decoded.received,
+		SkippedResolved: decoded.skippedResolved,
+		TruncatedAlerts: decoded.truncatedAlerts,
+		Ingested:        stats,
+	}
+	if err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
+func (s *Service) loadProfile(ctx context.Context, id domain.AlertSourceProfileID) (domain.AlertSourceProfile, error) {
+	var profile domain.AlertSourceProfile
+	err := s.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var err error
+		profile, err = uow.Config().FindAlertSourceProfileByID(ctx, id)
+		return err
+	})
+	return profile, err
+}
+
+func validateProfile(profile domain.AlertSourceProfile) error {
+	if profile.Kind != domain.AlertSourceKindAlertmanager {
+		return fmt.Errorf("alertmanager webhook: alert source profile kind must be alertmanager: %w", domain.ErrInvariantViolation)
+	}
+	if !profile.Enabled {
+		return fmt.Errorf("alertmanager webhook: alert source profile must be enabled: %w", domain.ErrInvariantViolation)
+	}
+	return nil
+}
+
+func (s *Service) authorize(ctx context.Context, profile domain.AlertSourceProfile, header string) error {
+	switch profile.AuthMode {
+	case domain.AlertSourceAuthModeNone:
+		return nil
+	case domain.AlertSourceAuthModeBearer:
+		if s.secretResolver == nil {
+			return ErrSecretResolverUnavailable
+		}
+		secret, err := s.secretResolver.ResolveSecret(ctx, profile.SecretRef)
+		if errors.Is(err, ports.ErrSecretNotFound) {
+			return ErrSecretNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrSecretResolveFailed, err)
+		}
+		if secret.Value == "" {
+			return ErrUnauthorized
+		}
+		token, ok := bearerToken(header)
+		if !ok {
+			return ErrUnauthorized
+		}
+		if subtle.ConstantTimeCompare([]byte(token), []byte(secret.Value)) != 1 {
+			return ErrUnauthorized
+		}
+		return nil
+	default:
+		return fmt.Errorf("alertmanager webhook: unsupported auth mode %q: %w", profile.AuthMode, domain.ErrInvariantViolation)
+	}
+}
+
+type decodedPayload struct {
+	received        int
+	skippedResolved int
+	truncatedAlerts int
+	alerts          []ports.ActiveAlert
+}
+
+type webhookPayload struct {
+	Version           string            `json:"version"`
+	GroupKey          string            `json:"groupKey"`
+	TruncatedAlerts   int               `json:"truncatedAlerts"`
+	Status            string            `json:"status"`
+	Receiver          string            `json:"receiver"`
+	GroupLabels       map[string]string `json:"groupLabels"`
+	CommonLabels      map[string]string `json:"commonLabels"`
+	CommonAnnotations map[string]string `json:"commonAnnotations"`
+	ExternalURL       string            `json:"externalURL"`
+	Alerts            []json.RawMessage `json:"alerts"`
+}
+
+type webhookAlert struct {
+	Status       string             `json:"status"`
+	Labels       *map[string]string `json:"labels"`
+	Annotations  *map[string]string `json:"annotations"`
+	StartsAt     time.Time          `json:"startsAt"`
+	EndsAt       time.Time          `json:"endsAt"`
+	GeneratorURL string             `json:"generatorURL"`
+	Fingerprint  string             `json:"fingerprint"`
+}
+
+func decodePayload(raw json.RawMessage) (decodedPayload, error) {
+	var payload webhookPayload
+	if err := strictjson.Unmarshal(raw, &payload); err != nil {
+		return decodedPayload{}, fmt.Errorf("alertmanager webhook: decode payload: %w", err)
+	}
+	if payload.Version != supportedVersion {
+		return decodedPayload{}, fmt.Errorf("alertmanager webhook: version must be %q: %w", supportedVersion, domain.ErrInvariantViolation)
+	}
+	if !validStatus(payload.Status) {
+		return decodedPayload{}, fmt.Errorf("alertmanager webhook: status %q is unsupported: %w", payload.Status, domain.ErrInvariantViolation)
+	}
+	if payload.TruncatedAlerts < 0 {
+		return decodedPayload{}, fmt.Errorf("alertmanager webhook: truncatedAlerts must be >= 0: %w", domain.ErrInvariantViolation)
+	}
+	if payload.Alerts == nil {
+		return decodedPayload{}, fmt.Errorf("alertmanager webhook: alerts must be present: %w", domain.ErrInvariantViolation)
+	}
+	if len(payload.Alerts) > maxWebhookAlertEntries {
+		return decodedPayload{}, fmt.Errorf("alertmanager webhook: alerts exceeds %d entries: %w", maxWebhookAlertEntries, domain.ErrInvariantViolation)
+	}
+
+	decoded := decodedPayload{
+		received:        len(payload.Alerts),
+		truncatedAlerts: payload.TruncatedAlerts,
+		alerts:          make([]ports.ActiveAlert, 0, len(payload.Alerts)),
+	}
+	for i, encoded := range payload.Alerts {
+		alert, err := decodeAlert(encoded)
+		if err != nil {
+			return decodedPayload{}, fmt.Errorf("alertmanager webhook: alerts[%d]: %w", i, err)
+		}
+		switch alert.Status {
+		case statusFiring:
+			if alert.StartsAt.IsZero() {
+				return decodedPayload{}, fmt.Errorf("startsAt must be set for firing alert: %w", domain.ErrInvariantViolation)
+			}
+			decoded.alerts = append(decoded.alerts, ports.ActiveAlert{
+				Source:      sourceName,
+				Labels:      *alert.Labels,
+				Annotations: *alert.Annotations,
+				StartsAt:    alert.StartsAt,
+				RawPayload:  append(json.RawMessage(nil), encoded...),
+			})
+		case statusResolved:
+			decoded.skippedResolved++
+		default:
+			return decodedPayload{}, fmt.Errorf("status %q is unsupported: %w", alert.Status, domain.ErrInvariantViolation)
+		}
+	}
+	return decoded, nil
+}
+
+func decodeAlert(raw json.RawMessage) (webhookAlert, error) {
+	var alert webhookAlert
+	if err := strictjson.Unmarshal(raw, &alert); err != nil {
+		return webhookAlert{}, fmt.Errorf("decode alert: %w", err)
+	}
+	if !validStatus(alert.Status) {
+		return webhookAlert{}, fmt.Errorf("status %q is unsupported: %w", alert.Status, domain.ErrInvariantViolation)
+	}
+	if alert.Labels == nil {
+		return webhookAlert{}, fmt.Errorf("labels must be present: %w", domain.ErrInvariantViolation)
+	}
+	if alert.Annotations == nil {
+		return webhookAlert{}, fmt.Errorf("annotations must be present: %w", domain.ErrInvariantViolation)
+	}
+	return alert, nil
+}
+
+func bearerToken(header string) (string, bool) {
+	scheme, token, ok := strings.Cut(strings.TrimSpace(header), " ")
+	if !ok || !strings.EqualFold(scheme, "Bearer") {
+		return "", false
+	}
+	token = strings.TrimSpace(token)
+	if token == "" || strings.ContainsAny(token, " \t\r\n") {
+		return "", false
+	}
+	return token, true
+}
+
+func validStatus(status string) bool {
+	switch status {
+	case statusFiring, statusResolved:
+		return true
+	default:
+		return false
+	}
+}

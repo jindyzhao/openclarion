@@ -81,6 +81,29 @@ normalize_bearer_env() {
 
 normalize_bearer_env
 
+if [[ -z "${OPENCLARION_LIVE_BROWSER_WS_BASE_URL:-}" ]]; then
+  export OPENCLARION_LIVE_BROWSER_WS_BASE_URL="$OPENCLARION_LIVE_API_BASE_URL"
+fi
+if [[ -z "${OPENCLARION_BROWSER_WS_BASE_URL:-}" ]]; then
+  export OPENCLARION_BROWSER_WS_BASE_URL="$OPENCLARION_LIVE_BROWSER_WS_BASE_URL"
+fi
+
+node <<'EOF'
+const raw = process.env.OPENCLARION_BROWSER_WS_BASE_URL;
+try {
+  const url = new URL(raw);
+  if (!["http:", "https:", "ws:", "wss:"].includes(url.protocol)) {
+    throw new Error("scheme");
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error("credential-or-state");
+  }
+} catch {
+  console.error("[diagnosis-live-browser-smoke] OPENCLARION_BROWSER_WS_BASE_URL must be an http(s) or ws(s) base URL without userinfo, query, or fragment");
+  process.exit(2);
+}
+EOF
+
 if [[ -z "${OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID:-}" ]]; then
   echo "[diagnosis-live-browser-smoke] creating live diagnosis room from evidence snapshot ${OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID}..." >&2
   create_response="$(

@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 
-const apiBaseURL = requiredEnv("OPENCLARION_LIVE_API_BASE_URL");
 const sessionID = requiredEnv("OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID");
 const bearerToken = requiredEnv("OPENCLARION_LIVE_BEARER_TOKEN");
 const message =
@@ -13,10 +12,9 @@ test("diagnosis room completes one turn against a live backend", async ({ page }
   await page.goto("/diagnosis-room");
 
   await expect(page.getByRole("heading", { name: "Diagnosis Room" })).toBeVisible();
-  await page.getByLabel("API base URL").fill(apiBaseURL);
   await page.getByLabel("Session ID").fill(sessionID);
   await page.getByLabel("Bearer token").fill(bearerToken);
-  await page.getByRole("button", { exact: true, name: "Connect" }).click();
+  await page.getByRole("button", { name: /Connect/ }).click();
 
   await expect(page.getByRole("status", { name: "Connection status" })).toHaveText("connected", {
     timeout: 30_000
@@ -34,7 +32,7 @@ test("diagnosis room completes one turn against a live backend", async ({ page }
   const submittedMessage = page.getByText(message, { exact: true });
   await expect(submittedMessage).toBeVisible();
   await expect(assistantTurns).toHaveCount(assistantTurnsBefore + 1, { timeout: 120_000 });
-  const completedTurnLog = page.locator(".diagnosis-log li").filter({ hasText: /Turn \d+ completed\./ }).first();
+  const completedTurnLog = page.getByText(/Turn \d+ completed\./).first();
   await expect(completedTurnLog).toBeVisible();
   const connectionStatus = page.getByRole("status", { name: "Connection status" });
   await expect(connectionStatus).toHaveText("connected");

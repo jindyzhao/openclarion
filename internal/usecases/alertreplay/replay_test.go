@@ -355,6 +355,47 @@ func TestReplayWindow_OutOfWindowEventsExcluded(t *testing.T) {
 	}
 }
 
+func TestReplayWindow_SourceFilterExcludesNonMatchingEventsFromGrouping(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+
+	prometheusAlert := seedAlerts("AlertA", 1, windowStart, 0, time.Minute, "warning")[0]
+	alertmanagerAlert := prometheusAlert
+	alertmanagerAlert.Source = "alertmanager"
+	alertmanagerAlert.Labels = map[string]string{
+		"alertname": "AlertB",
+		"instance":  "AlertB-0",
+		"severity":  "critical",
+	}
+	provider := fake.New([]ports.ActiveAlert{prometheusAlert, alertmanagerAlert})
+	req := defaultRequest(windowStart, windowEnd)
+	req.SourceFilter = []string{"prometheus"}
+
+	stats, err := alertreplay.ReplayWindow(ctx, provider, integration.factory, req)
+	if err != nil {
+		t.Fatalf("ReplayWindow: %v", err)
+	}
+
+	if stats.Ingested.Total != 2 || stats.Ingested.Saved != 2 {
+		t.Fatalf("Ingested = %+v, want Total=2 Saved=2", stats.Ingested)
+	}
+	if stats.EventsLoaded != 2 {
+		t.Fatalf("EventsLoaded = %d, want 2 scanned in-window events", stats.EventsLoaded)
+	}
+	if stats.GroupsBuilt != 1 || stats.GroupsSaved != 1 || stats.SnapshotsSaved != 1 {
+		t.Fatalf("group stats = %+v, want one matching source group", stats)
+	}
+	if got := countAlertEvents(ctx, t); got != 2 {
+		t.Fatalf("alert_event count = %d, want both provider events persisted", got)
+	}
+	if got := countEventGroupLinks(ctx, t); got != 1 {
+		t.Fatalf("alert_event_groups count = %d, want only matching source linked", got)
+	}
+}
+
 // TestReplayWindow_MultipleAlertnamesYieldMultipleGroups: covers
 // the simplest non-trivial grouping case (2 buckets, asymmetric
 // sizes) so a regression that collapses everything into one bucket

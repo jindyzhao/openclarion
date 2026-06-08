@@ -23,7 +23,10 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
+	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
+	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
+	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
 
@@ -96,7 +99,10 @@ func checkColumn(t, c string) error {
 			evidencesnapshot.Table:           evidencesnapshot.ValidColumn,
 			finalreport.Table:                finalreport.ValidColumn,
 			groupingpolicy.Table:             groupingpolicy.ValidColumn,
+			notificationchannelprofile.Table: notificationchannelprofile.ValidColumn,
 			reportnotificationdelivery.Table: reportnotificationdelivery.ValidColumn,
+			reportworkflowpolicy.Table:       reportworkflowpolicy.ValidColumn,
+			reportworkflowschedule.Table:     reportworkflowschedule.ValidColumn,
 			subreport.Table:                  subreport.ValidColumn,
 		})
 	})

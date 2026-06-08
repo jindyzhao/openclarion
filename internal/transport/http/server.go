@@ -15,10 +15,13 @@ import (
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/observability/correlation"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
+	"github.com/openclarion/openclarion/internal/usecases/alertmanagerwebhook"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
+	"github.com/openclarion/openclarion/internal/usecases/notificationchannelcheck"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+	"github.com/openclarion/openclarion/internal/usecases/reportpolicytrigger"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
 )
@@ -43,14 +46,36 @@ type Server struct {
 	logger            *slog.Logger
 	uowFactory        ports.UnitOfWorkFactory
 	reportTrigger     ReportReplayTrigger
+	policyTrigger     ReportWorkflowPolicyReplayTrigger
+	scheduleSyncer    ReportWorkflowScheduleSynchronizer
+	webhookIngestor   AlertmanagerWebhookIngestor
 	roomStarter       DiagnosisRoomStarter
 	alertSourceTester AlertSourceConnectionTester
+	channelTester     NotificationChannelTester
 	diagnosis         diagnosisConfig
 }
 
 // ReportReplayTrigger is the transport-facing report trigger usecase.
 type ReportReplayTrigger interface {
 	ReplayAndStart(ctx context.Context, req reporttrigger.Request) (reporttrigger.Result, error)
+}
+
+// ReportWorkflowPolicyReplayTrigger is the transport-facing policy-driven
+// report replay usecase.
+type ReportWorkflowPolicyReplayTrigger interface {
+	ReplayAndStart(ctx context.Context, req reportpolicytrigger.Request) (reporttrigger.Result, error)
+}
+
+// ReportWorkflowScheduleSynchronizer synchronizes persisted schedules into the
+// server-owned scheduler after successful configuration mutations.
+type ReportWorkflowScheduleSynchronizer interface {
+	SyncReportWorkflowSchedule(ctx context.Context, schedule domain.ReportWorkflowSchedule) error
+}
+
+// AlertmanagerWebhookIngestor is the transport-facing Alertmanager webhook
+// ingest usecase.
+type AlertmanagerWebhookIngestor interface {
+	Ingest(ctx context.Context, req alertmanagerwebhook.Request) (alertmanagerwebhook.Result, error)
 }
 
 // DiagnosisRoomStarter is the transport-facing room creation usecase.
@@ -64,6 +89,12 @@ type AlertSourceConnectionTester interface {
 	TestAlertSourceConnection(ctx context.Context, profile domain.AlertSourceProfile) (alertsourcecheck.Result, error)
 }
 
+// NotificationChannelTester is the transport-facing notification channel
+// delivery-test usecase.
+type NotificationChannelTester interface {
+	TestNotificationChannel(ctx context.Context, profile domain.NotificationChannelProfile) (notificationchannelcheck.Result, error)
+}
+
 // ServerOption customises optional HTTP handlers.
 type ServerOption func(*Server)
 
@@ -71,6 +102,28 @@ type ServerOption func(*Server)
 func WithReportReplayTrigger(trigger ReportReplayTrigger) ServerOption {
 	return func(s *Server) {
 		s.reportTrigger = trigger
+	}
+}
+
+// WithReportWorkflowPolicyReplayTrigger enables policy-driven report replay.
+func WithReportWorkflowPolicyReplayTrigger(trigger ReportWorkflowPolicyReplayTrigger) ServerOption {
+	return func(s *Server) {
+		s.policyTrigger = trigger
+	}
+}
+
+// WithReportWorkflowScheduleSynchronizer enables server-side schedule sync.
+func WithReportWorkflowScheduleSynchronizer(syncer ReportWorkflowScheduleSynchronizer) ServerOption {
+	return func(s *Server) {
+		s.scheduleSyncer = syncer
+	}
+}
+
+// WithAlertmanagerWebhookIngestor enables profile-bound Alertmanager webhook
+// ingestion.
+func WithAlertmanagerWebhookIngestor(ingestor AlertmanagerWebhookIngestor) ServerOption {
+	return func(s *Server) {
+		s.webhookIngestor = ingestor
 	}
 }
 
@@ -85,6 +138,13 @@ func WithDiagnosisRoomStarter(starter DiagnosisRoomStarter) ServerOption {
 func WithAlertSourceConnectionTester(tester AlertSourceConnectionTester) ServerOption {
 	return func(s *Server) {
 		s.alertSourceTester = tester
+	}
+}
+
+// WithNotificationChannelTester enables notification channel test actions.
+func WithNotificationChannelTester(tester NotificationChannelTester) ServerOption {
+	return func(s *Server) {
+		s.channelTester = tester
 	}
 }
 

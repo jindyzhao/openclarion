@@ -9,7 +9,7 @@ export default async function AlertSourceSettingsPage() {
   const count = result.ok ? result.data.items.length : 0;
 
   return (
-    <ReportShell current="settings">
+    <ReportShell current="sources">
       <section className="page-heading">
         <div>
           <h1>Alert Sources</h1>

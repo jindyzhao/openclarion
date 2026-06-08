@@ -51,3 +51,15 @@ type AlertSourceProfileID int64
 // GroupingPolicyID is the surrogate identifier of an operator-managed
 // grouping policy profile.
 type GroupingPolicyID int64
+
+// ReportWorkflowPolicyID is the surrogate identifier of an operator-managed
+// report workflow policy profile.
+type ReportWorkflowPolicyID int64
+
+// ReportWorkflowScheduleID is the surrogate identifier of an operator-managed
+// report workflow schedule profile.
+type ReportWorkflowScheduleID int64
+
+// NotificationChannelProfileID is the surrogate identifier of an
+// operator-managed notification channel profile.
+type NotificationChannelProfileID int64

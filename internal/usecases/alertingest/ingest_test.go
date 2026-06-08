@@ -83,6 +83,23 @@ func TestIngestOnce_SavesAllFiringAlerts(t *testing.T) {
 	}
 }
 
+func TestIngestAlerts_SavesMaterializedAlerts(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+	const n = 2
+
+	stats, err := alertingest.IngestAlerts(ctx, firingSeed(n), integration.factory)
+	if err != nil {
+		t.Fatalf("IngestAlerts: %v", err)
+	}
+	if stats != (alertingest.Stats{Total: n, Saved: n}) {
+		t.Errorf("stats = %+v, want {Total:%d,Saved:%d,Duplicate:0,Failed:0}", stats, n, n)
+	}
+	if got := countAlertEvents(ctx, t); got != n {
+		t.Errorf("alert_event row count = %d, want %d", got, n)
+	}
+}
+
 // TestIngestOnce_DuplicateRunCountsAsDuplicate runs the same seed
 // through IngestOnce twice. The second pass MUST collapse every
 // alert into the Duplicate counter via the natural unique key, and

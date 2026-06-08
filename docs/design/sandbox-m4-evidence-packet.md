@@ -87,6 +87,13 @@ must not use one as the runtime baseline. Quality manifest report paths are
 intentionally relative to the manifest directory, non-traversing, and distinct
 per case so packet artifacts stay portable and cannot compare a report file to
 itself.
+The runtime-smoke artifact collection target also validates the bundle through
+`scripts/sandbox_m4_runtime_smoke_artifacts` before returning success. That
+offline check rejects missing or unexpected bundle files, symlinked artifacts,
+duplicate-key or unknown-field JSON, wrong `tool` / `source` / `status`
+metadata, mutable image references, missing pass checks, and success-mode versus
+expected-error-mode mismatches. This is an early handoff guard; packet assembly
+and packet verification still repeat the stricter cross-artifact validation.
 `make sandbox-m4-quality-sample-export` can create that retained sample-root
 layout from operator-selected persisted SubReport rows after checking strict
 selection JSON, scenario matches, shared EvidenceSnapshot IDs, production

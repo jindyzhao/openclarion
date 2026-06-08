@@ -24,6 +24,12 @@ import { useMemo, useState } from "react";
 import type { ApiResult } from "@/lib/api/client";
 
 import { formatDateTime } from "../format";
+import {
+  settingsErrorMessage,
+  type SettingsNotice,
+  useSettingsList,
+  useSettingsMutation
+} from "../query-state";
 import { refreshAlertSourceProfiles, submitAlertSourceProfile, testAlertSourceConnection } from "./client-api";
 import {
   emptyAlertSourceForm,
@@ -34,28 +40,44 @@ import type {
   AlertSourceConnectionTestResult,
   AlertSourceFormState,
   AlertSourceProfile,
-  AlertSourceProfileListResponse
+  AlertSourceProfileListResponse,
+  AlertSourceProfileWriteRequest
 } from "./types";
 
 type AlertSourceSettingsManagerProps = {
   result: ApiResult<AlertSourceProfileListResponse>;
 };
 
-type NoticeState = {
-  kind: "info" | "warning" | "error";
-  message: string;
+const alertSourceProfilesQueryKey = ["settings", "alert-sources"] as const;
+
+type SaveProfileVariables = {
+  body: AlertSourceProfileWriteRequest;
+  sourceID: number | null;
 };
 
 export function AlertSourceSettingsManager({ result }: AlertSourceSettingsManagerProps) {
   const [form] = Form.useForm<AlertSourceFormState>();
-  const [profiles, setProfiles] = useState<AlertSourceProfile[]>(result.ok ? result.data.items : []);
   const [editingID, setEditingID] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
   const [testingID, setTestingID] = useState<number | null>(null);
   const [testResults, setTestResults] = useState<Record<number, AlertSourceConnectionTestResult>>({});
-  const [notice, setNotice] = useState<NoticeState | null>(
-    result.ok ? null : { kind: "error", message: result.error.message }
-  );
+  const {
+    items: profiles,
+    notice,
+    query,
+    refresh,
+    setNotice
+  } = useSettingsList({
+    initialResult: result,
+    queryKey: alertSourceProfilesQueryKey,
+    queryFn: refreshAlertSourceProfiles,
+    refreshMessage: "Profiles refreshed.",
+    selectItems: (response) => response.items
+  });
+  const saveProfile = useSettingsMutation<SaveProfileVariables, AlertSourceProfile>({
+    invalidateQueryKey: alertSourceProfilesQueryKey,
+    mutationFn: ({ sourceID, body }) => submitAlertSourceProfile(sourceID, body)
+  });
+  const busy = query.isFetching || saveProfile.isPending;
   const authMode = Form.useWatch("authMode", form) ?? "none";
 
   const summary = useMemo(() => {
@@ -66,15 +88,7 @@ export function AlertSourceSettingsManager({ result }: AlertSourceSettingsManage
   }, [profiles]);
 
   async function handleRefresh() {
-    setBusy(true);
-    const refreshed = await refreshAlertSourceProfiles();
-    setBusy(false);
-    if (!refreshed.ok) {
-      setNotice({ kind: "error", message: refreshed.error.message });
-      return;
-    }
-    setProfiles(refreshed.data.items);
-    setNotice({ kind: "info", message: "Profiles refreshed." });
+    await refresh();
   }
 
   async function handleSubmit(values: AlertSourceFormState) {
@@ -84,15 +98,13 @@ export function AlertSourceSettingsManager({ result }: AlertSourceSettingsManage
       return;
     }
 
-    setBusy(true);
-    const saved = await submitAlertSourceProfile(editingID, parsed.value);
-    setBusy(false);
-    if (!saved.ok) {
-      setNotice({ kind: "error", message: saved.error.message });
+    try {
+      await saveProfile.mutateAsync({ sourceID: editingID, body: parsed.value });
+    } catch (error) {
+      setNotice({ kind: "error", message: settingsErrorMessage(error) });
       return;
     }
 
-    setProfiles((current) => upsertProfile(current, saved.data));
     form.setFieldsValue(emptyAlertSourceForm());
     setEditingID(null);
     setNotice({ kind: "info", message: "Profile saved." });
@@ -272,7 +284,7 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-function Notice({ notice }: { notice: NoticeState }) {
+function Notice({ notice }: { notice: SettingsNotice }) {
   const type = notice.kind === "error" ? "error" : notice.kind === "warning" ? "warning" : "success";
   return (
     <Alert
@@ -432,11 +444,6 @@ function Labels({ labels }: { labels: AlertSourceProfile["labels"] }) {
   );
 }
 
-function upsertProfile(current: AlertSourceProfile[], saved: AlertSourceProfile): AlertSourceProfile[] {
-  const next = [saved, ...current.filter((profile) => profile.id !== saved.id)];
-  return next.sort((left, right) => Date.parse(right.updated_at) - Date.parse(left.updated_at));
-}
-
 function normalizeFormValues(values: AlertSourceFormState): AlertSourceFormState {
   return {
     ...emptyAlertSourceForm(),
@@ -460,7 +467,7 @@ function connectionStatusColor(status: AlertSourceConnectionTestResult["status"]
   }
 }
 
-function noticeKindForConnectionStatus(status: AlertSourceConnectionTestResult["status"]): NoticeState["kind"] {
+function noticeKindForConnectionStatus(status: AlertSourceConnectionTestResult["status"]): SettingsNotice["kind"] {
   switch (status) {
     case "success":
       return "info";

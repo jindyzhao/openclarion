@@ -266,6 +266,12 @@ runtime-smoke artifacts. `make sandbox-m4-evidence-packet-verify` revalidates a
 retained packet offline without rerunning helpers and rejects unexpected sidecar
 files or directories. The manual packet target is
 the preferred handoff artifact for M4 runtime baseline review.
+`make sandbox-m4-runtime-smoke-artifacts` also invokes
+`scripts/sandbox_m4_runtime_smoke_artifacts` after the five Docker-backed
+smokes complete, so the retained bundle fails before handoff if any artifact is
+missing, extra, symlinked, duplicate-key JSON, from the wrong canonical
+`make` source, not pass-status, not digest-pinned, or inconsistent with the
+success versus expected-error mode required for that smoke.
 
 ## Control-Plane Dependency and Hardcoding Rule
 

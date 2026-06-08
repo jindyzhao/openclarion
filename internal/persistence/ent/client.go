@@ -26,7 +26,10 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
+	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
+	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
+	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
 
@@ -57,8 +60,14 @@ type Client struct {
 	FinalReport *FinalReportClient
 	// GroupingPolicy is the client for interacting with the GroupingPolicy builders.
 	GroupingPolicy *GroupingPolicyClient
+	// NotificationChannelProfile is the client for interacting with the NotificationChannelProfile builders.
+	NotificationChannelProfile *NotificationChannelProfileClient
 	// ReportNotificationDelivery is the client for interacting with the ReportNotificationDelivery builders.
 	ReportNotificationDelivery *ReportNotificationDeliveryClient
+	// ReportWorkflowPolicy is the client for interacting with the ReportWorkflowPolicy builders.
+	ReportWorkflowPolicy *ReportWorkflowPolicyClient
+	// ReportWorkflowSchedule is the client for interacting with the ReportWorkflowSchedule builders.
+	ReportWorkflowSchedule *ReportWorkflowScheduleClient
 	// SubReport is the client for interacting with the SubReport builders.
 	SubReport *SubReportClient
 }
@@ -83,7 +92,10 @@ func (c *Client) init() {
 	c.EvidenceSnapshot = NewEvidenceSnapshotClient(c.config)
 	c.FinalReport = NewFinalReportClient(c.config)
 	c.GroupingPolicy = NewGroupingPolicyClient(c.config)
+	c.NotificationChannelProfile = NewNotificationChannelProfileClient(c.config)
 	c.ReportNotificationDelivery = NewReportNotificationDeliveryClient(c.config)
+	c.ReportWorkflowPolicy = NewReportWorkflowPolicyClient(c.config)
+	c.ReportWorkflowSchedule = NewReportWorkflowScheduleClient(c.config)
 	c.SubReport = NewSubReportClient(c.config)
 }
 
@@ -188,7 +200,10 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		EvidenceSnapshot:           NewEvidenceSnapshotClient(cfg),
 		FinalReport:                NewFinalReportClient(cfg),
 		GroupingPolicy:             NewGroupingPolicyClient(cfg),
+		NotificationChannelProfile: NewNotificationChannelProfileClient(cfg),
 		ReportNotificationDelivery: NewReportNotificationDeliveryClient(cfg),
+		ReportWorkflowPolicy:       NewReportWorkflowPolicyClient(cfg),
+		ReportWorkflowSchedule:     NewReportWorkflowScheduleClient(cfg),
 		SubReport:                  NewSubReportClient(cfg),
 	}, nil
 }
@@ -220,7 +235,10 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		EvidenceSnapshot:           NewEvidenceSnapshotClient(cfg),
 		FinalReport:                NewFinalReportClient(cfg),
 		GroupingPolicy:             NewGroupingPolicyClient(cfg),
+		NotificationChannelProfile: NewNotificationChannelProfileClient(cfg),
 		ReportNotificationDelivery: NewReportNotificationDeliveryClient(cfg),
+		ReportWorkflowPolicy:       NewReportWorkflowPolicyClient(cfg),
+		ReportWorkflowSchedule:     NewReportWorkflowScheduleClient(cfg),
 		SubReport:                  NewSubReportClient(cfg),
 	}, nil
 }
@@ -254,7 +272,8 @@ func (c *Client) Use(hooks ...Hook) {
 		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession, c.ChatTurn,
 		c.DiagnosisAuthTicket, c.DiagnosisTask, c.DiagnosisTaskEvent,
 		c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
-		c.ReportNotificationDelivery, c.SubReport,
+		c.NotificationChannelProfile, c.ReportNotificationDelivery,
+		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.SubReport,
 	} {
 		n.Use(hooks...)
 	}
@@ -267,7 +286,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession, c.ChatTurn,
 		c.DiagnosisAuthTicket, c.DiagnosisTask, c.DiagnosisTaskEvent,
 		c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
-		c.ReportNotificationDelivery, c.SubReport,
+		c.NotificationChannelProfile, c.ReportNotificationDelivery,
+		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.SubReport,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -298,8 +318,14 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.FinalReport.mutate(ctx, m)
 	case *GroupingPolicyMutation:
 		return c.GroupingPolicy.mutate(ctx, m)
+	case *NotificationChannelProfileMutation:
+		return c.NotificationChannelProfile.mutate(ctx, m)
 	case *ReportNotificationDeliveryMutation:
 		return c.ReportNotificationDelivery.mutate(ctx, m)
+	case *ReportWorkflowPolicyMutation:
+		return c.ReportWorkflowPolicy.mutate(ctx, m)
+	case *ReportWorkflowScheduleMutation:
+		return c.ReportWorkflowSchedule.mutate(ctx, m)
 	case *SubReportMutation:
 		return c.SubReport.mutate(ctx, m)
 	default:
@@ -2010,6 +2036,139 @@ func (c *GroupingPolicyClient) mutate(ctx context.Context, m *GroupingPolicyMuta
 	}
 }
 
+// NotificationChannelProfileClient is a client for the NotificationChannelProfile schema.
+type NotificationChannelProfileClient struct {
+	config
+}
+
+// NewNotificationChannelProfileClient returns a client for the NotificationChannelProfile from the given config.
+func NewNotificationChannelProfileClient(c config) *NotificationChannelProfileClient {
+	return &NotificationChannelProfileClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `notificationchannelprofile.Hooks(f(g(h())))`.
+func (c *NotificationChannelProfileClient) Use(hooks ...Hook) {
+	c.hooks.NotificationChannelProfile = append(c.hooks.NotificationChannelProfile, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `notificationchannelprofile.Intercept(f(g(h())))`.
+func (c *NotificationChannelProfileClient) Intercept(interceptors ...Interceptor) {
+	c.inters.NotificationChannelProfile = append(c.inters.NotificationChannelProfile, interceptors...)
+}
+
+// Create returns a builder for creating a NotificationChannelProfile entity.
+func (c *NotificationChannelProfileClient) Create() *NotificationChannelProfileCreate {
+	mutation := newNotificationChannelProfileMutation(c.config, OpCreate)
+	return &NotificationChannelProfileCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of NotificationChannelProfile entities.
+func (c *NotificationChannelProfileClient) CreateBulk(builders ...*NotificationChannelProfileCreate) *NotificationChannelProfileCreateBulk {
+	return &NotificationChannelProfileCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *NotificationChannelProfileClient) MapCreateBulk(slice any, setFunc func(*NotificationChannelProfileCreate, int)) *NotificationChannelProfileCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &NotificationChannelProfileCreateBulk{err: fmt.Errorf("calling to NotificationChannelProfileClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*NotificationChannelProfileCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &NotificationChannelProfileCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for NotificationChannelProfile.
+func (c *NotificationChannelProfileClient) Update() *NotificationChannelProfileUpdate {
+	mutation := newNotificationChannelProfileMutation(c.config, OpUpdate)
+	return &NotificationChannelProfileUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *NotificationChannelProfileClient) UpdateOne(_m *NotificationChannelProfile) *NotificationChannelProfileUpdateOne {
+	mutation := newNotificationChannelProfileMutation(c.config, OpUpdateOne, withNotificationChannelProfile(_m))
+	return &NotificationChannelProfileUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *NotificationChannelProfileClient) UpdateOneID(id int) *NotificationChannelProfileUpdateOne {
+	mutation := newNotificationChannelProfileMutation(c.config, OpUpdateOne, withNotificationChannelProfileID(id))
+	return &NotificationChannelProfileUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for NotificationChannelProfile.
+func (c *NotificationChannelProfileClient) Delete() *NotificationChannelProfileDelete {
+	mutation := newNotificationChannelProfileMutation(c.config, OpDelete)
+	return &NotificationChannelProfileDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *NotificationChannelProfileClient) DeleteOne(_m *NotificationChannelProfile) *NotificationChannelProfileDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *NotificationChannelProfileClient) DeleteOneID(id int) *NotificationChannelProfileDeleteOne {
+	builder := c.Delete().Where(notificationchannelprofile.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &NotificationChannelProfileDeleteOne{builder}
+}
+
+// Query returns a query builder for NotificationChannelProfile.
+func (c *NotificationChannelProfileClient) Query() *NotificationChannelProfileQuery {
+	return &NotificationChannelProfileQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeNotificationChannelProfile},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a NotificationChannelProfile entity by its id.
+func (c *NotificationChannelProfileClient) Get(ctx context.Context, id int) (*NotificationChannelProfile, error) {
+	return c.Query().Where(notificationchannelprofile.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *NotificationChannelProfileClient) GetX(ctx context.Context, id int) *NotificationChannelProfile {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *NotificationChannelProfileClient) Hooks() []Hook {
+	return c.hooks.NotificationChannelProfile
+}
+
+// Interceptors returns the client interceptors.
+func (c *NotificationChannelProfileClient) Interceptors() []Interceptor {
+	return c.inters.NotificationChannelProfile
+}
+
+func (c *NotificationChannelProfileClient) mutate(ctx context.Context, m *NotificationChannelProfileMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&NotificationChannelProfileCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&NotificationChannelProfileUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&NotificationChannelProfileUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&NotificationChannelProfileDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown NotificationChannelProfile mutation op: %q", m.Op())
+	}
+}
+
 // ReportNotificationDeliveryClient is a client for the ReportNotificationDelivery schema.
 type ReportNotificationDeliveryClient struct {
 	config
@@ -2156,6 +2315,272 @@ func (c *ReportNotificationDeliveryClient) mutate(ctx context.Context, m *Report
 		return (&ReportNotificationDeliveryDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown ReportNotificationDelivery mutation op: %q", m.Op())
+	}
+}
+
+// ReportWorkflowPolicyClient is a client for the ReportWorkflowPolicy schema.
+type ReportWorkflowPolicyClient struct {
+	config
+}
+
+// NewReportWorkflowPolicyClient returns a client for the ReportWorkflowPolicy from the given config.
+func NewReportWorkflowPolicyClient(c config) *ReportWorkflowPolicyClient {
+	return &ReportWorkflowPolicyClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `reportworkflowpolicy.Hooks(f(g(h())))`.
+func (c *ReportWorkflowPolicyClient) Use(hooks ...Hook) {
+	c.hooks.ReportWorkflowPolicy = append(c.hooks.ReportWorkflowPolicy, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `reportworkflowpolicy.Intercept(f(g(h())))`.
+func (c *ReportWorkflowPolicyClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ReportWorkflowPolicy = append(c.inters.ReportWorkflowPolicy, interceptors...)
+}
+
+// Create returns a builder for creating a ReportWorkflowPolicy entity.
+func (c *ReportWorkflowPolicyClient) Create() *ReportWorkflowPolicyCreate {
+	mutation := newReportWorkflowPolicyMutation(c.config, OpCreate)
+	return &ReportWorkflowPolicyCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ReportWorkflowPolicy entities.
+func (c *ReportWorkflowPolicyClient) CreateBulk(builders ...*ReportWorkflowPolicyCreate) *ReportWorkflowPolicyCreateBulk {
+	return &ReportWorkflowPolicyCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ReportWorkflowPolicyClient) MapCreateBulk(slice any, setFunc func(*ReportWorkflowPolicyCreate, int)) *ReportWorkflowPolicyCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ReportWorkflowPolicyCreateBulk{err: fmt.Errorf("calling to ReportWorkflowPolicyClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ReportWorkflowPolicyCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ReportWorkflowPolicyCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ReportWorkflowPolicy.
+func (c *ReportWorkflowPolicyClient) Update() *ReportWorkflowPolicyUpdate {
+	mutation := newReportWorkflowPolicyMutation(c.config, OpUpdate)
+	return &ReportWorkflowPolicyUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ReportWorkflowPolicyClient) UpdateOne(_m *ReportWorkflowPolicy) *ReportWorkflowPolicyUpdateOne {
+	mutation := newReportWorkflowPolicyMutation(c.config, OpUpdateOne, withReportWorkflowPolicy(_m))
+	return &ReportWorkflowPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ReportWorkflowPolicyClient) UpdateOneID(id int) *ReportWorkflowPolicyUpdateOne {
+	mutation := newReportWorkflowPolicyMutation(c.config, OpUpdateOne, withReportWorkflowPolicyID(id))
+	return &ReportWorkflowPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ReportWorkflowPolicy.
+func (c *ReportWorkflowPolicyClient) Delete() *ReportWorkflowPolicyDelete {
+	mutation := newReportWorkflowPolicyMutation(c.config, OpDelete)
+	return &ReportWorkflowPolicyDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ReportWorkflowPolicyClient) DeleteOne(_m *ReportWorkflowPolicy) *ReportWorkflowPolicyDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ReportWorkflowPolicyClient) DeleteOneID(id int) *ReportWorkflowPolicyDeleteOne {
+	builder := c.Delete().Where(reportworkflowpolicy.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ReportWorkflowPolicyDeleteOne{builder}
+}
+
+// Query returns a query builder for ReportWorkflowPolicy.
+func (c *ReportWorkflowPolicyClient) Query() *ReportWorkflowPolicyQuery {
+	return &ReportWorkflowPolicyQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeReportWorkflowPolicy},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ReportWorkflowPolicy entity by its id.
+func (c *ReportWorkflowPolicyClient) Get(ctx context.Context, id int) (*ReportWorkflowPolicy, error) {
+	return c.Query().Where(reportworkflowpolicy.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ReportWorkflowPolicyClient) GetX(ctx context.Context, id int) *ReportWorkflowPolicy {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *ReportWorkflowPolicyClient) Hooks() []Hook {
+	return c.hooks.ReportWorkflowPolicy
+}
+
+// Interceptors returns the client interceptors.
+func (c *ReportWorkflowPolicyClient) Interceptors() []Interceptor {
+	return c.inters.ReportWorkflowPolicy
+}
+
+func (c *ReportWorkflowPolicyClient) mutate(ctx context.Context, m *ReportWorkflowPolicyMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ReportWorkflowPolicyCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ReportWorkflowPolicyUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ReportWorkflowPolicyUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ReportWorkflowPolicyDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ReportWorkflowPolicy mutation op: %q", m.Op())
+	}
+}
+
+// ReportWorkflowScheduleClient is a client for the ReportWorkflowSchedule schema.
+type ReportWorkflowScheduleClient struct {
+	config
+}
+
+// NewReportWorkflowScheduleClient returns a client for the ReportWorkflowSchedule from the given config.
+func NewReportWorkflowScheduleClient(c config) *ReportWorkflowScheduleClient {
+	return &ReportWorkflowScheduleClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `reportworkflowschedule.Hooks(f(g(h())))`.
+func (c *ReportWorkflowScheduleClient) Use(hooks ...Hook) {
+	c.hooks.ReportWorkflowSchedule = append(c.hooks.ReportWorkflowSchedule, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `reportworkflowschedule.Intercept(f(g(h())))`.
+func (c *ReportWorkflowScheduleClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ReportWorkflowSchedule = append(c.inters.ReportWorkflowSchedule, interceptors...)
+}
+
+// Create returns a builder for creating a ReportWorkflowSchedule entity.
+func (c *ReportWorkflowScheduleClient) Create() *ReportWorkflowScheduleCreate {
+	mutation := newReportWorkflowScheduleMutation(c.config, OpCreate)
+	return &ReportWorkflowScheduleCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ReportWorkflowSchedule entities.
+func (c *ReportWorkflowScheduleClient) CreateBulk(builders ...*ReportWorkflowScheduleCreate) *ReportWorkflowScheduleCreateBulk {
+	return &ReportWorkflowScheduleCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ReportWorkflowScheduleClient) MapCreateBulk(slice any, setFunc func(*ReportWorkflowScheduleCreate, int)) *ReportWorkflowScheduleCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ReportWorkflowScheduleCreateBulk{err: fmt.Errorf("calling to ReportWorkflowScheduleClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ReportWorkflowScheduleCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ReportWorkflowScheduleCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ReportWorkflowSchedule.
+func (c *ReportWorkflowScheduleClient) Update() *ReportWorkflowScheduleUpdate {
+	mutation := newReportWorkflowScheduleMutation(c.config, OpUpdate)
+	return &ReportWorkflowScheduleUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ReportWorkflowScheduleClient) UpdateOne(_m *ReportWorkflowSchedule) *ReportWorkflowScheduleUpdateOne {
+	mutation := newReportWorkflowScheduleMutation(c.config, OpUpdateOne, withReportWorkflowSchedule(_m))
+	return &ReportWorkflowScheduleUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ReportWorkflowScheduleClient) UpdateOneID(id int) *ReportWorkflowScheduleUpdateOne {
+	mutation := newReportWorkflowScheduleMutation(c.config, OpUpdateOne, withReportWorkflowScheduleID(id))
+	return &ReportWorkflowScheduleUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ReportWorkflowSchedule.
+func (c *ReportWorkflowScheduleClient) Delete() *ReportWorkflowScheduleDelete {
+	mutation := newReportWorkflowScheduleMutation(c.config, OpDelete)
+	return &ReportWorkflowScheduleDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ReportWorkflowScheduleClient) DeleteOne(_m *ReportWorkflowSchedule) *ReportWorkflowScheduleDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ReportWorkflowScheduleClient) DeleteOneID(id int) *ReportWorkflowScheduleDeleteOne {
+	builder := c.Delete().Where(reportworkflowschedule.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ReportWorkflowScheduleDeleteOne{builder}
+}
+
+// Query returns a query builder for ReportWorkflowSchedule.
+func (c *ReportWorkflowScheduleClient) Query() *ReportWorkflowScheduleQuery {
+	return &ReportWorkflowScheduleQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeReportWorkflowSchedule},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ReportWorkflowSchedule entity by its id.
+func (c *ReportWorkflowScheduleClient) Get(ctx context.Context, id int) (*ReportWorkflowSchedule, error) {
+	return c.Query().Where(reportworkflowschedule.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ReportWorkflowScheduleClient) GetX(ctx context.Context, id int) *ReportWorkflowSchedule {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *ReportWorkflowScheduleClient) Hooks() []Hook {
+	return c.hooks.ReportWorkflowSchedule
+}
+
+// Interceptors returns the client interceptors.
+func (c *ReportWorkflowScheduleClient) Interceptors() []Interceptor {
+	return c.inters.ReportWorkflowSchedule
+}
+
+func (c *ReportWorkflowScheduleClient) mutate(ctx context.Context, m *ReportWorkflowScheduleMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ReportWorkflowScheduleCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ReportWorkflowScheduleUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ReportWorkflowScheduleUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ReportWorkflowScheduleDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ReportWorkflowSchedule mutation op: %q", m.Op())
 	}
 }
 
@@ -2329,12 +2754,15 @@ type (
 	hooks struct {
 		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatTurn,
 		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, EvidenceSnapshot,
-		FinalReport, GroupingPolicy, ReportNotificationDelivery, SubReport []ent.Hook
+		FinalReport, GroupingPolicy, NotificationChannelProfile,
+		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
+		SubReport []ent.Hook
 	}
 	inters struct {
 		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatTurn,
 		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, EvidenceSnapshot,
-		FinalReport, GroupingPolicy, ReportNotificationDelivery,
+		FinalReport, GroupingPolicy, NotificationChannelProfile,
+		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
 		SubReport []ent.Interceptor
 	}
 )

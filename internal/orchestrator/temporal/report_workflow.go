@@ -24,8 +24,9 @@ type ReportFanOutWorkflowResult struct {
 
 // ReportBatchWorkflowInput identifies one operator-facing report batch.
 type ReportBatchWorkflowInput struct {
-	CorrelationKey string
-	Items          []ReportBatchItem
+	CorrelationKey                     string
+	ReportNotificationChannelProfileID int64
+	Items                              []ReportBatchItem
 }
 
 // ReportBatchItem identifies one EvidenceSnapshot-backed fan-out unit.
@@ -47,8 +48,9 @@ type ReportBatchWorkflowResult struct {
 // FinalReportWorkflowInput identifies the validated SubReports to reduce
 // into one persisted FinalReport.
 type FinalReportWorkflowInput struct {
-	CorrelationKey string
-	SubReportIDs   []int64
+	CorrelationKey                     string
+	ReportNotificationChannelProfileID int64
+	SubReportIDs                       []int64
 }
 
 // FinalReportWorkflowResult returns the persisted FinalReport identity.
@@ -62,7 +64,8 @@ type FinalReportWorkflowResult struct {
 // ReportNotificationActivityInput identifies the persisted FinalReport
 // to notify about.
 type ReportNotificationActivityInput struct {
-	FinalReportID int64
+	FinalReportID                      int64
+	ReportNotificationChannelProfileID int64
 }
 
 // ReportNotificationResult returns provider delivery metadata.
@@ -114,6 +117,11 @@ func ReportBatchWorkflow(ctx workflow.Context, input ReportBatchWorkflowInput) (
 			"report-batch: input.items must be non-empty",
 			errTypeInvalidInput, nil)
 	}
+	if input.ReportNotificationChannelProfileID < 0 {
+		return ReportBatchWorkflowResult{}, temporalsdk.NewNonRetryableApplicationError(
+			"report-batch: input.report_notification_channel_profile_id must be >= 0",
+			errTypeInvalidInput, nil)
+	}
 	for i, item := range input.Items {
 		if item.EvidenceSnapshotID == 0 {
 			return ReportBatchWorkflowResult{}, temporalsdk.NewNonRetryableApplicationError(
@@ -153,8 +161,9 @@ func ReportBatchWorkflow(ctx workflow.Context, input ReportBatchWorkflowInput) (
 
 	var final FinalReportWorkflowResult
 	if err := workflow.ExecuteChildWorkflow(childCtx, FinalReportWorkflow, FinalReportWorkflowInput{
-		CorrelationKey: strings.TrimSpace(input.CorrelationKey),
-		SubReportIDs:   subReportIDs,
+		CorrelationKey:                     strings.TrimSpace(input.CorrelationKey),
+		ReportNotificationChannelProfileID: input.ReportNotificationChannelProfileID,
+		SubReportIDs:                       subReportIDs,
 	}).Get(ctx, &final); err != nil {
 		return ReportBatchWorkflowResult{}, err
 	}
@@ -181,6 +190,11 @@ func FinalReportWorkflow(ctx workflow.Context, input FinalReportWorkflowInput) (
 			"final-report: input.sub_report_ids must be non-empty",
 			errTypeInvalidInput, nil)
 	}
+	if input.ReportNotificationChannelProfileID < 0 {
+		return FinalReportWorkflowResult{}, temporalsdk.NewNonRetryableApplicationError(
+			"final-report: input.report_notification_channel_profile_id must be >= 0",
+			errTypeInvalidInput, nil)
+	}
 	for i, id := range input.SubReportIDs {
 		if id == 0 {
 			return FinalReportWorkflowResult{}, temporalsdk.NewNonRetryableApplicationError(
@@ -196,7 +210,8 @@ func FinalReportWorkflow(ctx workflow.Context, input FinalReportWorkflowInput) (
 	}
 	var notification ReportNotificationResult
 	if err := workflow.ExecuteActivity(actCtx, (*Activities).SendReportNotification, ReportNotificationActivityInput{
-		FinalReportID: result.FinalReportID,
+		FinalReportID:                      result.FinalReportID,
+		ReportNotificationChannelProfileID: input.ReportNotificationChannelProfileID,
 	}).Get(ctx, &notification); err != nil {
 		return FinalReportWorkflowResult{}, err
 	}

@@ -93,10 +93,15 @@ func TestRunReportsNextTargetUsesMilestoneSequence(t *testing.T) {
 		t.Fatalf("report status = %q, want ready", got)
 	}
 	if out.Summary.NextTarget == nil {
-		t.Fatal("summary next target is nil, want diagnosis target")
+		t.Fatal("summary next target is nil, want report policy target")
 	}
-	if out.Summary.NextTarget.Name != "diagnosis-live-browser-smoke" {
-		t.Fatalf("summary next target = %#v, want diagnosis-live-browser-smoke", out.Summary.NextTarget)
+	if out.Summary.NextTarget.Name != "report-policy-live-smoke" {
+		t.Fatalf("summary next target = %#v, want report-policy-live-smoke", out.Summary.NextTarget)
+	}
+	reportPolicy := targetByName(t, out, "report-policy-live-smoke")
+	if reportPolicy.Milestone != "M3.1" || reportPolicy.Sequence != 15 || reportPolicy.EvidenceGoal == "" {
+		t.Fatalf("report policy sequencing metadata = milestone %q sequence %d goal %q, want M3.1/15/goal",
+			reportPolicy.Milestone, reportPolicy.Sequence, reportPolicy.EvidenceGoal)
 	}
 	diagnosis := targetByName(t, out, "diagnosis-live-browser-smoke")
 	if diagnosis.Milestone != "M5" || diagnosis.Sequence != 20 || diagnosis.EvidenceGoal == "" {
@@ -117,6 +122,8 @@ func TestRunOrdersAllTargetsByMilestoneSequence(t *testing.T) {
 	out := decodeOutput(t, stdout.Bytes())
 	wantNames := []string{
 		"report-live-smoke",
+		"report-policy-live-smoke",
+		"report-schedule-live-smoke",
 		"diagnosis-live-browser-smoke",
 		"sandbox-m4-baseline-audit",
 		"sandbox-m4-runtime-smoke-artifacts",
@@ -157,7 +164,7 @@ func TestRunRejectsBadReportLiveInputsWithoutLeakingValues(t *testing.T) {
 		"REPORT_CORRELATION_KEY=manual proof",
 		"REPORT_WORKFLOW_ID=workflow\nsecret",
 		"OPENCLARION_LLM_MODEL=gpt-example",
-		"OPENCLARION_IM_WEBHOOK_URL=https://operator:secret@webhook.example.test",
+		"OPENCLARION_IM_WEBHOOK_URL=https://private-user-abc123:private-pass-abc123@webhook.example.test",
 	}, &stdout)
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -183,8 +190,8 @@ func TestRunRejectsBadReportLiveInputsWithoutLeakingValues(t *testing.T) {
 		}
 	}
 	for _, secret := range []string{
-		"operator",
-		"secret",
+		"private-user-abc123",
+		"private-pass-abc123",
 		"prometheus.example.test",
 		"webhook.example.test",
 		"manual proof",
@@ -193,6 +200,272 @@ func TestRunRejectsBadReportLiveInputsWithoutLeakingValues(t *testing.T) {
 	} {
 		if strings.Contains(stdout.String(), secret) {
 			t.Fatalf("output leaked invalid environment value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunReportsReadyReportPolicyLiveTarget(t *testing.T) {
+	var stdout bytes.Buffer
+	windowStart, windowEnd := pastReportWindow()
+	output := filepath.Join(t.TempDir(), "policy-proof.json")
+	err := run([]string{"--target", "report-policy-live-smoke"}, []string{
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		"REPORT_WORKFLOW_POLICY_ID=42",
+		"REPORT_WINDOW_START=" + windowStart,
+		"REPORT_WINDOW_END=" + windowEnd,
+		"REPORT_POLICY_LIVE_SMOKE_OUTPUT=" + output,
+		"REPORT_REPLAY_LIMIT=20",
+		"REPORT_WAIT_TIMEOUT=3m",
+		"REPORT_CORRELATION_KEY=policy-proof-001",
+		"REPORT_WORKFLOW_ID=report-policy-live-smoke-proof-001",
+		"OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON={\"secret/openclarion/prometheus\":\"resolved-token\"}",
+		"OPENCLARION_LLM_MODEL=gpt-example",
+		"OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON={\"secret/openclarion/report-webhook\":\"https://webhook.example.test/path\"}",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "report-policy-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("report policy status = %q, want ready", target.Status)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	if got := fileCheckByEnv(t, target.FileChecks, "REPORT_POLICY_LIVE_SMOKE_OUTPUT").Status; got != "ok" {
+		t.Fatalf("REPORT_POLICY_LIVE_SMOKE_OUTPUT status = %q, want ok", got)
+	}
+	for _, secret := range []string{
+		"example.test",
+		"127.0.0.1:7233",
+		"resolved-token",
+		"webhook.example.test",
+		"policy-proof-001",
+		output,
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked policy live value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRequireReadyFailsWhenSelectedTargetIsBlocked(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "report-policy-live-smoke", "--require-ready"}, nil, &stdout)
+	if err == nil {
+		t.Fatal("run succeeded, want blocked target error")
+	}
+	if !strings.Contains(err.Error(), "selected readiness target is blocked") {
+		t.Fatalf("error = %v, want blocked target message", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "report-policy-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	if !missingEnvByName(target.MissingEnv, "REPORT_POLICY_LIVE_SMOKE_OUTPUT") {
+		t.Fatalf("missing env = %#v, want REPORT_POLICY_LIVE_SMOKE_OUTPUT", target.MissingEnv)
+	}
+}
+
+func TestRunReportsReadyReportScheduleLiveTarget(t *testing.T) {
+	var stdout bytes.Buffer
+	output := filepath.Join(t.TempDir(), "schedule-proof.json")
+	err := run([]string{"--target", "report-schedule-live-smoke"}, []string{
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		"REPORT_WORKFLOW_SCHEDULE_ID=9",
+		"REPORT_WORKFLOW_POLICY_ID=42",
+		"TEMPORAL_SCHEDULE_ID=openclarion-report-policy-42-hourly",
+		"REPORT_SCHEDULE_WAIT_TIMEOUT=30m",
+		"REPORT_SCHEDULE_LIVE_SMOKE_OUTPUT=" + output,
+		"OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON={\"secret/openclarion/prometheus\":\"resolved-token\"}",
+		"OPENCLARION_LLM_MODEL=gpt-example",
+		"OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON={\"secret/openclarion/report-webhook\":\"https://webhook.example.test/path\"}",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "report-schedule-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("report schedule status = %q, want ready", target.Status)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"example.test",
+		"127.0.0.1:7233",
+		"resolved-token",
+		"webhook.example.test",
+		"openclarion-report-policy-42-hourly",
+		output,
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked schedule live value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsBadReportScheduleLiveInputsWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	output := filepath.Join(t.TempDir(), "schedule-proof.json")
+	if err := os.WriteFile(output, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write output: %v", err)
+	}
+	err := run([]string{"--target", "report-schedule-live-smoke"}, []string{
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		"REPORT_WORKFLOW_SCHEDULE_ID=0",
+		"REPORT_WORKFLOW_POLICY_ID=0",
+		"TEMPORAL_SCHEDULE_ID=bad id",
+		"REPORT_SCHEDULE_WAIT_TIMEOUT=soon",
+		"REPORT_SCHEDULE_LIVE_SMOKE_OUTPUT=" + output,
+		"OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON={\"bad ref\":\"resolved-token\"}",
+		"OPENCLARION_LLM_MODEL=gpt-example",
+		"OPENCLARION_IM_WEBHOOK_URL=https://schedule-user-abc123:schedule-pass-abc123@webhook.example.test",
+		"OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON={\"secret/openclarion/report-webhook\":\"bad value\"}",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "report-schedule-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("report schedule status = %q, want blocked", target.Status)
+	}
+	for _, name := range []string{
+		"REPORT_WORKFLOW_SCHEDULE_ID",
+		"REPORT_WORKFLOW_POLICY_ID",
+		"TEMPORAL_SCHEDULE_ID",
+		"REPORT_SCHEDULE_WAIT_TIMEOUT",
+		"OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON",
+		"OPENCLARION_IM_WEBHOOK_URL",
+		"OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON",
+	} {
+		if !invalidEnvByName(target.InvalidEnv, name) {
+			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
+		}
+	}
+	if len(target.FileChecks) != 1 || target.FileChecks[0].Status != "exists" {
+		t.Fatalf("file checks = %#v, want existing output rejection", target.FileChecks)
+	}
+	for _, secret := range []string{
+		"example.test",
+		"schedule-user-abc123",
+		"schedule-pass-abc123",
+		"webhook.example.test",
+		"resolved-token",
+		"bad value",
+		"bad id",
+		"soon",
+		output,
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked invalid schedule live value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunReportsReportPolicyLiveAcceptsWorkerReadyAlternative(t *testing.T) {
+	var stdout bytes.Buffer
+	windowStart, windowEnd := pastReportWindow()
+	output := filepath.Join(t.TempDir(), "policy-proof.json")
+	err := run([]string{"--target", "report-policy-live-smoke"}, []string{
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		"REPORT_WORKFLOW_POLICY_ID=42",
+		"REPORT_WINDOW_START=" + windowStart,
+		"REPORT_WINDOW_END=" + windowEnd,
+		"REPORT_POLICY_LIVE_SMOKE_OUTPUT=" + output,
+		"REPORT_LIVE_SMOKE_ASSUME_WORKER_READY=1",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "report-policy-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("report policy status = %q, want ready", target.Status)
+	}
+	if len(target.UnsatisfiedAlternatives) != 0 {
+		t.Fatalf("alternatives = %#v, want none", target.UnsatisfiedAlternatives)
+	}
+}
+
+func TestRunRejectsBadReportPolicyLiveInputsWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	futureStart := time.Now().UTC().Add(time.Hour).Format(time.RFC3339)
+	futureEnd := time.Now().UTC().Add(2 * time.Hour).Format(time.RFC3339)
+	output := filepath.Join(t.TempDir(), "policy-proof.json")
+	if err := os.WriteFile(output, []byte("{}"), 0o600); err != nil {
+		t.Fatalf("write output: %v", err)
+	}
+	err := run([]string{"--target", "report-policy-live-smoke"}, []string{
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		"REPORT_WORKFLOW_POLICY_ID=0",
+		"REPORT_WINDOW_START=" + futureStart,
+		"REPORT_WINDOW_END=" + futureEnd,
+		"REPORT_POLICY_LIVE_SMOKE_OUTPUT=" + output,
+		"REPORT_REPLAY_LIMIT=0",
+		"REPORT_WAIT_TIMEOUT=soon",
+		"REPORT_CORRELATION_KEY=policy proof",
+		"REPORT_WORKFLOW_ID=workflow\nsecret",
+		"OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON={\"bad ref\":\"resolved-token\"}",
+		"OPENCLARION_LLM_MODEL=gpt-example",
+		"OPENCLARION_IM_WEBHOOK_URL=https://operator:secret@webhook.example.test",
+		"OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON={\"secret/openclarion/report-webhook\":\"bad value\"}",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "report-policy-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("report policy status = %q, want blocked", target.Status)
+	}
+	for _, name := range []string{
+		"REPORT_WORKFLOW_POLICY_ID",
+		"REPORT_WINDOW_START/REPORT_WINDOW_END",
+		"REPORT_REPLAY_LIMIT",
+		"REPORT_WAIT_TIMEOUT",
+		"REPORT_CORRELATION_KEY",
+		"REPORT_WORKFLOW_ID",
+		"OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON",
+		"OPENCLARION_IM_WEBHOOK_URL",
+		"OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON",
+	} {
+		if !invalidEnvByName(target.InvalidEnv, name) {
+			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
+		}
+	}
+	if got := fileCheckByEnv(t, target.FileChecks, "REPORT_POLICY_LIVE_SMOKE_OUTPUT").Status; got != "exists" {
+		t.Fatalf("REPORT_POLICY_LIVE_SMOKE_OUTPUT status = %q, want exists", got)
+	}
+	for _, secret := range []string{
+		"example.test",
+		"operator",
+		"secret",
+		"webhook.example.test",
+		"resolved-token",
+		"bad value",
+		"policy proof",
+		"workflow\nsecret",
+		"soon",
+		output,
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked invalid policy live value %q: %s", secret, stdout.String())
 		}
 	}
 }
@@ -296,6 +569,7 @@ func TestRunRejectsBadDiagnosisLiveInputsWithoutLeakingValues(t *testing.T) {
 	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
 		"OPENCLARION_LIVE_API_BASE_URL=https://operator:secret@api.example.test?token=secret",
 		"OPENCLARION_LIVE_WEB_BASE_URL=https://web.example.test/#secret",
+		"OPENCLARION_LIVE_BROWSER_WS_BASE_URL=wss://operator:secret@ws.example.test/socket?token=secret",
 		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer token with spaces",
 		"OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID=session-123",
 		"OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=1",
@@ -317,6 +591,7 @@ func TestRunRejectsBadDiagnosisLiveInputsWithoutLeakingValues(t *testing.T) {
 	for _, name := range []string{
 		"OPENCLARION_LIVE_API_BASE_URL",
 		"OPENCLARION_LIVE_WEB_BASE_URL",
+		"OPENCLARION_LIVE_BROWSER_WS_BASE_URL",
 		"OPENCLARION_LIVE_BEARER_TOKEN",
 		"OPENCLARION_IM_WEBHOOK_URL",
 		"OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT",
@@ -331,6 +606,7 @@ func TestRunRejectsBadDiagnosisLiveInputsWithoutLeakingValues(t *testing.T) {
 		"secret",
 		"api.example.test",
 		"web.example.test",
+		"ws.example.test",
 		"token with spaces",
 		"webhook.example.test",
 		"soon",
@@ -1189,6 +1465,15 @@ func contains(values []string, want string) bool {
 func invalidEnvByName(values []invalidEnv, want string) bool {
 	for _, value := range values {
 		if value.Name == want {
+			return true
+		}
+	}
+	return false
+}
+
+func missingEnvByName(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
 			return true
 		}
 	}

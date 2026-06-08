@@ -1,5 +1,6 @@
 // Command report_live_smoke_output validates `openclarion report-replay --wait`
-// JSON output for the manual live external report smoke gate.
+// or `openclarion report-policy-replay --wait` JSON output for the manual live
+// external report smoke gates.
 package main
 
 import (
@@ -43,6 +44,7 @@ type workflowResult struct {
 }
 
 type proofRequest struct {
+	PolicyID       int64  `json:"policy_id"`
 	WindowStart    string `json:"window_start"`
 	WindowEnd      string `json:"window_end"`
 	Limit          int    `json:"limit"`
@@ -255,6 +257,9 @@ func validateSnapshots(snapshots []snapshotRef) error {
 }
 
 func validateProofRequest(req proofRequest, checkedAt time.Time) error {
+	if req.PolicyID < 0 {
+		return fmt.Errorf("request.policy_id must be omitted or positive")
+	}
 	windowStart, err := parseProofTime("request.window_start", req.WindowStart)
 	if err != nil {
 		return err
