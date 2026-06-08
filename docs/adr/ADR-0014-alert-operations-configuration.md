@@ -274,8 +274,11 @@ optional report notification channel profile ID as configuration metadata.
 Report notification Activities may resolve that bound ID through a configured
 backend secret resolver and construct the Webhook IM provider at runtime. If no
 profile is bound, the existing `OPENCLARION_IM_WEBHOOK_URL` path remains the
-fallback for legacy or unbound report notifications. Workflow code carries only
-the immutable profile ID and never resolves secrets or providers.
+fallback for legacy or unbound report notifications; that fallback may set
+`OPENCLARION_IM_WEBHOOK_FORMAT=wecom` when the endpoint is a WeCom group bot
+that expects the text-message envelope instead of the default OpenClarion
+Webhook JSON. Workflow code carries only the immutable profile ID and never
+resolves secrets or providers.
 
 The operations configuration hygiene gate is part of this boundary. It scans
 the alert-operations configuration surface for non-placeholder HTTP(S) hosts,
@@ -484,3 +487,4 @@ durable state in the overview.
 | 2026-06-06 | jindyzhao | Added scheduled-trigger proof harness boundary for real Temporal Schedule action to report delivery verification |
 | 2026-06-06 | jindyzhao | Added declarative operator configuration graph and upstream API stability notes for Prometheus and Alertmanager adapters |
 | 2026-06-06 | jindyzhao | Added frontend settings overview boundary for the declarative configuration graph without browser-owned workflow or credential state |
+| 2026-06-08 | jindyzhao | Added Thanos Rule alert-list casing normalization and WeCom legacy webhook format boundary for live-proof provider compatibility |

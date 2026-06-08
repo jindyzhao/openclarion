@@ -58,6 +58,19 @@ func TestReportActivityOptionsFromEnv_ConfiguresProviders(t *testing.T) {
 	}
 }
 
+func TestReportActivityOptionsFromEnv_ConfiguresWeComWebhookProvider(t *testing.T) {
+	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_IM_WEBHOOK_URL":    "https://example.invalid/report-hook",
+		"OPENCLARION_IM_WEBHOOK_FORMAT": "wecom",
+	}), nil, nil, nil)
+	if err != nil {
+		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	}
+}
+
 func TestReportActivityOptionsFromEnv_AllowsUnconfiguredProviders(t *testing.T) {
 	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(nil), nil, nil, nil)
 	if err != nil {
@@ -154,6 +167,31 @@ func TestReportActivityOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
 				"OPENCLARION_IM_WEBHOOK_BEARER_TOKEN": "test-bearer-value",
 			},
 			wantSubstr: "OPENCLARION_IM_WEBHOOK_URL",
+		},
+		{
+			name: "webhook format without url",
+			env: map[string]string{
+				"OPENCLARION_IM_WEBHOOK_FORMAT": "wecom",
+			},
+			wantSubstr: "OPENCLARION_IM_WEBHOOK_URL",
+		},
+		{
+			name: "unsupported webhook format",
+			env: map[string]string{
+				"OPENCLARION_IM_WEBHOOK_URL":    "https://example.invalid/report-hook",
+				"OPENCLARION_IM_WEBHOOK_FORMAT": "slack",
+			},
+			wantSubstr: "unsupported format",
+		},
+		{
+			name: "wecom webhook bearer token",
+			// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+			env: map[string]string{
+				"OPENCLARION_IM_WEBHOOK_URL":          "https://example.invalid/report-hook",
+				"OPENCLARION_IM_WEBHOOK_FORMAT":       "wecom",
+				"OPENCLARION_IM_WEBHOOK_BEARER_TOKEN": "test-bearer-value",
+			},
+			wantSubstr: "bearer token is unsupported",
 		},
 	}
 

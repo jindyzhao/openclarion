@@ -40,6 +40,7 @@ import (
 const (
 	sourceName           = "prometheus"
 	maxResponseBodyBytes = 4 << 20
+	alertsAPIPath        = "/api/v1/alerts"
 )
 
 // Provider is the Prometheus-backed MetricsProvider. It is safe for
@@ -164,6 +165,11 @@ func (rt strictJSONResponseRoundTripper) RoundTrip(req *http.Request) (*http.Res
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("prometheus: validate response JSON: %w", err)
 	}
+	raw, err = normalizeAlertsAPIEnvelope(req.URL.Path, raw)
+	if err != nil {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("prometheus: normalize alerts response JSON: %w", err)
+	}
 	_ = resp.Body.Close()
 	resp.Body = io.NopCloser(bytes.NewReader(raw))
 	resp.ContentLength = int64(len(raw))
@@ -187,6 +193,47 @@ func readLimitedResponseBody(body io.Reader, limit int) ([]byte, error) {
 		return nil, fmt.Errorf("response body exceeds %d bytes", limit)
 	}
 	return raw, nil
+}
+
+func normalizeAlertsAPIEnvelope(path string, raw []byte) ([]byte, error) {
+	if path != alertsAPIPath {
+		return raw, nil
+	}
+	var top map[string]json.RawMessage
+	if !decodeJSON(raw, &top) {
+		return raw, nil
+	}
+	dataRaw, ok := top["data"]
+	if !ok {
+		return raw, nil
+	}
+	var data map[string]json.RawMessage
+	if !decodeJSON(dataRaw, &data) {
+		return raw, nil
+	}
+	if _, hasStandard := data["alerts"]; hasStandard {
+		return raw, nil
+	}
+	alerts, hasThanosRule := data["Alerts"]
+	if !hasThanosRule {
+		return raw, nil
+	}
+	data["alerts"] = alerts
+	delete(data, "Alerts")
+	normalizedData, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	top["data"] = normalizedData
+	normalized, err := json.Marshal(top)
+	if err != nil {
+		return nil, err
+	}
+	return normalized, nil
+}
+
+func decodeJSON(raw []byte, out any) bool {
+	return json.Unmarshal(raw, out) == nil
 }
 
 // ListActiveAlerts calls Prometheus's /api/v1/alerts endpoint and

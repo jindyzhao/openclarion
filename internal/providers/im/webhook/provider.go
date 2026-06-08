@@ -27,12 +27,16 @@ const (
 	headerReportID              = "X-OpenClarion-Final-Report-Id"
 	headerDiagnosisTaskID       = "X-OpenClarion-Diagnosis-Task-Id"
 	headerNotificationChannelID = "X-OpenClarion-Notification-Channel-Id"
+
+	formatGeneric = "generic"
+	formatWeCom   = "wecom"
 )
 
 // Config holds Webhook provider configuration.
 type Config struct {
 	URL         string
 	BearerToken string
+	Format      string
 	HTTPClient  *http.Client
 }
 
@@ -42,6 +46,7 @@ type Config struct {
 type Provider struct {
 	endpoint    string
 	bearerToken string
+	format      string
 	httpClient  *http.Client
 }
 
@@ -54,13 +59,22 @@ func NewProvider(cfg Config) (*Provider, error) {
 	if err != nil {
 		return nil, err
 	}
+	format, err := normalizeFormat(cfg.Format)
+	if err != nil {
+		return nil, err
+	}
+	bearerToken := strings.TrimSpace(cfg.BearerToken)
+	if format == formatWeCom && bearerToken != "" {
+		return nil, fmt.Errorf("webhook im: bearer token is unsupported for wecom format")
+	}
 	client := cfg.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: defaultTimeout, Transport: correlation.RoundTripper(nil)}
 	}
 	return &Provider{
 		endpoint:    endpoint,
-		bearerToken: strings.TrimSpace(cfg.BearerToken),
+		bearerToken: bearerToken,
+		format:      format,
 		httpClient:  client,
 	}, nil
 }
@@ -74,6 +88,9 @@ func (p *Provider) SendNotification(ctx context.Context, req ports.IMNotificatio
 	}
 	if err := validateNotification(req); err != nil {
 		return ports.IMDelivery{}, err
+	}
+	if p.format == formatWeCom {
+		return p.sendWeComNotification(ctx, req)
 	}
 	payload := webhookPayload{
 		IdempotencyKey:        req.IdempotencyKey,
@@ -145,6 +162,65 @@ func (p *Provider) SendNotification(ctx context.Context, req ports.IMNotificatio
 	return delivery, nil
 }
 
+func (p *Provider) sendWeComNotification(ctx context.Context, req ports.IMNotification) (ports.IMDelivery, error) {
+	payload := weComPayload{
+		MsgType: formatWeComText,
+		Text: weComText{
+			Content: weComTextContent(req),
+		},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ports.IMDelivery{}, fmt.Errorf("webhook im: marshal wecom payload: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, p.endpoint, bytes.NewReader(raw))
+	if err != nil {
+		return ports.IMDelivery{}, fmt.Errorf("webhook im: build wecom request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := p.httpClient.Do(httpReq)
+	if err != nil {
+		return ports.IMDelivery{}, &ports.IMError{
+			Message:   fmt.Sprintf("webhook im: post wecom notification: %v", err),
+			Retryable: true,
+		}
+	}
+	defer resp.Body.Close()
+
+	rawBody, err := readResponseBody(resp.Body)
+	if err != nil {
+		retryable := true
+		var tooLarge responseBodyTooLargeError
+		if errors.As(err, &tooLarge) {
+			retryable = resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
+		}
+		return ports.IMDelivery{}, &ports.IMError{
+			Message:    fmt.Sprintf("webhook im: read wecom response: %v", err),
+			StatusCode: resp.StatusCode,
+			Retryable:  retryable,
+		}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return ports.IMDelivery{}, statusError(resp.StatusCode, rawBody)
+	}
+	delivery, err := deliveryFromWeComResponse(rawBody)
+	if err != nil {
+		var imErr *ports.IMError
+		if errors.As(err, &imErr) {
+			imErr.StatusCode = resp.StatusCode
+			return ports.IMDelivery{}, imErr
+		}
+		return ports.IMDelivery{}, &ports.IMError{
+			Message:    err.Error(),
+			StatusCode: resp.StatusCode,
+			Retryable:  false,
+		}
+	}
+	return delivery, nil
+}
+
 type responseBodyTooLargeError struct {
 	limit int
 }
@@ -185,6 +261,18 @@ func normalizeEndpoint(raw string) (string, error) {
 	}
 	parsed.Fragment = ""
 	return parsed.String(), nil
+}
+
+func normalizeFormat(raw string) (string, error) {
+	format := strings.ToLower(strings.TrimSpace(raw))
+	switch format {
+	case "", formatGeneric:
+		return formatGeneric, nil
+	case formatWeCom:
+		return formatWeCom, nil
+	default:
+		return "", fmt.Errorf("webhook im: unsupported format %q", format)
+	}
 }
 
 func validateNotification(req ports.IMNotification) error {
@@ -259,4 +347,68 @@ type webhookPayload struct {
 type webhookResponse struct {
 	MessageID string `json:"message_id"`
 	Status    string `json:"status"`
+}
+
+const formatWeComText = "text"
+
+type weComPayload struct {
+	MsgType string    `json:"msgtype"`
+	Text    weComText `json:"text"`
+}
+
+type weComText struct {
+	Content string `json:"content"`
+}
+
+type weComResponse struct {
+	ErrCode *int   `json:"errcode"`
+	ErrMsg  string `json:"errmsg"`
+}
+
+func weComTextContent(req ports.IMNotification) string {
+	lines := []string{strings.TrimSpace(req.Title)}
+	if severity := strings.TrimSpace(req.Severity); severity != "" {
+		lines = append(lines, "Severity: "+severity)
+	}
+	if correlationKey := strings.TrimSpace(req.CorrelationKey); correlationKey != "" {
+		lines = append(lines, "Correlation: "+correlationKey)
+	}
+	lines = append(lines, strings.TrimSpace(req.Body))
+	return strings.Join(lines, "\n")
+}
+
+func deliveryFromWeComResponse(raw []byte) (ports.IMDelivery, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return ports.IMDelivery{}, fmt.Errorf("webhook im: decode wecom response: response body must be a JSON object")
+	}
+	if err := strictjson.RejectDuplicateObjectKeys(trimmed); err != nil {
+		return ports.IMDelivery{}, fmt.Errorf("webhook im: decode wecom response: %w", err)
+	}
+	if trimmed[0] != '{' {
+		return ports.IMDelivery{}, fmt.Errorf("webhook im: decode wecom response: response envelope must be a JSON object")
+	}
+	var out weComResponse
+	if err := json.Unmarshal(trimmed, &out); err != nil {
+		return ports.IMDelivery{}, fmt.Errorf("webhook im: decode wecom response: %w", err)
+	}
+	if out.ErrCode == nil {
+		return ports.IMDelivery{}, fmt.Errorf("webhook im: decode wecom response: errcode must be present")
+	}
+	if *out.ErrCode != 0 {
+		message := fmt.Sprintf("webhook im: wecom returned errcode %d", *out.ErrCode)
+		if errMsg := strings.TrimSpace(out.ErrMsg); errMsg != "" {
+			message = message + ": " + errMsg
+		}
+		return ports.IMDelivery{}, &ports.IMError{
+			Message:   message,
+			Retryable: *out.ErrCode == 45009,
+		}
+	}
+	rawCopy := make(json.RawMessage, len(trimmed))
+	copy(rawCopy, trimmed)
+	return ports.IMDelivery{
+		Status: "delivered",
+		Raw:    rawCopy,
+	}, nil
 }

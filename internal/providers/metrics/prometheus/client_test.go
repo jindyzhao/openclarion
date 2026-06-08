@@ -115,6 +115,46 @@ func TestProvider_ListActiveAlerts_FiltersFiringOnly(t *testing.T) {
 	}
 }
 
+func TestProvider_ListActiveAlerts_AcceptsThanosRuleAlertsCasing(t *testing.T) {
+	const thanosRuleEnvelope = `{
+  "status": "success",
+  "data": {
+    "Alerts": [
+      {
+        "labels":      {"alertname": "HighCPU", "instance": "i-1"},
+        "annotations": {"summary": "cpu high"},
+        "state":       "firing",
+        "activeAt":    "2026-06-08T01:24:35.000000000Z",
+        "value":       "1e+00"
+      }
+    ]
+  }
+}`
+	srv := newAlertsServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(thanosRuleEnvelope))
+	})
+
+	p, err := NewProvider(srv.URL)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	got, err := p.ListActiveAlerts(context.Background())
+	if err != nil {
+		t.Fatalf("ListActiveAlerts: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+	if got[0].Labels["alertname"] != "HighCPU" {
+		t.Fatalf("alertname = %q, want HighCPU", got[0].Labels["alertname"])
+	}
+	wantStartsAt := mustParseTime(t, time.RFC3339Nano, "2026-06-08T01:24:35.000000000Z")
+	if !got[0].StartsAt.Equal(wantStartsAt) {
+		t.Fatalf("StartsAt = %v, want %v", got[0].StartsAt, wantStartsAt)
+	}
+}
+
 func TestNewProvider_RejectsAddressUserinfo(t *testing.T) {
 	credentialedURL := func(password string) string {
 		return (&url.URL{

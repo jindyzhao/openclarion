@@ -22,7 +22,9 @@ The configuration path follows the current upstream API semantics:
   documentation notes that this endpoint is newer and has weaker stability
   guarantees than the broader API v1 surface, so OpenClarion treats it as an
   adapter-specific connection-test capability rather than a broad provider
-  compatibility claim.
+  compatibility claim. The backend normalizes Thanos Rule `data.Alerts`
+  casing on that endpoint into the standard `data.alerts` shape before the
+  Prometheus client parses the envelope.
 - Alertmanager connection tests use `GET /api/v2/alerts` with active-alert
   filtering. Alertmanager webhook ingestion uses the version 4 grouped webhook
   payload shape with top-level group metadata and per-alert labels,
@@ -176,7 +178,7 @@ state.
 | Output retention | `REPORT_POLICY_LIVE_SMOKE_OUTPUT` or `REPORT_SCHEDULE_LIVE_SMOKE_OUTPUT` pointing at a new local JSON proof path |
 | Worker LLM | `OPENCLARION_LLM_MODEL` plus the deployment's `OPENCLARION_LLM_*` provider settings, unless an externally managed worker is already verified |
 | Alert source secrets | `OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON` when configured profiles need bearer tokens |
-| Notification delivery | `OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON` for profile-bound delivery, or `OPENCLARION_IM_WEBHOOK_URL` for legacy unbound delivery |
+| Notification delivery | `OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON` for profile-bound delivery, or `OPENCLARION_IM_WEBHOOK_URL` for legacy unbound delivery; set `OPENCLARION_IM_WEBHOOK_FORMAT=wecom` for WeCom group bot endpoints |
 | Worker assertion | `REPORT_LIVE_SMOKE_ASSUME_WORKER_READY=1` only after the operator has verified the worker already has the required LLM and notification wiring |
 
 ## Proof Commands

@@ -79,6 +79,54 @@ func TestSendNotification_PostsJSONWithHeaders(t *testing.T) {
 	}
 }
 
+func TestSendNotification_PostsWeComTextPayload(t *testing.T) {
+	var gotPayload weComPayload
+	var gotIDKey, gotReportID, gotAuth, gotContentType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		gotIDKey = r.Header.Get(headerIdempotencyKey)
+		gotReportID = r.Header.Get(headerReportID)
+		gotAuth = r.Header.Get("Authorization")
+		gotContentType = r.Header.Get("Content-Type")
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+	}))
+	defer srv.Close()
+
+	p, err := NewProvider(Config{URL: srv.URL + "/notify#fragment", Format: "wecom"})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	delivery, err := p.SendNotification(context.Background(), validNotification())
+	if err != nil {
+		t.Fatalf("SendNotification: %v", err)
+	}
+	if gotIDKey != "" || gotReportID != "" || gotAuth != "" {
+		t.Fatalf("unexpected OpenClarion headers idempotency=%q report=%q auth=%q", gotIDKey, gotReportID, gotAuth)
+	}
+	if !strings.HasPrefix(gotContentType, "application/json") {
+		t.Fatalf("Content-Type = %q", gotContentType)
+	}
+	if gotPayload.MsgType != "text" {
+		t.Fatalf("msgtype = %q, want text", gotPayload.MsgType)
+	}
+	wantContent := "Payments degradation\nSeverity: warning\nCorrelation: window-1\nScale payments."
+	if gotPayload.Text.Content != wantContent {
+		t.Fatalf("content = %q, want %q", gotPayload.Text.Content, wantContent)
+	}
+	if delivery.ProviderMessageID != "" || delivery.Status != "delivered" {
+		t.Fatalf("delivery = %+v", delivery)
+	}
+	if string(delivery.Raw) != `{"errcode":0,"errmsg":"ok"}` {
+		t.Fatalf("delivery.Raw = %s", delivery.Raw)
+	}
+}
+
 func TestSendNotification_PostsDiagnosisTaskNotification(t *testing.T) {
 	var gotPayload webhookPayload
 	var gotReportID, gotDiagnosisTaskID string
@@ -203,6 +251,58 @@ func TestSendNotification_PreservesUnknownSuccessResponseMetadata(t *testing.T) 
 	}
 }
 
+func TestSendNotification_WeComRejectsNonzeroErrCode(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		retryable bool
+		want      string
+	}{
+		{
+			name: "invalid bot",
+			body: `{"errcode":93000,"errmsg":"invalid bot"}`,
+			want: "errcode 93000",
+		},
+		{
+			name:      "rate limited",
+			body:      `{"errcode":45009,"errmsg":"rate limited"}`,
+			retryable: true,
+			want:      "errcode 45009",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			p, err := NewProvider(Config{URL: srv.URL, Format: "wecom"})
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			_, err = p.SendNotification(context.Background(), validNotification())
+			if err == nil {
+				t.Fatal("SendNotification err = nil, want wecom errcode error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want substring %q", err, tc.want)
+			}
+			var imErr *ports.IMError
+			if !errors.As(err, &imErr) {
+				t.Fatalf("err = %T %v, want *ports.IMError", err, err)
+			}
+			if imErr.StatusCode != http.StatusOK {
+				t.Fatalf("IMError.StatusCode = %d, want %d", imErr.StatusCode, http.StatusOK)
+			}
+			if imErr.Retryable != tc.retryable {
+				t.Fatalf("IMError.Retryable = %v, want %v", imErr.Retryable, tc.retryable)
+			}
+		})
+	}
+}
+
 func TestSendNotification_RejectsAmbiguousSuccessResponse(t *testing.T) {
 	tests := []struct {
 		name string
@@ -234,6 +334,66 @@ func TestSendNotification_RejectsAmbiguousSuccessResponse(t *testing.T) {
 			defer srv.Close()
 
 			p, err := NewProvider(Config{URL: srv.URL})
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			_, err = p.SendNotification(context.Background(), validNotification())
+			if err == nil {
+				t.Fatal("SendNotification err = nil, want ambiguous response error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want substring %q", err, tc.want)
+			}
+			var imErr *ports.IMError
+			if !errors.As(err, &imErr) {
+				t.Fatalf("err = %T %v, want *ports.IMError", err, err)
+			}
+			if imErr.StatusCode != http.StatusOK {
+				t.Fatalf("IMError.StatusCode = %d, want %d", imErr.StatusCode, http.StatusOK)
+			}
+			if imErr.Retryable {
+				t.Fatalf("IMError.Retryable = true, want false for malformed 2xx response")
+			}
+		})
+	}
+}
+
+func TestSendNotification_WeComRejectsAmbiguousSuccessResponse(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "duplicate key",
+			body: `{"errcode":0,"errcode":93000,"errmsg":"ok"}`,
+			want: `duplicate object key "errcode"`,
+		},
+		{
+			name: "trailing value",
+			body: `{"errcode":0,"errmsg":"ok"} {"errcode":93000}`,
+			want: "trailing JSON values",
+		},
+		{
+			name: "non object envelope",
+			body: `[{"errcode":0}]`,
+			want: "response envelope must be a JSON object",
+		},
+		{
+			name: "missing errcode",
+			body: `{}`,
+			want: "errcode must be present",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			p, err := NewProvider(Config{URL: srv.URL, Format: "wecom"})
 			if err != nil {
 				t.Fatalf("NewProvider: %v", err)
 			}
@@ -375,6 +535,43 @@ func TestNewProvider_RejectsInvalidURL(t *testing.T) {
 			}
 			if tc.wantNot != "" && strings.Contains(err.Error(), tc.wantNot) {
 				t.Fatalf("NewProvider(%q) error = %v, must not contain %q", tc.raw, err, tc.wantNot)
+			}
+		})
+	}
+}
+
+func TestNewProvider_RejectsInvalidFormatConfig(t *testing.T) {
+	tests := []struct {
+		name       string
+		cfg        Config
+		wantSubstr string
+	}{
+		{
+			name:       "unsupported format",
+			cfg:        Config{URL: "https://example.invalid/report-hook", Format: "slack"},
+			wantSubstr: "unsupported format",
+		},
+		{
+			name: "wecom bearer token",
+			cfg: Config{
+				URL:         "https://example.invalid/report-hook",
+				Format:      "wecom",
+				BearerToken: "test-bearer-value",
+			},
+			wantSubstr: "bearer token is unsupported",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewProvider(tc.cfg)
+			if err == nil {
+				t.Fatal("NewProvider err = nil, want config error")
+			}
+			if !strings.Contains(err.Error(), tc.wantSubstr) {
+				t.Fatalf("err = %v, want substring %q", err, tc.wantSubstr)
+			}
+			if strings.Contains(err.Error(), "test-bearer-value") {
+				t.Fatalf("NewProvider error leaked bearer token: %v", err)
 			}
 		})
 	}

@@ -365,22 +365,28 @@ func reportActivityOptionsFromEnv(
 	imConfigured := anyEnv(getenv,
 		"OPENCLARION_IM_WEBHOOK_URL",
 		"OPENCLARION_IM_WEBHOOK_BEARER_TOKEN",
+		"OPENCLARION_IM_WEBHOOK_FORMAT",
 	)
 	if imConfigured {
 		url := strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_URL"))
 		if url == "" {
 			return nil, fmt.Errorf("OPENCLARION_IM_WEBHOOK_URL is required when configuring the report IM provider")
 		}
+		format := strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_FORMAT"))
 		provider, err := imwebhook.NewProvider(imwebhook.Config{
 			URL:         url,
 			BearerToken: strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_BEARER_TOKEN")),
+			Format:      format,
 			HTTPClient:  outboundHTTPClient(httpTracing, 10*time.Second),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("configure report IM provider: %w", err)
 		}
 		opts = append(opts, temporalpkg.WithIMProvider(provider))
-		logger.Info("configured report IM provider", "provider", "webhook")
+		if format == "" {
+			format = "generic"
+		}
+		logger.Info("configured report IM provider", "provider", "webhook", "format", strings.ToLower(format))
 	}
 
 	notificationChannelSecretResolver, err := notificationChannelSecretResolverFromEnv(getenv)
