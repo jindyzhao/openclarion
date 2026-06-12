@@ -9,7 +9,8 @@ import {
   FileTextOutlined,
   MessageOutlined,
   PartitionOutlined,
-  SettingOutlined
+  SettingOutlined,
+  ToolOutlined
 } from "@ant-design/icons";
 import { Layout, Menu, Typography } from "antd";
 import type { MenuProps } from "antd";
@@ -25,6 +26,7 @@ type ReportShellProps = {
     | "settings"
     | "sources"
     | "grouping"
+    | "tools"
     | "workflow"
     | "schedules"
     | "channels";
@@ -60,6 +62,11 @@ const navItems: MenuProps["items"] = [
     icon: <PartitionOutlined aria-label="Grouping navigation icon" />,
     key: "grouping",
     label: <Link href="/settings/grouping-policies">Grouping</Link>
+  },
+  {
+    icon: <ToolOutlined aria-label="Tools navigation icon" />,
+    key: "tools",
+    label: <Link href="/settings/diagnosis-tool-templates">Tools</Link>
   },
   {
     icon: <BranchesOutlined aria-label="Workflow navigation icon" />,

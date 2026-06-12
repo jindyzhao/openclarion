@@ -1,6 +1,7 @@
 import { ReportShell } from "@/features/reports/report-shell";
 import { fetchAlertSourceProfiles } from "@/features/settings/alert-sources/api";
 import { fetchGroupingPolicies } from "@/features/settings/grouping-policies/api";
+import { fetchDiagnosisToolTemplates } from "@/features/settings/diagnosis-tool-templates/api";
 import { fetchNotificationChannelProfiles } from "@/features/settings/notification-channels/api";
 import { SettingsOverview } from "@/features/settings/overview/settings-overview";
 import { fetchReportWorkflowPolicies } from "@/features/settings/report-workflow-policies/api";
@@ -9,10 +10,11 @@ import { fetchReportWorkflowSchedules } from "@/features/settings/report-workflo
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const [alertSources, groupingPolicies, notificationChannels, workflowPolicies, workflowSchedules] =
+  const [alertSources, groupingPolicies, diagnosisToolTemplates, notificationChannels, workflowPolicies, workflowSchedules] =
     await Promise.all([
       fetchAlertSourceProfiles(),
       fetchGroupingPolicies(),
+      fetchDiagnosisToolTemplates(),
       fetchNotificationChannelProfiles(),
       fetchReportWorkflowPolicies(),
       fetchReportWorkflowSchedules()
@@ -21,6 +23,7 @@ export default async function SettingsPage() {
   const counts = {
     alertSources: alertSources.ok ? alertSources.data.items.length : null,
     groupingPolicies: groupingPolicies.ok ? groupingPolicies.data.items.length : null,
+    diagnosisToolTemplates: diagnosisToolTemplates.ok ? diagnosisToolTemplates.data.items.length : null,
     notificationChannels: notificationChannels.ok ? notificationChannels.data.items.length : null,
     workflowPolicies: workflowPolicies.ok ? workflowPolicies.data.items.length : null,
     workflowSchedules: workflowSchedules.ok ? workflowSchedules.data.items.length : null

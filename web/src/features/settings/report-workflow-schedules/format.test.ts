@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   emptyReportWorkflowScheduleForm,
   formStateToWriteRequest,
-  formatDurationSeconds,
   scheduleToFormState
 } from "./format";
+import { formatDurationSeconds } from "../format";
 
 describe("report workflow schedule formatting", () => {
   it("builds write requests from validated form state", () => {

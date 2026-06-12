@@ -10,7 +10,8 @@ import {
   ExperimentOutlined,
   PartitionOutlined,
   PlayCircleOutlined,
-  RadarChartOutlined
+  RadarChartOutlined,
+  ToolOutlined
 } from "@ant-design/icons";
 import { Alert, Button, Card, Col, Row, Space, Steps, Tag, Typography } from "antd";
 import type { ReactNode } from "react";
@@ -18,6 +19,7 @@ import type { ReactNode } from "react";
 type SettingsOverviewCounts = {
   alertSources: number | null;
   groupingPolicies: number | null;
+  diagnosisToolTemplates: number | null;
   notificationChannels: number | null;
   workflowPolicies: number | null;
   workflowSchedules: number | null;
@@ -62,6 +64,14 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
       title: "Grouping"
     },
     {
+      count: counts.diagnosisToolTemplates,
+      countLabel: "templates",
+      href: "/settings/diagnosis-tool-templates",
+      icon: <ToolOutlined aria-hidden="true" />,
+      key: "tools",
+      title: "Diagnosis tools"
+    },
+    {
       count: counts.notificationChannels,
       countLabel: "channels",
       href: "/settings/notification-channels",
@@ -92,7 +102,7 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
   const allConfigurationPresent = nextStage === null;
   const proofTargets: ProofTarget[] = [
     {
-      evidence: ["PostgreSQL", "Temporal", "Alert source", "LLM", "Notification"],
+      evidence: ["PostgreSQL", "Temporal", "Alert source", "Tool template", "LLM", "Notification"],
       icon: <PlayCircleOutlined aria-hidden="true" />,
       key: "policy-replay",
       title: "Policy replay"

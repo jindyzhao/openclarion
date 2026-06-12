@@ -50,6 +50,7 @@ test("settings overview route renders the alert operations configuration graph",
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await expect(page.getByLabel("Alert operations configuration sequence")).toContainText("Source");
   await expect(page.getByLabel("Settings surfaces")).toContainText("Alert sources");
+  await expect(page.getByLabel("Settings surfaces")).toContainText("Diagnosis tools");
   await expect(page.getByLabel("Settings surfaces")).toContainText("Workflow policies");
   await expect(page.getByLabel("Next setup stage")).toContainText("Retained live proof");
   await expect(page.getByLabel("Next setup stage")).toContainText("Proof pending");
@@ -188,6 +189,37 @@ test("report workflow schedule settings route creates and toggles schedules", as
   await scheduleRow.getByRole("button", { name: "Disable" }).click();
   await expect(page.getByRole("status")).toContainText("Schedule disabled.");
   await expect(scheduleRow).toContainText("Draft");
+});
+
+test("diagnosis tool template settings route creates and toggles templates", async ({ page }) => {
+  await page.goto("/settings/diagnosis-tool-templates");
+
+  await expect(page.getByRole("heading", { name: "Diagnosis Tools" })).toBeVisible();
+  await expect(page.getByText("CPU saturation range")).toBeVisible();
+
+  const settingsForm = page.locator("form");
+  await page.getByLabel("Name").fill("Memory pressure range");
+  await page.getByLabel("Alert source ID").fill("1");
+  await settingsForm.getByText("Range", { exact: true }).click();
+  await page.getByLabel("Query template").fill("container_memory_working_set_bytes");
+  await page.getByLabel("Default limit").fill("5");
+  await page.getByLabel("Step seconds").fill("60");
+  await page.getByLabel("Default window seconds").fill("3600");
+  await page.getByLabel("Max window seconds").fill("21600");
+  await settingsForm.getByRole("button", { name: "Save Template" }).click();
+
+  await expect(page.getByRole("status")).toContainText("Template saved.");
+  const templateRow = page.getByRole("row", { name: /Memory pressure range/ });
+  await expect(templateRow).toContainText("Range metric");
+  await expect(templateRow).toContainText("Draft");
+
+  await templateRow.getByRole("button", { name: "Enable" }).click();
+  await expect(page.getByRole("status")).toContainText("Template enabled.");
+  await expect(templateRow).toContainText("Enabled");
+
+  await templateRow.getByRole("button", { name: "Disable" }).click();
+  await expect(page.getByRole("status")).toContainText("Template disabled.");
+  await expect(templateRow).toContainText("Draft");
 });
 
 test("notification channel settings route lists and creates channels", async ({ page }) => {
