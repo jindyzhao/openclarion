@@ -40,6 +40,7 @@
 #   make go-toolchain-check # validate Go version declarations across modules, lint, and workflows
 #   make shell-syntax-check # validate tracked shell scripts with bash -n
 #   make yaml-syntax-check # validate tracked YAML syntax and weak-feature policy
+#   make openclarion-release-build # build OpenClarion release binary into an ignored or external path
 #   make generated-headers # validate generated file headers
 #   make generate-fresh   # validate make generate freshness and idempotence
 #   make go-licenses-check # validate Go dependency license allowlist
@@ -73,6 +74,8 @@
 #   make diagnosis-room-workflow-test # M5 Temporal room workflow/client and lifecycle activity tests
 #   make diagnosis-auth-test # M5 AuthProvider/OIDC/RBAC/WS ticket boundary + persistence + transport relay tests
 #   make diagnosis-live-smoke-output-test # M5 live browser smoke proof validator tests
+#   make stage5-local-worker-check # manual M5 local worker readiness check
+#   make stage5-local-worker # manual M5 local worker/API process from private env
 #   make container-provider-smoke # manual M4 smoke: real Docker Provider.Run lifecycle
 #   make container-provider-timeout-smoke # manual M4 smoke: real Docker timeout cleanup
 #   make container-provider-output-cap-smoke # manual M4 smoke: real Docker output cap
@@ -149,7 +152,7 @@ MIGRATIONS_DIR := internal/persistence/migrations
 
 help: ## Show this help
 	@awk 'BEGIN { FS = ":.*?## "; printf "Targets:\n" } \
-		/^[a-zA-Z_-]+:.*?## / { printf "  %-22s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+		/^[a-zA-Z][a-zA-Z0-9_-]+:.*?## / { printf "  %-22s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
 	@go run ./scripts/pr_budget --budget "$(PR_BUDGET)" --mode "$(PR_BUDGET_MODE)" -- $(MAKE) ci
@@ -391,7 +394,7 @@ osv-scan: ## Detect known vulnerabilities in npm package-lock files
 # Go gates (activated at M0 bootstrap)
 # ---------------------------------------------------------------------------
 
-.PHONY: generated-headers generate generate-fresh go-vet go-build go-test go-coverage temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-m4-baseline-audit sandbox-quality-compare-test sandbox-m4-subreport-generate sandbox-m4-quality-sample-export sandbox-m4-quality-manifest-prepare sandbox-m4-quality-compare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
+.PHONY: generated-headers generate generate-fresh go-vet go-build openclarion-release-build go-test go-coverage temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-m4-baseline-audit sandbox-quality-compare-test sandbox-m4-subreport-generate sandbox-m4-quality-sample-export sandbox-m4-quality-manifest-prepare sandbox-m4-quality-compare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
 
 generated-headers: ## Validate generated files carry generator headers
 	@bash scripts/check_generated_headers.sh
@@ -420,6 +423,9 @@ go-vet: ## Run go vet
 
 go-build: ## Compile all packages
 	@go build $(GO_CHECK_PACKAGES)
+
+openclarion-release-build: ## Build OpenClarion release binary into an ignored or external path
+	@go run ./scripts/openclarion_release_build
 
 go-test: ## Run all tests
 	@go test -race -count=1 $(GO_CHECK_PACKAGES)
@@ -654,7 +660,7 @@ frontend-checks: frontend-install ci-frontend-typecheck ci-frontend-lint ci-fron
 # See ADR-0001 (PostgreSQL single source of truth) and
 # docs/design/database/migrations.md.
 
-.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke sandbox-m4-runtime-smoke-artifacts diagnosis-dev-oidc-issuer
+.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke sandbox-m4-runtime-smoke-artifacts diagnosis-dev-oidc-issuer stage5-local-worker-check stage5-local-worker
 
 ent-generate: ## Regenerate ent client + entity code from schemas under internal/persistence/ent/schema
 	@go generate $(ENT_PKG)/...
@@ -731,6 +737,12 @@ sandbox-m4-runtime-smoke-artifacts: ## Manual M4 smoke bundle: retain canonical 
 
 diagnosis-dev-oidc-issuer: ## Manual M5 helper: local OIDC issuer and short-lived token endpoint
 	@go run ./scripts/dev_oidc_issuer $(ARGS)
+
+stage5-local-worker-check: ## Manual M5 helper: validate private env and runtime prerequisites for local worker
+	@bash scripts/run_stage5_local_worker.sh --check-only
+
+stage5-local-worker: ## Manual M5 helper: run current API and diagnosis worker from a private env file
+	@bash scripts/run_stage5_local_worker.sh
 
 # Future gates are tracked in docs/design/ci/README.md, not as inactive
 # Makefile placeholders. Add a target here only when its script/tool,

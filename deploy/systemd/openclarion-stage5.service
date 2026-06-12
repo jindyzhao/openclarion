@@ -1,0 +1,37 @@
+[Unit]
+Description=OpenClarion Stage 5 API and diagnosis worker
+Documentation=file:/opt/openclarion/current/deploy/systemd/README.md
+Wants=network-online.target docker.service
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=openclarion
+Group=openclarion
+SupplementaryGroups=docker
+WorkingDirectory=/opt/openclarion/current
+Environment=OPENCLARION_STAGE5_WORKER_ENV_FILE=/etc/openclarion/openclarion-stage5.env
+Environment=OPENCLARION_STAGE5_WORKER_BINARY=/opt/openclarion/bin/openclarion
+ExecStartPre=/usr/bin/make --no-print-directory stage5-local-worker-check
+ExecStart=/usr/bin/make --no-print-directory stage5-local-worker
+Restart=on-failure
+RestartSec=10s
+TimeoutStartSec=120s
+TimeoutStopSec=45s
+KillSignal=SIGTERM
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectHome=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectSystem=strict
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+ReadWritePaths=/run/docker.sock /var/run/docker.sock /tmp /var/tmp
+
+[Install]
+WantedBy=multi-user.target
