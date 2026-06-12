@@ -179,6 +179,26 @@ const reportWorkflowSchedules = [
   }
 ];
 
+let nextDiagnosisToolTemplateID = 2;
+const diagnosisToolTemplates = [
+  {
+    id: 1,
+    name: "CPU saturation range",
+    alert_source_profile_id: 1,
+    tool: "metric_range_query",
+    query_template: "rate(container_cpu_usage_seconds_total[5m])",
+    default_limit: 5,
+    default_window_seconds: 3600,
+    max_window_seconds: 21600,
+    default_step_seconds: 60,
+    enabled: false,
+    enabled_at: null,
+    disabled_at: null,
+    created_at: "2026-06-08T08:00:00Z",
+    updated_at: "2026-06-08T08:00:00Z"
+  }
+];
+
 let nextNotificationChannelID = 2;
 const notificationChannels = [
   {
@@ -217,6 +237,10 @@ const server = createServer((request, response) => {
   }
   if (url.pathname === "/api/v1/config/report-workflow-schedules") {
     handleReportWorkflowScheduleCollection(request, response);
+    return;
+  }
+  if (url.pathname === "/api/v1/config/diagnosis-tool-templates") {
+    handleDiagnosisToolTemplateCollection(request, response);
     return;
   }
   if (url.pathname === "/api/v1/config/notification-channels") {
@@ -312,6 +336,35 @@ const server = createServer((request, response) => {
   const reportWorkflowScheduleMatch = url.pathname.match(/^\/api\/v1\/config\/report-workflow-schedules\/(\d+)$/);
   if (reportWorkflowScheduleMatch) {
     handleReportWorkflowSchedule(request, response, Number.parseInt(reportWorkflowScheduleMatch[1], 10));
+    return;
+  }
+  const diagnosisToolTemplateEnableMatch = url.pathname.match(
+    /^\/api\/v1\/config\/diagnosis-tool-templates\/(\d+)\/enable$/
+  );
+  if (diagnosisToolTemplateEnableMatch) {
+    handleDiagnosisToolTemplateEnablement(
+      request,
+      response,
+      Number.parseInt(diagnosisToolTemplateEnableMatch[1], 10),
+      true
+    );
+    return;
+  }
+  const diagnosisToolTemplateDisableMatch = url.pathname.match(
+    /^\/api\/v1\/config\/diagnosis-tool-templates\/(\d+)\/disable$/
+  );
+  if (diagnosisToolTemplateDisableMatch) {
+    handleDiagnosisToolTemplateEnablement(
+      request,
+      response,
+      Number.parseInt(diagnosisToolTemplateDisableMatch[1], 10),
+      false
+    );
+    return;
+  }
+  const diagnosisToolTemplateMatch = url.pathname.match(/^\/api\/v1\/config\/diagnosis-tool-templates\/(\d+)$/);
+  if (diagnosisToolTemplateMatch) {
+    handleDiagnosisToolTemplate(request, response, Number.parseInt(diagnosisToolTemplateMatch[1], 10));
     return;
   }
   const notificationChannelTestMatch = url.pathname.match(/^\/api\/v1\/config\/notification-channels\/(\d+)\/test$/);
@@ -1009,6 +1062,106 @@ function reportWorkflowScheduleFromBody(id, body, createdAt = "2026-06-06T02:02:
     replay_delay_seconds: Number.parseInt(String(body.replay_delay_seconds ?? "0"), 10),
     replay_limit: Number.parseInt(String(body.replay_limit ?? "0"), 10),
     catchup_window_seconds: Number.parseInt(String(body.catchup_window_seconds ?? "0"), 10),
+    enabled: false,
+    enabled_at: null,
+    disabled_at: null,
+    created_at: createdAt,
+    updated_at: now
+  };
+}
+
+function handleDiagnosisToolTemplateCollection(request, response) {
+  if (request.method === "GET") {
+    writeJSON(response, 200, { items: diagnosisToolTemplates });
+    return;
+  }
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const template = diagnosisToolTemplateFromBody(nextDiagnosisToolTemplateID, body);
+      nextDiagnosisToolTemplateID += 1;
+      diagnosisToolTemplates.unshift(template);
+      writeJSON(response, 201, template);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function handleDiagnosisToolTemplate(request, response, templateID) {
+  if (request.method !== "PUT") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  readJSON(request)
+    .then((body) => {
+      const index = diagnosisToolTemplates.findIndex((template) => template.id === templateID);
+      if (index < 0) {
+        writeJSON(response, 404, { error: "diagnosis tool template not found" });
+        return;
+      }
+      const current = diagnosisToolTemplates[index];
+      const template = {
+        ...diagnosisToolTemplateFromBody(templateID, body, current.created_at),
+        enabled: current.enabled,
+        enabled_at: current.enabled_at,
+        disabled_at: current.disabled_at
+      };
+      diagnosisToolTemplates[index] = template;
+      writeJSON(response, 200, template);
+    })
+    .catch((error) => {
+      writeJSON(response, 400, { error: error instanceof Error ? error.message : "invalid JSON" });
+    });
+}
+
+function handleDiagnosisToolTemplateEnablement(request, response, templateID, enabled) {
+  if (request.method !== "POST") {
+    writeJSON(response, 405, { error: "method not allowed" });
+    return;
+  }
+  const index = diagnosisToolTemplates.findIndex((template) => template.id === templateID);
+  if (index < 0) {
+    writeJSON(response, 404, { error: "diagnosis tool template not found" });
+    return;
+  }
+  const template = diagnosisToolTemplates[index];
+  if (enabled) {
+    const source = alertSources.find((item) => item.id === template.alert_source_profile_id);
+    if (!source?.enabled || source.kind !== "prometheus") {
+      writeJSON(response, 400, {
+        error: "diagnosis tool template: bound Prometheus alert source must be enabled before template enablement"
+      });
+      return;
+    }
+  }
+  const now = "2026-06-08T08:05:00Z";
+  const updated = {
+    ...template,
+    enabled,
+    enabled_at: enabled ? now : null,
+    disabled_at: enabled ? null : now,
+    updated_at: now
+  };
+  diagnosisToolTemplates[index] = updated;
+  writeJSON(response, 200, updated);
+}
+
+function diagnosisToolTemplateFromBody(id, body, createdAt = "2026-06-08T08:02:00Z") {
+  const now = "2026-06-08T08:03:00Z";
+  return {
+    id,
+    name: String(body.name ?? ""),
+    alert_source_profile_id: Number.parseInt(String(body.alert_source_profile_id ?? "0"), 10),
+    tool: ["active_alerts", "metric_query", "metric_range_query"].includes(body.tool) ? body.tool : "active_alerts",
+    query_template: String(body.query_template ?? ""),
+    default_limit: Number.parseInt(String(body.default_limit ?? "0"), 10),
+    default_window_seconds: Number.parseInt(String(body.default_window_seconds ?? "0"), 10),
+    max_window_seconds: Number.parseInt(String(body.max_window_seconds ?? "0"), 10),
+    default_step_seconds: Number.parseInt(String(body.default_step_seconds ?? "0"), 10),
     enabled: false,
     enabled_at: null,
     disabled_at: null,

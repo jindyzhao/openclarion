@@ -30,7 +30,7 @@ import { useMemo, useState } from "react";
 
 import type { ApiResult } from "@/lib/api/client";
 
-import { formatDateTime } from "../format";
+import { formatDateTime, formatDurationSeconds } from "../format";
 import {
   settingsErrorMessage,
   type SettingsNotice,
@@ -46,7 +46,6 @@ import {
 import {
   emptyReportWorkflowScheduleForm,
   formStateToWriteRequest,
-  formatDurationSeconds,
   scheduleToFormState
 } from "./format";
 import type {
