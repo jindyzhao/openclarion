@@ -105,6 +105,7 @@ type PersistDiagnosisTurnResult struct {
 	AssistantMessage    string
 	Confidence          string
 	RequiresHumanReview bool
+	EvidenceRequests    []diagnosisroom.EvidenceRequest
 }
 
 // CloseDiagnosisChatSessionInput closes the persisted room session and records
@@ -923,7 +924,17 @@ func persistDiagnosisTurnResult(
 		AssistantMessage:    output.Message,
 		Confidence:          output.Confidence,
 		RequiresHumanReview: output.RequiresHumanReview,
+		EvidenceRequests:    cloneEvidenceRequests(output.EvidenceRequests),
 	}
+}
+
+func cloneEvidenceRequests(in []diagnosisroom.EvidenceRequest) []diagnosisroom.EvidenceRequest {
+	if in == nil {
+		return nil
+	}
+	out := make([]diagnosisroom.EvidenceRequest, len(in))
+	copy(out, in)
+	return out
 }
 
 func closeDiagnosisChatSessionResult(
@@ -973,6 +984,7 @@ func diagnosisAssistantTurnMetadata(req PersistDiagnosisTurnInput, output diagno
 		"requires_human_review": output.RequiresHumanReview,
 		"findings":              output.Findings,
 		"recommended_actions":   output.RecommendedActions,
+		"evidence_requests":     output.EvidenceRequests,
 		"raw_output":            req.RawOutput,
 	})
 }
@@ -1018,6 +1030,7 @@ func (a *Activities) recordDiagnosisRoomTurnPersisted(ctx context.Context, req P
 		"invocation_id":         req.InvocationID,
 		"confidence":            result.Confidence,
 		"requires_human_review": result.RequiresHumanReview,
+		"evidence_requests":     result.EvidenceRequests,
 	})
 	if err != nil {
 		return domain.DiagnosisTaskEvent{}, err
