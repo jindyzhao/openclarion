@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
+	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/strictjson"
 )
 
@@ -16,17 +18,39 @@ const (
 	TurnOutputSchemaID = "https://openclarion.dev/schemas/diagnosis-turn-output.v1.json"
 	// TurnOutputSchemaVersion is embedded in every accepted sandbox response.
 	TurnOutputSchemaVersion = "diagnosis_turn.v1"
+
+	maxEvidenceRequests            = 5
+	maxEvidenceRequestReasonBytes  = 500
+	maxEvidenceRequestQueryBytes   = 500
+	minEvidenceRequestRangeSeconds = 15
+	maxEvidenceRequestRangeSeconds = 6 * 60 * 60
+	maxEvidenceRequestAlertLimit   = 10
+	maxEvidenceRequestMetricLimit  = 20
 )
 
 // TurnOutput is the schema-validated response written by the sandboxed
 // diagnosis assistant to /workspace/out/output.json.
 type TurnOutput struct {
-	SchemaVersion       string   `json:"schema_version"`
-	Message             string   `json:"message"`
-	Findings            []string `json:"findings,omitempty"`
-	RecommendedActions  []string `json:"recommended_actions,omitempty"`
-	Confidence          string   `json:"confidence"`
-	RequiresHumanReview bool     `json:"requires_human_review"`
+	SchemaVersion       string            `json:"schema_version"`
+	Message             string            `json:"message"`
+	Findings            []string          `json:"findings,omitempty"`
+	RecommendedActions  []string          `json:"recommended_actions,omitempty"`
+	EvidenceRequests    []EvidenceRequest `json:"evidence_requests,omitempty"`
+	Confidence          string            `json:"confidence"`
+	RequiresHumanReview bool              `json:"requires_human_review"`
+}
+
+// EvidenceRequest is a bounded, assistant-suggested evidence collection plan.
+// It is planning metadata only; parsing a request never calls an upstream
+// provider or starts a workflow.
+type EvidenceRequest struct {
+	TemplateID    int64                    `json:"template_id,omitempty"`
+	Tool          domain.DiagnosisToolKind `json:"tool"`
+	Reason        string                   `json:"reason"`
+	Query         string                   `json:"query,omitempty"`
+	WindowSeconds int                      `json:"window_seconds,omitempty"`
+	StepSeconds   int                      `json:"step_seconds,omitempty"`
+	Limit         int                      `json:"limit,omitempty"`
 }
 
 const turnOutputSchemaJSON = `{
@@ -65,6 +89,49 @@ const turnOutputSchemaJSON = `{
         "type": "string",
         "minLength": 1,
         "maxLength": 1000
+      }
+    },
+    "evidence_requests": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool", "reason"],
+        "properties": {
+          "template_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tool": {
+            "type": "string",
+            "enum": ["active_alerts", "metric_query", "metric_range_query"]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "window_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 21600
+          },
+          "step_seconds": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 21600
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20
+          }
+        }
       }
     },
     "confidence": {
@@ -153,6 +220,11 @@ func normalizeTurnOutput(out *TurnOutput) error {
 			return fmt.Errorf("diagnosis turn output: recommended_actions[%d] must be non-empty after trimming", i)
 		}
 	}
+	evidenceRequests, err := normalizeEvidenceRequests(out.EvidenceRequests)
+	if err != nil {
+		return err
+	}
+	out.EvidenceRequests = evidenceRequests
 	out.Confidence = strings.TrimSpace(out.Confidence)
 	return nil
 }
@@ -166,6 +238,120 @@ func normalizeOutputStrings(in []string) []string {
 		out[i] = strings.TrimSpace(value)
 	}
 	return out
+}
+
+func normalizeEvidenceRequests(in []EvidenceRequest) ([]EvidenceRequest, error) {
+	if in == nil {
+		return nil, nil
+	}
+	if len(in) > maxEvidenceRequests {
+		return nil, fmt.Errorf("diagnosis turn output: evidence_requests exceeds %d items", maxEvidenceRequests)
+	}
+	out := make([]EvidenceRequest, len(in))
+	for i, req := range in {
+		normalized, err := normalizeEvidenceRequest(i, req)
+		if err != nil {
+			return nil, err
+		}
+		out[i] = normalized
+	}
+	return out, nil
+}
+
+func normalizeEvidenceRequest(index int, req EvidenceRequest) (EvidenceRequest, error) {
+	req.Reason = strings.TrimSpace(req.Reason)
+	req.Query = strings.TrimSpace(req.Query)
+	if req.TemplateID < 0 {
+		return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d].template_id must be positive when set", index)
+	}
+	if !req.Tool.Valid() {
+		return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d].tool is unsupported", index)
+	}
+	if req.Reason == "" {
+		return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d].reason must be non-empty after trimming", index)
+	}
+	if len([]byte(req.Reason)) > maxEvidenceRequestReasonBytes {
+		return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d].reason exceeds %d bytes", index, maxEvidenceRequestReasonBytes)
+	}
+	if containsControlRune(req.Reason) {
+		return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d].reason must be single-line", index)
+	}
+	if req.Query != "" {
+		if len([]byte(req.Query)) > maxEvidenceRequestQueryBytes {
+			return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d].query exceeds %d bytes", index, maxEvidenceRequestQueryBytes)
+		}
+		if containsControlRune(req.Query) {
+			return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d].query must be single-line", index)
+		}
+	}
+
+	switch req.Tool {
+	case domain.DiagnosisToolKindActiveAlerts:
+		if req.Query != "" || req.WindowSeconds != 0 || req.StepSeconds != 0 {
+			return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d] active_alerts must not include query, window_seconds, or step_seconds", index)
+		}
+		if err := validateEvidenceRequestLimit(index, req.Limit, maxEvidenceRequestAlertLimit); err != nil {
+			return EvidenceRequest{}, err
+		}
+	case domain.DiagnosisToolKindMetricQuery:
+		if req.TemplateID == 0 && req.Query == "" {
+			return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d] metric_query requires query or template_id", index)
+		}
+		if req.WindowSeconds != 0 || req.StepSeconds != 0 {
+			return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d] metric_query must not include window_seconds or step_seconds", index)
+		}
+		if err := validateEvidenceRequestLimit(index, req.Limit, maxEvidenceRequestMetricLimit); err != nil {
+			return EvidenceRequest{}, err
+		}
+	case domain.DiagnosisToolKindMetricRangeQuery:
+		if req.TemplateID == 0 && req.Query == "" {
+			return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d] metric_range_query requires query or template_id", index)
+		}
+		if req.TemplateID == 0 && (req.WindowSeconds == 0 || req.StepSeconds == 0) {
+			return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d] metric_range_query requires window_seconds and step_seconds without template_id", index)
+		}
+		if req.WindowSeconds != 0 || req.StepSeconds != 0 {
+			if err := validateEvidenceRequestRange(index, req.WindowSeconds, req.StepSeconds); err != nil {
+				return EvidenceRequest{}, err
+			}
+		}
+		if err := validateEvidenceRequestLimit(index, req.Limit, maxEvidenceRequestMetricLimit); err != nil {
+			return EvidenceRequest{}, err
+		}
+	}
+	return req, nil
+}
+
+func validateEvidenceRequestLimit(index int, limit int, maximum int) error {
+	if limit == 0 {
+		return nil
+	}
+	if limit < 1 || limit > maximum {
+		return fmt.Errorf("diagnosis turn output: evidence_requests[%d].limit must be between 1 and %d", index, maximum)
+	}
+	return nil
+}
+
+func validateEvidenceRequestRange(index int, windowSeconds int, stepSeconds int) error {
+	if windowSeconds < minEvidenceRequestRangeSeconds || windowSeconds > maxEvidenceRequestRangeSeconds {
+		return fmt.Errorf("diagnosis turn output: evidence_requests[%d].window_seconds must be between %d and %d", index, minEvidenceRequestRangeSeconds, maxEvidenceRequestRangeSeconds)
+	}
+	if stepSeconds < minEvidenceRequestRangeSeconds || stepSeconds > maxEvidenceRequestRangeSeconds {
+		return fmt.Errorf("diagnosis turn output: evidence_requests[%d].step_seconds must be between %d and %d", index, minEvidenceRequestRangeSeconds, maxEvidenceRequestRangeSeconds)
+	}
+	if stepSeconds > windowSeconds {
+		return fmt.Errorf("diagnosis turn output: evidence_requests[%d].step_seconds must not exceed window_seconds", index)
+	}
+	return nil
+}
+
+func containsControlRune(value string) bool {
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return true
+		}
+	}
+	return false
 }
 
 func cloneRawMessage(in json.RawMessage) json.RawMessage {

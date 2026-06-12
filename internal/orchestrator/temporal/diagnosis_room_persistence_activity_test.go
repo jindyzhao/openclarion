@@ -8,6 +8,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -163,7 +164,9 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 		second.UserTurnID != first.UserTurnID ||
 		second.AssistantTurnID != first.AssistantTurnID ||
 		first.TurnCount != 1 ||
-		second.TurnCount != 1 {
+		second.TurnCount != 1 ||
+		len(first.EvidenceRequests) != 1 ||
+		first.EvidenceRequests[0].Tool != domain.DiagnosisToolKindActiveAlerts {
 		t.Fatalf("persist results first=%+v second=%+v ensure=%+v", first, second, ensure)
 	}
 
@@ -191,16 +194,19 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 			t.Fatalf("turns = %+v", turns)
 		}
 		var assistantMeta struct {
-			InvocationID        string `json:"invocation_id"`
-			Confidence          string `json:"confidence"`
-			RequiresHumanReview bool   `json:"requires_human_review"`
+			InvocationID        string                          `json:"invocation_id"`
+			Confidence          string                          `json:"confidence"`
+			RequiresHumanReview bool                            `json:"requires_human_review"`
+			EvidenceRequests    []diagnosisroom.EvidenceRequest `json:"evidence_requests"`
 		}
 		if err := json.Unmarshal(turns[1].Metadata, &assistantMeta); err != nil {
 			t.Fatalf("assistant metadata: %v", err)
 		}
 		if assistantMeta.InvocationID != req.InvocationID ||
 			assistantMeta.Confidence != "high" ||
-			!assistantMeta.RequiresHumanReview {
+			!assistantMeta.RequiresHumanReview ||
+			len(assistantMeta.EvidenceRequests) != 1 ||
+			assistantMeta.EvidenceRequests[0].Reason != "Need current active sibling alerts." {
 			t.Fatalf("assistant metadata = %+v raw=%s", assistantMeta, turns[1].Metadata)
 		}
 		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
@@ -211,16 +217,19 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 			t.Fatalf("events = %+v, want opened + turn_persisted", events)
 		}
 		var turnPayload struct {
-			UserMessageID      string `json:"user_message_id"`
-			AssistantMessageID string `json:"assistant_message_id"`
-			TurnCount          int    `json:"turn_count"`
+			UserMessageID      string                          `json:"user_message_id"`
+			AssistantMessageID string                          `json:"assistant_message_id"`
+			TurnCount          int                             `json:"turn_count"`
+			EvidenceRequests   []diagnosisroom.EvidenceRequest `json:"evidence_requests"`
 		}
 		if err := json.Unmarshal(events[1].Payload, &turnPayload); err != nil {
 			t.Fatalf("turn event payload: %v", err)
 		}
 		if turnPayload.UserMessageID != req.UserMessageID ||
 			turnPayload.AssistantMessageID != req.AssistantMessageID ||
-			turnPayload.TurnCount != 1 {
+			turnPayload.TurnCount != 1 ||
+			len(turnPayload.EvidenceRequests) != 1 ||
+			turnPayload.EvidenceRequests[0].Limit != 5 {
 			t.Fatalf("turn event payload = %+v raw=%s", turnPayload, events[1].Payload)
 		}
 		return nil
@@ -531,6 +540,7 @@ func validPersistDiagnosisTurnInput(taskID domain.DiagnosisTaskID, sessionID str
 		"message":"CPU saturation is concentrated on api-1.",
 		"findings":["api-1 CPU exceeded threshold"],
 		"recommended_actions":["Inspect recent deployment"],
+		"evidence_requests":[{"tool":"active_alerts","reason":"Need current active sibling alerts.","limit":5}],
 		"confidence":"high",
 		"requires_human_review":true
 	}`)
