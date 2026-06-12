@@ -105,6 +105,18 @@ func (f DiagnosisTaskEventFunc) Mutate(ctx context.Context, m ent.Mutation) (ent
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DiagnosisTaskEventMutation", m)
 }
 
+// The DiagnosisToolTemplateFunc type is an adapter to allow the use of ordinary
+// function as DiagnosisToolTemplate mutator.
+type DiagnosisToolTemplateFunc func(context.Context, *ent.DiagnosisToolTemplateMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f DiagnosisToolTemplateFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.DiagnosisToolTemplateMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DiagnosisToolTemplateMutation", m)
+}
+
 // The EvidenceSnapshotFunc type is an adapter to allow the use of ordinary
 // function as EvidenceSnapshot mutator.
 type EvidenceSnapshotFunc func(context.Context, *ent.EvidenceSnapshotMutation) (ent.Value, error)

@@ -28,6 +28,8 @@ type Tx struct {
 	DiagnosisTask *DiagnosisTaskClient
 	// DiagnosisTaskEvent is the client for interacting with the DiagnosisTaskEvent builders.
 	DiagnosisTaskEvent *DiagnosisTaskEventClient
+	// DiagnosisToolTemplate is the client for interacting with the DiagnosisToolTemplate builders.
+	DiagnosisToolTemplate *DiagnosisToolTemplateClient
 	// EvidenceSnapshot is the client for interacting with the EvidenceSnapshot builders.
 	EvidenceSnapshot *EvidenceSnapshotClient
 	// FinalReport is the client for interacting with the FinalReport builders.
@@ -183,6 +185,7 @@ func (tx *Tx) init() {
 	tx.DiagnosisAuthTicket = NewDiagnosisAuthTicketClient(tx.config)
 	tx.DiagnosisTask = NewDiagnosisTaskClient(tx.config)
 	tx.DiagnosisTaskEvent = NewDiagnosisTaskEventClient(tx.config)
+	tx.DiagnosisToolTemplate = NewDiagnosisToolTemplateClient(tx.config)
 	tx.EvidenceSnapshot = NewEvidenceSnapshotClient(tx.config)
 	tx.FinalReport = NewFinalReportClient(tx.config)
 	tx.GroupingPolicy = NewGroupingPolicyClient(tx.config)

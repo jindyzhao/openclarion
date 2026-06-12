@@ -20,6 +20,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
+	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistooltemplate"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
@@ -96,6 +97,7 @@ func checkColumn(t, c string) error {
 			diagnosisauthticket.Table:        diagnosisauthticket.ValidColumn,
 			diagnosistask.Table:              diagnosistask.ValidColumn,
 			diagnosistaskevent.Table:         diagnosistaskevent.ValidColumn,
+			diagnosistooltemplate.Table:      diagnosistooltemplate.ValidColumn,
 			evidencesnapshot.Table:           evidencesnapshot.ValidColumn,
 			finalreport.Table:                finalreport.ValidColumn,
 			groupingpolicy.Table:             groupingpolicy.ValidColumn,

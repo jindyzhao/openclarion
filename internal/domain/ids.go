@@ -44,6 +44,10 @@ type ChatSessionID int64
 // diagnosis-room chat turn row.
 type ChatTurnID int64
 
+// DiagnosisToolTemplateID is the surrogate identifier of an operator-managed
+// diagnosis tool template.
+type DiagnosisToolTemplateID int64
+
 // AlertSourceProfileID is the surrogate identifier of an operator-managed
 // alert source configuration profile.
 type AlertSourceProfileID int64

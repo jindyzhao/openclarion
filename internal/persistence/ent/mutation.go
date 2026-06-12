@@ -20,6 +20,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
+	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistooltemplate"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
@@ -48,6 +49,7 @@ const (
 	TypeDiagnosisAuthTicket        = "DiagnosisAuthTicket"
 	TypeDiagnosisTask              = "DiagnosisTask"
 	TypeDiagnosisTaskEvent         = "DiagnosisTaskEvent"
+	TypeDiagnosisToolTemplate      = "DiagnosisToolTemplate"
 	TypeEvidenceSnapshot           = "EvidenceSnapshot"
 	TypeFinalReport                = "FinalReport"
 	TypeGroupingPolicy             = "GroupingPolicy"
@@ -7397,6 +7399,1208 @@ func (m *DiagnosisTaskEventMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown DiagnosisTaskEvent edge %s", name)
+}
+
+// DiagnosisToolTemplateMutation represents an operation that mutates the DiagnosisToolTemplate nodes in the graph.
+type DiagnosisToolTemplateMutation struct {
+	config
+	op                         Op
+	typ                        string
+	id                         *int
+	name                       *string
+	alert_source_profile_id    *int
+	addalert_source_profile_id *int
+	tool                       *string
+	query_template             *string
+	default_limit              *int
+	adddefault_limit           *int
+	default_window_ns          *int64
+	adddefault_window_ns       *int64
+	max_window_ns              *int64
+	addmax_window_ns           *int64
+	default_step_ns            *int64
+	adddefault_step_ns         *int64
+	enabled                    *bool
+	enabled_at                 *time.Time
+	disabled_at                *time.Time
+	created_at                 *time.Time
+	updated_at                 *time.Time
+	clearedFields              map[string]struct{}
+	done                       bool
+	oldValue                   func(context.Context) (*DiagnosisToolTemplate, error)
+	predicates                 []predicate.DiagnosisToolTemplate
+}
+
+var _ ent.Mutation = (*DiagnosisToolTemplateMutation)(nil)
+
+// diagnosistooltemplateOption allows management of the mutation configuration using functional options.
+type diagnosistooltemplateOption func(*DiagnosisToolTemplateMutation)
+
+// newDiagnosisToolTemplateMutation creates new mutation for the DiagnosisToolTemplate entity.
+func newDiagnosisToolTemplateMutation(c config, op Op, opts ...diagnosistooltemplateOption) *DiagnosisToolTemplateMutation {
+	m := &DiagnosisToolTemplateMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeDiagnosisToolTemplate,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withDiagnosisToolTemplateID sets the ID field of the mutation.
+func withDiagnosisToolTemplateID(id int) diagnosistooltemplateOption {
+	return func(m *DiagnosisToolTemplateMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *DiagnosisToolTemplate
+		)
+		m.oldValue = func(ctx context.Context) (*DiagnosisToolTemplate, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().DiagnosisToolTemplate.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withDiagnosisToolTemplate sets the old DiagnosisToolTemplate of the mutation.
+func withDiagnosisToolTemplate(node *DiagnosisToolTemplate) diagnosistooltemplateOption {
+	return func(m *DiagnosisToolTemplateMutation) {
+		m.oldValue = func(context.Context) (*DiagnosisToolTemplate, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m DiagnosisToolTemplateMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m DiagnosisToolTemplateMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *DiagnosisToolTemplateMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *DiagnosisToolTemplateMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().DiagnosisToolTemplate.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetName sets the "name" field.
+func (m *DiagnosisToolTemplateMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *DiagnosisToolTemplateMutation) ResetName() {
+	m.name = nil
+}
+
+// SetAlertSourceProfileID sets the "alert_source_profile_id" field.
+func (m *DiagnosisToolTemplateMutation) SetAlertSourceProfileID(i int) {
+	m.alert_source_profile_id = &i
+	m.addalert_source_profile_id = nil
+}
+
+// AlertSourceProfileID returns the value of the "alert_source_profile_id" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) AlertSourceProfileID() (r int, exists bool) {
+	v := m.alert_source_profile_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAlertSourceProfileID returns the old "alert_source_profile_id" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldAlertSourceProfileID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAlertSourceProfileID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAlertSourceProfileID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAlertSourceProfileID: %w", err)
+	}
+	return oldValue.AlertSourceProfileID, nil
+}
+
+// AddAlertSourceProfileID adds i to the "alert_source_profile_id" field.
+func (m *DiagnosisToolTemplateMutation) AddAlertSourceProfileID(i int) {
+	if m.addalert_source_profile_id != nil {
+		*m.addalert_source_profile_id += i
+	} else {
+		m.addalert_source_profile_id = &i
+	}
+}
+
+// AddedAlertSourceProfileID returns the value that was added to the "alert_source_profile_id" field in this mutation.
+func (m *DiagnosisToolTemplateMutation) AddedAlertSourceProfileID() (r int, exists bool) {
+	v := m.addalert_source_profile_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAlertSourceProfileID resets all changes to the "alert_source_profile_id" field.
+func (m *DiagnosisToolTemplateMutation) ResetAlertSourceProfileID() {
+	m.alert_source_profile_id = nil
+	m.addalert_source_profile_id = nil
+}
+
+// SetTool sets the "tool" field.
+func (m *DiagnosisToolTemplateMutation) SetTool(s string) {
+	m.tool = &s
+}
+
+// Tool returns the value of the "tool" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) Tool() (r string, exists bool) {
+	v := m.tool
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTool returns the old "tool" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldTool(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTool is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTool requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTool: %w", err)
+	}
+	return oldValue.Tool, nil
+}
+
+// ResetTool resets all changes to the "tool" field.
+func (m *DiagnosisToolTemplateMutation) ResetTool() {
+	m.tool = nil
+}
+
+// SetQueryTemplate sets the "query_template" field.
+func (m *DiagnosisToolTemplateMutation) SetQueryTemplate(s string) {
+	m.query_template = &s
+}
+
+// QueryTemplate returns the value of the "query_template" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) QueryTemplate() (r string, exists bool) {
+	v := m.query_template
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldQueryTemplate returns the old "query_template" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldQueryTemplate(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldQueryTemplate is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldQueryTemplate requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldQueryTemplate: %w", err)
+	}
+	return oldValue.QueryTemplate, nil
+}
+
+// ClearQueryTemplate clears the value of the "query_template" field.
+func (m *DiagnosisToolTemplateMutation) ClearQueryTemplate() {
+	m.query_template = nil
+	m.clearedFields[diagnosistooltemplate.FieldQueryTemplate] = struct{}{}
+}
+
+// QueryTemplateCleared returns if the "query_template" field was cleared in this mutation.
+func (m *DiagnosisToolTemplateMutation) QueryTemplateCleared() bool {
+	_, ok := m.clearedFields[diagnosistooltemplate.FieldQueryTemplate]
+	return ok
+}
+
+// ResetQueryTemplate resets all changes to the "query_template" field.
+func (m *DiagnosisToolTemplateMutation) ResetQueryTemplate() {
+	m.query_template = nil
+	delete(m.clearedFields, diagnosistooltemplate.FieldQueryTemplate)
+}
+
+// SetDefaultLimit sets the "default_limit" field.
+func (m *DiagnosisToolTemplateMutation) SetDefaultLimit(i int) {
+	m.default_limit = &i
+	m.adddefault_limit = nil
+}
+
+// DefaultLimit returns the value of the "default_limit" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) DefaultLimit() (r int, exists bool) {
+	v := m.default_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDefaultLimit returns the old "default_limit" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldDefaultLimit(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDefaultLimit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDefaultLimit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDefaultLimit: %w", err)
+	}
+	return oldValue.DefaultLimit, nil
+}
+
+// AddDefaultLimit adds i to the "default_limit" field.
+func (m *DiagnosisToolTemplateMutation) AddDefaultLimit(i int) {
+	if m.adddefault_limit != nil {
+		*m.adddefault_limit += i
+	} else {
+		m.adddefault_limit = &i
+	}
+}
+
+// AddedDefaultLimit returns the value that was added to the "default_limit" field in this mutation.
+func (m *DiagnosisToolTemplateMutation) AddedDefaultLimit() (r int, exists bool) {
+	v := m.adddefault_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetDefaultLimit resets all changes to the "default_limit" field.
+func (m *DiagnosisToolTemplateMutation) ResetDefaultLimit() {
+	m.default_limit = nil
+	m.adddefault_limit = nil
+}
+
+// SetDefaultWindowNs sets the "default_window_ns" field.
+func (m *DiagnosisToolTemplateMutation) SetDefaultWindowNs(i int64) {
+	m.default_window_ns = &i
+	m.adddefault_window_ns = nil
+}
+
+// DefaultWindowNs returns the value of the "default_window_ns" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) DefaultWindowNs() (r int64, exists bool) {
+	v := m.default_window_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDefaultWindowNs returns the old "default_window_ns" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldDefaultWindowNs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDefaultWindowNs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDefaultWindowNs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDefaultWindowNs: %w", err)
+	}
+	return oldValue.DefaultWindowNs, nil
+}
+
+// AddDefaultWindowNs adds i to the "default_window_ns" field.
+func (m *DiagnosisToolTemplateMutation) AddDefaultWindowNs(i int64) {
+	if m.adddefault_window_ns != nil {
+		*m.adddefault_window_ns += i
+	} else {
+		m.adddefault_window_ns = &i
+	}
+}
+
+// AddedDefaultWindowNs returns the value that was added to the "default_window_ns" field in this mutation.
+func (m *DiagnosisToolTemplateMutation) AddedDefaultWindowNs() (r int64, exists bool) {
+	v := m.adddefault_window_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetDefaultWindowNs resets all changes to the "default_window_ns" field.
+func (m *DiagnosisToolTemplateMutation) ResetDefaultWindowNs() {
+	m.default_window_ns = nil
+	m.adddefault_window_ns = nil
+}
+
+// SetMaxWindowNs sets the "max_window_ns" field.
+func (m *DiagnosisToolTemplateMutation) SetMaxWindowNs(i int64) {
+	m.max_window_ns = &i
+	m.addmax_window_ns = nil
+}
+
+// MaxWindowNs returns the value of the "max_window_ns" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) MaxWindowNs() (r int64, exists bool) {
+	v := m.max_window_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMaxWindowNs returns the old "max_window_ns" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldMaxWindowNs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMaxWindowNs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMaxWindowNs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMaxWindowNs: %w", err)
+	}
+	return oldValue.MaxWindowNs, nil
+}
+
+// AddMaxWindowNs adds i to the "max_window_ns" field.
+func (m *DiagnosisToolTemplateMutation) AddMaxWindowNs(i int64) {
+	if m.addmax_window_ns != nil {
+		*m.addmax_window_ns += i
+	} else {
+		m.addmax_window_ns = &i
+	}
+}
+
+// AddedMaxWindowNs returns the value that was added to the "max_window_ns" field in this mutation.
+func (m *DiagnosisToolTemplateMutation) AddedMaxWindowNs() (r int64, exists bool) {
+	v := m.addmax_window_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetMaxWindowNs resets all changes to the "max_window_ns" field.
+func (m *DiagnosisToolTemplateMutation) ResetMaxWindowNs() {
+	m.max_window_ns = nil
+	m.addmax_window_ns = nil
+}
+
+// SetDefaultStepNs sets the "default_step_ns" field.
+func (m *DiagnosisToolTemplateMutation) SetDefaultStepNs(i int64) {
+	m.default_step_ns = &i
+	m.adddefault_step_ns = nil
+}
+
+// DefaultStepNs returns the value of the "default_step_ns" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) DefaultStepNs() (r int64, exists bool) {
+	v := m.default_step_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDefaultStepNs returns the old "default_step_ns" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldDefaultStepNs(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDefaultStepNs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDefaultStepNs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDefaultStepNs: %w", err)
+	}
+	return oldValue.DefaultStepNs, nil
+}
+
+// AddDefaultStepNs adds i to the "default_step_ns" field.
+func (m *DiagnosisToolTemplateMutation) AddDefaultStepNs(i int64) {
+	if m.adddefault_step_ns != nil {
+		*m.adddefault_step_ns += i
+	} else {
+		m.adddefault_step_ns = &i
+	}
+}
+
+// AddedDefaultStepNs returns the value that was added to the "default_step_ns" field in this mutation.
+func (m *DiagnosisToolTemplateMutation) AddedDefaultStepNs() (r int64, exists bool) {
+	v := m.adddefault_step_ns
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetDefaultStepNs resets all changes to the "default_step_ns" field.
+func (m *DiagnosisToolTemplateMutation) ResetDefaultStepNs() {
+	m.default_step_ns = nil
+	m.adddefault_step_ns = nil
+}
+
+// SetEnabled sets the "enabled" field.
+func (m *DiagnosisToolTemplateMutation) SetEnabled(b bool) {
+	m.enabled = &b
+}
+
+// Enabled returns the value of the "enabled" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) Enabled() (r bool, exists bool) {
+	v := m.enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEnabled returns the old "enabled" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldEnabled(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEnabled: %w", err)
+	}
+	return oldValue.Enabled, nil
+}
+
+// ResetEnabled resets all changes to the "enabled" field.
+func (m *DiagnosisToolTemplateMutation) ResetEnabled() {
+	m.enabled = nil
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (m *DiagnosisToolTemplateMutation) SetEnabledAt(t time.Time) {
+	m.enabled_at = &t
+}
+
+// EnabledAt returns the value of the "enabled_at" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) EnabledAt() (r time.Time, exists bool) {
+	v := m.enabled_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEnabledAt returns the old "enabled_at" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldEnabledAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEnabledAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEnabledAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEnabledAt: %w", err)
+	}
+	return oldValue.EnabledAt, nil
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (m *DiagnosisToolTemplateMutation) ClearEnabledAt() {
+	m.enabled_at = nil
+	m.clearedFields[diagnosistooltemplate.FieldEnabledAt] = struct{}{}
+}
+
+// EnabledAtCleared returns if the "enabled_at" field was cleared in this mutation.
+func (m *DiagnosisToolTemplateMutation) EnabledAtCleared() bool {
+	_, ok := m.clearedFields[diagnosistooltemplate.FieldEnabledAt]
+	return ok
+}
+
+// ResetEnabledAt resets all changes to the "enabled_at" field.
+func (m *DiagnosisToolTemplateMutation) ResetEnabledAt() {
+	m.enabled_at = nil
+	delete(m.clearedFields, diagnosistooltemplate.FieldEnabledAt)
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (m *DiagnosisToolTemplateMutation) SetDisabledAt(t time.Time) {
+	m.disabled_at = &t
+}
+
+// DisabledAt returns the value of the "disabled_at" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) DisabledAt() (r time.Time, exists bool) {
+	v := m.disabled_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldDisabledAt returns the old "disabled_at" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldDisabledAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldDisabledAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldDisabledAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldDisabledAt: %w", err)
+	}
+	return oldValue.DisabledAt, nil
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (m *DiagnosisToolTemplateMutation) ClearDisabledAt() {
+	m.disabled_at = nil
+	m.clearedFields[diagnosistooltemplate.FieldDisabledAt] = struct{}{}
+}
+
+// DisabledAtCleared returns if the "disabled_at" field was cleared in this mutation.
+func (m *DiagnosisToolTemplateMutation) DisabledAtCleared() bool {
+	_, ok := m.clearedFields[diagnosistooltemplate.FieldDisabledAt]
+	return ok
+}
+
+// ResetDisabledAt resets all changes to the "disabled_at" field.
+func (m *DiagnosisToolTemplateMutation) ResetDisabledAt() {
+	m.disabled_at = nil
+	delete(m.clearedFields, diagnosistooltemplate.FieldDisabledAt)
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *DiagnosisToolTemplateMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *DiagnosisToolTemplateMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *DiagnosisToolTemplateMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *DiagnosisToolTemplateMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the DiagnosisToolTemplate entity.
+// If the DiagnosisToolTemplate object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *DiagnosisToolTemplateMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *DiagnosisToolTemplateMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// Where appends a list predicates to the DiagnosisToolTemplateMutation builder.
+func (m *DiagnosisToolTemplateMutation) Where(ps ...predicate.DiagnosisToolTemplate) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the DiagnosisToolTemplateMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *DiagnosisToolTemplateMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.DiagnosisToolTemplate, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *DiagnosisToolTemplateMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *DiagnosisToolTemplateMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (DiagnosisToolTemplate).
+func (m *DiagnosisToolTemplateMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *DiagnosisToolTemplateMutation) Fields() []string {
+	fields := make([]string, 0, 13)
+	if m.name != nil {
+		fields = append(fields, diagnosistooltemplate.FieldName)
+	}
+	if m.alert_source_profile_id != nil {
+		fields = append(fields, diagnosistooltemplate.FieldAlertSourceProfileID)
+	}
+	if m.tool != nil {
+		fields = append(fields, diagnosistooltemplate.FieldTool)
+	}
+	if m.query_template != nil {
+		fields = append(fields, diagnosistooltemplate.FieldQueryTemplate)
+	}
+	if m.default_limit != nil {
+		fields = append(fields, diagnosistooltemplate.FieldDefaultLimit)
+	}
+	if m.default_window_ns != nil {
+		fields = append(fields, diagnosistooltemplate.FieldDefaultWindowNs)
+	}
+	if m.max_window_ns != nil {
+		fields = append(fields, diagnosistooltemplate.FieldMaxWindowNs)
+	}
+	if m.default_step_ns != nil {
+		fields = append(fields, diagnosistooltemplate.FieldDefaultStepNs)
+	}
+	if m.enabled != nil {
+		fields = append(fields, diagnosistooltemplate.FieldEnabled)
+	}
+	if m.enabled_at != nil {
+		fields = append(fields, diagnosistooltemplate.FieldEnabledAt)
+	}
+	if m.disabled_at != nil {
+		fields = append(fields, diagnosistooltemplate.FieldDisabledAt)
+	}
+	if m.created_at != nil {
+		fields = append(fields, diagnosistooltemplate.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, diagnosistooltemplate.FieldUpdatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *DiagnosisToolTemplateMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case diagnosistooltemplate.FieldName:
+		return m.Name()
+	case diagnosistooltemplate.FieldAlertSourceProfileID:
+		return m.AlertSourceProfileID()
+	case diagnosistooltemplate.FieldTool:
+		return m.Tool()
+	case diagnosistooltemplate.FieldQueryTemplate:
+		return m.QueryTemplate()
+	case diagnosistooltemplate.FieldDefaultLimit:
+		return m.DefaultLimit()
+	case diagnosistooltemplate.FieldDefaultWindowNs:
+		return m.DefaultWindowNs()
+	case diagnosistooltemplate.FieldMaxWindowNs:
+		return m.MaxWindowNs()
+	case diagnosistooltemplate.FieldDefaultStepNs:
+		return m.DefaultStepNs()
+	case diagnosistooltemplate.FieldEnabled:
+		return m.Enabled()
+	case diagnosistooltemplate.FieldEnabledAt:
+		return m.EnabledAt()
+	case diagnosistooltemplate.FieldDisabledAt:
+		return m.DisabledAt()
+	case diagnosistooltemplate.FieldCreatedAt:
+		return m.CreatedAt()
+	case diagnosistooltemplate.FieldUpdatedAt:
+		return m.UpdatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *DiagnosisToolTemplateMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case diagnosistooltemplate.FieldName:
+		return m.OldName(ctx)
+	case diagnosistooltemplate.FieldAlertSourceProfileID:
+		return m.OldAlertSourceProfileID(ctx)
+	case diagnosistooltemplate.FieldTool:
+		return m.OldTool(ctx)
+	case diagnosistooltemplate.FieldQueryTemplate:
+		return m.OldQueryTemplate(ctx)
+	case diagnosistooltemplate.FieldDefaultLimit:
+		return m.OldDefaultLimit(ctx)
+	case diagnosistooltemplate.FieldDefaultWindowNs:
+		return m.OldDefaultWindowNs(ctx)
+	case diagnosistooltemplate.FieldMaxWindowNs:
+		return m.OldMaxWindowNs(ctx)
+	case diagnosistooltemplate.FieldDefaultStepNs:
+		return m.OldDefaultStepNs(ctx)
+	case diagnosistooltemplate.FieldEnabled:
+		return m.OldEnabled(ctx)
+	case diagnosistooltemplate.FieldEnabledAt:
+		return m.OldEnabledAt(ctx)
+	case diagnosistooltemplate.FieldDisabledAt:
+		return m.OldDisabledAt(ctx)
+	case diagnosistooltemplate.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case diagnosistooltemplate.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown DiagnosisToolTemplate field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *DiagnosisToolTemplateMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case diagnosistooltemplate.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	case diagnosistooltemplate.FieldAlertSourceProfileID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAlertSourceProfileID(v)
+		return nil
+	case diagnosistooltemplate.FieldTool:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTool(v)
+		return nil
+	case diagnosistooltemplate.FieldQueryTemplate:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetQueryTemplate(v)
+		return nil
+	case diagnosistooltemplate.FieldDefaultLimit:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDefaultLimit(v)
+		return nil
+	case diagnosistooltemplate.FieldDefaultWindowNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDefaultWindowNs(v)
+		return nil
+	case diagnosistooltemplate.FieldMaxWindowNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMaxWindowNs(v)
+		return nil
+	case diagnosistooltemplate.FieldDefaultStepNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDefaultStepNs(v)
+		return nil
+	case diagnosistooltemplate.FieldEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEnabled(v)
+		return nil
+	case diagnosistooltemplate.FieldEnabledAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEnabledAt(v)
+		return nil
+	case diagnosistooltemplate.FieldDisabledAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetDisabledAt(v)
+		return nil
+	case diagnosistooltemplate.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case diagnosistooltemplate.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown DiagnosisToolTemplate field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *DiagnosisToolTemplateMutation) AddedFields() []string {
+	var fields []string
+	if m.addalert_source_profile_id != nil {
+		fields = append(fields, diagnosistooltemplate.FieldAlertSourceProfileID)
+	}
+	if m.adddefault_limit != nil {
+		fields = append(fields, diagnosistooltemplate.FieldDefaultLimit)
+	}
+	if m.adddefault_window_ns != nil {
+		fields = append(fields, diagnosistooltemplate.FieldDefaultWindowNs)
+	}
+	if m.addmax_window_ns != nil {
+		fields = append(fields, diagnosistooltemplate.FieldMaxWindowNs)
+	}
+	if m.adddefault_step_ns != nil {
+		fields = append(fields, diagnosistooltemplate.FieldDefaultStepNs)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *DiagnosisToolTemplateMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case diagnosistooltemplate.FieldAlertSourceProfileID:
+		return m.AddedAlertSourceProfileID()
+	case diagnosistooltemplate.FieldDefaultLimit:
+		return m.AddedDefaultLimit()
+	case diagnosistooltemplate.FieldDefaultWindowNs:
+		return m.AddedDefaultWindowNs()
+	case diagnosistooltemplate.FieldMaxWindowNs:
+		return m.AddedMaxWindowNs()
+	case diagnosistooltemplate.FieldDefaultStepNs:
+		return m.AddedDefaultStepNs()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *DiagnosisToolTemplateMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case diagnosistooltemplate.FieldAlertSourceProfileID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAlertSourceProfileID(v)
+		return nil
+	case diagnosistooltemplate.FieldDefaultLimit:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddDefaultLimit(v)
+		return nil
+	case diagnosistooltemplate.FieldDefaultWindowNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddDefaultWindowNs(v)
+		return nil
+	case diagnosistooltemplate.FieldMaxWindowNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddMaxWindowNs(v)
+		return nil
+	case diagnosistooltemplate.FieldDefaultStepNs:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddDefaultStepNs(v)
+		return nil
+	}
+	return fmt.Errorf("unknown DiagnosisToolTemplate numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *DiagnosisToolTemplateMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(diagnosistooltemplate.FieldQueryTemplate) {
+		fields = append(fields, diagnosistooltemplate.FieldQueryTemplate)
+	}
+	if m.FieldCleared(diagnosistooltemplate.FieldEnabledAt) {
+		fields = append(fields, diagnosistooltemplate.FieldEnabledAt)
+	}
+	if m.FieldCleared(diagnosistooltemplate.FieldDisabledAt) {
+		fields = append(fields, diagnosistooltemplate.FieldDisabledAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *DiagnosisToolTemplateMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *DiagnosisToolTemplateMutation) ClearField(name string) error {
+	switch name {
+	case diagnosistooltemplate.FieldQueryTemplate:
+		m.ClearQueryTemplate()
+		return nil
+	case diagnosistooltemplate.FieldEnabledAt:
+		m.ClearEnabledAt()
+		return nil
+	case diagnosistooltemplate.FieldDisabledAt:
+		m.ClearDisabledAt()
+		return nil
+	}
+	return fmt.Errorf("unknown DiagnosisToolTemplate nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *DiagnosisToolTemplateMutation) ResetField(name string) error {
+	switch name {
+	case diagnosistooltemplate.FieldName:
+		m.ResetName()
+		return nil
+	case diagnosistooltemplate.FieldAlertSourceProfileID:
+		m.ResetAlertSourceProfileID()
+		return nil
+	case diagnosistooltemplate.FieldTool:
+		m.ResetTool()
+		return nil
+	case diagnosistooltemplate.FieldQueryTemplate:
+		m.ResetQueryTemplate()
+		return nil
+	case diagnosistooltemplate.FieldDefaultLimit:
+		m.ResetDefaultLimit()
+		return nil
+	case diagnosistooltemplate.FieldDefaultWindowNs:
+		m.ResetDefaultWindowNs()
+		return nil
+	case diagnosistooltemplate.FieldMaxWindowNs:
+		m.ResetMaxWindowNs()
+		return nil
+	case diagnosistooltemplate.FieldDefaultStepNs:
+		m.ResetDefaultStepNs()
+		return nil
+	case diagnosistooltemplate.FieldEnabled:
+		m.ResetEnabled()
+		return nil
+	case diagnosistooltemplate.FieldEnabledAt:
+		m.ResetEnabledAt()
+		return nil
+	case diagnosistooltemplate.FieldDisabledAt:
+		m.ResetDisabledAt()
+		return nil
+	case diagnosistooltemplate.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case diagnosistooltemplate.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown DiagnosisToolTemplate field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *DiagnosisToolTemplateMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *DiagnosisToolTemplateMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *DiagnosisToolTemplateMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *DiagnosisToolTemplateMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *DiagnosisToolTemplateMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *DiagnosisToolTemplateMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *DiagnosisToolTemplateMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown DiagnosisToolTemplate unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *DiagnosisToolTemplateMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown DiagnosisToolTemplate edge %s", name)
 }
 
 // EvidenceSnapshotMutation represents an operation that mutates the EvidenceSnapshot nodes in the graph.
