@@ -395,6 +395,22 @@ func (r *fakeWebhookConfigRepo) ListReportWorkflowSchedules(context.Context, int
 	return nil, nil
 }
 
+func (r *fakeWebhookConfigRepo) SaveDiagnosisToolTemplate(context.Context, domain.DiagnosisToolTemplate) (domain.DiagnosisToolTemplate, error) {
+	return domain.DiagnosisToolTemplate{}, nil
+}
+
+func (r *fakeWebhookConfigRepo) UpdateDiagnosisToolTemplate(context.Context, domain.DiagnosisToolTemplate) (domain.DiagnosisToolTemplate, error) {
+	return domain.DiagnosisToolTemplate{}, nil
+}
+
+func (r *fakeWebhookConfigRepo) FindDiagnosisToolTemplateByID(context.Context, domain.DiagnosisToolTemplateID) (domain.DiagnosisToolTemplate, error) {
+	return domain.DiagnosisToolTemplate{}, domain.ErrNotFound
+}
+
+func (r *fakeWebhookConfigRepo) ListDiagnosisToolTemplates(context.Context, int) ([]domain.DiagnosisToolTemplate, error) {
+	return nil, nil
+}
+
 func (r *fakeWebhookConfigRepo) SaveNotificationChannelProfile(context.Context, domain.NotificationChannelProfile) (domain.NotificationChannelProfile, error) {
 	return domain.NotificationChannelProfile{}, nil
 }

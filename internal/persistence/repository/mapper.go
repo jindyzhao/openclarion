@@ -303,6 +303,27 @@ func reportWorkflowScheduleToDomain(s *ent.ReportWorkflowSchedule) domain.Report
 	}
 }
 
+// diagnosisToolTemplateToDomain converts an Ent DiagnosisToolTemplate row to a
+// domain entity.
+func diagnosisToolTemplateToDomain(t *ent.DiagnosisToolTemplate) domain.DiagnosisToolTemplate {
+	return domain.DiagnosisToolTemplate{
+		ID:                   domain.DiagnosisToolTemplateID(t.ID),
+		Name:                 t.Name,
+		AlertSourceProfileID: domain.AlertSourceProfileID(t.AlertSourceProfileID),
+		Tool:                 domain.DiagnosisToolKind(t.Tool),
+		QueryTemplate:        t.QueryTemplate,
+		DefaultLimit:         t.DefaultLimit,
+		DefaultWindow:        time.Duration(t.DefaultWindowNs),
+		MaxWindow:            time.Duration(t.MaxWindowNs),
+		DefaultStep:          time.Duration(t.DefaultStepNs),
+		Enabled:              t.Enabled,
+		EnabledAt:            t.EnabledAt,
+		DisabledAt:           t.DisabledAt,
+		CreatedAt:            t.CreatedAt,
+		UpdatedAt:            t.UpdatedAt,
+	}
+}
+
 // notificationChannelProfileToDomain converts an Ent
 // NotificationChannelProfile row to a domain entity.
 func notificationChannelProfileToDomain(p *ent.NotificationChannelProfile) domain.NotificationChannelProfile {

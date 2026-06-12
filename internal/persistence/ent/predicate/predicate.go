@@ -30,6 +30,9 @@ type DiagnosisTask func(*sql.Selector)
 // DiagnosisTaskEvent is the predicate function for diagnosistaskevent builders.
 type DiagnosisTaskEvent func(*sql.Selector)
 
+// DiagnosisToolTemplate is the predicate function for diagnosistooltemplate builders.
+type DiagnosisToolTemplate func(*sql.Selector)
+
 // EvidenceSnapshot is the predicate function for evidencesnapshot builders.
 type EvidenceSnapshot func(*sql.Selector)
 

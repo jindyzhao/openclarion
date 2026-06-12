@@ -10,6 +10,7 @@ import (
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/persistence/ent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertsourceprofile"
+	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistooltemplate"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
@@ -418,6 +419,120 @@ func (r *configRepo) ListReportWorkflowSchedules(ctx context.Context, limit int)
 	out := make([]domain.ReportWorkflowSchedule, len(rows))
 	for i, row := range rows {
 		out[i] = reportWorkflowScheduleToDomain(row)
+	}
+	return out, nil
+}
+
+// SaveDiagnosisToolTemplate inserts one operator-managed diagnosis tool
+// template.
+func (r *configRepo) SaveDiagnosisToolTemplate(ctx context.Context, t domain.DiagnosisToolTemplate) (domain.DiagnosisToolTemplate, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.DiagnosisToolTemplate{}, err
+	}
+	builder := r.tx.DiagnosisToolTemplate.Create().
+		SetName(t.Name).
+		SetAlertSourceProfileID(int(t.AlertSourceProfileID)).
+		SetTool(string(t.Tool)).
+		SetDefaultLimit(t.DefaultLimit).
+		SetDefaultWindowNs(int64(t.DefaultWindow)).
+		SetMaxWindowNs(int64(t.MaxWindow)).
+		SetDefaultStepNs(int64(t.DefaultStep)).
+		SetEnabled(t.Enabled)
+	if t.QueryTemplate != "" {
+		builder = builder.SetQueryTemplate(t.QueryTemplate)
+	}
+	if t.EnabledAt != nil {
+		builder = builder.SetEnabledAt(*t.EnabledAt)
+	}
+	if t.DisabledAt != nil {
+		builder = builder.SetDisabledAt(*t.DisabledAt)
+	}
+	if !t.CreatedAt.IsZero() {
+		builder = builder.SetCreatedAt(t.CreatedAt)
+	}
+	if !t.UpdatedAt.IsZero() {
+		builder = builder.SetUpdatedAt(t.UpdatedAt)
+	}
+	saved, err := builder.Save(ctx)
+	if err != nil {
+		return domain.DiagnosisToolTemplate{}, asAlreadyExists(err)
+	}
+	return diagnosisToolTemplateToDomain(saved), nil
+}
+
+// UpdateDiagnosisToolTemplate persists mutable diagnosis tool template fields.
+func (r *configRepo) UpdateDiagnosisToolTemplate(ctx context.Context, t domain.DiagnosisToolTemplate) (domain.DiagnosisToolTemplate, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.DiagnosisToolTemplate{}, err
+	}
+	if t.ID == 0 {
+		return domain.DiagnosisToolTemplate{}, fmt.Errorf("update diagnosis tool template: id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	builder := r.tx.DiagnosisToolTemplate.UpdateOneID(int(t.ID)).
+		SetName(t.Name).
+		SetAlertSourceProfileID(int(t.AlertSourceProfileID)).
+		SetTool(string(t.Tool)).
+		SetDefaultLimit(t.DefaultLimit).
+		SetDefaultWindowNs(int64(t.DefaultWindow)).
+		SetMaxWindowNs(int64(t.MaxWindow)).
+		SetDefaultStepNs(int64(t.DefaultStep)).
+		SetEnabled(t.Enabled)
+	if t.QueryTemplate == "" {
+		builder = builder.ClearQueryTemplate()
+	} else {
+		builder = builder.SetQueryTemplate(t.QueryTemplate)
+	}
+	if t.EnabledAt == nil {
+		builder = builder.ClearEnabledAt()
+	} else {
+		builder = builder.SetEnabledAt(*t.EnabledAt)
+	}
+	if t.DisabledAt == nil {
+		builder = builder.ClearDisabledAt()
+	} else {
+		builder = builder.SetDisabledAt(*t.DisabledAt)
+	}
+	saved, err := builder.Save(ctx)
+	if err != nil {
+		return domain.DiagnosisToolTemplate{}, asAlreadyExists(asNotFound(err))
+	}
+	return diagnosisToolTemplateToDomain(saved), nil
+}
+
+// FindDiagnosisToolTemplateByID returns one diagnosis tool template.
+func (r *configRepo) FindDiagnosisToolTemplateByID(ctx context.Context, id domain.DiagnosisToolTemplateID) (domain.DiagnosisToolTemplate, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.DiagnosisToolTemplate{}, err
+	}
+	if id == 0 {
+		return domain.DiagnosisToolTemplate{}, fmt.Errorf("find diagnosis tool template: id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	row, err := r.tx.DiagnosisToolTemplate.Get(ctx, int(id))
+	if err != nil {
+		return domain.DiagnosisToolTemplate{}, asNotFound(err)
+	}
+	return diagnosisToolTemplateToDomain(row), nil
+}
+
+// ListDiagnosisToolTemplates returns the most recently updated diagnosis tool
+// templates.
+func (r *configRepo) ListDiagnosisToolTemplates(ctx context.Context, limit int) ([]domain.DiagnosisToolTemplate, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list diagnosis tool templates: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.DiagnosisToolTemplate.Query().
+		Order(diagnosistooltemplate.ByUpdatedAt(entsql.OrderDesc()), diagnosistooltemplate.ByID(entsql.OrderDesc())).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list diagnosis tool templates: %w", err)
+	}
+	out := make([]domain.DiagnosisToolTemplate, len(rows))
+	for i, row := range rows {
+		out[i] = diagnosisToolTemplateToDomain(row)
 	}
 	return out, nil
 }

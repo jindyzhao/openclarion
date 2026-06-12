@@ -1877,6 +1877,242 @@ paths:
                 server-error:
                   value:
                     error: disable report workflow schedule failed
+  /api/v1/config/diagnosis-tool-templates:
+    get:
+      operationId: listDiagnosisToolTemplates
+      summary: List diagnosis tool templates
+      description: Returns operator-managed diagnosis tool templates. This read does not call upstream providers or resolve secrets.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Diagnosis tool templates
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisToolTemplateListResponse"
+        "400":
+          description: Diagnosis tool template list parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Diagnosis tool template list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createDiagnosisToolTemplate
+      summary: Create a diagnosis tool template
+      description: Stores a diagnosis tool template as a disabled draft. This operation does not start workflows, call alert providers, resolve secrets, or send notifications.
+      tags:
+        - config
+      requestBody:
+        description: Diagnosis tool template metadata.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiagnosisToolTemplateWriteRequest"
+            examples:
+              cpu-range:
+                value:
+                  name: CPU saturation range
+                  alert_source_profile_id: 1
+                  tool: metric_range_query
+                  query_template: rate(container_cpu_usage_seconds_total[5m])
+                  default_limit: 5
+                  default_window_seconds: 3600
+                  max_window_seconds: 21600
+                  default_step_seconds: 60
+      responses:
+        "201":
+          description: Diagnosis tool template created as a disabled draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisToolTemplate"
+        "400":
+          description: Diagnosis tool template request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Bound alert source profile was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Diagnosis tool template conflicts with an existing template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Diagnosis tool template creation failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/config/diagnosis-tool-templates/{template_id}:
+    get:
+      operationId: getDiagnosisToolTemplate
+      summary: Get a diagnosis tool template
+      description: Returns one operator-managed diagnosis tool template without provider endpoint or secret values.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/DiagnosisToolTemplateID"
+      responses:
+        "200":
+          description: Diagnosis tool template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisToolTemplate"
+        "404":
+          description: Diagnosis tool template was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Diagnosis tool template lookup failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: replaceDiagnosisToolTemplate
+      summary: Replace a diagnosis tool template
+      description: Replaces diagnosis tool template metadata while preserving explicit enabled state. This operation does not start workflows, call alert providers, resolve secrets, or send notifications.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/DiagnosisToolTemplateID"
+      requestBody:
+        description: Replacement diagnosis tool template metadata.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiagnosisToolTemplateWriteRequest"
+            examples:
+              cpu-range:
+                value:
+                  name: CPU saturation range
+                  alert_source_profile_id: 1
+                  tool: metric_range_query
+                  query_template: rate(container_cpu_usage_seconds_total[5m])
+                  default_limit: 5
+                  default_window_seconds: 3600
+                  max_window_seconds: 21600
+                  default_step_seconds: 60
+      responses:
+        "200":
+          description: Diagnosis tool template replaced
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisToolTemplate"
+        "400":
+          description: Diagnosis tool template replacement request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Diagnosis tool template or bound alert source profile was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Replacement template conflicts with an existing template
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Diagnosis tool template replacement failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/config/diagnosis-tool-templates/{template_id}/enable:
+    post:
+      operationId: enableDiagnosisToolTemplate
+      summary: Enable a diagnosis tool template
+      description: Explicitly enables a diagnosis tool template after validating that the bound alert source profile is enabled and supports the selected tool kind. This action does not collect evidence.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/DiagnosisToolTemplateID"
+      responses:
+        "200":
+          description: Diagnosis tool template enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisToolTemplate"
+        "400":
+          description: Diagnosis tool template cannot be enabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Diagnosis tool template or bound alert source profile was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Diagnosis tool template enablement failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/config/diagnosis-tool-templates/{template_id}/disable:
+    post:
+      operationId: disableDiagnosisToolTemplate
+      summary: Disable a diagnosis tool template
+      description: Explicitly disables a diagnosis tool template. This does not cancel already-started diagnosis turns.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/DiagnosisToolTemplateID"
+      responses:
+        "200":
+          description: Diagnosis tool template disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisToolTemplate"
+        "400":
+          description: Diagnosis tool template disable request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Diagnosis tool template was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Diagnosis tool template disablement failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /api/v1/config/notification-channels:
     get:
       operationId: listNotificationChannelProfiles
@@ -2793,6 +3029,15 @@ components:
       name: schedule_id
       in: path
       description: Report workflow schedule identifier.
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    DiagnosisToolTemplateID:
+      name: template_id
+      in: path
+      description: Diagnosis tool template identifier.
       required: true
       schema:
         type: integer
@@ -3861,6 +4106,218 @@ components:
                 updated_at: "2026-06-06T02:00:00Z"
           items:
             $ref: "#/components/schemas/ReportWorkflowSchedule"
+      required:
+        - items
+    DiagnosisToolKind:
+      type: string
+      description: Backend-approved diagnosis evidence collector kind.
+      enum:
+        - active_alerts
+        - metric_query
+        - metric_range_query
+      examples:
+        - metric_range_query
+    DiagnosisToolTemplate:
+      type: object
+      description: Operator-managed diagnosis evidence collection template. Enabled state changes only through explicit action endpoints.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - CPU saturation range
+        alert_source_profile_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Bound alert source profile identifier.
+          examples:
+            - 1
+        tool:
+          $ref: "#/components/schemas/DiagnosisToolKind"
+        query_template:
+          type: string
+          maxLength: 500
+          description: Operator-reviewed PromQL query template. Empty for active_alerts templates.
+          examples:
+            - rate(container_cpu_usage_seconds_total[5m])
+        default_limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 20
+          description: Default result limit for one template-backed collection.
+          examples:
+            - 5
+        default_window_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 21600
+          description: Default range-query window in whole seconds. Zero for non-range tools.
+          examples:
+            - 3600
+        max_window_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 21600
+          description: Maximum operator-approved range-query window in whole seconds. Zero for non-range tools.
+          examples:
+            - 21600
+        default_step_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 21600
+          description: Default range-query step in whole seconds. Zero for non-range tools.
+          examples:
+            - 60
+        enabled:
+          type: boolean
+          description: Whether operators explicitly enabled this template for diagnosis tool execution.
+          examples:
+            - false
+        enabled_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Time of the latest explicit enable action.
+          examples:
+            - "2026-06-08T08:05:00Z"
+        disabled_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Time of the latest explicit disable action.
+          examples:
+            - null
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-08T08:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-08T08:10:00Z"
+      required:
+        - id
+        - name
+        - alert_source_profile_id
+        - tool
+        - query_template
+        - default_limit
+        - default_window_seconds
+        - max_window_seconds
+        - default_step_seconds
+        - enabled
+        - enabled_at
+        - disabled_at
+        - created_at
+        - updated_at
+    DiagnosisToolTemplateWriteRequest:
+      type: object
+      description: Diagnosis tool template metadata accepted by create and replace operations. Enabled state is action-only.
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - CPU saturation range
+        alert_source_profile_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        tool:
+          type: string
+          enum:
+            - active_alerts
+            - metric_query
+            - metric_range_query
+          examples:
+            - metric_range_query
+        query_template:
+          type: string
+          maxLength: 500
+          description: Required for metric_query and metric_range_query. Must be empty for active_alerts.
+          examples:
+            - rate(container_cpu_usage_seconds_total[5m])
+        default_limit:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 20
+          examples:
+            - 5
+        default_window_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 21600
+          examples:
+            - 3600
+        max_window_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 21600
+          examples:
+            - 21600
+        default_step_seconds:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 21600
+          examples:
+            - 60
+      required:
+        - name
+        - alert_source_profile_id
+        - tool
+        - query_template
+        - default_limit
+        - default_window_seconds
+        - max_window_seconds
+        - default_step_seconds
+      additionalProperties: false
+    DiagnosisToolTemplateListResponse:
+      type: object
+      description: Diagnosis tool template list response.
+      properties:
+        items:
+          type: array
+          examples:
+            -
+              - id: 1
+                name: CPU saturation range
+                alert_source_profile_id: 1
+                tool: metric_range_query
+                query_template: rate(container_cpu_usage_seconds_total[5m])
+                default_limit: 5
+                default_window_seconds: 3600
+                max_window_seconds: 21600
+                default_step_seconds: 60
+                enabled: false
+                enabled_at: null
+                disabled_at: null
+                created_at: "2026-06-08T08:00:00Z"
+                updated_at: "2026-06-08T08:00:00Z"
+          items:
+            $ref: "#/components/schemas/DiagnosisToolTemplate"
       required:
         - items
     ReportWorkflowPolicyImpactPreviewStatus:

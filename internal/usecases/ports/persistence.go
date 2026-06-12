@@ -428,6 +428,24 @@ type ConfigurationRepository interface {
 	// (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
 	ListReportWorkflowSchedules(ctx context.Context, limit int) ([]domain.ReportWorkflowSchedule, error)
 
+	// SaveDiagnosisToolTemplate inserts a new diagnosis tool template.
+	// Duplicate template names return a wrapped domain.ErrAlreadyExists. The
+	// returned template has ID, CreatedAt, and UpdatedAt populated.
+	SaveDiagnosisToolTemplate(ctx context.Context, t domain.DiagnosisToolTemplate) (domain.DiagnosisToolTemplate, error)
+
+	// UpdateDiagnosisToolTemplate persists mutable diagnosis tool template
+	// fields. The template ID is required. Returns domain.ErrNotFound if the
+	// row is missing.
+	UpdateDiagnosisToolTemplate(ctx context.Context, t domain.DiagnosisToolTemplate) (domain.DiagnosisToolTemplate, error)
+
+	// FindDiagnosisToolTemplateByID returns one diagnosis tool template by ID,
+	// or domain.ErrNotFound.
+	FindDiagnosisToolTemplateByID(ctx context.Context, id domain.DiagnosisToolTemplateID) (domain.DiagnosisToolTemplate, error)
+
+	// ListDiagnosisToolTemplates returns diagnosis tool templates ordered by
+	// (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListDiagnosisToolTemplates(ctx context.Context, limit int) ([]domain.DiagnosisToolTemplate, error)
+
 	// SaveNotificationChannelProfile inserts a new notification channel
 	// profile. Duplicate profile names return a wrapped
 	// domain.ErrAlreadyExists. The returned profile has ID, CreatedAt, and

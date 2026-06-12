@@ -23,6 +23,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
+	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistooltemplate"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
@@ -54,6 +55,8 @@ type Client struct {
 	DiagnosisTask *DiagnosisTaskClient
 	// DiagnosisTaskEvent is the client for interacting with the DiagnosisTaskEvent builders.
 	DiagnosisTaskEvent *DiagnosisTaskEventClient
+	// DiagnosisToolTemplate is the client for interacting with the DiagnosisToolTemplate builders.
+	DiagnosisToolTemplate *DiagnosisToolTemplateClient
 	// EvidenceSnapshot is the client for interacting with the EvidenceSnapshot builders.
 	EvidenceSnapshot *EvidenceSnapshotClient
 	// FinalReport is the client for interacting with the FinalReport builders.
@@ -89,6 +92,7 @@ func (c *Client) init() {
 	c.DiagnosisAuthTicket = NewDiagnosisAuthTicketClient(c.config)
 	c.DiagnosisTask = NewDiagnosisTaskClient(c.config)
 	c.DiagnosisTaskEvent = NewDiagnosisTaskEventClient(c.config)
+	c.DiagnosisToolTemplate = NewDiagnosisToolTemplateClient(c.config)
 	c.EvidenceSnapshot = NewEvidenceSnapshotClient(c.config)
 	c.FinalReport = NewFinalReportClient(c.config)
 	c.GroupingPolicy = NewGroupingPolicyClient(c.config)
@@ -197,6 +201,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		DiagnosisAuthTicket:        NewDiagnosisAuthTicketClient(cfg),
 		DiagnosisTask:              NewDiagnosisTaskClient(cfg),
 		DiagnosisTaskEvent:         NewDiagnosisTaskEventClient(cfg),
+		DiagnosisToolTemplate:      NewDiagnosisToolTemplateClient(cfg),
 		EvidenceSnapshot:           NewEvidenceSnapshotClient(cfg),
 		FinalReport:                NewFinalReportClient(cfg),
 		GroupingPolicy:             NewGroupingPolicyClient(cfg),
@@ -232,6 +237,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		DiagnosisAuthTicket:        NewDiagnosisAuthTicketClient(cfg),
 		DiagnosisTask:              NewDiagnosisTaskClient(cfg),
 		DiagnosisTaskEvent:         NewDiagnosisTaskEventClient(cfg),
+		DiagnosisToolTemplate:      NewDiagnosisToolTemplateClient(cfg),
 		EvidenceSnapshot:           NewEvidenceSnapshotClient(cfg),
 		FinalReport:                NewFinalReportClient(cfg),
 		GroupingPolicy:             NewGroupingPolicyClient(cfg),
@@ -271,7 +277,7 @@ func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession, c.ChatTurn,
 		c.DiagnosisAuthTicket, c.DiagnosisTask, c.DiagnosisTaskEvent,
-		c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
+		c.DiagnosisToolTemplate, c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
 		c.NotificationChannelProfile, c.ReportNotificationDelivery,
 		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.SubReport,
 	} {
@@ -285,7 +291,7 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession, c.ChatTurn,
 		c.DiagnosisAuthTicket, c.DiagnosisTask, c.DiagnosisTaskEvent,
-		c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
+		c.DiagnosisToolTemplate, c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
 		c.NotificationChannelProfile, c.ReportNotificationDelivery,
 		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.SubReport,
 	} {
@@ -312,6 +318,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.DiagnosisTask.mutate(ctx, m)
 	case *DiagnosisTaskEventMutation:
 		return c.DiagnosisTaskEvent.mutate(ctx, m)
+	case *DiagnosisToolTemplateMutation:
+		return c.DiagnosisToolTemplate.mutate(ctx, m)
 	case *EvidenceSnapshotMutation:
 		return c.EvidenceSnapshot.mutate(ctx, m)
 	case *FinalReportMutation:
@@ -1557,6 +1565,139 @@ func (c *DiagnosisTaskEventClient) mutate(ctx context.Context, m *DiagnosisTaskE
 	}
 }
 
+// DiagnosisToolTemplateClient is a client for the DiagnosisToolTemplate schema.
+type DiagnosisToolTemplateClient struct {
+	config
+}
+
+// NewDiagnosisToolTemplateClient returns a client for the DiagnosisToolTemplate from the given config.
+func NewDiagnosisToolTemplateClient(c config) *DiagnosisToolTemplateClient {
+	return &DiagnosisToolTemplateClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `diagnosistooltemplate.Hooks(f(g(h())))`.
+func (c *DiagnosisToolTemplateClient) Use(hooks ...Hook) {
+	c.hooks.DiagnosisToolTemplate = append(c.hooks.DiagnosisToolTemplate, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `diagnosistooltemplate.Intercept(f(g(h())))`.
+func (c *DiagnosisToolTemplateClient) Intercept(interceptors ...Interceptor) {
+	c.inters.DiagnosisToolTemplate = append(c.inters.DiagnosisToolTemplate, interceptors...)
+}
+
+// Create returns a builder for creating a DiagnosisToolTemplate entity.
+func (c *DiagnosisToolTemplateClient) Create() *DiagnosisToolTemplateCreate {
+	mutation := newDiagnosisToolTemplateMutation(c.config, OpCreate)
+	return &DiagnosisToolTemplateCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of DiagnosisToolTemplate entities.
+func (c *DiagnosisToolTemplateClient) CreateBulk(builders ...*DiagnosisToolTemplateCreate) *DiagnosisToolTemplateCreateBulk {
+	return &DiagnosisToolTemplateCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *DiagnosisToolTemplateClient) MapCreateBulk(slice any, setFunc func(*DiagnosisToolTemplateCreate, int)) *DiagnosisToolTemplateCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &DiagnosisToolTemplateCreateBulk{err: fmt.Errorf("calling to DiagnosisToolTemplateClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*DiagnosisToolTemplateCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &DiagnosisToolTemplateCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for DiagnosisToolTemplate.
+func (c *DiagnosisToolTemplateClient) Update() *DiagnosisToolTemplateUpdate {
+	mutation := newDiagnosisToolTemplateMutation(c.config, OpUpdate)
+	return &DiagnosisToolTemplateUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *DiagnosisToolTemplateClient) UpdateOne(_m *DiagnosisToolTemplate) *DiagnosisToolTemplateUpdateOne {
+	mutation := newDiagnosisToolTemplateMutation(c.config, OpUpdateOne, withDiagnosisToolTemplate(_m))
+	return &DiagnosisToolTemplateUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *DiagnosisToolTemplateClient) UpdateOneID(id int) *DiagnosisToolTemplateUpdateOne {
+	mutation := newDiagnosisToolTemplateMutation(c.config, OpUpdateOne, withDiagnosisToolTemplateID(id))
+	return &DiagnosisToolTemplateUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for DiagnosisToolTemplate.
+func (c *DiagnosisToolTemplateClient) Delete() *DiagnosisToolTemplateDelete {
+	mutation := newDiagnosisToolTemplateMutation(c.config, OpDelete)
+	return &DiagnosisToolTemplateDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *DiagnosisToolTemplateClient) DeleteOne(_m *DiagnosisToolTemplate) *DiagnosisToolTemplateDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *DiagnosisToolTemplateClient) DeleteOneID(id int) *DiagnosisToolTemplateDeleteOne {
+	builder := c.Delete().Where(diagnosistooltemplate.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &DiagnosisToolTemplateDeleteOne{builder}
+}
+
+// Query returns a query builder for DiagnosisToolTemplate.
+func (c *DiagnosisToolTemplateClient) Query() *DiagnosisToolTemplateQuery {
+	return &DiagnosisToolTemplateQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeDiagnosisToolTemplate},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a DiagnosisToolTemplate entity by its id.
+func (c *DiagnosisToolTemplateClient) Get(ctx context.Context, id int) (*DiagnosisToolTemplate, error) {
+	return c.Query().Where(diagnosistooltemplate.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *DiagnosisToolTemplateClient) GetX(ctx context.Context, id int) *DiagnosisToolTemplate {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *DiagnosisToolTemplateClient) Hooks() []Hook {
+	return c.hooks.DiagnosisToolTemplate
+}
+
+// Interceptors returns the client interceptors.
+func (c *DiagnosisToolTemplateClient) Interceptors() []Interceptor {
+	return c.inters.DiagnosisToolTemplate
+}
+
+func (c *DiagnosisToolTemplateClient) mutate(ctx context.Context, m *DiagnosisToolTemplateMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&DiagnosisToolTemplateCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&DiagnosisToolTemplateUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&DiagnosisToolTemplateUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&DiagnosisToolTemplateDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown DiagnosisToolTemplate mutation op: %q", m.Op())
+	}
+}
+
 // EvidenceSnapshotClient is a client for the EvidenceSnapshot schema.
 type EvidenceSnapshotClient struct {
 	config
@@ -2753,15 +2894,15 @@ func (c *SubReportClient) mutate(ctx context.Context, m *SubReportMutation) (Val
 type (
 	hooks struct {
 		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatTurn,
-		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, EvidenceSnapshot,
-		FinalReport, GroupingPolicy, NotificationChannelProfile,
+		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, DiagnosisToolTemplate,
+		EvidenceSnapshot, FinalReport, GroupingPolicy, NotificationChannelProfile,
 		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
 		SubReport []ent.Hook
 	}
 	inters struct {
 		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatTurn,
-		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, EvidenceSnapshot,
-		FinalReport, GroupingPolicy, NotificationChannelProfile,
+		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, DiagnosisToolTemplate,
+		EvidenceSnapshot, FinalReport, GroupingPolicy, NotificationChannelProfile,
 		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
 		SubReport []ent.Interceptor
 	}

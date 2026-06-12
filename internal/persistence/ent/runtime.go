@@ -13,6 +13,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
+	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistooltemplate"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
@@ -524,6 +525,78 @@ func init() {
 	diagnosistaskeventDescRecordedAt := diagnosistaskeventFields[5].Descriptor()
 	// diagnosistaskevent.DefaultRecordedAt holds the default value on creation for the recorded_at field.
 	diagnosistaskevent.DefaultRecordedAt = diagnosistaskeventDescRecordedAt.Default.(func() time.Time)
+	diagnosistooltemplateFields := schema.DiagnosisToolTemplate{}.Fields()
+	_ = diagnosistooltemplateFields
+	// diagnosistooltemplateDescName is the schema descriptor for name field.
+	diagnosistooltemplateDescName := diagnosistooltemplateFields[0].Descriptor()
+	// diagnosistooltemplate.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	diagnosistooltemplate.NameValidator = func() func(string) error {
+		validators := diagnosistooltemplateDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// diagnosistooltemplateDescAlertSourceProfileID is the schema descriptor for alert_source_profile_id field.
+	diagnosistooltemplateDescAlertSourceProfileID := diagnosistooltemplateFields[1].Descriptor()
+	// diagnosistooltemplate.AlertSourceProfileIDValidator is a validator for the "alert_source_profile_id" field. It is called by the builders before save.
+	diagnosistooltemplate.AlertSourceProfileIDValidator = diagnosistooltemplateDescAlertSourceProfileID.Validators[0].(func(int) error)
+	// diagnosistooltemplateDescTool is the schema descriptor for tool field.
+	diagnosistooltemplateDescTool := diagnosistooltemplateFields[2].Descriptor()
+	// diagnosistooltemplate.ToolValidator is a validator for the "tool" field. It is called by the builders before save.
+	diagnosistooltemplate.ToolValidator = func() func(string) error {
+		validators := diagnosistooltemplateDescTool.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(tool string) error {
+			for _, fn := range fns {
+				if err := fn(tool); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// diagnosistooltemplateDescDefaultLimit is the schema descriptor for default_limit field.
+	diagnosistooltemplateDescDefaultLimit := diagnosistooltemplateFields[4].Descriptor()
+	// diagnosistooltemplate.DefaultLimitValidator is a validator for the "default_limit" field. It is called by the builders before save.
+	diagnosistooltemplate.DefaultLimitValidator = diagnosistooltemplateDescDefaultLimit.Validators[0].(func(int) error)
+	// diagnosistooltemplateDescDefaultWindowNs is the schema descriptor for default_window_ns field.
+	diagnosistooltemplateDescDefaultWindowNs := diagnosistooltemplateFields[5].Descriptor()
+	// diagnosistooltemplate.DefaultWindowNsValidator is a validator for the "default_window_ns" field. It is called by the builders before save.
+	diagnosistooltemplate.DefaultWindowNsValidator = diagnosistooltemplateDescDefaultWindowNs.Validators[0].(func(int64) error)
+	// diagnosistooltemplateDescMaxWindowNs is the schema descriptor for max_window_ns field.
+	diagnosistooltemplateDescMaxWindowNs := diagnosistooltemplateFields[6].Descriptor()
+	// diagnosistooltemplate.MaxWindowNsValidator is a validator for the "max_window_ns" field. It is called by the builders before save.
+	diagnosistooltemplate.MaxWindowNsValidator = diagnosistooltemplateDescMaxWindowNs.Validators[0].(func(int64) error)
+	// diagnosistooltemplateDescDefaultStepNs is the schema descriptor for default_step_ns field.
+	diagnosistooltemplateDescDefaultStepNs := diagnosistooltemplateFields[7].Descriptor()
+	// diagnosistooltemplate.DefaultStepNsValidator is a validator for the "default_step_ns" field. It is called by the builders before save.
+	diagnosistooltemplate.DefaultStepNsValidator = diagnosistooltemplateDescDefaultStepNs.Validators[0].(func(int64) error)
+	// diagnosistooltemplateDescEnabled is the schema descriptor for enabled field.
+	diagnosistooltemplateDescEnabled := diagnosistooltemplateFields[8].Descriptor()
+	// diagnosistooltemplate.DefaultEnabled holds the default value on creation for the enabled field.
+	diagnosistooltemplate.DefaultEnabled = diagnosistooltemplateDescEnabled.Default.(bool)
+	// diagnosistooltemplateDescCreatedAt is the schema descriptor for created_at field.
+	diagnosistooltemplateDescCreatedAt := diagnosistooltemplateFields[11].Descriptor()
+	// diagnosistooltemplate.DefaultCreatedAt holds the default value on creation for the created_at field.
+	diagnosistooltemplate.DefaultCreatedAt = diagnosistooltemplateDescCreatedAt.Default.(func() time.Time)
+	// diagnosistooltemplateDescUpdatedAt is the schema descriptor for updated_at field.
+	diagnosistooltemplateDescUpdatedAt := diagnosistooltemplateFields[12].Descriptor()
+	// diagnosistooltemplate.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	diagnosistooltemplate.DefaultUpdatedAt = diagnosistooltemplateDescUpdatedAt.Default.(func() time.Time)
+	// diagnosistooltemplate.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	diagnosistooltemplate.UpdateDefaultUpdatedAt = diagnosistooltemplateDescUpdatedAt.UpdateDefault.(func() time.Time)
 	evidencesnapshotFields := schema.EvidenceSnapshot{}.Fields()
 	_ = evidencesnapshotFields
 	// evidencesnapshotDescDigest is the schema descriptor for digest field.

@@ -416,6 +416,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config/diagnosis-tool-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List diagnosis tool templates
+         * @description Returns operator-managed diagnosis tool templates. This read does not call upstream providers or resolve secrets.
+         */
+        get: operations["listDiagnosisToolTemplates"];
+        put?: never;
+        /**
+         * Create a diagnosis tool template
+         * @description Stores a diagnosis tool template as a disabled draft. This operation does not start workflows, call alert providers, resolve secrets, or send notifications.
+         */
+        post: operations["createDiagnosisToolTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/diagnosis-tool-templates/{template_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a diagnosis tool template
+         * @description Returns one operator-managed diagnosis tool template without provider endpoint or secret values.
+         */
+        get: operations["getDiagnosisToolTemplate"];
+        /**
+         * Replace a diagnosis tool template
+         * @description Replaces diagnosis tool template metadata while preserving explicit enabled state. This operation does not start workflows, call alert providers, resolve secrets, or send notifications.
+         */
+        put: operations["replaceDiagnosisToolTemplate"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/diagnosis-tool-templates/{template_id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enable a diagnosis tool template
+         * @description Explicitly enables a diagnosis tool template after validating that the bound alert source profile is enabled and supports the selected tool kind. This action does not collect evidence.
+         */
+        post: operations["enableDiagnosisToolTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/diagnosis-tool-templates/{template_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Disable a diagnosis tool template
+         * @description Explicitly disables a diagnosis tool template. This does not cancel already-started diagnosis turns.
+         */
+        post: operations["disableDiagnosisToolTemplate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config/notification-channels": {
         parameters: {
             query?: never;
@@ -1337,6 +1425,149 @@ export interface components {
              *     ]
              */
             items: components["schemas"]["ReportWorkflowSchedule"][];
+        };
+        /**
+         * @description Backend-approved diagnosis evidence collector kind.
+         * @example metric_range_query
+         * @enum {string}
+         */
+        DiagnosisToolKind: "active_alerts" | "metric_query" | "metric_range_query";
+        /** @description Operator-managed diagnosis evidence collection template. Enabled state changes only through explicit action endpoints. */
+        DiagnosisToolTemplate: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            id: number;
+            /** @example CPU saturation range */
+            name: string;
+            /**
+             * Format: int64
+             * @description Bound alert source profile identifier.
+             * @example 1
+             */
+            alert_source_profile_id: number;
+            tool: components["schemas"]["DiagnosisToolKind"];
+            /**
+             * @description Operator-reviewed PromQL query template. Empty for active_alerts templates.
+             * @example rate(container_cpu_usage_seconds_total[5m])
+             */
+            query_template: string;
+            /**
+             * Format: int32
+             * @description Default result limit for one template-backed collection.
+             * @example 5
+             */
+            default_limit: number;
+            /**
+             * Format: int64
+             * @description Default range-query window in whole seconds. Zero for non-range tools.
+             * @example 3600
+             */
+            default_window_seconds: number;
+            /**
+             * Format: int64
+             * @description Maximum operator-approved range-query window in whole seconds. Zero for non-range tools.
+             * @example 21600
+             */
+            max_window_seconds: number;
+            /**
+             * Format: int64
+             * @description Default range-query step in whole seconds. Zero for non-range tools.
+             * @example 60
+             */
+            default_step_seconds: number;
+            /**
+             * @description Whether operators explicitly enabled this template for diagnosis tool execution.
+             * @example false
+             */
+            enabled: boolean;
+            /**
+             * Format: date-time
+             * @description Time of the latest explicit enable action.
+             * @example 2026-06-08T08:05:00Z
+             */
+            enabled_at: string | null;
+            /**
+             * Format: date-time
+             * @description Time of the latest explicit disable action.
+             * @example null
+             */
+            disabled_at: string | null;
+            /**
+             * Format: date-time
+             * @example 2026-06-08T08:00:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-08T08:10:00Z
+             */
+            updated_at: string;
+        };
+        /** @description Diagnosis tool template metadata accepted by create and replace operations. Enabled state is action-only. */
+        DiagnosisToolTemplateWriteRequest: {
+            /** @example CPU saturation range */
+            name: string;
+            /**
+             * Format: int64
+             * @example 1
+             */
+            alert_source_profile_id: number;
+            /**
+             * @example metric_range_query
+             * @enum {string}
+             */
+            tool: "active_alerts" | "metric_query" | "metric_range_query";
+            /**
+             * @description Required for metric_query and metric_range_query. Must be empty for active_alerts.
+             * @example rate(container_cpu_usage_seconds_total[5m])
+             */
+            query_template: string;
+            /**
+             * Format: int32
+             * @example 5
+             */
+            default_limit: number;
+            /**
+             * Format: int64
+             * @example 3600
+             */
+            default_window_seconds: number;
+            /**
+             * Format: int64
+             * @example 21600
+             */
+            max_window_seconds: number;
+            /**
+             * Format: int64
+             * @example 60
+             */
+            default_step_seconds: number;
+        };
+        /** @description Diagnosis tool template list response. */
+        DiagnosisToolTemplateListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "name": "CPU saturation range",
+             *         "alert_source_profile_id": 1,
+             *         "tool": "metric_range_query",
+             *         "query_template": "rate(container_cpu_usage_seconds_total[5m])",
+             *         "default_limit": 5,
+             *         "default_window_seconds": 3600,
+             *         "max_window_seconds": 21600,
+             *         "default_step_seconds": 60,
+             *         "enabled": false,
+             *         "enabled_at": null,
+             *         "disabled_at": null,
+             *         "created_at": "2026-06-08T08:00:00Z",
+             *         "updated_at": "2026-06-08T08:00:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["DiagnosisToolTemplate"][];
         };
         /**
          * @description Sanitized readiness category for a report workflow policy impact preview.
@@ -2266,6 +2497,8 @@ export interface components {
         ReportWorkflowPolicyID: number;
         /** @description Report workflow schedule identifier. */
         ReportWorkflowScheduleID: number;
+        /** @description Diagnosis tool template identifier. */
+        DiagnosisToolTemplateID: number;
         /** @description Notification channel profile identifier. */
         NotificationChannelProfileID: number;
     };
@@ -3626,6 +3859,313 @@ export interface operations {
                 };
             };
             /** @description Report workflow schedule disablement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listDiagnosisToolTemplates: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Diagnosis tool templates */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisToolTemplateListResponse"];
+                };
+            };
+            /** @description Diagnosis tool template list parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis tool template list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createDiagnosisToolTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Diagnosis tool template metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiagnosisToolTemplateWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Diagnosis tool template created as a disabled draft */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisToolTemplate"];
+                };
+            };
+            /** @description Diagnosis tool template request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Bound alert source profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis tool template conflicts with an existing template */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis tool template creation failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getDiagnosisToolTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Diagnosis tool template identifier. */
+                template_id: components["parameters"]["DiagnosisToolTemplateID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Diagnosis tool template */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisToolTemplate"];
+                };
+            };
+            /** @description Diagnosis tool template was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis tool template lookup failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    replaceDiagnosisToolTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Diagnosis tool template identifier. */
+                template_id: components["parameters"]["DiagnosisToolTemplateID"];
+            };
+            cookie?: never;
+        };
+        /** @description Replacement diagnosis tool template metadata. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiagnosisToolTemplateWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Diagnosis tool template replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisToolTemplate"];
+                };
+            };
+            /** @description Diagnosis tool template replacement request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis tool template or bound alert source profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Replacement template conflicts with an existing template */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis tool template replacement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    enableDiagnosisToolTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Diagnosis tool template identifier. */
+                template_id: components["parameters"]["DiagnosisToolTemplateID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Diagnosis tool template enabled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisToolTemplate"];
+                };
+            };
+            /** @description Diagnosis tool template cannot be enabled */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis tool template or bound alert source profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis tool template enablement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    disableDiagnosisToolTemplate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Diagnosis tool template identifier. */
+                template_id: components["parameters"]["DiagnosisToolTemplateID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Diagnosis tool template disabled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisToolTemplate"];
+                };
+            };
+            /** @description Diagnosis tool template disable request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis tool template was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis tool template disablement failed server-side */
             500: {
                 headers: {
                     [name: string]: unknown;

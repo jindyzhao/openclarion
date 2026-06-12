@@ -566,6 +566,141 @@ func TestConfigRepo_ListReportWorkflowSchedulesOrdersByUpdatedAt(t *testing.T) {
 	})
 }
 
+func TestConfigRepo_SaveFindUpdateAndListDiagnosisToolTemplate(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+	var saved domain.DiagnosisToolTemplate
+
+	if err := integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var err error
+		saved, err = uow.Config().SaveDiagnosisToolTemplate(ctx, mustNewDiagnosisToolTemplate(t, "CPU saturation range"))
+		return err
+	}); err != nil {
+		t.Fatalf("save template: %v", err)
+	}
+	if saved.ID == 0 || saved.CreatedAt.IsZero() || saved.UpdatedAt.IsZero() {
+		t.Fatalf("saved template missing generated fields: %+v", saved)
+	}
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Config().FindDiagnosisToolTemplateByID(ctx, saved.ID)
+		if err != nil {
+			t.Fatalf("FindDiagnosisToolTemplateByID: %v", err)
+		}
+		if got.Name != "CPU saturation range" ||
+			got.AlertSourceProfileID != 1 ||
+			got.Tool != domain.DiagnosisToolKindMetricRangeQuery ||
+			got.QueryTemplate == "" ||
+			!got.Enabled {
+			t.Fatalf("got = %+v", got)
+		}
+	})
+
+	updated := saved
+	updated.Name = "CPU instant"
+	updated.Tool = domain.DiagnosisToolKindMetricQuery
+	updated.QueryTemplate = "up"
+	updated.DefaultLimit = 3
+	updated.DefaultWindow = 0
+	updated.MaxWindow = 0
+	updated.DefaultStep = 0
+	updated.Enabled = false
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Config().UpdateDiagnosisToolTemplate(ctx, updated)
+		if err != nil {
+			t.Fatalf("UpdateDiagnosisToolTemplate: %v", err)
+		}
+		if got.Name != "CPU instant" || got.Tool != domain.DiagnosisToolKindMetricQuery || got.DefaultLimit != 3 || got.Enabled {
+			t.Fatalf("updated template = %+v", got)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		listed, err := uow.Config().ListDiagnosisToolTemplates(ctx, 10)
+		if err != nil {
+			t.Fatalf("ListDiagnosisToolTemplates: %v", err)
+		}
+		if len(listed) != 1 || listed[0].Name != "CPU instant" {
+			t.Fatalf("listed = %+v", listed)
+		}
+	})
+}
+
+func TestConfigRepo_DiagnosisToolTemplateUniqueName(t *testing.T) {
+	resetDB(t)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		if _, err := uow.Config().SaveDiagnosisToolTemplate(ctx, mustNewDiagnosisToolTemplate(t, "CPU saturation range")); err != nil {
+			t.Fatalf("initial save: %v", err)
+		}
+	})
+
+	err := integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, serr := uow.Config().SaveDiagnosisToolTemplate(ctx, mustNewDiagnosisToolTemplate(t, "CPU saturation range"))
+		return serr
+	})
+	if !errors.Is(err, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate save err = %v, want ErrAlreadyExists", err)
+	}
+}
+
+func TestConfigRepo_DiagnosisToolTemplateNotFoundAndInvalidInput(t *testing.T) {
+	resetDB(t)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		_, err := uow.Config().FindDiagnosisToolTemplateByID(ctx, 404)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("find missing err = %v, want ErrNotFound", err)
+		}
+		_, err = uow.Config().FindDiagnosisToolTemplateByID(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("find zero err = %v, want ErrInvariantViolation", err)
+		}
+		_, err = uow.Config().ListDiagnosisToolTemplates(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("list zero err = %v, want ErrInvariantViolation", err)
+		}
+		template := mustNewDiagnosisToolTemplate(t, "Missing")
+		_, err = uow.Config().UpdateDiagnosisToolTemplate(ctx, template)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("update zero id err = %v, want ErrInvariantViolation", err)
+		}
+		template.ID = 404
+		_, err = uow.Config().UpdateDiagnosisToolTemplate(ctx, template)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("update missing err = %v, want ErrNotFound", err)
+		}
+	})
+}
+
+func TestConfigRepo_ListDiagnosisToolTemplatesOrdersByUpdatedAt(t *testing.T) {
+	resetDB(t)
+	base := time.Date(2026, 6, 8, 8, 0, 0, 0, time.UTC)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		oldest := mustNewDiagnosisToolTemplate(t, "Oldest")
+		oldest.UpdatedAt = base
+		if _, err := uow.Config().SaveDiagnosisToolTemplate(ctx, oldest); err != nil {
+			t.Fatalf("save oldest: %v", err)
+		}
+		newest := mustNewDiagnosisToolTemplate(t, "Newest")
+		newest.UpdatedAt = base.Add(time.Minute)
+		if _, err := uow.Config().SaveDiagnosisToolTemplate(ctx, newest); err != nil {
+			t.Fatalf("save newest: %v", err)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		listed, err := uow.Config().ListDiagnosisToolTemplates(ctx, 1)
+		if err != nil {
+			t.Fatalf("ListDiagnosisToolTemplates: %v", err)
+		}
+		if len(listed) != 1 || listed[0].Name != "Newest" {
+			t.Fatalf("listed = %+v, want Newest first", listed)
+		}
+	})
+}
+
 func TestConfigRepo_SaveFindUpdateAndListNotificationChannelProfile(t *testing.T) {
 	resetDB(t)
 	ctx := context.Background()
@@ -769,6 +904,27 @@ func mustNewReportWorkflowSchedule(t *testing.T, name string) domain.ReportWorkf
 		t.Fatalf("NewReportWorkflowSchedule: %v", err)
 	}
 	return schedule
+}
+
+func mustNewDiagnosisToolTemplate(t *testing.T, name string) domain.DiagnosisToolTemplate {
+	t.Helper()
+	template, err := domain.NewDiagnosisToolTemplate(
+		name,
+		domain.AlertSourceProfileID(1),
+		domain.DiagnosisToolKindMetricRangeQuery,
+		`rate(container_cpu_usage_seconds_total[5m])`,
+		5,
+		time.Hour,
+		2*time.Hour,
+		time.Minute,
+		true,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewDiagnosisToolTemplate: %v", err)
+	}
+	return template
 }
 
 func mustNewNotificationChannelProfile(t *testing.T, name string) domain.NotificationChannelProfile {
