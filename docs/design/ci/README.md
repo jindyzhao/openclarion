@@ -218,6 +218,8 @@ make diagnosis-room-workflow-test # M5 Temporal diagnosis room workflow/client a
 make diagnosis-auth-test # M5 AuthProvider/OIDC/RBAC/WS ticket boundary + persistence + transport relay tests
 make diagnosis-chat-persistence-test # M5 ChatSession/ChatTurn persistence tests
 make diagnosis-dev-oidc-issuer # manual M5 local OIDC issuer/token helper
+make stage5-local-worker-check # manual M5 local worker readiness check; requires Docker and private env
+make stage5-local-worker # manual M5 local worker/API process from private env
 make diagnosis-live-smoke-output-test # M5 live browser smoke proof validator tests
 make container-provider-smoke # manual M4 Docker Provider.Run smoke; requires Docker
 make container-provider-timeout-smoke # manual M4 Docker Provider timeout cleanup smoke; requires Docker

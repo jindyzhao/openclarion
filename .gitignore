@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+/.openclarion-private/
 
 # Build outputs
 bin/
