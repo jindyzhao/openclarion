@@ -25,6 +25,12 @@ func TestRunDiagnosisTurn_CallsContainerAndParsesOutput(t *testing.T) {
 		"message": "CPU saturation is concentrated on api-1.",
 		"findings": ["api-1 CPU exceeded threshold"],
 		"recommended_actions": ["Inspect recent deployment"],
+		"evidence_requests": [{
+			"tool": "metric_query",
+			"reason": "Need current CPU pressure.",
+			"query": "avg(rate(container_cpu_usage_seconds_total[5m]))",
+			"limit": 3
+		}],
 		"confidence": "high",
 		"requires_human_review": true
 	}`)
@@ -55,6 +61,11 @@ func TestRunDiagnosisTurn_CallsContainerAndParsesOutput(t *testing.T) {
 		!got.RequiresHumanReview ||
 		got.RuntimeID != "container-1" {
 		t.Fatalf("result = %+v", got)
+	}
+	if len(got.Output.EvidenceRequests) != 1 ||
+		got.Output.EvidenceRequests[0].Tool != "metric_query" ||
+		got.Output.EvidenceRequests[0].Query != "avg(rate(container_cpu_usage_seconds_total[5m]))" {
+		t.Fatalf("evidence requests = %+v", got.Output.EvidenceRequests)
 	}
 
 	recorded := provider.Requests(invocationID)
