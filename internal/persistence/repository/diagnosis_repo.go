@@ -3,7 +3,10 @@ package repository
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync/atomic"
+
+	"entgo.io/ent/dialect/sql"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/persistence/ent"
@@ -121,6 +124,36 @@ func (r *diagnosisRepo) FindTaskByExecution(ctx context.Context, workflowID, run
 	return diagnosisTaskToDomain(row), nil
 }
 
+// ListTasksByEvidenceSnapshot returns recent task executions for one
+// EvidenceSnapshot.
+func (r *diagnosisRepo) ListTasksByEvidenceSnapshot(ctx context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]domain.DiagnosisTask, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if snapshotID == 0 {
+		return nil, fmt.Errorf("list diagnosis tasks by evidence snapshot: snapshot id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list diagnosis tasks by evidence snapshot: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.DiagnosisTask.Query().
+		Where(diagnosistask.EvidenceSnapshotIDEQ(int(snapshotID))).
+		Order(
+			diagnosistask.ByCreatedAt(sql.OrderDesc()),
+			diagnosistask.ByID(sql.OrderDesc()),
+		).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list diagnosis tasks by evidence snapshot: %w", err)
+	}
+	out := make([]domain.DiagnosisTask, len(rows))
+	for i, row := range rows {
+		out[i] = diagnosisTaskToDomain(row)
+	}
+	return out, nil
+}
+
 // AppendEvent inserts a new DiagnosisTaskEvent. When DedupeKey is
 // non-nil, a duplicate (task_id, dedupe_key) returns
 // domain.ErrAlreadyExists. When DedupeKey is nil, multiple events
@@ -196,6 +229,43 @@ func (r *diagnosisRepo) ListEvents(ctx context.Context, taskID domain.DiagnosisT
 		All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list diagnosis events: %w", err)
+	}
+	out := make([]domain.DiagnosisTaskEvent, len(rows))
+	for i, row := range rows {
+		out[i] = diagnosisTaskEventToDomain(row)
+	}
+	return out, nil
+}
+
+// ListEventsByTaskAndKind returns matching task events in reverse
+// occurrence order.
+func (r *diagnosisRepo) ListEventsByTaskAndKind(ctx context.Context, taskID domain.DiagnosisTaskID, kind string, limit int) ([]domain.DiagnosisTaskEvent, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if taskID == 0 {
+		return nil, fmt.Errorf("list diagnosis events by kind: task id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	kind = strings.TrimSpace(kind)
+	if kind == "" {
+		return nil, fmt.Errorf("list diagnosis events by kind: kind must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list diagnosis events by kind: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.DiagnosisTaskEvent.Query().
+		Where(
+			diagnosistaskevent.TaskIDEQ(int(taskID)),
+			diagnosistaskevent.KindEQ(kind),
+		).
+		Order(
+			diagnosistaskevent.ByOccurredAt(sql.OrderDesc()),
+			diagnosistaskevent.ByID(sql.OrderDesc()),
+		).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list diagnosis events by kind: %w", err)
 	}
 	out := make([]domain.DiagnosisTaskEvent, len(rows))
 	for i, row := range rows {

@@ -85,11 +85,38 @@ function Detail({ report }: { report: FinalReportDetail }) {
                 <p>{subReport.summary}</p>
                 <span className={severityClass(subReport.severity)}>{subReport.severity}</span>{" "}
                 <span className="muted">{subReport.confidence} confidence</span>
+                {subReport.diagnosis_conclusion ? (
+                  <DiagnosisConclusion conclusion={subReport.diagnosis_conclusion} />
+                ) : null}
               </li>
             ))}
           </ul>
         </div>
       </section>
+    </div>
+  );
+}
+
+function DiagnosisConclusion({
+  conclusion
+}: {
+  conclusion: NonNullable<FinalReportDetail["linked_sub_reports"][number]["diagnosis_conclusion"]>;
+}) {
+  return (
+    <div aria-label="Diagnosis conclusion" className="subreport-conclusion">
+      <div className="subreport-conclusion-header">
+        <strong>AI diagnosis conclusion</strong>
+        <span className="muted">{conclusion.confidence ? `${conclusion.confidence} confidence` : "confidence pending"}</span>
+      </div>
+      <p>{conclusion.content}</p>
+      <div className="muted">
+        {conclusion.session_id} · {formatDateTime(conclusion.recorded_at)}
+      </div>
+      <div className="subreport-conclusion-meta">
+        <span className="label-chip">{conclusion.source}</span>
+        {conclusion.reason ? <span className="label-chip">{conclusion.reason}</span> : null}
+        {conclusion.requires_human_review ? <span className="label-chip">human review</span> : null}
+      </div>
     </div>
   );
 }

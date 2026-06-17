@@ -65,7 +65,24 @@ const report = {
       model: "gpt-4.1-mini",
       output_mode: "json_schema",
       created_by_workflow: "ReportFanOutWorkflow",
-      created_at: "2026-05-28T05:59:00Z"
+      created_at: "2026-05-28T05:59:00Z",
+      diagnosis_conclusion: {
+        diagnosis_task_id: 301,
+        session_id: "diagnosis-session-301",
+        chat_session_id: 401,
+        event_kind: "diagnosis_room.final_conclusion_ready",
+        status: "available",
+        source: "latest_assistant_turn",
+        reason: "assistant_marked_final",
+        assistant_turn_id: 501,
+        assistant_message_id: "msg-1/assistant",
+        assistant_sequence: 2,
+        assistant_occurred_at: "2026-05-28T06:03:00Z",
+        content: "Checkout latency remains correlated with the payment deployment.",
+        confidence: "high",
+        requires_human_review: true,
+        recorded_at: "2026-05-28T06:03:01Z"
+      }
     }
   ]
 };

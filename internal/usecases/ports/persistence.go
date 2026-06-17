@@ -227,6 +227,11 @@ type DiagnosisRepository interface {
 	// domain.ErrNotFound.
 	FindTaskByExecution(ctx context.Context, workflowID, runID string) (domain.DiagnosisTask, error)
 
+	// ListTasksByEvidenceSnapshot returns recent DiagnosisTasks for
+	// one EvidenceSnapshot, ordered by (created_at DESC, id DESC),
+	// capped by limit. limit MUST be > 0.
+	ListTasksByEvidenceSnapshot(ctx context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]domain.DiagnosisTask, error)
+
 	// AppendEvent appends a lifecycle event to the task. When
 	// DedupeKey is set, a duplicate (task_id, dedupe_key) returns
 	// a wrapped domain.ErrAlreadyExists; when DedupeKey is nil,
@@ -250,6 +255,11 @@ type DiagnosisRepository interface {
 	// ListEvents returns the events for a task ordered by
 	// occurred_at ascending, capped by limit. limit MUST be > 0.
 	ListEvents(ctx context.Context, taskID domain.DiagnosisTaskID, limit int) ([]domain.DiagnosisTaskEvent, error)
+
+	// ListEventsByTaskAndKind returns the events for a task/kind
+	// pair ordered by (occurred_at DESC, id DESC), capped by limit.
+	// kind MUST be non-empty and limit MUST be > 0.
+	ListEventsByTaskAndKind(ctx context.Context, taskID domain.DiagnosisTaskID, kind string, limit int) ([]domain.DiagnosisTaskEvent, error)
 
 	// SaveChatSession inserts a new M5 diagnosis-room ChatSession.
 	// Duplicate session_key or diagnosis_task_id returns a wrapped

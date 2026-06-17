@@ -9,11 +9,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/openclarion/openclarion/api"
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/observability/correlation"
+	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertmanagerwebhook"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
@@ -29,6 +31,11 @@ import (
 const (
 	defaultListLimit = 100
 	maxListLimit     = 500
+
+	diagnosisConclusionTaskLimit = 5
+
+	diagnosisConclusionEventFinalReady = "diagnosis_room.final_conclusion_ready"
+	diagnosisConclusionEventClosed     = "diagnosis_room.closed"
 
 	defaultReportReplayLimit = 10000
 	maxReportReplayLimit     = 100000
@@ -321,6 +328,7 @@ func (s *Server) GetReport(w http.ResponseWriter, r *http.Request, reportID int6
 
 	var report domain.FinalReport
 	var subReports []domain.SubReport
+	var diagnosisConclusions diagnosisConclusionBySnapshot
 	err := s.uowFactory.WithinTx(r.Context(), func(ctx context.Context, uow ports.UnitOfWork) error {
 		var ferr error
 		repo := uow.Reports()
@@ -329,6 +337,10 @@ func (s *Server) GetReport(w http.ResponseWriter, r *http.Request, reportID int6
 			return ferr
 		}
 		subReports, ferr = repo.ListSubReportsForFinalReport(ctx, report.ID, maxListLimit)
+		if ferr != nil {
+			return ferr
+		}
+		diagnosisConclusions, ferr = diagnosisConclusionsForSubReports(ctx, uow.Diagnosis(), subReports)
 		return ferr
 	})
 	if errors.Is(err, domain.ErrNotFound) {
@@ -340,7 +352,7 @@ func (s *Server) GetReport(w http.ResponseWriter, r *http.Request, reportID int6
 		return
 	}
 
-	detail, err := finalReportDetail(report, subReports)
+	detail, err := finalReportDetail(report, subReports, diagnosisConclusions)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "map report detail failed", err)
 		return
@@ -579,7 +591,218 @@ func finalReportSummaries(reports []domain.FinalReport) []api.FinalReportSummary
 	return items
 }
 
-func finalReportDetail(report domain.FinalReport, subReports []domain.SubReport) (api.FinalReportDetail, error) {
+type diagnosisConclusionBySnapshot map[domain.EvidenceSnapshotID]api.DiagnosisRoomConclusionSummary
+
+type diagnosisRoomConclusionEventPayload struct {
+	Kind              string                         `json:"kind"`
+	SessionID         string                         `json:"session_id"`
+	ChatSessionID     int64                          `json:"chat_session_id"`
+	DiagnosisTaskID   int64                          `json:"diagnosis_task_id"`
+	FinalConclusion   diagnosisRoomConclusionPayload `json:"final_conclusion"`
+	OwnerSubject      string                         `json:"owner_subject,omitempty"`
+	TurnCount         int                            `json:"turn_count,omitempty"`
+	Status            string                         `json:"status,omitempty"`
+	CloseReason       string                         `json:"close_reason,omitempty"`
+	ConclusionVersion string                         `json:"conclusion_version,omitempty"`
+	ClosedAt          *time.Time                     `json:"closed_at,omitempty"`
+}
+
+type diagnosisRoomConclusionPayload struct {
+	Status              string     `json:"status"`
+	Source              string     `json:"source"`
+	Reason              string     `json:"reason,omitempty"`
+	AssistantTurnID     int64      `json:"assistant_turn_id,omitempty"`
+	AssistantMessageID  string     `json:"assistant_message_id,omitempty"`
+	AssistantSequence   int        `json:"assistant_sequence,omitempty"`
+	AssistantOccurredAt *time.Time `json:"assistant_occurred_at,omitempty"`
+	Content             string     `json:"content,omitempty"`
+	Confidence          string     `json:"confidence,omitempty"`
+	RequiresHumanReview *bool      `json:"requires_human_review,omitempty"`
+}
+
+func diagnosisConclusionsForSubReports(ctx context.Context, repo ports.DiagnosisRepository, subReports []domain.SubReport) (diagnosisConclusionBySnapshot, error) {
+	out := diagnosisConclusionBySnapshot{}
+	if repo == nil || len(subReports) == 0 {
+		return out, nil
+	}
+	seen := map[domain.EvidenceSnapshotID]struct{}{}
+	for _, subReport := range subReports {
+		snapshotID := subReport.EvidenceSnapshotID
+		if snapshotID == 0 {
+			continue
+		}
+		if _, ok := seen[snapshotID]; ok {
+			continue
+		}
+		seen[snapshotID] = struct{}{}
+
+		tasks, err := repo.ListTasksByEvidenceSnapshot(ctx, snapshotID, diagnosisConclusionTaskLimit)
+		if err != nil {
+			return nil, err
+		}
+		conclusion, ok, err := latestDiagnosisConclusion(ctx, repo, tasks)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			out[snapshotID] = conclusion
+		}
+	}
+	return out, nil
+}
+
+func latestDiagnosisConclusion(ctx context.Context, repo ports.DiagnosisRepository, tasks []domain.DiagnosisTask) (api.DiagnosisRoomConclusionSummary, bool, error) {
+	var best api.DiagnosisRoomConclusionSummary
+	var bestOccurred time.Time
+	bestSet := false
+	for _, task := range tasks {
+		conclusion, occurredAt, ok, err := latestDiagnosisConclusionForTask(ctx, repo, task.ID)
+		if err != nil {
+			return api.DiagnosisRoomConclusionSummary{}, false, err
+		}
+		if !ok {
+			continue
+		}
+		if !bestSet ||
+			occurredAt.After(bestOccurred) ||
+			(occurredAt.Equal(bestOccurred) && conclusion.RecordedAt.After(best.RecordedAt)) {
+			best = conclusion
+			bestOccurred = occurredAt
+			bestSet = true
+		}
+	}
+	return best, bestSet, nil
+}
+
+func latestDiagnosisConclusionForTask(
+	ctx context.Context,
+	repo ports.DiagnosisRepository,
+	taskID domain.DiagnosisTaskID,
+) (api.DiagnosisRoomConclusionSummary, time.Time, bool, error) {
+	var best api.DiagnosisRoomConclusionSummary
+	var bestOccurred time.Time
+	bestSet := false
+	for _, kind := range []string{diagnosisConclusionEventFinalReady, diagnosisConclusionEventClosed} {
+		events, err := repo.ListEventsByTaskAndKind(ctx, taskID, kind, 1)
+		if err != nil {
+			return api.DiagnosisRoomConclusionSummary{}, time.Time{}, false, err
+		}
+		if len(events) == 0 {
+			continue
+		}
+		conclusion, ok, err := diagnosisConclusionFromEvent(events[0])
+		if err != nil {
+			return api.DiagnosisRoomConclusionSummary{}, time.Time{}, false, err
+		}
+		if !ok {
+			continue
+		}
+		event := events[0]
+		if !bestSet ||
+			event.OccurredAt.After(bestOccurred) ||
+			(event.OccurredAt.Equal(bestOccurred) && conclusion.RecordedAt.After(best.RecordedAt)) {
+			best = conclusion
+			bestOccurred = event.OccurredAt
+			bestSet = true
+		}
+	}
+	return best, bestOccurred, bestSet, nil
+}
+
+func diagnosisConclusionFromEvent(event domain.DiagnosisTaskEvent) (api.DiagnosisRoomConclusionSummary, bool, error) {
+	if len(event.Payload) == 0 {
+		return api.DiagnosisRoomConclusionSummary{}, false, fmt.Errorf("diagnosis conclusion event %d has empty payload: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	if err := strictjson.RejectDuplicateObjectKeys(event.Payload); err != nil {
+		return api.DiagnosisRoomConclusionSummary{}, false, fmt.Errorf("diagnosis conclusion event %d payload is ambiguous: %w", event.ID, err)
+	}
+	var payload diagnosisRoomConclusionEventPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return api.DiagnosisRoomConclusionSummary{}, false, fmt.Errorf("diagnosis conclusion event %d payload: %w", event.ID, err)
+	}
+	if payload.Kind != "" && payload.Kind != event.Kind {
+		return api.DiagnosisRoomConclusionSummary{}, false, fmt.Errorf("diagnosis conclusion event %d kind mismatch: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	if payload.DiagnosisTaskID != 0 && domain.DiagnosisTaskID(payload.DiagnosisTaskID) != event.TaskID {
+		return api.DiagnosisRoomConclusionSummary{}, false, fmt.Errorf("diagnosis conclusion event %d task mismatch: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	conclusion := payload.FinalConclusion
+	if conclusion.Status != "available" {
+		return api.DiagnosisRoomConclusionSummary{}, false, nil
+	}
+	content := strings.TrimSpace(conclusion.Content)
+	if content == "" || payload.SessionID == "" || payload.ChatSessionID == 0 {
+		return api.DiagnosisRoomConclusionSummary{}, false, nil
+	}
+	summary := api.DiagnosisRoomConclusionSummary{
+		DiagnosisTaskID:     int64(event.TaskID),
+		SessionID:           payload.SessionID,
+		ChatSessionID:       payload.ChatSessionID,
+		EventKind:           event.Kind,
+		Status:              conclusion.Status,
+		Source:              conclusion.Source,
+		Reason:              nonEmptyStringPtr(conclusion.Reason),
+		AssistantTurnID:     nonZeroInt64Ptr(conclusion.AssistantTurnID),
+		AssistantMessageID:  nonEmptyStringPtr(conclusion.AssistantMessageID),
+		AssistantSequence:   nonZeroIntPtr(conclusion.AssistantSequence),
+		AssistantOccurredAt: copyTimePtr(conclusion.AssistantOccurredAt),
+		Content:             content,
+		Confidence:          reportConfidencePtr(conclusion.Confidence),
+		RequiresHumanReview: copyBoolPtr(conclusion.RequiresHumanReview),
+		RecordedAt:          event.RecordedAt,
+	}
+	return summary, true, nil
+}
+
+func nonEmptyStringPtr(value string) *string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	return &value
+}
+
+func nonZeroInt64Ptr(value int64) *int64 {
+	if value == 0 {
+		return nil
+	}
+	return &value
+}
+
+func nonZeroIntPtr(value int) *int {
+	if value == 0 {
+		return nil
+	}
+	return &value
+}
+
+func copyTimePtr(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
+}
+
+func copyBoolPtr(value *bool) *bool {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
+}
+
+func reportConfidencePtr(value string) *api.ReportConfidence {
+	confidence := api.ReportConfidence(strings.TrimSpace(value))
+	switch confidence {
+	case api.ReportConfidenceLow, api.ReportConfidenceMedium, api.ReportConfidenceHigh:
+		return &confidence
+	default:
+		return nil
+	}
+}
+
+func finalReportDetail(report domain.FinalReport, subReports []domain.SubReport, conclusions diagnosisConclusionBySnapshot) (api.FinalReportDetail, error) {
 	reportSummaries, err := jsonArray[api.FinalReportSubReportSummary]("final report sub_reports", report.SubReports)
 	if err != nil {
 		return api.FinalReportDetail{}, err
@@ -592,7 +815,7 @@ func finalReportDetail(report domain.FinalReport, subReports []domain.SubReport)
 	if err != nil {
 		return api.FinalReportDetail{}, fmt.Errorf("final report content: %w", err)
 	}
-	linked, err := subReportDetails(subReports)
+	linked, err := subReportDetails(subReports, conclusions)
 	if err != nil {
 		return api.FinalReportDetail{}, err
 	}
@@ -615,7 +838,7 @@ func finalReportDetail(report domain.FinalReport, subReports []domain.SubReport)
 	}, nil
 }
 
-func subReportDetails(reports []domain.SubReport) ([]api.SubReportDetail, error) {
+func subReportDetails(reports []domain.SubReport, conclusions diagnosisConclusionBySnapshot) ([]api.SubReportDetail, error) {
 	items := make([]api.SubReportDetail, len(reports))
 	for i, report := range reports {
 		findings, err := jsonArray[api.ReportFinding]("subreport findings", report.Findings)
@@ -630,7 +853,7 @@ func subReportDetails(reports []domain.SubReport) ([]api.SubReportDetail, error)
 		if err != nil {
 			return nil, fmt.Errorf("subreport content: %w", err)
 		}
-		items[i] = api.SubReportDetail{
+		item := api.SubReportDetail{
 			ID:                 int64(report.ID),
 			EvidenceSnapshotID: int64(report.EvidenceSnapshotID),
 			Scenario:           report.Scenario,
@@ -647,6 +870,10 @@ func subReportDetails(reports []domain.SubReport) ([]api.SubReportDetail, error)
 			CreatedByWorkflow:  report.CreatedByWorkflow,
 			CreatedAt:          report.CreatedAt,
 		}
+		if conclusion, ok := conclusions[report.EvidenceSnapshotID]; ok {
+			item.DiagnosisConclusion = &conclusion
+		}
+		items[i] = item
 	}
 	return items, nil
 }

@@ -2412,7 +2412,24 @@ export interface components {
              *         "model": "gpt-4.1-mini",
              *         "output_mode": "json_schema",
              *         "created_by_workflow": "ReportFanOutWorkflow",
-             *         "created_at": "2026-05-27T09:04:00Z"
+             *         "created_at": "2026-05-27T09:04:00Z",
+             *         "diagnosis_conclusion": {
+             *           "diagnosis_task_id": 301,
+             *           "session_id": "diagnosis-session-301",
+             *           "chat_session_id": 401,
+             *           "event_kind": "diagnosis_room.final_conclusion_ready",
+             *           "status": "available",
+             *           "source": "latest_assistant_turn",
+             *           "reason": "assistant_marked_final",
+             *           "assistant_turn_id": 501,
+             *           "assistant_message_id": "msg-1/assistant",
+             *           "assistant_sequence": 2,
+             *           "assistant_occurred_at": "2026-05-27T09:08:00Z",
+             *           "content": "Checkout latency remains correlated with the payment deployment.",
+             *           "confidence": "high",
+             *           "requires_human_review": true,
+             *           "recorded_at": "2026-05-27T09:08:01Z"
+             *         }
              *       }
              *     ]
              */
@@ -2440,6 +2457,31 @@ export interface components {
             created_by_workflow: string;
             /** Format: date-time */
             created_at: string;
+            diagnosis_conclusion?: components["schemas"]["DiagnosisRoomConclusionSummary"];
+        };
+        /** @description Latest available diagnosis-room conclusion linked to a report evidence snapshot. */
+        DiagnosisRoomConclusionSummary: {
+            /** Format: int64 */
+            diagnosis_task_id: number;
+            session_id: string;
+            /** Format: int64 */
+            chat_session_id: number;
+            event_kind: string;
+            /** @enum {string} */
+            status: "available";
+            source: string;
+            reason?: string;
+            /** Format: int64 */
+            assistant_turn_id?: number;
+            assistant_message_id?: string;
+            assistant_sequence?: number;
+            /** Format: date-time */
+            assistant_occurred_at?: string;
+            content: string;
+            confidence?: components["schemas"]["ReportConfidence"];
+            requires_human_review?: boolean;
+            /** Format: date-time */
+            recorded_at: string;
         };
         /** @description SubReport summary embedded in the final report content. */
         FinalReportSubReportSummary: {

@@ -21,6 +21,10 @@ test("report routes render list, detail, and evidence traceability", async ({ pa
   await expect(page.getByRole("heading", { name: "Checkout latency incident" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Evidence Traceability" })).toBeVisible();
   await expect(page.getByText("Evidence snapshot #9001")).toBeVisible();
+  await expect(page.getByLabel("Diagnosis conclusion")).toContainText(
+    "Checkout latency remains correlated with the payment deployment."
+  );
+  await expect(page.getByLabel("Diagnosis conclusion")).toContainText("human review");
 });
 
 test("diagnosis room route connects, queries state, and submits a turn", async ({ page }) => {

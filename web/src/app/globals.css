@@ -377,6 +377,37 @@ tr:last-child td {
   font-size: 15px;
 }
 
+.subreport-conclusion {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  overflow-wrap: anywhere;
+}
+
+.subreport-conclusion-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.subreport-conclusion-header strong {
+  font-size: 13px;
+}
+
+.subreport-conclusion p {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.subreport-conclusion-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .action-list {
   display: grid;
   gap: 8px;
@@ -826,6 +857,7 @@ tr:last-child td {
   }
 
   .settings-overview-card-body,
+  .subreport-conclusion-header,
   .subreport-item-header,
   .settings-overview-boundary-title,
   .settings-overview-next {

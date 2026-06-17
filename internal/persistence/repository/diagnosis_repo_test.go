@@ -247,6 +247,147 @@ func TestDiagnosisRepository_AppendEventAndList(t *testing.T) {
 	})
 }
 
+func TestDiagnosisRepository_ListTasksByEvidenceSnapshot(t *testing.T) {
+	resetDB(t)
+	snapAID := makeSnapshotForDiagnosis(t, "task-list-a")
+	snapBID := makeSnapshotForDiagnosis(t, "task-list-b")
+
+	var firstA, secondA domain.DiagnosisTask
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		var err error
+		firstA, err = uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapAID, "wf-task-list-a1", "run-task-list-a1"))
+		if err != nil {
+			t.Fatalf("SaveTask firstA: %v", err)
+		}
+	})
+	time.Sleep(2 * time.Millisecond)
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		var err error
+		secondA, err = uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapAID, "wf-task-list-a2", "run-task-list-a2"))
+		if err != nil {
+			t.Fatalf("SaveTask secondA: %v", err)
+		}
+		if _, err := uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapBID, "wf-task-list-b1", "run-task-list-b1")); err != nil {
+			t.Fatalf("SaveTask other snapshot: %v", err)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		out, err := uow.Diagnosis().ListTasksByEvidenceSnapshot(ctx, snapAID, 10)
+		if err != nil {
+			t.Fatalf("ListTasksByEvidenceSnapshot: %v", err)
+		}
+		if len(out) != 2 {
+			t.Fatalf("ListTasksByEvidenceSnapshot len = %d, want 2", len(out))
+		}
+		if out[0].ID != secondA.ID || out[1].ID != firstA.ID {
+			t.Fatalf("ListTasksByEvidenceSnapshot IDs = [%d,%d], want [%d,%d]", out[0].ID, out[1].ID, secondA.ID, firstA.ID)
+		}
+		limited, err := uow.Diagnosis().ListTasksByEvidenceSnapshot(ctx, snapAID, 1)
+		if err != nil {
+			t.Fatalf("ListTasksByEvidenceSnapshot limit: %v", err)
+		}
+		if len(limited) != 1 || limited[0].ID != secondA.ID {
+			t.Fatalf("limited tasks = %+v, want only %d", limited, secondA.ID)
+		}
+	})
+
+	for _, tc := range []struct {
+		name     string
+		snapshot domain.EvidenceSnapshotID
+		limit    int
+	}{
+		{name: "zero snapshot", snapshot: 0, limit: 1},
+		{name: "zero limit", snapshot: snapAID, limit: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+				_, err := uow.Diagnosis().ListTasksByEvidenceSnapshot(ctx, tc.snapshot, tc.limit)
+				return err
+			})
+			if !errors.Is(err, domain.ErrInvariantViolation) {
+				t.Fatalf("ListTasksByEvidenceSnapshot error = %v, want ErrInvariantViolation", err)
+			}
+		})
+	}
+}
+
+func TestDiagnosisRepository_ListEventsByTaskAndKind(t *testing.T) {
+	resetDB(t)
+	snapID := makeSnapshotForDiagnosis(t, "event-kind")
+
+	var taskID domain.DiagnosisTaskID
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		task, err := uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapID, "wf-event-kind", "run-event-kind"))
+		if err != nil {
+			t.Fatalf("SaveTask: %v", err)
+		}
+		taskID = task.ID
+	})
+
+	occurred := time.Date(2026, 5, 28, 12, 0, 0, 0, time.UTC)
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for _, spec := range []struct {
+			kind string
+			when time.Time
+			body string
+		}{
+			{kind: "target", when: occurred, body: `{"i":1}`},
+			{kind: "other", when: occurred.Add(30 * time.Second), body: `{"i":99}`},
+			{kind: "target", when: occurred.Add(time.Minute), body: `{"i":2}`},
+		} {
+			ev, err := domain.NewDiagnosisTaskEvent(taskID, spec.kind, json.RawMessage(spec.body), nil, spec.when)
+			if err != nil {
+				t.Fatalf("NewDiagnosisTaskEvent %s: %v", spec.kind, err)
+			}
+			if _, err := uow.Diagnosis().AppendEvent(ctx, ev); err != nil {
+				t.Fatalf("AppendEvent %s: %v", spec.kind, err)
+			}
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		out, err := uow.Diagnosis().ListEventsByTaskAndKind(ctx, taskID, " target ", 10)
+		if err != nil {
+			t.Fatalf("ListEventsByTaskAndKind: %v", err)
+		}
+		if len(out) != 2 {
+			t.Fatalf("ListEventsByTaskAndKind len = %d, want 2", len(out))
+		}
+		if !out[0].OccurredAt.After(out[1].OccurredAt) {
+			t.Fatalf("events not in descending occurred_at order: %+v", out)
+		}
+		limited, err := uow.Diagnosis().ListEventsByTaskAndKind(ctx, taskID, "target", 1)
+		if err != nil {
+			t.Fatalf("ListEventsByTaskAndKind limit: %v", err)
+		}
+		if len(limited) != 1 || !limited[0].OccurredAt.Equal(occurred.Add(time.Minute)) {
+			t.Fatalf("limited events = %+v, want latest target event", limited)
+		}
+	})
+
+	for _, tc := range []struct {
+		name   string
+		taskID domain.DiagnosisTaskID
+		kind   string
+		limit  int
+	}{
+		{name: "zero task", taskID: 0, kind: "target", limit: 1},
+		{name: "blank kind", taskID: taskID, kind: " ", limit: 1},
+		{name: "zero limit", taskID: taskID, kind: "target", limit: 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+				_, err := uow.Diagnosis().ListEventsByTaskAndKind(ctx, tc.taskID, tc.kind, tc.limit)
+				return err
+			})
+			if !errors.Is(err, domain.ErrInvariantViolation) {
+				t.Fatalf("ListEventsByTaskAndKind error = %v, want ErrInvariantViolation", err)
+			}
+		})
+	}
+}
+
 // TestDiagnosisRepository_FindEventByTaskAndDedupeKey covers the
 // idempotent producer pattern relied on by the Temporal Activity:
 // hit, miss, cross-task isolation, and the two invariant guards.
