@@ -25,6 +25,15 @@ test("report routes render list, detail, and evidence traceability", async ({ pa
     "Checkout latency remains correlated with the payment deployment."
   );
   await expect(page.getByLabel("Diagnosis conclusion")).toContainText("human review");
+
+  await page.getByRole("link", { name: "Review diagnosis" }).click();
+  await expect(page).toHaveURL(
+    /\/diagnosis-room\?evidence_snapshot_id=9001&report_id=101&sub_report_id=501&intent=review_conclusion$/
+  );
+  await expect(page.getByText("Report #101 diagnosis")).toBeVisible();
+  await expect(page.getByText("Opened from report #101, subreport #501 using evidence snapshot #9001.")).toBeVisible();
+  await expect(page.getByLabel("Evidence snapshot")).toHaveValue("9001");
+  await expect(page.getByLabel("Message")).toHaveValue(/Verify the current diagnosis conclusion/);
 });
 
 test("diagnosis room route connects, queries state, and submits a turn", async ({ page }) => {

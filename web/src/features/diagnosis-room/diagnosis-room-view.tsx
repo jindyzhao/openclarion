@@ -4,6 +4,7 @@ import {
   ApiOutlined,
   BulbOutlined,
   DisconnectOutlined,
+  FormOutlined,
   PlusCircleOutlined,
   ReloadOutlined,
   SendOutlined
@@ -25,6 +26,7 @@ import {
   Typography
 } from "antd";
 import type { DescriptionsProps } from "antd";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { ReportShell } from "@/features/reports/report-shell";
@@ -88,6 +90,15 @@ type LatestConsultationInsight = {
   turnCount: number;
 };
 
+type DiagnosisPageContext = {
+  backHref?: string;
+  description: string;
+  evidenceSnapshotID?: number;
+  hasContext: boolean;
+  suggestedPrompt: string;
+  title: string;
+};
+
 class DiagnosisActionError extends Error {
   constructor(message: string, readonly status?: number) {
     super(message);
@@ -97,6 +108,7 @@ class DiagnosisActionError extends Error {
 
 export function DiagnosisRoomView() {
   const { message } = AntdApp.useApp();
+  const searchParams = useSearchParams();
   const socketRef = useRef<WebSocket | null>(null);
   const logIDRef = useRef(0);
   const [createForm] = Form.useForm<CreateRoomFormValues>();
@@ -109,6 +121,7 @@ export function DiagnosisRoomView() {
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [latestInsight, setLatestInsight] = useState<LatestConsultationInsight | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
+  const pageContext = diagnosisPageContext(searchParams);
 
   const ticketMutation = useMutation<DiagnosisWSTicketBundle, DiagnosisActionError, ConnectionFormValues>({
     mutationFn: async (values) => {
@@ -131,11 +144,16 @@ export function DiagnosisRoomView() {
   });
 
   useEffect(() => {
-    const snapshotID = initialEvidenceSnapshotID();
-    if (snapshotID !== undefined) {
-      createForm.setFieldsValue({ evidenceSnapshotID: snapshotID });
+    if (pageContext.evidenceSnapshotID !== undefined) {
+      createForm.setFieldValue("evidenceSnapshotID", pageContext.evidenceSnapshotID);
     }
-  }, [createForm]);
+    if (pageContext.suggestedPrompt !== "") {
+      const currentMessage = composerForm.getFieldValue("message");
+      if (typeof currentMessage !== "string" || currentMessage.trim() === "") {
+        composerForm.setFieldValue("message", pageContext.suggestedPrompt);
+      }
+    }
+  }, [composerForm, createForm, pageContext.evidenceSnapshotID, pageContext.suggestedPrompt]);
 
   useEffect(() => {
     return () => {
@@ -348,6 +366,28 @@ export function DiagnosisRoomView() {
         </Tag>
       </section>
 
+      {pageContext.hasContext ? (
+        <Alert
+          action={
+            pageContext.backHref ? (
+              <a className="link-button" href={pageContext.backHref}>
+                Back to report
+              </a>
+            ) : undefined
+          }
+          className="diagnosis-context"
+          description={
+            <div className="diagnosis-context-body">
+              <span>{pageContext.description}</span>
+              <Typography.Text className="diagnosis-context-prompt">{pageContext.suggestedPrompt}</Typography.Text>
+            </div>
+          }
+          message={pageContext.title}
+          showIcon
+          type="info"
+        />
+      ) : null}
+
       <div className="diagnosis-layout">
         <Card className="settings-overview-card" title="Create Room">
           <Form<CreateRoomFormValues>
@@ -525,9 +565,20 @@ export function DiagnosisRoomView() {
           <Form.Item label="Message" name="message" rules={[{ required: true, message: "Message is required." }]}>
             <Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} disabled={!connected} />
           </Form.Item>
-          <Button disabled={!connected} htmlType="submit" icon={<SendOutlined />} type="primary">
-            Send
-          </Button>
+          <Space wrap>
+            <Button disabled={!connected} htmlType="submit" icon={<SendOutlined />} type="primary">
+              Send
+            </Button>
+            {pageContext.suggestedPrompt !== "" ? (
+              <Button
+                disabled={!connected}
+                icon={<FormOutlined />}
+                onClick={() => composerForm.setFieldValue("message", pageContext.suggestedPrompt)}
+              >
+                Use suggested prompt
+              </Button>
+            ) : null}
+          </Space>
         </Form>
       </Card>
 
@@ -999,11 +1050,50 @@ function diagnosisActionErrorMessage(error: unknown): string {
   return "Request failed.";
 }
 
-function initialEvidenceSnapshotID(): number | undefined {
-  if (typeof window === "undefined") {
-    return undefined;
+function diagnosisPageContext(searchParams: { get(name: string): string | null }): DiagnosisPageContext {
+  const evidenceSnapshotID = positiveIntegerSearchParam(searchParams, "evidence_snapshot_id");
+  const reportID = positiveIntegerSearchParam(searchParams, "report_id");
+  const subReportID = positiveIntegerSearchParam(searchParams, "sub_report_id");
+  const intent = searchParams.get("intent") === "review_conclusion" ? "review_conclusion" : "confidence_review";
+
+  if (evidenceSnapshotID === undefined && reportID === undefined) {
+    return {
+      description: "",
+      hasContext: false,
+      suggestedPrompt: "",
+      title: ""
+    };
   }
-  const raw = new URLSearchParams(window.location.search).get("evidence_snapshot_id");
+
+  const hasReportRef = reportID !== undefined;
+  const reportRef = hasReportRef ? `report #${reportID}` : "";
+  const snapshotRef =
+    evidenceSnapshotID !== undefined ? `evidence snapshot #${evidenceSnapshotID}` : "the linked evidence snapshot";
+  const subReportRef = subReportID !== undefined ? `, subreport #${subReportID}` : "";
+  const contextRef = hasReportRef ? `${snapshotRef} for ${reportRef}` : snapshotRef;
+  const description = hasReportRef
+    ? `Opened from ${reportRef}${subReportRef} using ${snapshotRef}.`
+    : `Loaded ${snapshotRef}.`;
+  const suggestedPrompt =
+    intent === "review_conclusion"
+      ? `Review ${contextRef}. Verify the current diagnosis conclusion, identify any operator-supplied evidence that can raise confidence, and state whether the conclusion is ready to finalize.`
+      : `Review ${contextRef}. First identify the operator-supplied evidence still needed, then propose the next collection steps required to improve confidence before a final conclusion.`;
+
+  return {
+    backHref: reportID !== undefined ? `/reports/${reportID}` : undefined,
+    description,
+    evidenceSnapshotID,
+    hasContext: true,
+    suggestedPrompt,
+    title: reportID !== undefined ? `Report #${reportID} diagnosis` : "Evidence snapshot diagnosis"
+  };
+}
+
+function positiveIntegerSearchParam(
+  searchParams: { get(name: string): string | null },
+  name: string
+): number | undefined {
+  const raw = searchParams.get(name);
   if (raw === null) {
     return undefined;
   }
