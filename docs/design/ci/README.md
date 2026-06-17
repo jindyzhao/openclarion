@@ -221,6 +221,8 @@ make diagnosis-chat-persistence-test # M5 ChatSession/ChatTurn persistence tests
 make diagnosis-dev-oidc-issuer # manual M5 local OIDC issuer/token helper
 make stage5-local-worker-check # manual M5 local worker readiness check; requires Docker and private env
 make stage5-local-worker # manual M5 local worker/API process from private env
+make openclarion-service-image-build # manual deployment image build; requires Docker, Go, and explicit tag
+make openclarion-service-image-push # manual deployment image publish; requires registry login and explicit tag
 make diagnosis-live-smoke-output-test # M5 live browser smoke proof validator tests
 make container-provider-smoke # manual M4 Docker Provider.Run smoke; requires Docker
 make container-provider-timeout-smoke # manual M4 Docker Provider timeout cleanup smoke; requires Docker

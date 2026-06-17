@@ -46,6 +46,37 @@ ok  	github.com/openclarion/openclarion/scripts/report_live_smoke_output	0.01s	c
 	}
 }
 
+func TestGoCoverageCheckSerializesTemporalDevServerPackages(t *testing.T) {
+	root := newGoCoverageFixture(t, fakeGoCoverageToolByPackage(`
+github.com/openclarion/openclarion/cmd/openclarion
+github.com/openclarion/openclarion/internal/e2e
+github.com/openclarion/openclarion/internal/orchestrator/temporal
+github.com/openclarion/openclarion/internal/usecases/reporttrigger
+`))
+
+	out, err := runGoCoverageCheck(t, root, "40.0")
+	if err != nil {
+		t.Fatalf("go coverage check failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "[go-coverage] OK (4 packages, min 40.0%)") {
+		t.Fatalf("output = %q, want OK with 4 checked packages", out)
+	}
+
+	calls := strings.Split(strings.TrimSpace(readGoCoverageCalls(t, root)), "\n")
+	if len(calls) != 3 {
+		t.Fatalf("go test calls = %#v, want one parallel call plus two serialized calls", calls)
+	}
+	if strings.Contains(calls[0], "internal/e2e") || strings.Contains(calls[0], "internal/orchestrator/temporal") {
+		t.Fatalf("parallel go test call = %q, must not include Temporal dev-server packages", calls[0])
+	}
+	if !strings.Contains(calls[1], "internal/e2e") || strings.Contains(calls[1], "internal/orchestrator/temporal") {
+		t.Fatalf("first serialized go test call = %q, want only internal/e2e", calls[1])
+	}
+	if !strings.Contains(calls[2], "internal/orchestrator/temporal") || strings.Contains(calls[2], "internal/e2e") {
+		t.Fatalf("second serialized go test call = %q, want only internal/orchestrator/temporal", calls[2])
+	}
+}
+
 func TestGoCoverageCheckRejectsCoverageBelowFloor(t *testing.T) {
 	root := newGoCoverageFixture(t, fakeGoCoverageTool(`
 github.com/openclarion/openclarion/internal/usecases/reporttrigger
@@ -114,6 +145,40 @@ if [[ "$1" == "test" ]]; then
   cat <<'EOF'
 ` + strings.TrimSpace(coverageOutput) + `
 EOF
+  exit 0
+fi
+echo "unexpected go command: $*" >&2
+exit 42
+`
+}
+
+func fakeGoCoverageToolByPackage(packages string) string {
+	return `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$1" == "list" ]]; then
+  cat <<'EOF'
+` + strings.TrimSpace(packages) + `
+EOF
+  exit 0
+fi
+if [[ "$1" == "test" ]]; then
+  printf '%s\n' "$*" >>go-coverage-calls.txt
+  for arg in "$@"; do
+    case "$arg" in
+      github.com/openclarion/openclarion/cmd/openclarion)
+        printf 'ok  \t%s\t0.01s\tcoverage: 42.8%% of statements\n' "$arg"
+        ;;
+      github.com/openclarion/openclarion/internal/e2e)
+        printf 'ok  \t%s\t0.01s\tcoverage: 88.8%% of statements\n' "$arg"
+        ;;
+      github.com/openclarion/openclarion/internal/orchestrator/temporal)
+        printf 'ok  \t%s\t0.01s\tcoverage: 77.7%% of statements\n' "$arg"
+        ;;
+      github.com/openclarion/openclarion/internal/usecases/reporttrigger)
+        printf 'ok  \t%s\t0.01s\tcoverage: 70.5%% of statements\n' "$arg"
+        ;;
+    esac
+  done
   exit 0
 fi
 echo "unexpected go command: $*" >&2

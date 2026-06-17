@@ -1,6 +1,8 @@
 target	reason
 atlas-smoke	manual Atlas acceptance smoke; requires Docker image pulls and a local Docker daemon
 manual-evidence-readiness	manual readiness preflight for remaining live/evidence targets; intentionally operator-run so missing secrets and artifact paths are not evaluated in CI
+openclarion-service-image-build	manual deployment image build; requires a local Go toolchain, a Docker daemon, and an explicit non-latest image tag
+openclarion-service-image-push	manual deployment image publish; requires a local Go toolchain, a Docker daemon, prior registry login, and an explicit non-latest registry tag
 report-live-smoke	manual M2 live report smoke; requires real PostgreSQL, Temporal, Prometheus, worker, and Webhook services
 report-policy-live-smoke	manual M3.1 profile-driven report live smoke; requires real PostgreSQL, Temporal, an enabled report workflow policy, a configured alert source profile, worker, and notification delivery config
 report-schedule-live-smoke	manual M3.1 scheduled report trigger proof; requires real PostgreSQL, Temporal, an enabled report workflow schedule/policy binding, worker, and notification delivery config before retained live proof can be captured

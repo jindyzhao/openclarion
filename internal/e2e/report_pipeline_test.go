@@ -35,14 +35,16 @@ import (
 )
 
 const (
-	testPGImage    = "postgres:18-alpine"
-	testDBName     = "openclarion_e2e"
-	testDBUser     = "openclarion"
-	testDBPassword = "openclarion"
+	testPGImage                     = "postgres:18-alpine"
+	testDBName                      = "openclarion_e2e"
+	testDBUser                      = "openclarion"
+	testDBPassword                  = "openclarion"
+	e2eTestTimeout                  = 4 * time.Minute
+	e2eTemporalDevServerStartBudget = 3 * time.Minute
 )
 
 func TestReportReplayHTTPTriggerEndToEnd(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), e2eTestTimeout)
 	defer cancel()
 
 	factory, closeDB := startE2EDatabase(ctx, t)
@@ -80,7 +82,9 @@ func TestReportReplayHTTPTriggerEndToEnd(t *testing.T) {
 		t.Fatalf("New webhook provider: %v", err)
 	}
 
-	devServer, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
+	devServerStartCtx, cancelDevServerStart := context.WithTimeout(ctx, e2eTemporalDevServerStartBudget)
+	defer cancelDevServerStart()
+	devServer, err := testsuite.StartDevServer(devServerStartCtx, testsuite.DevServerOptions{
 		LogLevel: "error",
 		Stdout:   io.Discard,
 		Stderr:   io.Discard,
