@@ -2,6 +2,7 @@
 
 import {
   ApiOutlined,
+  BulbOutlined,
   DisconnectOutlined,
   ReloadOutlined,
   SendOutlined
@@ -20,6 +21,7 @@ import {
   Tag,
   Typography
 } from "antd";
+import type { DescriptionsProps } from "antd";
 import { useEffect, useRef, useState } from "react";
 
 import { ReportShell } from "@/features/reports/report-shell";
@@ -32,6 +34,8 @@ import {
 } from "./transport";
 import type {
   DiagnosisClientFrame,
+  DiagnosisConsultationEvidenceRequest,
+  DiagnosisConsultationInsight,
   DiagnosisConnectionStatus,
   DiagnosisConversationTurn,
   DiagnosisServerFrame,
@@ -57,6 +61,16 @@ type TranscriptTurn = DiagnosisConversationTurn & {
   id: string;
 };
 
+type DiagnosisTurnResultFrame = Extract<DiagnosisServerFrame, { type: "turn_result" }>;
+
+type LatestConsultationInsight = {
+  confidence: string;
+  insight: DiagnosisConsultationInsight;
+  requiresHumanReview: boolean;
+  status: string;
+  turnCount: number;
+};
+
 class DiagnosisActionError extends Error {
   constructor(message: string, readonly status?: number) {
     super(message);
@@ -74,6 +88,7 @@ export function DiagnosisRoomView() {
   const [readySubject, setReadySubject] = useState("");
   const [roomState, setRoomState] = useState<DiagnosisStateFrame | null>(null);
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
+  const [latestInsight, setLatestInsight] = useState<LatestConsultationInsight | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
 
   const ticketMutation = useMutation<DiagnosisWSTicketBundle, DiagnosisActionError, ConnectionFormValues>({
@@ -112,6 +127,7 @@ export function DiagnosisRoomView() {
     setReadySubject("");
     setRoomState(null);
     setTranscript([]);
+    setLatestInsight(null);
     ticketMutation.reset();
     pushLog("info", "Requesting WebSocket ticket.");
 
@@ -173,6 +189,7 @@ export function DiagnosisRoomView() {
         pushLog("info", `Loaded state: ${frame.status}, ${frame.turn_count} turn(s).`);
         break;
       case "turn_result":
+        setLatestInsight(latestConsultationInsight(frame));
         setRoomState((current) =>
           current
             ? {
@@ -244,6 +261,13 @@ export function DiagnosisRoomView() {
     setLog((current) => [{ id: logIDRef.current, level, message: entryMessage }, ...current].slice(0, 8));
   }
 
+  const roomStateItems = roomStateDescriptionItems(
+    roomState,
+    readySubject,
+    connectionForm.getFieldValue("sessionID"),
+    status
+  );
+
   return (
     <ReportShell current="diagnosis">
       <section className="page-heading">
@@ -299,15 +323,7 @@ export function DiagnosisRoomView() {
         </Card>
 
         <Card className="settings-overview-card" title="Room State">
-          <Descriptions column={1} size="small">
-            <Descriptions.Item label="Subject">{readySubject || roomState?.owner_subject || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Session">{roomState?.session_id || connectionForm.getFieldValue("sessionID") || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Status">{roomState?.status || statusLabel(status)}</Descriptions.Item>
-            <Descriptions.Item label="Turns">{roomState ? String(roomState.turn_count) : "-"}</Descriptions.Item>
-            <Descriptions.Item label="Close reason">{roomState?.close_reason || "-"}</Descriptions.Item>
-            <Descriptions.Item label="Conclusion">{finalConclusionLabel(roomState)}</Descriptions.Item>
-            <Descriptions.Item label="In flight">{roomState?.in_flight ? "yes" : "no"}</Descriptions.Item>
-          </Descriptions>
+          <Descriptions column={1} items={roomStateItems} size="small" />
           {roomState?.final_conclusion ? (
             <Alert
               className="diagnosis-conclusion"
@@ -319,6 +335,55 @@ export function DiagnosisRoomView() {
           ) : null}
         </Card>
       </div>
+
+      <Card
+        className="diagnosis-room-panel settings-overview-card"
+        extra={
+          latestInsight ? (
+            <Space className="diagnosis-insight-meta" size={[6, 6]} wrap>
+              <Tag color={confidenceColor(latestInsight.confidence)}>{latestInsight.confidence || "unknown"}</Tag>
+              <Tag color={latestInsight.requiresHumanReview ? "warning" : "success"}>
+                {latestInsight.requiresHumanReview ? "review required" : "review optional"}
+              </Tag>
+            </Space>
+          ) : null
+        }
+        title={
+          <Space className="diagnosis-insight-title" size={8}>
+            <BulbOutlined />
+            <span>Consultation Insight</span>
+          </Space>
+        }
+      >
+        {latestInsight ? (
+          <>
+            <Descriptions column={{ xs: 1, sm: 2 }} items={consultationInsightItems(latestInsight)} size="small" />
+            {latestInsight.insight.confidence_rationale ? (
+              <Alert
+                className="diagnosis-insight-rationale"
+                description={latestInsight.insight.confidence_rationale}
+                message="Confidence rationale"
+                showIcon
+                type="info"
+              />
+            ) : null}
+            <div className="diagnosis-insight-grid">
+              <EvidenceRequestList
+                emptyDescription="No missing evidence requests"
+                items={latestInsight.insight.missing_evidence_requests}
+                title="Missing Evidence"
+              />
+              <EvidenceRequestList
+                emptyDescription="No collection suggestions"
+                items={latestInsight.insight.evidence_collection_suggestions}
+                title="Collection Suggestions"
+              />
+            </div>
+          </>
+        ) : (
+          <Empty description="No consultation insight yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        )}
+      </Card>
 
       <Card
         className="diagnosis-room-panel settings-overview-card"
@@ -363,6 +428,85 @@ export function DiagnosisRoomView() {
       ) : null}
     </ReportShell>
   );
+}
+
+function EvidenceRequestList({
+  emptyDescription,
+  items,
+  title
+}: {
+  emptyDescription: string;
+  items?: DiagnosisConsultationEvidenceRequest[];
+  title: string;
+}) {
+  return (
+    <section className="diagnosis-insight-section">
+      <Typography.Title level={3}>{title}</Typography.Title>
+      <List
+        className="diagnosis-evidence-list"
+        dataSource={items ?? []}
+        locale={{ emptyText: emptyDescription }}
+        renderItem={(item) => (
+          <List.Item className="diagnosis-evidence-item">
+            <List.Item.Meta
+              description={item.detail}
+              title={
+                <Space size={[6, 6]} wrap>
+                  <span>{item.label}</span>
+                  <Tag color={priorityColor(item.priority)}>{item.priority}</Tag>
+                </Space>
+              }
+            />
+          </List.Item>
+        )}
+        size="small"
+      />
+    </section>
+  );
+}
+
+function latestConsultationInsight(frame: DiagnosisTurnResultFrame): LatestConsultationInsight {
+  return {
+    confidence: frame.confidence,
+    insight: frame.consultation_insight ?? {},
+    requiresHumanReview: frame.requires_human_review,
+    status: frame.status,
+    turnCount: frame.turn_count
+  };
+}
+
+function roomStateDescriptionItems(
+  state: DiagnosisStateFrame | null,
+  readySubject: string,
+  sessionID: string | undefined,
+  connectionStatus: DiagnosisConnectionStatus
+): DescriptionsProps["items"] {
+  return [
+    { key: "subject", label: "Subject", children: readySubject || state?.owner_subject || "-" },
+    { key: "session", label: "Session", children: state?.session_id || sessionID || "-" },
+    { key: "status", label: "Status", children: state?.status || statusLabel(connectionStatus) },
+    { key: "turns", label: "Turns", children: state ? String(state.turn_count) : "-" },
+    { key: "close-reason", label: "Close reason", children: state?.close_reason || "-" },
+    { key: "conclusion", label: "Conclusion", children: finalConclusionLabel(state) },
+    { key: "in-flight", label: "In flight", children: state?.in_flight ? "yes" : "no" }
+  ];
+}
+
+function consultationInsightItems(latestInsight: LatestConsultationInsight): DescriptionsProps["items"] {
+  return [
+    { key: "turn", label: "Turn", children: String(latestInsight.turnCount) },
+    { key: "status", label: "Room status", children: latestInsight.status || "-" },
+    {
+      key: "conclusion-status",
+      label: "Conclusion status",
+      children: latestInsight.insight.conclusion_status || "-"
+    },
+    {
+      key: "review",
+      label: "Human review",
+      children: latestInsight.requiresHumanReview ? "required" : "optional"
+    }
+  ];
 }
 
 function finalConclusionLabel(state: DiagnosisStateFrame | null): string {
@@ -420,6 +564,32 @@ function statusColor(status: DiagnosisConnectionStatus): string {
       return "warning";
     default:
       return "processing";
+  }
+}
+
+function confidenceColor(confidence: string): string {
+  switch (confidence.toLowerCase()) {
+    case "high":
+      return "success";
+    case "medium":
+      return "warning";
+    case "low":
+      return "error";
+    default:
+      return "default";
+  }
+}
+
+function priorityColor(priority: string): string {
+  switch (priority.toLowerCase()) {
+    case "high":
+      return "error";
+    case "medium":
+      return "warning";
+    case "low":
+      return "processing";
+    default:
+      return "default";
   }
 }
 

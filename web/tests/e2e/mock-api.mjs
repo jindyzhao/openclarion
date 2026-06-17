@@ -1289,7 +1289,25 @@ function handleDiagnosisFrame(socket, sessionID, state, payload) {
       status: "open",
       assistant_message: assistant,
       requires_human_review: true,
-      confidence: "medium"
+      confidence: "medium",
+      consultation_insight: {
+        confidence_rationale: "Alert labels and metric context are available, but restart evidence is still missing.",
+        missing_evidence_requests: [
+          {
+            label: "Restart cause",
+            detail: "Collect previous container logs and recent workload events before final review.",
+            priority: "high"
+          }
+        ],
+        evidence_collection_suggestions: [
+          {
+            label: "Metric window",
+            detail: "Collect a five minute CPU and memory range around the alert firing time.",
+            priority: "medium"
+          }
+        ],
+        conclusion_status: "needs_evidence"
+      }
     });
     return;
   }
