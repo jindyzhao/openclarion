@@ -109,6 +109,15 @@ func TestDiagnosisRoomClient_SubmitDiagnosisTurnUsesCompletedUpdate(t *testing.T
 				AssistantMessage:    "CPU alert is still firing.",
 				RequiresHumanReview: true,
 				Confidence:          "medium",
+				Insight: diagnosisroom.ConsultationInsight{
+					ConfidenceRationale: "CPU evidence is present but restart evidence is missing.",
+					MissingEvidenceRequests: []diagnosisroom.ConsultationEvidenceRequest{{
+						Label:    "Restart cause",
+						Detail:   "Inspect previous pod logs.",
+						Priority: "high",
+					}},
+					ConclusionStatus: "needs_evidence",
+				},
 			},
 		},
 	}
@@ -162,6 +171,15 @@ func TestDiagnosisRoomClient_SubmitDiagnosisTurnUsesCompletedUpdate(t *testing.T
 		AssistantMessage:    "CPU alert is still firing.",
 		RequiresHumanReview: true,
 		Confidence:          "medium",
+		ConsultationInsight: ports.DiagnosisRoomConsultationInsight{
+			ConfidenceRationale: "CPU evidence is present but restart evidence is missing.",
+			MissingEvidenceRequests: []ports.DiagnosisRoomConsultationEvidenceRequest{{
+				Label:    "Restart cause",
+				Detail:   "Inspect previous pod logs.",
+				Priority: "high",
+			}},
+			ConclusionStatus: "needs_evidence",
+		},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("result = %+v, want %+v", got, want)

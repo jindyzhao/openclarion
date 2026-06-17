@@ -23,7 +23,19 @@ func TestParseTurnOutput_AcceptsValidOutput(t *testing.T) {
 			"limit": 5
 		}],
 		"confidence": "medium",
-		"requires_human_review": true
+		"requires_human_review": true,
+		"confidence_rationale": "  CPU evidence is present but memory and restart context are missing.  ",
+		"missing_evidence_requests": [{
+			"label": "Restart cause",
+			"detail": "  Provide previous pod logs before raising confidence.  ",
+			"priority": "high"
+		}],
+		"evidence_collection_suggestions": [{
+			"label": "JVM memory trend",
+			"detail": "Collect a bounded heap usage range query.",
+			"priority": "medium"
+		}],
+		"conclusion_status": "needs_evidence"
 	}`)
 
 	got, err := ParseTurnOutput(raw)
@@ -53,6 +65,22 @@ func TestParseTurnOutput_AcceptsValidOutput(t *testing.T) {
 	}
 	if got.Confidence != "medium" || !got.RequiresHumanReview {
 		t.Fatalf("output flags = %+v", got)
+	}
+	if got.ConfidenceRationale != "CPU evidence is present but memory and restart context are missing." {
+		t.Fatalf("ConfidenceRationale = %q", got.ConfidenceRationale)
+	}
+	if len(got.MissingEvidenceRequests) != 1 ||
+		got.MissingEvidenceRequests[0].Detail != "Provide previous pod logs before raising confidence." ||
+		got.MissingEvidenceRequests[0].Priority != "high" {
+		t.Fatalf("MissingEvidenceRequests = %+v", got.MissingEvidenceRequests)
+	}
+	if len(got.EvidenceCollectionSuggestions) != 1 ||
+		got.EvidenceCollectionSuggestions[0].Label != "JVM memory trend" ||
+		got.EvidenceCollectionSuggestions[0].Priority != "medium" {
+		t.Fatalf("EvidenceCollectionSuggestions = %+v", got.EvidenceCollectionSuggestions)
+	}
+	if got.ConclusionStatus != "needs_evidence" {
+		t.Fatalf("ConclusionStatus = %q", got.ConclusionStatus)
 	}
 }
 
@@ -132,6 +160,21 @@ func TestParseTurnOutput_RejectsSchemaViolations(t *testing.T) {
 			raw:  `{"schema_version":"diagnosis_turn.v1","message":"ok","evidence_requests":[{"tool":"metric_query","reason":"need query","query":"up\nrate"}],"confidence":"medium","requires_human_review":true}`,
 			want: "query must be single-line",
 		},
+		{
+			name: "empty missing evidence label",
+			raw:  `{"schema_version":"diagnosis_turn.v1","message":"ok","confidence":"medium","requires_human_review":true,"missing_evidence_requests":[{"label":"   ","detail":"need logs","priority":"high"}]}`,
+			want: "schema violation",
+		},
+		{
+			name: "unsupported collection suggestion priority",
+			raw:  `{"schema_version":"diagnosis_turn.v1","message":"ok","confidence":"medium","requires_human_review":true,"evidence_collection_suggestions":[{"label":"logs","detail":"need logs","priority":"urgent"}]}`,
+			want: "schema violation",
+		},
+		{
+			name: "bad conclusion status",
+			raw:  `{"schema_version":"diagnosis_turn.v1","message":"ok","confidence":"medium","requires_human_review":true,"conclusion_status":"done"}`,
+			want: "schema violation",
+		},
 	}
 
 	for _, tc := range tests {
@@ -144,6 +187,32 @@ func TestParseTurnOutput_RejectsSchemaViolations(t *testing.T) {
 				t.Fatalf("error = %v, want substring %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestTurnOutputInsightReturnsDefensiveCopies(t *testing.T) {
+	out := TurnOutput{
+		ConfidenceRationale: "Needs one more metric sample.",
+		MissingEvidenceRequests: []ConsultationEvidenceRequest{{
+			Label:    "Metric trend",
+			Detail:   "Collect a bounded range query.",
+			Priority: "high",
+		}},
+		EvidenceCollectionSuggestions: []ConsultationEvidenceRequest{{
+			Label:    "Active alerts",
+			Detail:   "Collect sibling active alerts.",
+			Priority: "medium",
+		}},
+		ConclusionStatus: "needs_evidence",
+	}
+
+	insight := out.Insight()
+	insight.MissingEvidenceRequests[0].Label = "changed"
+	insight.EvidenceCollectionSuggestions[0].Label = "changed"
+
+	if out.MissingEvidenceRequests[0].Label != "Metric trend" ||
+		out.EvidenceCollectionSuggestions[0].Label != "Active alerts" {
+		t.Fatalf("Insight returned shared slices: out=%+v insight=%+v", out, insight)
 	}
 }
 
