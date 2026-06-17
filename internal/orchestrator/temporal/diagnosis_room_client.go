@@ -143,7 +143,38 @@ func diagnosisRoomSubmitTurnResult(result SubmitDiagnosisTurnResult) ports.Diagn
 		EvidenceRequests:    diagnosisRoomEvidenceRequestsPort(result.EvidenceRequests),
 		CollectionResults:   diagnosisRoomEvidenceCollectionResultsPort(result.CollectionResults),
 		ConsultationInsight: diagnosisRoomConsultationInsightPort(result.Insight),
+		FollowUpTurns:       diagnosisRoomFollowUpTurnsPort(result.FollowUpTurns),
 	}
+}
+
+func diagnosisRoomFollowUpTurnsPort(
+	in []DiagnosisRoomFollowUpTurnResult,
+) []ports.DiagnosisRoomFollowUpTurnResult {
+	if in == nil {
+		return nil
+	}
+	out := make([]ports.DiagnosisRoomFollowUpTurnResult, len(in))
+	for i, turn := range in {
+		out[i] = ports.DiagnosisRoomFollowUpTurnResult{
+			MessageID:           turn.MessageID,
+			UserMessage:         turn.UserMessage,
+			AssistantMessageID:  turn.AssistantMessageID,
+			UserTurnID:          domain.ChatTurnID(turn.UserTurnID),
+			AssistantTurnID:     domain.ChatTurnID(turn.AssistantTurnID),
+			UserSequence:        turn.UserSequence,
+			AssistantSequence:   turn.AssistantSequence,
+			TurnCount:           turn.TurnCount,
+			ContextBytes:        turn.ContextBytes,
+			AssistantMessage:    turn.AssistantMessage,
+			RequiresHumanReview: turn.RequiresHumanReview,
+			Confidence:          turn.Confidence,
+			EvidenceRequests:    diagnosisRoomEvidenceRequestsPort(turn.EvidenceRequests),
+			CollectionResults:   diagnosisRoomEvidenceCollectionResultsPort(turn.CollectionResults),
+			ConsultationInsight: diagnosisRoomConsultationInsightPort(turn.Insight),
+			Trigger:             turn.Trigger,
+		}
+	}
+	return out
 }
 
 func diagnosisRoomEvidenceRequestsPort(in []diagnosisroom.EvidenceRequest) []ports.DiagnosisRoomEvidenceRequest {

@@ -162,6 +162,7 @@ func (r *DiagnosisWebSocketRelay) handleSubmitTurn(ctx context.Context, conn *we
 		EvidenceRequests:    diagnosisWSEvidenceRequests(result.EvidenceRequests),
 		CollectionResults:   diagnosisWSEvidenceCollectionResults(result.CollectionResults),
 		ConsultationInsight: diagnosisWSConsultationInsightFrame(result.ConsultationInsight),
+		FollowUpTurns:       diagnosisWSFollowUpTurns(result.FollowUpTurns),
 	})
 }
 
@@ -330,6 +331,34 @@ func diagnosisWSEvidenceCollectionResults(
 	return out
 }
 
+func diagnosisWSFollowUpTurns(in []ports.DiagnosisRoomFollowUpTurnResult) []diagnosisWSFollowUpTurn {
+	if in == nil {
+		return nil
+	}
+	out := make([]diagnosisWSFollowUpTurn, len(in))
+	for i, turn := range in {
+		out[i] = diagnosisWSFollowUpTurn{
+			MessageID:           turn.MessageID,
+			UserMessage:         turn.UserMessage,
+			AssistantMessageID:  turn.AssistantMessageID,
+			UserTurnID:          int64(turn.UserTurnID),
+			AssistantTurnID:     int64(turn.AssistantTurnID),
+			UserSequence:        turn.UserSequence,
+			AssistantSequence:   turn.AssistantSequence,
+			TurnCount:           turn.TurnCount,
+			ContextBytes:        turn.ContextBytes,
+			AssistantMessage:    turn.AssistantMessage,
+			RequiresHumanReview: turn.RequiresHumanReview,
+			Confidence:          turn.Confidence,
+			EvidenceRequests:    diagnosisWSEvidenceRequests(turn.EvidenceRequests),
+			CollectionResults:   diagnosisWSEvidenceCollectionResults(turn.CollectionResults),
+			ConsultationInsight: diagnosisWSConsultationInsightFrame(turn.ConsultationInsight),
+			Trigger:             turn.Trigger,
+		}
+	}
+	return out
+}
+
 func diagnosisWSEvidenceRequestFrame(request ports.DiagnosisRoomEvidenceRequest) diagnosisWSEvidenceRequest {
 	return diagnosisWSEvidenceRequest{
 		TemplateID:    int64(request.TemplateID),
@@ -478,6 +507,26 @@ type diagnosisWSTurnResultFrame struct {
 	EvidenceRequests    []diagnosisWSEvidenceRequest          `json:"evidence_requests,omitempty"`
 	CollectionResults   []diagnosisWSEvidenceCollectionResult `json:"evidence_collection_results,omitempty"`
 	ConsultationInsight diagnosisWSConsultationInsight        `json:"consultation_insight"`
+	FollowUpTurns       []diagnosisWSFollowUpTurn             `json:"follow_up_turns,omitempty"`
+}
+
+type diagnosisWSFollowUpTurn struct {
+	MessageID           string                                `json:"message_id"`
+	UserMessage         string                                `json:"user_message"`
+	AssistantMessageID  string                                `json:"assistant_message_id"`
+	UserTurnID          int64                                 `json:"user_turn_id"`
+	AssistantTurnID     int64                                 `json:"assistant_turn_id"`
+	UserSequence        int                                   `json:"user_sequence"`
+	AssistantSequence   int                                   `json:"assistant_sequence"`
+	TurnCount           int                                   `json:"turn_count"`
+	ContextBytes        int                                   `json:"context_bytes"`
+	AssistantMessage    string                                `json:"assistant_message"`
+	RequiresHumanReview bool                                  `json:"requires_human_review"`
+	Confidence          string                                `json:"confidence"`
+	EvidenceRequests    []diagnosisWSEvidenceRequest          `json:"evidence_requests,omitempty"`
+	CollectionResults   []diagnosisWSEvidenceCollectionResult `json:"evidence_collection_results,omitempty"`
+	ConsultationInsight diagnosisWSConsultationInsight        `json:"consultation_insight"`
+	Trigger             string                                `json:"trigger"`
 }
 
 type diagnosisWSStateFrame struct {

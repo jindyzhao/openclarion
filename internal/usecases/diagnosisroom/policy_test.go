@@ -50,6 +50,13 @@ func TestValidatePolicyRejectsUnsafeBounds(t *testing.T) {
 			want: "max turns",
 		},
 		{
+			name: "auto evidence follow-ups over hard cap",
+			mutate: func(p *Policy) {
+				p.MaxAutoEvidenceFollowUps = HardMaxAutoEvidenceFollowUps + 1
+			},
+			want: "max auto evidence follow-ups",
+		},
+		{
 			name: "idle exceeds session",
 			mutate: func(p *Policy) {
 				p.SessionTTL = time.Minute
@@ -91,6 +98,21 @@ func TestValidatePolicyRejectsUnsafeBounds(t *testing.T) {
 				t.Fatalf("ValidatePolicy err = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestValidatePolicyAcceptsAutoEvidenceFollowUpBounds(t *testing.T) {
+	policy := DefaultPolicy()
+	if policy.MaxAutoEvidenceFollowUps != DefaultMaxAutoEvidenceFollowUps {
+		t.Fatalf("DefaultPolicy MaxAutoEvidenceFollowUps = %d, want %d", policy.MaxAutoEvidenceFollowUps, DefaultMaxAutoEvidenceFollowUps)
+	}
+	if err := ValidatePolicy(policy); err != nil {
+		t.Fatalf("ValidatePolicy(default): %v", err)
+	}
+
+	policy.MaxAutoEvidenceFollowUps = 0
+	if err := ValidatePolicy(policy); err != nil {
+		t.Fatalf("ValidatePolicy(disabled auto follow-up): %v", err)
 	}
 }
 

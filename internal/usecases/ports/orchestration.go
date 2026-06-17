@@ -93,6 +93,28 @@ type DiagnosisRoomSubmitTurnResult struct {
 	EvidenceRequests    []DiagnosisRoomEvidenceRequest
 	CollectionResults   []DiagnosisRoomEvidenceCollectionResult
 	ConsultationInsight DiagnosisRoomConsultationInsight
+	FollowUpTurns       []DiagnosisRoomFollowUpTurnResult
+}
+
+// DiagnosisRoomFollowUpTurnResult describes one workflow-triggered turn that
+// ran after collecting evidence for the submitted operator turn.
+type DiagnosisRoomFollowUpTurnResult struct {
+	MessageID           string
+	UserMessage         string
+	AssistantMessageID  string
+	UserTurnID          domain.ChatTurnID
+	AssistantTurnID     domain.ChatTurnID
+	UserSequence        int
+	AssistantSequence   int
+	TurnCount           int
+	ContextBytes        int
+	AssistantMessage    string
+	RequiresHumanReview bool
+	Confidence          string
+	EvidenceRequests    []DiagnosisRoomEvidenceRequest
+	CollectionResults   []DiagnosisRoomEvidenceCollectionResult
+	ConsultationInsight DiagnosisRoomConsultationInsight
+	Trigger             string
 }
 
 // DiagnosisRoomConversationTurn is the workflow-visible reconnect transcript

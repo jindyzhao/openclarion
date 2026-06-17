@@ -2806,6 +2806,32 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 				}},
 				ConclusionStatus: "needs_evidence",
 			},
+			FollowUpTurns: []ports.DiagnosisRoomFollowUpTurnResult{{
+				MessageID:           "msg-1/auto-evidence-1",
+				UserMessage:         "OpenClarion automatic evidence follow-up.",
+				AssistantMessageID:  "msg-1/auto-evidence-1/assistant",
+				UserTurnID:          domain.ChatTurnID(33),
+				AssistantTurnID:     domain.ChatTurnID(34),
+				UserSequence:        3,
+				AssistantSequence:   4,
+				TurnCount:           2,
+				ContextBytes:        512,
+				AssistantMessage:    "Collected evidence confirms CPU saturation.",
+				RequiresHumanReview: false,
+				Confidence:          "high",
+				CollectionResults: []ports.DiagnosisRoomEvidenceCollectionResult{{
+					Tool:           domain.DiagnosisToolKindActiveAlerts,
+					Status:         "collected",
+					ReasonCode:     "ok",
+					Message:        "Active alert collection succeeded.",
+					ObservedAlerts: 1,
+					CollectedAt:    now.Add(2 * time.Second),
+				}},
+				ConsultationInsight: ports.DiagnosisRoomConsultationInsight{
+					ConclusionStatus: "final",
+				},
+				Trigger: "collected_evidence",
+			}},
 		},
 		queryState: ports.DiagnosisRoomState{
 			SessionID:       "session-1",
@@ -2913,6 +2939,15 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	}
 	if submitReq.SessionID != "session-1" || submitReq.MessageID != "msg-1" || submitReq.ActorSubject != "owner-1" || submitReq.Message != "Please investigate" {
 		t.Fatalf("submit request = %+v", submitReq)
+	}
+	if len(turn.FollowUpTurns) != 1 ||
+		turn.FollowUpTurns[0].MessageID != "msg-1/auto-evidence-1" ||
+		turn.FollowUpTurns[0].UserMessage != "OpenClarion automatic evidence follow-up." ||
+		turn.FollowUpTurns[0].AssistantMessage != "Collected evidence confirms CPU saturation." ||
+		turn.FollowUpTurns[0].ConsultationInsight.ConclusionStatus != "final" ||
+		turn.FollowUpTurns[0].CollectionResults[0].Status != "collected" ||
+		turn.FollowUpTurns[0].Trigger != "collected_evidence" {
+		t.Fatalf("turn follow-up results = %+v", turn.FollowUpTurns)
 	}
 
 	if err := conn.WriteJSON(map[string]string{"type": diagnosisWSClientQueryState}); err != nil {
