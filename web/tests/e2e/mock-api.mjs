@@ -1287,21 +1287,32 @@ function handleDiagnosisFrame(socket, sessionID, state, payload) {
     sendWebSocketJSON(socket, diagnosisState(sessionID, state));
     return;
   }
-  if (frame.type === "submit_turn") {
+  if (frame.type === "submit_turn" || frame.type === "submit_supplemental_evidence") {
     const text = typeof frame.message === "string" ? frame.message.trim() : "";
     const messageID = typeof frame.message_id === "string" ? frame.message_id : "";
     if (text === "" || messageID === "") {
       sendWebSocketJSON(socket, { type: "error", code: "invalid_request", message: "message is required" });
       return;
     }
+    if (frame.type === "submit_supplemental_evidence" && !validSupplementalEvidence(frame.supplemental_evidence)) {
+      sendWebSocketJSON(socket, {
+        type: "error",
+        code: "invalid_request",
+        message: "valid supplemental_evidence is required"
+      });
+      return;
+    }
     state.turnCount += 1;
     state.conversation.push({ role: "user", content: text });
-    const assistant = `Mock diagnosis response for: ${text}`;
-    const consultationInsight = mockDiagnosisConsultationInsight();
+    const supplemental = frame.type === "submit_supplemental_evidence";
+    const assistant = supplemental
+      ? `Mock supplemental evidence response for: ${frame.supplemental_evidence.label}`
+      : `Mock diagnosis response for: ${text}`;
+    const consultationInsight = supplemental ? mockDiagnosisReadyInsight() : mockDiagnosisConsultationInsight();
     state.conversation.push({ role: "assistant", content: assistant });
     state.status = "open";
-    state.latestConfidence = "medium";
-    state.latestRequiresHumanReview = true;
+    state.latestConfidence = supplemental ? "high" : "medium";
+    state.latestRequiresHumanReview = !supplemental;
     state.latestConsultationInsight = consultationInsight;
     sendWebSocketJSON(socket, {
       type: "turn_result",
@@ -1317,9 +1328,11 @@ function handleDiagnosisFrame(socket, sessionID, state, payload) {
       context_bytes: 512,
       status: "open",
       assistant_message: assistant,
-      requires_human_review: true,
-      confidence: "medium",
-      evidence_requests: [
+      requires_human_review: !supplemental,
+      confidence: supplemental ? "high" : "medium",
+      evidence_requests: supplemental
+        ? []
+        : [
         {
           tool: "active_alerts",
           reason: "Current active alerts",
@@ -1334,7 +1347,9 @@ function handleDiagnosisFrame(socket, sessionID, state, payload) {
           limit: 10
         }
       ],
-      evidence_collection_results: [
+      evidence_collection_results: supplemental
+        ? []
+        : [
         {
           request: {
             tool: "active_alerts",
@@ -1397,6 +1412,21 @@ function handleDiagnosisFrame(socket, sessionID, state, payload) {
     return;
   }
   sendWebSocketJSON(socket, { type: "error", code: "bad_frame", message: "unsupported frame type" });
+}
+
+function validSupplementalEvidence(value) {
+  return (
+    value &&
+    typeof value === "object" &&
+    typeof value.label === "string" &&
+    value.label.trim() !== "" &&
+    typeof value.detail === "string" &&
+    value.detail.trim() !== "" &&
+    typeof value.priority === "string" &&
+    value.priority.trim() !== "" &&
+    typeof value.evidence === "string" &&
+    value.evidence.trim() !== ""
+  );
 }
 
 function mockDiagnosisConsultationInsight() {

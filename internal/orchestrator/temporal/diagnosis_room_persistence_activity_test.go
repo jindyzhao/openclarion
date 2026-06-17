@@ -250,6 +250,83 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 	}
 }
 
+func TestDiagnosisRoomPersistenceActivities_PersistTurnAuditsSupplementalEvidence(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-supplemental-evidence")
+	activities := temporalpkg.NewActivities(env.factory)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 15, 45, 0, 0, time.UTC)
+	if _, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-supplemental",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	}); err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+
+	req := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-supplemental", startedAt)
+	req.UserMessageID = "msg-supplemental-1"
+	req.AssistantMessageID = "msg-supplemental-1/assistant"
+	req.UserMessage = "Supplemental evidence update\n\nEvidence provided:\n- previous pod logs show OOMKilled"
+	req.SupplementalEvidence = &temporalpkg.DiagnosisRoomSupplementalEvidence{
+		Label:    "Restart cause",
+		Detail:   "Inspect previous container logs.",
+		Priority: "high",
+		Evidence: "previous pod logs show OOMKilled",
+	}
+	first, err := activities.PersistDiagnosisTurn(ctx, req)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn first: %v", err)
+	}
+	second, err := activities.PersistDiagnosisTurn(ctx, req)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn second: %v", err)
+	}
+	if second.UserTurnID != first.UserTurnID || second.AssistantTurnID != first.AssistantTurnID {
+		t.Fatalf("persist results first=%+v second=%+v", first, second)
+	}
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
+		if err != nil {
+			return err
+		}
+		if len(events) != 3 ||
+			events[0].Kind != "diagnosis_room.opened" ||
+			events[1].Kind != "diagnosis_room.supplemental_evidence_provided" ||
+			events[2].Kind != "diagnosis_room.turn_persisted" {
+			t.Fatalf("events = %+v, want opened + supplemental + turn_persisted", events)
+		}
+		var payload struct {
+			UserMessageID        string                                        `json:"user_message_id"`
+			AssistantMessageID   string                                        `json:"assistant_message_id"`
+			ContextRefs          []string                                      `json:"context_refs"`
+			SupplementalEvidence temporalpkg.DiagnosisRoomSupplementalEvidence `json:"supplemental_evidence"`
+			Confidence           string                                        `json:"confidence"`
+			RequiresHumanReview  bool                                          `json:"requires_human_review"`
+		}
+		if err := json.Unmarshal(events[1].Payload, &payload); err != nil {
+			t.Fatalf("supplemental event payload: %v", err)
+		}
+		if payload.UserMessageID != req.UserMessageID ||
+			payload.AssistantMessageID != req.AssistantMessageID ||
+			len(payload.ContextRefs) != 2 ||
+			payload.ContextRefs[0] == "" ||
+			payload.SupplementalEvidence.Label != "Restart cause" ||
+			payload.SupplementalEvidence.Detail != "Inspect previous container logs." ||
+			payload.SupplementalEvidence.Priority != "high" ||
+			payload.SupplementalEvidence.Evidence != "previous pod logs show OOMKilled" ||
+			payload.Confidence != "high" ||
+			!payload.RequiresHumanReview {
+			t.Fatalf("supplemental event payload = %+v raw=%s", payload, events[1].Payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify supplemental event: %v", err)
+	}
+}
+
 func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *testing.T) {
 	seed := seedDiagnosisTask(t, "room-final-ready")
 	activities := temporalpkg.NewActivities(env.factory)

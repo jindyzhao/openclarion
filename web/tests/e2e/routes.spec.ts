@@ -60,29 +60,44 @@ test("diagnosis room route connects, submits a turn, and confirms the conclusion
     page.getByText("Mock diagnosis response for: Summarize the current checkout alert.", { exact: true })
   ).toBeVisible();
   await expect(page.getByText("Consultation Insight", { exact: true })).toBeVisible();
-  await expect(page.getByText("needs_evidence", { exact: true })).toBeVisible();
+  const consultationProgress = page.locator('[aria-label="Diagnosis consultation progress"]');
+  await expect(consultationProgress).toContainText("Confidence");
+  await expect(consultationProgress).toContainText("Supplemental evidence requested");
+  await expect(consultationProgress).toContainText("Collect missing evidence");
+  await expect(page.locator('[aria-label="Evidence readiness"]')).toContainText("Collected");
+  await expect(page.getByText("needs_evidence", { exact: true }).first()).toBeVisible();
   await expect(page.getByText("Executable Evidence Plan", { exact: true })).toBeVisible();
   await expect(page.getByText("Current active alerts", { exact: true })).toBeVisible();
   await expect(page.getByText("Collection Results", { exact: true })).toBeVisible();
   await expect(page.getByText("Active alert collection succeeded.", { exact: true })).toBeVisible();
   await expect(page.getByText("CPUHigh / prod")).toBeVisible();
-  await expect(page.getByText("Restart cause", { exact: true })).toBeVisible();
-  await expect(page.getByText("Metric window", { exact: true })).toBeVisible();
+  await expect(page.getByText("Restart cause", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Metric window", { exact: true }).first()).toBeVisible();
+  await page.getByRole("button", { name: "Use follow-up for Restart cause" }).click();
+  await expect(page.getByLabel("Message")).toHaveValue(/Supplemental evidence update/);
+  await expect(page.getByLabel("Message")).toHaveValue(/Request: Restart cause/);
+  await expect(page.getByText("Prepared supplemental evidence follow-up for Restart cause.").first()).toBeVisible();
   await expect(page.getByText("Turn 1 completed.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirm Conclusion" })).toBeDisabled();
 
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Mock supplemental evidence response for: Restart cause", { exact: true })).toBeVisible();
+  await expect(page.getByText("Turn 2 completed.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirm Conclusion" })).toBeEnabled();
+
   await page.getByRole("button", { name: "Refresh State" }).click();
-  await expect(page.getByText("Loaded state: open, 1 turn(s).")).toBeVisible();
-  await expect(page.getByText("ready_for_review", { exact: true })).toBeVisible();
-  await expect(page.getByText("Owner confirmation", { exact: true })).toBeVisible();
+  await expect(page.getByText("Loaded state: open, 2 turn(s).")).toBeVisible();
+  await expect(page.getByText("ready_for_review", { exact: true }).first()).toBeVisible();
+  await expect(consultationProgress).toContainText("Ready for confirmation");
+  await expect(page.getByText("Owner confirmation", { exact: true }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Confirm Conclusion" })).toBeEnabled();
 
   await page.getByRole("button", { name: "Confirm Conclusion" }).click();
   await expect(page.getByText("Confirming final conclusion.")).toBeVisible();
-  await expect(page.getByText("Loaded state: closed, 1 turn(s).")).toBeVisible();
+  await expect(page.getByText("Loaded state: closed, 2 turn(s).")).toBeVisible();
   await expect(page.getByText("Final conclusion", { exact: true })).toBeVisible();
   const finalConclusion = page.locator(".diagnosis-conclusion");
-  await expect(finalConclusion).toContainText("Mock diagnosis response for: Summarize the current checkout alert.");
+  await expect(finalConclusion).toContainText("Mock supplemental evidence response for: Restart cause");
   await expect(page.getByText("human_confirmed", { exact: true })).toBeVisible();
   await expect(page.getByText("diagnosis-room-close.v1", { exact: true })).toBeVisible();
   await expect(page.getByText("Confirmed by", { exact: true })).toBeVisible();
