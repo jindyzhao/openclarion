@@ -811,6 +811,54 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 				},
 			},
 		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			tasksBySnapshot: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{
+				7: {
+					{
+						ID:                 31,
+						EvidenceSnapshotID: 7,
+						WorkflowID:         "diagnosis-room-31",
+						RunID:              "run-31",
+						Status:             domain.DiagnosisStatusSucceeded,
+						CreatedAt:          finalCreatedAt.Add(2 * time.Minute),
+					},
+				},
+			},
+			eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+				31: {
+					diagnosisConclusionEventFinalReady: {
+						{
+							ID:     41,
+							TaskID: 31,
+							Kind:   diagnosisConclusionEventFinalReady,
+							Payload: json.RawMessage(`{
+									"kind":"diagnosis_room.final_conclusion_ready",
+									"session_id":"diagnosis-session-31",
+									"chat_session_id":51,
+									"diagnosis_task_id":31,
+									"owner_subject":"owner-1",
+									"turn_count":1,
+									"final_conclusion":{
+										"status":"available",
+										"source":"latest_assistant_turn",
+										"reason":"assistant_marked_final",
+										"assistant_turn_id":61,
+										"assistant_message_id":"msg-1/assistant",
+										"assistant_sequence":2,
+										"assistant_occurred_at":"2026-05-27T10:08:00Z",
+										"content":"Checkout latency remains correlated with the deployment.",
+										"confidence":"high",
+										"requires_human_review":true
+									},
+									"conclusion_version":"diagnosis-room-final-ready.v1"
+								}`),
+							OccurredAt: finalCreatedAt.Add(3 * time.Minute),
+							RecordedAt: finalCreatedAt.Add(3*time.Minute + time.Second),
+						},
+					},
+				},
+			},
+		},
 	}
 
 	rec := httptest.NewRecorder()
@@ -840,6 +888,20 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 	linked := body.LinkedSubReports[0]
 	if linked.ID != 21 || linked.EvidenceSnapshotID != 7 || len(linked.Findings) != 1 || linked.Findings[0].EvidenceID != "alert:checkout-latency" {
 		t.Fatalf("unexpected linked subreport: %+v", linked)
+	}
+	conclusion := linked.DiagnosisConclusion
+	if conclusion == nil {
+		t.Fatalf("diagnosis_conclusion is nil, want latest conclusion")
+	}
+	if conclusion.DiagnosisTaskID != 31 ||
+		conclusion.SessionID != "diagnosis-session-31" ||
+		conclusion.ChatSessionID != 51 ||
+		conclusion.Content != "Checkout latency remains correlated with the deployment." ||
+		conclusion.Confidence == nil ||
+		*conclusion.Confidence != api.ReportConfidenceHigh ||
+		conclusion.RequiresHumanReview == nil ||
+		!*conclusion.RequiresHumanReview {
+		t.Fatalf("unexpected diagnosis conclusion: %+v", conclusion)
 	}
 }
 
@@ -3363,11 +3425,12 @@ func (*neverAuthProvider) AuthenticateBearer(context.Context, string) (ports.Aut
 }
 
 type fakeUOWFactory struct {
-	alertRepo    *fakeAlertRepo
-	evidenceRepo *fakeEvidenceRepo
-	reportRepo   *fakeReportRepo
-	configRepo   *fakeConfigRepo
-	err          error
+	alertRepo     *fakeAlertRepo
+	evidenceRepo  *fakeEvidenceRepo
+	diagnosisRepo *fakeDiagnosisRepo
+	reportRepo    *fakeReportRepo
+	configRepo    *fakeConfigRepo
+	err           error
 }
 
 type fakeReportReplayTrigger struct {
@@ -3451,22 +3514,23 @@ func (t *fakeNotificationChannelTester) TestNotificationChannel(_ context.Contex
 }
 
 func (f *fakeUOWFactory) Begin(context.Context) (ports.UnitOfWork, error) {
-	return &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, reportRepo: f.reportRepo, configRepo: f.configRepo}, f.err
+	return &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, diagnosisRepo: f.diagnosisRepo, reportRepo: f.reportRepo, configRepo: f.configRepo}, f.err
 }
 
 func (f *fakeUOWFactory) WithinTx(ctx context.Context, fn func(context.Context, ports.UnitOfWork) error) error {
 	if f.err != nil {
 		return f.err
 	}
-	return fn(ctx, &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, reportRepo: f.reportRepo, configRepo: f.configRepo})
+	return fn(ctx, &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, diagnosisRepo: f.diagnosisRepo, reportRepo: f.reportRepo, configRepo: f.configRepo})
 }
 
 type fakeUOW struct {
 	ports.UnitOfWork
-	alertRepo    ports.AlertRepository
-	evidenceRepo ports.EvidenceRepository
-	reportRepo   ports.ReportRepository
-	configRepo   ports.ConfigurationRepository
+	alertRepo     ports.AlertRepository
+	evidenceRepo  ports.EvidenceRepository
+	diagnosisRepo ports.DiagnosisRepository
+	reportRepo    ports.ReportRepository
+	configRepo    ports.ConfigurationRepository
 }
 
 func (u *fakeUOW) Alerts() ports.AlertRepository {
@@ -3478,7 +3542,7 @@ func (u *fakeUOW) Evidence() ports.EvidenceRepository {
 }
 
 func (u *fakeUOW) Diagnosis() ports.DiagnosisRepository {
-	return nil
+	return u.diagnosisRepo
 }
 
 func (u *fakeUOW) Reports() ports.ReportRepository {
@@ -3523,6 +3587,38 @@ func (r *fakeEvidenceRepo) List(_ context.Context, limit int) ([]domain.Evidence
 		limit = len(r.snapshots)
 	}
 	return r.snapshots[:limit], nil
+}
+
+type fakeDiagnosisRepo struct {
+	ports.DiagnosisRepository
+	tasksBySnapshot     map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
+	eventsByTaskAndKind map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
+	lastSnapshotID      domain.EvidenceSnapshotID
+	lastTaskLimit       int
+	lastTaskID          domain.DiagnosisTaskID
+	lastEventKind       string
+	lastEventLimit      int
+}
+
+func (r *fakeDiagnosisRepo) ListTasksByEvidenceSnapshot(_ context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]domain.DiagnosisTask, error) {
+	r.lastSnapshotID = snapshotID
+	r.lastTaskLimit = limit
+	tasks := r.tasksBySnapshot[snapshotID]
+	if limit > len(tasks) {
+		limit = len(tasks)
+	}
+	return tasks[:limit], nil
+}
+
+func (r *fakeDiagnosisRepo) ListEventsByTaskAndKind(_ context.Context, taskID domain.DiagnosisTaskID, kind string, limit int) ([]domain.DiagnosisTaskEvent, error) {
+	r.lastTaskID = taskID
+	r.lastEventKind = kind
+	r.lastEventLimit = limit
+	events := r.eventsByTaskAndKind[taskID][kind]
+	if limit > len(events) {
+		limit = len(events)
+	}
+	return events[:limit], nil
 }
 
 type fakeReportRepo struct {
