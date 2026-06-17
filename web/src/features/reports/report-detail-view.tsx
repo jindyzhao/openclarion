@@ -76,9 +76,9 @@ function Detail({ report }: { report: FinalReportDetail }) {
                   <h3>{subReport.title}</h3>
                   <Link
                     className="link-button"
-                    href={`/diagnosis-room?evidence_snapshot_id=${subReport.evidence_snapshot_id}`}
+                    href={diagnosisRoomHref(report, subReport)}
                   >
-                    Start diagnosis
+                    {subReport.diagnosis_conclusion ? "Review diagnosis" : "Start diagnosis"}
                   </Link>
                 </div>
                 <div className="muted">Evidence snapshot #{subReport.evidence_snapshot_id}</div>
@@ -95,6 +95,21 @@ function Detail({ report }: { report: FinalReportDetail }) {
       </section>
     </div>
   );
+}
+
+function diagnosisRoomHref(
+  report: FinalReportDetail,
+  subReport: FinalReportDetail["linked_sub_reports"][number]
+) {
+  return {
+    pathname: "/diagnosis-room",
+    query: {
+      evidence_snapshot_id: String(subReport.evidence_snapshot_id),
+      report_id: String(report.id),
+      sub_report_id: String(subReport.id),
+      intent: subReport.diagnosis_conclusion ? "review_conclusion" : "confidence_review"
+    }
+  };
 }
 
 function DiagnosisConclusion({

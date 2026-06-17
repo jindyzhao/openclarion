@@ -434,6 +434,22 @@ tr:last-child td {
   margin-bottom: 16px;
 }
 
+.diagnosis-context {
+  margin-bottom: 16px;
+}
+
+.diagnosis-context-body {
+  display: grid;
+  gap: 8px;
+}
+
+.diagnosis-context-prompt {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
 .diagnosis-conclusion {
   margin-top: 16px;
 }
