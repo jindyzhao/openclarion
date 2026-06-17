@@ -224,20 +224,23 @@ type DiagnosisRoomFinalConclusion struct {
 // DiagnosisRoomState is the provider-neutral room state returned for
 // WebSocket reconnect/read flows.
 type DiagnosisRoomState struct {
-	SessionID       string
-	ChatSessionID   domain.ChatSessionID
-	DiagnosisTaskID domain.DiagnosisTaskID
-	OwnerSubject    string
-	Status          string
-	TurnCount       int
-	StartedAt       time.Time
-	LastActivityAt  time.Time
-	ClosedAt        *time.Time
-	CloseReason     string
-	FinalConclusion *DiagnosisRoomFinalConclusion
-	InFlight        bool
-	SeenMessageIDs  []string
-	Conversation    []DiagnosisRoomConversationTurn
+	SessionID                 string
+	ChatSessionID             domain.ChatSessionID
+	DiagnosisTaskID           domain.DiagnosisTaskID
+	OwnerSubject              string
+	Status                    string
+	TurnCount                 int
+	StartedAt                 time.Time
+	LastActivityAt            time.Time
+	ClosedAt                  *time.Time
+	CloseReason               string
+	FinalConclusion           *DiagnosisRoomFinalConclusion
+	LatestConsultationInsight *DiagnosisRoomConsultationInsight
+	LatestConfidence          string
+	LatestRequiresHumanReview *bool
+	InFlight                  bool
+	SeenMessageIDs            []string
+	Conversation              []DiagnosisRoomConversationTurn
 }
 
 // DiagnosisRoomWorkflowClient submits user turns and queries room state

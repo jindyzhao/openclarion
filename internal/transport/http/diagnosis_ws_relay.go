@@ -174,21 +174,24 @@ func (r *DiagnosisWebSocketRelay) handleQueryState(ctx context.Context, conn *we
 		return writeDiagnosisWSError(conn, err)
 	}
 	return writeDiagnosisWSJSON(conn, diagnosisWSStateFrame{
-		Type:            diagnosisWSServerState,
-		SessionID:       state.SessionID,
-		ChatSessionID:   int64(state.ChatSessionID),
-		DiagnosisTaskID: int64(state.DiagnosisTaskID),
-		OwnerSubject:    state.OwnerSubject,
-		Status:          state.Status,
-		TurnCount:       state.TurnCount,
-		StartedAt:       state.StartedAt,
-		LastActivityAt:  state.LastActivityAt,
-		ClosedAt:        state.ClosedAt,
-		CloseReason:     state.CloseReason,
-		FinalConclusion: diagnosisWSFinalConclusionFrame(state.FinalConclusion),
-		InFlight:        state.InFlight,
-		SeenMessageIDs:  append([]string(nil), state.SeenMessageIDs...),
-		Conversation:    diagnosisWSConversation(state.Conversation),
+		Type:                diagnosisWSServerState,
+		SessionID:           state.SessionID,
+		ChatSessionID:       int64(state.ChatSessionID),
+		DiagnosisTaskID:     int64(state.DiagnosisTaskID),
+		OwnerSubject:        state.OwnerSubject,
+		Status:              state.Status,
+		TurnCount:           state.TurnCount,
+		StartedAt:           state.StartedAt,
+		LastActivityAt:      state.LastActivityAt,
+		ClosedAt:            state.ClosedAt,
+		CloseReason:         state.CloseReason,
+		FinalConclusion:     diagnosisWSFinalConclusionFrame(state.FinalConclusion),
+		Confidence:          state.LatestConfidence,
+		RequiresHumanReview: state.LatestRequiresHumanReview,
+		ConsultationInsight: diagnosisWSConsultationInsightFramePtr(state.LatestConsultationInsight),
+		InFlight:            state.InFlight,
+		SeenMessageIDs:      append([]string(nil), state.SeenMessageIDs...),
+		Conversation:        diagnosisWSConversation(state.Conversation),
 	})
 }
 
@@ -452,6 +455,16 @@ func diagnosisWSConsultationInsightFrame(
 	}
 }
 
+func diagnosisWSConsultationInsightFramePtr(
+	in *ports.DiagnosisRoomConsultationInsight,
+) *diagnosisWSConsultationInsight {
+	if in == nil {
+		return nil
+	}
+	out := diagnosisWSConsultationInsightFrame(*in)
+	return &out
+}
+
 func diagnosisWSConsultationEvidenceRequests(
 	in []ports.DiagnosisRoomConsultationEvidenceRequest,
 ) []diagnosisWSConsultationEvidenceRequest {
@@ -530,21 +543,24 @@ type diagnosisWSFollowUpTurn struct {
 }
 
 type diagnosisWSStateFrame struct {
-	Type            string                        `json:"type"`
-	SessionID       string                        `json:"session_id"`
-	ChatSessionID   int64                         `json:"chat_session_id"`
-	DiagnosisTaskID int64                         `json:"diagnosis_task_id"`
-	OwnerSubject    string                        `json:"owner_subject"`
-	Status          string                        `json:"status"`
-	TurnCount       int                           `json:"turn_count"`
-	StartedAt       time.Time                     `json:"started_at"`
-	LastActivityAt  time.Time                     `json:"last_activity_at"`
-	ClosedAt        *time.Time                    `json:"closed_at,omitempty"`
-	CloseReason     string                        `json:"close_reason,omitempty"`
-	FinalConclusion *diagnosisWSFinalConclusion   `json:"final_conclusion,omitempty"`
-	InFlight        bool                          `json:"in_flight"`
-	SeenMessageIDs  []string                      `json:"seen_message_ids"`
-	Conversation    []diagnosisWSConversationTurn `json:"conversation"`
+	Type                string                          `json:"type"`
+	SessionID           string                          `json:"session_id"`
+	ChatSessionID       int64                           `json:"chat_session_id"`
+	DiagnosisTaskID     int64                           `json:"diagnosis_task_id"`
+	OwnerSubject        string                          `json:"owner_subject"`
+	Status              string                          `json:"status"`
+	TurnCount           int                             `json:"turn_count"`
+	StartedAt           time.Time                       `json:"started_at"`
+	LastActivityAt      time.Time                       `json:"last_activity_at"`
+	ClosedAt            *time.Time                      `json:"closed_at,omitempty"`
+	CloseReason         string                          `json:"close_reason,omitempty"`
+	FinalConclusion     *diagnosisWSFinalConclusion     `json:"final_conclusion,omitempty"`
+	Confidence          string                          `json:"confidence,omitempty"`
+	RequiresHumanReview *bool                           `json:"requires_human_review,omitempty"`
+	ConsultationInsight *diagnosisWSConsultationInsight `json:"consultation_insight,omitempty"`
+	InFlight            bool                            `json:"in_flight"`
+	SeenMessageIDs      []string                        `json:"seen_message_ids"`
+	Conversation        []diagnosisWSConversationTurn   `json:"conversation"`
 }
 
 type diagnosisWSConversationTurn struct {

@@ -273,6 +273,7 @@ export function DiagnosisRoomView() {
             content: turn.content
           }))
         );
+        setLatestInsight(latestConsultationInsightFromState(frame));
         pushLog("info", `Loaded state: ${frame.status}, ${frame.turn_count} turn(s).`);
         break;
       case "turn_result":
@@ -801,6 +802,34 @@ function latestConsultationInsight(frame: DiagnosisTurnResultFrame): LatestConsu
     status: frame.status,
     turnCount: frame.turn_count
   };
+}
+
+function latestConsultationInsightFromState(frame: DiagnosisStateFrame): LatestConsultationInsight | null {
+  if (!hasConsultationInsight(frame.consultation_insight)) {
+    return null;
+  }
+  return {
+    autoFollowUpCount: 0,
+    collectionResults: [],
+    confidence: frame.confidence ?? frame.final_conclusion?.confidence ?? "",
+    evidenceRequests: [],
+    insight: frame.consultation_insight,
+    requiresHumanReview: frame.requires_human_review ?? frame.final_conclusion?.requires_human_review ?? false,
+    status: frame.status,
+    turnCount: frame.turn_count
+  };
+}
+
+function hasConsultationInsight(
+  insight: DiagnosisConsultationInsight | undefined
+): insight is DiagnosisConsultationInsight {
+  return Boolean(
+    insight &&
+      ((insight.confidence_rationale ?? "").trim() !== "" ||
+        (insight.conclusion_status ?? "").trim() !== "" ||
+        (insight.missing_evidence_requests?.length ?? 0) > 0 ||
+        (insight.evidence_collection_suggestions?.length ?? 0) > 0)
+  );
 }
 
 function roomStateDescriptionItems(

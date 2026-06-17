@@ -264,6 +264,16 @@ func diagnosisRoomConsultationInsightPort(in diagnosisroom.ConsultationInsight) 
 	}
 }
 
+func diagnosisRoomConsultationInsightPortPtr(
+	in *diagnosisroom.ConsultationInsight,
+) *ports.DiagnosisRoomConsultationInsight {
+	if in == nil {
+		return nil
+	}
+	out := diagnosisRoomConsultationInsightPort(*in)
+	return &out
+}
+
 func diagnosisRoomConsultationEvidenceRequestsPort(
 	in []diagnosisroom.ConsultationEvidenceRequest,
 ) []ports.DiagnosisRoomConsultationEvidenceRequest {
@@ -345,20 +355,23 @@ func diagnosisRoomWorkflowState(state DiagnosisRoomWorkflowState) ports.Diagnosi
 	}
 	seen := append([]string(nil), state.SeenMessageIDs...)
 	return ports.DiagnosisRoomState{
-		SessionID:       state.SessionID,
-		ChatSessionID:   domain.ChatSessionID(state.ChatSessionID),
-		DiagnosisTaskID: domain.DiagnosisTaskID(state.DiagnosisTaskID),
-		OwnerSubject:    state.OwnerSubject,
-		Status:          state.Status,
-		TurnCount:       state.TurnCount,
-		StartedAt:       state.StartedAt,
-		LastActivityAt:  state.LastActivityAt,
-		ClosedAt:        state.ClosedAt,
-		CloseReason:     state.CloseReason,
-		FinalConclusion: diagnosisRoomFinalConclusionPort(state.FinalConclusion),
-		InFlight:        state.InFlight,
-		SeenMessageIDs:  seen,
-		Conversation:    conversation,
+		SessionID:                 state.SessionID,
+		ChatSessionID:             domain.ChatSessionID(state.ChatSessionID),
+		DiagnosisTaskID:           domain.DiagnosisTaskID(state.DiagnosisTaskID),
+		OwnerSubject:              state.OwnerSubject,
+		Status:                    state.Status,
+		TurnCount:                 state.TurnCount,
+		StartedAt:                 state.StartedAt,
+		LastActivityAt:            state.LastActivityAt,
+		ClosedAt:                  state.ClosedAt,
+		CloseReason:               state.CloseReason,
+		FinalConclusion:           diagnosisRoomFinalConclusionPort(state.FinalConclusion),
+		LatestConsultationInsight: diagnosisRoomConsultationInsightPortPtr(state.LatestInsight),
+		LatestConfidence:          state.LatestConfidence,
+		LatestRequiresHumanReview: copyBoolPtr(state.LatestRequiresHumanReview),
+		InFlight:                  state.InFlight,
+		SeenMessageIDs:            seen,
+		Conversation:              conversation,
 	}
 }
 

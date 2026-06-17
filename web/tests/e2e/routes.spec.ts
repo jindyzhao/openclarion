@@ -64,6 +64,10 @@ test("diagnosis room route connects, queries state, and submits a turn", async (
   await expect(page.getByText("Restart cause", { exact: true })).toBeVisible();
   await expect(page.getByText("Metric window", { exact: true })).toBeVisible();
   await expect(page.getByText("Turn 1 completed.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Refresh State" }).click();
+  await expect(page.getByText("Loaded state: open, 1 turn(s).")).toBeVisible();
+  await expect(page.getByText("Restart cause", { exact: true })).toBeVisible();
 });
 
 test("settings overview route renders the alert operations configuration graph", async ({ page }) => {

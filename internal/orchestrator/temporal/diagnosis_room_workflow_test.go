@@ -402,6 +402,14 @@ func TestDiagnosisRoomWorkflow_AutoEvidenceFollowUpUsesCollectedEvidence(t *test
 		queried.FinalConclusion.Content != "Final diagnosis after collected evidence." {
 		t.Fatalf("queried final conclusion = %+v", queried.FinalConclusion)
 	}
+	if queried.LatestInsight == nil ||
+		queried.LatestInsight.ConclusionStatus != "final" ||
+		queried.LatestConfidence != "high" ||
+		queried.LatestRequiresHumanReview == nil ||
+		*queried.LatestRequiresHumanReview {
+		t.Fatalf("queried latest consultation state = insight=%+v confidence=%q review=%v",
+			queried.LatestInsight, queried.LatestConfidence, queried.LatestRequiresHumanReview)
+	}
 }
 
 func TestDiagnosisRoomWorkflow_AutoEvidenceFollowUpCanBeDisabled(t *testing.T) {

@@ -1290,7 +1290,11 @@ function handleDiagnosisFrame(socket, sessionID, state, payload) {
     state.turnCount += 1;
     state.conversation.push({ role: "user", content: text });
     const assistant = `Mock diagnosis response for: ${text}`;
+    const consultationInsight = mockDiagnosisConsultationInsight();
     state.conversation.push({ role: "assistant", content: assistant });
+    state.latestConfidence = "medium";
+    state.latestRequiresHumanReview = true;
+    state.latestConsultationInsight = consultationInsight;
     sendWebSocketJSON(socket, {
       type: "turn_result",
       session_id: sessionID,
@@ -1352,32 +1356,36 @@ function handleDiagnosisFrame(socket, sessionID, state, payload) {
           collected_at: "2026-06-17T10:00:01Z"
         }
       ],
-      consultation_insight: {
-        confidence_rationale: "Alert labels and metric context are available, but restart evidence is still missing.",
-        missing_evidence_requests: [
-          {
-            label: "Restart cause",
-            detail: "Collect previous container logs and recent workload events before final review.",
-            priority: "high"
-          }
-        ],
-        evidence_collection_suggestions: [
-          {
-            label: "Metric window",
-            detail: "Collect a five minute CPU and memory range around the alert firing time.",
-            priority: "medium"
-          }
-        ],
-        conclusion_status: "needs_evidence"
-      }
+      consultation_insight: consultationInsight
     });
     return;
   }
   sendWebSocketJSON(socket, { type: "error", code: "bad_frame", message: "unsupported frame type" });
 }
 
-function diagnosisState(sessionID, state) {
+function mockDiagnosisConsultationInsight() {
   return {
+    confidence_rationale: "Alert labels and metric context are available, but restart evidence is still missing.",
+    missing_evidence_requests: [
+      {
+        label: "Restart cause",
+        detail: "Collect previous container logs and recent workload events before final review.",
+        priority: "high"
+      }
+    ],
+    evidence_collection_suggestions: [
+      {
+        label: "Metric window",
+        detail: "Collect a five minute CPU and memory range around the alert firing time.",
+        priority: "medium"
+      }
+    ],
+    conclusion_status: "needs_evidence"
+  };
+}
+
+function diagnosisState(sessionID, state) {
+  const payload = {
     type: "state",
     session_id: sessionID,
     chat_session_id: 42,
@@ -1391,6 +1399,12 @@ function diagnosisState(sessionID, state) {
     seen_message_ids: [],
     conversation: state.conversation
   };
+  if (state.latestConsultationInsight) {
+    payload.confidence = state.latestConfidence;
+    payload.requires_human_review = state.latestRequiresHumanReview;
+    payload.consultation_insight = state.latestConsultationInsight;
+  }
+  return payload;
 }
 
 function sendWebSocketJSON(socket, payload) {

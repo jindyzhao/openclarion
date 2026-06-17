@@ -152,6 +152,9 @@ export type DiagnosisStateFrame = {
   closed_at?: string;
   close_reason?: string;
   final_conclusion?: DiagnosisFinalConclusion;
+  confidence?: string;
+  requires_human_review?: boolean;
+  consultation_insight?: DiagnosisConsultationInsight;
   in_flight: boolean;
   seen_message_ids: string[];
   conversation: DiagnosisConversationTurn[];
