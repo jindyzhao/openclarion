@@ -70,7 +70,11 @@ test("report routes render list, detail, and evidence traceability", async ({ pa
   expect(followUpURL.searchParams.get("follow_up_label")).toBe("Deployment window");
   expect(followUpURL.searchParams.get("follow_up_priority")).toBe("high");
   await expect(page.getByText("Report #101 diagnosis")).toBeVisible();
-  await expect(page.getByText("Opened from report #101, subreport #501 using evidence snapshot #9001.")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Prepared from report #101, subreport #501 using evidence snapshot #9001. Create the room when operator review is ready."
+    )
+  ).toBeVisible();
   const pendingSupplemental = page.locator(".diagnosis-supplemental-pending");
   await expect(pendingSupplemental).toContainText("Supplemental evidence");
   await expect(pendingSupplemental).toContainText("Deployment window");
@@ -84,7 +88,11 @@ test("report routes render list, detail, and evidence traceability", async ({ pa
     /\/diagnosis-room\?evidence_snapshot_id=9001&report_id=101&sub_report_id=501&intent=review_conclusion$/
   );
   await expect(page.getByText("Report #101 diagnosis")).toBeVisible();
-  await expect(page.getByText("Opened from report #101, subreport #501 using evidence snapshot #9001.")).toBeVisible();
+  await expect(
+    page.getByText(
+      "Prepared from report #101, subreport #501 using evidence snapshot #9001. Create the room when operator review is ready."
+    )
+  ).toBeVisible();
   await expect(page.getByLabel("Evidence snapshot")).toHaveValue("9001");
   await expect(page.getByLabel("Message")).toHaveValue(/Verify the current diagnosis conclusion/);
 });
@@ -93,6 +101,7 @@ test("diagnosis room route connects, submits a turn, and confirms the conclusion
   await page.goto("/diagnosis-room");
 
   await expect(page.getByRole("heading", { name: "Diagnosis Room" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create diagnosis room" })).toBeVisible();
   await page.getByLabel("Session ID").fill("diagnosis-session-42");
   await page.getByLabel("Bearer token").fill("test-bearer-value");
   await page.getByRole("button", { name: /Connect/ }).click();

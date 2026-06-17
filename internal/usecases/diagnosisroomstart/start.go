@@ -16,8 +16,10 @@ import (
 )
 
 const (
-	sessionIDPrefix = "diagnosis-session-"
-	sessionIDBytes  = 18
+	sessionIDPrefix                  = "diagnosis-session-"
+	sessionIDBytes                   = 18
+	reportWorkflowAutomationSubject  = "openclarion.report-workflow"
+	reportWorkflowAutomationSubjectP = reportWorkflowAutomationSubject + ":"
 )
 
 // Request starts one room owned by the authenticated principal.
@@ -90,6 +92,9 @@ func (s *Service) Start(ctx context.Context, req Request) (Result, error) {
 	if subject == "" {
 		return Result{}, fmt.Errorf("diagnosis room start: principal subject is required: %w", diagnosisauth.ErrUnauthenticated)
 	}
+	if isReportWorkflowAutomationSubject(subject) {
+		return Result{}, fmt.Errorf("diagnosis room start: report workflow automation cannot create diagnosis rooms directly: %w", diagnosisauth.ErrUnauthorized)
+	}
 	sessionID, err := newSessionID(s.random)
 	if err != nil {
 		return Result{}, err
@@ -135,6 +140,11 @@ func (s *Service) loadSnapshot(ctx context.Context, id domain.EvidenceSnapshotID
 		return err
 	})
 	return snapshot, err
+}
+
+func isReportWorkflowAutomationSubject(subject string) bool {
+	subject = strings.TrimSpace(subject)
+	return subject == reportWorkflowAutomationSubject || strings.HasPrefix(subject, reportWorkflowAutomationSubjectP)
 }
 
 func newSessionID(random io.Reader) (string, error) {
