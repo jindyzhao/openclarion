@@ -120,6 +120,7 @@ type CloseDiagnosisChatSessionInput struct {
 	SessionID       string
 	DiagnosisTaskID int64
 	OwnerSubject    string
+	ConfirmedBy     string
 	TurnCount       int
 	ClosedAt        time.Time
 	Reason          string
@@ -832,6 +833,9 @@ func validateCloseDiagnosisChatSessionInput(req CloseDiagnosisChatSessionInput) 
 	if strings.TrimSpace(req.OwnerSubject) == "" {
 		return fmt.Errorf("close diagnosis chat session: owner_subject must be non-empty: %w", domain.ErrInvariantViolation)
 	}
+	if strings.TrimSpace(req.ConfirmedBy) != req.ConfirmedBy {
+		return fmt.Errorf("close diagnosis chat session: confirmed_by must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
+	}
 	if req.TurnCount < 0 {
 		return fmt.Errorf("close diagnosis chat session: turn_count must be >= 0: %w", domain.ErrInvariantViolation)
 	}
@@ -1068,16 +1072,21 @@ func (a *Activities) recordDiagnosisRoomFinalConclusionReady(
 	req PersistDiagnosisTurnInput,
 	result PersistDiagnosisTurnResult,
 ) (domain.DiagnosisTaskEvent, DiagnosisRoomFinalConclusion, error) {
-	finalConclusion := diagnosisRoomFinalConclusionFromPersistedTurn(req, result)
+	task, err := a.lookupDiagnosisTaskByID(ctx, domain.DiagnosisTaskID(req.DiagnosisTaskID))
+	if err != nil {
+		return domain.DiagnosisTaskEvent{}, DiagnosisRoomFinalConclusion{}, err
+	}
+	finalConclusion := diagnosisRoomFinalConclusionFromPersistedTurn(req, result, task.EvidenceSnapshotID)
 	payload, err := diagnosisRoomLifecyclePayload(map[string]any{
-		"kind":               diagnosisRoomEventFinalConclusionReady,
-		"session_id":         req.SessionID,
-		"chat_session_id":    result.ChatSessionID,
-		"diagnosis_task_id":  req.DiagnosisTaskID,
-		"owner_subject":      req.OwnerSubject,
-		"turn_count":         result.TurnCount,
-		"final_conclusion":   finalConclusion,
-		"conclusion_version": "diagnosis-room-final-ready.v1",
+		"kind":                 diagnosisRoomEventFinalConclusionReady,
+		"session_id":           req.SessionID,
+		"chat_session_id":      result.ChatSessionID,
+		"diagnosis_task_id":    req.DiagnosisTaskID,
+		"evidence_snapshot_id": int64(task.EvidenceSnapshotID),
+		"owner_subject":        req.OwnerSubject,
+		"turn_count":           result.TurnCount,
+		"final_conclusion":     finalConclusion,
+		"conclusion_version":   "diagnosis-room-final-ready.v1",
 	})
 	if err != nil {
 		return domain.DiagnosisTaskEvent{}, DiagnosisRoomFinalConclusion{}, err
@@ -1100,22 +1109,27 @@ func (a *Activities) recordDiagnosisRoomClosed(
 	req CloseDiagnosisChatSessionInput,
 	session domain.ChatSession,
 ) (domain.DiagnosisTaskEvent, DiagnosisRoomFinalConclusion, error) {
-	finalConclusion, err := a.diagnosisRoomFinalConclusion(ctx, req, session)
+	task, err := a.lookupDiagnosisTaskByID(ctx, domain.DiagnosisTaskID(req.DiagnosisTaskID))
+	if err != nil {
+		return domain.DiagnosisTaskEvent{}, DiagnosisRoomFinalConclusion{}, err
+	}
+	finalConclusion, err := a.diagnosisRoomFinalConclusion(ctx, req, session, task)
 	if err != nil {
 		return domain.DiagnosisTaskEvent{}, DiagnosisRoomFinalConclusion{}, err
 	}
 	payload, err := diagnosisRoomLifecyclePayload(map[string]any{
-		"kind":               diagnosisRoomEventClosed,
-		"session_id":         req.SessionID,
-		"chat_session_id":    int64(session.ID),
-		"diagnosis_task_id":  req.DiagnosisTaskID,
-		"owner_subject":      req.OwnerSubject,
-		"status":             string(session.Status),
-		"turn_count":         session.TurnCount,
-		"close_reason":       session.CloseReason,
-		"closed_at":          session.ClosedAt,
-		"final_conclusion":   finalConclusion,
-		"conclusion_version": "diagnosis-room-close.v1",
+		"kind":                 diagnosisRoomEventClosed,
+		"session_id":           req.SessionID,
+		"chat_session_id":      int64(session.ID),
+		"diagnosis_task_id":    req.DiagnosisTaskID,
+		"evidence_snapshot_id": int64(task.EvidenceSnapshotID),
+		"owner_subject":        req.OwnerSubject,
+		"status":               string(session.Status),
+		"turn_count":           session.TurnCount,
+		"close_reason":         session.CloseReason,
+		"closed_at":            session.ClosedAt,
+		"final_conclusion":     finalConclusion,
+		"conclusion_version":   "diagnosis-room-close.v1",
 	})
 	if err != nil {
 		return domain.DiagnosisTaskEvent{}, DiagnosisRoomFinalConclusion{}, err
@@ -1136,16 +1150,21 @@ func (a *Activities) recordDiagnosisRoomClosed(
 // DiagnosisRoomFinalConclusion is the persisted close-time diagnosis summary
 // derived from the latest assistant turn, when one exists.
 type DiagnosisRoomFinalConclusion struct {
-	Status              string     `json:"status"`
-	Source              string     `json:"source"`
-	Reason              string     `json:"reason,omitempty"`
-	AssistantTurnID     int64      `json:"assistant_turn_id,omitempty"`
-	AssistantMessageID  string     `json:"assistant_message_id,omitempty"`
-	AssistantSequence   int        `json:"assistant_sequence,omitempty"`
-	AssistantOccurredAt *time.Time `json:"assistant_occurred_at,omitempty"`
-	Content             string     `json:"content,omitempty"`
-	Confidence          string     `json:"confidence,omitempty"`
-	RequiresHumanReview *bool      `json:"requires_human_review,omitempty"`
+	Status                  string     `json:"status"`
+	Source                  string     `json:"source"`
+	Reason                  string     `json:"reason,omitempty"`
+	EvidenceSnapshotID      int64      `json:"evidence_snapshot_id,omitempty"`
+	ConclusionVersion       string     `json:"conclusion_version,omitempty"`
+	RecordedAt              *time.Time `json:"recorded_at,omitempty"`
+	ConfirmedBy             string     `json:"confirmed_by,omitempty"`
+	SupplementalContextRefs []string   `json:"supplemental_context_refs,omitempty"`
+	AssistantTurnID         int64      `json:"assistant_turn_id,omitempty"`
+	AssistantMessageID      string     `json:"assistant_message_id,omitempty"`
+	AssistantSequence       int        `json:"assistant_sequence,omitempty"`
+	AssistantOccurredAt     *time.Time `json:"assistant_occurred_at,omitempty"`
+	Content                 string     `json:"content,omitempty"`
+	Confidence              string     `json:"confidence,omitempty"`
+	RequiresHumanReview     *bool      `json:"requires_human_review,omitempty"`
 }
 
 type diagnosisRoomAssistantTurnMetadata struct {
@@ -1156,6 +1175,7 @@ type diagnosisRoomAssistantTurnMetadata struct {
 func diagnosisRoomFinalConclusionFromPersistedTurn(
 	req PersistDiagnosisTurnInput,
 	result PersistDiagnosisTurnResult,
+	evidenceSnapshotID domain.EvidenceSnapshotID,
 ) DiagnosisRoomFinalConclusion {
 	requiresHumanReview := result.RequiresHumanReview
 	occurredAt := result.AssistantOccurredAt
@@ -1175,16 +1195,20 @@ func diagnosisRoomFinalConclusionFromPersistedTurn(
 		content = strings.TrimSpace(req.AssistantMessage)
 	}
 	return DiagnosisRoomFinalConclusion{
-		Status:              "available",
-		Source:              "latest_assistant_turn",
-		Reason:              "assistant_marked_final",
-		AssistantTurnID:     result.AssistantTurnID,
-		AssistantMessageID:  assistantMessageID,
-		AssistantSequence:   assistantSequence,
-		AssistantOccurredAt: &occurredAt,
-		Content:             truncateString(content, diagnosisRoomFinalConclusionMaxRunes),
-		Confidence:          strings.TrimSpace(result.Confidence),
-		RequiresHumanReview: &requiresHumanReview,
+		Status:                  "available",
+		Source:                  "latest_assistant_turn",
+		Reason:                  "assistant_marked_final",
+		EvidenceSnapshotID:      int64(evidenceSnapshotID),
+		ConclusionVersion:       "diagnosis-room-final-ready.v1",
+		RecordedAt:              &occurredAt,
+		SupplementalContextRefs: diagnosisRoomTurnRefs(result.ChatSessionID, result.UserTurnID, result.AssistantTurnID),
+		AssistantTurnID:         result.AssistantTurnID,
+		AssistantMessageID:      assistantMessageID,
+		AssistantSequence:       assistantSequence,
+		AssistantOccurredAt:     &occurredAt,
+		Content:                 truncateString(content, diagnosisRoomFinalConclusionMaxRunes),
+		Confidence:              strings.TrimSpace(result.Confidence),
+		RequiresHumanReview:     &requiresHumanReview,
 	}
 }
 
@@ -1192,12 +1216,22 @@ func (a *Activities) diagnosisRoomFinalConclusion(
 	ctx context.Context,
 	req CloseDiagnosisChatSessionInput,
 	session domain.ChatSession,
+	task domain.DiagnosisTask,
 ) (DiagnosisRoomFinalConclusion, error) {
+	recordedAt := req.ClosedAt
+	if recordedAt.IsZero() {
+		recordedAt = session.LastActivityAt
+	}
+	confirmedBy := confirmedByForActor(req.ConfirmedBy)
 	if session.TurnCount == 0 {
 		return DiagnosisRoomFinalConclusion{
-			Status: "not_available",
-			Source: "none",
-			Reason: "room_closed_without_assistant_turn",
+			Status:             "not_available",
+			Source:             "none",
+			Reason:             "room_closed_without_assistant_turn",
+			EvidenceSnapshotID: int64(task.EvidenceSnapshotID),
+			ConclusionVersion:  "diagnosis-room-close.v1",
+			RecordedAt:         &recordedAt,
+			ConfirmedBy:        confirmedBy,
 		}, nil
 	}
 
@@ -1217,19 +1251,61 @@ func (a *Activities) diagnosisRoomFinalConclusion(
 		requiresHumanReview := metadata.RequiresHumanReview
 		occurredAt := turn.OccurredAt
 		return DiagnosisRoomFinalConclusion{
-			Status:              "available",
-			Source:              "latest_assistant_turn",
-			AssistantTurnID:     int64(turn.ID),
-			AssistantMessageID:  turn.MessageID,
-			AssistantSequence:   turn.Sequence,
-			AssistantOccurredAt: &occurredAt,
-			Content:             truncateString(turn.Content, diagnosisRoomFinalConclusionMaxRunes),
-			Confidence:          strings.TrimSpace(metadata.Confidence),
-			RequiresHumanReview: &requiresHumanReview,
+			Status:                  "available",
+			Source:                  "latest_assistant_turn",
+			EvidenceSnapshotID:      int64(task.EvidenceSnapshotID),
+			ConclusionVersion:       "diagnosis-room-close.v1",
+			RecordedAt:              &recordedAt,
+			ConfirmedBy:             confirmedBy,
+			SupplementalContextRefs: diagnosisRoomTurnRefsFromTurns(session.ID, turns),
+			AssistantTurnID:         int64(turn.ID),
+			AssistantMessageID:      turn.MessageID,
+			AssistantSequence:       turn.Sequence,
+			AssistantOccurredAt:     &occurredAt,
+			Content:                 truncateString(turn.Content, diagnosisRoomFinalConclusionMaxRunes),
+			Confidence:              strings.TrimSpace(metadata.Confidence),
+			RequiresHumanReview:     &requiresHumanReview,
 		}, nil
 	}
 	return DiagnosisRoomFinalConclusion{}, fmt.Errorf("diagnosis room final conclusion: no assistant turn found for non-empty session %q: %w",
 		req.SessionID, domain.ErrInvariantViolation)
+}
+
+func confirmedByForActor(actorSubject string) string {
+	actorSubject = strings.TrimSpace(actorSubject)
+	if actorSubject == "" || actorSubject == diagnosisRoomAutoActorSubject {
+		return ""
+	}
+	return actorSubject
+}
+
+func diagnosisRoomTurnRefs(chatSessionID int64, turnIDs ...int64) []string {
+	if chatSessionID <= 0 {
+		return nil
+	}
+	refs := make([]string, 0, len(turnIDs))
+	seen := make(map[int64]struct{}, len(turnIDs))
+	for _, turnID := range turnIDs {
+		if turnID <= 0 {
+			continue
+		}
+		if _, ok := seen[turnID]; ok {
+			continue
+		}
+		seen[turnID] = struct{}{}
+		refs = append(refs, fmt.Sprintf("chat_session:%d/turn:%d", chatSessionID, turnID))
+	}
+	return refs
+}
+
+func diagnosisRoomTurnRefsFromTurns(chatSessionID domain.ChatSessionID, turns []domain.ChatTurn) []string {
+	ids := make([]int64, 0, len(turns))
+	for _, turn := range turns {
+		if turn.ID > 0 {
+			ids = append(ids, int64(turn.ID))
+		}
+	}
+	return diagnosisRoomTurnRefs(int64(chatSessionID), ids...)
 }
 
 func (a *Activities) listDiagnosisRoomTurns(ctx context.Context, sessionID domain.ChatSessionID, turnCount int) ([]domain.ChatTurn, error) {

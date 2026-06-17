@@ -2472,6 +2472,11 @@ export interface components {
             source: string;
             reason?: string;
             /** Format: int64 */
+            evidence_snapshot_id?: number;
+            conclusion_version?: string;
+            confirmed_by?: string;
+            supplemental_context_refs?: string[];
+            /** Format: int64 */
             assistant_turn_id?: number;
             assistant_message_id?: string;
             assistant_sequence?: number;

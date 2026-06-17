@@ -608,16 +608,20 @@ type diagnosisRoomConclusionEventPayload struct {
 }
 
 type diagnosisRoomConclusionPayload struct {
-	Status              string     `json:"status"`
-	Source              string     `json:"source"`
-	Reason              string     `json:"reason,omitempty"`
-	AssistantTurnID     int64      `json:"assistant_turn_id,omitempty"`
-	AssistantMessageID  string     `json:"assistant_message_id,omitempty"`
-	AssistantSequence   int        `json:"assistant_sequence,omitempty"`
-	AssistantOccurredAt *time.Time `json:"assistant_occurred_at,omitempty"`
-	Content             string     `json:"content,omitempty"`
-	Confidence          string     `json:"confidence,omitempty"`
-	RequiresHumanReview *bool      `json:"requires_human_review,omitempty"`
+	Status                  string     `json:"status"`
+	Source                  string     `json:"source"`
+	Reason                  string     `json:"reason,omitempty"`
+	EvidenceSnapshotID      int64      `json:"evidence_snapshot_id,omitempty"`
+	ConclusionVersion       string     `json:"conclusion_version,omitempty"`
+	ConfirmedBy             string     `json:"confirmed_by,omitempty"`
+	SupplementalContextRefs []string   `json:"supplemental_context_refs,omitempty"`
+	AssistantTurnID         int64      `json:"assistant_turn_id,omitempty"`
+	AssistantMessageID      string     `json:"assistant_message_id,omitempty"`
+	AssistantSequence       int        `json:"assistant_sequence,omitempty"`
+	AssistantOccurredAt     *time.Time `json:"assistant_occurred_at,omitempty"`
+	Content                 string     `json:"content,omitempty"`
+	Confidence              string     `json:"confidence,omitempty"`
+	RequiresHumanReview     *bool      `json:"requires_human_review,omitempty"`
 }
 
 func diagnosisConclusionsForSubReports(ctx context.Context, repo ports.DiagnosisRepository, subReports []domain.SubReport) (diagnosisConclusionBySnapshot, error) {
@@ -735,21 +739,25 @@ func diagnosisConclusionFromEvent(event domain.DiagnosisTaskEvent) (api.Diagnosi
 		return api.DiagnosisRoomConclusionSummary{}, false, nil
 	}
 	summary := api.DiagnosisRoomConclusionSummary{
-		DiagnosisTaskID:     int64(event.TaskID),
-		SessionID:           payload.SessionID,
-		ChatSessionID:       payload.ChatSessionID,
-		EventKind:           event.Kind,
-		Status:              conclusion.Status,
-		Source:              conclusion.Source,
-		Reason:              nonEmptyStringPtr(conclusion.Reason),
-		AssistantTurnID:     nonZeroInt64Ptr(conclusion.AssistantTurnID),
-		AssistantMessageID:  nonEmptyStringPtr(conclusion.AssistantMessageID),
-		AssistantSequence:   nonZeroIntPtr(conclusion.AssistantSequence),
-		AssistantOccurredAt: copyTimePtr(conclusion.AssistantOccurredAt),
-		Content:             content,
-		Confidence:          reportConfidencePtr(conclusion.Confidence),
-		RequiresHumanReview: copyBoolPtr(conclusion.RequiresHumanReview),
-		RecordedAt:          event.RecordedAt,
+		DiagnosisTaskID:         int64(event.TaskID),
+		SessionID:               payload.SessionID,
+		ChatSessionID:           payload.ChatSessionID,
+		EventKind:               event.Kind,
+		Status:                  conclusion.Status,
+		Source:                  conclusion.Source,
+		Reason:                  nonEmptyStringPtr(conclusion.Reason),
+		EvidenceSnapshotID:      nonZeroInt64Ptr(conclusion.EvidenceSnapshotID),
+		ConclusionVersion:       nonEmptyStringPtr(conclusion.ConclusionVersion),
+		ConfirmedBy:             nonEmptyStringPtr(conclusion.ConfirmedBy),
+		SupplementalContextRefs: nonEmptyStringSlice(conclusion.SupplementalContextRefs),
+		AssistantTurnID:         nonZeroInt64Ptr(conclusion.AssistantTurnID),
+		AssistantMessageID:      nonEmptyStringPtr(conclusion.AssistantMessageID),
+		AssistantSequence:       nonZeroIntPtr(conclusion.AssistantSequence),
+		AssistantOccurredAt:     copyTimePtr(conclusion.AssistantOccurredAt),
+		Content:                 content,
+		Confidence:              reportConfidencePtr(conclusion.Confidence),
+		RequiresHumanReview:     copyBoolPtr(conclusion.RequiresHumanReview),
+		RecordedAt:              event.RecordedAt,
 	}
 	return summary, true, nil
 }
@@ -760,6 +768,20 @@ func nonEmptyStringPtr(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+func nonEmptyStringSlice(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			out = append(out, value)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func nonZeroInt64Ptr(value int64) *int64 {

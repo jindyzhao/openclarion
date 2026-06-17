@@ -117,6 +117,8 @@ function DiagnosisConclusion({
 }: {
   conclusion: NonNullable<FinalReportDetail["linked_sub_reports"][number]["diagnosis_conclusion"]>;
 }) {
+  const metadata = diagnosisConclusionMetadata(conclusion);
+  const supplementalRefs = conclusion.supplemental_context_refs ?? [];
   return (
     <div aria-label="Diagnosis conclusion" className="subreport-conclusion">
       <div className="subreport-conclusion-header">
@@ -132,8 +134,47 @@ function DiagnosisConclusion({
         {conclusion.reason ? <span className="label-chip">{conclusion.reason}</span> : null}
         {conclusion.requires_human_review ? <span className="label-chip">human review</span> : null}
       </div>
+      {metadata.length > 0 ? (
+        <dl className="subreport-conclusion-details">
+          {metadata.map((item) => (
+            <div key={item.label}>
+              <dt>{item.label}</dt>
+              <dd>{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
+      {supplementalRefs.length > 0 ? (
+        <div aria-label="Conclusion context references" className="subreport-conclusion-meta">
+          {supplementalRefs.map((ref) => (
+            <span className="label-chip" key={ref}>
+              {ref}
+            </span>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
+}
+
+function diagnosisConclusionMetadata(
+  conclusion: NonNullable<FinalReportDetail["linked_sub_reports"][number]["diagnosis_conclusion"]>
+) {
+  const items: Array<{ label: string; value: string }> = [
+    { label: "Task", value: String(conclusion.diagnosis_task_id) },
+    { label: "Chat", value: String(conclusion.chat_session_id) },
+    { label: "Event", value: conclusion.event_kind }
+  ];
+  if (conclusion.evidence_snapshot_id !== undefined) {
+    items.push({ label: "Evidence", value: `#${conclusion.evidence_snapshot_id}` });
+  }
+  if (conclusion.conclusion_version) {
+    items.push({ label: "Version", value: conclusion.conclusion_version });
+  }
+  if (conclusion.confirmed_by) {
+    items.push({ label: "Confirmed by", value: conclusion.confirmed_by });
+  }
+  return items;
 }
 
 function ErrorNotice({ message, status }: { message: string; status?: number }) {

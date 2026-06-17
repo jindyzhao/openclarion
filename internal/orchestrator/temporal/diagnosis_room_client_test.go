@@ -22,6 +22,18 @@ type recordingDiagnosisRoomTemporalClient struct {
 	updateHandle  client.WorkflowUpdateHandle
 	updateErr     error
 
+	signalCalled     int
+	signalWorkflowID string
+	signalRunID      string
+	signalName       string
+	signalArg        interface{}
+	signalErr        error
+
+	getCalled     int
+	getWorkflowID string
+	getRunID      string
+	getRun        client.WorkflowRun
+
 	queryCalled     int
 	queryWorkflowID string
 	queryRunID      string
@@ -52,9 +64,51 @@ func (c *recordingDiagnosisRoomTemporalClient) QueryWorkflow(_ context.Context, 
 	return c.queryValue, nil
 }
 
+func (c *recordingDiagnosisRoomTemporalClient) SignalWorkflow(_ context.Context, workflowID string, runID string, signalName string, arg interface{}) error {
+	c.signalCalled++
+	c.signalWorkflowID = workflowID
+	c.signalRunID = runID
+	c.signalName = signalName
+	c.signalArg = arg
+	return c.signalErr
+}
+
+func (c *recordingDiagnosisRoomTemporalClient) GetWorkflow(_ context.Context, workflowID string, runID string) client.WorkflowRun {
+	c.getCalled++
+	c.getWorkflowID = workflowID
+	c.getRunID = runID
+	return c.getRun
+}
+
 type fakeWorkflowUpdateHandle struct {
 	result SubmitDiagnosisTurnResult
 	err    error
+}
+
+type fakeWorkflowRun struct {
+	workflowID string
+	runID      string
+	result     DiagnosisRoomWorkflowResult
+	err        error
+}
+
+func (r fakeWorkflowRun) GetID() string    { return r.workflowID }
+func (r fakeWorkflowRun) GetRunID() string { return r.runID }
+
+func (r fakeWorkflowRun) Get(ctx context.Context, valuePtr interface{}) error {
+	return r.GetWithOptions(ctx, valuePtr, client.WorkflowRunGetOptions{})
+}
+
+func (r fakeWorkflowRun) GetWithOptions(_ context.Context, valuePtr interface{}, _ client.WorkflowRunGetOptions) error {
+	if r.err != nil {
+		return r.err
+	}
+	out, ok := valuePtr.(*DiagnosisRoomWorkflowResult)
+	if !ok {
+		return errors.New("unexpected workflow result pointer")
+	}
+	*out = r.result
+	return nil
 }
 
 func (h fakeWorkflowUpdateHandle) WorkflowID() string { return "diagnosis-room-session-1" }
@@ -273,15 +327,20 @@ func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 			ClosedAt:        &closedAt,
 			CloseReason:     "user_requested",
 			FinalConclusion: &DiagnosisRoomFinalConclusion{
-				Status:              "available",
-				Source:              "latest_assistant_turn",
-				AssistantTurnID:     32,
-				AssistantMessageID:  "msg-1/assistant",
-				AssistantSequence:   2,
-				AssistantOccurredAt: &closedAt,
-				Content:             "The alert has recovered.",
-				Confidence:          "high",
-				RequiresHumanReview: &requiresHumanReview,
+				Status:                  "available",
+				Source:                  "latest_assistant_turn",
+				EvidenceSnapshotID:      9001,
+				ConclusionVersion:       "diagnosis-room-close.v1",
+				RecordedAt:              &closedAt,
+				ConfirmedBy:             "owner-1",
+				SupplementalContextRefs: []string{"chat_session:21/turn:31", "chat_session:21/turn:32"},
+				AssistantTurnID:         32,
+				AssistantMessageID:      "msg-1/assistant",
+				AssistantSequence:       2,
+				AssistantOccurredAt:     &closedAt,
+				Content:                 "The alert has recovered.",
+				Confidence:              "high",
+				RequiresHumanReview:     &requiresHumanReview,
 			},
 			LatestInsight: &diagnosisroom.ConsultationInsight{
 				ConfidenceRationale: "CPU evidence is present and restart evidence has recovered.",
@@ -330,6 +389,12 @@ func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 		got.FinalConclusion.AssistantSequence != 2 ||
 		got.FinalConclusion.AssistantOccurredAt == nil ||
 		!got.FinalConclusion.AssistantOccurredAt.Equal(closedAt) ||
+		got.FinalConclusion.EvidenceSnapshotID != domain.EvidenceSnapshotID(9001) ||
+		got.FinalConclusion.ConclusionVersion != "diagnosis-room-close.v1" ||
+		got.FinalConclusion.RecordedAt == nil ||
+		!got.FinalConclusion.RecordedAt.Equal(closedAt) ||
+		got.FinalConclusion.ConfirmedBy != "owner-1" ||
+		!reflect.DeepEqual(got.FinalConclusion.SupplementalContextRefs, []string{"chat_session:21/turn:31", "chat_session:21/turn:32"}) ||
 		got.FinalConclusion.Content != "The alert has recovered." ||
 		got.FinalConclusion.Confidence != "high" ||
 		got.FinalConclusion.RequiresHumanReview == nil ||
@@ -346,6 +411,82 @@ func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 		*got.LatestRequiresHumanReview {
 		t.Fatalf("latest consultation state = insight=%+v confidence=%q review=%v",
 			got.LatestConsultationInsight, got.LatestConfidence, got.LatestRequiresHumanReview)
+	}
+}
+
+func TestDiagnosisRoomClient_ConfirmDiagnosisConclusionSignalsAndWaits(t *testing.T) {
+	startedAt := time.Date(2026, 5, 28, 9, 0, 0, 0, time.UTC)
+	closedAt := startedAt.Add(3 * time.Minute)
+	requiresHumanReview := true
+	temporalClient := &recordingDiagnosisRoomTemporalClient{
+		getRun: fakeWorkflowRun{
+			workflowID: "diagnosis-room-session-1",
+			runID:      "run-1",
+			result: DiagnosisRoomWorkflowResult{
+				SessionID:       "session-1",
+				ChatSessionID:   21,
+				DiagnosisTaskID: 11,
+				OwnerSubject:    "owner-1",
+				Status:          "closed",
+				TurnCount:       1,
+				StartedAt:       startedAt,
+				LastActivityAt:  closedAt,
+				ClosedAt:        &closedAt,
+				CloseReason:     "human_confirmed",
+				FinalConclusion: &DiagnosisRoomFinalConclusion{
+					Status:                  "available",
+					Source:                  "latest_assistant_turn",
+					EvidenceSnapshotID:      9001,
+					ConclusionVersion:       "diagnosis-room-close.v1",
+					RecordedAt:              &closedAt,
+					ConfirmedBy:             "reviewer-1",
+					SupplementalContextRefs: []string{"chat_session:21/turn:31", "chat_session:21/turn:32"},
+					AssistantTurnID:         32,
+					AssistantMessageID:      "msg-1/assistant",
+					AssistantSequence:       2,
+					AssistantOccurredAt:     &closedAt,
+					Content:                 "The alert has recovered.",
+					Confidence:              "high",
+					RequiresHumanReview:     &requiresHumanReview,
+				},
+			},
+		},
+	}
+	roomClient := newDiagnosisRoomClient(temporalClient)
+
+	got, err := roomClient.ConfirmDiagnosisConclusion(context.Background(), ports.DiagnosisRoomConfirmConclusionRequest{
+		SessionID:    "session-1",
+		ActorSubject: "reviewer-1",
+	})
+	if err != nil {
+		t.Fatalf("ConfirmDiagnosisConclusion: %v", err)
+	}
+	if temporalClient.signalCalled != 1 ||
+		temporalClient.signalWorkflowID != "diagnosis-room-session-1" ||
+		temporalClient.signalRunID != "" ||
+		temporalClient.signalName != DiagnosisRoomCloseSignal {
+		t.Fatalf("signal call = count:%d workflow:%q run:%q name:%q",
+			temporalClient.signalCalled,
+			temporalClient.signalWorkflowID,
+			temporalClient.signalRunID,
+			temporalClient.signalName,
+		)
+	}
+	closeReq, ok := temporalClient.signalArg.(DiagnosisRoomCloseRequest)
+	if !ok || closeReq.Reason != "human_confirmed" || closeReq.ActorSubject != "reviewer-1" {
+		t.Fatalf("signal arg = %#v", temporalClient.signalArg)
+	}
+	if temporalClient.getCalled != 1 || temporalClient.getWorkflowID != "diagnosis-room-session-1" || temporalClient.getRunID != "" {
+		t.Fatalf("get workflow = count:%d workflow:%q run:%q", temporalClient.getCalled, temporalClient.getWorkflowID, temporalClient.getRunID)
+	}
+	if got.Status != "closed" ||
+		got.CloseReason != "human_confirmed" ||
+		got.FinalConclusion == nil ||
+		got.FinalConclusion.ConfirmedBy != "reviewer-1" ||
+		got.FinalConclusion.EvidenceSnapshotID != domain.EvidenceSnapshotID(9001) ||
+		got.FinalConclusion.RecordedAt == nil ||
+		!got.FinalConclusion.RecordedAt.Equal(closedAt) {
+		t.Fatalf("confirmed state = %+v", got)
 	}
 }
 

@@ -74,6 +74,9 @@ const report = {
         status: "available",
         source: "latest_assistant_turn",
         reason: "assistant_marked_final",
+        evidence_snapshot_id: 9001,
+        conclusion_version: "diagnosis-room-final-ready.v1",
+        supplemental_context_refs: ["chat_session:401/turn:500", "chat_session:401/turn:501"],
         assistant_turn_id: 501,
         assistant_message_id: "msg-1/assistant",
         assistant_sequence: 2,
@@ -482,8 +485,12 @@ server.on("upgrade", (request, socket) => {
   );
 
   const state = {
+    status: "open",
     turnCount: 0,
-    conversation: []
+    conversation: [],
+    finalConclusion: null,
+    closedAt: "",
+    closeReason: ""
   };
   sendWebSocketJSON(socket, {
     type: "ready",
@@ -1292,6 +1299,7 @@ function handleDiagnosisFrame(socket, sessionID, state, payload) {
     const assistant = `Mock diagnosis response for: ${text}`;
     const consultationInsight = mockDiagnosisConsultationInsight();
     state.conversation.push({ role: "assistant", content: assistant });
+    state.status = "open";
     state.latestConfidence = "medium";
     state.latestRequiresHumanReview = true;
     state.latestConsultationInsight = consultationInsight;
@@ -1358,6 +1366,34 @@ function handleDiagnosisFrame(socket, sessionID, state, payload) {
       ],
       consultation_insight: consultationInsight
     });
+    state.latestConsultationInsight = mockDiagnosisReadyInsight();
+    state.latestConfidence = "high";
+    state.latestRequiresHumanReview = false;
+    return;
+  }
+  if (frame.type === "confirm_conclusion") {
+    const latestAssistant = [...state.conversation].reverse().find((turn) => turn.role === "assistant");
+    const closeReason = typeof frame.reason === "string" && frame.reason.trim() !== "" ? frame.reason.trim() : "human_confirmed";
+    state.status = "closed";
+    state.closedAt = "2026-05-28T10:02:00Z";
+    state.closeReason = closeReason;
+    state.finalConclusion = {
+      status: "available",
+      source: "latest_assistant_turn",
+      evidence_snapshot_id: 9001,
+      conclusion_version: "diagnosis-room-close.v1",
+      recorded_at: state.closedAt,
+      confirmed_by: "owner-1",
+      supplemental_context_refs: ["chat_session:42/turn:1", "chat_session:42/turn:2"],
+      assistant_turn_id: state.turnCount * 2,
+      assistant_message_id: `mock-${state.turnCount}/assistant`,
+      assistant_sequence: state.turnCount * 2,
+      assistant_occurred_at: "2026-05-28T10:01:00Z",
+      content: latestAssistant?.content ?? "No assistant conclusion is available.",
+      confidence: state.latestConfidence ?? "medium",
+      requires_human_review: state.latestRequiresHumanReview ?? true
+    };
+    sendWebSocketJSON(socket, diagnosisState(sessionID, state));
     return;
   }
   sendWebSocketJSON(socket, { type: "error", code: "bad_frame", message: "unsupported frame type" });
@@ -1384,6 +1420,20 @@ function mockDiagnosisConsultationInsight() {
   };
 }
 
+function mockDiagnosisReadyInsight() {
+  return {
+    confidence_rationale: "Collected evidence supports final review.",
+    evidence_collection_suggestions: [
+      {
+        label: "Owner confirmation",
+        detail: "Confirm the retained conclusion with the service owner.",
+        priority: "medium"
+      }
+    ],
+    conclusion_status: "ready_for_review"
+  };
+}
+
 function diagnosisState(sessionID, state) {
   const payload = {
     type: "state",
@@ -1391,14 +1441,21 @@ function diagnosisState(sessionID, state) {
     chat_session_id: 42,
     diagnosis_task_id: 7,
     owner_subject: "owner-1",
-    status: "open",
+    status: state.status,
     turn_count: state.turnCount,
     started_at: "2026-05-28T10:00:00Z",
-    last_activity_at: "2026-05-28T10:00:05Z",
+    last_activity_at: state.closedAt || "2026-05-28T10:00:05Z",
     in_flight: false,
     seen_message_ids: [],
     conversation: state.conversation
   };
+  if (state.closedAt) {
+    payload.closed_at = state.closedAt;
+    payload.close_reason = state.closeReason;
+  }
+  if (state.finalConclusion) {
+    payload.final_conclusion = state.finalConclusion;
+  }
   if (state.latestConsultationInsight) {
     payload.confidence = state.latestConfidence;
     payload.requires_human_review = state.latestRequiresHumanReview;

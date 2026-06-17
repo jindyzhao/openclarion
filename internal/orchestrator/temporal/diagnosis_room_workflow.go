@@ -114,7 +114,8 @@ type DiagnosisRoomFollowUpTurnResult struct {
 
 // DiagnosisRoomCloseRequest carries the close/cancel signal reason.
 type DiagnosisRoomCloseRequest struct {
-	Reason string
+	Reason       string
+	ActorSubject string
 }
 
 // DiagnosisRoomWorkflowState is the read model returned by the state query
@@ -150,6 +151,7 @@ type diagnosisRoomState struct {
 	lastActivityAt            time.Time
 	closedAt                  *time.Time
 	closeReason               string
+	closeActorSubject         string
 	finalConclusion           *DiagnosisRoomFinalConclusion
 	latestInsight             *diagnosisroom.ConsultationInsight
 	latestConfidence          string
@@ -317,18 +319,18 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		selector.AddReceive(closeCh, func(c workflow.ReceiveChannel, _ bool) {
 			var req DiagnosisRoomCloseRequest
 			c.Receive(ctx, &req)
-			state.close(workflow.Now(ctx), reasonOrDefault(req.Reason, diagnosisRoomCloseUserRequested))
+			state.close(workflow.Now(ctx), reasonOrDefault(req.Reason, diagnosisRoomCloseUserRequested), req.ActorSubject)
 		})
 		selector.AddReceive(cancelCh, func(c workflow.ReceiveChannel, _ bool) {
 			var req DiagnosisRoomCloseRequest
 			c.Receive(ctx, &req)
-			state.close(workflow.Now(ctx), reasonOrDefault(req.Reason, diagnosisRoomCloseCancelled))
+			state.close(workflow.Now(ctx), reasonOrDefault(req.Reason, diagnosisRoomCloseCancelled), req.ActorSubject)
 		})
 
 		selector.Select(ctx)
 		cancelTimer()
 		if timerErr != nil {
-			state.close(workflow.Now(ctx), diagnosisRoomCloseContextCanceled)
+			state.close(workflow.Now(ctx), diagnosisRoomCloseContextCanceled, "")
 			break
 		}
 	}
@@ -353,6 +355,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			SessionID:       state.input.SessionID,
 			DiagnosisTaskID: state.diagnosisTaskID,
 			OwnerSubject:    state.input.OwnerSubject,
+			ConfirmedBy:     state.closeActorSubject,
 			TurnCount:       state.turnCount,
 			ClosedAt:        closedAt,
 			Reason:          state.closeReason,
@@ -366,6 +369,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			SessionID:       state.input.SessionID,
 			DiagnosisTaskID: state.diagnosisTaskID,
 			OwnerSubject:    state.input.OwnerSubject,
+			ConfirmedBy:     state.closeActorSubject,
 			TurnCount:       state.turnCount,
 			ClosedAt:        closeResult.ClosedAt,
 			Reason:          state.closeReason,
@@ -743,6 +747,11 @@ func copyDiagnosisRoomFinalConclusion(in DiagnosisRoomFinalConclusion) *Diagnosi
 		return nil
 	}
 	out := in
+	out.SupplementalContextRefs = append([]string(nil), in.SupplementalContextRefs...)
+	if in.RecordedAt != nil {
+		recordedAt := *in.RecordedAt
+		out.RecordedAt = &recordedAt
+	}
 	if in.AssistantOccurredAt != nil {
 		occurredAt := *in.AssistantOccurredAt
 		out.AssistantOccurredAt = &occurredAt
@@ -798,17 +807,17 @@ func copyBoolPtr(in *bool) *bool {
 
 func (s *diagnosisRoomState) closeIfExpired(now time.Time) bool {
 	if !now.Before(s.startedAt.Add(s.policy.SessionTTL)) {
-		s.close(now, diagnosisRoomCloseSessionTimeout)
+		s.close(now, diagnosisRoomCloseSessionTimeout, "")
 		return true
 	}
 	if !now.Before(s.lastActivityAt.Add(s.policy.IdleTimeout)) {
-		s.close(now, diagnosisRoomCloseIdleTimeout)
+		s.close(now, diagnosisRoomCloseIdleTimeout, "")
 		return true
 	}
 	return false
 }
 
-func (s *diagnosisRoomState) close(now time.Time, reason string) {
+func (s *diagnosisRoomState) close(now time.Time, reason string, actorSubject string) {
 	if s.status == diagnosisRoomStatusClosed {
 		return
 	}
@@ -816,6 +825,7 @@ func (s *diagnosisRoomState) close(now time.Time, reason string) {
 	closedAt := now
 	s.closedAt = &closedAt
 	s.closeReason = reasonOrDefault(reason, diagnosisRoomCloseUserRequested)
+	s.closeActorSubject = strings.TrimSpace(actorSubject)
 	s.lastActivityAt = now
 }
 

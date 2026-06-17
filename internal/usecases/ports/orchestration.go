@@ -73,6 +73,14 @@ type DiagnosisRoomSubmitTurnRequest struct {
 	Message      string
 }
 
+// DiagnosisRoomConfirmConclusionRequest describes one explicit operator
+// confirmation that should close the room and retain the final conclusion.
+type DiagnosisRoomConfirmConclusionRequest struct {
+	SessionID    string
+	ActorSubject string
+	Reason       string
+}
+
 // DiagnosisRoomSubmitTurnResult is the provider-neutral response returned
 // after DiagnosisRoomWorkflow persists the user+assistant turn pair.
 type DiagnosisRoomSubmitTurnResult struct {
@@ -209,16 +217,21 @@ type DiagnosisRoomConsultationInsight struct {
 // DiagnosisRoomFinalConclusion is the close-time conclusion snapshot returned
 // for read/reconnect flows after the room has closed.
 type DiagnosisRoomFinalConclusion struct {
-	Status              string
-	Source              string
-	Reason              string
-	AssistantTurnID     domain.ChatTurnID
-	AssistantMessageID  string
-	AssistantSequence   int
-	AssistantOccurredAt *time.Time
-	Content             string
-	Confidence          string
-	RequiresHumanReview *bool
+	Status                  string
+	Source                  string
+	Reason                  string
+	EvidenceSnapshotID      domain.EvidenceSnapshotID
+	ConclusionVersion       string
+	RecordedAt              *time.Time
+	ConfirmedBy             string
+	SupplementalContextRefs []string
+	AssistantTurnID         domain.ChatTurnID
+	AssistantMessageID      string
+	AssistantSequence       int
+	AssistantOccurredAt     *time.Time
+	Content                 string
+	Confidence              string
+	RequiresHumanReview     *bool
 }
 
 // DiagnosisRoomState is the provider-neutral room state returned for
@@ -247,5 +260,6 @@ type DiagnosisRoomState struct {
 // without exposing the concrete workflow engine to the transport layer.
 type DiagnosisRoomWorkflowClient interface {
 	SubmitDiagnosisTurn(ctx context.Context, req DiagnosisRoomSubmitTurnRequest) (DiagnosisRoomSubmitTurnResult, error)
+	ConfirmDiagnosisConclusion(ctx context.Context, req DiagnosisRoomConfirmConclusionRequest) (DiagnosisRoomState, error)
 	QueryDiagnosisRoom(ctx context.Context, sessionID string) (DiagnosisRoomState, error)
 }
