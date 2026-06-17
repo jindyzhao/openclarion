@@ -2777,6 +2777,25 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 					StartsAt: now,
 				}},
 				CollectedAt: now.Add(time.Second),
+			}, {
+				Tool:                 domain.DiagnosisToolKindMetricQuery,
+				Status:               "collected",
+				ReasonCode:           "ok",
+				Message:              "Metric query collection succeeded.",
+				Query:                "up",
+				ObservedMetricSeries: 1,
+				MetricResult: ports.DiagnosisRoomMetricQueryResult{
+					ResultType: "vector",
+					Series: []ports.DiagnosisRoomMetricSeries{{
+						Metric: map[string]string{"__name__": "up", "job": "prometheus"},
+						Points: []ports.DiagnosisRoomMetricPoint{{
+							Timestamp: now,
+							Value:     "1",
+						}},
+					}},
+					Warnings: []string{"partial response"},
+				},
+				CollectedAt: now.Add(time.Second),
 			}},
 			ConsultationInsight: ports.DiagnosisRoomConsultationInsight{
 				ConfidenceRationale: "CPU evidence is present but restart evidence is missing.",
@@ -2871,13 +2890,22 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 		turn.EvidenceRequests[0].Limit != 5 {
 		t.Fatalf("turn evidence requests = %+v", turn.EvidenceRequests)
 	}
-	if len(turn.CollectionResults) != 1 ||
+	if len(turn.CollectionResults) != 2 ||
 		turn.CollectionResults[0].Status != "collected" ||
 		turn.CollectionResults[0].ReasonCode != "ok" ||
 		turn.CollectionResults[0].ObservedAlerts != 1 ||
 		len(turn.CollectionResults[0].ActiveAlerts) != 1 ||
 		turn.CollectionResults[0].ActiveAlerts[0].Labels["alertname"] != "CPUHigh" {
 		t.Fatalf("turn collection results = %+v", turn.CollectionResults)
+	}
+	metricResult := turn.CollectionResults[1]
+	if metricResult.Query != "up" ||
+		metricResult.ObservedMetricSeries != 1 ||
+		metricResult.MetricResult.ResultType != "vector" ||
+		metricResult.MetricResult.Series[0].Metric["job"] != "prometheus" ||
+		metricResult.MetricResult.Series[0].Points[0].Value != "1" ||
+		metricResult.MetricResult.Warnings[0] != "partial response" {
+		t.Fatalf("turn metric collection result = %+v", metricResult)
 	}
 	submitReq, submitCalled := workflowClient.submitSnapshot()
 	if submitCalled != 1 {

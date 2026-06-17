@@ -128,6 +128,11 @@ type DiagnosisRoomEvidenceCollectionResult struct {
 	Limit                int
 	ObservedAlerts       int
 	ActiveAlerts         []DiagnosisRoomActiveAlert
+	Query                string
+	WindowSeconds        int
+	StepSeconds          int
+	ObservedMetricSeries int
+	MetricResult         DiagnosisRoomMetricQueryResult
 	CollectedAt          time.Time
 }
 
@@ -138,6 +143,28 @@ type DiagnosisRoomActiveAlert struct {
 	Labels      map[string]string
 	Annotations map[string]string
 	StartsAt    time.Time
+}
+
+// DiagnosisRoomMetricQueryResult is the operator-facing metric evidence
+// summary included in diagnosis collection results.
+type DiagnosisRoomMetricQueryResult struct {
+	ResultType string
+	Series     []DiagnosisRoomMetricSeries
+	Scalar     *DiagnosisRoomMetricPoint
+	String     *DiagnosisRoomMetricPoint
+	Warnings   []string
+}
+
+// DiagnosisRoomMetricSeries is one Prometheus time series summary.
+type DiagnosisRoomMetricSeries struct {
+	Metric map[string]string
+	Points []DiagnosisRoomMetricPoint
+}
+
+// DiagnosisRoomMetricPoint is one timestamped metric sample value.
+type DiagnosisRoomMetricPoint struct {
+	Timestamp time.Time
+	Value     string
 }
 
 // DiagnosisRoomConsultationEvidenceRequest captures one human-readable

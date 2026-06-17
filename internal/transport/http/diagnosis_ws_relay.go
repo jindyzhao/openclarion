@@ -319,6 +319,11 @@ func diagnosisWSEvidenceCollectionResults(
 			Limit:                item.Limit,
 			ObservedAlerts:       item.ObservedAlerts,
 			ActiveAlerts:         diagnosisWSActiveAlerts(item.ActiveAlerts),
+			Query:                item.Query,
+			WindowSeconds:        item.WindowSeconds,
+			StepSeconds:          item.StepSeconds,
+			ObservedMetricSeries: item.ObservedMetricSeries,
+			MetricResult:         diagnosisWSMetricResult(item.MetricResult),
 			CollectedAt:          item.CollectedAt,
 		}
 	}
@@ -351,6 +356,49 @@ func diagnosisWSActiveAlerts(in []ports.DiagnosisRoomActiveAlert) []diagnosisWSA
 		}
 	}
 	return out
+}
+
+func diagnosisWSMetricResult(in ports.DiagnosisRoomMetricQueryResult) diagnosisWSMetricQueryResult {
+	out := diagnosisWSMetricQueryResult{
+		ResultType: in.ResultType,
+		Warnings:   append([]string(nil), in.Warnings...),
+	}
+	if in.Scalar != nil {
+		scalar := diagnosisWSMetricPointFrame(*in.Scalar)
+		out.Scalar = &scalar
+	}
+	if in.String != nil {
+		value := diagnosisWSMetricPointFrame(*in.String)
+		out.String = &value
+	}
+	if in.Series != nil {
+		out.Series = make([]diagnosisWSMetricSeries, len(in.Series))
+		for i, series := range in.Series {
+			out.Series[i] = diagnosisWSMetricSeries{
+				Metric: cloneDiagnosisWSStringMap(series.Metric),
+				Points: diagnosisWSMetricPoints(series.Points),
+			}
+		}
+	}
+	return out
+}
+
+func diagnosisWSMetricPoints(in []ports.DiagnosisRoomMetricPoint) []diagnosisWSMetricPoint {
+	if in == nil {
+		return nil
+	}
+	out := make([]diagnosisWSMetricPoint, len(in))
+	for i, point := range in {
+		out[i] = diagnosisWSMetricPointFrame(point)
+	}
+	return out
+}
+
+func diagnosisWSMetricPointFrame(point ports.DiagnosisRoomMetricPoint) diagnosisWSMetricPoint {
+	return diagnosisWSMetricPoint{
+		Timestamp: point.Timestamp,
+		Value:     point.Value,
+	}
 }
 
 func cloneDiagnosisWSStringMap(in map[string]string) map[string]string {
@@ -479,18 +527,23 @@ type diagnosisWSEvidenceRequest struct {
 }
 
 type diagnosisWSEvidenceCollectionResult struct {
-	Request              diagnosisWSEvidenceRequest `json:"request"`
-	TemplateID           int64                      `json:"template_id,omitempty"`
-	AlertSourceProfileID int64                      `json:"alert_source_profile_id,omitempty"`
-	AlertSourceKind      string                     `json:"alert_source_kind,omitempty"`
-	Tool                 string                     `json:"tool"`
-	Status               string                     `json:"status"`
-	ReasonCode           string                     `json:"reason_code"`
-	Message              string                     `json:"message"`
-	Limit                int                        `json:"limit,omitempty"`
-	ObservedAlerts       int                        `json:"observed_alerts"`
-	ActiveAlerts         []diagnosisWSActiveAlert   `json:"active_alerts,omitempty"`
-	CollectedAt          time.Time                  `json:"collected_at"`
+	Request              diagnosisWSEvidenceRequest   `json:"request"`
+	TemplateID           int64                        `json:"template_id,omitempty"`
+	AlertSourceProfileID int64                        `json:"alert_source_profile_id,omitempty"`
+	AlertSourceKind      string                       `json:"alert_source_kind,omitempty"`
+	Tool                 string                       `json:"tool"`
+	Status               string                       `json:"status"`
+	ReasonCode           string                       `json:"reason_code"`
+	Message              string                       `json:"message"`
+	Limit                int                          `json:"limit,omitempty"`
+	ObservedAlerts       int                          `json:"observed_alerts"`
+	ActiveAlerts         []diagnosisWSActiveAlert     `json:"active_alerts,omitempty"`
+	Query                string                       `json:"query,omitempty"`
+	WindowSeconds        int                          `json:"window_seconds,omitempty"`
+	StepSeconds          int                          `json:"step_seconds,omitempty"`
+	ObservedMetricSeries int                          `json:"observed_metric_series"`
+	MetricResult         diagnosisWSMetricQueryResult `json:"metric_result,omitempty"`
+	CollectedAt          time.Time                    `json:"collected_at"`
 }
 
 type diagnosisWSActiveAlert struct {
@@ -498,6 +551,24 @@ type diagnosisWSActiveAlert struct {
 	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
 	StartsAt    time.Time         `json:"starts_at"`
+}
+
+type diagnosisWSMetricQueryResult struct {
+	ResultType string                    `json:"result_type,omitempty"`
+	Series     []diagnosisWSMetricSeries `json:"series,omitempty"`
+	Scalar     *diagnosisWSMetricPoint   `json:"scalar,omitempty"`
+	String     *diagnosisWSMetricPoint   `json:"string,omitempty"`
+	Warnings   []string                  `json:"warnings,omitempty"`
+}
+
+type diagnosisWSMetricSeries struct {
+	Metric map[string]string        `json:"metric,omitempty"`
+	Points []diagnosisWSMetricPoint `json:"points,omitempty"`
+}
+
+type diagnosisWSMetricPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	Value     string    `json:"value"`
 }
 
 type diagnosisWSConsultationInsight struct {

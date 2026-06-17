@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/observability/correlation"
+	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
 // alertsEnvelope is the shape Prometheus's /api/v1/alerts actually
@@ -302,6 +303,118 @@ func TestProvider_RoundTripperDecoratorWrapsDefaultTransport(t *testing.T) {
 	}
 	if seen != "applied" {
 		t.Fatalf("X-Test-Decorator = %q, want applied", seen)
+	}
+}
+
+func TestProvider_QueryMetric_MapsVectorAndQueryOptions(t *testing.T) {
+	queryTime := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	var seenQuery url.Values
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/query", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		seenQuery = r.Form
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+		  "status": "success",
+		  "warnings": ["partial response"],
+		  "data": {
+		    "resultType": "vector",
+		    "result": [
+		      {"metric": {"__name__": "up", "job": "prometheus"}, "value": [1781690400, "1"]}
+		    ]
+		  }
+		}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	p, err := NewProvider(srv.URL)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	got, err := p.QueryMetric(context.Background(), ports.MetricQueryRequest{
+		Query:   "up",
+		Time:    queryTime,
+		Timeout: 7 * time.Second,
+		Limit:   3,
+	})
+	if err != nil {
+		t.Fatalf("QueryMetric: %v", err)
+	}
+	if seenQuery.Get("query") != "up" ||
+		seenQuery.Get("timeout") != "7s" ||
+		seenQuery.Get("limit") != "3" ||
+		seenQuery.Get("time") == "" {
+		t.Fatalf("query params = %v", seenQuery)
+	}
+	if got.ResultType != "vector" ||
+		len(got.Series) != 1 ||
+		got.Series[0].Metric["job"] != "prometheus" ||
+		len(got.Series[0].Points) != 1 ||
+		got.Series[0].Points[0].Value != "1" ||
+		got.Warnings[0] != "partial response" {
+		t.Fatalf("result = %+v", got)
+	}
+}
+
+func TestProvider_QueryMetricRange_MapsMatrixAndRangeOptions(t *testing.T) {
+	start := time.Date(2026, 6, 17, 9, 30, 0, 0, time.UTC)
+	end := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	var seenQuery url.Values
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/query_range", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		seenQuery = r.Form
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+		  "status": "success",
+		  "data": {
+		    "resultType": "matrix",
+		    "result": [
+		      {
+		        "metric": {"__name__": "http_requests_total", "job": "api"},
+		        "values": [[1781688600, "4"], [1781690400, "8"]]
+		      }
+		    ]
+		  }
+		}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	p, err := NewProvider(srv.URL)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	got, err := p.QueryMetricRange(context.Background(), ports.MetricRangeQueryRequest{
+		Query:   "rate(http_requests_total[5m])",
+		Start:   start,
+		End:     end,
+		Step:    time.Minute,
+		Timeout: 7 * time.Second,
+		Limit:   3,
+	})
+	if err != nil {
+		t.Fatalf("QueryMetricRange: %v", err)
+	}
+	if seenQuery.Get("query") != "rate(http_requests_total[5m])" ||
+		seenQuery.Get("timeout") != "7s" ||
+		seenQuery.Get("limit") != "3" ||
+		seenQuery.Get("step") != "60" ||
+		seenQuery.Get("start") == "" ||
+		seenQuery.Get("end") == "" {
+		t.Fatalf("query params = %v", seenQuery)
+	}
+	if got.ResultType != "matrix" ||
+		len(got.Series) != 1 ||
+		got.Series[0].Metric["job"] != "api" ||
+		len(got.Series[0].Points) != 2 ||
+		got.Series[0].Points[1].Value != "8" {
+		t.Fatalf("result = %+v", got)
 	}
 }
 

@@ -121,9 +121,8 @@ func TestServiceCollectReportsUnsupportedTools(t *testing.T) {
 	svc := mustService(t, repo, provider, now)
 
 	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
-		Tool:   domain.DiagnosisToolKindMetricQuery,
-		Reason: "Need current CPU.",
-		Query:  "up",
+		Tool:   domain.DiagnosisToolKind("logs"),
+		Reason: "Need current logs.",
 	}}})
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
@@ -134,6 +133,126 @@ func TestServiceCollectReportsUnsupportedTools(t *testing.T) {
 	}
 	if provider.calls != 0 {
 		t.Fatalf("provider calls = %d, want 0", provider.calls)
+	}
+}
+
+func TestServiceCollectMetricQueryUsesTemplateQuery(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	repo := newFakeConfigRepo()
+	repo.templates[9] = metricQueryTemplate(9, true, "up")
+	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
+	provider := &fakeMetricsProvider{metricResult: ports.MetricQueryResult{
+		ResultType: "vector",
+		Series: []ports.MetricSeries{
+			{
+				Metric: map[string]string{"job": "prometheus"},
+				Points: []ports.MetricPoint{{Timestamp: now, Value: "1"}},
+			},
+			{
+				Metric: map[string]string{"job": "node"},
+				Points: []ports.MetricPoint{{Timestamp: now, Value: "0"}},
+			},
+		},
+		Warnings: []string{"partial response"},
+	}}
+	svc := mustService(t, repo, provider, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		TemplateID: 9,
+		Tool:       domain.DiagnosisToolKindMetricQuery,
+		Reason:     "Need current health.",
+		Query:      "up",
+		Limit:      1,
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusCollected ||
+		item.ReasonCode != ReasonOK ||
+		item.Query != "up" ||
+		item.ObservedMetricSeries != 2 ||
+		len(item.MetricResult.Series) != 1 ||
+		item.MetricResult.Series[0].Metric["job"] != "prometheus" ||
+		item.MetricResult.Warnings[0] != "partial response" {
+		t.Fatalf("item = %+v", item)
+	}
+	if provider.metricCalls != 1 || provider.lastMetricReq.Query != "up" || provider.lastMetricReq.Time != now || provider.lastMetricReq.Limit != 1 {
+		t.Fatalf("metric request calls=%d req=%+v", provider.metricCalls, provider.lastMetricReq)
+	}
+}
+
+func TestServiceCollectMetricQueryRejectsTemplateQueryMismatch(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	repo := newFakeConfigRepo()
+	repo.templates[9] = metricQueryTemplate(9, true, "up")
+	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
+	provider := &fakeMetricsProvider{}
+	svc := mustService(t, repo, provider, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		TemplateID: 9,
+		Tool:       domain.DiagnosisToolKindMetricQuery,
+		Reason:     "Need current health.",
+		Query:      "process_start_time_seconds",
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusSkipped || item.ReasonCode != ReasonTemplateQueryMismatch {
+		t.Fatalf("item = %+v", item)
+	}
+	if provider.metricCalls != 0 {
+		t.Fatalf("metric calls = %d, want 0", provider.metricCalls)
+	}
+}
+
+func TestServiceCollectMetricRangeUsesWindowAndCapsPoints(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	repo := newFakeConfigRepo()
+	repo.templates[9] = metricRangeTemplate(9, true, `rate(http_requests_total[5m])`)
+	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
+	provider := &fakeMetricsProvider{rangeResult: ports.MetricQueryResult{
+		ResultType: "matrix",
+		Series: []ports.MetricSeries{{
+			Metric: map[string]string{"job": "api"},
+			Points: metricPoints(now.Add(-70*time.Minute), 70),
+		}},
+	}}
+	svc := mustService(t, repo, provider, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		TemplateID:    9,
+		Tool:          domain.DiagnosisToolKindMetricRangeQuery,
+		Reason:        "Need recent request rate.",
+		Query:         `rate(http_requests_total[5m])`,
+		WindowSeconds: 1800,
+		StepSeconds:   60,
+		Limit:         5,
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusCollected ||
+		item.Query != `rate(http_requests_total[5m])` ||
+		item.WindowSeconds != 1800 ||
+		item.StepSeconds != 60 ||
+		item.ObservedMetricSeries != 1 ||
+		len(item.MetricResult.Series) != 1 ||
+		len(item.MetricResult.Series[0].Points) != 60 {
+		t.Fatalf("item = %+v", item)
+	}
+	if provider.rangeCalls != 1 ||
+		provider.lastRangeReq.Start != now.Add(-30*time.Minute) ||
+		provider.lastRangeReq.End != now ||
+		provider.lastRangeReq.Step != time.Minute ||
+		provider.lastRangeReq.Limit != 5 {
+		t.Fatalf("range request calls=%d req=%+v", provider.rangeCalls, provider.lastRangeReq)
+	}
+	if gotFirst := item.MetricResult.Series[0].Points[0].Timestamp; gotFirst != now.Add(-60*time.Minute) {
+		t.Fatalf("first retained point = %s, want %s", gotFirst, now.Add(-60*time.Minute))
 	}
 }
 
@@ -206,6 +325,67 @@ func activeAlertsTemplate(
 	return template
 }
 
+func metricQueryTemplate(
+	id domain.DiagnosisToolTemplateID,
+	enabled bool,
+	query string,
+) domain.DiagnosisToolTemplate {
+	template, err := domain.NewDiagnosisToolTemplate(
+		"Metric query",
+		1,
+		domain.DiagnosisToolKindMetricQuery,
+		query,
+		5,
+		0,
+		0,
+		0,
+		enabled,
+		nil,
+		nil,
+	)
+	if err != nil {
+		panic(err)
+	}
+	template.ID = id
+	return template
+}
+
+func metricRangeTemplate(
+	id domain.DiagnosisToolTemplateID,
+	enabled bool,
+	query string,
+) domain.DiagnosisToolTemplate {
+	template, err := domain.NewDiagnosisToolTemplate(
+		"Metric range",
+		1,
+		domain.DiagnosisToolKindMetricRangeQuery,
+		query,
+		5,
+		time.Hour,
+		2*time.Hour,
+		time.Minute,
+		enabled,
+		nil,
+		nil,
+	)
+	if err != nil {
+		panic(err)
+	}
+	template.ID = id
+	return template
+}
+
+func metricPoints(start time.Time, count int) []ports.MetricPoint {
+	points := make([]ports.MetricPoint, count)
+	for i := range points {
+		points[i] = ports.MetricPoint{
+			Timestamp: start.Add(time.Duration(i) * time.Minute),
+			Value:     "1",
+		}
+	}
+	return points
+}
+
 func alertSourceProfile(
 	kind domain.AlertSourceKind,
 ) domain.AlertSourceProfile {
@@ -226,14 +406,34 @@ func alertSourceProfile(
 }
 
 type fakeMetricsProvider struct {
-	alerts []ports.ActiveAlert
-	err    error
-	calls  int
+	alerts        []ports.ActiveAlert
+	metricResult  ports.MetricQueryResult
+	rangeResult   ports.MetricQueryResult
+	err           error
+	metricErr     error
+	rangeErr      error
+	calls         int
+	metricCalls   int
+	rangeCalls    int
+	lastMetricReq ports.MetricQueryRequest
+	lastRangeReq  ports.MetricRangeQueryRequest
 }
 
 func (p *fakeMetricsProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {
 	p.calls++
 	return p.alerts, p.err
+}
+
+func (p *fakeMetricsProvider) QueryMetric(_ context.Context, req ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	p.metricCalls++
+	p.lastMetricReq = req
+	return p.metricResult, p.metricErr
+}
+
+func (p *fakeMetricsProvider) QueryMetricRange(_ context.Context, req ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	p.rangeCalls++
+	p.lastRangeReq = req
+	return p.rangeResult, p.rangeErr
 }
 
 type fakeUOWFactory struct {

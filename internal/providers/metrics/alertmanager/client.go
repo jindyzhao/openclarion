@@ -172,6 +172,18 @@ func (p *Provider) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, e
 	return out, nil
 }
 
+// QueryMetric is unsupported for Alertmanager-backed sources. Diagnosis tool
+// templates validate this before collection, but the method keeps the provider
+// contract explicit for direct callers.
+func (p *Provider) QueryMetric(context.Context, ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{}, fmt.Errorf("alertmanager: metric query unsupported")
+}
+
+// QueryMetricRange is unsupported for Alertmanager-backed sources.
+func (p *Provider) QueryMetricRange(context.Context, ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{}, fmt.Errorf("alertmanager: metric range query unsupported")
+}
+
 type gettableAlert struct {
 	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`

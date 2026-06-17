@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	defaultTimeout       = 10 * time.Second
-	defaultTemplateLimit = 100
+	defaultTimeout           = 10 * time.Second
+	defaultTemplateLimit     = 100
+	maxMetricPointsPerSeries = 60
 )
 
 // Status is the coarse outcome for one evidence collection request.
@@ -35,19 +36,20 @@ type ReasonCode string
 
 // ReasonCode values are stable machine-readable evidence collection outcomes.
 const (
-	ReasonOK                   ReasonCode = "ok"
-	ReasonUnsupportedTool      ReasonCode = "unsupported_tool"
-	ReasonTemplateUnavailable  ReasonCode = "template_unavailable"
-	ReasonTemplateAmbiguous    ReasonCode = "template_ambiguous"
-	ReasonTemplateDisabled     ReasonCode = "template_disabled"
-	ReasonTemplateToolMismatch ReasonCode = "template_tool_mismatch"
-	ReasonSourceUnavailable    ReasonCode = "source_unavailable"
-	ReasonSourceDisabled       ReasonCode = "source_disabled"
-	ReasonSourceKindMismatch   ReasonCode = "source_kind_mismatch"
-	ReasonProviderUnavailable  ReasonCode = "provider_unavailable"
-	ReasonProviderFailed       ReasonCode = "provider_failed"
-	ReasonCollectionTimedOut   ReasonCode = "collection_timed_out"
-	ReasonInvalidRequest       ReasonCode = "invalid_request"
+	ReasonOK                    ReasonCode = "ok"
+	ReasonUnsupportedTool       ReasonCode = "unsupported_tool"
+	ReasonTemplateUnavailable   ReasonCode = "template_unavailable"
+	ReasonTemplateAmbiguous     ReasonCode = "template_ambiguous"
+	ReasonTemplateDisabled      ReasonCode = "template_disabled"
+	ReasonTemplateToolMismatch  ReasonCode = "template_tool_mismatch"
+	ReasonTemplateQueryMismatch ReasonCode = "template_query_mismatch"
+	ReasonSourceUnavailable     ReasonCode = "source_unavailable"
+	ReasonSourceDisabled        ReasonCode = "source_disabled"
+	ReasonSourceKindMismatch    ReasonCode = "source_kind_mismatch"
+	ReasonProviderUnavailable   ReasonCode = "provider_unavailable"
+	ReasonProviderFailed        ReasonCode = "provider_failed"
+	ReasonCollectionTimedOut    ReasonCode = "collection_timed_out"
+	ReasonInvalidRequest        ReasonCode = "invalid_request"
 )
 
 // Request asks the service to execute one batch of diagnosis evidence plans.
@@ -73,6 +75,11 @@ type Item struct {
 	Limit                int
 	ObservedAlerts       int
 	ActiveAlerts         []ports.ActiveAlert
+	Query                string
+	WindowSeconds        int
+	StepSeconds          int
+	ObservedMetricSeries int
+	MetricResult         ports.MetricQueryResult
 	CollectedAt          time.Time
 }
 
@@ -168,13 +175,6 @@ func (s *Service) collectOne(ctx context.Context, req diagnosisroom.EvidenceRequ
 		item.Message = "Evidence request tool is unsupported."
 		return item, nil
 	}
-	if req.Tool != domain.DiagnosisToolKindActiveAlerts {
-		item.Status = StatusUnsupported
-		item.ReasonCode = ReasonUnsupportedTool
-		item.Message = "Evidence collection currently supports active_alerts only."
-		return item, nil
-	}
-
 	plan, blocked, err := s.resolvePlan(ctx, req, item)
 	if err != nil {
 		return Item{}, err
@@ -183,14 +183,44 @@ func (s *Service) collectOne(ctx context.Context, req diagnosisroom.EvidenceRequ
 		return *blocked, nil
 	}
 
-	provider, err := s.providers.Build(ctx, plan.profile)
-	if err != nil {
+	provider, providerReady := s.buildProvider(ctx, plan.profile)
+	if !providerReady {
 		item = plan.apply(item)
 		item.Status = StatusFailed
 		item.ReasonCode = ReasonProviderUnavailable
 		item.Message = "Alert source provider could not be constructed."
 		return item, nil
 	}
+	switch req.Tool {
+	case domain.DiagnosisToolKindActiveAlerts:
+		return s.collectActiveAlerts(ctx, provider, plan, item), nil
+	case domain.DiagnosisToolKindMetricQuery:
+		return s.collectMetric(ctx, provider, plan, item), nil
+	case domain.DiagnosisToolKindMetricRangeQuery:
+		return s.collectMetricRange(ctx, provider, plan, item), nil
+	default:
+		item = plan.apply(item)
+		item.Status = StatusUnsupported
+		item.ReasonCode = ReasonUnsupportedTool
+		item.Message = "Evidence request tool is unsupported."
+		return item, nil
+	}
+}
+
+func (s *Service) buildProvider(ctx context.Context, profile domain.AlertSourceProfile) (ports.MetricsProvider, bool) {
+	provider, err := s.providers.Build(ctx, profile)
+	if err != nil {
+		return nil, false
+	}
+	return provider, true
+}
+
+func (s *Service) collectActiveAlerts(
+	ctx context.Context,
+	provider ports.MetricsProvider,
+	plan resolvedPlan,
+	item Item,
+) Item {
 	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	alerts, err := provider.ListActiveAlerts(callCtx)
@@ -200,11 +230,11 @@ func (s *Service) collectOne(ctx context.Context, req diagnosisroom.EvidenceRequ
 		if callCtx.Err() != nil {
 			item.ReasonCode = ReasonCollectionTimedOut
 			item.Message = "Active alert collection timed out."
-			return item, nil
+			return item
 		}
 		item.ReasonCode = ReasonProviderFailed
 		item.Message = "Active alert collection failed."
-		return item, nil
+		return item
 	}
 
 	item = plan.apply(item)
@@ -213,13 +243,90 @@ func (s *Service) collectOne(ctx context.Context, req diagnosisroom.EvidenceRequ
 	item.Message = "Active alert collection succeeded."
 	item.ObservedAlerts = len(alerts)
 	item.ActiveAlerts = cloneActiveAlerts(limitActiveAlerts(alerts, plan.limit))
-	return item, nil
+	return item
+}
+
+func (s *Service) collectMetric(
+	ctx context.Context,
+	provider ports.MetricsProvider,
+	plan resolvedPlan,
+	item Item,
+) Item {
+	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	result, err := provider.QueryMetric(callCtx, ports.MetricQueryRequest{
+		Query:   plan.query,
+		Time:    item.CollectedAt,
+		Timeout: s.timeout,
+		Limit:   plan.limit,
+	})
+	if err != nil {
+		item = plan.apply(item)
+		item.Status = StatusFailed
+		if callCtx.Err() != nil {
+			item.ReasonCode = ReasonCollectionTimedOut
+			item.Message = "Metric query collection timed out."
+			return item
+		}
+		item.ReasonCode = ReasonProviderFailed
+		item.Message = "Metric query collection failed."
+		return item
+	}
+	item = plan.apply(item)
+	item.Status = StatusCollected
+	item.ReasonCode = ReasonOK
+	item.Message = "Metric query collection succeeded."
+	item.ObservedMetricSeries = metricSeriesCount(result)
+	item.MetricResult = cloneMetricResult(limitMetricResult(result, plan.limit))
+	return item
+}
+
+func (s *Service) collectMetricRange(
+	ctx context.Context,
+	provider ports.MetricsProvider,
+	plan resolvedPlan,
+	item Item,
+) Item {
+	end := item.CollectedAt
+	start := end.Add(-plan.window)
+	callCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	result, err := provider.QueryMetricRange(callCtx, ports.MetricRangeQueryRequest{
+		Query:   plan.query,
+		Start:   start,
+		End:     end,
+		Step:    plan.step,
+		Timeout: s.timeout,
+		Limit:   plan.limit,
+	})
+	if err != nil {
+		item = plan.apply(item)
+		item.Status = StatusFailed
+		if callCtx.Err() != nil {
+			item.ReasonCode = ReasonCollectionTimedOut
+			item.Message = "Metric range collection timed out."
+			return item
+		}
+		item.ReasonCode = ReasonProviderFailed
+		item.Message = "Metric range collection failed."
+		return item
+	}
+	item = plan.apply(item)
+	item.Status = StatusCollected
+	item.ReasonCode = ReasonOK
+	item.Message = "Metric range collection succeeded."
+	item.ObservedMetricSeries = metricSeriesCount(result)
+	item.MetricResult = cloneMetricResult(limitMetricResult(result, plan.limit))
+	return item
 }
 
 type resolvedPlan struct {
 	template domain.DiagnosisToolTemplate
 	profile  domain.AlertSourceProfile
 	limit    int
+	query    string
+	window   time.Duration
+	step     time.Duration
 }
 
 func (p resolvedPlan) apply(item Item) Item {
@@ -228,6 +335,9 @@ func (p resolvedPlan) apply(item Item) Item {
 	item.AlertSourceKind = p.profile.Kind
 	item.Tool = p.template.Tool
 	item.Limit = p.limit
+	item.Query = p.query
+	item.WindowSeconds = durationSeconds(p.window)
+	item.StepSeconds = durationSeconds(p.step)
 	return item
 }
 
@@ -290,6 +400,12 @@ func (s *Service) resolvePlan(
 		item.Message = "Diagnosis tool template does not match the requested tool."
 		return resolvedPlan{}, &item, nil
 	}
+	if isMetricTool(req.Tool) && req.Query != "" && req.Query != template.QueryTemplate {
+		item.Status = StatusSkipped
+		item.ReasonCode = ReasonTemplateQueryMismatch
+		item.Message = "Diagnosis tool template query does not match the requested query."
+		return resolvedPlan{}, &item, nil
+	}
 	if !profile.Enabled {
 		item.AlertSourceKind = profile.Kind
 		item.Status = StatusSkipped
@@ -315,7 +431,20 @@ func (s *Service) resolvePlan(
 		item.Message = "Evidence request limit is invalid."
 		return resolvedPlan{}, &item, nil
 	}
-	return resolvedPlan{template: template, profile: profile, limit: limit}, nil, nil
+	plan := resolvedPlan{template: template, profile: profile, limit: limit, query: template.QueryTemplate}
+	if req.Tool == domain.DiagnosisToolKindMetricRangeQuery {
+		window, step, ok := resolveMetricRange(req, template)
+		if !ok {
+			item.AlertSourceKind = profile.Kind
+			item.Status = StatusSkipped
+			item.ReasonCode = ReasonInvalidRequest
+			item.Message = "Metric range request window or step is invalid."
+			return resolvedPlan{}, &item, nil
+		}
+		plan.window = window
+		plan.step = step
+	}
+	return plan, nil, nil
 }
 
 var (
@@ -345,9 +474,13 @@ func resolveTemplate(
 	}
 	var matches []domain.DiagnosisToolTemplate
 	for _, template := range templates {
-		if template.Enabled && template.Tool == req.Tool {
-			matches = append(matches, template)
+		if !template.Enabled || template.Tool != req.Tool {
+			continue
 		}
+		if isMetricTool(req.Tool) && req.Query != "" && template.QueryTemplate != req.Query {
+			continue
+		}
+		matches = append(matches, template)
 	}
 	switch len(matches) {
 	case 0:
@@ -357,6 +490,41 @@ func resolveTemplate(
 	default:
 		return domain.DiagnosisToolTemplate{}, errTemplateAmbiguous
 	}
+}
+
+func isMetricTool(tool domain.DiagnosisToolKind) bool {
+	return tool == domain.DiagnosisToolKindMetricQuery || tool == domain.DiagnosisToolKindMetricRangeQuery
+}
+
+func resolveMetricRange(
+	req diagnosisroom.EvidenceRequest,
+	template domain.DiagnosisToolTemplate,
+) (time.Duration, time.Duration, bool) {
+	window := template.DefaultWindow
+	if req.WindowSeconds > 0 {
+		window = time.Duration(req.WindowSeconds) * time.Second
+	}
+	step := template.DefaultStep
+	if req.StepSeconds > 0 {
+		step = time.Duration(req.StepSeconds) * time.Second
+	}
+	if window <= 0 || step <= 0 {
+		return 0, 0, false
+	}
+	if template.MaxWindow > 0 && window > template.MaxWindow {
+		return 0, 0, false
+	}
+	if step > window {
+		return 0, 0, false
+	}
+	return window, step, true
+}
+
+func durationSeconds(value time.Duration) int {
+	if value <= 0 {
+		return 0
+	}
+	return int(value / time.Second)
 }
 
 func toolSupportsSourceKind(tool domain.DiagnosisToolKind, kind domain.AlertSourceKind) bool {
@@ -393,6 +561,54 @@ func cloneActiveAlerts(in []ports.ActiveAlert) []ports.ActiveAlert {
 	return out
 }
 
+func metricSeriesCount(result ports.MetricQueryResult) int {
+	if len(result.Series) > 0 {
+		return len(result.Series)
+	}
+	if result.Scalar != nil || result.String != nil {
+		return 1
+	}
+	return 0
+}
+
+func limitMetricResult(in ports.MetricQueryResult, limit int) ports.MetricQueryResult {
+	out := in
+	if limit > 0 && len(out.Series) > limit {
+		out.Series = out.Series[:limit]
+	}
+	for i := range out.Series {
+		if len(out.Series[i].Points) > maxMetricPointsPerSeries {
+			out.Series[i].Points = out.Series[i].Points[len(out.Series[i].Points)-maxMetricPointsPerSeries:]
+		}
+	}
+	return out
+}
+
+func cloneMetricResult(in ports.MetricQueryResult) ports.MetricQueryResult {
+	out := ports.MetricQueryResult{
+		ResultType: in.ResultType,
+		Warnings:   append([]string(nil), in.Warnings...),
+	}
+	if in.Scalar != nil {
+		scalar := *in.Scalar
+		out.Scalar = &scalar
+	}
+	if in.String != nil {
+		value := *in.String
+		out.String = &value
+	}
+	if in.Series != nil {
+		out.Series = make([]ports.MetricSeries, len(in.Series))
+		for i, series := range in.Series {
+			out.Series[i] = ports.MetricSeries{
+				Metric: cloneStringMap(series.Metric),
+				Points: append([]ports.MetricPoint(nil), series.Points...),
+			}
+		}
+	}
+	return out
+}
+
 func cloneStringMap(in map[string]string) map[string]string {
 	if in == nil {
 		return nil
@@ -413,6 +629,7 @@ func CloneItems(in []Item) []Item {
 	for i, item := range in {
 		out[i] = item
 		out[i].ActiveAlerts = cloneActiveAlerts(item.ActiveAlerts)
+		out[i].MetricResult = cloneMetricResult(item.MetricResult)
 	}
 	return out
 }

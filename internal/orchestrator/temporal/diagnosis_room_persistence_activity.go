@@ -21,6 +21,7 @@ import (
 const (
 	diagnosisRoomEventOpened                = "diagnosis_room.opened"
 	diagnosisRoomEventTurnPersisted         = "diagnosis_room.turn_persisted"
+	diagnosisRoomEventFinalConclusionReady  = "diagnosis_room.final_conclusion_ready"
 	diagnosisRoomEventClosed                = "diagnosis_room.closed"
 	diagnosisRoomEventCloseNotificationSent = "diagnosis_room.close_notification_sent"
 
@@ -100,6 +101,9 @@ type PersistDiagnosisTurnResult struct {
 	LifecycleEventID    int64
 	UserTurnID          int64
 	AssistantTurnID     int64
+	AssistantMessageID  string
+	AssistantSequence   int
+	AssistantOccurredAt time.Time
 	TurnCount           int
 	LastActivityAt      time.Time
 	AssistantMessage    string
@@ -107,6 +111,7 @@ type PersistDiagnosisTurnResult struct {
 	RequiresHumanReview bool
 	EvidenceRequests    []diagnosisroom.EvidenceRequest
 	Insight             diagnosisroom.ConsultationInsight
+	FinalConclusion     *DiagnosisRoomFinalConclusion
 }
 
 // CloseDiagnosisChatSessionInput closes the persisted room session and records
@@ -222,6 +227,13 @@ func (a *Activities) PersistDiagnosisTurn(ctx context.Context, req PersistDiagno
 		return PersistDiagnosisTurnResult{}, mapActivityError(err, "persist-diagnosis-turn lifecycle event")
 	}
 	result.LifecycleEventID = int64(event.ID)
+	if result.Insight.ConclusionStatus == "final" {
+		_, finalConclusion, err := a.recordDiagnosisRoomFinalConclusionReady(ctx, req, result)
+		if err != nil {
+			return PersistDiagnosisTurnResult{}, mapActivityError(err, "persist-diagnosis-turn final conclusion event")
+		}
+		result.FinalConclusion = copyDiagnosisRoomFinalConclusion(finalConclusion)
+	}
 	return result, nil
 }
 
@@ -920,6 +932,9 @@ func persistDiagnosisTurnResult(
 		ChatSessionID:       int64(session.ID),
 		UserTurnID:          int64(userTurn.ID),
 		AssistantTurnID:     int64(assistantTurn.ID),
+		AssistantMessageID:  assistantTurn.MessageID,
+		AssistantSequence:   assistantTurn.Sequence,
+		AssistantOccurredAt: assistantTurn.OccurredAt,
 		TurnCount:           session.TurnCount,
 		LastActivityAt:      session.LastActivityAt,
 		AssistantMessage:    output.Message,
@@ -1048,6 +1063,38 @@ func (a *Activities) recordDiagnosisRoomTurnPersisted(ctx context.Context, req P
 	})
 }
 
+func (a *Activities) recordDiagnosisRoomFinalConclusionReady(
+	ctx context.Context,
+	req PersistDiagnosisTurnInput,
+	result PersistDiagnosisTurnResult,
+) (domain.DiagnosisTaskEvent, DiagnosisRoomFinalConclusion, error) {
+	finalConclusion := diagnosisRoomFinalConclusionFromPersistedTurn(req, result)
+	payload, err := diagnosisRoomLifecyclePayload(map[string]any{
+		"kind":               diagnosisRoomEventFinalConclusionReady,
+		"session_id":         req.SessionID,
+		"chat_session_id":    result.ChatSessionID,
+		"diagnosis_task_id":  req.DiagnosisTaskID,
+		"owner_subject":      req.OwnerSubject,
+		"turn_count":         result.TurnCount,
+		"final_conclusion":   finalConclusion,
+		"conclusion_version": "diagnosis-room-final-ready.v1",
+	})
+	if err != nil {
+		return domain.DiagnosisTaskEvent{}, DiagnosisRoomFinalConclusion{}, err
+	}
+	event, err := a.appendDiagnosisRoomLifecycleEvent(ctx, diagnosisRoomLifecycleEventInput{
+		TaskID:     req.DiagnosisTaskID,
+		Kind:       diagnosisRoomEventFinalConclusionReady,
+		DedupeKey:  diagnosisRoomEventDedupeKey(diagnosisRoomEventFinalConclusionReady, req.SessionID, req.AssistantMessageID),
+		Payload:    payload,
+		OccurredAt: req.AssistantOccurredAt,
+	})
+	if err != nil {
+		return domain.DiagnosisTaskEvent{}, DiagnosisRoomFinalConclusion{}, err
+	}
+	return event, finalConclusion, nil
+}
+
 func (a *Activities) recordDiagnosisRoomClosed(
 	ctx context.Context,
 	req CloseDiagnosisChatSessionInput,
@@ -1104,6 +1151,41 @@ type DiagnosisRoomFinalConclusion struct {
 type diagnosisRoomAssistantTurnMetadata struct {
 	Confidence          string `json:"confidence"`
 	RequiresHumanReview bool   `json:"requires_human_review"`
+}
+
+func diagnosisRoomFinalConclusionFromPersistedTurn(
+	req PersistDiagnosisTurnInput,
+	result PersistDiagnosisTurnResult,
+) DiagnosisRoomFinalConclusion {
+	requiresHumanReview := result.RequiresHumanReview
+	occurredAt := result.AssistantOccurredAt
+	if occurredAt.IsZero() {
+		occurredAt = req.AssistantOccurredAt
+	}
+	assistantMessageID := strings.TrimSpace(result.AssistantMessageID)
+	if assistantMessageID == "" {
+		assistantMessageID = strings.TrimSpace(req.AssistantMessageID)
+	}
+	assistantSequence := result.AssistantSequence
+	if assistantSequence == 0 {
+		assistantSequence = req.AssistantSequence
+	}
+	content := strings.TrimSpace(result.AssistantMessage)
+	if content == "" {
+		content = strings.TrimSpace(req.AssistantMessage)
+	}
+	return DiagnosisRoomFinalConclusion{
+		Status:              "available",
+		Source:              "latest_assistant_turn",
+		Reason:              "assistant_marked_final",
+		AssistantTurnID:     result.AssistantTurnID,
+		AssistantMessageID:  assistantMessageID,
+		AssistantSequence:   assistantSequence,
+		AssistantOccurredAt: &occurredAt,
+		Content:             truncateString(content, diagnosisRoomFinalConclusionMaxRunes),
+		Confidence:          strings.TrimSpace(result.Confidence),
+		RequiresHumanReview: &requiresHumanReview,
+	}
 }
 
 func (a *Activities) diagnosisRoomFinalConclusion(
@@ -1326,6 +1408,8 @@ func diagnosisRoomEventDedupePrefix(kind string) string {
 		return "open"
 	case diagnosisRoomEventTurnPersisted:
 		return "turn"
+	case diagnosisRoomEventFinalConclusionReady:
+		return "final"
 	case diagnosisRoomEventClosed:
 		return "close"
 	case diagnosisRoomEventCloseNotificationSent:

@@ -248,6 +248,109 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 	}
 }
 
+func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-final-ready")
+	activities := temporalpkg.NewActivities(env.factory)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 15, 45, 0, 0, time.UTC)
+	_, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-final-ready",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	})
+	if err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+
+	req := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-final-ready", startedAt)
+	req.AssistantMessage = "CPU saturation has a final bounded diagnosis."
+	req.RawOutput = json.RawMessage(`{
+		"schema_version":"diagnosis_turn.v1",
+		"message":"CPU saturation has a final bounded diagnosis.",
+		"confidence":"high",
+		"requires_human_review":true,
+		"conclusion_status":"final"
+	}`)
+	first, err := activities.PersistDiagnosisTurn(ctx, req)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn first: %v", err)
+	}
+	second, err := activities.PersistDiagnosisTurn(ctx, req)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn second: %v", err)
+	}
+	if first.FinalConclusion == nil ||
+		second.FinalConclusion == nil ||
+		first.FinalConclusion.Status != "available" ||
+		first.FinalConclusion.Source != "latest_assistant_turn" ||
+		first.FinalConclusion.Reason != "assistant_marked_final" ||
+		first.FinalConclusion.AssistantTurnID != first.AssistantTurnID ||
+		first.FinalConclusion.AssistantMessageID != req.AssistantMessageID ||
+		first.FinalConclusion.AssistantSequence != req.AssistantSequence ||
+		first.FinalConclusion.AssistantOccurredAt == nil ||
+		!first.FinalConclusion.AssistantOccurredAt.Equal(domain.NormalizeUTCMicro(req.AssistantOccurredAt)) ||
+		first.FinalConclusion.Content != req.AssistantMessage ||
+		first.FinalConclusion.Confidence != "high" ||
+		first.FinalConclusion.RequiresHumanReview == nil ||
+		!*first.FinalConclusion.RequiresHumanReview ||
+		second.FinalConclusion.AssistantTurnID != first.FinalConclusion.AssistantTurnID {
+		t.Fatalf("final conclusions first=%+v second=%+v", first.FinalConclusion, second.FinalConclusion)
+	}
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
+		if err != nil {
+			return err
+		}
+		if len(events) != 3 ||
+			events[0].Kind != "diagnosis_room.opened" ||
+			events[1].Kind != "diagnosis_room.turn_persisted" ||
+			events[2].Kind != "diagnosis_room.final_conclusion_ready" {
+			t.Fatalf("events = %+v, want opened + turn_persisted + final_conclusion_ready", events)
+		}
+		var payload struct {
+			TurnCount         int    `json:"turn_count"`
+			ConclusionVersion string `json:"conclusion_version"`
+			Conclusion        struct {
+				Status              string     `json:"status"`
+				Source              string     `json:"source"`
+				Reason              string     `json:"reason"`
+				AssistantTurnID     int64      `json:"assistant_turn_id"`
+				AssistantMessageID  string     `json:"assistant_message_id"`
+				AssistantSequence   int        `json:"assistant_sequence"`
+				AssistantOccurredAt *time.Time `json:"assistant_occurred_at"`
+				Content             string     `json:"content"`
+				Confidence          string     `json:"confidence"`
+				RequiresHumanReview *bool      `json:"requires_human_review"`
+			} `json:"final_conclusion"`
+		}
+		if err := json.Unmarshal(events[2].Payload, &payload); err != nil {
+			t.Fatalf("final event payload: %v", err)
+		}
+		if payload.TurnCount != 1 ||
+			payload.ConclusionVersion != "diagnosis-room-final-ready.v1" ||
+			payload.Conclusion.Status != "available" ||
+			payload.Conclusion.Source != "latest_assistant_turn" ||
+			payload.Conclusion.Reason != "assistant_marked_final" ||
+			payload.Conclusion.AssistantTurnID != first.AssistantTurnID ||
+			payload.Conclusion.AssistantMessageID != req.AssistantMessageID ||
+			payload.Conclusion.AssistantSequence != req.AssistantSequence ||
+			payload.Conclusion.AssistantOccurredAt == nil ||
+			!payload.Conclusion.AssistantOccurredAt.Equal(domain.NormalizeUTCMicro(req.AssistantOccurredAt)) ||
+			payload.Conclusion.Content != req.AssistantMessage ||
+			payload.Conclusion.Confidence != "high" ||
+			payload.Conclusion.RequiresHumanReview == nil ||
+			!*payload.Conclusion.RequiresHumanReview {
+			t.Fatalf("final event payload = %+v raw=%s", payload, events[2].Payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify final-ready event: %v", err)
+	}
+}
+
 func TestDiagnosisRoomPersistenceActivities_CloseSessionIsIdempotentAndAudited(t *testing.T) {
 	seed := seedDiagnosisTask(t, "room-close-session")
 	activities := temporalpkg.NewActivities(env.factory)

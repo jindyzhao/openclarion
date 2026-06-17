@@ -37,6 +37,10 @@ const (
 
 	diagnosisRoomEvidenceCollectionChangeID = "diagnosis-room-evidence-collection"
 	diagnosisRoomEvidenceCollectionVersion  = 1
+	diagnosisRoomEvidenceContextChangeID    = "diagnosis-room-evidence-context"
+	diagnosisRoomEvidenceContextVersion     = 1
+	diagnosisRoomFinalConclusionChangeID    = "diagnosis-room-final-conclusion"
+	diagnosisRoomFinalConclusionVersion     = 1
 )
 
 // DiagnosisRoomWorkflowInput configures one M5 short-conversation diagnosis
@@ -124,6 +128,7 @@ type diagnosisRoomState struct {
 	inFlight        bool
 	seen            map[string]struct{}
 	conversation    []diagnosisroom.ConversationTurn
+	evidenceBatches []diagnosisRoomEvidenceContextBatch
 }
 
 // DiagnosisRoomWorkflow owns the M5 room lifecycle: Update for user messages,
@@ -148,6 +153,18 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		seen:            map[string]struct{}{},
 		conversation:    []diagnosisroom.ConversationTurn{},
 	}
+	evidenceContextVersion := workflow.GetVersion(
+		ctx,
+		diagnosisRoomEvidenceContextChangeID,
+		workflow.DefaultVersion,
+		diagnosisRoomEvidenceContextVersion,
+	)
+	finalConclusionVersion := workflow.GetVersion(
+		ctx,
+		diagnosisRoomFinalConclusionChangeID,
+		workflow.DefaultVersion,
+		diagnosisRoomFinalConclusionVersion,
+	)
 	startupComplete := false
 
 	if err := workflow.SetQueryHandler(ctx, DiagnosisRoomStateQuery, func() (DiagnosisRoomWorkflowState, error) {
@@ -163,7 +180,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			if err := workflow.Await(ctx, func() bool { return startupComplete }); err != nil {
 				return SubmitDiagnosisTurnResult{}, err
 			}
-			decision, err := state.validateSubmit(ctx, req)
+			decision, turnEvidence, err := state.validateSubmit(ctx, req, evidenceContextVersion)
 			if err != nil {
 				return SubmitDiagnosisTurnResult{}, err
 			}
@@ -182,7 +199,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 				UserSequence:      userSequence,
 				AssistantSequence: assistantSequence,
 				ActorSubject:      strings.TrimSpace(req.ActorSubject),
-				Evidence:          state.input.Evidence,
+				Evidence:          turnEvidence,
 				Conversation:      priorConversation,
 				Message:           req.Message,
 				Policy:            state.policy,
@@ -236,10 +253,22 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 					return SubmitDiagnosisTurnResult{}, err
 				}
 			}
+			if evidenceContextVersion >= diagnosisRoomEvidenceContextVersion {
+				if batch, ok := diagnosisRoomEvidenceContextBatchFromItems(
+					persistResult.TurnCount,
+					activityResult.AssistantMessageID,
+					collectionResult.Items,
+				); ok {
+					state.evidenceBatches = appendDiagnosisRoomEvidenceContextBatch(state.evidenceBatches, batch)
+				}
+			}
 
 			state.chatSessionID = persistResult.ChatSessionID
 			state.turnCount++
 			state.lastActivityAt = persistResult.LastActivityAt
+			if finalConclusionVersion >= diagnosisRoomFinalConclusionVersion && persistResult.FinalConclusion != nil {
+				state.finalConclusion = copyDiagnosisRoomFinalConclusion(*persistResult.FinalConclusion)
+			}
 			state.seen[messageID] = struct{}{}
 			state.conversation = append(state.conversation, diagnosisroom.ConversationTurn{
 				Role:    string(diagnosisroomRoleUser),
@@ -271,7 +300,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		},
 		workflow.UpdateHandlerOptions{
 			Validator: func(ctx workflow.Context, req SubmitDiagnosisTurnRequest) error {
-				_, err := state.validateSubmit(ctx, req)
+				_, _, err := state.validateSubmit(ctx, req, evidenceContextVersion)
 				return err
 			},
 		},
@@ -399,11 +428,19 @@ const (
 	diagnosisroomRoleAssistant diagnosisroomRole = "assistant"
 )
 
-func (s *diagnosisRoomState) validateSubmit(ctx workflow.Context, req SubmitDiagnosisTurnRequest) (diagnosisroom.Decision, error) {
+func (s *diagnosisRoomState) validateSubmit(
+	ctx workflow.Context,
+	req SubmitDiagnosisTurnRequest,
+	evidenceContextVersion workflow.Version,
+) (diagnosisroom.Decision, json.RawMessage, error) {
 	if strings.TrimSpace(req.ActorSubject) == "" {
-		return diagnosisroom.Decision{}, fmt.Errorf("diagnosis room turn: actor_subject must be non-empty")
+		return diagnosisroom.Decision{}, nil, fmt.Errorf("diagnosis room turn: actor_subject must be non-empty")
 	}
-	return diagnosisroom.ValidateSubmitTurn(
+	evidence, err := s.turnEvidence(evidenceContextVersion)
+	if err != nil {
+		return diagnosisroom.Decision{}, nil, err
+	}
+	decision, err := diagnosisroom.ValidateSubmitTurn(
 		s.policy,
 		diagnosisroom.SessionState{
 			StartedAt:      s.startedAt,
@@ -416,10 +453,25 @@ func (s *diagnosisRoomState) validateSubmit(ctx workflow.Context, req SubmitDiag
 			MessageID:    req.MessageID,
 			Message:      req.Message,
 			Now:          workflow.Now(ctx),
-			Evidence:     s.input.Evidence,
+			Evidence:     evidence,
 			Conversation: s.conversation,
 		},
 	)
+	if err != nil {
+		return diagnosisroom.Decision{}, nil, err
+	}
+	return decision, evidence, nil
+}
+
+func (s *diagnosisRoomState) turnEvidence(evidenceContextVersion workflow.Version) (json.RawMessage, error) {
+	if evidenceContextVersion < diagnosisRoomEvidenceContextVersion {
+		return cloneRawMessage(s.input.Evidence), nil
+	}
+	evidence, err := diagnosisRoomEvidenceContext(s.input.Evidence, s.evidenceBatches)
+	if err != nil {
+		return nil, diagnosisRoomEvidenceContextError(err)
+	}
+	return evidence, nil
 }
 
 func (s *diagnosisRoomState) snapshot() DiagnosisRoomWorkflowState {

@@ -214,6 +214,14 @@ func (noopMetricsProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAler
 	return nil, nil
 }
 
+func (noopMetricsProvider) QueryMetric(context.Context, ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{}, nil
+}
+
+func (noopMetricsProvider) QueryMetricRange(context.Context, ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{}, nil
+}
+
 type noopFactory struct{}
 
 func (noopFactory) Begin(context.Context) (ports.UnitOfWork, error) {

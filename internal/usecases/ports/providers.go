@@ -40,6 +40,49 @@ type ActiveAlert struct {
 	RawPayload  json.RawMessage
 }
 
+// MetricPoint is one timestamped Prometheus sample value rendered as a string.
+// Prometheus transports sample values as strings so NaN/Inf remain representable
+// in JSON; the port preserves that shape instead of forcing lossy float parsing.
+type MetricPoint struct {
+	Timestamp time.Time
+	Value     string
+}
+
+// MetricSeries is the provider-neutral summary for one returned time series.
+type MetricSeries struct {
+	Metric map[string]string
+	Points []MetricPoint
+}
+
+// MetricQueryRequest configures one bounded instant Prometheus query.
+type MetricQueryRequest struct {
+	Query   string
+	Time    time.Time
+	Timeout time.Duration
+	Limit   int
+}
+
+// MetricRangeQueryRequest configures one bounded Prometheus range query.
+type MetricRangeQueryRequest struct {
+	Query   string
+	Start   time.Time
+	End     time.Time
+	Step    time.Duration
+	Timeout time.Duration
+	Limit   int
+}
+
+// MetricQueryResult is the sanitized result summary returned by Prometheus-like
+// providers. ResultType is the upstream Prometheus result type: vector, matrix,
+// scalar, or string.
+type MetricQueryResult struct {
+	ResultType string
+	Series     []MetricSeries
+	Scalar     *MetricPoint
+	String     *MetricPoint
+	Warnings   []string
+}
+
 // MetricsProvider is the upstream alert source contract. Each call
 // to ListActiveAlerts independently queries the upstream system and
 // returns the currently-firing alerts; the provider MUST NOT carry
@@ -64,6 +107,8 @@ type ActiveAlert struct {
 // firing.
 type MetricsProvider interface {
 	ListActiveAlerts(ctx context.Context) ([]ActiveAlert, error)
+	QueryMetric(ctx context.Context, req MetricQueryRequest) (MetricQueryResult, error)
+	QueryMetricRange(ctx context.Context, req MetricRangeQueryRequest) (MetricQueryResult, error)
 }
 
 // ErrSecretNotFound is returned by SecretResolver implementations when the
