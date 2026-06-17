@@ -115,7 +115,7 @@ function Detail({ report }: { report: FinalReportDetail }) {
                     className="link-button"
                     href={diagnosisRoomHref(report, subReport)}
                   >
-                    {subReport.diagnosis_conclusion ? "Review diagnosis" : "Start diagnosis"}
+                    {subReport.diagnosis_conclusion ? "Review diagnosis" : "Prepare diagnosis"}
                   </Link>
                 </div>
                 <div className="muted">Evidence snapshot #{subReport.evidence_snapshot_id}</div>

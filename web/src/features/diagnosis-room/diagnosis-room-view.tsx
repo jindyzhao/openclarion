@@ -479,7 +479,7 @@ export function DiagnosisRoomView() {
       ) : null}
 
       <div className="diagnosis-layout">
-        <Card className="settings-overview-card" title="Create Room">
+        <Card className="settings-overview-card" title="Create Diagnosis Room">
           <Form<CreateRoomFormValues>
             form={createForm}
             initialValues={{ authorizationToken: "" }}
@@ -515,7 +515,7 @@ export function DiagnosisRoomView() {
               loading={createRoomMutation.isPending}
               type="primary"
             >
-              Create Room
+              Create diagnosis room
             </Button>
           </Form>
         </Card>
@@ -1540,8 +1540,8 @@ function diagnosisPageContext(searchParams: { get(name: string): string | null }
   const subReportRef = subReportID !== undefined ? `, subreport #${subReportID}` : "";
   const contextRef = hasReportRef ? `${snapshotRef} for ${reportRef}` : snapshotRef;
   const description = hasReportRef
-    ? `Opened from ${reportRef}${subReportRef} using ${snapshotRef}.`
-    : `Loaded ${snapshotRef}.`;
+    ? `Prepared from ${reportRef}${subReportRef} using ${snapshotRef}. Create the room when operator review is ready.`
+    : `Loaded ${snapshotRef}. Create the room when operator review is ready.`;
   const suggestedPrompt =
     intent === "review_conclusion"
       ? `Review ${contextRef}. Verify the current diagnosis conclusion, identify any operator-supplied evidence that can raise confidence, and state whether the conclusion is ready to finalize.`

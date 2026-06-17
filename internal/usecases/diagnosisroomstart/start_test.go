@@ -86,6 +86,39 @@ func TestServiceStartRejectsUnauthorizedPrincipal(t *testing.T) {
 	}
 }
 
+func TestServiceStartRejectsReportWorkflowAutomationPrincipal(t *testing.T) {
+	for _, subject := range []string{
+		"openclarion.report-workflow",
+		"openclarion.report-workflow:policy:3",
+	} {
+		t.Run(subject, func(t *testing.T) {
+			starter := &recordingStarter{}
+			service, err := NewService(
+				fakeFactory{evidence: fakeEvidenceRepo{}},
+				starter,
+				WithRandomReader(strings.NewReader(strings.Repeat("R", sessionIDBytes))),
+			)
+			if err != nil {
+				t.Fatalf("NewService: %v", err)
+			}
+
+			_, err = service.Start(context.Background(), Request{
+				EvidenceSnapshotID: 42,
+				Principal: ports.AuthPrincipal{
+					Subject: subject,
+					Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+				},
+			})
+			if !errors.Is(err, diagnosisauth.ErrUnauthorized) {
+				t.Fatalf("Start error = %v, want ErrUnauthorized", err)
+			}
+			if starter.req.SessionID != "" {
+				t.Fatalf("starter was called: %+v", starter.req)
+			}
+		})
+	}
+}
+
 func TestServiceStartRejectsFailedSnapshot(t *testing.T) {
 	service, err := NewService(
 		fakeFactory{evidence: fakeEvidenceRepo{snapshots: map[domain.EvidenceSnapshotID]domain.EvidenceSnapshot{
