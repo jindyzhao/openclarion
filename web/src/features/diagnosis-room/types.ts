@@ -24,6 +24,19 @@ type DiagnosisFinalConclusion = {
   requires_human_review?: boolean;
 };
 
+export type DiagnosisConsultationEvidenceRequest = {
+  label: string;
+  detail: string;
+  priority: string;
+};
+
+export type DiagnosisConsultationInsight = {
+  confidence_rationale?: string;
+  missing_evidence_requests?: DiagnosisConsultationEvidenceRequest[];
+  evidence_collection_suggestions?: DiagnosisConsultationEvidenceRequest[];
+  conclusion_status?: string;
+};
+
 type DiagnosisReadyFrame = {
   type: "ready";
   session_id: string;
@@ -46,6 +59,7 @@ type DiagnosisTurnResultFrame = {
   assistant_message: string;
   requires_human_review: boolean;
   confidence: string;
+  consultation_insight?: DiagnosisConsultationInsight;
 };
 
 export type DiagnosisStateFrame = {

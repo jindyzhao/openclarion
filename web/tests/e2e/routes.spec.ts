@@ -41,6 +41,10 @@ test("diagnosis room route connects, queries state, and submits a turn", async (
   await expect(
     page.getByText("Mock diagnosis response for: Summarize the current checkout alert.", { exact: true })
   ).toBeVisible();
+  await expect(page.getByText("Consultation Insight", { exact: true })).toBeVisible();
+  await expect(page.getByText("needs_evidence", { exact: true })).toBeVisible();
+  await expect(page.getByText("Restart cause", { exact: true })).toBeVisible();
+  await expect(page.getByText("Metric window", { exact: true })).toBeVisible();
   await expect(page.getByText("Turn 1 completed.")).toBeVisible();
 });
 
