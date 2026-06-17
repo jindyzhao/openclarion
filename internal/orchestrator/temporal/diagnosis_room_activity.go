@@ -48,6 +48,7 @@ type DiagnosisTurnActivityResult struct {
 	FinishedAt          time.Time
 	RequiresHumanReview bool
 	Confidence          string
+	Insight             diagnosisroom.ConsultationInsight
 }
 
 // RunDiagnosisTurn calls the configured ContainerProvider once, validates the
@@ -97,6 +98,7 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 		FinishedAt:          result.FinishedAt,
 		RequiresHumanReview: output.RequiresHumanReview,
 		Confidence:          output.Confidence,
+		Insight:             output.Insight(),
 	}, nil
 }
 

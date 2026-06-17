@@ -2760,6 +2760,15 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 			AssistantMessage:    "CPU alert is still firing.",
 			RequiresHumanReview: true,
 			Confidence:          "medium",
+			ConsultationInsight: ports.DiagnosisRoomConsultationInsight{
+				ConfidenceRationale: "CPU evidence is present but restart evidence is missing.",
+				MissingEvidenceRequests: []ports.DiagnosisRoomConsultationEvidenceRequest{{
+					Label:    "Restart cause",
+					Detail:   "Inspect previous pod logs.",
+					Priority: "high",
+				}},
+				ConclusionStatus: "needs_evidence",
+			},
 		},
 		queryState: ports.DiagnosisRoomState{
 			SessionID:       "session-1",
@@ -2831,6 +2840,12 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	}
 	if turn.Type != diagnosisWSServerTurnResult || turn.MessageID != "msg-1" || turn.AssistantMessage != "CPU alert is still firing." {
 		t.Fatalf("turn = %+v", turn)
+	}
+	if turn.ConsultationInsight.ConfidenceRationale != "CPU evidence is present but restart evidence is missing." ||
+		len(turn.ConsultationInsight.MissingEvidenceRequests) != 1 ||
+		turn.ConsultationInsight.MissingEvidenceRequests[0].Label != "Restart cause" ||
+		turn.ConsultationInsight.ConclusionStatus != "needs_evidence" {
+		t.Fatalf("turn consultation insight = %+v", turn.ConsultationInsight)
 	}
 	submitReq, submitCalled := workflowClient.submitSnapshot()
 	if submitCalled != 1 {

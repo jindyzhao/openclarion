@@ -166,7 +166,10 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 		first.TurnCount != 1 ||
 		second.TurnCount != 1 ||
 		len(first.EvidenceRequests) != 1 ||
-		first.EvidenceRequests[0].Tool != domain.DiagnosisToolKindActiveAlerts {
+		first.EvidenceRequests[0].Tool != domain.DiagnosisToolKindActiveAlerts ||
+		first.Insight.ConfidenceRationale != "Confidence depends on sibling alert and restart evidence." ||
+		len(first.Insight.MissingEvidenceRequests) != 1 ||
+		first.Insight.MissingEvidenceRequests[0].Label != "Restart cause" {
 		t.Fatalf("persist results first=%+v second=%+v ensure=%+v", first, second, ensure)
 	}
 
@@ -194,10 +197,11 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 			t.Fatalf("turns = %+v", turns)
 		}
 		var assistantMeta struct {
-			InvocationID        string                          `json:"invocation_id"`
-			Confidence          string                          `json:"confidence"`
-			RequiresHumanReview bool                            `json:"requires_human_review"`
-			EvidenceRequests    []diagnosisroom.EvidenceRequest `json:"evidence_requests"`
+			InvocationID        string                            `json:"invocation_id"`
+			Confidence          string                            `json:"confidence"`
+			RequiresHumanReview bool                              `json:"requires_human_review"`
+			EvidenceRequests    []diagnosisroom.EvidenceRequest   `json:"evidence_requests"`
+			ConsultationInsight diagnosisroom.ConsultationInsight `json:"consultation_insight"`
 		}
 		if err := json.Unmarshal(turns[1].Metadata, &assistantMeta); err != nil {
 			t.Fatalf("assistant metadata: %v", err)
@@ -206,7 +210,10 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 			assistantMeta.Confidence != "high" ||
 			!assistantMeta.RequiresHumanReview ||
 			len(assistantMeta.EvidenceRequests) != 1 ||
-			assistantMeta.EvidenceRequests[0].Reason != "Need current active sibling alerts." {
+			assistantMeta.EvidenceRequests[0].Reason != "Need current active sibling alerts." ||
+			assistantMeta.ConsultationInsight.ConfidenceRationale != "Confidence depends on sibling alert and restart evidence." ||
+			len(assistantMeta.ConsultationInsight.EvidenceCollectionSuggestions) != 1 ||
+			assistantMeta.ConsultationInsight.EvidenceCollectionSuggestions[0].Label != "CPU trend" {
 			t.Fatalf("assistant metadata = %+v raw=%s", assistantMeta, turns[1].Metadata)
 		}
 		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
@@ -217,10 +224,11 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 			t.Fatalf("events = %+v, want opened + turn_persisted", events)
 		}
 		var turnPayload struct {
-			UserMessageID      string                          `json:"user_message_id"`
-			AssistantMessageID string                          `json:"assistant_message_id"`
-			TurnCount          int                             `json:"turn_count"`
-			EvidenceRequests   []diagnosisroom.EvidenceRequest `json:"evidence_requests"`
+			UserMessageID       string                            `json:"user_message_id"`
+			AssistantMessageID  string                            `json:"assistant_message_id"`
+			TurnCount           int                               `json:"turn_count"`
+			EvidenceRequests    []diagnosisroom.EvidenceRequest   `json:"evidence_requests"`
+			ConsultationInsight diagnosisroom.ConsultationInsight `json:"consultation_insight"`
 		}
 		if err := json.Unmarshal(events[1].Payload, &turnPayload); err != nil {
 			t.Fatalf("turn event payload: %v", err)
@@ -229,7 +237,8 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 			turnPayload.AssistantMessageID != req.AssistantMessageID ||
 			turnPayload.TurnCount != 1 ||
 			len(turnPayload.EvidenceRequests) != 1 ||
-			turnPayload.EvidenceRequests[0].Limit != 5 {
+			turnPayload.EvidenceRequests[0].Limit != 5 ||
+			turnPayload.ConsultationInsight.ConclusionStatus != "needs_evidence" {
 			t.Fatalf("turn event payload = %+v raw=%s", turnPayload, events[1].Payload)
 		}
 		return nil
@@ -542,7 +551,11 @@ func validPersistDiagnosisTurnInput(taskID domain.DiagnosisTaskID, sessionID str
 		"recommended_actions":["Inspect recent deployment"],
 		"evidence_requests":[{"tool":"active_alerts","reason":"Need current active sibling alerts.","limit":5}],
 		"confidence":"high",
-		"requires_human_review":true
+		"requires_human_review":true,
+		"confidence_rationale":"Confidence depends on sibling alert and restart evidence.",
+		"missing_evidence_requests":[{"label":"Restart cause","detail":"Inspect previous container logs.","priority":"high"}],
+		"evidence_collection_suggestions":[{"label":"CPU trend","detail":"Collect a bounded CPU range query.","priority":"medium"}],
+		"conclusion_status":"needs_evidence"
 	}`)
 	return temporalpkg.PersistDiagnosisTurnInput{
 		SessionID:           sessionID,

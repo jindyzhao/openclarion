@@ -159,6 +159,7 @@ func (r *DiagnosisWebSocketRelay) handleSubmitTurn(ctx context.Context, conn *we
 		AssistantMessage:    result.AssistantMessage,
 		RequiresHumanReview: result.RequiresHumanReview,
 		Confidence:          result.Confidence,
+		ConsultationInsight: diagnosisWSConsultationInsightFrame(result.ConsultationInsight),
 	})
 }
 
@@ -277,6 +278,34 @@ func diagnosisWSFinalConclusionFrame(in *ports.DiagnosisRoomFinalConclusion) *di
 	}
 }
 
+func diagnosisWSConsultationInsightFrame(
+	in ports.DiagnosisRoomConsultationInsight,
+) diagnosisWSConsultationInsight {
+	return diagnosisWSConsultationInsight{
+		ConfidenceRationale:           in.ConfidenceRationale,
+		MissingEvidenceRequests:       diagnosisWSConsultationEvidenceRequests(in.MissingEvidenceRequests),
+		EvidenceCollectionSuggestions: diagnosisWSConsultationEvidenceRequests(in.EvidenceCollectionSuggestions),
+		ConclusionStatus:              in.ConclusionStatus,
+	}
+}
+
+func diagnosisWSConsultationEvidenceRequests(
+	in []ports.DiagnosisRoomConsultationEvidenceRequest,
+) []diagnosisWSConsultationEvidenceRequest {
+	if in == nil {
+		return nil
+	}
+	out := make([]diagnosisWSConsultationEvidenceRequest, len(in))
+	for i, request := range in {
+		out[i] = diagnosisWSConsultationEvidenceRequest{
+			Label:    request.Label,
+			Detail:   request.Detail,
+			Priority: request.Priority,
+		}
+	}
+	return out
+}
+
 func writeDiagnosisWSJSON(conn *websocket.Conn, value interface{}) error {
 	if err := conn.WriteJSON(value); err != nil {
 		return err
@@ -297,21 +326,22 @@ type diagnosisWSReadyFrame struct {
 }
 
 type diagnosisWSTurnResultFrame struct {
-	Type                string `json:"type"`
-	SessionID           string `json:"session_id"`
-	ChatSessionID       int64  `json:"chat_session_id"`
-	MessageID           string `json:"message_id"`
-	AssistantMessageID  string `json:"assistant_message_id"`
-	UserTurnID          int64  `json:"user_turn_id"`
-	AssistantTurnID     int64  `json:"assistant_turn_id"`
-	UserSequence        int    `json:"user_sequence"`
-	AssistantSequence   int    `json:"assistant_sequence"`
-	TurnCount           int    `json:"turn_count"`
-	ContextBytes        int    `json:"context_bytes"`
-	Status              string `json:"status"`
-	AssistantMessage    string `json:"assistant_message"`
-	RequiresHumanReview bool   `json:"requires_human_review"`
-	Confidence          string `json:"confidence"`
+	Type                string                         `json:"type"`
+	SessionID           string                         `json:"session_id"`
+	ChatSessionID       int64                          `json:"chat_session_id"`
+	MessageID           string                         `json:"message_id"`
+	AssistantMessageID  string                         `json:"assistant_message_id"`
+	UserTurnID          int64                          `json:"user_turn_id"`
+	AssistantTurnID     int64                          `json:"assistant_turn_id"`
+	UserSequence        int                            `json:"user_sequence"`
+	AssistantSequence   int                            `json:"assistant_sequence"`
+	TurnCount           int                            `json:"turn_count"`
+	ContextBytes        int                            `json:"context_bytes"`
+	Status              string                         `json:"status"`
+	AssistantMessage    string                         `json:"assistant_message"`
+	RequiresHumanReview bool                           `json:"requires_human_review"`
+	Confidence          string                         `json:"confidence"`
+	ConsultationInsight diagnosisWSConsultationInsight `json:"consultation_insight"`
 }
 
 type diagnosisWSStateFrame struct {
@@ -348,6 +378,19 @@ type diagnosisWSFinalConclusion struct {
 	Content             string     `json:"content,omitempty"`
 	Confidence          string     `json:"confidence,omitempty"`
 	RequiresHumanReview *bool      `json:"requires_human_review,omitempty"`
+}
+
+type diagnosisWSConsultationInsight struct {
+	ConfidenceRationale           string                                   `json:"confidence_rationale,omitempty"`
+	MissingEvidenceRequests       []diagnosisWSConsultationEvidenceRequest `json:"missing_evidence_requests,omitempty"`
+	EvidenceCollectionSuggestions []diagnosisWSConsultationEvidenceRequest `json:"evidence_collection_suggestions,omitempty"`
+	ConclusionStatus              string                                   `json:"conclusion_status,omitempty"`
+}
+
+type diagnosisWSConsultationEvidenceRequest struct {
+	Label    string `json:"label"`
+	Detail   string `json:"detail"`
+	Priority string `json:"priority"`
 }
 
 type diagnosisWSErrorFrame struct {

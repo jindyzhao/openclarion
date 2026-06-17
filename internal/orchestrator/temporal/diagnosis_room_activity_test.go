@@ -32,7 +32,14 @@ func TestRunDiagnosisTurn_CallsContainerAndParsesOutput(t *testing.T) {
 			"limit": 3
 		}],
 		"confidence": "high",
-		"requires_human_review": true
+		"requires_human_review": true,
+		"confidence_rationale": "CPU evidence is strong, but restart data is missing.",
+		"missing_evidence_requests": [{
+			"label": "Restart cause",
+			"detail": "Inspect previous pod logs before finalizing.",
+			"priority": "medium"
+		}],
+		"conclusion_status": "needs_evidence"
 	}`)
 	provider := fake.New(map[string][]fake.Result{
 		invocationID: {{
@@ -66,6 +73,12 @@ func TestRunDiagnosisTurn_CallsContainerAndParsesOutput(t *testing.T) {
 		got.Output.EvidenceRequests[0].Tool != "metric_query" ||
 		got.Output.EvidenceRequests[0].Query != "avg(rate(container_cpu_usage_seconds_total[5m]))" {
 		t.Fatalf("evidence requests = %+v", got.Output.EvidenceRequests)
+	}
+	if got.Insight.ConfidenceRationale != "CPU evidence is strong, but restart data is missing." ||
+		len(got.Insight.MissingEvidenceRequests) != 1 ||
+		got.Insight.MissingEvidenceRequests[0].Label != "Restart cause" ||
+		got.Insight.ConclusionStatus != "needs_evidence" {
+		t.Fatalf("insight = %+v", got.Insight)
 	}
 
 	recorded := provider.Requests(invocationID)

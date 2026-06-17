@@ -9,6 +9,7 @@ import (
 	"go.temporal.io/sdk/converter"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -138,7 +139,34 @@ func diagnosisRoomSubmitTurnResult(result SubmitDiagnosisTurnResult) ports.Diagn
 		AssistantMessage:    result.AssistantMessage,
 		RequiresHumanReview: result.RequiresHumanReview,
 		Confidence:          result.Confidence,
+		ConsultationInsight: diagnosisRoomConsultationInsightPort(result.Insight),
 	}
+}
+
+func diagnosisRoomConsultationInsightPort(in diagnosisroom.ConsultationInsight) ports.DiagnosisRoomConsultationInsight {
+	return ports.DiagnosisRoomConsultationInsight{
+		ConfidenceRationale:           in.ConfidenceRationale,
+		MissingEvidenceRequests:       diagnosisRoomConsultationEvidenceRequestsPort(in.MissingEvidenceRequests),
+		EvidenceCollectionSuggestions: diagnosisRoomConsultationEvidenceRequestsPort(in.EvidenceCollectionSuggestions),
+		ConclusionStatus:              in.ConclusionStatus,
+	}
+}
+
+func diagnosisRoomConsultationEvidenceRequestsPort(
+	in []diagnosisroom.ConsultationEvidenceRequest,
+) []ports.DiagnosisRoomConsultationEvidenceRequest {
+	if in == nil {
+		return nil
+	}
+	out := make([]ports.DiagnosisRoomConsultationEvidenceRequest, len(in))
+	for i, request := range in {
+		out[i] = ports.DiagnosisRoomConsultationEvidenceRequest{
+			Label:    request.Label,
+			Detail:   request.Detail,
+			Priority: request.Priority,
+		}
+	}
+	return out
 }
 
 func diagnosisRoomWorkflowState(state DiagnosisRoomWorkflowState) ports.DiagnosisRoomState {

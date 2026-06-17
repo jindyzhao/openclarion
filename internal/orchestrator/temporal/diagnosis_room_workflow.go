@@ -73,6 +73,7 @@ type SubmitDiagnosisTurnResult struct {
 	AssistantMessage    string
 	RequiresHumanReview bool
 	Confidence          string
+	Insight             diagnosisroom.ConsultationInsight
 }
 
 // DiagnosisRoomCloseRequest carries the close/cancel signal reason.
@@ -240,6 +241,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 				AssistantMessage:    activityResult.AssistantMessage,
 				RequiresHumanReview: activityResult.RequiresHumanReview,
 				Confidence:          activityResult.Confidence,
+				Insight:             activityResult.Insight,
 			}, nil
 		},
 		workflow.UpdateHandlerOptions{

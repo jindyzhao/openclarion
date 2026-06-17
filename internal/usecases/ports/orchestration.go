@@ -90,6 +90,7 @@ type DiagnosisRoomSubmitTurnResult struct {
 	AssistantMessage    string
 	RequiresHumanReview bool
 	Confidence          string
+	ConsultationInsight DiagnosisRoomConsultationInsight
 }
 
 // DiagnosisRoomConversationTurn is the workflow-visible reconnect transcript
@@ -97,6 +98,23 @@ type DiagnosisRoomSubmitTurnResult struct {
 type DiagnosisRoomConversationTurn struct {
 	Role    string
 	Content string
+}
+
+// DiagnosisRoomConsultationEvidenceRequest captures one human-readable
+// evidence gap or collection hint returned by a diagnosis-room turn.
+type DiagnosisRoomConsultationEvidenceRequest struct {
+	Label    string
+	Detail   string
+	Priority string
+}
+
+// DiagnosisRoomConsultationInsight is the latest structured assistant
+// confidence-lift state returned by a diagnosis-room turn.
+type DiagnosisRoomConsultationInsight struct {
+	ConfidenceRationale           string
+	MissingEvidenceRequests       []DiagnosisRoomConsultationEvidenceRequest
+	EvidenceCollectionSuggestions []DiagnosisRoomConsultationEvidenceRequest
+	ConclusionStatus              string
 }
 
 // DiagnosisRoomFinalConclusion is the close-time conclusion snapshot returned
