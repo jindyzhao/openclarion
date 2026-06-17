@@ -79,7 +79,7 @@ export function formStateToWriteRequest(
     return { ok: false, message: "Template name must be 120 characters or fewer." };
   }
   if (!positiveInteger(form.alertSourceProfileID)) {
-    return { ok: false, message: "Alert source ID must be a positive integer." };
+    return { ok: false, message: "Select an alert source." };
   }
   if (!isDiagnosisToolKind(form.tool)) {
     return { ok: false, message: "Tool kind is unsupported." };

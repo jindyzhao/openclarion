@@ -30,7 +30,7 @@ func TestDiagnosisRoomWorkflow_SubmitTurnQueryAndCloseSignal(t *testing.T) {
 		env.UpdateWorkflow(
 			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
 			"submit-1",
-			update.callback(t),
+			update.callbackWithQueryAndClose(t, env, &queried, &queryErr, "user_done"),
 			temporalpkg.SubmitDiagnosisTurnRequest{
 				MessageID:    "msg-1",
 				ActorSubject: "owner-1",
@@ -38,15 +38,6 @@ func TestDiagnosisRoomWorkflow_SubmitTurnQueryAndCloseSignal(t *testing.T) {
 			},
 		)
 	}, time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		encoded, err := env.QueryWorkflow(temporalpkg.DiagnosisRoomStateQuery)
-		if err != nil {
-			queryErr = err
-			return
-		}
-		queryErr = encoded.Get(&queried)
-		env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{Reason: "user_done"})
-	}, 50*time.Millisecond)
 
 	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
 	assertRoomWorkflowCompleted(t, env)
@@ -123,7 +114,7 @@ func TestDiagnosisRoomWorkflow_QueryShowsFinalConclusionAfterFinalTurn(t *testin
 		env.UpdateWorkflow(
 			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
 			"submit-final",
-			update.callback(t),
+			update.callbackWithQueryAndClose(t, env, &queried, &queryErr, "user_done"),
 			temporalpkg.SubmitDiagnosisTurnRequest{
 				MessageID:    "msg-final",
 				ActorSubject: "owner-1",
@@ -131,15 +122,6 @@ func TestDiagnosisRoomWorkflow_QueryShowsFinalConclusionAfterFinalTurn(t *testin
 			},
 		)
 	}, time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		encoded, err := env.QueryWorkflow(temporalpkg.DiagnosisRoomStateQuery)
-		if err != nil {
-			queryErr = err
-			return
-		}
-		queryErr = encoded.Get(&queried)
-		env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{Reason: "user_done"})
-	}, 50*time.Millisecond)
 
 	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
 	assertRoomWorkflowCompleted(t, env)
@@ -358,19 +340,10 @@ func TestDiagnosisRoomWorkflow_AutoEvidenceFollowUpUsesCollectedEvidence(t *test
 		env.UpdateWorkflow(
 			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
 			"submit-auto",
-			update.callback(t),
+			update.callbackWithQueryAndClose(t, env, &queried, &queryErr, "done"),
 			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-1", ActorSubject: "owner-1", Message: "Start diagnosis"},
 		)
 	}, time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		encoded, err := env.QueryWorkflow(temporalpkg.DiagnosisRoomStateQuery)
-		if err != nil {
-			queryErr = err
-			return
-		}
-		queryErr = encoded.Get(&queried)
-		env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"})
-	}, 100*time.Millisecond)
 
 	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
 	assertRoomWorkflowCompleted(t, env)
@@ -450,19 +423,10 @@ func TestDiagnosisRoomWorkflow_AutoEvidenceFollowUpCanBeDisabled(t *testing.T) {
 		env.UpdateWorkflow(
 			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
 			"submit-auto-disabled",
-			update.callback(t),
+			update.callbackWithQueryAndClose(t, env, &queried, &queryErr, "done"),
 			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-1", ActorSubject: "owner-1", Message: "Start diagnosis"},
 		)
 	}, time.Millisecond)
-	env.RegisterDelayedCallback(func() {
-		encoded, err := env.QueryWorkflow(temporalpkg.DiagnosisRoomStateQuery)
-		if err != nil {
-			queryErr = err
-			return
-		}
-		queryErr = encoded.Get(&queried)
-		env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"})
-	}, 50*time.Millisecond)
 
 	input := defaultRoomInput()
 	input.Policy = diagnosisroom.DefaultPolicy()
@@ -717,6 +681,38 @@ func (c *captureSubmitTurnUpdate) callback(t *testing.T) *testsuite.TestUpdateCa
 			c.result = result
 		},
 	}
+}
+
+func (c *captureSubmitTurnUpdate) callbackWithQueryAndClose(
+	t *testing.T,
+	env *testsuite.TestWorkflowEnvironment,
+	queried *temporalpkg.DiagnosisRoomWorkflowState,
+	queryErr *error,
+	closeReason string,
+) *testsuite.TestUpdateCallback {
+	t.Helper()
+	callback := c.callback(t)
+	onComplete := callback.OnComplete
+	callback.OnComplete = func(success interface{}, err error) {
+		onComplete(success, err)
+		if err != nil {
+			return
+		}
+		*queryErr = queryDiagnosisRoomWorkflowState(env, queried)
+		env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{Reason: closeReason})
+	}
+	return callback
+}
+
+func queryDiagnosisRoomWorkflowState(
+	env *testsuite.TestWorkflowEnvironment,
+	queried *temporalpkg.DiagnosisRoomWorkflowState,
+) error {
+	encoded, err := env.QueryWorkflow(temporalpkg.DiagnosisRoomStateQuery)
+	if err != nil {
+		return err
+	}
+	return encoded.Get(queried)
 }
 
 func defaultRoomInput() temporalpkg.DiagnosisRoomWorkflowInput {

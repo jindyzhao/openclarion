@@ -83,6 +83,11 @@ test("settings overview route renders the alert operations configuration graph",
   await expect(page.getByLabel("Retained proof targets")).toContainText("Policy replay");
   await expect(page.getByLabel("Retained proof targets")).toContainText("Scheduled trigger");
   await expect(page.getByLabel("Retained proof targets")).toContainText("Pending external inputs");
+  await expect(page.getByLabel("Active workflow topology")).toContainText("Default report workflow");
+  await expect(page.getByLabel("Active workflow topology")).toContainText("Primary Prometheus");
+  await expect(page.getByLabel("Selected alert workflow topology")).toContainText("AI room");
+  await expect(page.getByLabel("Next topology actions")).toContainText("Enable diagnosis tools");
+  await expect(page.getByLabel("Next topology actions")).toContainText("Run impact preview");
   await expect(page.getByLabel("Settings surfaces")).toContainText("Ready");
   await expect(page.getByText("Live proof gate")).toBeVisible();
   await expect(page.getByText(/configuration objects/)).toBeVisible();
@@ -93,6 +98,8 @@ test("alert source settings route lists and creates profiles", async ({ page }) 
 
   await expect(page.getByRole("heading", { name: "Alert Sources" })).toBeVisible();
   await expect(page.getByText("Primary Prometheus")).toBeVisible();
+  const stagingAlertmanagerRow = page.getByRole("row", { name: /Staging Alertmanager/ });
+  await expect(stagingAlertmanagerRow).toContainText("/api/v1/alert-sources/2/webhooks/alertmanager");
 
   const primaryPrometheusRow = page.getByRole("row", { name: /Primary Prometheus/ });
   await primaryPrometheusRow.getByRole("button", { name: "Test" }).click();
@@ -146,12 +153,21 @@ test("report workflow policy settings route creates and toggles policies", async
   await page.goto("/settings/report-workflow-policies");
 
   await expect(page.getByRole("heading", { name: "Workflow Policies" })).toBeVisible();
-  await expect(page.getByText("Default report workflow")).toBeVisible();
+  await expect(page.getByRole("row", { name: /Default report workflow/ })).toBeVisible();
+  await expect(page.getByLabel("AI consultation workflow readiness")).toContainText("Default report workflow");
+  await expect(page.getByLabel("AI consultation workflow readiness")).toContainText("AI room");
+  await expect(page.getByLabel("AI consultation workflow counters")).toContainText("Room-ready policies");
 
   const settingsForm = page.locator("form");
   await page.getByLabel("Name").fill("Cascade report workflow");
-  await page.getByLabel("Alert source ID").fill("1");
-  await page.getByLabel("Grouping policy ID").fill("1");
+  const alertSourceSelect = settingsForm.getByRole("combobox", { name: /Alert source/ });
+  await alertSourceSelect.click();
+  await alertSourceSelect.fill("Primary Prometheus");
+  await alertSourceSelect.press("Enter");
+  const groupingPolicySelect = settingsForm.getByRole("combobox", { name: /Grouping policy/ });
+  await groupingPolicySelect.click();
+  await groupingPolicySelect.fill("Default alert grouping");
+  await groupingPolicySelect.press("Enter");
   await settingsForm.getByText("Suggest room", { exact: true }).click();
   await settingsForm.getByRole("button", { name: "Save Policy" }).click();
 
@@ -164,6 +180,7 @@ test("report workflow policy settings route creates and toggles policies", async
   const impactDialog = page.getByRole("dialog", { name: /Impact Preview/ });
   await expect(impactDialog).toContainText("ok");
   await expect(impactDialog).toContainText("HighCPU");
+  await expect(page.getByLabel("AI consultation workflow counters")).toContainText("Ready previews");
   await impactDialog.locator("button").filter({ hasText: "Close" }).click();
   await expect(impactDialog).toBeHidden();
 
@@ -193,7 +210,10 @@ test("report workflow schedule settings route creates and toggles schedules", as
 
   const settingsForm = page.locator("form");
   await page.getByLabel("Name").fill("Six-hour report window");
-  await page.getByLabel("Report workflow policy ID").fill("1");
+  const workflowPolicySelect = settingsForm.getByRole("combobox", { name: /Report workflow policy/ });
+  await workflowPolicySelect.click();
+  await workflowPolicySelect.fill("Default report workflow");
+  await workflowPolicySelect.press("Enter");
   await page.getByLabel("Temporal Schedule ID").fill("openclarion-report-policy-1-6h");
   await page.getByLabel("Interval seconds").fill("21600");
   await page.getByLabel("Offset seconds").fill("0");
@@ -225,7 +245,10 @@ test("diagnosis tool template settings route creates and toggles templates", asy
 
   const settingsForm = page.locator("form");
   await page.getByLabel("Name").fill("Memory pressure range");
-  await page.getByLabel("Alert source ID").fill("1");
+  const alertSourceSelect = settingsForm.getByRole("combobox", { name: /Alert source/ });
+  await alertSourceSelect.click();
+  await alertSourceSelect.fill("Primary Prometheus");
+  await alertSourceSelect.press("Enter");
   await settingsForm.getByText("Range", { exact: true }).click();
   await page.getByLabel("Query template").fill("container_memory_working_set_bytes");
   await page.getByLabel("Default limit").fill("5");

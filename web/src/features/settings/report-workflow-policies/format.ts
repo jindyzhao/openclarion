@@ -15,7 +15,7 @@ export function emptyReportWorkflowPolicyForm(): ReportWorkflowPolicyFormState {
     name: "",
     alertSourceProfileID: null,
     groupingPolicyID: null,
-    reportNotificationChannelProfileID: null,
+    reportNotificationChannelProfileID: undefined,
     triggerMode: "manual_replay",
     reportScenario: "single_alert",
     diagnosisFollowUp: "disabled"
@@ -39,7 +39,7 @@ export function policyToFormState(policy: ReportWorkflowPolicy): ReportWorkflowP
     name: policy.name,
     alertSourceProfileID: policy.alert_source_profile_id,
     groupingPolicyID: policy.grouping_policy_id,
-    reportNotificationChannelProfileID: policy.report_notification_channel_profile_id,
+    reportNotificationChannelProfileID: policy.report_notification_channel_profile_id ?? undefined,
     triggerMode: policy.trigger_mode,
     reportScenario: policy.report_scenario,
     diagnosisFollowUp: policy.diagnosis_follow_up
@@ -97,13 +97,13 @@ export function formStateToWriteRequest(
     return { ok: false, message: "Policy name must be 120 characters or fewer." };
   }
   if (!positiveInteger(form.alertSourceProfileID)) {
-    return { ok: false, message: "Alert source profile ID must be a positive integer." };
+    return { ok: false, message: "Select an alert source." };
   }
   if (!positiveInteger(form.groupingPolicyID)) {
-    return { ok: false, message: "Grouping policy ID must be a positive integer." };
+    return { ok: false, message: "Select a grouping policy." };
   }
-  if (form.reportNotificationChannelProfileID !== null && !positiveInteger(form.reportNotificationChannelProfileID)) {
-    return { ok: false, message: "Report notification channel ID must be a positive integer." };
+  if (form.reportNotificationChannelProfileID !== undefined && !positiveInteger(form.reportNotificationChannelProfileID)) {
+    return { ok: false, message: "Select a valid report notification channel." };
   }
   return {
     ok: true,
@@ -111,7 +111,7 @@ export function formStateToWriteRequest(
       name,
       alert_source_profile_id: form.alertSourceProfileID,
       grouping_policy_id: form.groupingPolicyID,
-      report_notification_channel_profile_id: form.reportNotificationChannelProfileID,
+      report_notification_channel_profile_id: form.reportNotificationChannelProfileID ?? null,
       trigger_mode: form.triggerMode,
       report_scenario: form.reportScenario,
       diagnosis_follow_up: form.diagnosisFollowUp

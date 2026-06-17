@@ -26,6 +26,7 @@ import {
   Select,
   Space,
   Statistic,
+  Steps,
   Table,
   Tag,
   Typography
@@ -42,6 +43,12 @@ import {
   useSettingsList,
   useSettingsMutation
 } from "../query-state";
+import type { AlertSourceProfile, AlertSourceProfileListResponse } from "../alert-sources/types";
+import type { GroupingPolicy, GroupingPolicyListResponse } from "../grouping-policies/types";
+import type {
+  NotificationChannelProfile,
+  NotificationChannelProfileListResponse
+} from "../notification-channels/types";
 import {
   disableReportWorkflowPolicyAction,
   enableReportWorkflowPolicyAction,
@@ -69,6 +76,9 @@ import type {
 } from "./types";
 
 type ReportWorkflowPolicySettingsManagerProps = {
+  alertSourcesResult: ApiResult<AlertSourceProfileListResponse>;
+  groupingPoliciesResult: ApiResult<GroupingPolicyListResponse>;
+  notificationChannelsResult: ApiResult<NotificationChannelProfileListResponse>;
   result: ApiResult<ReportWorkflowPolicyListResponse>;
 };
 
@@ -91,7 +101,29 @@ type ReplayVariables = {
 
 type ImpactPreviewGroup = ReportWorkflowPolicyImpactPreviewResult["groups"][number];
 
-export function ReportWorkflowPolicySettingsManager({ result }: ReportWorkflowPolicySettingsManagerProps) {
+type RelationSelectOption = {
+  label: string;
+  title: string;
+  value: number;
+};
+
+type WorkflowRelationOptions = {
+  alertSourceLabels: Record<number, string>;
+  alertSourceOptions: RelationSelectOption[];
+  groupingPolicyLabels: Record<number, string>;
+  groupingPolicyOptions: RelationSelectOption[];
+  notificationChannelLabels: Record<number, string>;
+  notificationChannelOptions: RelationSelectOption[];
+  reportNotificationChannelIDs: Set<number>;
+  warnings: string[];
+};
+
+export function ReportWorkflowPolicySettingsManager({
+  alertSourcesResult,
+  groupingPoliciesResult,
+  notificationChannelsResult,
+  result
+}: ReportWorkflowPolicySettingsManagerProps) {
   const [form] = Form.useForm<ReportWorkflowPolicyFormState>();
   const [replayForm] = Form.useForm<ReportWorkflowPolicyReplayFormState>();
   const [editingID, setEditingID] = useState<number | null>(null);
@@ -133,6 +165,10 @@ export function ReportWorkflowPolicySettingsManager({ result }: ReportWorkflowPo
     enablementAction.isPending ||
     replayAction.isPending ||
     impactingID !== null;
+  const relationOptions = useMemo(
+    () => buildRelationOptions(alertSourcesResult, groupingPoliciesResult, notificationChannelsResult),
+    [alertSourcesResult, groupingPoliciesResult, notificationChannelsResult]
+  );
 
   const summary = useMemo(() => {
     const enabled = policies.filter((policy) => policy.enabled).length;
@@ -255,6 +291,18 @@ export function ReportWorkflowPolicySettingsManager({ result }: ReportWorkflowPo
         <MetricCard label="Room follow-up" value={summary.roomFollowUp} />
       </Row>
 
+      <WorkflowReadinessPanel impactResults={impactResults} policies={policies} relationOptions={relationOptions} />
+
+      {relationOptions.warnings.length > 0 ? (
+        <Alert
+          description={relationOptions.warnings.join(" ")}
+          message="Related configuration unavailable"
+          role="status"
+          showIcon
+          type="warning"
+        />
+      ) : null}
+
       {notice ? <Notice notice={notice} /> : null}
 
       <Row align="top" className="settings-console-grid" gutter={[16, 16]}>
@@ -290,26 +338,42 @@ export function ReportWorkflowPolicySettingsManager({ result }: ReportWorkflowPo
               <Row gutter={12}>
                 <Col sm={12} xs={24}>
                   <Form.Item
-                    label="Alert source ID"
+                    label="Alert source"
                     name="alertSourceProfileID"
-                    rules={[{ required: true, message: "Alert source profile ID is required." }]}
+                    rules={[{ required: true, message: "Alert source is required." }]}
                   >
-                    <InputNumber min={1} precision={0} style={{ width: "100%" }} />
+                    <Select
+                      optionFilterProp="label"
+                      options={relationOptions.alertSourceOptions}
+                      placeholder="Select alert source"
+                      showSearch
+                    />
                   </Form.Item>
                 </Col>
                 <Col sm={12} xs={24}>
                   <Form.Item
-                    label="Grouping policy ID"
+                    label="Grouping policy"
                     name="groupingPolicyID"
-                    rules={[{ required: true, message: "Grouping policy ID is required." }]}
+                    rules={[{ required: true, message: "Grouping policy is required." }]}
                   >
-                    <InputNumber min={1} precision={0} style={{ width: "100%" }} />
+                    <Select
+                      optionFilterProp="label"
+                      options={relationOptions.groupingPolicyOptions}
+                      placeholder="Select grouping policy"
+                      showSearch
+                    />
                   </Form.Item>
                 </Col>
               </Row>
 
-              <Form.Item label="Report channel ID" name="reportNotificationChannelProfileID">
-                <InputNumber min={1} precision={0} style={{ width: "100%" }} />
+              <Form.Item label="Report channel" name="reportNotificationChannelProfileID">
+                <Select
+                  allowClear
+                  optionFilterProp="label"
+                  options={relationOptions.notificationChannelOptions}
+                  placeholder="No report channel"
+                  showSearch
+                />
               </Form.Item>
 
               <Form.Item label="Trigger" name="triggerMode" rules={[{ required: true, message: "Trigger is required." }]}>
@@ -376,6 +440,7 @@ export function ReportWorkflowPolicySettingsManager({ result }: ReportWorkflowPo
               impactResults={impactResults}
               impactingID={impactingID}
               policies={policies}
+              relationOptions={relationOptions}
             />
           </Card>
         </Col>
@@ -396,6 +461,289 @@ export function ReportWorkflowPolicySettingsManager({ result }: ReportWorkflowPo
       />
     </div>
   );
+}
+
+type ReadinessStatus = "ready" | "review" | "pending" | "blocked";
+
+type WorkflowStage = {
+  detail: string;
+  status: ReadinessStatus;
+  title: string;
+};
+
+function buildRelationOptions(
+  alertSourcesResult: ApiResult<AlertSourceProfileListResponse>,
+  groupingPoliciesResult: ApiResult<GroupingPolicyListResponse>,
+  notificationChannelsResult: ApiResult<NotificationChannelProfileListResponse>
+): WorkflowRelationOptions {
+  const warnings: string[] = [];
+  const alertSources = alertSourcesResult.ok ? alertSourcesResult.data.items : [];
+  const groupingPolicies = groupingPoliciesResult.ok ? groupingPoliciesResult.data.items : [];
+  const notificationChannels = notificationChannelsResult.ok ? notificationChannelsResult.data.items : [];
+  const reportNotificationChannels = notificationChannels.filter((channel) =>
+    channel.delivery_scopes.includes("report")
+  );
+
+  if (!alertSourcesResult.ok) {
+    warnings.push(`Alert sources failed to load: ${alertSourcesResult.error.message}.`);
+  }
+  if (!groupingPoliciesResult.ok) {
+    warnings.push(`Grouping policies failed to load: ${groupingPoliciesResult.error.message}.`);
+  }
+  if (!notificationChannelsResult.ok) {
+    warnings.push(`Notification channels failed to load: ${notificationChannelsResult.error.message}.`);
+  }
+
+  return {
+    alertSourceLabels: Object.fromEntries(alertSources.map((source) => [source.id, alertSourceLabel(source)])),
+    alertSourceOptions: alertSources.map((source) => relationOption(source.id, alertSourceLabel(source))),
+    groupingPolicyLabels: Object.fromEntries(groupingPolicies.map((policy) => [policy.id, groupingPolicyLabel(policy)])),
+    groupingPolicyOptions: groupingPolicies.map((policy) => relationOption(policy.id, groupingPolicyLabel(policy))),
+    notificationChannelLabels: Object.fromEntries(
+      notificationChannels.map((channel) => [channel.id, notificationChannelLabel(channel)])
+    ),
+    notificationChannelOptions: reportNotificationChannels.map((channel) =>
+      relationOption(channel.id, notificationChannelLabel(channel))
+    ),
+    reportNotificationChannelIDs: new Set(reportNotificationChannels.map((channel) => channel.id)),
+    warnings
+  };
+}
+
+function relationOption(value: number, label: string): RelationSelectOption {
+  return { value, label, title: label };
+}
+
+function alertSourceLabel(source: AlertSourceProfile): string {
+  return `#${source.id} ${source.name} (${source.kind}, ${enabledLabel(source.enabled)})`;
+}
+
+function groupingPolicyLabel(policy: GroupingPolicy): string {
+  const dimensions = policy.dimension_keys.length === 0 ? "no dimensions" : policy.dimension_keys.join(", ");
+  return `#${policy.id} ${policy.name} (${dimensions}, ${enabledLabel(policy.enabled)})`;
+}
+
+function notificationChannelLabel(channel: NotificationChannelProfile): string {
+  const scopes = channel.delivery_scopes.length === 0 ? "no scopes" : channel.delivery_scopes.join(", ");
+  return `#${channel.id} ${channel.name} (${scopes}, ${enabledLabel(channel.enabled)})`;
+}
+
+function enabledLabel(enabled: boolean): string {
+  return enabled ? "enabled" : "disabled";
+}
+
+function relationLabel(labels: Record<number, string>, id: number, fallback: string): string {
+  return labels[id] ?? fallback;
+}
+
+function WorkflowReadinessPanel({
+  impactResults,
+  policies,
+  relationOptions
+}: {
+  impactResults: Record<number, ReportWorkflowPolicyImpactPreviewResult>;
+  policies: ReportWorkflowPolicy[];
+  relationOptions: WorkflowRelationOptions;
+}) {
+  const selectedPolicy = selectReadinessPolicy(policies);
+  const impact = selectedPolicy === null ? undefined : impactResults[selectedPolicy.id];
+  const stages = selectedPolicy === null ? [] : workflowStages(selectedPolicy, impact, relationOptions);
+  const firstUnreadyStage = stages.findIndex((stage) => stage.status !== "ready");
+  const currentStep = firstUnreadyStage === -1 ? stages.length : firstUnreadyStage;
+  const activeRoomPolicies = policies.filter((policy) => policy.enabled && policy.diagnosis_follow_up === "suggest_room")
+    .length;
+  const reportDeliveryPolicies = policies.filter(
+    (policy) => policy.enabled && policy.report_notification_channel_profile_id !== null
+  ).length;
+  const readyPreviews = policies.filter((policy) => impactResults[policy.id]?.status === "ready").length;
+  const blockedPreviews = policies.filter((policy) => impactResults[policy.id]?.status === "blocked").length;
+  const overallStatus = selectedPolicy === null ? "pending" : workflowOverallStatus(stages);
+
+  return (
+    <section aria-label="AI consultation workflow readiness" className="panel workflow-readiness-panel">
+      <div className="panel-header workflow-readiness-header">
+        <h2>AI Consultation Workflow</h2>
+        <Tag color={readinessTagColor(overallStatus)}>{readinessLabel(overallStatus)}</Tag>
+      </div>
+      <div className="panel-body workflow-readiness-body">
+        {selectedPolicy === null ? (
+          <Empty description="No workflow policy configured." image={<BranchesOutlined aria-hidden />} />
+        ) : (
+          <>
+            <div className="workflow-readiness-selected">
+              <div>
+                <Typography.Text className="muted">Selected policy</Typography.Text>
+                <Typography.Title level={3}>{selectedPolicy.name}</Typography.Title>
+              </div>
+              <Space wrap>
+                <Tag color={selectedPolicy.enabled ? "green" : "default"}>
+                  {selectedPolicy.enabled ? "Enabled" : "Draft"}
+                </Tag>
+                <Tag color={selectedPolicy.diagnosis_follow_up === "suggest_room" ? "blue" : "default"}>
+                  {selectedPolicy.diagnosis_follow_up}
+                </Tag>
+                {impact ? <Tag color={impactStatusColor(impact.status)}>Impact {impact.status}</Tag> : <Tag>Impact pending</Tag>}
+              </Space>
+            </div>
+
+            <div className="workflow-readiness-steps-wrap">
+              <Steps
+                aria-label="Selected policy readiness"
+                className="workflow-readiness-steps"
+                current={currentStep}
+                items={stages.map((stage) => ({
+                  description: stage.detail,
+                  status: readinessStepStatus(stage.status),
+                  title: stage.title
+                }))}
+                responsive={false}
+              />
+            </div>
+          </>
+        )}
+
+        <Row aria-label="AI consultation workflow counters" gutter={[12, 12]}>
+          <ReadinessMetric label="Room-ready policies" status="ready" value={activeRoomPolicies} />
+          <ReadinessMetric label="Report delivery" status={reportDeliveryPolicies > 0 ? "ready" : "pending"} value={reportDeliveryPolicies} />
+          <ReadinessMetric label="Ready previews" status={readyPreviews > 0 ? "ready" : "pending"} value={readyPreviews} />
+          <ReadinessMetric label="Blocked previews" status={blockedPreviews > 0 ? "blocked" : "ready"} value={blockedPreviews} />
+        </Row>
+      </div>
+    </section>
+  );
+}
+
+function ReadinessMetric({ label, status, value }: { label: string; status: ReadinessStatus; value: number }) {
+  return (
+    <Col lg={6} sm={12} xs={24}>
+      <div className="workflow-readiness-metric">
+        <div className="workflow-readiness-metric-value">{value}</div>
+        <div className="workflow-readiness-metric-footer">
+          <Typography.Text className="muted">{label}</Typography.Text>
+          <Tag color={readinessTagColor(status)}>{readinessLabel(status)}</Tag>
+        </div>
+      </div>
+    </Col>
+  );
+}
+
+function selectReadinessPolicy(policies: ReportWorkflowPolicy[]): ReportWorkflowPolicy | null {
+  return (
+    policies.find((policy) => policy.enabled && policy.diagnosis_follow_up === "suggest_room") ??
+    policies.find((policy) => policy.enabled) ??
+    policies[0] ??
+    null
+  );
+}
+
+function workflowStages(
+  policy: ReportWorkflowPolicy,
+  impact: ReportWorkflowPolicyImpactPreviewResult | undefined,
+  relationOptions: WorkflowRelationOptions
+): WorkflowStage[] {
+  const reportChannelHasScope =
+    policy.report_notification_channel_profile_id === null ||
+    relationOptions.reportNotificationChannelIDs.has(policy.report_notification_channel_profile_id);
+  return [
+    {
+      title: "Source",
+      detail: relationLabel(
+        relationOptions.alertSourceLabels,
+        policy.alert_source_profile_id,
+        `Alert source #${policy.alert_source_profile_id}`
+      ),
+      status: "ready"
+    },
+    {
+      title: "Grouping",
+      detail: relationLabel(
+        relationOptions.groupingPolicyLabels,
+        policy.grouping_policy_id,
+        `Grouping policy #${policy.grouping_policy_id}`
+      ),
+      status: "ready"
+    },
+    {
+      title: "AI room",
+      detail: policy.diagnosis_follow_up === "suggest_room" ? "Diagnosis room suggested" : "Follow-up disabled",
+      status: policy.diagnosis_follow_up === "suggest_room" ? "ready" : "blocked"
+    },
+    {
+      title: "Delivery",
+      detail:
+        policy.report_notification_channel_profile_id === null
+          ? "No report channel"
+          : reportChannelHasScope
+            ? relationLabel(
+                relationOptions.notificationChannelLabels,
+                policy.report_notification_channel_profile_id,
+                `Report channel #${policy.report_notification_channel_profile_id}`
+              )
+            : `${relationLabel(
+                relationOptions.notificationChannelLabels,
+                policy.report_notification_channel_profile_id,
+                `Report channel #${policy.report_notification_channel_profile_id}`
+              )} lacks report scope`,
+      status: policy.report_notification_channel_profile_id === null ? "pending" : reportChannelHasScope ? "ready" : "blocked"
+    },
+    {
+      title: "Proof",
+      detail: impact ? `${impact.groups_estimated} groups / ${impact.events_matched} events` : "Impact not previewed",
+      status: impact ? impact.status : "pending"
+    }
+  ];
+}
+
+function workflowOverallStatus(stages: WorkflowStage[]): ReadinessStatus {
+  if (stages.some((stage) => stage.status === "blocked")) {
+    return "blocked";
+  }
+  if (stages.some((stage) => stage.status === "review")) {
+    return "review";
+  }
+  if (stages.some((stage) => stage.status === "pending")) {
+    return "pending";
+  }
+  return "ready";
+}
+
+function readinessStepStatus(status: ReadinessStatus) {
+  switch (status) {
+    case "ready":
+      return "finish";
+    case "review":
+      return "process";
+    case "pending":
+      return "wait";
+    case "blocked":
+      return "error";
+  }
+}
+
+function readinessTagColor(status: ReadinessStatus) {
+  switch (status) {
+    case "ready":
+      return "green";
+    case "review":
+      return "gold";
+    case "pending":
+      return "default";
+    case "blocked":
+      return "red";
+  }
+}
+
+function readinessLabel(status: ReadinessStatus): string {
+  switch (status) {
+    case "ready":
+      return "Ready";
+    case "review":
+      return "Review";
+    case "pending":
+      return "Pending";
+    case "blocked":
+      return "Blocked";
+  }
 }
 
 function MetricCard({ label, value }: { label: string; value: number }) {
@@ -431,6 +779,7 @@ type ReportWorkflowPolicyTableProps = {
   onImpactPreview: (policy: ReportWorkflowPolicy) => void;
   onReplay: (policy: ReportWorkflowPolicy) => void;
   policies: ReportWorkflowPolicy[];
+  relationOptions: WorkflowRelationOptions;
 };
 
 function ReportWorkflowPolicyTable({
@@ -443,7 +792,8 @@ function ReportWorkflowPolicyTable({
   onEnable,
   onImpactPreview,
   onReplay,
-  policies
+  policies,
+  relationOptions
 }: ReportWorkflowPolicyTableProps) {
   const columns: TableColumnsType<ReportWorkflowPolicy> = [
     {
@@ -453,7 +803,18 @@ function ReportWorkflowPolicyTable({
         <Space direction="vertical" size={2}>
           <Typography.Text strong>{policy.name}</Typography.Text>
           <Typography.Text type="secondary">
-            Source #{policy.alert_source_profile_id} / Grouping #{policy.grouping_policy_id}
+            {relationLabel(
+              relationOptions.alertSourceLabels,
+              policy.alert_source_profile_id,
+              `Source #${policy.alert_source_profile_id}`
+            )}
+          </Typography.Text>
+          <Typography.Text type="secondary">
+            {relationLabel(
+              relationOptions.groupingPolicyLabels,
+              policy.grouping_policy_id,
+              `Grouping #${policy.grouping_policy_id}`
+            )}
           </Typography.Text>
         </Space>
       )
@@ -477,7 +838,13 @@ function ReportWorkflowPolicyTable({
       key: "reportChannel",
       title: "Report channel",
       render: (profileID: ReportWorkflowPolicy["report_notification_channel_profile_id"]) =>
-        profileID === null ? <Tag>None</Tag> : <Tag color="geekblue">#{profileID}</Tag>
+        profileID === null ? (
+          <Tag>None</Tag>
+        ) : (
+          <Tag color="geekblue">
+            {relationLabel(relationOptions.notificationChannelLabels, profileID, `#${profileID}`)}
+          </Tag>
+        )
     },
     {
       dataIndex: "enabled",

@@ -45,7 +45,7 @@ describe("report workflow policy form formatting", () => {
 
     expect(parsed).toEqual({
       ok: false,
-      message: "Alert source profile ID must be a positive integer."
+      message: "Select an alert source."
     });
   });
 
@@ -60,7 +60,7 @@ describe("report workflow policy form formatting", () => {
 
     expect(parsed).toEqual({
       ok: false,
-      message: "Report notification channel ID must be a positive integer."
+      message: "Select a valid report notification channel."
     });
   });
 

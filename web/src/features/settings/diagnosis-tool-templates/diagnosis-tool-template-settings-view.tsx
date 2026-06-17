@@ -20,6 +20,7 @@ import {
   InputNumber,
   Row,
   Segmented,
+  Select,
   Space,
   Statistic,
   Table,
@@ -38,6 +39,7 @@ import {
   useSettingsList,
   useSettingsMutation
 } from "../query-state";
+import type { AlertSourceProfile, AlertSourceProfileListResponse } from "../alert-sources/types";
 import {
   disableDiagnosisToolTemplateAction,
   enableDiagnosisToolTemplateAction,
@@ -60,6 +62,7 @@ import type {
 } from "./types";
 
 type DiagnosisToolTemplateSettingsManagerProps = {
+  alertSourcesResult: ApiResult<AlertSourceProfileListResponse>;
   result: ApiResult<DiagnosisToolTemplateListResponse>;
 };
 
@@ -75,7 +78,22 @@ type EnablementVariables = {
   templateID: number;
 };
 
-export function DiagnosisToolTemplateSettingsManager({ result }: DiagnosisToolTemplateSettingsManagerProps) {
+type RelationSelectOption = {
+  label: string;
+  title: string;
+  value: number;
+};
+
+type ToolTemplateRelationOptions = {
+  alertSourceLabels: Record<number, string>;
+  alertSourceOptions: RelationSelectOption[];
+  warnings: string[];
+};
+
+export function DiagnosisToolTemplateSettingsManager({
+  alertSourcesResult,
+  result
+}: DiagnosisToolTemplateSettingsManagerProps) {
   const [form] = Form.useForm<DiagnosisToolTemplateFormState>();
   const [editingID, setEditingID] = useState<number | null>(null);
   const [actionID, setActionID] = useState<number | null>(null);
@@ -102,6 +120,7 @@ export function DiagnosisToolTemplateSettingsManager({ result }: DiagnosisToolTe
       enabled ? enableDiagnosisToolTemplateAction(templateID) : disableDiagnosisToolTemplateAction(templateID)
   });
   const busy = query.isFetching || saveTemplate.isPending || enablementAction.isPending;
+  const relationOptions = useMemo(() => buildToolTemplateRelationOptions(alertSourcesResult), [alertSourcesResult]);
   const selectedTool = Form.useWatch("tool", form) ?? "active_alerts";
   const rangeTool = selectedTool === "metric_range_query";
   const queryTool = selectedTool !== "active_alerts";
@@ -178,6 +197,15 @@ export function DiagnosisToolTemplateSettingsManager({ result }: DiagnosisToolTe
       </Row>
 
       {notice ? <Notice notice={notice} /> : null}
+      {relationOptions.warnings.length > 0 ? (
+        <Alert
+          description={relationOptions.warnings.join(" ")}
+          message="Related configuration unavailable"
+          role="status"
+          showIcon
+          type="warning"
+        />
+      ) : null}
 
       <Row align="top" className="settings-console-grid" gutter={[16, 16]}>
         <Col lg={8} md={24} xs={24}>
@@ -211,11 +239,16 @@ export function DiagnosisToolTemplateSettingsManager({ result }: DiagnosisToolTe
               </Form.Item>
 
               <Form.Item
-                label="Alert source ID"
+                label="Alert source"
                 name="alertSourceProfileID"
-                rules={[{ required: true, message: "Alert source ID is required." }]}
+                rules={[{ required: true, message: "Alert source is required." }]}
               >
-                <InputNumber min={1} precision={0} style={{ width: "100%" }} />
+                <Select
+                  optionFilterProp="label"
+                  options={relationOptions.alertSourceOptions}
+                  placeholder="Select alert source"
+                  showSearch
+                />
               </Form.Item>
 
               <Form.Item label="Tool" name="tool" rules={[{ required: true, message: "Tool is required." }]}>
@@ -313,6 +346,7 @@ export function DiagnosisToolTemplateSettingsManager({ result }: DiagnosisToolTe
               onDisable={(template) => handleEnablement(template, false)}
               onEdit={editTemplate}
               onEnable={(template) => handleEnablement(template, true)}
+              relationOptions={relationOptions}
               templates={templates}
             />
           </Card>
@@ -344,12 +378,46 @@ function Notice({ notice }: { notice: SettingsNotice }) {
   );
 }
 
+function buildToolTemplateRelationOptions(
+  alertSourcesResult: ApiResult<AlertSourceProfileListResponse>
+): ToolTemplateRelationOptions {
+  if (!alertSourcesResult.ok) {
+    return {
+      alertSourceLabels: {},
+      alertSourceOptions: [],
+      warnings: [`Alert sources failed to load: ${alertSourcesResult.error.message}.`]
+    };
+  }
+  return {
+    alertSourceLabels: Object.fromEntries(alertSourcesResult.data.items.map((source) => [source.id, alertSourceLabel(source)])),
+    alertSourceOptions: alertSourcesResult.data.items.map((source) => relationOption(source.id, alertSourceLabel(source))),
+    warnings: []
+  };
+}
+
+function relationOption(value: number, label: string): RelationSelectOption {
+  return { value, label, title: label };
+}
+
+function alertSourceLabel(source: AlertSourceProfile): string {
+  return `#${source.id} ${source.name} (${source.kind}, ${enabledLabel(source.enabled)})`;
+}
+
+function enabledLabel(enabled: boolean): string {
+  return enabled ? "enabled" : "disabled";
+}
+
+function relationLabel(labels: Record<number, string>, id: number, fallback: string): string {
+  return labels[id] ?? fallback;
+}
+
 type DiagnosisToolTemplateTableProps = {
   actionID: number | null;
   busy: boolean;
   onDisable: (template: DiagnosisToolTemplate) => void;
   onEdit: (template: DiagnosisToolTemplate) => void;
   onEnable: (template: DiagnosisToolTemplate) => void;
+  relationOptions: ToolTemplateRelationOptions;
   templates: DiagnosisToolTemplate[];
 };
 
@@ -359,6 +427,7 @@ function DiagnosisToolTemplateTable({
   onDisable,
   onEdit,
   onEnable,
+  relationOptions,
   templates
 }: DiagnosisToolTemplateTableProps) {
   const columns: TableColumnsType<DiagnosisToolTemplate> = [
@@ -368,7 +437,13 @@ function DiagnosisToolTemplateTable({
       render: (_, template) => (
         <Space direction="vertical" size={2}>
           <Typography.Text strong>{template.name}</Typography.Text>
-          <Typography.Text type="secondary">Source #{template.alert_source_profile_id}</Typography.Text>
+          <Typography.Text type="secondary">
+            {relationLabel(
+              relationOptions.alertSourceLabels,
+              template.alert_source_profile_id,
+              `Source #${template.alert_source_profile_id}`
+            )}
+          </Typography.Text>
           {template.query_template === "" ? null : (
             <Typography.Text className="settings-event-ids" type="secondary">
               {template.query_template}
