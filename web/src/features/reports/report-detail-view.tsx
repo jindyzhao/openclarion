@@ -72,7 +72,15 @@ function Detail({ report }: { report: FinalReportDetail }) {
           <ul className="subreport-list">
             {report.linked_sub_reports.map((subReport) => (
               <li className="subreport-item" key={subReport.id}>
-                <h3>{subReport.title}</h3>
+                <div className="subreport-item-header">
+                  <h3>{subReport.title}</h3>
+                  <Link
+                    className="link-button"
+                    href={`/diagnosis-room?evidence_snapshot_id=${subReport.evidence_snapshot_id}`}
+                  >
+                    Start diagnosis
+                  </Link>
+                </div>
                 <div className="muted">Evidence snapshot #{subReport.evidence_snapshot_id}</div>
                 <p>{subReport.summary}</p>
                 <span className={severityClass(subReport.severity)}>{subReport.severity}</span>{" "}

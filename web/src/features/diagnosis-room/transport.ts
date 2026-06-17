@@ -6,10 +6,27 @@ import type { DiagnosisServerFrame } from "./types";
 
 type DiagnosisWSTicketRequest = components["schemas"]["DiagnosisWSTicketRequest"];
 type DiagnosisWSTicketResponse = components["schemas"]["DiagnosisWSTicketResponse"];
+type DiagnosisRoomCreateRequest = components["schemas"]["DiagnosisRoomCreateRequest"];
+type DiagnosisRoomCreateResponse = components["schemas"]["DiagnosisRoomCreateResponse"];
 
 export type DiagnosisWSTicketBundle = DiagnosisWSTicketResponse & {
   websocket_url: string;
 };
+export type DiagnosisRoomCreateBundle = DiagnosisRoomCreateResponse;
+
+export async function createDiagnosisRoom(
+  bearerToken: string,
+  evidenceSnapshotID: number
+): Promise<ApiResult<DiagnosisRoomCreateResponse>> {
+  const body: DiagnosisRoomCreateRequest = { evidence_snapshot_id: evidenceSnapshotID };
+  return requestSameOriginJSON<DiagnosisRoomCreateResponse>("/api/diagnosis/rooms", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${bearerToken.trim()}`
+    },
+    body
+  });
+}
 
 export async function issueDiagnosisWSTicket(
   bearerToken: string,
