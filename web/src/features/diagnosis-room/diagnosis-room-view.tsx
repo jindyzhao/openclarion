@@ -22,12 +22,14 @@ import {
   Input,
   InputNumber,
   List,
+  Progress,
   Space,
   Tag,
+  Timeline,
   Tooltip,
   Typography
 } from "antd";
-import type { DescriptionsProps } from "antd";
+import type { DescriptionsProps, TimelineProps } from "antd";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
@@ -123,6 +125,8 @@ export function DiagnosisRoomView() {
   const [roomState, setRoomState] = useState<DiagnosisStateFrame | null>(null);
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [latestInsight, setLatestInsight] = useState<LatestConsultationInsight | null>(null);
+  const [pendingSupplementalEvidence, setPendingSupplementalEvidence] =
+    useState<DiagnosisConsultationEvidenceRequest | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const pageContext = diagnosisPageContext(searchParams);
 
@@ -220,6 +224,7 @@ export function DiagnosisRoomView() {
     setRoomState(null);
     setTranscript([]);
     setLatestInsight(null);
+    setPendingSupplementalEvidence(null);
     ticketMutation.reset();
     pushLog("info", "Requesting WebSocket ticket.");
 
@@ -315,7 +320,18 @@ export function DiagnosisRoomView() {
       return;
     }
     const messageID = nextDiagnosisMessageID();
-    sendFrame({ type: "submit_turn", message_id: messageID, message: trimmed });
+    const frame: DiagnosisClientFrame = pendingSupplementalEvidence
+      ? {
+          type: "submit_supplemental_evidence",
+          message_id: messageID,
+          message: trimmed,
+          supplemental_evidence: {
+            ...pendingSupplementalEvidence,
+            evidence: trimmed
+          }
+        }
+      : { type: "submit_turn", message_id: messageID, message: trimmed };
+    sendFrame(frame);
     setTranscript((current) => [
       ...current,
       {
@@ -324,6 +340,7 @@ export function DiagnosisRoomView() {
         content: trimmed
       }
     ]);
+    setPendingSupplementalEvidence(null);
     composerForm.resetFields();
   }
 
@@ -339,6 +356,18 @@ export function DiagnosisRoomView() {
     }
     pushLog("info", "Confirming final conclusion.");
     sendFrame({ type: "confirm_conclusion", reason: "human_confirmed" });
+  }
+
+  function handleUseSupplementalEvidence(request: DiagnosisConsultationEvidenceRequest) {
+    setPendingSupplementalEvidence(request);
+    composerForm.setFieldValue("message", supplementalEvidenceFollowUpMessage(request));
+    pushLog("info", `Prepared supplemental evidence follow-up for ${request.label}.`);
+    message.info("Supplemental evidence follow-up prepared.");
+  }
+
+  function handleClearSupplementalEvidence() {
+    setPendingSupplementalEvidence(null);
+    pushLog("info", "Cleared supplemental evidence follow-up.");
   }
 
   function handleDisconnect() {
@@ -547,6 +576,7 @@ export function DiagnosisRoomView() {
                 type="info"
               />
             ) : null}
+            <ConsultationProgressPanel latestInsight={latestInsight} />
             <div className="diagnosis-insight-grid">
               <EvidencePlanList
                 emptyDescription="No executable evidence plan"
@@ -557,11 +587,15 @@ export function DiagnosisRoomView() {
               <EvidenceRequestList
                 emptyDescription="No missing evidence requests"
                 items={latestInsight.insight.missing_evidence_requests}
+                onUseFollowUp={handleUseSupplementalEvidence}
+                followUpDisabled={!connected}
                 title="Missing Evidence"
               />
               <EvidenceRequestList
                 emptyDescription="No collection suggestions"
                 items={latestInsight.insight.evidence_collection_suggestions}
+                onUseFollowUp={handleUseSupplementalEvidence}
+                followUpDisabled={!connected}
                 title="Collection Suggestions"
               />
             </div>
@@ -590,6 +624,26 @@ export function DiagnosisRoomView() {
         )}
 
         <Form<ComposerValues> className="diagnosis-composer" form={composerForm} layout="vertical" onFinish={handleSend}>
+          {pendingSupplementalEvidence ? (
+            <Alert
+              action={
+                <Button disabled={!connected} onClick={handleClearSupplementalEvidence} size="small" type="link">
+                  Clear
+                </Button>
+              }
+              className="diagnosis-supplemental-pending"
+              message={
+                <Space size={[6, 6]} wrap>
+                  <span>Supplemental evidence</span>
+                  <Tag color={priorityColor(pendingSupplementalEvidence.priority)}>
+                    {pendingSupplementalEvidence.label}
+                  </Tag>
+                </Space>
+              }
+              showIcon
+              type="warning"
+            />
+          ) : null}
           <Form.Item label="Message" name="message" rules={[{ required: true, message: "Message is required." }]}>
             <Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} disabled={!connected} />
           </Form.Item>
@@ -624,6 +678,144 @@ export function DiagnosisRoomView() {
         </Card>
       ) : null}
     </ReportShell>
+  );
+}
+
+function ConsultationProgressPanel({ latestInsight }: { latestInsight: LatestConsultationInsight }) {
+  const confidence = confidencePercent(latestInsight.confidence);
+  const collectedCount = latestInsight.collectionResults.filter((item) => item.status === "collected").length;
+  const missingCount = latestInsight.insight.missing_evidence_requests?.length ?? 0;
+  const suggestionCount = latestInsight.insight.evidence_collection_suggestions?.length ?? 0;
+
+  return (
+    <section aria-label="Diagnosis consultation progress" className="diagnosis-progress">
+      <div className="diagnosis-progress-summary">
+        <div className="diagnosis-progress-confidence">
+          <div className="diagnosis-progress-heading">
+            <Typography.Text strong>Confidence</Typography.Text>
+            <Tag color={confidenceColor(latestInsight.confidence)}>{latestInsight.confidence || "unknown"}</Tag>
+          </div>
+          <Progress
+            aria-label="Diagnosis confidence"
+            aria-valuetext={`${latestInsight.confidence || "unknown"} confidence`}
+            percent={confidence}
+            size="small"
+            status={confidenceProgressStatus(latestInsight)}
+          />
+        </div>
+        <div aria-label="Evidence readiness" className="diagnosis-progress-metrics">
+          <ProgressMetric label="Plan" value={latestInsight.evidenceRequests.length} />
+          <ProgressMetric label="Collected" value={collectedCount} />
+          <ProgressMetric label="Missing" value={missingCount} />
+          <ProgressMetric label="Suggestions" value={suggestionCount} />
+          <ProgressMetric label="Next" value={nextDiagnosisAction(latestInsight)} wide />
+        </div>
+      </div>
+      <Timeline className="diagnosis-progress-timeline" items={consultationTimelineItems(latestInsight)} />
+    </section>
+  );
+}
+
+function ProgressMetric({ label, value, wide }: { label: string; value: number | string; wide?: boolean }) {
+  return (
+    <div className={wide ? "diagnosis-progress-metric diagnosis-progress-metric-wide" : "diagnosis-progress-metric"}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function consultationTimelineItems(latestInsight: LatestConsultationInsight): TimelineProps["items"] {
+  const conclusionStatus = latestInsight.insight.conclusion_status || "unknown";
+  const items: NonNullable<TimelineProps["items"]> = [
+    {
+      key: "draft",
+      color: conclusionStatus === "needs_evidence" ? "blue" : "green",
+      children: (
+        <TimelineStep
+          detail={`Turn ${latestInsight.turnCount} produced a ${latestInsight.confidence || "unknown"} confidence diagnosis.`}
+          title="AI drafted diagnosis"
+        />
+      )
+    }
+  ];
+
+  const supplementalRequests = [
+    ...(latestInsight.insight.missing_evidence_requests ?? []),
+    ...(latestInsight.insight.evidence_collection_suggestions ?? [])
+  ];
+  if (latestInsight.evidenceRequests.length > 0 || supplementalRequests.length > 0) {
+    items.push({
+      key: "supplemental-evidence",
+      color: "blue",
+      children: (
+        <TimelineStep
+          detail={formatSupplementalEvidenceSummary(latestInsight.evidenceRequests.length, supplementalRequests.length)}
+          tags={supplementalRequests.slice(0, 3).map((request) => ({
+            color: priorityColor(request.priority),
+            label: request.label
+          }))}
+          title="Supplemental evidence requested"
+        />
+      )
+    });
+  }
+
+  if (latestInsight.collectionResults.length > 0) {
+    items.push({
+      key: "collection",
+      color: latestInsight.collectionResults.some((item) => item.status === "failed") ? "red" : "green",
+      children: (
+        <TimelineStep
+          detail={formatCollectionProgressSummary(latestInsight.collectionResults)}
+          tags={latestInsight.collectionResults.slice(0, 3).map((item) => ({
+            color: collectionStatusColor(item.status),
+            label: item.tool
+          }))}
+          title="Executable evidence collected"
+        />
+      )
+    });
+  }
+
+  items.push({
+    key: "next-action",
+    color: conclusionStatus === "final" || conclusionStatus === "ready_for_review" ? "green" : "gray",
+    children: (
+      <TimelineStep
+        detail={`Conclusion status is ${conclusionStatus}.`}
+        tags={[{ color: conclusionStatusColor(conclusionStatus), label: conclusionStatus }]}
+        title={nextDiagnosisAction(latestInsight)}
+      />
+    )
+  });
+
+  return items;
+}
+
+function TimelineStep({
+  detail,
+  tags,
+  title
+}: {
+  detail: string;
+  tags?: Array<{ color: string; label: string }>;
+  title: string;
+}) {
+  return (
+    <div className="diagnosis-progress-step">
+      <Typography.Text strong>{title}</Typography.Text>
+      <Typography.Text type="secondary">{detail}</Typography.Text>
+      {tags && tags.length > 0 ? (
+        <Space size={[6, 6]} wrap>
+          {tags.map((tag, index) => (
+            <Tag color={tag.color} key={`${tag.label}-${index}`}>
+              {tag.label}
+            </Tag>
+          ))}
+        </Space>
+      ) : null}
+    </div>
   );
 }
 
@@ -772,11 +964,15 @@ function latestFollowUpTurn(frame: DiagnosisTurnResultFrame) {
 
 function EvidenceRequestList({
   emptyDescription,
+  followUpDisabled,
   items,
+  onUseFollowUp,
   title
 }: {
   emptyDescription: string;
+  followUpDisabled?: boolean;
   items?: DiagnosisConsultationEvidenceRequest[];
+  onUseFollowUp?: (item: DiagnosisConsultationEvidenceRequest) => void;
   title: string;
 }) {
   return (
@@ -787,7 +983,27 @@ function EvidenceRequestList({
         dataSource={items ?? []}
         locale={{ emptyText: emptyDescription }}
         renderItem={(item, index) => (
-          <List.Item className="diagnosis-evidence-item" key={consultationEvidenceRequestKey(item, index)}>
+          <List.Item
+            actions={
+              onUseFollowUp
+                ? [
+                    <Button
+                      aria-label={`Use follow-up for ${item.label}`}
+                      disabled={followUpDisabled}
+                      icon={<FormOutlined />}
+                      key="use-follow-up"
+                      onClick={() => onUseFollowUp(item)}
+                      size="small"
+                      type="link"
+                    >
+                      Use follow-up
+                    </Button>
+                  ]
+                : undefined
+            }
+            className="diagnosis-evidence-item"
+            key={consultationEvidenceRequestKey(item, index)}
+          >
             <List.Item.Meta
               description={item.detail}
               title={
@@ -1115,6 +1331,30 @@ function confidenceColor(confidence: string): string {
   }
 }
 
+function confidencePercent(confidence: string): number {
+  switch (confidence.toLowerCase()) {
+    case "high":
+      return 90;
+    case "medium":
+      return 60;
+    case "low":
+      return 35;
+    default:
+      return 10;
+  }
+}
+
+function confidenceProgressStatus(latestInsight: LatestConsultationInsight): "success" | "exception" | "normal" {
+  const status = latestInsight.insight.conclusion_status?.toLowerCase();
+  if (status === "final" || status === "ready_for_review") {
+    return "success";
+  }
+  if (latestInsight.confidence.toLowerCase() === "low") {
+    return "exception";
+  }
+  return "normal";
+}
+
 function priorityColor(priority: string): string {
   switch (priority.toLowerCase()) {
     case "high":
@@ -1123,6 +1363,20 @@ function priorityColor(priority: string): string {
       return "warning";
     case "low":
       return "processing";
+    default:
+      return "default";
+  }
+}
+
+function conclusionStatusColor(status: string): string {
+  switch (status.toLowerCase()) {
+    case "final":
+    case "ready_for_review":
+      return "success";
+    case "needs_evidence":
+      return "warning";
+    case "blocked":
+      return "error";
     default:
       return "default";
   }
@@ -1141,6 +1395,65 @@ function collectionStatusColor(status: string): string {
     default:
       return "processing";
   }
+}
+
+function nextDiagnosisAction(latestInsight: LatestConsultationInsight): string {
+  const status = latestInsight.insight.conclusion_status?.toLowerCase();
+  if (status === "final" || status === "ready_for_review") {
+    return "Ready for confirmation";
+  }
+  if ((latestInsight.insight.missing_evidence_requests?.length ?? 0) > 0) {
+    return "Collect missing evidence";
+  }
+  if (latestInsight.evidenceRequests.length > latestInsight.collectionResults.length) {
+    return "Run evidence collection";
+  }
+  if (latestInsight.requiresHumanReview) {
+    return "Review with operator";
+  }
+  return "Continue diagnosis";
+}
+
+function formatSupplementalEvidenceSummary(planCount: number, supplementalCount: number): string {
+  const parts: string[] = [];
+  if (planCount > 0) {
+    parts.push(`${planCount} executable request${planCount === 1 ? "" : "s"}`);
+  }
+  if (supplementalCount > 0) {
+    parts.push(`${supplementalCount} supplemental request${supplementalCount === 1 ? "" : "s"}`);
+  }
+  return parts.length > 0 ? parts.join(" and ") : "No supplemental evidence requested.";
+}
+
+function supplementalEvidenceFollowUpMessage(request: DiagnosisConsultationEvidenceRequest): string {
+  return [
+    "Supplemental evidence update",
+    "",
+    `Request: ${request.label}`,
+    `Priority: ${request.priority}`,
+    `Requested detail: ${request.detail}`,
+    "",
+    "Evidence provided:",
+    "- "
+  ].join("\n");
+}
+
+function formatCollectionProgressSummary(items: DiagnosisEvidenceCollectionResult[]): string {
+  const collected = items.filter((item) => item.status === "collected").length;
+  const failed = items.filter((item) => item.status === "failed").length;
+  const skipped = items.filter((item) => item.status === "skipped").length;
+  const unsupported = items.filter((item) => item.status === "unsupported").length;
+  const details = [`${collected}/${items.length} collected`];
+  if (failed > 0) {
+    details.push(`${failed} failed`);
+  }
+  if (skipped > 0) {
+    details.push(`${skipped} skipped`);
+  }
+  if (unsupported > 0) {
+    details.push(`${unsupported} unsupported`);
+  }
+  return details.join(", ");
 }
 
 function diagnosisActionErrorMessage(error: unknown): string {

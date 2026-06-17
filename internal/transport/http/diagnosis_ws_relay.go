@@ -17,9 +17,10 @@ import (
 )
 
 const (
-	diagnosisWSClientSubmitTurn = "submit_turn"
-	diagnosisWSClientQueryState = "query_state"
-	diagnosisWSClientConfirm    = "confirm_conclusion"
+	diagnosisWSClientSubmitTurn                 = "submit_turn"
+	diagnosisWSClientSubmitSupplementalEvidence = "submit_supplemental_evidence"
+	diagnosisWSClientQueryState                 = "query_state"
+	diagnosisWSClientConfirm                    = "confirm_conclusion"
 
 	diagnosisWSServerReady      = "ready"
 	diagnosisWSServerTurnResult = "turn_result"
@@ -119,7 +120,7 @@ func (r *DiagnosisWebSocketRelay) ServeDiagnosisWebSocket(ctx context.Context, c
 
 func (r *DiagnosisWebSocketRelay) handleFrame(ctx context.Context, conn *websocket.Conn, ticket diagnosisauth.Ticket, frame diagnosisWSClientFrame) error {
 	switch frame.Type {
-	case diagnosisWSClientSubmitTurn:
+	case diagnosisWSClientSubmitTurn, diagnosisWSClientSubmitSupplementalEvidence:
 		return r.handleSubmitTurn(ctx, conn, ticket, frame)
 	case diagnosisWSClientQueryState:
 		return r.handleQueryState(ctx, conn, ticket.SessionID)
@@ -138,10 +139,11 @@ func (r *DiagnosisWebSocketRelay) handleSubmitTurn(ctx context.Context, conn *we
 	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.updateTimeout)
 	defer cancel()
 	result, err := r.workflows.SubmitDiagnosisTurn(updateCtx, ports.DiagnosisRoomSubmitTurnRequest{
-		SessionID:    ticket.SessionID,
-		MessageID:    frame.MessageID,
-		ActorSubject: ticket.Subject,
-		Message:      frame.Message,
+		SessionID:            ticket.SessionID,
+		MessageID:            frame.MessageID,
+		ActorSubject:         ticket.Subject,
+		Message:              frame.Message,
+		SupplementalEvidence: diagnosisWSSupplementalEvidencePort(frame.SupplementalEvidence),
 	})
 	if err != nil {
 		return writeDiagnosisWSError(conn, err)
@@ -201,6 +203,25 @@ func diagnosisWSReasonOrDefault(reason, fallback string) string {
 	return reason
 }
 
+func validateDiagnosisWSSupplementalEvidence(in *diagnosisWSSupplementalEvidence) error {
+	if in == nil {
+		return fmt.Errorf("supplemental_evidence must be set")
+	}
+	if strings.TrimSpace(in.Label) == "" {
+		return fmt.Errorf("supplemental_evidence.label must be non-empty")
+	}
+	if strings.TrimSpace(in.Detail) == "" {
+		return fmt.Errorf("supplemental_evidence.detail must be non-empty")
+	}
+	if strings.TrimSpace(in.Priority) == "" {
+		return fmt.Errorf("supplemental_evidence.priority must be non-empty")
+	}
+	if strings.TrimSpace(in.Evidence) == "" {
+		return fmt.Errorf("supplemental_evidence.evidence must be non-empty")
+	}
+	return nil
+}
+
 func decodeDiagnosisWSClientFrame(raw []byte) (diagnosisWSClientFrame, error) {
 	var frame diagnosisWSClientFrame
 	if err := strictjson.Unmarshal(raw, &frame); err != nil {
@@ -218,12 +239,31 @@ func decodeDiagnosisWSClientFrame(raw []byte) (diagnosisWSClientFrame, error) {
 		if strings.TrimSpace(frame.Message) == "" {
 			return frame, fmt.Errorf("message must be non-empty")
 		}
+		if frame.SupplementalEvidence != nil {
+			return frame, fmt.Errorf("submit_turn frame must not include supplemental_evidence")
+		}
+	case diagnosisWSClientSubmitSupplementalEvidence:
+		if strings.TrimSpace(frame.MessageID) == "" {
+			return frame, fmt.Errorf("message_id must be non-empty")
+		}
+		if strings.TrimSpace(frame.MessageID) != frame.MessageID {
+			return frame, fmt.Errorf("message_id must not contain leading or trailing whitespace")
+		}
+		if strings.TrimSpace(frame.Message) == "" {
+			return frame, fmt.Errorf("message must be non-empty")
+		}
+		if err := validateDiagnosisWSSupplementalEvidence(frame.SupplementalEvidence); err != nil {
+			return frame, err
+		}
 	case diagnosisWSClientQueryState:
 		if frame.MessageID != "" || frame.Message != "" {
 			return frame, fmt.Errorf("query_state frame must not include message_id or message")
 		}
 		if frame.Reason != "" {
 			return frame, fmt.Errorf("query_state frame must not include reason")
+		}
+		if frame.SupplementalEvidence != nil {
+			return frame, fmt.Errorf("query_state frame must not include supplemental_evidence")
 		}
 	case diagnosisWSClientConfirm:
 		if frame.MessageID != "" || frame.Message != "" {
@@ -232,12 +272,29 @@ func decodeDiagnosisWSClientFrame(raw []byte) (diagnosisWSClientFrame, error) {
 		if strings.TrimSpace(frame.Reason) != frame.Reason {
 			return frame, fmt.Errorf("reason must not contain leading or trailing whitespace")
 		}
+		if frame.SupplementalEvidence != nil {
+			return frame, fmt.Errorf("confirm_conclusion frame must not include supplemental_evidence")
+		}
 	case "":
 		return frame, fmt.Errorf("type must be non-empty")
 	default:
 		return frame, fmt.Errorf("unsupported frame type %q", frame.Type)
 	}
 	return frame, nil
+}
+
+func diagnosisWSSupplementalEvidencePort(
+	in *diagnosisWSSupplementalEvidence,
+) *ports.DiagnosisRoomSupplementalEvidence {
+	if in == nil {
+		return nil
+	}
+	return &ports.DiagnosisRoomSupplementalEvidence{
+		Label:    strings.TrimSpace(in.Label),
+		Detail:   strings.TrimSpace(in.Detail),
+		Priority: strings.TrimSpace(in.Priority),
+		Evidence: strings.TrimSpace(in.Evidence),
+	}
 }
 
 func diagnosisWSStateFrameFromState(state ports.DiagnosisRoomState) diagnosisWSStateFrame {
@@ -534,10 +591,18 @@ func writeDiagnosisWSJSON(conn *websocket.Conn, value interface{}) error {
 }
 
 type diagnosisWSClientFrame struct {
-	Type      string `json:"type"`
-	MessageID string `json:"message_id,omitempty"`
-	Message   string `json:"message,omitempty"`
-	Reason    string `json:"reason,omitempty"`
+	Type                 string                           `json:"type"`
+	MessageID            string                           `json:"message_id,omitempty"`
+	Message              string                           `json:"message,omitempty"`
+	Reason               string                           `json:"reason,omitempty"`
+	SupplementalEvidence *diagnosisWSSupplementalEvidence `json:"supplemental_evidence,omitempty"`
+}
+
+type diagnosisWSSupplementalEvidence struct {
+	Label    string `json:"label"`
+	Detail   string `json:"detail"`
+	Priority string `json:"priority"`
+	Evidence string `json:"evidence"`
 }
 
 type diagnosisWSReadyFrame struct {

@@ -3214,6 +3214,37 @@ func TestDiagnosisWebSocketRelayRejectsAmbiguousFrame(t *testing.T) {
 	}
 }
 
+func TestDiagnosisWebSocketRelayDecodesSupplementalEvidenceFrame(t *testing.T) {
+	frame, err := decodeDiagnosisWSClientFrame([]byte(`{
+		"type":"submit_supplemental_evidence",
+		"message_id":"msg-2",
+		"message":"Supplemental evidence update\n\nEvidence provided:\n- previous pod logs show OOMKilled",
+		"supplemental_evidence":{
+			"label":"Restart cause",
+			"detail":"Collect previous container logs.",
+			"priority":"high",
+			"evidence":"previous pod logs show OOMKilled"
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("decode supplemental frame: %v", err)
+	}
+	if frame.Type != diagnosisWSClientSubmitSupplementalEvidence ||
+		frame.MessageID != "msg-2" ||
+		frame.Message == "" ||
+		frame.SupplementalEvidence == nil {
+		t.Fatalf("frame = %+v", frame)
+	}
+	got := diagnosisWSSupplementalEvidencePort(frame.SupplementalEvidence)
+	if got == nil ||
+		got.Label != "Restart cause" ||
+		got.Detail != "Collect previous container logs." ||
+		got.Priority != "high" ||
+		got.Evidence != "previous pod logs show OOMKilled" {
+		t.Fatalf("supplemental evidence port = %+v", got)
+	}
+}
+
 func TestDiagnosisWebSocketRelayReportsStillProcessingOnUpdateTimeout(t *testing.T) {
 	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
 	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("I", diagnosisauth.DefaultTokenBytes)))

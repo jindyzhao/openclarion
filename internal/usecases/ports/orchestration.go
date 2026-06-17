@@ -67,10 +67,20 @@ type DiagnosisRoomWorkflowStarter interface {
 // DiagnosisRoomSubmitTurnRequest describes one user turn submitted from the
 // authenticated diagnosis-room transport boundary.
 type DiagnosisRoomSubmitTurnRequest struct {
-	SessionID    string
-	MessageID    string
-	ActorSubject string
-	Message      string
+	SessionID            string
+	MessageID            string
+	ActorSubject         string
+	Message              string
+	SupplementalEvidence *DiagnosisRoomSupplementalEvidence
+}
+
+// DiagnosisRoomSupplementalEvidence captures operator-provided evidence that
+// answers a specific missing-evidence request or collection suggestion.
+type DiagnosisRoomSupplementalEvidence struct {
+	Label    string
+	Detail   string
+	Priority string
+	Evidence string
 }
 
 // DiagnosisRoomConfirmConclusionRequest describes one explicit operator

@@ -217,6 +217,12 @@ func TestDiagnosisRoomClient_SubmitDiagnosisTurnUsesCompletedUpdate(t *testing.T
 		MessageID:    "msg-1",
 		ActorSubject: "owner-1",
 		Message:      "Please continue investigating this alert",
+		SupplementalEvidence: &ports.DiagnosisRoomSupplementalEvidence{
+			Label:    "Restart cause",
+			Detail:   "Inspect previous pod logs.",
+			Priority: "high",
+			Evidence: "Previous pod logs show OOMKilled before restart.",
+		},
 	})
 	if err != nil {
 		t.Fatalf("SubmitDiagnosisTurn: %v", err)
@@ -243,6 +249,13 @@ func TestDiagnosisRoomClient_SubmitDiagnosisTurnUsesCompletedUpdate(t *testing.T
 	}
 	if req.MessageID != "msg-1" || req.ActorSubject != "owner-1" || req.Message != "Please continue investigating this alert" {
 		t.Fatalf("Update request = %+v", req)
+	}
+	if req.SupplementalEvidence == nil ||
+		req.SupplementalEvidence.Label != "Restart cause" ||
+		req.SupplementalEvidence.Detail != "Inspect previous pod logs." ||
+		req.SupplementalEvidence.Priority != "high" ||
+		req.SupplementalEvidence.Evidence != "Previous pod logs show OOMKilled before restart." {
+		t.Fatalf("Update supplemental evidence = %+v", req.SupplementalEvidence)
 	}
 
 	want := ports.DiagnosisRoomSubmitTurnResult{

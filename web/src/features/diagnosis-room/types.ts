@@ -180,4 +180,10 @@ export type DiagnosisServerFrame =
 export type DiagnosisClientFrame =
   | { type: "query_state" }
   | { type: "confirm_conclusion"; reason?: string }
-  | { type: "submit_turn"; message_id: string; message: string };
+  | { type: "submit_turn"; message_id: string; message: string }
+  | {
+      type: "submit_supplemental_evidence";
+      message_id: string;
+      message: string;
+      supplemental_evidence: DiagnosisConsultationEvidenceRequest & { evidence: string };
+    };

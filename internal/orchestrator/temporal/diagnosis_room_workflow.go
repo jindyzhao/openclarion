@@ -62,9 +62,19 @@ type DiagnosisRoomWorkflowInput struct {
 
 // SubmitDiagnosisTurnRequest is the Update payload for one user turn.
 type SubmitDiagnosisTurnRequest struct {
-	MessageID    string
-	ActorSubject string
-	Message      string
+	MessageID            string
+	ActorSubject         string
+	Message              string
+	SupplementalEvidence *DiagnosisRoomSupplementalEvidence
+}
+
+// DiagnosisRoomSupplementalEvidence captures operator-provided context that
+// should be retained as structured diagnosis provenance.
+type DiagnosisRoomSupplementalEvidence struct {
+	Label    string `json:"label"`
+	Detail   string `json:"detail"`
+	Priority string `json:"priority"`
+	Evidence string `json:"evidence"`
 }
 
 // SubmitDiagnosisTurnResult is returned after the workflow accepts a user
@@ -497,25 +507,26 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 	}
 	assistantOccurredAt := workflow.Now(ctx)
 	persistReq := PersistDiagnosisTurnInput{
-		SessionID:           s.input.SessionID,
-		DiagnosisTaskID:     s.diagnosisTaskID,
-		OwnerSubject:        s.input.OwnerSubject,
-		UserMessageID:       messageID,
-		AssistantMessageID:  activityResult.AssistantMessageID,
-		UserSequence:        userSequence,
-		AssistantSequence:   activityResult.AssistantSequence,
-		TurnCount:           s.turnCount + 1,
-		ActorSubject:        actorSubject,
-		UserMessage:         req.Message,
-		AssistantMessage:    activityResult.AssistantMessage,
-		UserOccurredAt:      userOccurredAt,
-		AssistantOccurredAt: assistantOccurredAt,
-		ContextBytes:        decision.ContextBytes,
-		InvocationID:        activityResult.InvocationID,
-		RuntimeID:           activityResult.RuntimeID,
-		ContainerStartedAt:  activityResult.StartedAt,
-		ContainerFinishedAt: activityResult.FinishedAt,
-		RawOutput:           activityResult.RawOutput,
+		SessionID:            s.input.SessionID,
+		DiagnosisTaskID:      s.diagnosisTaskID,
+		OwnerSubject:         s.input.OwnerSubject,
+		UserMessageID:        messageID,
+		AssistantMessageID:   activityResult.AssistantMessageID,
+		UserSequence:         userSequence,
+		AssistantSequence:    activityResult.AssistantSequence,
+		TurnCount:            s.turnCount + 1,
+		ActorSubject:         actorSubject,
+		UserMessage:          req.Message,
+		AssistantMessage:     activityResult.AssistantMessage,
+		UserOccurredAt:       userOccurredAt,
+		AssistantOccurredAt:  assistantOccurredAt,
+		ContextBytes:         decision.ContextBytes,
+		InvocationID:         activityResult.InvocationID,
+		RuntimeID:            activityResult.RuntimeID,
+		ContainerStartedAt:   activityResult.StartedAt,
+		ContainerFinishedAt:  activityResult.FinishedAt,
+		RawOutput:            activityResult.RawOutput,
+		SupplementalEvidence: copyDiagnosisRoomSupplementalEvidence(req.SupplementalEvidence),
 	}
 	var persistResult PersistDiagnosisTurnResult
 	persistCtx := workflow.WithActivityOptions(ctx, diagnosisRoomPersistenceActivityOptions())
@@ -773,6 +784,14 @@ func copyDiagnosisRoomConsultationInsight(in diagnosisroom.ConsultationInsight) 
 		EvidenceCollectionSuggestions: diagnosisroom.CloneConsultationEvidenceRequests(in.EvidenceCollectionSuggestions),
 		ConclusionStatus:              in.ConclusionStatus,
 	}
+	return &out
+}
+
+func copyDiagnosisRoomSupplementalEvidence(in *DiagnosisRoomSupplementalEvidence) *DiagnosisRoomSupplementalEvidence {
+	if in == nil {
+		return nil
+	}
+	out := *in
 	return &out
 }
 

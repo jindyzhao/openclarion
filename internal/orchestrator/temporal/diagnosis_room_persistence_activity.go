@@ -21,6 +21,7 @@ import (
 const (
 	diagnosisRoomEventOpened                = "diagnosis_room.opened"
 	diagnosisRoomEventTurnPersisted         = "diagnosis_room.turn_persisted"
+	diagnosisRoomEventSupplementalEvidence  = "diagnosis_room.supplemental_evidence_provided"
 	diagnosisRoomEventFinalConclusionReady  = "diagnosis_room.final_conclusion_ready"
 	diagnosisRoomEventClosed                = "diagnosis_room.closed"
 	diagnosisRoomEventCloseNotificationSent = "diagnosis_room.close_notification_sent"
@@ -73,25 +74,26 @@ type EnsureDiagnosisRoomSessionResult struct {
 // PersistDiagnosisTurnInput persists the accepted user turn and the accepted
 // sandbox assistant response as one idempotent transcript update.
 type PersistDiagnosisTurnInput struct {
-	SessionID           string
-	DiagnosisTaskID     int64
-	OwnerSubject        string
-	UserMessageID       string
-	AssistantMessageID  string
-	UserSequence        int
-	AssistantSequence   int
-	TurnCount           int
-	ActorSubject        string
-	UserMessage         string
-	AssistantMessage    string
-	UserOccurredAt      time.Time
-	AssistantOccurredAt time.Time
-	ContextBytes        int
-	InvocationID        string
-	RuntimeID           string
-	ContainerStartedAt  time.Time
-	ContainerFinishedAt time.Time
-	RawOutput           json.RawMessage
+	SessionID            string
+	DiagnosisTaskID      int64
+	OwnerSubject         string
+	UserMessageID        string
+	AssistantMessageID   string
+	UserSequence         int
+	AssistantSequence    int
+	TurnCount            int
+	ActorSubject         string
+	UserMessage          string
+	AssistantMessage     string
+	UserOccurredAt       time.Time
+	AssistantOccurredAt  time.Time
+	ContextBytes         int
+	InvocationID         string
+	RuntimeID            string
+	ContainerStartedAt   time.Time
+	ContainerFinishedAt  time.Time
+	RawOutput            json.RawMessage
+	SupplementalEvidence *DiagnosisRoomSupplementalEvidence
 }
 
 // PersistDiagnosisTurnResult returns the persisted row identities for the
@@ -228,6 +230,11 @@ func (a *Activities) PersistDiagnosisTurn(ctx context.Context, req PersistDiagno
 		return PersistDiagnosisTurnResult{}, mapActivityError(err, "persist-diagnosis-turn lifecycle event")
 	}
 	result.LifecycleEventID = int64(event.ID)
+	if req.SupplementalEvidence != nil {
+		if _, err := a.recordDiagnosisRoomSupplementalEvidenceProvided(ctx, req, result); err != nil {
+			return PersistDiagnosisTurnResult{}, mapActivityError(err, "persist-diagnosis-turn supplemental evidence event")
+		}
+	}
 	if result.Insight.ConclusionStatus == "final" {
 		_, finalConclusion, err := a.recordDiagnosisRoomFinalConclusionReady(ctx, req, result)
 		if err != nil {
@@ -810,6 +817,9 @@ func validatePersistDiagnosisTurnInput(req PersistDiagnosisTurnInput) (diagnosis
 	if strings.TrimSpace(req.InvocationID) == "" {
 		return diagnosisroom.TurnOutput{}, fmt.Errorf("persist diagnosis turn: invocation_id must be non-empty: %w", domain.ErrInvariantViolation)
 	}
+	if err := validateDiagnosisRoomSupplementalEvidence(req.SupplementalEvidence); err != nil {
+		return diagnosisroom.TurnOutput{}, err
+	}
 	parsed, err := diagnosisroom.ParseTurnOutput(req.RawOutput)
 	if err != nil {
 		return diagnosisroom.TurnOutput{}, fmt.Errorf("%w: %w", domain.ErrInvariantViolation, err)
@@ -818,6 +828,38 @@ func validatePersistDiagnosisTurnInput(req PersistDiagnosisTurnInput) (diagnosis
 		return diagnosisroom.TurnOutput{}, fmt.Errorf("persist diagnosis turn: assistant_message does not match validated output message: %w", domain.ErrInvariantViolation)
 	}
 	return parsed, nil
+}
+
+func validateDiagnosisRoomSupplementalEvidence(in *DiagnosisRoomSupplementalEvidence) error {
+	if in == nil {
+		return nil
+	}
+	if strings.TrimSpace(in.Label) == "" {
+		return fmt.Errorf("persist diagnosis turn: supplemental evidence label must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if strings.TrimSpace(in.Label) != in.Label {
+		return fmt.Errorf("persist diagnosis turn: supplemental evidence label must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
+	}
+	if strings.TrimSpace(in.Detail) == "" {
+		return fmt.Errorf("persist diagnosis turn: supplemental evidence detail must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if strings.TrimSpace(in.Detail) != in.Detail {
+		return fmt.Errorf("persist diagnosis turn: supplemental evidence detail must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
+	}
+	if strings.TrimSpace(in.Priority) == "" {
+		return fmt.Errorf("persist diagnosis turn: supplemental evidence priority must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if strings.TrimSpace(in.Priority) != in.Priority {
+		return fmt.Errorf("persist diagnosis turn: supplemental evidence priority must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
+	}
+	if strings.TrimSpace(in.Evidence) == "" {
+		return fmt.Errorf("persist diagnosis turn: supplemental evidence text must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if len([]byte(in.Evidence)) > diagnosisroom.HardMaxMessageBytes {
+		return fmt.Errorf("persist diagnosis turn: supplemental evidence text is %d bytes, max %d: %w",
+			len([]byte(in.Evidence)), diagnosisroom.HardMaxMessageBytes, domain.ErrInvariantViolation)
+	}
+	return nil
 }
 
 func validateCloseDiagnosisChatSessionInput(req CloseDiagnosisChatSessionInput) error {
@@ -1064,6 +1106,45 @@ func (a *Activities) recordDiagnosisRoomTurnPersisted(ctx context.Context, req P
 		DedupeKey:  diagnosisRoomEventDedupeKey(diagnosisRoomEventTurnPersisted, req.SessionID, req.UserMessageID),
 		Payload:    payload,
 		OccurredAt: req.AssistantOccurredAt,
+	})
+}
+
+func (a *Activities) recordDiagnosisRoomSupplementalEvidenceProvided(
+	ctx context.Context,
+	req PersistDiagnosisTurnInput,
+	result PersistDiagnosisTurnResult,
+) (domain.DiagnosisTaskEvent, error) {
+	if req.SupplementalEvidence == nil {
+		return domain.DiagnosisTaskEvent{}, fmt.Errorf("diagnosis room supplemental evidence event: supplemental_evidence must be set: %w", domain.ErrInvariantViolation)
+	}
+	payload, err := diagnosisRoomLifecyclePayload(map[string]any{
+		"kind":                  diagnosisRoomEventSupplementalEvidence,
+		"session_id":            req.SessionID,
+		"chat_session_id":       result.ChatSessionID,
+		"diagnosis_task_id":     req.DiagnosisTaskID,
+		"owner_subject":         req.OwnerSubject,
+		"actor_subject":         req.ActorSubject,
+		"user_message_id":       req.UserMessageID,
+		"assistant_message_id":  req.AssistantMessageID,
+		"user_turn_id":          result.UserTurnID,
+		"assistant_turn_id":     result.AssistantTurnID,
+		"user_sequence":         req.UserSequence,
+		"assistant_sequence":    req.AssistantSequence,
+		"turn_count":            result.TurnCount,
+		"context_refs":          diagnosisRoomTurnRefs(result.ChatSessionID, result.UserTurnID, result.AssistantTurnID),
+		"supplemental_evidence": req.SupplementalEvidence,
+		"confidence":            result.Confidence,
+		"requires_human_review": result.RequiresHumanReview,
+	})
+	if err != nil {
+		return domain.DiagnosisTaskEvent{}, err
+	}
+	return a.appendDiagnosisRoomLifecycleEvent(ctx, diagnosisRoomLifecycleEventInput{
+		TaskID:     req.DiagnosisTaskID,
+		Kind:       diagnosisRoomEventSupplementalEvidence,
+		DedupeKey:  diagnosisRoomEventDedupeKey(diagnosisRoomEventSupplementalEvidence, req.SessionID, req.UserMessageID),
+		Payload:    payload,
+		OccurredAt: req.UserOccurredAt,
 	})
 }
 

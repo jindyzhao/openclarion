@@ -147,10 +147,45 @@ func diagnosisRoomSubmitTurnRequest(req ports.DiagnosisRoomSubmitTurnRequest) (S
 	if strings.TrimSpace(req.Message) == "" {
 		return SubmitDiagnosisTurnRequest{}, fmt.Errorf("diagnosis-room client: message must be non-empty: %w", domain.ErrInvariantViolation)
 	}
+	supplementalEvidence, err := diagnosisRoomSupplementalEvidenceRequest(req.SupplementalEvidence)
+	if err != nil {
+		return SubmitDiagnosisTurnRequest{}, err
+	}
 	return SubmitDiagnosisTurnRequest{
-		MessageID:    messageID,
-		ActorSubject: actorSubject,
-		Message:      req.Message,
+		MessageID:            messageID,
+		ActorSubject:         actorSubject,
+		Message:              req.Message,
+		SupplementalEvidence: supplementalEvidence,
+	}, nil
+}
+
+func diagnosisRoomSupplementalEvidenceRequest(
+	in *ports.DiagnosisRoomSupplementalEvidence,
+) (*DiagnosisRoomSupplementalEvidence, error) {
+	if in == nil {
+		return nil, nil
+	}
+	label := strings.TrimSpace(in.Label)
+	detail := strings.TrimSpace(in.Detail)
+	priority := strings.TrimSpace(in.Priority)
+	evidence := strings.TrimSpace(in.Evidence)
+	if label == "" {
+		return nil, fmt.Errorf("diagnosis-room client: supplemental evidence label must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if detail == "" {
+		return nil, fmt.Errorf("diagnosis-room client: supplemental evidence detail must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if priority == "" {
+		return nil, fmt.Errorf("diagnosis-room client: supplemental evidence priority must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if evidence == "" {
+		return nil, fmt.Errorf("diagnosis-room client: supplemental evidence text must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	return &DiagnosisRoomSupplementalEvidence{
+		Label:    label,
+		Detail:   detail,
+		Priority: priority,
+		Evidence: evidence,
 	}, nil
 }
 
