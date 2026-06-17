@@ -76,7 +76,27 @@ describe("parseDiagnosisServerFrame", () => {
               }
             ],
             conclusion_status: "needs_evidence"
-          }
+          },
+          follow_up_turns: [
+            {
+              message_id: "user-1/auto-evidence-1",
+              user_message: "OpenClarion automatic evidence follow-up.",
+              assistant_message_id: "user-1/auto-evidence-1/assistant",
+              user_turn_id: 13,
+              assistant_turn_id: 14,
+              user_sequence: 3,
+              assistant_sequence: 4,
+              turn_count: 2,
+              context_bytes: 512,
+              assistant_message: "Collected evidence confirms CPU saturation.",
+              requires_human_review: false,
+              confidence: "high",
+              consultation_insight: {
+                conclusion_status: "final"
+              },
+              trigger: "collected_evidence"
+            }
+          ]
         })
       )
     ).toMatchObject({
@@ -95,7 +115,15 @@ describe("parseDiagnosisServerFrame", () => {
         missing_evidence_requests: [{ priority: "high" }],
         evidence_collection_suggestions: [{ priority: "medium" }],
         conclusion_status: "needs_evidence"
-      }
+      },
+      follow_up_turns: [
+        {
+          message_id: "user-1/auto-evidence-1",
+          assistant_message: "Collected evidence confirms CPU saturation.",
+          consultation_insight: { conclusion_status: "final" },
+          trigger: "collected_evidence"
+        }
+      ]
     });
   });
 

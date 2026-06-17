@@ -68,6 +68,7 @@ type TranscriptTurn = DiagnosisConversationTurn & {
 type DiagnosisTurnResultFrame = Extract<DiagnosisServerFrame, { type: "turn_result" }>;
 
 type LatestConsultationInsight = {
+  autoFollowUpCount: number;
   collectionResults: DiagnosisEvidenceCollectionResult[];
   confidence: string;
   evidenceRequests: DiagnosisEvidenceRequest[];
@@ -201,21 +202,17 @@ export function DiagnosisRoomView() {
             ? {
                 ...current,
                 status: frame.status,
-                turn_count: frame.turn_count,
+                turn_count: latestTurnCount(frame),
                 in_flight: false
               }
             : current
         );
-        setTranscript((current) => [
-          ...current,
-          {
-            id: frame.assistant_message_id,
-            role: "assistant",
-            content: frame.assistant_message
-          }
-        ]);
-        pushLog("info", `Turn ${frame.turn_count} completed.`);
-        if (frame.consultation_insight?.conclusion_status === "final") {
+        setTranscript((current) => [...current, ...turnResultTranscript(frame)]);
+        pushLog("info", `Turn ${latestTurnCount(frame)} completed.`);
+        if ((frame.follow_up_turns ?? []).length > 0) {
+          pushLog("info", `Auto evidence follow-up completed ${(frame.follow_up_turns ?? []).length} turn(s).`);
+        }
+        if (latestTurnConclusionStatus(frame) === "final") {
           sendFrame({ type: "query_state" });
         }
         break;
@@ -354,6 +351,9 @@ export function DiagnosisRoomView() {
               <Tag color={latestInsight.requiresHumanReview ? "warning" : "success"}>
                 {latestInsight.requiresHumanReview ? "review required" : "review optional"}
               </Tag>
+              {latestInsight.autoFollowUpCount > 0 ? (
+                <Tag color="processing">auto evidence x{latestInsight.autoFollowUpCount}</Tag>
+              ) : null}
             </Space>
           ) : null
         }
@@ -552,6 +552,42 @@ function MetricResultSummary({ item }: { item: DiagnosisEvidenceCollectionResult
   );
 }
 
+function turnResultTranscript(frame: DiagnosisTurnResultFrame): TranscriptTurn[] {
+  const turns: TranscriptTurn[] = [
+    {
+      id: frame.assistant_message_id,
+      role: "assistant",
+      content: frame.assistant_message
+    }
+  ];
+  for (const followUp of frame.follow_up_turns ?? []) {
+    turns.push({
+      id: followUp.message_id,
+      role: "user",
+      content: followUp.user_message
+    });
+    turns.push({
+      id: followUp.assistant_message_id,
+      role: "assistant",
+      content: followUp.assistant_message
+    });
+  }
+  return turns;
+}
+
+function latestTurnCount(frame: DiagnosisTurnResultFrame): number {
+  return latestFollowUpTurn(frame)?.turn_count ?? frame.turn_count;
+}
+
+function latestTurnConclusionStatus(frame: DiagnosisTurnResultFrame): string | undefined {
+  return latestFollowUpTurn(frame)?.consultation_insight?.conclusion_status ?? frame.consultation_insight?.conclusion_status;
+}
+
+function latestFollowUpTurn(frame: DiagnosisTurnResultFrame) {
+  const followUps = frame.follow_up_turns ?? [];
+  return followUps.length > 0 ? followUps.at(-1) : undefined;
+}
+
 function EvidenceRequestList({
   emptyDescription,
   items,
@@ -588,7 +624,21 @@ function EvidenceRequestList({
 }
 
 function latestConsultationInsight(frame: DiagnosisTurnResultFrame): LatestConsultationInsight {
+  const latestFollowUp = latestFollowUpTurn(frame);
+  if (latestFollowUp) {
+    return {
+      autoFollowUpCount: frame.follow_up_turns?.length ?? 0,
+      collectionResults: latestFollowUp.evidence_collection_results ?? [],
+      confidence: latestFollowUp.confidence,
+      evidenceRequests: latestFollowUp.evidence_requests ?? [],
+      insight: latestFollowUp.consultation_insight ?? {},
+      requiresHumanReview: latestFollowUp.requires_human_review,
+      status: frame.status,
+      turnCount: latestFollowUp.turn_count
+    };
+  }
   return {
+    autoFollowUpCount: 0,
     collectionResults: frame.evidence_collection_results ?? [],
     confidence: frame.confidence,
     evidenceRequests: frame.evidence_requests ?? [],
@@ -629,6 +679,11 @@ function consultationInsightItems(latestInsight: LatestConsultationInsight): Des
       key: "review",
       label: "Human review",
       children: latestInsight.requiresHumanReview ? "required" : "optional"
+    },
+    {
+      key: "auto-follow-up",
+      label: "Auto follow-up",
+      children: String(latestInsight.autoFollowUpCount)
     }
   ];
 }

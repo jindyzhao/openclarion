@@ -297,6 +297,189 @@ func TestDiagnosisRoomWorkflow_FeedsCollectedEvidenceIntoNextTurn(t *testing.T) 
 	}
 }
 
+func TestDiagnosisRoomWorkflow_AutoEvidenceFollowUpUsesCollectedEvidence(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 10, 45, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+
+	evidenceByMessage := map[string]json.RawMessage{}
+	env.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.DiagnosisTurnActivityInput) (temporalpkg.DiagnosisTurnActivityResult, error) {
+			evidenceByMessage[got.MessageID] = append(json.RawMessage(nil), got.Evidence...)
+			if got.MessageID == "msg-1" {
+				message := "Initial diagnosis needs current evidence."
+				return temporalpkg.DiagnosisTurnActivityResult{
+					InvocationID:        "test/" + got.MessageID,
+					AssistantMessageID:  got.MessageID + "/assistant",
+					AssistantSequence:   got.AssistantSequence,
+					AssistantMessage:    message,
+					Output:              diagnosisroom.TurnOutput{SchemaVersion: diagnosisroom.TurnOutputSchemaVersion, Message: message, Confidence: "low", RequiresHumanReview: true, ConclusionStatus: "needs_evidence"},
+					RawOutput:           json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"` + message + `","confidence":"low","requires_human_review":true,"conclusion_status":"needs_evidence"}`),
+					StartedAt:           time.Date(2026, 5, 28, 10, 45, 0, 0, time.UTC),
+					FinishedAt:          time.Date(2026, 5, 28, 10, 45, 1, 0, time.UTC),
+					RequiresHumanReview: true,
+					Confidence:          "low",
+					Insight:             diagnosisroom.ConsultationInsight{ConclusionStatus: "needs_evidence"},
+				}, nil
+			}
+			if !strings.Contains(got.MessageID, "/auto-evidence-1") {
+				t.Fatalf("auto activity message id = %q, want auto-evidence follow-up", got.MessageID)
+			}
+			if !strings.Contains(got.ActorSubject, "openclarion:auto-diagnosis") {
+				t.Fatalf("auto activity actor = %q, want openclarion auto actor", got.ActorSubject)
+			}
+			if !strings.Contains(got.Message, "automatic evidence follow-up") {
+				t.Fatalf("auto activity message = %q, want automatic evidence prompt", got.Message)
+			}
+			assertEvidenceContextPresent(t, got.Evidence)
+			message := "Final diagnosis after collected evidence."
+			return temporalpkg.DiagnosisTurnActivityResult{
+				InvocationID:        "test/" + got.MessageID,
+				AssistantMessageID:  got.MessageID + "/assistant",
+				AssistantSequence:   got.AssistantSequence,
+				AssistantMessage:    message,
+				Output:              diagnosisroom.TurnOutput{SchemaVersion: diagnosisroom.TurnOutputSchemaVersion, Message: message, Confidence: "high", RequiresHumanReview: false, ConclusionStatus: "final"},
+				RawOutput:           json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"` + message + `","confidence":"high","requires_human_review":false,"conclusion_status":"final"}`),
+				StartedAt:           time.Date(2026, 5, 28, 10, 45, 2, 0, time.UTC),
+				FinishedAt:          time.Date(2026, 5, 28, 10, 45, 3, 0, time.UTC),
+				RequiresHumanReview: false,
+				Confidence:          "high",
+				Insight:             diagnosisroom.ConsultationInsight{ConclusionStatus: "final"},
+			}, nil
+		},
+		activity.RegisterOptions{Name: "RunDiagnosisTurn"},
+	)
+
+	var update captureSubmitTurnUpdate
+	var queried temporalpkg.DiagnosisRoomWorkflowState
+	var queryErr error
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-auto",
+			update.callback(t),
+			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-1", ActorSubject: "owner-1", Message: "Start diagnosis"},
+		)
+	}, time.Millisecond)
+	env.RegisterDelayedCallback(func() {
+		encoded, err := env.QueryWorkflow(temporalpkg.DiagnosisRoomStateQuery)
+		if err != nil {
+			queryErr = err
+			return
+		}
+		queryErr = encoded.Get(&queried)
+		env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"})
+	}, 100*time.Millisecond)
+
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
+	assertRoomWorkflowCompleted(t, env)
+	if update.rejected != nil || update.completeErr != nil {
+		t.Fatalf("submit update rejected=%v completeErr=%v", update.rejected, update.completeErr)
+	}
+	if update.result.TurnCount != 1 || len(update.result.FollowUpTurns) != 1 {
+		t.Fatalf("submit result turn_count=%d follow_up_turns=%d, want primary plus one follow-up", update.result.TurnCount, len(update.result.FollowUpTurns))
+	}
+	followUp := update.result.FollowUpTurns[0]
+	if followUp.TurnCount != 2 ||
+		followUp.MessageID != "msg-1/auto-evidence-1" ||
+		followUp.AssistantMessageID != "msg-1/auto-evidence-1/assistant" ||
+		followUp.Confidence != "high" ||
+		followUp.Insight.ConclusionStatus != "final" ||
+		len(followUp.CollectionResults) != 1 {
+		t.Fatalf("follow-up result = %+v", followUp)
+	}
+	assertEvidenceContextAbsent(t, evidenceByMessage["msg-1"])
+	assertEvidenceContextPresent(t, evidenceByMessage["msg-1/auto-evidence-1"])
+	if queryErr != nil {
+		t.Fatalf("query state: %v", queryErr)
+	}
+	if queried.TurnCount != 2 || len(queried.Conversation) != 4 {
+		t.Fatalf("queried state turn_count=%d conversation=%+v, want two persisted turn pairs", queried.TurnCount, queried.Conversation)
+	}
+	if queried.FinalConclusion == nil ||
+		queried.FinalConclusion.AssistantMessageID != "msg-1/auto-evidence-1/assistant" ||
+		queried.FinalConclusion.Content != "Final diagnosis after collected evidence." {
+		t.Fatalf("queried final conclusion = %+v", queried.FinalConclusion)
+	}
+}
+
+func TestDiagnosisRoomWorkflow_AutoEvidenceFollowUpCanBeDisabled(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 11, 0, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+
+	runDiagnosisTurnCalls := 0
+	env.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.DiagnosisTurnActivityInput) (temporalpkg.DiagnosisTurnActivityResult, error) {
+			runDiagnosisTurnCalls++
+			if got.MessageID != "msg-1" {
+				t.Fatalf("RunDiagnosisTurn message_id = %q, want only the submitted user turn", got.MessageID)
+			}
+			message := "Initial diagnosis needs current evidence."
+			return temporalpkg.DiagnosisTurnActivityResult{
+				InvocationID:        "test/" + got.MessageID,
+				AssistantMessageID:  got.MessageID + "/assistant",
+				AssistantSequence:   got.AssistantSequence,
+				AssistantMessage:    message,
+				Output:              diagnosisroom.TurnOutput{SchemaVersion: diagnosisroom.TurnOutputSchemaVersion, Message: message, Confidence: "low", RequiresHumanReview: true, ConclusionStatus: "needs_evidence"},
+				RawOutput:           json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"` + message + `","confidence":"low","requires_human_review":true,"conclusion_status":"needs_evidence"}`),
+				StartedAt:           time.Date(2026, 5, 28, 11, 0, 0, 0, time.UTC),
+				FinishedAt:          time.Date(2026, 5, 28, 11, 0, 1, 0, time.UTC),
+				RequiresHumanReview: true,
+				Confidence:          "low",
+				Insight:             diagnosisroom.ConsultationInsight{ConclusionStatus: "needs_evidence"},
+			}, nil
+		},
+		activity.RegisterOptions{Name: "RunDiagnosisTurn"},
+	)
+
+	var update captureSubmitTurnUpdate
+	var queried temporalpkg.DiagnosisRoomWorkflowState
+	var queryErr error
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-auto-disabled",
+			update.callback(t),
+			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-1", ActorSubject: "owner-1", Message: "Start diagnosis"},
+		)
+	}, time.Millisecond)
+	env.RegisterDelayedCallback(func() {
+		encoded, err := env.QueryWorkflow(temporalpkg.DiagnosisRoomStateQuery)
+		if err != nil {
+			queryErr = err
+			return
+		}
+		queryErr = encoded.Get(&queried)
+		env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"})
+	}, 50*time.Millisecond)
+
+	input := defaultRoomInput()
+	input.Policy = diagnosisroom.DefaultPolicy()
+	input.Policy.MaxAutoEvidenceFollowUps = 0
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+
+	if update.rejected != nil || update.completeErr != nil {
+		t.Fatalf("submit update rejected=%v completeErr=%v", update.rejected, update.completeErr)
+	}
+	if update.result.TurnCount != 1 || len(update.result.FollowUpTurns) != 0 || len(update.result.CollectionResults) != 1 {
+		t.Fatalf("submit result turn_count=%d follow_up_turns=%d collection_results=%d, want one collected user turn and no follow-up",
+			update.result.TurnCount, len(update.result.FollowUpTurns), len(update.result.CollectionResults))
+	}
+	if runDiagnosisTurnCalls != 1 {
+		t.Fatalf("RunDiagnosisTurn calls = %d, want 1", runDiagnosisTurnCalls)
+	}
+	if queryErr != nil {
+		t.Fatalf("query state: %v", queryErr)
+	}
+	if queried.TurnCount != 1 || len(queried.Conversation) != 2 || queried.FinalConclusion != nil {
+		t.Fatalf("queried state = %+v, want one persisted turn pair and no final conclusion", queried)
+	}
+}
+
 func TestDiagnosisRoomWorkflow_UpdateValidatorRejectsMaxTurns(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()

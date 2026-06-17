@@ -117,6 +117,26 @@ type DiagnosisTurnResultFrame = {
   evidence_requests?: DiagnosisEvidenceRequest[];
   evidence_collection_results?: DiagnosisEvidenceCollectionResult[];
   consultation_insight?: DiagnosisConsultationInsight;
+  follow_up_turns?: DiagnosisFollowUpTurn[];
+};
+
+type DiagnosisFollowUpTurn = {
+  message_id: string;
+  user_message: string;
+  assistant_message_id: string;
+  user_turn_id: number;
+  assistant_turn_id: number;
+  user_sequence: number;
+  assistant_sequence: number;
+  turn_count: number;
+  context_bytes: number;
+  assistant_message: string;
+  requires_human_review: boolean;
+  confidence: string;
+  evidence_requests?: DiagnosisEvidenceRequest[];
+  evidence_collection_results?: DiagnosisEvidenceCollectionResult[];
+  consultation_insight?: DiagnosisConsultationInsight;
+  trigger: string;
 };
 
 export type DiagnosisStateFrame = {

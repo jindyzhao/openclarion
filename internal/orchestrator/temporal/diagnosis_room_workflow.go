@@ -41,6 +41,10 @@ const (
 	diagnosisRoomEvidenceContextVersion     = 1
 	diagnosisRoomFinalConclusionChangeID    = "diagnosis-room-final-conclusion"
 	diagnosisRoomFinalConclusionVersion     = 1
+	diagnosisRoomAutoEvidenceChangeID       = "diagnosis-room-auto-evidence-followup"
+	diagnosisRoomAutoEvidenceVersion        = 1
+
+	diagnosisRoomAutoActorSubject = "openclarion:auto-diagnosis"
 )
 
 // DiagnosisRoomWorkflowInput configures one M5 short-conversation diagnosis
@@ -84,6 +88,28 @@ type SubmitDiagnosisTurnResult struct {
 	EvidenceRequests    []diagnosisroom.EvidenceRequest
 	CollectionResults   []diagnosisevidence.Item
 	Insight             diagnosisroom.ConsultationInsight
+	FollowUpTurns       []DiagnosisRoomFollowUpTurnResult
+}
+
+// DiagnosisRoomFollowUpTurnResult describes one workflow-triggered diagnosis
+// turn that ran after collecting evidence for the operator-submitted turn.
+type DiagnosisRoomFollowUpTurnResult struct {
+	MessageID           string
+	UserMessage         string
+	AssistantMessageID  string
+	UserTurnID          int64
+	AssistantTurnID     int64
+	UserSequence        int
+	AssistantSequence   int
+	TurnCount           int
+	ContextBytes        int
+	AssistantMessage    string
+	RequiresHumanReview bool
+	Confidence          string
+	EvidenceRequests    []diagnosisroom.EvidenceRequest
+	CollectionResults   []diagnosisevidence.Item
+	Insight             diagnosisroom.ConsultationInsight
+	Trigger             string
 }
 
 // DiagnosisRoomCloseRequest carries the close/cancel signal reason.
@@ -165,6 +191,12 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		workflow.DefaultVersion,
 		diagnosisRoomFinalConclusionVersion,
 	)
+	autoEvidenceVersion := workflow.GetVersion(
+		ctx,
+		diagnosisRoomAutoEvidenceChangeID,
+		workflow.DefaultVersion,
+		diagnosisRoomAutoEvidenceVersion,
+	)
 	startupComplete := false
 
 	if err := workflow.SetQueryHandler(ctx, DiagnosisRoomStateQuery, func() (DiagnosisRoomWorkflowState, error) {
@@ -187,116 +219,34 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			state.inFlight = true
 			defer func() { state.inFlight = false }()
 
-			userOccurredAt := workflow.Now(ctx)
-			priorConversation := state.conversationCopy()
-			userSequence := len(state.conversation) + 1
-			assistantSequence := userSequence + 1
-			messageID := strings.TrimSpace(req.MessageID)
-			activityReq := DiagnosisTurnActivityInput{
-				SessionID:         state.input.SessionID,
-				DiagnosisTaskID:   state.diagnosisTaskID,
-				MessageID:         messageID,
-				UserSequence:      userSequence,
-				AssistantSequence: assistantSequence,
-				ActorSubject:      strings.TrimSpace(req.ActorSubject),
-				Evidence:          turnEvidence,
-				Conversation:      priorConversation,
-				Message:           req.Message,
-				Policy:            state.policy,
-			}
-			actCtx := workflow.WithActivityOptions(ctx, diagnosisRoomTurnActivityOptions(state.policy))
-			var activityResult DiagnosisTurnActivityResult
-			if err := workflow.ExecuteActivity(actCtx, (*Activities).RunDiagnosisTurn, activityReq).Get(ctx, &activityResult); err != nil {
-				return SubmitDiagnosisTurnResult{}, err
-			}
-			assistantOccurredAt := workflow.Now(ctx)
-			persistReq := PersistDiagnosisTurnInput{
-				SessionID:           state.input.SessionID,
-				DiagnosisTaskID:     state.diagnosisTaskID,
-				OwnerSubject:        state.input.OwnerSubject,
-				UserMessageID:       messageID,
-				AssistantMessageID:  activityResult.AssistantMessageID,
-				UserSequence:        userSequence,
-				AssistantSequence:   activityResult.AssistantSequence,
-				TurnCount:           state.turnCount + 1,
-				ActorSubject:        strings.TrimSpace(req.ActorSubject),
-				UserMessage:         req.Message,
-				AssistantMessage:    activityResult.AssistantMessage,
-				UserOccurredAt:      userOccurredAt,
-				AssistantOccurredAt: assistantOccurredAt,
-				ContextBytes:        decision.ContextBytes,
-				InvocationID:        activityResult.InvocationID,
-				RuntimeID:           activityResult.RuntimeID,
-				ContainerStartedAt:  activityResult.StartedAt,
-				ContainerFinishedAt: activityResult.FinishedAt,
-				RawOutput:           activityResult.RawOutput,
-			}
-			var persistResult PersistDiagnosisTurnResult
-			persistCtx := workflow.WithActivityOptions(ctx, diagnosisRoomPersistenceActivityOptions())
-			if err := workflow.ExecuteActivity(persistCtx, (*Activities).PersistDiagnosisTurn, persistReq).Get(ctx, &persistResult); err != nil {
-				return SubmitDiagnosisTurnResult{}, err
-			}
-			var collectionResult CollectDiagnosisEvidenceResult
-			collectionVersion := workflow.GetVersion(
+			result, collectionVersion, err := state.runDiagnosisRoomTurn(
 				ctx,
-				diagnosisRoomEvidenceCollectionChangeID,
+				req,
+				decision,
+				turnEvidence,
 				workflow.DefaultVersion,
-				diagnosisRoomEvidenceCollectionVersion,
+				true,
+				evidenceContextVersion,
+				finalConclusionVersion,
 			)
-			if collectionVersion >= diagnosisRoomEvidenceCollectionVersion && len(persistResult.EvidenceRequests) > 0 {
-				collectCtx := workflow.WithActivityOptions(ctx, diagnosisRoomEvidenceActivityOptions())
-				if err := workflow.ExecuteActivity(collectCtx, (*Activities).CollectDiagnosisEvidence, CollectDiagnosisEvidenceInput{
-					SessionID:       state.input.SessionID,
-					DiagnosisTaskID: state.diagnosisTaskID,
-					Requests:        cloneEvidenceRequests(persistResult.EvidenceRequests),
-				}).Get(ctx, &collectionResult); err != nil {
-					return SubmitDiagnosisTurnResult{}, err
-				}
-			}
-			if evidenceContextVersion >= diagnosisRoomEvidenceContextVersion {
-				if batch, ok := diagnosisRoomEvidenceContextBatchFromItems(
-					persistResult.TurnCount,
-					activityResult.AssistantMessageID,
-					collectionResult.Items,
-				); ok {
-					state.evidenceBatches = appendDiagnosisRoomEvidenceContextBatch(state.evidenceBatches, batch)
-				}
+			if err != nil {
+				return SubmitDiagnosisTurnResult{}, err
 			}
 
-			state.chatSessionID = persistResult.ChatSessionID
-			state.turnCount++
-			state.lastActivityAt = persistResult.LastActivityAt
-			if finalConclusionVersion >= diagnosisRoomFinalConclusionVersion && persistResult.FinalConclusion != nil {
-				state.finalConclusion = copyDiagnosisRoomFinalConclusion(*persistResult.FinalConclusion)
+			if autoEvidenceVersion >= diagnosisRoomAutoEvidenceVersion {
+				followUps, err := state.runAutoEvidenceFollowUps(
+					ctx,
+					result,
+					evidenceContextVersion,
+					collectionVersion,
+					finalConclusionVersion,
+				)
+				if err != nil {
+					return SubmitDiagnosisTurnResult{}, err
+				}
+				result.FollowUpTurns = followUps
 			}
-			state.seen[messageID] = struct{}{}
-			state.conversation = append(state.conversation, diagnosisroom.ConversationTurn{
-				Role:    string(diagnosisroomRoleUser),
-				Content: strings.TrimSpace(req.Message),
-			})
-			state.conversation = append(state.conversation, diagnosisroom.ConversationTurn{
-				Role:    string(diagnosisroomRoleAssistant),
-				Content: activityResult.AssistantMessage,
-			})
-			return SubmitDiagnosisTurnResult{
-				SessionID:           state.input.SessionID,
-				ChatSessionID:       persistResult.ChatSessionID,
-				MessageID:           messageID,
-				AssistantMessageID:  activityResult.AssistantMessageID,
-				UserTurnID:          persistResult.UserTurnID,
-				AssistantTurnID:     persistResult.AssistantTurnID,
-				UserSequence:        userSequence,
-				AssistantSequence:   activityResult.AssistantSequence,
-				TurnCount:           state.turnCount,
-				ContextBytes:        decision.ContextBytes,
-				Status:              state.status,
-				AssistantMessage:    activityResult.AssistantMessage,
-				RequiresHumanReview: activityResult.RequiresHumanReview,
-				Confidence:          activityResult.Confidence,
-				EvidenceRequests:    cloneEvidenceRequests(persistResult.EvidenceRequests),
-				CollectionResults:   diagnosisevidence.CloneItems(collectionResult.Items),
-				Insight:             persistResult.Insight,
-			}, nil
+			return result, nil
 		},
 		workflow.UpdateHandlerOptions{
 			Validator: func(ctx workflow.Context, req SubmitDiagnosisTurnRequest) error {
@@ -498,6 +448,278 @@ func (s *diagnosisRoomState) snapshot() DiagnosisRoomWorkflowState {
 	}
 }
 
+func (s *diagnosisRoomState) runDiagnosisRoomTurn(
+	ctx workflow.Context,
+	req SubmitDiagnosisTurnRequest,
+	decision diagnosisroom.Decision,
+	turnEvidence json.RawMessage,
+	collectionVersion workflow.Version,
+	resolveCollectionVersion bool,
+	evidenceContextVersion workflow.Version,
+	finalConclusionVersion workflow.Version,
+) (SubmitDiagnosisTurnResult, workflow.Version, error) {
+	userOccurredAt := workflow.Now(ctx)
+	priorConversation := s.conversationCopy()
+	userSequence := len(s.conversation) + 1
+	assistantSequence := userSequence + 1
+	messageID := strings.TrimSpace(req.MessageID)
+	actorSubject := strings.TrimSpace(req.ActorSubject)
+	userMessage := strings.TrimSpace(req.Message)
+	activityReq := DiagnosisTurnActivityInput{
+		SessionID:         s.input.SessionID,
+		DiagnosisTaskID:   s.diagnosisTaskID,
+		MessageID:         messageID,
+		UserSequence:      userSequence,
+		AssistantSequence: assistantSequence,
+		ActorSubject:      actorSubject,
+		Evidence:          turnEvidence,
+		Conversation:      priorConversation,
+		Message:           req.Message,
+		Policy:            s.policy,
+	}
+	actCtx := workflow.WithActivityOptions(ctx, diagnosisRoomTurnActivityOptions(s.policy))
+	var activityResult DiagnosisTurnActivityResult
+	if err := workflow.ExecuteActivity(actCtx, (*Activities).RunDiagnosisTurn, activityReq).Get(ctx, &activityResult); err != nil {
+		return SubmitDiagnosisTurnResult{}, collectionVersion, err
+	}
+	assistantOccurredAt := workflow.Now(ctx)
+	persistReq := PersistDiagnosisTurnInput{
+		SessionID:           s.input.SessionID,
+		DiagnosisTaskID:     s.diagnosisTaskID,
+		OwnerSubject:        s.input.OwnerSubject,
+		UserMessageID:       messageID,
+		AssistantMessageID:  activityResult.AssistantMessageID,
+		UserSequence:        userSequence,
+		AssistantSequence:   activityResult.AssistantSequence,
+		TurnCount:           s.turnCount + 1,
+		ActorSubject:        actorSubject,
+		UserMessage:         req.Message,
+		AssistantMessage:    activityResult.AssistantMessage,
+		UserOccurredAt:      userOccurredAt,
+		AssistantOccurredAt: assistantOccurredAt,
+		ContextBytes:        decision.ContextBytes,
+		InvocationID:        activityResult.InvocationID,
+		RuntimeID:           activityResult.RuntimeID,
+		ContainerStartedAt:  activityResult.StartedAt,
+		ContainerFinishedAt: activityResult.FinishedAt,
+		RawOutput:           activityResult.RawOutput,
+	}
+	var persistResult PersistDiagnosisTurnResult
+	persistCtx := workflow.WithActivityOptions(ctx, diagnosisRoomPersistenceActivityOptions())
+	if err := workflow.ExecuteActivity(persistCtx, (*Activities).PersistDiagnosisTurn, persistReq).Get(ctx, &persistResult); err != nil {
+		return SubmitDiagnosisTurnResult{}, collectionVersion, err
+	}
+	if resolveCollectionVersion {
+		collectionVersion = workflow.GetVersion(
+			ctx,
+			diagnosisRoomEvidenceCollectionChangeID,
+			workflow.DefaultVersion,
+			diagnosisRoomEvidenceCollectionVersion,
+		)
+	}
+	var collectionResult CollectDiagnosisEvidenceResult
+	if collectionVersion >= diagnosisRoomEvidenceCollectionVersion && len(persistResult.EvidenceRequests) > 0 {
+		collectCtx := workflow.WithActivityOptions(ctx, diagnosisRoomEvidenceActivityOptions())
+		if err := workflow.ExecuteActivity(collectCtx, (*Activities).CollectDiagnosisEvidence, CollectDiagnosisEvidenceInput{
+			SessionID:       s.input.SessionID,
+			DiagnosisTaskID: s.diagnosisTaskID,
+			Requests:        cloneEvidenceRequests(persistResult.EvidenceRequests),
+		}).Get(ctx, &collectionResult); err != nil {
+			return SubmitDiagnosisTurnResult{}, collectionVersion, err
+		}
+	}
+	if evidenceContextVersion >= diagnosisRoomEvidenceContextVersion {
+		if batch, ok := diagnosisRoomEvidenceContextBatchFromItems(
+			persistResult.TurnCount,
+			activityResult.AssistantMessageID,
+			collectionResult.Items,
+		); ok {
+			s.evidenceBatches = appendDiagnosisRoomEvidenceContextBatch(s.evidenceBatches, batch)
+		}
+	}
+
+	s.chatSessionID = persistResult.ChatSessionID
+	s.turnCount++
+	s.lastActivityAt = persistResult.LastActivityAt
+	if finalConclusionVersion >= diagnosisRoomFinalConclusionVersion && persistResult.FinalConclusion != nil {
+		s.finalConclusion = copyDiagnosisRoomFinalConclusion(*persistResult.FinalConclusion)
+	}
+	s.seen[messageID] = struct{}{}
+	s.conversation = append(s.conversation, diagnosisroom.ConversationTurn{
+		Role:    string(diagnosisroomRoleUser),
+		Content: userMessage,
+	})
+	s.conversation = append(s.conversation, diagnosisroom.ConversationTurn{
+		Role:    string(diagnosisroomRoleAssistant),
+		Content: activityResult.AssistantMessage,
+	})
+	return SubmitDiagnosisTurnResult{
+		SessionID:           s.input.SessionID,
+		ChatSessionID:       persistResult.ChatSessionID,
+		MessageID:           messageID,
+		AssistantMessageID:  activityResult.AssistantMessageID,
+		UserTurnID:          persistResult.UserTurnID,
+		AssistantTurnID:     persistResult.AssistantTurnID,
+		UserSequence:        userSequence,
+		AssistantSequence:   activityResult.AssistantSequence,
+		TurnCount:           s.turnCount,
+		ContextBytes:        decision.ContextBytes,
+		Status:              s.status,
+		AssistantMessage:    activityResult.AssistantMessage,
+		RequiresHumanReview: activityResult.RequiresHumanReview,
+		Confidence:          activityResult.Confidence,
+		EvidenceRequests:    cloneEvidenceRequests(persistResult.EvidenceRequests),
+		CollectionResults:   diagnosisevidence.CloneItems(collectionResult.Items),
+		Insight:             persistResult.Insight,
+	}, collectionVersion, nil
+}
+
+func (s *diagnosisRoomState) runAutoEvidenceFollowUps(
+	ctx workflow.Context,
+	primary SubmitDiagnosisTurnResult,
+	evidenceContextVersion workflow.Version,
+	collectionVersion workflow.Version,
+	finalConclusionVersion workflow.Version,
+) ([]DiagnosisRoomFollowUpTurnResult, error) {
+	maxFollowUps := s.policy.MaxAutoEvidenceFollowUps
+	if maxFollowUps <= 0 {
+		return nil, nil
+	}
+	followUps := make([]DiagnosisRoomFollowUpTurnResult, 0, maxFollowUps)
+	previous := primary
+	for i := 1; i <= maxFollowUps; i++ {
+		if !s.shouldRunAutoEvidenceFollowUp(previous) {
+			break
+		}
+		req := SubmitDiagnosisTurnRequest{
+			MessageID:    autoEvidenceFollowUpMessageID(primary.MessageID, i),
+			ActorSubject: diagnosisRoomAutoActorSubject,
+			Message:      autoEvidenceFollowUpMessage(previous),
+		}
+		decision, turnEvidence, ok := s.tryValidateSubmitForAutoFollowUp(ctx, req, evidenceContextVersion)
+		if !ok {
+			break
+		}
+		result, _, err := s.runDiagnosisRoomTurn(
+			ctx,
+			req,
+			decision,
+			turnEvidence,
+			collectionVersion,
+			false,
+			evidenceContextVersion,
+			finalConclusionVersion,
+		)
+		if err != nil {
+			return nil, err
+		}
+		followUps = append(followUps, diagnosisRoomFollowUpTurnResult(result, req.Message))
+		previous = result
+	}
+	return followUps, nil
+}
+
+func (s *diagnosisRoomState) tryValidateSubmitForAutoFollowUp(
+	ctx workflow.Context,
+	req SubmitDiagnosisTurnRequest,
+	evidenceContextVersion workflow.Version,
+) (diagnosisroom.Decision, json.RawMessage, bool) {
+	decision, evidence, err := s.validateSubmitForAutoFollowUp(ctx, req, evidenceContextVersion)
+	if err != nil {
+		return diagnosisroom.Decision{}, nil, false
+	}
+	return decision, evidence, true
+}
+
+func (s *diagnosisRoomState) shouldRunAutoEvidenceFollowUp(result SubmitDiagnosisTurnResult) bool {
+	if s.status != diagnosisRoomStatusOpen || s.policy.MaxAutoEvidenceFollowUps <= 0 || s.turnCount >= s.policy.MaxTurns {
+		return false
+	}
+	switch strings.TrimSpace(result.Insight.ConclusionStatus) {
+	case "needs_evidence":
+	case "final":
+		return false
+	default:
+		return false
+	}
+	if len(result.EvidenceRequests) == 0 {
+		return false
+	}
+	for _, item := range result.CollectionResults {
+		if item.Status == diagnosisevidence.StatusCollected {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *diagnosisRoomState) validateSubmitForAutoFollowUp(
+	ctx workflow.Context,
+	req SubmitDiagnosisTurnRequest,
+	evidenceContextVersion workflow.Version,
+) (diagnosisroom.Decision, json.RawMessage, error) {
+	evidence, err := s.turnEvidence(evidenceContextVersion)
+	if err != nil {
+		return diagnosisroom.Decision{}, nil, err
+	}
+	decision, err := diagnosisroom.ValidateSubmitTurn(
+		s.policy,
+		diagnosisroom.SessionState{
+			StartedAt:      s.startedAt,
+			LastActivityAt: s.lastActivityAt,
+			TurnCount:      s.turnCount,
+			InFlight:       false,
+			SeenMessageIDs: s.seen,
+		},
+		diagnosisroom.SubmitTurnRequest{
+			MessageID:    req.MessageID,
+			Message:      req.Message,
+			Now:          workflow.Now(ctx),
+			Evidence:     evidence,
+			Conversation: s.conversation,
+		},
+	)
+	if err != nil {
+		return diagnosisroom.Decision{}, nil, err
+	}
+	return decision, evidence, nil
+}
+
+func diagnosisRoomFollowUpTurnResult(
+	result SubmitDiagnosisTurnResult,
+	userMessage string,
+) DiagnosisRoomFollowUpTurnResult {
+	return DiagnosisRoomFollowUpTurnResult{
+		MessageID:           result.MessageID,
+		UserMessage:         strings.TrimSpace(userMessage),
+		AssistantMessageID:  result.AssistantMessageID,
+		UserTurnID:          result.UserTurnID,
+		AssistantTurnID:     result.AssistantTurnID,
+		UserSequence:        result.UserSequence,
+		AssistantSequence:   result.AssistantSequence,
+		TurnCount:           result.TurnCount,
+		ContextBytes:        result.ContextBytes,
+		AssistantMessage:    result.AssistantMessage,
+		RequiresHumanReview: result.RequiresHumanReview,
+		Confidence:          result.Confidence,
+		EvidenceRequests:    cloneEvidenceRequests(result.EvidenceRequests),
+		CollectionResults:   diagnosisevidence.CloneItems(result.CollectionResults),
+		Insight:             result.Insight,
+		Trigger:             "collected_evidence",
+	}
+}
+
+func autoEvidenceFollowUpMessageID(rootMessageID string, index int) string {
+	return fmt.Sprintf("%s/auto-evidence-%d", strings.TrimSpace(rootMessageID), index)
+}
+
+func autoEvidenceFollowUpMessage(previous SubmitDiagnosisTurnResult) string {
+	return fmt.Sprintf(
+		"OpenClarion automatic evidence follow-up for %s: use the newly collected evidence in evidence.json to reassess confidence and update the diagnosis. If the evidence is sufficient, set conclusion_status to final or ready_for_review; otherwise explain the remaining missing evidence.",
+		strings.TrimSpace(previous.AssistantMessageID),
+	)
+}
+
 func (s *diagnosisRoomState) conversationCopy() []diagnosisroom.ConversationTurn {
 	conversation := make([]diagnosisroom.ConversationTurn, len(s.conversation))
 	copy(conversation, s.conversation)
@@ -557,6 +779,7 @@ func (s *diagnosisRoomState) nextTimerDelay(now time.Time) time.Duration {
 
 func diagnosisRoomPolicyOrDefault(policy diagnosisroom.Policy) diagnosisroom.Policy {
 	if policy.MaxTurns == 0 &&
+		policy.MaxAutoEvidenceFollowUps == 0 &&
 		policy.SessionTTL == 0 &&
 		policy.IdleTimeout == 0 &&
 		policy.TurnTimeout == 0 &&

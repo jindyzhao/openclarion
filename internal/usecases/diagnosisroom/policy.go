@@ -26,6 +26,9 @@ const (
 	HardMaxContextBytes = 2 * 1024 * 1024
 	// HardMaxMessageBytes is the maximum accepted user message size.
 	HardMaxMessageBytes = 64 * 1024
+	// HardMaxAutoEvidenceFollowUps is the maximum workflow-triggered follow-up
+	// turns allowed after a user turn collects new evidence.
+	HardMaxAutoEvidenceFollowUps = 3
 
 	// DefaultMaxTurns is the default V1 short-conversation turn cap.
 	DefaultMaxTurns = 20
@@ -39,19 +42,22 @@ const (
 	DefaultContextBytes = 256 * 1024
 	// DefaultMaxMessageBytes is the default user message byte cap.
 	DefaultMaxMessageBytes = 8 * 1024
+	// DefaultMaxAutoEvidenceFollowUps is the default automatic follow-up cap.
+	DefaultMaxAutoEvidenceFollowUps = 1
 )
 
 // Policy is the M5 V1 blast-radius boundary for one diagnosis room.
 // It is intentionally small and serialisable so the same values can be
 // stored with a workflow/session and checked before every turn.
 type Policy struct {
-	MaxTurns        int
-	SessionTTL      time.Duration
-	IdleTimeout     time.Duration
-	TurnTimeout     time.Duration
-	ContextBytes    int
-	MaxMessageBytes int
-	UnsafeDenylist  []string
+	MaxTurns                 int
+	MaxAutoEvidenceFollowUps int
+	SessionTTL               time.Duration
+	IdleTimeout              time.Duration
+	TurnTimeout              time.Duration
+	ContextBytes             int
+	MaxMessageBytes          int
+	UnsafeDenylist           []string
 }
 
 // SessionState is the workflow-visible state needed to validate an Update.
@@ -88,12 +94,13 @@ type Decision struct {
 // DefaultPolicy returns the conservative V1 short-conversation policy.
 func DefaultPolicy() Policy {
 	return Policy{
-		MaxTurns:        DefaultMaxTurns,
-		SessionTTL:      DefaultSessionTTL,
-		IdleTimeout:     DefaultIdleTimeout,
-		TurnTimeout:     DefaultTurnTimeout,
-		ContextBytes:    DefaultContextBytes,
-		MaxMessageBytes: DefaultMaxMessageBytes,
+		MaxTurns:                 DefaultMaxTurns,
+		MaxAutoEvidenceFollowUps: DefaultMaxAutoEvidenceFollowUps,
+		SessionTTL:               DefaultSessionTTL,
+		IdleTimeout:              DefaultIdleTimeout,
+		TurnTimeout:              DefaultTurnTimeout,
+		ContextBytes:             DefaultContextBytes,
+		MaxMessageBytes:          DefaultMaxMessageBytes,
 		UnsafeDenylist: []string{
 			"ignore previous instructions",
 			"reveal system prompt",
@@ -112,6 +119,9 @@ func DefaultPolicy() Policy {
 func ValidatePolicy(policy Policy) error {
 	if policy.MaxTurns <= 0 || policy.MaxTurns > HardMaxTurns {
 		return fmt.Errorf("diagnosis room policy: max turns %d must be in [1,%d]: %w", policy.MaxTurns, HardMaxTurns, domain.ErrInvariantViolation)
+	}
+	if policy.MaxAutoEvidenceFollowUps < 0 || policy.MaxAutoEvidenceFollowUps > HardMaxAutoEvidenceFollowUps {
+		return fmt.Errorf("diagnosis room policy: max auto evidence follow-ups %d must be in [0,%d]: %w", policy.MaxAutoEvidenceFollowUps, HardMaxAutoEvidenceFollowUps, domain.ErrInvariantViolation)
 	}
 	if policy.SessionTTL <= 0 || policy.SessionTTL > HardMaxSessionTTL {
 		return fmt.Errorf("diagnosis room policy: session ttl %s must be in (0,%s]: %w", policy.SessionTTL, HardMaxSessionTTL, domain.ErrInvariantViolation)
