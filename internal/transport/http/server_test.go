@@ -2760,6 +2760,24 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 			AssistantMessage:    "CPU alert is still firing.",
 			RequiresHumanReview: true,
 			Confidence:          "medium",
+			EvidenceRequests: []ports.DiagnosisRoomEvidenceRequest{{
+				Tool:   domain.DiagnosisToolKindActiveAlerts,
+				Reason: "Need current sibling alerts.",
+				Limit:  5,
+			}},
+			CollectionResults: []ports.DiagnosisRoomEvidenceCollectionResult{{
+				Tool:           domain.DiagnosisToolKindActiveAlerts,
+				Status:         "collected",
+				ReasonCode:     "ok",
+				Message:        "Active alert collection succeeded.",
+				ObservedAlerts: 1,
+				ActiveAlerts: []ports.DiagnosisRoomActiveAlert{{
+					Source:   "alertmanager",
+					Labels:   map[string]string{"alertname": "CPUHigh"},
+					StartsAt: now,
+				}},
+				CollectedAt: now.Add(time.Second),
+			}},
 			ConsultationInsight: ports.DiagnosisRoomConsultationInsight{
 				ConfidenceRationale: "CPU evidence is present but restart evidence is missing.",
 				MissingEvidenceRequests: []ports.DiagnosisRoomConsultationEvidenceRequest{{
@@ -2846,6 +2864,20 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 		turn.ConsultationInsight.MissingEvidenceRequests[0].Label != "Restart cause" ||
 		turn.ConsultationInsight.ConclusionStatus != "needs_evidence" {
 		t.Fatalf("turn consultation insight = %+v", turn.ConsultationInsight)
+	}
+	if len(turn.EvidenceRequests) != 1 ||
+		turn.EvidenceRequests[0].Tool != "active_alerts" ||
+		turn.EvidenceRequests[0].Reason != "Need current sibling alerts." ||
+		turn.EvidenceRequests[0].Limit != 5 {
+		t.Fatalf("turn evidence requests = %+v", turn.EvidenceRequests)
+	}
+	if len(turn.CollectionResults) != 1 ||
+		turn.CollectionResults[0].Status != "collected" ||
+		turn.CollectionResults[0].ReasonCode != "ok" ||
+		turn.CollectionResults[0].ObservedAlerts != 1 ||
+		len(turn.CollectionResults[0].ActiveAlerts) != 1 ||
+		turn.CollectionResults[0].ActiveAlerts[0].Labels["alertname"] != "CPUHigh" {
+		t.Fatalf("turn collection results = %+v", turn.CollectionResults)
 	}
 	submitReq, submitCalled := workflowClient.submitSnapshot()
 	if submitCalled != 1 {

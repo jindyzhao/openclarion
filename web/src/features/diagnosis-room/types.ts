@@ -37,6 +37,38 @@ export type DiagnosisConsultationInsight = {
   conclusion_status?: string;
 };
 
+export type DiagnosisEvidenceRequest = {
+  template_id?: number;
+  tool: string;
+  reason: string;
+  query?: string;
+  window_seconds?: number;
+  step_seconds?: number;
+  limit?: number;
+};
+
+export type DiagnosisActiveAlert = {
+  source: string;
+  labels?: Record<string, string> | null;
+  annotations?: Record<string, string> | null;
+  starts_at: string;
+};
+
+export type DiagnosisEvidenceCollectionResult = {
+  request: DiagnosisEvidenceRequest;
+  template_id?: number;
+  alert_source_profile_id?: number;
+  alert_source_kind?: string;
+  tool: string;
+  status: string;
+  reason_code: string;
+  message: string;
+  limit?: number;
+  observed_alerts: number;
+  active_alerts?: DiagnosisActiveAlert[];
+  collected_at: string;
+};
+
 type DiagnosisReadyFrame = {
   type: "ready";
   session_id: string;
@@ -59,6 +91,8 @@ type DiagnosisTurnResultFrame = {
   assistant_message: string;
   requires_human_review: boolean;
   confidence: string;
+  evidence_requests?: DiagnosisEvidenceRequest[];
+  evidence_collection_results?: DiagnosisEvidenceCollectionResult[];
   consultation_insight?: DiagnosisConsultationInsight;
 };
 

@@ -90,6 +90,8 @@ type DiagnosisRoomSubmitTurnResult struct {
 	AssistantMessage    string
 	RequiresHumanReview bool
 	Confidence          string
+	EvidenceRequests    []DiagnosisRoomEvidenceRequest
+	CollectionResults   []DiagnosisRoomEvidenceCollectionResult
 	ConsultationInsight DiagnosisRoomConsultationInsight
 }
 
@@ -98,6 +100,44 @@ type DiagnosisRoomSubmitTurnResult struct {
 type DiagnosisRoomConversationTurn struct {
 	Role    string
 	Content string
+}
+
+// DiagnosisRoomEvidenceRequest captures one bounded, executable evidence
+// collection plan returned by a diagnosis-room turn.
+type DiagnosisRoomEvidenceRequest struct {
+	TemplateID    domain.DiagnosisToolTemplateID
+	Tool          domain.DiagnosisToolKind
+	Reason        string
+	Query         string
+	WindowSeconds int
+	StepSeconds   int
+	Limit         int
+}
+
+// DiagnosisRoomEvidenceCollectionResult captures the provider-backed outcome
+// for one executable diagnosis evidence request.
+type DiagnosisRoomEvidenceCollectionResult struct {
+	Request              DiagnosisRoomEvidenceRequest
+	TemplateID           domain.DiagnosisToolTemplateID
+	AlertSourceProfileID domain.AlertSourceProfileID
+	AlertSourceKind      domain.AlertSourceKind
+	Tool                 domain.DiagnosisToolKind
+	Status               string
+	ReasonCode           string
+	Message              string
+	Limit                int
+	ObservedAlerts       int
+	ActiveAlerts         []DiagnosisRoomActiveAlert
+	CollectedAt          time.Time
+}
+
+// DiagnosisRoomActiveAlert is the operator-facing active alert projection
+// included in diagnosis evidence collection results.
+type DiagnosisRoomActiveAlert struct {
+	Source      string
+	Labels      map[string]string
+	Annotations map[string]string
+	StartsAt    time.Time
 }
 
 // DiagnosisRoomConsultationEvidenceRequest captures one human-readable

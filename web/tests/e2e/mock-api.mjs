@@ -1290,6 +1290,51 @@ function handleDiagnosisFrame(socket, sessionID, state, payload) {
       assistant_message: assistant,
       requires_human_review: true,
       confidence: "medium",
+      evidence_requests: [
+        {
+          tool: "active_alerts",
+          reason: "Current active alerts",
+          limit: 5
+        },
+        {
+          tool: "metric_range_query",
+          reason: "CPU and memory saturation window",
+          query: "avg(rate(container_cpu_usage_seconds_total[5m]))",
+          window_seconds: 300,
+          step_seconds: 60,
+          limit: 10
+        }
+      ],
+      evidence_collection_results: [
+        {
+          request: {
+            tool: "active_alerts",
+            reason: "Current active alerts",
+            limit: 5
+          },
+          alert_source_kind: "alertmanager",
+          tool: "active_alerts",
+          status: "collected",
+          reason_code: "ok",
+          message: "Active alert collection succeeded.",
+          limit: 5,
+          observed_alerts: 1,
+          active_alerts: [
+            {
+              source: "alertmanager",
+              labels: {
+                alertname: "CPUHigh",
+                namespace: "prod"
+              },
+              annotations: {
+                summary: "CPU is high"
+              },
+              starts_at: "2026-06-17T10:00:00Z"
+            }
+          ],
+          collected_at: "2026-06-17T10:00:01Z"
+        }
+      ],
       consultation_insight: {
         confidence_rationale: "Alert labels and metric context are available, but restart evidence is still missing.",
         missing_evidence_requests: [

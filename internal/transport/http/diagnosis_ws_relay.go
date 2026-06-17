@@ -159,6 +159,8 @@ func (r *DiagnosisWebSocketRelay) handleSubmitTurn(ctx context.Context, conn *we
 		AssistantMessage:    result.AssistantMessage,
 		RequiresHumanReview: result.RequiresHumanReview,
 		Confidence:          result.Confidence,
+		EvidenceRequests:    diagnosisWSEvidenceRequests(result.EvidenceRequests),
+		CollectionResults:   diagnosisWSEvidenceCollectionResults(result.CollectionResults),
 		ConsultationInsight: diagnosisWSConsultationInsightFrame(result.ConsultationInsight),
 	})
 }
@@ -278,6 +280,90 @@ func diagnosisWSFinalConclusionFrame(in *ports.DiagnosisRoomFinalConclusion) *di
 	}
 }
 
+func diagnosisWSEvidenceRequests(in []ports.DiagnosisRoomEvidenceRequest) []diagnosisWSEvidenceRequest {
+	if in == nil {
+		return nil
+	}
+	out := make([]diagnosisWSEvidenceRequest, len(in))
+	for i, request := range in {
+		out[i] = diagnosisWSEvidenceRequest{
+			TemplateID:    int64(request.TemplateID),
+			Tool:          string(request.Tool),
+			Reason:        request.Reason,
+			Query:         request.Query,
+			WindowSeconds: request.WindowSeconds,
+			StepSeconds:   request.StepSeconds,
+			Limit:         request.Limit,
+		}
+	}
+	return out
+}
+
+func diagnosisWSEvidenceCollectionResults(
+	in []ports.DiagnosisRoomEvidenceCollectionResult,
+) []diagnosisWSEvidenceCollectionResult {
+	if in == nil {
+		return nil
+	}
+	out := make([]diagnosisWSEvidenceCollectionResult, len(in))
+	for i, item := range in {
+		out[i] = diagnosisWSEvidenceCollectionResult{
+			Request:              diagnosisWSEvidenceRequestFrame(item.Request),
+			TemplateID:           int64(item.TemplateID),
+			AlertSourceProfileID: int64(item.AlertSourceProfileID),
+			AlertSourceKind:      string(item.AlertSourceKind),
+			Tool:                 string(item.Tool),
+			Status:               item.Status,
+			ReasonCode:           item.ReasonCode,
+			Message:              item.Message,
+			Limit:                item.Limit,
+			ObservedAlerts:       item.ObservedAlerts,
+			ActiveAlerts:         diagnosisWSActiveAlerts(item.ActiveAlerts),
+			CollectedAt:          item.CollectedAt,
+		}
+	}
+	return out
+}
+
+func diagnosisWSEvidenceRequestFrame(request ports.DiagnosisRoomEvidenceRequest) diagnosisWSEvidenceRequest {
+	return diagnosisWSEvidenceRequest{
+		TemplateID:    int64(request.TemplateID),
+		Tool:          string(request.Tool),
+		Reason:        request.Reason,
+		Query:         request.Query,
+		WindowSeconds: request.WindowSeconds,
+		StepSeconds:   request.StepSeconds,
+		Limit:         request.Limit,
+	}
+}
+
+func diagnosisWSActiveAlerts(in []ports.DiagnosisRoomActiveAlert) []diagnosisWSActiveAlert {
+	if in == nil {
+		return nil
+	}
+	out := make([]diagnosisWSActiveAlert, len(in))
+	for i, alert := range in {
+		out[i] = diagnosisWSActiveAlert{
+			Source:      alert.Source,
+			Labels:      cloneDiagnosisWSStringMap(alert.Labels),
+			Annotations: cloneDiagnosisWSStringMap(alert.Annotations),
+			StartsAt:    alert.StartsAt,
+		}
+	}
+	return out
+}
+
+func cloneDiagnosisWSStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
 func diagnosisWSConsultationInsightFrame(
 	in ports.DiagnosisRoomConsultationInsight,
 ) diagnosisWSConsultationInsight {
@@ -326,22 +412,24 @@ type diagnosisWSReadyFrame struct {
 }
 
 type diagnosisWSTurnResultFrame struct {
-	Type                string                         `json:"type"`
-	SessionID           string                         `json:"session_id"`
-	ChatSessionID       int64                          `json:"chat_session_id"`
-	MessageID           string                         `json:"message_id"`
-	AssistantMessageID  string                         `json:"assistant_message_id"`
-	UserTurnID          int64                          `json:"user_turn_id"`
-	AssistantTurnID     int64                          `json:"assistant_turn_id"`
-	UserSequence        int                            `json:"user_sequence"`
-	AssistantSequence   int                            `json:"assistant_sequence"`
-	TurnCount           int                            `json:"turn_count"`
-	ContextBytes        int                            `json:"context_bytes"`
-	Status              string                         `json:"status"`
-	AssistantMessage    string                         `json:"assistant_message"`
-	RequiresHumanReview bool                           `json:"requires_human_review"`
-	Confidence          string                         `json:"confidence"`
-	ConsultationInsight diagnosisWSConsultationInsight `json:"consultation_insight"`
+	Type                string                                `json:"type"`
+	SessionID           string                                `json:"session_id"`
+	ChatSessionID       int64                                 `json:"chat_session_id"`
+	MessageID           string                                `json:"message_id"`
+	AssistantMessageID  string                                `json:"assistant_message_id"`
+	UserTurnID          int64                                 `json:"user_turn_id"`
+	AssistantTurnID     int64                                 `json:"assistant_turn_id"`
+	UserSequence        int                                   `json:"user_sequence"`
+	AssistantSequence   int                                   `json:"assistant_sequence"`
+	TurnCount           int                                   `json:"turn_count"`
+	ContextBytes        int                                   `json:"context_bytes"`
+	Status              string                                `json:"status"`
+	AssistantMessage    string                                `json:"assistant_message"`
+	RequiresHumanReview bool                                  `json:"requires_human_review"`
+	Confidence          string                                `json:"confidence"`
+	EvidenceRequests    []diagnosisWSEvidenceRequest          `json:"evidence_requests,omitempty"`
+	CollectionResults   []diagnosisWSEvidenceCollectionResult `json:"evidence_collection_results,omitempty"`
+	ConsultationInsight diagnosisWSConsultationInsight        `json:"consultation_insight"`
 }
 
 type diagnosisWSStateFrame struct {
@@ -378,6 +466,38 @@ type diagnosisWSFinalConclusion struct {
 	Content             string     `json:"content,omitempty"`
 	Confidence          string     `json:"confidence,omitempty"`
 	RequiresHumanReview *bool      `json:"requires_human_review,omitempty"`
+}
+
+type diagnosisWSEvidenceRequest struct {
+	TemplateID    int64  `json:"template_id,omitempty"`
+	Tool          string `json:"tool"`
+	Reason        string `json:"reason"`
+	Query         string `json:"query,omitempty"`
+	WindowSeconds int    `json:"window_seconds,omitempty"`
+	StepSeconds   int    `json:"step_seconds,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
+}
+
+type diagnosisWSEvidenceCollectionResult struct {
+	Request              diagnosisWSEvidenceRequest `json:"request"`
+	TemplateID           int64                      `json:"template_id,omitempty"`
+	AlertSourceProfileID int64                      `json:"alert_source_profile_id,omitempty"`
+	AlertSourceKind      string                     `json:"alert_source_kind,omitempty"`
+	Tool                 string                     `json:"tool"`
+	Status               string                     `json:"status"`
+	ReasonCode           string                     `json:"reason_code"`
+	Message              string                     `json:"message"`
+	Limit                int                        `json:"limit,omitempty"`
+	ObservedAlerts       int                        `json:"observed_alerts"`
+	ActiveAlerts         []diagnosisWSActiveAlert   `json:"active_alerts,omitempty"`
+	CollectedAt          time.Time                  `json:"collected_at"`
+}
+
+type diagnosisWSActiveAlert struct {
+	Source      string            `json:"source"`
+	Labels      map[string]string `json:"labels"`
+	Annotations map[string]string `json:"annotations"`
+	StartsAt    time.Time         `json:"starts_at"`
 }
 
 type diagnosisWSConsultationInsight struct {

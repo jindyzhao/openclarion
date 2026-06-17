@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/testsuite"
 
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 )
 
@@ -64,7 +65,13 @@ func TestDiagnosisRoomWorkflow_SubmitTurnQueryAndCloseSignal(t *testing.T) {
 		update.result.UserSequence != 1 ||
 		update.result.AssistantSequence != 2 ||
 		update.result.ContextBytes == 0 ||
-		update.result.AssistantMessage == "" {
+		update.result.AssistantMessage == "" ||
+		len(update.result.EvidenceRequests) != 1 ||
+		update.result.EvidenceRequests[0].Tool != "active_alerts" ||
+		update.result.EvidenceRequests[0].Reason != "Need current sibling alerts." ||
+		len(update.result.CollectionResults) != 1 ||
+		update.result.CollectionResults[0].Status != diagnosisevidence.StatusCollected ||
+		update.result.CollectionResults[0].ObservedAlerts != 1 {
 		t.Fatalf("submit result = %+v", update.result)
 	}
 	if queryErr != nil {
@@ -536,9 +543,32 @@ func registerDiagnosisRoomPersistenceActivities(t *testing.T, env *testsuite.Tes
 				AssistantMessage:    got.AssistantMessage,
 				Confidence:          "medium",
 				RequiresHumanReview: true,
+				EvidenceRequests: []diagnosisroom.EvidenceRequest{{
+					Tool:   "active_alerts",
+					Reason: "Need current sibling alerts.",
+					Limit:  5,
+				}},
 			}, nil
 		},
 		activity.RegisterOptions{Name: "PersistDiagnosisTurn"},
+	)
+	env.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.CollectDiagnosisEvidenceInput) (temporalpkg.CollectDiagnosisEvidenceResult, error) {
+			if got.SessionID == "" || got.DiagnosisTaskID == 0 || len(got.Requests) != 1 {
+				t.Fatalf("collect evidence input = %+v", got)
+			}
+			return temporalpkg.CollectDiagnosisEvidenceResult{
+				Items: []diagnosisevidence.Item{{
+					Tool:           "active_alerts",
+					Status:         diagnosisevidence.StatusCollected,
+					ReasonCode:     diagnosisevidence.ReasonOK,
+					Message:        "Active alert collection succeeded.",
+					ObservedAlerts: 1,
+					CollectedAt:    time.Date(2026, 5, 28, 10, 0, 2, 0, time.UTC),
+				}},
+			}, nil
+		},
+		activity.RegisterOptions{Name: "CollectDiagnosisEvidence"},
 	)
 	env.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.CloseDiagnosisChatSessionInput) (temporalpkg.CloseDiagnosisChatSessionResult, error) {

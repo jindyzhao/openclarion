@@ -30,6 +30,35 @@ describe("parseDiagnosisServerFrame", () => {
           assistant_message: "Need restart evidence before finalizing.",
           requires_human_review: true,
           confidence: "medium",
+          evidence_requests: [
+            {
+              tool: "active_alerts",
+              reason: "Need current sibling alerts.",
+              limit: 5
+            }
+          ],
+          evidence_collection_results: [
+            {
+              request: {
+                tool: "active_alerts",
+                reason: "Need current sibling alerts.",
+                limit: 5
+              },
+              tool: "active_alerts",
+              status: "collected",
+              reason_code: "ok",
+              message: "Active alert collection succeeded.",
+              observed_alerts: 1,
+              active_alerts: [
+                {
+                  source: "alertmanager",
+                  labels: { alertname: "CPUHigh", namespace: "prod" },
+                  starts_at: "2026-06-17T10:00:00Z"
+                }
+              ],
+              collected_at: "2026-06-17T10:00:01Z"
+            }
+          ],
           consultation_insight: {
             confidence_rationale: "Metric evidence is present, but restart context is missing.",
             missing_evidence_requests: [
@@ -52,6 +81,15 @@ describe("parseDiagnosisServerFrame", () => {
       )
     ).toMatchObject({
       type: "turn_result",
+      evidence_requests: [{ tool: "active_alerts", reason: "Need current sibling alerts.", limit: 5 }],
+      evidence_collection_results: [
+        {
+          status: "collected",
+          reason_code: "ok",
+          observed_alerts: 1,
+          active_alerts: [{ labels: { alertname: "CPUHigh" } }]
+        }
+      ],
       consultation_insight: {
         confidence_rationale: "Metric evidence is present, but restart context is missing.",
         missing_evidence_requests: [{ priority: "high" }],
