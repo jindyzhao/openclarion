@@ -185,6 +185,11 @@ func diagnosisRoomEvidenceCollectionResultsPort(
 			Limit:                item.Limit,
 			ObservedAlerts:       item.ObservedAlerts,
 			ActiveAlerts:         diagnosisRoomActiveAlertsPort(item.ActiveAlerts),
+			Query:                item.Query,
+			WindowSeconds:        item.WindowSeconds,
+			StepSeconds:          item.StepSeconds,
+			ObservedMetricSeries: item.ObservedMetricSeries,
+			MetricResult:         diagnosisRoomMetricResultPort(item.MetricResult),
 			CollectedAt:          item.CollectedAt,
 		}
 	}
@@ -243,6 +248,49 @@ func diagnosisRoomConsultationEvidenceRequestsPort(
 		}
 	}
 	return out
+}
+
+func diagnosisRoomMetricResultPort(in ports.MetricQueryResult) ports.DiagnosisRoomMetricQueryResult {
+	out := ports.DiagnosisRoomMetricQueryResult{
+		ResultType: in.ResultType,
+		Warnings:   append([]string(nil), in.Warnings...),
+	}
+	if in.Scalar != nil {
+		scalar := diagnosisRoomMetricPointPort(*in.Scalar)
+		out.Scalar = &scalar
+	}
+	if in.String != nil {
+		value := diagnosisRoomMetricPointPort(*in.String)
+		out.String = &value
+	}
+	if in.Series != nil {
+		out.Series = make([]ports.DiagnosisRoomMetricSeries, len(in.Series))
+		for i, series := range in.Series {
+			out.Series[i] = ports.DiagnosisRoomMetricSeries{
+				Metric: cloneStringMap(series.Metric),
+				Points: diagnosisRoomMetricPointsPort(series.Points),
+			}
+		}
+	}
+	return out
+}
+
+func diagnosisRoomMetricPointsPort(in []ports.MetricPoint) []ports.DiagnosisRoomMetricPoint {
+	if in == nil {
+		return nil
+	}
+	out := make([]ports.DiagnosisRoomMetricPoint, len(in))
+	for i, point := range in {
+		out[i] = diagnosisRoomMetricPointPort(point)
+	}
+	return out
+}
+
+func diagnosisRoomMetricPointPort(point ports.MetricPoint) ports.DiagnosisRoomMetricPoint {
+	return ports.DiagnosisRoomMetricPoint{
+		Timestamp: point.Timestamp,
+		Value:     point.Value,
+	}
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

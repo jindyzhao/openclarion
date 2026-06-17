@@ -1,5 +1,5 @@
-// Package prometheus provides a MetricsProvider implementation
-// backed by the Prometheus HTTP API v1 (/api/v1/alerts).
+// Package prometheus provides a MetricsProvider implementation backed by the
+// Prometheus HTTP API v1 alerts, query, and query_range endpoints.
 //
 // The package is intentionally thin: it wraps
 // github.com/prometheus/client_golang/api + .../api/prometheus/v1,
@@ -21,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
@@ -280,6 +281,132 @@ func (p *Provider) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, e
 		})
 	}
 	return out, nil
+}
+
+// QueryMetric runs a bounded Prometheus instant query and returns a sanitized
+// provider-neutral summary. It preserves Prometheus's string sample value
+// semantics and warning annotations while hiding the raw API envelope.
+func (p *Provider) QueryMetric(ctx context.Context, req ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	if p == nil || p.api == nil {
+		return ports.MetricQueryResult{}, fmt.Errorf("prometheus: provider is not configured")
+	}
+	value, warnings, err := p.api.Query(ctx, req.Query, req.Time, metricQueryOptions(req.Timeout, req.Limit)...)
+	if err != nil {
+		return ports.MetricQueryResult{}, fmt.Errorf("prometheus: query metric: %w", err)
+	}
+	result := metricQueryResult(value)
+	result.Warnings = append([]string(nil), warnings...)
+	return result, nil
+}
+
+// QueryMetricRange runs a bounded Prometheus range query and returns a
+// sanitized provider-neutral summary.
+func (p *Provider) QueryMetricRange(ctx context.Context, req ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	if p == nil || p.api == nil {
+		return ports.MetricQueryResult{}, fmt.Errorf("prometheus: provider is not configured")
+	}
+	value, warnings, err := p.api.QueryRange(ctx, req.Query, v1.Range{
+		Start: req.Start,
+		End:   req.End,
+		Step:  req.Step,
+	}, metricQueryOptions(req.Timeout, req.Limit)...)
+	if err != nil {
+		return ports.MetricQueryResult{}, fmt.Errorf("prometheus: query metric range: %w", err)
+	}
+	result := metricQueryResult(value)
+	result.Warnings = append([]string(nil), warnings...)
+	return result, nil
+}
+
+func metricQueryOptions(timeout time.Duration, limit int) []v1.Option {
+	opts := []v1.Option{}
+	if timeout > 0 {
+		opts = append(opts, v1.WithTimeout(timeout))
+	}
+	if limit > 0 {
+		opts = append(opts, v1.WithLimit(uint64(limit)))
+	}
+	return opts
+}
+
+func metricQueryResult(value model.Value) ports.MetricQueryResult {
+	if value == nil {
+		return ports.MetricQueryResult{}
+	}
+	result := ports.MetricQueryResult{ResultType: value.Type().String()}
+	switch v := value.(type) {
+	case model.Vector:
+		result.Series = make([]ports.MetricSeries, 0, len(v))
+		for _, sample := range v {
+			if sample == nil {
+				continue
+			}
+			result.Series = append(result.Series, ports.MetricSeries{
+				Metric: metricToMap(sample.Metric),
+				Points: []ports.MetricPoint{{
+					Timestamp: sample.Timestamp.Time(),
+					Value:     sampleValue(sample),
+				}},
+			})
+		}
+	case model.Matrix:
+		result.Series = make([]ports.MetricSeries, 0, len(v))
+		for _, stream := range v {
+			if stream == nil {
+				continue
+			}
+			result.Series = append(result.Series, ports.MetricSeries{
+				Metric: metricToMap(stream.Metric),
+				Points: streamPoints(stream),
+			})
+		}
+	case *model.Scalar:
+		if v != nil {
+			result.Scalar = &ports.MetricPoint{
+				Timestamp: v.Timestamp.Time(),
+				Value:     v.Value.String(),
+			}
+		}
+	case *model.String:
+		if v != nil {
+			result.String = &ports.MetricPoint{
+				Timestamp: v.Timestamp.Time(),
+				Value:     v.Value,
+			}
+		}
+	}
+	return result
+}
+
+func streamPoints(stream *model.SampleStream) []ports.MetricPoint {
+	points := make([]ports.MetricPoint, 0, len(stream.Values)+len(stream.Histograms))
+	for _, point := range stream.Values {
+		points = append(points, ports.MetricPoint{
+			Timestamp: point.Timestamp.Time(),
+			Value:     point.Value.String(),
+		})
+	}
+	for _, point := range stream.Histograms {
+		if point.Histogram == nil {
+			continue
+		}
+		points = append(points, ports.MetricPoint{
+			Timestamp: point.Timestamp.Time(),
+			Value:     point.Histogram.String(),
+		})
+	}
+	return points
+}
+
+func sampleValue(sample *model.Sample) string {
+	if sample.Histogram != nil {
+		return sample.Histogram.String()
+	}
+	return sample.Value.String()
+}
+
+func metricToMap(in model.Metric) map[string]string {
+	return labelSetToMap(model.LabelSet(in))
 }
 
 // labelSetToMap converts a Prometheus model.LabelSet (a

@@ -54,6 +54,24 @@ export type DiagnosisActiveAlert = {
   starts_at: string;
 };
 
+type DiagnosisMetricPoint = {
+  timestamp: string;
+  value: string;
+};
+
+export type DiagnosisMetricSeries = {
+  metric?: Record<string, string> | null;
+  points?: DiagnosisMetricPoint[];
+};
+
+type DiagnosisMetricQueryResult = {
+  result_type?: string;
+  series?: DiagnosisMetricSeries[];
+  scalar?: DiagnosisMetricPoint;
+  string?: DiagnosisMetricPoint;
+  warnings?: string[];
+};
+
 export type DiagnosisEvidenceCollectionResult = {
   request: DiagnosisEvidenceRequest;
   template_id?: number;
@@ -66,6 +84,11 @@ export type DiagnosisEvidenceCollectionResult = {
   limit?: number;
   observed_alerts: number;
   active_alerts?: DiagnosisActiveAlert[];
+  query?: string;
+  window_seconds?: number;
+  step_seconds?: number;
+  observed_metric_series?: number;
+  metric_result?: DiagnosisMetricQueryResult;
   collected_at: string;
 };
 

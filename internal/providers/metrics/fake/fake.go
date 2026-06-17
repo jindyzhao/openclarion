@@ -45,6 +45,19 @@ func (p *Provider) ListActiveAlerts(_ context.Context) ([]ports.ActiveAlert, err
 	return cloneAlerts(p.seed), nil
 }
 
+// QueryMetric returns an empty vector result. The fake provider is primarily
+// used by alert replay tests, so metric data stays intentionally inert until a
+// caller needs seeded query fixtures.
+func (p *Provider) QueryMetric(context.Context, ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{ResultType: "vector"}, nil
+}
+
+// QueryMetricRange returns an empty matrix result for the same reason as
+// QueryMetric.
+func (p *Provider) QueryMetricRange(context.Context, ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{ResultType: "matrix"}, nil
+}
+
 // cloneAlerts deep-copies the slice + each ActiveAlert's
 // reference-typed fields (Labels, Annotations, RawPayload). Nil
 // input is preserved as nil output so the caller can distinguish

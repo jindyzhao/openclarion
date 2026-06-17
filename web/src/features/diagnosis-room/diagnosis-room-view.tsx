@@ -41,6 +41,7 @@ import type {
   DiagnosisConversationTurn,
   DiagnosisEvidenceCollectionResult,
   DiagnosisEvidenceRequest,
+  DiagnosisMetricSeries,
   DiagnosisServerFrame,
   DiagnosisStateFrame
 } from "./types";
@@ -214,6 +215,9 @@ export function DiagnosisRoomView() {
           }
         ]);
         pushLog("info", `Turn ${frame.turn_count} completed.`);
+        if (frame.consultation_insight?.conclusion_status === "final") {
+          sendFrame({ type: "query_state" });
+        }
         break;
       case "error":
         setStatus((current) => (current === "connected" ? current : "error"));
@@ -498,6 +502,7 @@ function EvidenceCollectionResultList({ items }: { items?: DiagnosisEvidenceColl
                       {item.active_alerts.length > 3 ? <Tag>+{item.active_alerts.length - 3} more</Tag> : null}
                     </div>
                   ) : null}
+                  {hasMetricResult(item) ? <MetricResultSummary item={item} /> : null}
                 </div>
               }
               title={
@@ -513,6 +518,37 @@ function EvidenceCollectionResultList({ items }: { items?: DiagnosisEvidenceColl
         size="small"
       />
     </section>
+  );
+}
+
+function MetricResultSummary({ item }: { item: DiagnosisEvidenceCollectionResult }) {
+  const result = item.metric_result;
+  if (!result) {
+    return null;
+  }
+  const series = result.series ?? [];
+  return (
+    <div className="diagnosis-metric-summary">
+      <Space size={[6, 6]} wrap>
+        {result.result_type ? <Tag color="processing">{result.result_type}</Tag> : null}
+        {item.observed_metric_series !== undefined ? <Tag>series: {item.observed_metric_series}</Tag> : null}
+        {result.warnings?.map((warning, index) => (
+          <Tag color="warning" key={`${warning}-${index}`}>
+            {warning}
+          </Tag>
+        ))}
+      </Space>
+      {series.length > 0 ? (
+        <div className="diagnosis-metric-series">
+          {series.slice(0, 3).map((entry, index) => (
+            <Tag key={metricSeriesKey(entry, index)}>{formatMetricSeries(entry)}</Tag>
+          ))}
+          {series.length > 3 ? <Tag>+{series.length - 3} more</Tag> : null}
+        </div>
+      ) : null}
+      {result.scalar ? <div className="diagnosis-metric-value">scalar: {result.scalar.value}</div> : null}
+      {result.string ? <div className="diagnosis-metric-value">string: {result.string.value}</div> : null}
+    </div>
   );
 }
 
@@ -618,10 +654,19 @@ function formatEvidencePlanDetails(item: DiagnosisEvidenceRequest): string {
 }
 
 function formatEvidenceCollectionDetails(item: DiagnosisEvidenceCollectionResult): string {
-  const details = [
-    `observed: ${item.observed_alerts}`,
-    `visible: ${item.active_alerts?.length ?? 0}`
-  ];
+  const details = [`alerts observed: ${item.observed_alerts}`, `alerts visible: ${item.active_alerts?.length ?? 0}`];
+  if (item.observed_metric_series !== undefined) {
+    details.push(`series observed: ${item.observed_metric_series}`);
+  }
+  if (item.query) {
+    details.push(`query: ${item.query}`);
+  }
+  if (item.window_seconds) {
+    details.push(`window: ${item.window_seconds}s`);
+  }
+  if (item.step_seconds) {
+    details.push(`step: ${item.step_seconds}s`);
+  }
   if (item.alert_source_kind) {
     details.push(`source: ${item.alert_source_kind}`);
   }
@@ -642,6 +687,32 @@ function formatActiveAlert(alert: DiagnosisActiveAlert): string {
   const alertName = labels.alertname ?? labels.alert ?? "alert";
   const context = [labels.namespace, labels.pod].filter(Boolean).join(" / ");
   return context ? `${alertName} / ${context}` : `${alertName} / ${alert.source}`;
+}
+
+function hasMetricResult(item: DiagnosisEvidenceCollectionResult): boolean {
+  const result = item.metric_result;
+  return Boolean(
+    result &&
+      (result.result_type ||
+        result.scalar ||
+        result.string ||
+        (result.series && result.series.length > 0) ||
+        (result.warnings && result.warnings.length > 0))
+  );
+}
+
+function formatMetricSeries(series: DiagnosisMetricSeries): string {
+  const metric = series.metric ?? {};
+  const metricName = metric.__name__ ?? metric.job ?? "series";
+  const context = [metric.namespace, metric.pod, metric.instance].filter(Boolean).join(" / ");
+  const latest = series.points?.[series.points.length - 1]?.value;
+  const prefix = context ? `${metricName} / ${context}` : metricName;
+  return latest ? `${prefix}: ${latest}` : prefix;
+}
+
+function metricSeriesKey(series: DiagnosisMetricSeries, index: number): string {
+  const metric = series.metric ?? {};
+  return `${metric.__name__ ?? metric.job ?? "series"}-${metric.instance ?? metric.pod ?? "none"}-${index}`;
 }
 
 function evidenceRequestKey(item: DiagnosisEvidenceRequest, index: number): string {

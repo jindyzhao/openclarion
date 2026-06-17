@@ -108,6 +108,64 @@ func TestDiagnosisRoomWorkflow_SubmitTurnQueryAndCloseSignal(t *testing.T) {
 	}
 }
 
+func TestDiagnosisRoomWorkflow_QueryShowsFinalConclusionAfterFinalTurn(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 10, 30, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+	registerFinalDiagnosisTurnActivity(t, env)
+
+	var update captureSubmitTurnUpdate
+	var queried temporalpkg.DiagnosisRoomWorkflowState
+	var queryErr error
+
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-final",
+			update.callback(t),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "msg-final",
+				ActorSubject: "owner-1",
+				Message:      "Please finalize the diagnosis.",
+			},
+		)
+	}, time.Millisecond)
+	env.RegisterDelayedCallback(func() {
+		encoded, err := env.QueryWorkflow(temporalpkg.DiagnosisRoomStateQuery)
+		if err != nil {
+			queryErr = err
+			return
+		}
+		queryErr = encoded.Get(&queried)
+		env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{Reason: "user_done"})
+	}, 50*time.Millisecond)
+
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
+	assertRoomWorkflowCompleted(t, env)
+	if update.rejected != nil || update.completeErr != nil {
+		t.Fatalf("submit update rejected=%v completeErr=%v", update.rejected, update.completeErr)
+	}
+	if update.result.Insight.ConclusionStatus != "final" {
+		t.Fatalf("submit insight conclusion_status = %q, want final", update.result.Insight.ConclusionStatus)
+	}
+	if queryErr != nil {
+		t.Fatalf("query state: %v", queryErr)
+	}
+	if queried.Status != "open" || queried.TurnCount != 1 {
+		t.Fatalf("queried state = %+v, want open turn_count=1", queried)
+	}
+	if queried.FinalConclusion == nil ||
+		queried.FinalConclusion.Status != "available" ||
+		queried.FinalConclusion.Source != "latest_assistant_turn" ||
+		queried.FinalConclusion.Reason != "assistant_marked_final" ||
+		queried.FinalConclusion.AssistantMessageID != "msg-final/assistant" ||
+		queried.FinalConclusion.Content != "Final diagnosis for msg-final." ||
+		queried.FinalConclusion.Confidence != "medium" {
+		t.Fatalf("queried final conclusion = %+v", queried.FinalConclusion)
+	}
+}
+
 func TestDiagnosisRoomWorkflow_UpdateValidatorRejectsDuplicatesAndUnsafeMessages(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
@@ -160,6 +218,82 @@ func TestDiagnosisRoomWorkflow_UpdateValidatorRejectsDuplicatesAndUnsafeMessages
 	}
 	if result.TurnCount != 1 || len(result.Conversation) != 2 {
 		t.Fatalf("terminal result = %+v, want only first user+assistant turns in workflow state", result)
+	}
+}
+
+func TestDiagnosisRoomWorkflow_FeedsCollectedEvidenceIntoNextTurn(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 10, 30, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+
+	evidenceByMessage := map[string]json.RawMessage{}
+	env.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.DiagnosisTurnActivityInput) (temporalpkg.DiagnosisTurnActivityResult, error) {
+			evidenceByMessage[got.MessageID] = append(json.RawMessage(nil), got.Evidence...)
+			message := "Assistant response for " + got.MessageID
+			return temporalpkg.DiagnosisTurnActivityResult{
+				InvocationID:        "test/" + got.MessageID,
+				AssistantMessageID:  got.MessageID + "/assistant",
+				AssistantSequence:   got.AssistantSequence,
+				AssistantMessage:    message,
+				Output:              diagnosisroom.TurnOutput{SchemaVersion: diagnosisroom.TurnOutputSchemaVersion, Message: message, Confidence: "medium", RequiresHumanReview: true},
+				RawOutput:           json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"` + message + `","confidence":"medium","requires_human_review":true}`),
+				StartedAt:           time.Date(2026, 5, 28, 10, 30, 0, 0, time.UTC),
+				FinishedAt:          time.Date(2026, 5, 28, 10, 30, 1, 0, time.UTC),
+				RequiresHumanReview: true,
+				Confidence:          "medium",
+			}, nil
+		},
+		activity.RegisterOptions{Name: "RunDiagnosisTurn"},
+	)
+
+	var first, second captureSubmitTurnUpdate
+	var queried temporalpkg.DiagnosisRoomWorkflowState
+	var queryErr error
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-first",
+			first.callback(t),
+			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-1", ActorSubject: "owner-1", Message: "Start diagnosis"},
+		)
+	}, time.Millisecond)
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-second",
+			second.callback(t),
+			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-2", ActorSubject: "owner-1", Message: "Use the collected evidence"},
+		)
+	}, 50*time.Millisecond)
+	env.RegisterDelayedCallback(func() {
+		encoded, err := env.QueryWorkflow(temporalpkg.DiagnosisRoomStateQuery)
+		if err != nil {
+			queryErr = err
+			return
+		}
+		queryErr = encoded.Get(&queried)
+		env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"})
+	}, 100*time.Millisecond)
+
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
+	assertRoomWorkflowCompleted(t, env)
+	if first.rejected != nil || first.completeErr != nil || second.rejected != nil || second.completeErr != nil {
+		t.Fatalf("updates first rejected=%v complete=%v second rejected=%v complete=%v", first.rejected, first.completeErr, second.rejected, second.completeErr)
+	}
+	assertEvidenceContextAbsent(t, evidenceByMessage["msg-1"])
+	assertEvidenceContextPresent(t, evidenceByMessage["msg-2"])
+	if queryErr != nil {
+		t.Fatalf("query state: %v", queryErr)
+	}
+	if len(queried.Conversation) != 4 {
+		t.Fatalf("conversation len = %d, want only two user+assistant turns", len(queried.Conversation))
+	}
+	for i, turn := range queried.Conversation {
+		if turn.Role == "tool" || strings.Contains(turn.Content, "openclarion_collected_evidence") {
+			t.Fatalf("conversation[%d] leaked evidence context: %+v", i, turn)
+		}
 	}
 }
 
@@ -450,6 +584,51 @@ func assertOneUpdateSucceededAndOneRejected(t *testing.T, first, second captureS
 	}
 }
 
+func assertEvidenceContextAbsent(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var evidence map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &evidence); err != nil {
+		t.Fatalf("unmarshal evidence: %v", err)
+	}
+	if string(evidence["alert"]) != `"cpu_saturation"` {
+		t.Fatalf("base alert evidence = %s, want cpu_saturation", evidence["alert"])
+	}
+	if _, ok := evidence["openclarion_collected_evidence"]; ok {
+		t.Fatalf("unexpected collected evidence in first turn: %s", raw)
+	}
+}
+
+func assertEvidenceContextPresent(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var evidence struct {
+		Alert     string `json:"alert"`
+		Collected []struct {
+			TurnCount int `json:"turn_count"`
+			Items     []struct {
+				Tool           string `json:"tool"`
+				Status         string `json:"status"`
+				ReasonCode     string `json:"reason_code"`
+				ObservedAlerts int    `json:"observed_alerts"`
+			} `json:"items"`
+		} `json:"openclarion_collected_evidence"`
+	}
+	if err := json.Unmarshal(raw, &evidence); err != nil {
+		t.Fatalf("unmarshal evidence context: %v", err)
+	}
+	if evidence.Alert != "cpu_saturation" {
+		t.Fatalf("base alert evidence = %q, want cpu_saturation", evidence.Alert)
+	}
+	if len(evidence.Collected) != 1 ||
+		evidence.Collected[0].TurnCount != 1 ||
+		len(evidence.Collected[0].Items) != 1 ||
+		evidence.Collected[0].Items[0].Tool != "active_alerts" ||
+		evidence.Collected[0].Items[0].Status != "collected" ||
+		evidence.Collected[0].Items[0].ReasonCode != "ok" ||
+		evidence.Collected[0].Items[0].ObservedAlerts != 1 {
+		t.Fatalf("collected evidence context = %+v", evidence.Collected)
+	}
+}
+
 func updateErrorContains(update captureSubmitTurnUpdate, wantSubstr string) bool {
 	return update.rejected != nil && strings.Contains(update.rejected.Error(), wantSubstr) ||
 		update.completeErr != nil && strings.Contains(update.completeErr.Error(), wantSubstr)
@@ -475,6 +654,31 @@ func registerDiagnosisTurnActivity(t *testing.T, env *testsuite.TestWorkflowEnvi
 				RawOutput:           json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"` + message + `","confidence":"medium","requires_human_review":true}`),
 				StartedAt:           time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC),
 				FinishedAt:          time.Date(2026, 5, 28, 10, 0, 1, 0, time.UTC),
+				RequiresHumanReview: true,
+				Confidence:          "medium",
+			}, nil
+		},
+		activity.RegisterOptions{Name: "RunDiagnosisTurn"},
+	)
+}
+
+func registerFinalDiagnosisTurnActivity(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
+	env.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.DiagnosisTurnActivityInput) (temporalpkg.DiagnosisTurnActivityResult, error) {
+			if got.SessionID == "" || got.DiagnosisTaskID == 0 || got.MessageID == "" {
+				t.Fatalf("activity input missing identity: %+v", got)
+			}
+			message := "Final diagnosis for " + got.MessageID + "."
+			return temporalpkg.DiagnosisTurnActivityResult{
+				InvocationID:        "test/" + got.MessageID,
+				AssistantMessageID:  got.MessageID + "/assistant",
+				AssistantSequence:   got.AssistantSequence,
+				AssistantMessage:    message,
+				Output:              diagnosisroom.TurnOutput{SchemaVersion: diagnosisroom.TurnOutputSchemaVersion, Message: message, Confidence: "medium", RequiresHumanReview: true, ConclusionStatus: "final"},
+				RawOutput:           json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"` + message + `","confidence":"medium","requires_human_review":true,"conclusion_status":"final"}`),
+				StartedAt:           time.Date(2026, 5, 28, 10, 30, 0, 0, time.UTC),
+				FinishedAt:          time.Date(2026, 5, 28, 10, 30, 1, 0, time.UTC),
 				RequiresHumanReview: true,
 				Confidence:          "medium",
 			}, nil
@@ -534,10 +738,17 @@ func registerDiagnosisRoomPersistenceActivities(t *testing.T, env *testsuite.Tes
 				got.RawOutput == nil {
 				t.Fatalf("persist turn input = %+v", got)
 			}
-			return temporalpkg.PersistDiagnosisTurnResult{
+			output, err := diagnosisroom.ParseTurnOutput(got.RawOutput)
+			if err != nil {
+				t.Fatalf("persist turn output: %v", err)
+			}
+			result := temporalpkg.PersistDiagnosisTurnResult{
 				ChatSessionID:       42,
 				UserTurnID:          int64(got.UserSequence + 100),
 				AssistantTurnID:     int64(got.AssistantSequence + 100),
+				AssistantMessageID:  got.AssistantMessageID,
+				AssistantSequence:   got.AssistantSequence,
+				AssistantOccurredAt: got.AssistantOccurredAt,
 				TurnCount:           got.TurnCount,
 				LastActivityAt:      got.AssistantOccurredAt,
 				AssistantMessage:    got.AssistantMessage,
@@ -548,7 +759,25 @@ func registerDiagnosisRoomPersistenceActivities(t *testing.T, env *testsuite.Tes
 					Reason: "Need current sibling alerts.",
 					Limit:  5,
 				}},
-			}, nil
+				Insight: output.Insight(),
+			}
+			if output.ConclusionStatus == "final" {
+				requiresHumanReview := result.RequiresHumanReview
+				assistantOccurredAt := got.AssistantOccurredAt
+				result.FinalConclusion = &temporalpkg.DiagnosisRoomFinalConclusion{
+					Status:              "available",
+					Source:              "latest_assistant_turn",
+					Reason:              "assistant_marked_final",
+					AssistantTurnID:     result.AssistantTurnID,
+					AssistantMessageID:  got.AssistantMessageID,
+					AssistantSequence:   got.AssistantSequence,
+					AssistantOccurredAt: &assistantOccurredAt,
+					Content:             got.AssistantMessage,
+					Confidence:          result.Confidence,
+					RequiresHumanReview: &requiresHumanReview,
+				}
+			}
+			return result, nil
 		},
 		activity.RegisterOptions{Name: "PersistDiagnosisTurn"},
 	)

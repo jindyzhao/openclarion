@@ -392,6 +392,14 @@ func (fakeMetricsProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAler
 	return nil, nil
 }
 
+func (fakeMetricsProvider) QueryMetric(context.Context, ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{}, nil
+}
+
+func (fakeMetricsProvider) QueryMetricRange(context.Context, ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{}, nil
+}
+
 type fakeReportStarter struct{}
 
 func (fakeReportStarter) StartReportBatch(context.Context, ports.ReportBatchStartRequest) (ports.WorkflowHandle, error) {

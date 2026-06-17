@@ -254,11 +254,29 @@ func (p fakeMetricsProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAl
 	return p.alerts, p.err
 }
 
+func (p fakeMetricsProvider) QueryMetric(context.Context, ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{}, p.err
+}
+
+func (p fakeMetricsProvider) QueryMetricRange(context.Context, ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{}, p.err
+}
+
 type blockingMetricsProvider struct{}
 
 func (blockingMetricsProvider) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+func (blockingMetricsProvider) QueryMetric(ctx context.Context, _ ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	<-ctx.Done()
+	return ports.MetricQueryResult{}, ctx.Err()
+}
+
+func (blockingMetricsProvider) QueryMetricRange(ctx context.Context, _ ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	<-ctx.Done()
+	return ports.MetricQueryResult{}, ctx.Err()
 }
 
 type fakeSecretResolver struct {
