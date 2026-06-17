@@ -3,6 +3,8 @@ package temporal_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -290,6 +292,15 @@ func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *tes
 		first.FinalConclusion.AssistantSequence != req.AssistantSequence ||
 		first.FinalConclusion.AssistantOccurredAt == nil ||
 		!first.FinalConclusion.AssistantOccurredAt.Equal(domain.NormalizeUTCMicro(req.AssistantOccurredAt)) ||
+		first.FinalConclusion.EvidenceSnapshotID != int64(seed.SnapshotID) ||
+		first.FinalConclusion.ConclusionVersion != "diagnosis-room-final-ready.v1" ||
+		first.FinalConclusion.RecordedAt == nil ||
+		!first.FinalConclusion.RecordedAt.Equal(domain.NormalizeUTCMicro(req.AssistantOccurredAt)) ||
+		first.FinalConclusion.ConfirmedBy != "" ||
+		!reflect.DeepEqual(first.FinalConclusion.SupplementalContextRefs, []string{
+			fmt.Sprintf("chat_session:%d/turn:%d", first.ChatSessionID, first.UserTurnID),
+			fmt.Sprintf("chat_session:%d/turn:%d", first.ChatSessionID, first.AssistantTurnID),
+		}) ||
 		first.FinalConclusion.Content != req.AssistantMessage ||
 		first.FinalConclusion.Confidence != "high" ||
 		first.FinalConclusion.RequiresHumanReview == nil ||
@@ -316,6 +327,11 @@ func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *tes
 				Status              string     `json:"status"`
 				Source              string     `json:"source"`
 				Reason              string     `json:"reason"`
+				EvidenceSnapshotID  int64      `json:"evidence_snapshot_id"`
+				ConclusionVersion   string     `json:"conclusion_version"`
+				RecordedAt          *time.Time `json:"recorded_at"`
+				ConfirmedBy         string     `json:"confirmed_by"`
+				SupplementalRefs    []string   `json:"supplemental_context_refs"`
 				AssistantTurnID     int64      `json:"assistant_turn_id"`
 				AssistantMessageID  string     `json:"assistant_message_id"`
 				AssistantSequence   int        `json:"assistant_sequence"`
@@ -333,6 +349,12 @@ func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *tes
 			payload.Conclusion.Status != "available" ||
 			payload.Conclusion.Source != "latest_assistant_turn" ||
 			payload.Conclusion.Reason != "assistant_marked_final" ||
+			payload.Conclusion.EvidenceSnapshotID != int64(seed.SnapshotID) ||
+			payload.Conclusion.ConclusionVersion != "diagnosis-room-final-ready.v1" ||
+			payload.Conclusion.RecordedAt == nil ||
+			!payload.Conclusion.RecordedAt.Equal(domain.NormalizeUTCMicro(req.AssistantOccurredAt)) ||
+			payload.Conclusion.ConfirmedBy != "" ||
+			!reflect.DeepEqual(payload.Conclusion.SupplementalRefs, first.FinalConclusion.SupplementalContextRefs) ||
 			payload.Conclusion.AssistantTurnID != first.AssistantTurnID ||
 			payload.Conclusion.AssistantMessageID != req.AssistantMessageID ||
 			payload.Conclusion.AssistantSequence != req.AssistantSequence ||
@@ -391,7 +413,12 @@ func TestDiagnosisRoomPersistenceActivities_CloseSessionIsIdempotentAndAudited(t
 		first.FinalConclusion.Status != "not_available" ||
 		first.FinalConclusion.Source != "none" ||
 		first.FinalConclusion.Reason != "room_closed_without_assistant_turn" ||
-		second.FinalConclusion != first.FinalConclusion {
+		first.FinalConclusion.EvidenceSnapshotID != int64(seed.SnapshotID) ||
+		first.FinalConclusion.ConclusionVersion != "diagnosis-room-close.v1" ||
+		first.FinalConclusion.RecordedAt == nil ||
+		!first.FinalConclusion.RecordedAt.Equal(domain.NormalizeUTCMicro(req.ClosedAt)) ||
+		first.FinalConclusion.ConfirmedBy != "" ||
+		!reflect.DeepEqual(second.FinalConclusion, first.FinalConclusion) {
 		t.Fatalf("close results first=%+v second=%+v ensure=%+v", first, second, ensure)
 	}
 
@@ -463,9 +490,10 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 		SessionID:       "session-room-close-conclusion",
 		DiagnosisTaskID: int64(seed.TaskID),
 		OwnerSubject:    "owner-1",
+		ConfirmedBy:     "reviewer-1",
 		TurnCount:       1,
 		ClosedAt:        startedAt.Add(5 * time.Minute),
-		Reason:          "user_done",
+		Reason:          "human_confirmed",
 	}
 	first, err := activities.CloseDiagnosisChatSession(ctx, closeReq)
 	if err != nil {
@@ -485,6 +513,15 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 		first.FinalConclusion.AssistantSequence != turnReq.AssistantSequence ||
 		first.FinalConclusion.AssistantOccurredAt == nil ||
 		!first.FinalConclusion.AssistantOccurredAt.Equal(domain.NormalizeUTCMicro(turnReq.AssistantOccurredAt)) ||
+		first.FinalConclusion.EvidenceSnapshotID != int64(seed.SnapshotID) ||
+		first.FinalConclusion.ConclusionVersion != "diagnosis-room-close.v1" ||
+		first.FinalConclusion.RecordedAt == nil ||
+		!first.FinalConclusion.RecordedAt.Equal(domain.NormalizeUTCMicro(closeReq.ClosedAt)) ||
+		first.FinalConclusion.ConfirmedBy != closeReq.ConfirmedBy ||
+		!reflect.DeepEqual(first.FinalConclusion.SupplementalContextRefs, []string{
+			fmt.Sprintf("chat_session:%d/turn:%d", first.ChatSessionID, persisted.UserTurnID),
+			fmt.Sprintf("chat_session:%d/turn:%d", first.ChatSessionID, persisted.AssistantTurnID),
+		}) ||
 		first.FinalConclusion.Content != turnReq.AssistantMessage ||
 		first.FinalConclusion.Confidence != "high" ||
 		first.FinalConclusion.RequiresHumanReview == nil ||
@@ -514,6 +551,11 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 			Conclusion        struct {
 				Status              string     `json:"status"`
 				Source              string     `json:"source"`
+				EvidenceSnapshotID  int64      `json:"evidence_snapshot_id"`
+				ConclusionVersion   string     `json:"conclusion_version"`
+				RecordedAt          *time.Time `json:"recorded_at"`
+				ConfirmedBy         string     `json:"confirmed_by"`
+				SupplementalRefs    []string   `json:"supplemental_context_refs"`
 				AssistantTurnID     int64      `json:"assistant_turn_id"`
 				AssistantMessageID  string     `json:"assistant_message_id"`
 				AssistantSequence   int        `json:"assistant_sequence"`
@@ -526,11 +568,17 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 		if err := json.Unmarshal(closeEvent.Payload, &payload); err != nil {
 			t.Fatalf("close event payload: %v", err)
 		}
-		if payload.CloseReason != "user_done" ||
+		if payload.CloseReason != "human_confirmed" ||
 			payload.TurnCount != 1 ||
 			payload.ConclusionVersion != "diagnosis-room-close.v1" ||
 			payload.Conclusion.Status != "available" ||
 			payload.Conclusion.Source != "latest_assistant_turn" ||
+			payload.Conclusion.EvidenceSnapshotID != int64(seed.SnapshotID) ||
+			payload.Conclusion.ConclusionVersion != "diagnosis-room-close.v1" ||
+			payload.Conclusion.RecordedAt == nil ||
+			!payload.Conclusion.RecordedAt.Equal(domain.NormalizeUTCMicro(closeReq.ClosedAt)) ||
+			payload.Conclusion.ConfirmedBy != closeReq.ConfirmedBy ||
+			!reflect.DeepEqual(payload.Conclusion.SupplementalRefs, first.FinalConclusion.SupplementalContextRefs) ||
 			payload.Conclusion.AssistantTurnID != persisted.AssistantTurnID ||
 			payload.Conclusion.AssistantMessageID != turnReq.AssistantMessageID ||
 			payload.Conclusion.AssistantSequence != turnReq.AssistantSequence ||

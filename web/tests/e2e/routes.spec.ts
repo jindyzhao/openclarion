@@ -25,6 +25,10 @@ test("report routes render list, detail, and evidence traceability", async ({ pa
     "Checkout latency remains correlated with the payment deployment."
   );
   await expect(page.getByLabel("Diagnosis conclusion")).toContainText("human review");
+  await expect(page.getByLabel("Diagnosis conclusion")).toContainText("diagnosis-room-final-ready.v1");
+  await expect(page.getByLabel("Diagnosis conclusion")).toContainText("Evidence");
+  await expect(page.getByLabel("Diagnosis conclusion")).toContainText("#9001");
+  await expect(page.getByLabel("Conclusion context references")).toContainText("chat_session:401/turn:501");
 
   await page.getByRole("link", { name: "Review diagnosis" }).click();
   await expect(page).toHaveURL(
@@ -36,7 +40,7 @@ test("report routes render list, detail, and evidence traceability", async ({ pa
   await expect(page.getByLabel("Message")).toHaveValue(/Verify the current diagnosis conclusion/);
 });
 
-test("diagnosis room route connects, queries state, and submits a turn", async ({ page }) => {
+test("diagnosis room route connects, submits a turn, and confirms the conclusion", async ({ page }) => {
   await page.goto("/diagnosis-room");
 
   await expect(page.getByRole("heading", { name: "Diagnosis Room" })).toBeVisible();
@@ -46,6 +50,7 @@ test("diagnosis room route connects, queries state, and submits a turn", async (
 
   await expect(page.getByRole("status", { name: "Connection status" })).toHaveText("connected");
   await expect(page.getByText("owner-1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirm Conclusion" })).toBeDisabled();
 
   await page.getByLabel("Message").fill("Summarize the current checkout alert.");
   await page.getByRole("button", { name: "Send" }).click();
@@ -64,10 +69,24 @@ test("diagnosis room route connects, queries state, and submits a turn", async (
   await expect(page.getByText("Restart cause", { exact: true })).toBeVisible();
   await expect(page.getByText("Metric window", { exact: true })).toBeVisible();
   await expect(page.getByText("Turn 1 completed.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirm Conclusion" })).toBeDisabled();
 
   await page.getByRole("button", { name: "Refresh State" }).click();
   await expect(page.getByText("Loaded state: open, 1 turn(s).")).toBeVisible();
-  await expect(page.getByText("Restart cause", { exact: true })).toBeVisible();
+  await expect(page.getByText("ready_for_review", { exact: true })).toBeVisible();
+  await expect(page.getByText("Owner confirmation", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirm Conclusion" })).toBeEnabled();
+
+  await page.getByRole("button", { name: "Confirm Conclusion" }).click();
+  await expect(page.getByText("Confirming final conclusion.")).toBeVisible();
+  await expect(page.getByText("Loaded state: closed, 1 turn(s).")).toBeVisible();
+  await expect(page.getByText("Final conclusion", { exact: true })).toBeVisible();
+  const finalConclusion = page.locator(".diagnosis-conclusion");
+  await expect(finalConclusion).toContainText("Mock diagnosis response for: Summarize the current checkout alert.");
+  await expect(page.getByText("human_confirmed", { exact: true })).toBeVisible();
+  await expect(page.getByText("diagnosis-room-close.v1", { exact: true })).toBeVisible();
+  await expect(page.getByText("Confirmed by", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Confirm Conclusion" })).toBeDisabled();
 });
 
 test("settings overview route renders the alert operations configuration graph", async ({ page }) => {

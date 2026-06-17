@@ -116,16 +116,21 @@ type closeProofEvent struct {
 }
 
 type closeFinalConclusion struct {
-	Status              string `json:"status"`
-	Source              string `json:"source"`
-	Reason              string `json:"reason,omitempty"`
-	AssistantTurnID     int64  `json:"assistant_turn_id,omitempty"`
-	AssistantMessageID  string `json:"assistant_message_id,omitempty"`
-	AssistantSequence   int    `json:"assistant_sequence,omitempty"`
-	AssistantOccurredAt string `json:"assistant_occurred_at,omitempty"`
-	Content             string `json:"content,omitempty"`
-	Confidence          string `json:"confidence,omitempty"`
-	RequiresHumanReview *bool  `json:"requires_human_review,omitempty"`
+	Status                  string   `json:"status"`
+	Source                  string   `json:"source"`
+	Reason                  string   `json:"reason,omitempty"`
+	EvidenceSnapshotID      int64    `json:"evidence_snapshot_id,omitempty"`
+	ConclusionVersion       string   `json:"conclusion_version,omitempty"`
+	RecordedAt              string   `json:"recorded_at,omitempty"`
+	ConfirmedBy             string   `json:"confirmed_by,omitempty"`
+	SupplementalContextRefs []string `json:"supplemental_context_refs,omitempty"`
+	AssistantTurnID         int64    `json:"assistant_turn_id,omitempty"`
+	AssistantMessageID      string   `json:"assistant_message_id,omitempty"`
+	AssistantSequence       int      `json:"assistant_sequence,omitempty"`
+	AssistantOccurredAt     string   `json:"assistant_occurred_at,omitempty"`
+	Content                 string   `json:"content,omitempty"`
+	Confidence              string   `json:"confidence,omitempty"`
+	RequiresHumanReview     *bool    `json:"requires_human_review,omitempty"`
 }
 
 type closeNotificationEvent struct {
@@ -560,6 +565,24 @@ func validateCloseFinalConclusion(field string, conclusion closeFinalConclusion,
 	if err != nil {
 		return err
 	}
+	if conclusion.EvidenceSnapshotID <= 0 {
+		return fmt.Errorf("%s.evidence_snapshot_id must be > 0", field)
+	}
+	if conclusion.ConclusionVersion != "diagnosis-room-close.v1" {
+		return fmt.Errorf("%s.conclusion_version = %q, want diagnosis-room-close.v1", field, conclusion.ConclusionVersion)
+	}
+	recordedAt, err := validateCanonicalUTCTime(field+".recorded_at", conclusion.RecordedAt)
+	if err != nil {
+		return err
+	}
+	if !recordedAt.Equal(closedAt) {
+		return fmt.Errorf("%s.recorded_at must match workflow.closed_at", field)
+	}
+	if conclusion.ConfirmedBy != "" {
+		if _, err := validateBoundedCleanString(field+".confirmed_by", conclusion.ConfirmedBy, maxProofSessionIDBytes); err != nil {
+			return err
+		}
+	}
 	if assistantTurnsAfter > 0 {
 		if status != "available" {
 			return fmt.Errorf("%s.status = %q, want available", field, status)
@@ -602,6 +625,14 @@ func validateCloseFinalConclusion(field string, conclusion closeFinalConclusion,
 		if conclusion.RequiresHumanReview == nil {
 			return fmt.Errorf("%s.requires_human_review is required when status is available", field)
 		}
+		if len(conclusion.SupplementalContextRefs) == 0 {
+			return fmt.Errorf("%s.supplemental_context_refs must not be empty when status is available", field)
+		}
+		for i, ref := range conclusion.SupplementalContextRefs {
+			if _, err := validateProofID(fmt.Sprintf("%s.supplemental_context_refs[%d]", field, i), ref, maxProofIdempotencyKeyBytes); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 
@@ -624,7 +655,8 @@ func validateCloseFinalConclusion(field string, conclusion closeFinalConclusion,
 		conclusion.AssistantOccurredAt != "" ||
 		conclusion.Content != "" ||
 		conclusion.Confidence != "" ||
-		conclusion.RequiresHumanReview != nil {
+		conclusion.RequiresHumanReview != nil ||
+		len(conclusion.SupplementalContextRefs) != 0 {
 		return fmt.Errorf("%s must not include assistant-turn fields when status is not_available", field)
 	}
 	return nil
@@ -634,6 +666,10 @@ func sameCloseFinalConclusion(a, b closeFinalConclusion) bool {
 	if a.Status != b.Status ||
 		a.Source != b.Source ||
 		a.Reason != b.Reason ||
+		a.EvidenceSnapshotID != b.EvidenceSnapshotID ||
+		a.ConclusionVersion != b.ConclusionVersion ||
+		a.RecordedAt != b.RecordedAt ||
+		a.ConfirmedBy != b.ConfirmedBy ||
 		a.AssistantTurnID != b.AssistantTurnID ||
 		a.AssistantMessageID != b.AssistantMessageID ||
 		a.AssistantSequence != b.AssistantSequence ||
@@ -641,6 +677,14 @@ func sameCloseFinalConclusion(a, b closeFinalConclusion) bool {
 		a.Content != b.Content ||
 		a.Confidence != b.Confidence {
 		return false
+	}
+	if len(a.SupplementalContextRefs) != len(b.SupplementalContextRefs) {
+		return false
+	}
+	for i := range a.SupplementalContextRefs {
+		if a.SupplementalContextRefs[i] != b.SupplementalContextRefs[i] {
+			return false
+		}
 	}
 	switch {
 	case a.RequiresHumanReview == nil && b.RequiresHumanReview == nil:

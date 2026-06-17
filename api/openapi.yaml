@@ -5584,6 +5584,17 @@ components:
           type: string
         reason:
           type: string
+        evidence_snapshot_id:
+          type: integer
+          format: int64
+        conclusion_version:
+          type: string
+        confirmed_by:
+          type: string
+        supplemental_context_refs:
+          type: array
+          items:
+            type: string
         assistant_turn_id:
           type: integer
           format: int64

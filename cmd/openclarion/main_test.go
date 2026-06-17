@@ -1524,6 +1524,10 @@ func (noopDiagnosisRoomWorkflowClient) SubmitDiagnosisTurn(context.Context, port
 	return ports.DiagnosisRoomSubmitTurnResult{}, nil
 }
 
+func (noopDiagnosisRoomWorkflowClient) ConfirmDiagnosisConclusion(context.Context, ports.DiagnosisRoomConfirmConclusionRequest) (ports.DiagnosisRoomState, error) {
+	return ports.DiagnosisRoomState{}, nil
+}
+
 func (noopDiagnosisRoomWorkflowClient) QueryDiagnosisRoom(context.Context, string) (ports.DiagnosisRoomState, error) {
 	return ports.DiagnosisRoomState{}, nil
 }

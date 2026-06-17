@@ -15,6 +15,11 @@ type DiagnosisFinalConclusion = {
   status: string;
   source: string;
   reason?: string;
+  evidence_snapshot_id?: number;
+  conclusion_version?: string;
+  recorded_at?: string;
+  confirmed_by?: string;
+  supplemental_context_refs?: string[];
   assistant_turn_id?: number;
   assistant_message_id?: string;
   assistant_sequence?: number;
@@ -174,4 +179,5 @@ export type DiagnosisServerFrame =
 
 export type DiagnosisClientFrame =
   | { type: "query_state" }
+  | { type: "confirm_conclusion"; reason?: string }
   | { type: "submit_turn"; message_id: string; message: string };

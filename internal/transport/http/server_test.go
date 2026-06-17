@@ -842,6 +842,9 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 										"status":"available",
 										"source":"latest_assistant_turn",
 										"reason":"assistant_marked_final",
+										"evidence_snapshot_id":7,
+										"conclusion_version":"diagnosis-room-final-ready.v1",
+										"supplemental_context_refs":["chat_session:51/turn:60","chat_session:51/turn:61"],
 										"assistant_turn_id":61,
 										"assistant_message_id":"msg-1/assistant",
 										"assistant_sequence":2,
@@ -896,12 +899,75 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 	if conclusion.DiagnosisTaskID != 31 ||
 		conclusion.SessionID != "diagnosis-session-31" ||
 		conclusion.ChatSessionID != 51 ||
+		conclusion.EvidenceSnapshotID == nil ||
+		*conclusion.EvidenceSnapshotID != 7 ||
+		conclusion.ConclusionVersion == nil ||
+		*conclusion.ConclusionVersion != "diagnosis-room-final-ready.v1" ||
+		len(conclusion.SupplementalContextRefs) != 2 ||
+		conclusion.SupplementalContextRefs[1] != "chat_session:51/turn:61" ||
 		conclusion.Content != "Checkout latency remains correlated with the deployment." ||
 		conclusion.Confidence == nil ||
 		*conclusion.Confidence != api.ReportConfidenceHigh ||
 		conclusion.RequiresHumanReview == nil ||
 		!*conclusion.RequiresHumanReview {
 		t.Fatalf("unexpected diagnosis conclusion: %+v", conclusion)
+	}
+}
+
+func TestDiagnosisConclusionFromEventProjectsProvenance(t *testing.T) {
+	recordedAt := time.Date(2026, 5, 27, 10, 9, 0, 0, time.UTC)
+	occurredAt := recordedAt.Add(-time.Minute)
+	event := domain.DiagnosisTaskEvent{
+		ID:         domain.DiagnosisTaskEventID(41),
+		TaskID:     domain.DiagnosisTaskID(31),
+		Kind:       diagnosisConclusionEventClosed,
+		OccurredAt: recordedAt,
+		RecordedAt: recordedAt,
+		Payload: json.RawMessage(`{
+			"kind":"diagnosis_room.closed",
+			"session_id":"diagnosis-session-31",
+			"chat_session_id":51,
+			"diagnosis_task_id":31,
+			"owner_subject":"owner-1",
+			"turn_count":1,
+			"final_conclusion":{
+				"status":"available",
+				"source":"latest_assistant_turn",
+				"evidence_snapshot_id":7,
+				"conclusion_version":"diagnosis-room-close.v1",
+				"recorded_at":"2026-05-27T10:09:00Z",
+				"confirmed_by":"owner-1",
+				"supplemental_context_refs":["chat_session:51/turn:60","chat_session:51/turn:61"],
+				"assistant_turn_id":61,
+				"assistant_message_id":"msg-1/assistant",
+				"assistant_sequence":2,
+				"assistant_occurred_at":"2026-05-27T10:08:00Z",
+				"content":"Checkout latency remains correlated with the deployment.",
+				"confidence":"high",
+				"requires_human_review":true
+			},
+			"conclusion_version":"diagnosis-room-close.v1"
+		}`),
+	}
+
+	conclusion, ok, err := diagnosisConclusionFromEvent(event)
+	if err != nil {
+		t.Fatalf("diagnosisConclusionFromEvent: %v", err)
+	}
+	if !ok {
+		t.Fatal("diagnosisConclusionFromEvent ok = false, want true")
+	}
+	if conclusion.EvidenceSnapshotID == nil ||
+		*conclusion.EvidenceSnapshotID != 7 ||
+		conclusion.ConclusionVersion == nil ||
+		*conclusion.ConclusionVersion != "diagnosis-room-close.v1" ||
+		conclusion.ConfirmedBy == nil ||
+		*conclusion.ConfirmedBy != "owner-1" ||
+		len(conclusion.SupplementalContextRefs) != 2 ||
+		conclusion.SupplementalContextRefs[1] != "chat_session:51/turn:61" ||
+		conclusion.AssistantOccurredAt == nil ||
+		!conclusion.AssistantOccurredAt.Equal(occurredAt) {
+		t.Fatalf("conclusion provenance = %+v", conclusion)
 	}
 }
 
@@ -2807,6 +2873,54 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	}
 	startedAt := now.Add(time.Minute)
 	closedAt := startedAt.Add(2 * time.Second)
+	readyState := ports.DiagnosisRoomState{
+		SessionID:       "session-1",
+		ChatSessionID:   domain.ChatSessionID(21),
+		DiagnosisTaskID: domain.DiagnosisTaskID(11),
+		OwnerSubject:    "owner-1",
+		Status:          "open",
+		TurnCount:       1,
+		StartedAt:       startedAt,
+		LastActivityAt:  startedAt,
+		LatestConsultationInsight: &ports.DiagnosisRoomConsultationInsight{
+			ConfidenceRationale: "Collected evidence now supports final review.",
+			EvidenceCollectionSuggestions: []ports.DiagnosisRoomConsultationEvidenceRequest{{
+				Label:    "Owner confirmation",
+				Detail:   "Confirm the proposed conclusion with the service owner.",
+				Priority: "medium",
+			}},
+			ConclusionStatus: "ready_for_review",
+		},
+		LatestConfidence:          "high",
+		LatestRequiresHumanReview: &latestRequiresHumanReview,
+		InFlight:                  false,
+		SeenMessageIDs:            []string{"msg-1"},
+		Conversation: []ports.DiagnosisRoomConversationTurn{
+			{Role: "user", Content: "Please investigate"},
+			{Role: "assistant", Content: "CPU alert is still firing."},
+		},
+	}
+	confirmedState := readyState
+	confirmedState.Status = "closed"
+	confirmedState.LastActivityAt = closedAt
+	confirmedState.ClosedAt = &closedAt
+	confirmedState.CloseReason = "human_confirmed"
+	confirmedState.FinalConclusion = &ports.DiagnosisRoomFinalConclusion{
+		Status:                  "available",
+		Source:                  "latest_assistant_turn",
+		EvidenceSnapshotID:      domain.EvidenceSnapshotID(9001),
+		ConclusionVersion:       "diagnosis-room-close.v1",
+		RecordedAt:              &closedAt,
+		ConfirmedBy:             "owner-1",
+		SupplementalContextRefs: []string{"chat_session:21/turn:31", "chat_session:21/turn:32"},
+		AssistantTurnID:         domain.ChatTurnID(32),
+		AssistantMessageID:      "msg-1/assistant",
+		AssistantSequence:       2,
+		AssistantOccurredAt:     &startedAt,
+		Content:                 "CPU alert is still firing.",
+		Confidence:              "medium",
+		RequiresHumanReview:     &requiresHumanReview,
+	}
 	workflowClient := &fakeDiagnosisRoomWorkflowClient{
 		submitResult: ports.DiagnosisRoomSubmitTurnResult{
 			SessionID:           "session-1",
@@ -2896,46 +3010,8 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 				Trigger: "collected_evidence",
 			}},
 		},
-		queryState: ports.DiagnosisRoomState{
-			SessionID:       "session-1",
-			ChatSessionID:   domain.ChatSessionID(21),
-			DiagnosisTaskID: domain.DiagnosisTaskID(11),
-			OwnerSubject:    "owner-1",
-			Status:          "closed",
-			TurnCount:       1,
-			StartedAt:       startedAt,
-			LastActivityAt:  closedAt,
-			ClosedAt:        &closedAt,
-			CloseReason:     "user_done",
-			FinalConclusion: &ports.DiagnosisRoomFinalConclusion{
-				Status:              "available",
-				Source:              "latest_assistant_turn",
-				AssistantTurnID:     domain.ChatTurnID(32),
-				AssistantMessageID:  "msg-1/assistant",
-				AssistantSequence:   2,
-				AssistantOccurredAt: &startedAt,
-				Content:             "CPU alert is still firing.",
-				Confidence:          "medium",
-				RequiresHumanReview: &requiresHumanReview,
-			},
-			LatestConsultationInsight: &ports.DiagnosisRoomConsultationInsight{
-				ConfidenceRationale: "Collected evidence now supports final review.",
-				EvidenceCollectionSuggestions: []ports.DiagnosisRoomConsultationEvidenceRequest{{
-					Label:    "Owner confirmation",
-					Detail:   "Confirm the proposed conclusion with the service owner.",
-					Priority: "medium",
-				}},
-				ConclusionStatus: "ready_for_review",
-			},
-			LatestConfidence:          "high",
-			LatestRequiresHumanReview: &latestRequiresHumanReview,
-			InFlight:                  false,
-			SeenMessageIDs:            []string{"msg-1"},
-			Conversation: []ports.DiagnosisRoomConversationTurn{
-				{Role: "user", Content: "Please investigate"},
-				{Role: "assistant", Content: "CPU alert is still firing."},
-			},
-		},
+		queryState:   readyState,
+		confirmState: confirmedState,
 	}
 	handler := testHandlerWithDiagnosisWS(
 		&fakeUOWFactory{},
@@ -3034,15 +3110,8 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	if state.Type != diagnosisWSServerState || state.DiagnosisTaskID != 11 || len(state.Conversation) != 2 {
 		t.Fatalf("state = %+v", state)
 	}
-	if state.FinalConclusion == nil ||
-		state.FinalConclusion.Status != "available" ||
-		state.FinalConclusion.AssistantTurnID != 32 ||
-		state.FinalConclusion.AssistantMessageID != "msg-1/assistant" ||
-		state.FinalConclusion.Content != "CPU alert is still firing." ||
-		state.FinalConclusion.Confidence != "medium" ||
-		state.FinalConclusion.RequiresHumanReview == nil ||
-		!*state.FinalConclusion.RequiresHumanReview {
-		t.Fatalf("state final conclusion = %+v", state.FinalConclusion)
+	if state.Status != "open" || state.FinalConclusion != nil {
+		t.Fatalf("state status=%q final conclusion=%+v, want open/nil", state.Status, state.FinalConclusion)
 	}
 	if state.ConsultationInsight == nil ||
 		state.ConsultationInsight.ConfidenceRationale != "Collected evidence now supports final review." ||
@@ -3057,6 +3126,41 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	}
 	if querySession, queryCalled := workflowClient.querySnapshot(); queryCalled != 1 || querySession != "session-1" {
 		t.Fatalf("QueryDiagnosisRoom calls=%d session=%q, want 1/session-1", queryCalled, querySession)
+	}
+
+	if err := conn.WriteJSON(map[string]string{"type": diagnosisWSClientConfirm}); err != nil {
+		t.Fatalf("WriteJSON confirm: %v", err)
+	}
+	var confirmed diagnosisWSStateFrame
+	if err := conn.ReadJSON(&confirmed); err != nil {
+		t.Fatalf("ReadJSON confirmed state: %v", err)
+	}
+	if confirmed.Type != diagnosisWSServerState || confirmed.Status != "closed" || confirmed.CloseReason != "human_confirmed" {
+		t.Fatalf("confirmed state = %+v", confirmed)
+	}
+	if confirmed.FinalConclusion == nil ||
+		confirmed.FinalConclusion.Status != "available" ||
+		confirmed.FinalConclusion.AssistantTurnID != 32 ||
+		confirmed.FinalConclusion.AssistantMessageID != "msg-1/assistant" ||
+		confirmed.FinalConclusion.EvidenceSnapshotID != 9001 ||
+		confirmed.FinalConclusion.ConclusionVersion != "diagnosis-room-close.v1" ||
+		confirmed.FinalConclusion.RecordedAt == nil ||
+		!confirmed.FinalConclusion.RecordedAt.Equal(closedAt) ||
+		confirmed.FinalConclusion.ConfirmedBy != "owner-1" ||
+		len(confirmed.FinalConclusion.SupplementalContextRefs) != 2 ||
+		confirmed.FinalConclusion.SupplementalContextRefs[1] != "chat_session:21/turn:32" ||
+		confirmed.FinalConclusion.Content != "CPU alert is still firing." ||
+		confirmed.FinalConclusion.Confidence != "medium" ||
+		confirmed.FinalConclusion.RequiresHumanReview == nil ||
+		!*confirmed.FinalConclusion.RequiresHumanReview {
+		t.Fatalf("confirmed final conclusion = %+v", confirmed.FinalConclusion)
+	}
+	confirmReq, confirmCalled := workflowClient.confirmSnapshot()
+	if confirmCalled != 1 {
+		t.Fatalf("ConfirmDiagnosisConclusion calls = %d, want 1", confirmCalled)
+	}
+	if confirmReq.SessionID != "session-1" || confirmReq.ActorSubject != "owner-1" || confirmReq.Reason != "human_confirmed" {
+		t.Fatalf("confirm request = %+v", confirmReq)
 	}
 }
 
@@ -3349,6 +3453,10 @@ type fakeDiagnosisRoomWorkflowClient struct {
 	querySessionID              string
 	queryState                  ports.DiagnosisRoomState
 	queryErr                    error
+	confirmCalled               int
+	confirmReq                  ports.DiagnosisRoomConfirmConclusionRequest
+	confirmState                ports.DiagnosisRoomState
+	confirmErr                  error
 }
 
 type fakeDiagnosisRoomStarter struct {
@@ -3417,6 +3525,17 @@ func (c *fakeDiagnosisRoomWorkflowClient) QueryDiagnosisRoom(_ context.Context, 
 	return c.queryState, nil
 }
 
+func (c *fakeDiagnosisRoomWorkflowClient) ConfirmDiagnosisConclusion(_ context.Context, req ports.DiagnosisRoomConfirmConclusionRequest) (ports.DiagnosisRoomState, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.confirmCalled++
+	c.confirmReq = req
+	if c.confirmErr != nil {
+		return ports.DiagnosisRoomState{}, c.confirmErr
+	}
+	return c.confirmState, nil
+}
+
 func (c *fakeDiagnosisRoomWorkflowClient) submitSnapshot() (ports.DiagnosisRoomSubmitTurnRequest, int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -3427,6 +3546,12 @@ func (c *fakeDiagnosisRoomWorkflowClient) querySnapshot() (string, int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.querySessionID, c.queryCalled
+}
+
+func (c *fakeDiagnosisRoomWorkflowClient) confirmSnapshot() (ports.DiagnosisRoomConfirmConclusionRequest, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.confirmReq, c.confirmCalled
 }
 
 func (c *fakeDiagnosisRoomWorkflowClient) recordSubmitContextErr(err error) {

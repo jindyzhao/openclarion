@@ -408,6 +408,29 @@ tr:last-child td {
   gap: 6px;
 }
 
+.subreport-conclusion-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.subreport-conclusion-details div {
+  min-width: 0;
+}
+
+.subreport-conclusion-details dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.subreport-conclusion-details dd {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
 .action-list {
   display: grid;
   gap: 8px;

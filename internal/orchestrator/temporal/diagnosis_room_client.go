@@ -19,6 +19,8 @@ const diagnosisRoomWorkflowIDPrefix = "diagnosis-room-"
 type diagnosisRoomWorkflowClient interface {
 	UpdateWorkflow(ctx context.Context, options client.UpdateWorkflowOptions) (client.WorkflowUpdateHandle, error)
 	QueryWorkflow(ctx context.Context, workflowID string, runID string, queryType string, args ...interface{}) (converter.EncodedValue, error)
+	SignalWorkflow(ctx context.Context, workflowID string, runID string, signalName string, arg interface{}) error
+	GetWorkflow(ctx context.Context, workflowID string, runID string) client.WorkflowRun
 }
 
 // DiagnosisRoomClient adapts Temporal workflow Update/Query calls to the
@@ -102,6 +104,34 @@ func (c *DiagnosisRoomClient) QueryDiagnosisRoom(ctx context.Context, sessionID 
 	return diagnosisRoomWorkflowState(state), nil
 }
 
+// ConfirmDiagnosisConclusion closes the room through the workflow close signal
+// and waits for the terminal workflow state that contains the retained final
+// conclusion.
+func (c *DiagnosisRoomClient) ConfirmDiagnosisConclusion(
+	ctx context.Context,
+	req ports.DiagnosisRoomConfirmConclusionRequest,
+) (ports.DiagnosisRoomState, error) {
+	if c == nil || c.client == nil {
+		return ports.DiagnosisRoomState{}, fmt.Errorf("diagnosis-room client: Temporal client must be non-nil: %w", domain.ErrInvariantViolation)
+	}
+	workflowID, err := DiagnosisRoomWorkflowID(req.SessionID)
+	if err != nil {
+		return ports.DiagnosisRoomState{}, err
+	}
+	closeReq, err := diagnosisRoomConfirmConclusionRequest(req)
+	if err != nil {
+		return ports.DiagnosisRoomState{}, err
+	}
+	if err := c.client.SignalWorkflow(ctx, workflowID, "", DiagnosisRoomCloseSignal, closeReq); err != nil {
+		return ports.DiagnosisRoomState{}, fmt.Errorf("diagnosis-room client: signal confirm conclusion: %w", err)
+	}
+	var result DiagnosisRoomWorkflowResult
+	if err := c.client.GetWorkflow(ctx, workflowID, "").Get(ctx, &result); err != nil {
+		return ports.DiagnosisRoomState{}, fmt.Errorf("diagnosis-room client: wait confirm conclusion: %w", err)
+	}
+	return diagnosisRoomWorkflowState(result), nil
+}
+
 func diagnosisRoomSubmitTurnRequest(req ports.DiagnosisRoomSubmitTurnRequest) (SubmitDiagnosisTurnRequest, error) {
 	messageID := strings.TrimSpace(req.MessageID)
 	if messageID == "" {
@@ -121,6 +151,29 @@ func diagnosisRoomSubmitTurnRequest(req ports.DiagnosisRoomSubmitTurnRequest) (S
 		MessageID:    messageID,
 		ActorSubject: actorSubject,
 		Message:      req.Message,
+	}, nil
+}
+
+func diagnosisRoomConfirmConclusionRequest(
+	req ports.DiagnosisRoomConfirmConclusionRequest,
+) (DiagnosisRoomCloseRequest, error) {
+	actorSubject := strings.TrimSpace(req.ActorSubject)
+	if actorSubject == "" {
+		return DiagnosisRoomCloseRequest{}, fmt.Errorf("diagnosis-room client: actor subject must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if actorSubject != req.ActorSubject {
+		return DiagnosisRoomCloseRequest{}, fmt.Errorf("diagnosis-room client: actor subject must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = "human_confirmed"
+	}
+	if reason != req.Reason && req.Reason != "" {
+		return DiagnosisRoomCloseRequest{}, fmt.Errorf("diagnosis-room client: reason must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
+	}
+	return DiagnosisRoomCloseRequest{
+		Reason:       reason,
+		ActorSubject: actorSubject,
 	}, nil
 }
 
@@ -380,15 +433,23 @@ func diagnosisRoomFinalConclusionPort(in *DiagnosisRoomFinalConclusion) *ports.D
 		return nil
 	}
 	out := &ports.DiagnosisRoomFinalConclusion{
-		Status:              in.Status,
-		Source:              in.Source,
-		Reason:              in.Reason,
-		AssistantTurnID:     domain.ChatTurnID(in.AssistantTurnID),
-		AssistantMessageID:  in.AssistantMessageID,
-		AssistantSequence:   in.AssistantSequence,
-		Content:             in.Content,
-		Confidence:          in.Confidence,
-		RequiresHumanReview: in.RequiresHumanReview,
+		Status:                  in.Status,
+		Source:                  in.Source,
+		Reason:                  in.Reason,
+		EvidenceSnapshotID:      domain.EvidenceSnapshotID(in.EvidenceSnapshotID),
+		ConclusionVersion:       in.ConclusionVersion,
+		ConfirmedBy:             in.ConfirmedBy,
+		SupplementalContextRefs: append([]string(nil), in.SupplementalContextRefs...),
+		AssistantTurnID:         domain.ChatTurnID(in.AssistantTurnID),
+		AssistantMessageID:      in.AssistantMessageID,
+		AssistantSequence:       in.AssistantSequence,
+		Content:                 in.Content,
+		Confidence:              in.Confidence,
+		RequiresHumanReview:     in.RequiresHumanReview,
+	}
+	if in.RecordedAt != nil {
+		recordedAt := *in.RecordedAt
+		out.RecordedAt = &recordedAt
 	}
 	if in.AssistantOccurredAt != nil {
 		occurredAt := *in.AssistantOccurredAt

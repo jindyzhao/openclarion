@@ -1257,16 +1257,21 @@ type diagnosisRoomCloseCLIEvent struct {
 }
 
 type diagnosisRoomCloseCLIFinalConclusion struct {
-	Status              string `json:"status"`
-	Source              string `json:"source"`
-	Reason              string `json:"reason,omitempty"`
-	AssistantTurnID     int64  `json:"assistant_turn_id,omitempty"`
-	AssistantMessageID  string `json:"assistant_message_id,omitempty"`
-	AssistantSequence   int    `json:"assistant_sequence,omitempty"`
-	AssistantOccurredAt string `json:"assistant_occurred_at,omitempty"`
-	Content             string `json:"content,omitempty"`
-	Confidence          string `json:"confidence,omitempty"`
-	RequiresHumanReview *bool  `json:"requires_human_review,omitempty"`
+	Status                  string   `json:"status"`
+	Source                  string   `json:"source"`
+	Reason                  string   `json:"reason,omitempty"`
+	EvidenceSnapshotID      int64    `json:"evidence_snapshot_id,omitempty"`
+	ConclusionVersion       string   `json:"conclusion_version,omitempty"`
+	RecordedAt              string   `json:"recorded_at,omitempty"`
+	ConfirmedBy             string   `json:"confirmed_by,omitempty"`
+	SupplementalContextRefs []string `json:"supplemental_context_refs,omitempty"`
+	AssistantTurnID         int64    `json:"assistant_turn_id,omitempty"`
+	AssistantMessageID      string   `json:"assistant_message_id,omitempty"`
+	AssistantSequence       int      `json:"assistant_sequence,omitempty"`
+	AssistantOccurredAt     string   `json:"assistant_occurred_at,omitempty"`
+	Content                 string   `json:"content,omitempty"`
+	Confidence              string   `json:"confidence,omitempty"`
+	RequiresHumanReview     *bool    `json:"requires_human_review,omitempty"`
 }
 
 type diagnosisRoomCloseCLINotificationEvent struct {
@@ -2496,6 +2501,21 @@ func compareDiagnosisRoomFinalConclusion(
 	if !sameOptionalTime(payload.AssistantOccurredAt, result.AssistantOccurredAt) {
 		return fmt.Errorf("diagnosis room close event final_conclusion.assistant_occurred_at does not match workflow result")
 	}
+	if payload.EvidenceSnapshotID != result.EvidenceSnapshotID {
+		return fmt.Errorf("diagnosis room close event final_conclusion.evidence_snapshot_id = %d, want %d", payload.EvidenceSnapshotID, result.EvidenceSnapshotID)
+	}
+	if payload.ConclusionVersion != result.ConclusionVersion {
+		return fmt.Errorf("diagnosis room close event final_conclusion.conclusion_version = %q, want %q", payload.ConclusionVersion, result.ConclusionVersion)
+	}
+	if !sameOptionalTime(payload.RecordedAt, result.RecordedAt) {
+		return fmt.Errorf("diagnosis room close event final_conclusion.recorded_at does not match workflow result")
+	}
+	if payload.ConfirmedBy != result.ConfirmedBy {
+		return fmt.Errorf("diagnosis room close event final_conclusion.confirmed_by = %q, want %q", payload.ConfirmedBy, result.ConfirmedBy)
+	}
+	if !sameStrings(payload.SupplementalContextRefs, result.SupplementalContextRefs) {
+		return fmt.Errorf("diagnosis room close event final_conclusion.supplemental_context_refs does not match workflow result")
+	}
 	if payload.Content != result.Content {
 		return fmt.Errorf("diagnosis room close event final_conclusion.content does not match workflow result")
 	}
@@ -2512,14 +2532,21 @@ func diagnosisRoomCloseCLIFinalConclusionFromTemporal(
 	in temporalpkg.DiagnosisRoomFinalConclusion,
 ) diagnosisRoomCloseCLIFinalConclusion {
 	out := diagnosisRoomCloseCLIFinalConclusion{
-		Status:             in.Status,
-		Source:             in.Source,
-		Reason:             in.Reason,
-		AssistantTurnID:    in.AssistantTurnID,
-		AssistantMessageID: in.AssistantMessageID,
-		AssistantSequence:  in.AssistantSequence,
-		Content:            in.Content,
-		Confidence:         in.Confidence,
+		Status:                  in.Status,
+		Source:                  in.Source,
+		Reason:                  in.Reason,
+		EvidenceSnapshotID:      in.EvidenceSnapshotID,
+		ConclusionVersion:       in.ConclusionVersion,
+		ConfirmedBy:             in.ConfirmedBy,
+		SupplementalContextRefs: append([]string(nil), in.SupplementalContextRefs...),
+		AssistantTurnID:         in.AssistantTurnID,
+		AssistantMessageID:      in.AssistantMessageID,
+		AssistantSequence:       in.AssistantSequence,
+		Content:                 in.Content,
+		Confidence:              in.Confidence,
+	}
+	if in.RecordedAt != nil {
+		out.RecordedAt = retainedProofTime(*in.RecordedAt).Format(time.RFC3339Nano)
 	}
 	if in.AssistantOccurredAt != nil {
 		out.AssistantOccurredAt = retainedProofTime(*in.AssistantOccurredAt).Format(time.RFC3339Nano)
@@ -2559,6 +2586,18 @@ func sameOptionalBool(a, b *bool) bool {
 	default:
 		return *a == *b
 	}
+}
+
+func sameStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func diagnosisRoomCloseCLIUsage() string {

@@ -3,6 +3,7 @@
 import {
   ApiOutlined,
   BulbOutlined,
+  CheckCircleOutlined,
   DisconnectOutlined,
   FormOutlined,
   PlusCircleOutlined,
@@ -23,12 +24,14 @@ import {
   List,
   Space,
   Tag,
+  Tooltip,
   Typography
 } from "antd";
 import type { DescriptionsProps } from "antd";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
+import { formatDateTime } from "@/features/reports/format";
 import { ReportShell } from "@/features/reports/report-shell";
 
 import {
@@ -165,6 +168,8 @@ export function DiagnosisRoomView() {
   const connected = status === "connected" && socketOpen;
   const busy = ticketMutation.isPending || status === "connecting";
   const createBusy = createRoomMutation.isPending || busy;
+  const confirmConclusionBlockReason = diagnosisConfirmConclusionBlockReason(connected, roomState, latestInsight);
+  const canConfirmConclusion = confirmConclusionBlockReason === "";
 
   async function handleCreateRoom(values: CreateRoomFormValues) {
     const trimmedBearer = values.authorizationToken.trim();
@@ -328,6 +333,14 @@ export function DiagnosisRoomView() {
     }
   }
 
+  function handleConfirmConclusion() {
+    if (!canConfirmConclusion) {
+      return;
+    }
+    pushLog("info", "Confirming final conclusion.");
+    sendFrame({ type: "confirm_conclusion", reason: "human_confirmed" });
+  }
+
   function handleDisconnect() {
     socketRef.current?.close();
     socketRef.current = null;
@@ -472,7 +485,21 @@ export function DiagnosisRoomView() {
           </Form>
         </Card>
 
-        <Card className="settings-overview-card" title="Room State">
+        <Card
+          className="settings-overview-card"
+          extra={
+            <Tooltip title={confirmConclusionBlockReason || "Retain this diagnosis conclusion."}>
+              <Button
+                disabled={!canConfirmConclusion}
+                icon={<CheckCircleOutlined />}
+                onClick={handleConfirmConclusion}
+              >
+                Confirm Conclusion
+              </Button>
+            </Tooltip>
+          }
+          title="Room State"
+        >
           <Descriptions column={1} items={roomStateItems} size="small" />
           {roomState?.final_conclusion ? (
             <Alert
@@ -832,21 +859,68 @@ function hasConsultationInsight(
   );
 }
 
+function diagnosisConfirmConclusionBlockReason(
+  connected: boolean,
+  state: DiagnosisStateFrame | null,
+  latestInsight: LatestConsultationInsight | null
+): string {
+  if (!connected) {
+    return "Connect to a diagnosis room before confirming.";
+  }
+  if (!state) {
+    return "Load the room state before confirming.";
+  }
+  if (state.status === "closed") {
+    return "This diagnosis room is already closed.";
+  }
+  if (state.in_flight) {
+    return "Wait for the current diagnosis turn to finish.";
+  }
+  if (state.final_conclusion?.status === "available") {
+    return "";
+  }
+  const conclusionStatus = latestInsight?.insight.conclusion_status?.trim();
+  if (conclusionStatus === "final" || conclusionStatus === "ready_for_review") {
+    return "";
+  }
+  return "Wait until AI marks the diagnosis final or ready for review.";
+}
+
 function roomStateDescriptionItems(
   state: DiagnosisStateFrame | null,
   readySubject: string,
   sessionID: string | undefined,
   connectionStatus: DiagnosisConnectionStatus
 ): DescriptionsProps["items"] {
-  return [
+  const conclusion = state?.final_conclusion;
+  const items: DescriptionsProps["items"] = [
     { key: "subject", label: "Subject", children: readySubject || state?.owner_subject || "-" },
     { key: "session", label: "Session", children: state?.session_id || sessionID || "-" },
     { key: "status", label: "Status", children: state?.status || statusLabel(connectionStatus) },
     { key: "turns", label: "Turns", children: state ? String(state.turn_count) : "-" },
     { key: "close-reason", label: "Close reason", children: state?.close_reason || "-" },
-    { key: "conclusion", label: "Conclusion", children: finalConclusionLabel(state) },
-    { key: "in-flight", label: "In flight", children: state?.in_flight ? "yes" : "no" }
+    { key: "conclusion", label: "Conclusion", children: finalConclusionLabel(state) }
   ];
+  if (conclusion) {
+    if (conclusion.evidence_snapshot_id !== undefined) {
+      items.push({
+        key: "evidence-snapshot",
+        label: "Evidence snapshot",
+        children: String(conclusion.evidence_snapshot_id)
+      });
+    }
+    if (conclusion.conclusion_version) {
+      items.push({ key: "conclusion-version", label: "Conclusion version", children: conclusion.conclusion_version });
+    }
+    if (conclusion.confirmed_by) {
+      items.push({ key: "confirmed-by", label: "Confirmed by", children: conclusion.confirmed_by });
+    }
+    if (conclusion.recorded_at) {
+      items.push({ key: "recorded-at", label: "Recorded at", children: formatDateTime(conclusion.recorded_at) });
+    }
+  }
+  items.push({ key: "in-flight", label: "In flight", children: state?.in_flight ? "yes" : "no" });
+  return items;
 }
 
 function consultationInsightItems(latestInsight: LatestConsultationInsight): DescriptionsProps["items"] {

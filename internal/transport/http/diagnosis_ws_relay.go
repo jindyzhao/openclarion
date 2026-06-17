@@ -19,6 +19,7 @@ import (
 const (
 	diagnosisWSClientSubmitTurn = "submit_turn"
 	diagnosisWSClientQueryState = "query_state"
+	diagnosisWSClientConfirm    = "confirm_conclusion"
 
 	diagnosisWSServerReady      = "ready"
 	diagnosisWSServerTurnResult = "turn_result"
@@ -122,6 +123,8 @@ func (r *DiagnosisWebSocketRelay) handleFrame(ctx context.Context, conn *websock
 		return r.handleSubmitTurn(ctx, conn, ticket, frame)
 	case diagnosisWSClientQueryState:
 		return r.handleQueryState(ctx, conn, ticket.SessionID)
+	case diagnosisWSClientConfirm:
+		return r.handleConfirmConclusion(ctx, conn, ticket, frame)
 	default:
 		return writeDiagnosisWSJSON(conn, diagnosisWSErrorFrame{
 			Type:    diagnosisWSServerError,
@@ -173,26 +176,29 @@ func (r *DiagnosisWebSocketRelay) handleQueryState(ctx context.Context, conn *we
 	if err != nil {
 		return writeDiagnosisWSError(conn, err)
 	}
-	return writeDiagnosisWSJSON(conn, diagnosisWSStateFrame{
-		Type:                diagnosisWSServerState,
-		SessionID:           state.SessionID,
-		ChatSessionID:       int64(state.ChatSessionID),
-		DiagnosisTaskID:     int64(state.DiagnosisTaskID),
-		OwnerSubject:        state.OwnerSubject,
-		Status:              state.Status,
-		TurnCount:           state.TurnCount,
-		StartedAt:           state.StartedAt,
-		LastActivityAt:      state.LastActivityAt,
-		ClosedAt:            state.ClosedAt,
-		CloseReason:         state.CloseReason,
-		FinalConclusion:     diagnosisWSFinalConclusionFrame(state.FinalConclusion),
-		Confidence:          state.LatestConfidence,
-		RequiresHumanReview: state.LatestRequiresHumanReview,
-		ConsultationInsight: diagnosisWSConsultationInsightFramePtr(state.LatestConsultationInsight),
-		InFlight:            state.InFlight,
-		SeenMessageIDs:      append([]string(nil), state.SeenMessageIDs...),
-		Conversation:        diagnosisWSConversation(state.Conversation),
+	return writeDiagnosisWSJSON(conn, diagnosisWSStateFrameFromState(state))
+}
+
+func (r *DiagnosisWebSocketRelay) handleConfirmConclusion(ctx context.Context, conn *websocket.Conn, ticket diagnosisauth.Ticket, frame diagnosisWSClientFrame) error {
+	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.updateTimeout)
+	defer cancel()
+	state, err := r.workflows.ConfirmDiagnosisConclusion(updateCtx, ports.DiagnosisRoomConfirmConclusionRequest{
+		SessionID:    ticket.SessionID,
+		ActorSubject: ticket.Subject,
+		Reason:       diagnosisWSReasonOrDefault(frame.Reason, "human_confirmed"),
 	})
+	if err != nil {
+		return writeDiagnosisWSError(conn, err)
+	}
+	return writeDiagnosisWSJSON(conn, diagnosisWSStateFrameFromState(state))
+}
+
+func diagnosisWSReasonOrDefault(reason, fallback string) string {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return fallback
+	}
+	return reason
 }
 
 func decodeDiagnosisWSClientFrame(raw []byte) (diagnosisWSClientFrame, error) {
@@ -216,12 +222,45 @@ func decodeDiagnosisWSClientFrame(raw []byte) (diagnosisWSClientFrame, error) {
 		if frame.MessageID != "" || frame.Message != "" {
 			return frame, fmt.Errorf("query_state frame must not include message_id or message")
 		}
+		if frame.Reason != "" {
+			return frame, fmt.Errorf("query_state frame must not include reason")
+		}
+	case diagnosisWSClientConfirm:
+		if frame.MessageID != "" || frame.Message != "" {
+			return frame, fmt.Errorf("confirm_conclusion frame must not include message_id or message")
+		}
+		if strings.TrimSpace(frame.Reason) != frame.Reason {
+			return frame, fmt.Errorf("reason must not contain leading or trailing whitespace")
+		}
 	case "":
 		return frame, fmt.Errorf("type must be non-empty")
 	default:
 		return frame, fmt.Errorf("unsupported frame type %q", frame.Type)
 	}
 	return frame, nil
+}
+
+func diagnosisWSStateFrameFromState(state ports.DiagnosisRoomState) diagnosisWSStateFrame {
+	return diagnosisWSStateFrame{
+		Type:                diagnosisWSServerState,
+		SessionID:           state.SessionID,
+		ChatSessionID:       int64(state.ChatSessionID),
+		DiagnosisTaskID:     int64(state.DiagnosisTaskID),
+		OwnerSubject:        state.OwnerSubject,
+		Status:              state.Status,
+		TurnCount:           state.TurnCount,
+		StartedAt:           state.StartedAt,
+		LastActivityAt:      state.LastActivityAt,
+		ClosedAt:            state.ClosedAt,
+		CloseReason:         state.CloseReason,
+		FinalConclusion:     diagnosisWSFinalConclusionFrame(state.FinalConclusion),
+		Confidence:          state.LatestConfidence,
+		RequiresHumanReview: state.LatestRequiresHumanReview,
+		ConsultationInsight: diagnosisWSConsultationInsightFramePtr(state.LatestConsultationInsight),
+		InFlight:            state.InFlight,
+		SeenMessageIDs:      append([]string(nil), state.SeenMessageIDs...),
+		Conversation:        diagnosisWSConversation(state.Conversation),
+	}
 }
 
 func writeDiagnosisWSError(conn *websocket.Conn, err error) error {
@@ -271,16 +310,21 @@ func diagnosisWSFinalConclusionFrame(in *ports.DiagnosisRoomFinalConclusion) *di
 		return nil
 	}
 	return &diagnosisWSFinalConclusion{
-		Status:              in.Status,
-		Source:              in.Source,
-		Reason:              in.Reason,
-		AssistantTurnID:     int64(in.AssistantTurnID),
-		AssistantMessageID:  in.AssistantMessageID,
-		AssistantSequence:   in.AssistantSequence,
-		AssistantOccurredAt: in.AssistantOccurredAt,
-		Content:             in.Content,
-		Confidence:          in.Confidence,
-		RequiresHumanReview: in.RequiresHumanReview,
+		Status:                  in.Status,
+		Source:                  in.Source,
+		Reason:                  in.Reason,
+		EvidenceSnapshotID:      int64(in.EvidenceSnapshotID),
+		ConclusionVersion:       in.ConclusionVersion,
+		RecordedAt:              in.RecordedAt,
+		ConfirmedBy:             in.ConfirmedBy,
+		SupplementalContextRefs: append([]string(nil), in.SupplementalContextRefs...),
+		AssistantTurnID:         int64(in.AssistantTurnID),
+		AssistantMessageID:      in.AssistantMessageID,
+		AssistantSequence:       in.AssistantSequence,
+		AssistantOccurredAt:     in.AssistantOccurredAt,
+		Content:                 in.Content,
+		Confidence:              in.Confidence,
+		RequiresHumanReview:     in.RequiresHumanReview,
 	}
 }
 
@@ -493,6 +537,7 @@ type diagnosisWSClientFrame struct {
 	Type      string `json:"type"`
 	MessageID string `json:"message_id,omitempty"`
 	Message   string `json:"message,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 type diagnosisWSReadyFrame struct {
@@ -569,16 +614,21 @@ type diagnosisWSConversationTurn struct {
 }
 
 type diagnosisWSFinalConclusion struct {
-	Status              string     `json:"status"`
-	Source              string     `json:"source"`
-	Reason              string     `json:"reason,omitempty"`
-	AssistantTurnID     int64      `json:"assistant_turn_id,omitempty"`
-	AssistantMessageID  string     `json:"assistant_message_id,omitempty"`
-	AssistantSequence   int        `json:"assistant_sequence,omitempty"`
-	AssistantOccurredAt *time.Time `json:"assistant_occurred_at,omitempty"`
-	Content             string     `json:"content,omitempty"`
-	Confidence          string     `json:"confidence,omitempty"`
-	RequiresHumanReview *bool      `json:"requires_human_review,omitempty"`
+	Status                  string     `json:"status"`
+	Source                  string     `json:"source"`
+	Reason                  string     `json:"reason,omitempty"`
+	EvidenceSnapshotID      int64      `json:"evidence_snapshot_id,omitempty"`
+	ConclusionVersion       string     `json:"conclusion_version,omitempty"`
+	RecordedAt              *time.Time `json:"recorded_at,omitempty"`
+	ConfirmedBy             string     `json:"confirmed_by,omitempty"`
+	SupplementalContextRefs []string   `json:"supplemental_context_refs,omitempty"`
+	AssistantTurnID         int64      `json:"assistant_turn_id,omitempty"`
+	AssistantMessageID      string     `json:"assistant_message_id,omitempty"`
+	AssistantSequence       int        `json:"assistant_sequence,omitempty"`
+	AssistantOccurredAt     *time.Time `json:"assistant_occurred_at,omitempty"`
+	Content                 string     `json:"content,omitempty"`
+	Confidence              string     `json:"confidence,omitempty"`
+	RequiresHumanReview     *bool      `json:"requires_human_review,omitempty"`
 }
 
 type diagnosisWSEvidenceRequest struct {
