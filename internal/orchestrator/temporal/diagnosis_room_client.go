@@ -9,6 +9,7 @@ import (
 	"go.temporal.io/sdk/converter"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -139,8 +140,83 @@ func diagnosisRoomSubmitTurnResult(result SubmitDiagnosisTurnResult) ports.Diagn
 		AssistantMessage:    result.AssistantMessage,
 		RequiresHumanReview: result.RequiresHumanReview,
 		Confidence:          result.Confidence,
+		EvidenceRequests:    diagnosisRoomEvidenceRequestsPort(result.EvidenceRequests),
+		CollectionResults:   diagnosisRoomEvidenceCollectionResultsPort(result.CollectionResults),
 		ConsultationInsight: diagnosisRoomConsultationInsightPort(result.Insight),
 	}
+}
+
+func diagnosisRoomEvidenceRequestsPort(in []diagnosisroom.EvidenceRequest) []ports.DiagnosisRoomEvidenceRequest {
+	if in == nil {
+		return nil
+	}
+	out := make([]ports.DiagnosisRoomEvidenceRequest, len(in))
+	for i, request := range in {
+		out[i] = ports.DiagnosisRoomEvidenceRequest{
+			TemplateID:    domain.DiagnosisToolTemplateID(request.TemplateID),
+			Tool:          request.Tool,
+			Reason:        request.Reason,
+			Query:         request.Query,
+			WindowSeconds: request.WindowSeconds,
+			StepSeconds:   request.StepSeconds,
+			Limit:         request.Limit,
+		}
+	}
+	return out
+}
+
+func diagnosisRoomEvidenceCollectionResultsPort(
+	in []diagnosisevidence.Item,
+) []ports.DiagnosisRoomEvidenceCollectionResult {
+	if in == nil {
+		return nil
+	}
+	out := make([]ports.DiagnosisRoomEvidenceCollectionResult, len(in))
+	for i, item := range in {
+		out[i] = ports.DiagnosisRoomEvidenceCollectionResult{
+			Request:              diagnosisRoomEvidenceRequestPort(item.Request),
+			TemplateID:           item.TemplateID,
+			AlertSourceProfileID: item.AlertSourceProfileID,
+			AlertSourceKind:      item.AlertSourceKind,
+			Tool:                 item.Tool,
+			Status:               string(item.Status),
+			ReasonCode:           string(item.ReasonCode),
+			Message:              item.Message,
+			Limit:                item.Limit,
+			ObservedAlerts:       item.ObservedAlerts,
+			ActiveAlerts:         diagnosisRoomActiveAlertsPort(item.ActiveAlerts),
+			CollectedAt:          item.CollectedAt,
+		}
+	}
+	return out
+}
+
+func diagnosisRoomEvidenceRequestPort(request diagnosisroom.EvidenceRequest) ports.DiagnosisRoomEvidenceRequest {
+	return ports.DiagnosisRoomEvidenceRequest{
+		TemplateID:    domain.DiagnosisToolTemplateID(request.TemplateID),
+		Tool:          request.Tool,
+		Reason:        request.Reason,
+		Query:         request.Query,
+		WindowSeconds: request.WindowSeconds,
+		StepSeconds:   request.StepSeconds,
+		Limit:         request.Limit,
+	}
+}
+
+func diagnosisRoomActiveAlertsPort(in []ports.ActiveAlert) []ports.DiagnosisRoomActiveAlert {
+	if in == nil {
+		return nil
+	}
+	out := make([]ports.DiagnosisRoomActiveAlert, len(in))
+	for i, alert := range in {
+		out[i] = ports.DiagnosisRoomActiveAlert{
+			Source:      alert.Source,
+			Labels:      cloneStringMap(alert.Labels),
+			Annotations: cloneStringMap(alert.Annotations),
+			StartsAt:    alert.StartsAt,
+		}
+	}
+	return out
 }
 
 func diagnosisRoomConsultationInsightPort(in diagnosisroom.ConsultationInsight) ports.DiagnosisRoomConsultationInsight {
@@ -165,6 +241,17 @@ func diagnosisRoomConsultationEvidenceRequestsPort(
 			Detail:   request.Detail,
 			Priority: request.Priority,
 		}
+	}
+	return out
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
 	}
 	return out
 }

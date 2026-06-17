@@ -425,12 +425,8 @@ func TestHTTPServerOptionsFromEnv_RejectsIncompleteDiagnosisConfig(t *testing.T)
 	}
 }
 
-func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) {
-	opts, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
-		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
-		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/runner"]`,
-	}))
+func TestDiagnosisActivityOptionsFromEnv_ConfiguresEvidenceProviderWithoutSandbox(t *testing.T) {
+	opts, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{}), nil)
 	if err != nil {
 		t.Fatalf("diagnosisActivityOptionsFromEnv: %v", err)
 	}
@@ -439,10 +435,24 @@ func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) 
 	}
 }
 
+func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) {
+	opts, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
+		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/runner"]`,
+	}), nil)
+	if err != nil {
+		t.Fatalf("diagnosisActivityOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 2 {
+		t.Fatalf("len(opts) = %d, want 2", len(opts))
+	}
+}
+
 func TestDiagnosisActivityOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
 	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_SANDBOX_COMMAND_JSON": `["/runner"]`,
-	}))
+	}), nil)
 	if err == nil {
 		t.Fatal("expected sandbox image error, got nil")
 	}

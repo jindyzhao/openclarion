@@ -43,6 +43,11 @@ test("diagnosis room route connects, queries state, and submits a turn", async (
   ).toBeVisible();
   await expect(page.getByText("Consultation Insight", { exact: true })).toBeVisible();
   await expect(page.getByText("needs_evidence", { exact: true })).toBeVisible();
+  await expect(page.getByText("Executable Evidence Plan", { exact: true })).toBeVisible();
+  await expect(page.getByText("Current active alerts", { exact: true })).toBeVisible();
+  await expect(page.getByText("Collection Results", { exact: true })).toBeVisible();
+  await expect(page.getByText("Active alert collection succeeded.", { exact: true })).toBeVisible();
+  await expect(page.getByText("CPUHigh / prod")).toBeVisible();
   await expect(page.getByText("Restart cause", { exact: true })).toBeVisible();
   await expect(page.getByText("Metric window", { exact: true })).toBeVisible();
   await expect(page.getByText("Turn 1 completed.")).toBeVisible();

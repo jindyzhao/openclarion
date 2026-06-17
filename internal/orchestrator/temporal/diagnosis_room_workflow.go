@@ -10,6 +10,7 @@ import (
 	temporalsdk "go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 )
 
@@ -33,6 +34,9 @@ const (
 	diagnosisRoomCloseSessionTimeout  = "session_timeout"
 	diagnosisRoomCloseIdleTimeout     = "idle_timeout"
 	diagnosisRoomCloseContextCanceled = "context_cancelled"
+
+	diagnosisRoomEvidenceCollectionChangeID = "diagnosis-room-evidence-collection"
+	diagnosisRoomEvidenceCollectionVersion  = 1
 )
 
 // DiagnosisRoomWorkflowInput configures one M5 short-conversation diagnosis
@@ -73,6 +77,8 @@ type SubmitDiagnosisTurnResult struct {
 	AssistantMessage    string
 	RequiresHumanReview bool
 	Confidence          string
+	EvidenceRequests    []diagnosisroom.EvidenceRequest
+	CollectionResults   []diagnosisevidence.Item
 	Insight             diagnosisroom.ConsultationInsight
 }
 
@@ -213,6 +219,23 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			if err := workflow.ExecuteActivity(persistCtx, (*Activities).PersistDiagnosisTurn, persistReq).Get(ctx, &persistResult); err != nil {
 				return SubmitDiagnosisTurnResult{}, err
 			}
+			var collectionResult CollectDiagnosisEvidenceResult
+			collectionVersion := workflow.GetVersion(
+				ctx,
+				diagnosisRoomEvidenceCollectionChangeID,
+				workflow.DefaultVersion,
+				diagnosisRoomEvidenceCollectionVersion,
+			)
+			if collectionVersion >= diagnosisRoomEvidenceCollectionVersion && len(persistResult.EvidenceRequests) > 0 {
+				collectCtx := workflow.WithActivityOptions(ctx, diagnosisRoomEvidenceActivityOptions())
+				if err := workflow.ExecuteActivity(collectCtx, (*Activities).CollectDiagnosisEvidence, CollectDiagnosisEvidenceInput{
+					SessionID:       state.input.SessionID,
+					DiagnosisTaskID: state.diagnosisTaskID,
+					Requests:        cloneEvidenceRequests(persistResult.EvidenceRequests),
+				}).Get(ctx, &collectionResult); err != nil {
+					return SubmitDiagnosisTurnResult{}, err
+				}
+			}
 
 			state.chatSessionID = persistResult.ChatSessionID
 			state.turnCount++
@@ -241,7 +264,9 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 				AssistantMessage:    activityResult.AssistantMessage,
 				RequiresHumanReview: activityResult.RequiresHumanReview,
 				Confidence:          activityResult.Confidence,
-				Insight:             activityResult.Insight,
+				EvidenceRequests:    cloneEvidenceRequests(persistResult.EvidenceRequests),
+				CollectionResults:   diagnosisevidence.CloneItems(collectionResult.Items),
+				Insight:             persistResult.Insight,
 			}, nil
 		},
 		workflow.UpdateHandlerOptions{
@@ -519,6 +544,22 @@ func diagnosisRoomPersistenceActivityOptions() workflow.ActivityOptions {
 			BackoffCoefficient: 2.0,
 			MaximumInterval:    30 * time.Second,
 			MaximumAttempts:    3,
+			NonRetryableErrorTypes: []string{
+				errTypeInvalidInput,
+				errTypeInvariantViolation,
+			},
+		},
+	}
+}
+
+func diagnosisRoomEvidenceActivityOptions() workflow.ActivityOptions {
+	return workflow.ActivityOptions{
+		StartToCloseTimeout: 15 * time.Second,
+		RetryPolicy: &temporalsdk.RetryPolicy{
+			InitialInterval:    time.Second,
+			BackoffCoefficient: 2.0,
+			MaximumInterval:    10 * time.Second,
+			MaximumAttempts:    2,
 			NonRetryableErrorTypes: []string{
 				errTypeInvalidInput,
 				errTypeInvariantViolation,

@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/converter"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -109,6 +110,24 @@ func TestDiagnosisRoomClient_SubmitDiagnosisTurnUsesCompletedUpdate(t *testing.T
 				AssistantMessage:    "CPU alert is still firing.",
 				RequiresHumanReview: true,
 				Confidence:          "medium",
+				EvidenceRequests: []diagnosisroom.EvidenceRequest{{
+					Tool:   domain.DiagnosisToolKindActiveAlerts,
+					Reason: "Need current sibling alerts.",
+					Limit:  5,
+				}},
+				CollectionResults: []diagnosisevidence.Item{{
+					Tool:           domain.DiagnosisToolKindActiveAlerts,
+					Status:         diagnosisevidence.StatusCollected,
+					ReasonCode:     diagnosisevidence.ReasonOK,
+					Message:        "Active alert collection succeeded.",
+					ObservedAlerts: 1,
+					ActiveAlerts: []ports.ActiveAlert{{
+						Source:   "alertmanager",
+						Labels:   map[string]string{"alertname": "CPUHigh"},
+						StartsAt: time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC),
+					}},
+					CollectedAt: time.Date(2026, 6, 17, 10, 0, 1, 0, time.UTC),
+				}},
 				Insight: diagnosisroom.ConsultationInsight{
 					ConfidenceRationale: "CPU evidence is present but restart evidence is missing.",
 					MissingEvidenceRequests: []diagnosisroom.ConsultationEvidenceRequest{{
@@ -171,6 +190,24 @@ func TestDiagnosisRoomClient_SubmitDiagnosisTurnUsesCompletedUpdate(t *testing.T
 		AssistantMessage:    "CPU alert is still firing.",
 		RequiresHumanReview: true,
 		Confidence:          "medium",
+		EvidenceRequests: []ports.DiagnosisRoomEvidenceRequest{{
+			Tool:   domain.DiagnosisToolKindActiveAlerts,
+			Reason: "Need current sibling alerts.",
+			Limit:  5,
+		}},
+		CollectionResults: []ports.DiagnosisRoomEvidenceCollectionResult{{
+			Tool:           domain.DiagnosisToolKindActiveAlerts,
+			Status:         "collected",
+			ReasonCode:     "ok",
+			Message:        "Active alert collection succeeded.",
+			ObservedAlerts: 1,
+			ActiveAlerts: []ports.DiagnosisRoomActiveAlert{{
+				Source:   "alertmanager",
+				Labels:   map[string]string{"alertname": "CPUHigh"},
+				StartsAt: time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC),
+			}},
+			CollectedAt: time.Date(2026, 6, 17, 10, 0, 1, 0, time.UTC),
+		}},
 		ConsultationInsight: ports.DiagnosisRoomConsultationInsight{
 			ConfidenceRationale: "CPU evidence is present but restart evidence is missing.",
 			MissingEvidenceRequests: []ports.DiagnosisRoomConsultationEvidenceRequest{{

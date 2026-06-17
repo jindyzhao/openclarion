@@ -11,6 +11,7 @@ import (
 	temporalsdk "go.temporal.io/sdk/temporal"
 
 	"github.com/openclarion/openclarion/internal/providers/container/fake"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -110,6 +111,27 @@ func TestRunDiagnosisTurn_CallsContainerAndParsesOutput(t *testing.T) {
 	}
 	if message.Role != "user" || message.Content != req.Message {
 		t.Fatalf("message mount = %+v", message)
+	}
+}
+
+func TestCollectDiagnosisEvidence_ReturnsSkippedWhenNotConfigured(t *testing.T) {
+	activities := NewActivities(nil)
+	got, err := activities.CollectDiagnosisEvidence(context.Background(), CollectDiagnosisEvidenceInput{
+		SessionID:       "session-1",
+		DiagnosisTaskID: 101,
+		Requests: []diagnosisroom.EvidenceRequest{{
+			Tool:   "active_alerts",
+			Reason: "Need current sibling alerts.",
+			Limit:  5,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("CollectDiagnosisEvidence: %v", err)
+	}
+	if len(got.Items) != 1 ||
+		got.Items[0].Status != diagnosisevidence.StatusSkipped ||
+		got.Items[0].ReasonCode != diagnosisevidence.ReasonProviderUnavailable {
+		t.Fatalf("items = %+v", got.Items)
 	}
 }
 

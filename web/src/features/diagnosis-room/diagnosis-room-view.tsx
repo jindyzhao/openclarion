@@ -33,11 +33,14 @@ import {
   type DiagnosisWSTicketBundle
 } from "./transport";
 import type {
+  DiagnosisActiveAlert,
   DiagnosisClientFrame,
   DiagnosisConsultationEvidenceRequest,
   DiagnosisConsultationInsight,
   DiagnosisConnectionStatus,
   DiagnosisConversationTurn,
+  DiagnosisEvidenceCollectionResult,
+  DiagnosisEvidenceRequest,
   DiagnosisServerFrame,
   DiagnosisStateFrame
 } from "./types";
@@ -64,7 +67,9 @@ type TranscriptTurn = DiagnosisConversationTurn & {
 type DiagnosisTurnResultFrame = Extract<DiagnosisServerFrame, { type: "turn_result" }>;
 
 type LatestConsultationInsight = {
+  collectionResults: DiagnosisEvidenceCollectionResult[];
   confidence: string;
+  evidenceRequests: DiagnosisEvidenceRequest[];
   insight: DiagnosisConsultationInsight;
   requiresHumanReview: boolean;
   status: string;
@@ -368,6 +373,12 @@ export function DiagnosisRoomView() {
               />
             ) : null}
             <div className="diagnosis-insight-grid">
+              <EvidencePlanList
+                emptyDescription="No executable evidence plan"
+                items={latestInsight.evidenceRequests}
+                title="Executable Evidence Plan"
+              />
+              <EvidenceCollectionResultList items={latestInsight.collectionResults} />
               <EvidenceRequestList
                 emptyDescription="No missing evidence requests"
                 items={latestInsight.insight.missing_evidence_requests}
@@ -430,6 +441,81 @@ export function DiagnosisRoomView() {
   );
 }
 
+function EvidencePlanList({
+  emptyDescription,
+  items,
+  title
+}: {
+  emptyDescription: string;
+  items?: DiagnosisEvidenceRequest[];
+  title: string;
+}) {
+  return (
+    <section className="diagnosis-insight-section">
+      <Typography.Title level={3}>{title}</Typography.Title>
+      <List
+        className="diagnosis-evidence-list"
+        dataSource={items ?? []}
+        locale={{ emptyText: emptyDescription }}
+        renderItem={(item, index) => (
+          <List.Item className="diagnosis-evidence-item" key={evidenceRequestKey(item, index)}>
+            <List.Item.Meta
+              description={formatEvidencePlanDetails(item)}
+              title={
+                <Space size={[6, 6]} wrap>
+                  <span>{item.reason}</span>
+                  <Tag color="processing">{item.tool}</Tag>
+                </Space>
+              }
+            />
+          </List.Item>
+        )}
+        size="small"
+      />
+    </section>
+  );
+}
+
+function EvidenceCollectionResultList({ items }: { items?: DiagnosisEvidenceCollectionResult[] }) {
+  return (
+    <section className="diagnosis-insight-section">
+      <Typography.Title level={3}>Collection Results</Typography.Title>
+      <List
+        className="diagnosis-evidence-list"
+        dataSource={items ?? []}
+        locale={{ emptyText: "No evidence collected yet" }}
+        renderItem={(item, index) => (
+          <List.Item className="diagnosis-evidence-item" key={evidenceCollectionResultKey(item, index)}>
+            <List.Item.Meta
+              description={
+                <div>
+                  <Typography.Text type="secondary">{formatEvidenceCollectionDetails(item)}</Typography.Text>
+                  {item.active_alerts && item.active_alerts.length > 0 ? (
+                    <div className="diagnosis-alert-chips">
+                      {item.active_alerts.slice(0, 3).map((alert, alertIndex) => (
+                        <Tag key={activeAlertKey(alert, alertIndex)}>{formatActiveAlert(alert)}</Tag>
+                      ))}
+                      {item.active_alerts.length > 3 ? <Tag>+{item.active_alerts.length - 3} more</Tag> : null}
+                    </div>
+                  ) : null}
+                </div>
+              }
+              title={
+                <Space size={[6, 6]} wrap>
+                  <span>{item.message || item.tool}</span>
+                  <Tag color={collectionStatusColor(item.status)}>{item.status}</Tag>
+                  <Tag>{item.reason_code}</Tag>
+                </Space>
+              }
+            />
+          </List.Item>
+        )}
+        size="small"
+      />
+    </section>
+  );
+}
+
 function EvidenceRequestList({
   emptyDescription,
   items,
@@ -446,8 +532,8 @@ function EvidenceRequestList({
         className="diagnosis-evidence-list"
         dataSource={items ?? []}
         locale={{ emptyText: emptyDescription }}
-        renderItem={(item) => (
-          <List.Item className="diagnosis-evidence-item">
+        renderItem={(item, index) => (
+          <List.Item className="diagnosis-evidence-item" key={consultationEvidenceRequestKey(item, index)}>
             <List.Item.Meta
               description={item.detail}
               title={
@@ -467,7 +553,9 @@ function EvidenceRequestList({
 
 function latestConsultationInsight(frame: DiagnosisTurnResultFrame): LatestConsultationInsight {
   return {
+    collectionResults: frame.evidence_collection_results ?? [],
     confidence: frame.confidence,
+    evidenceRequests: frame.evidence_requests ?? [],
     insight: frame.consultation_insight ?? {},
     requiresHumanReview: frame.requires_human_review,
     status: frame.status,
@@ -507,6 +595,70 @@ function consultationInsightItems(latestInsight: LatestConsultationInsight): Des
       children: latestInsight.requiresHumanReview ? "required" : "optional"
     }
   ];
+}
+
+function formatEvidencePlanDetails(item: DiagnosisEvidenceRequest): string {
+  const details: string[] = [];
+  if (item.query) {
+    details.push(`query: ${item.query}`);
+  }
+  if (item.template_id) {
+    details.push(`template: ${item.template_id}`);
+  }
+  if (item.window_seconds) {
+    details.push(`window: ${item.window_seconds}s`);
+  }
+  if (item.step_seconds) {
+    details.push(`step: ${item.step_seconds}s`);
+  }
+  if (item.limit) {
+    details.push(`limit: ${item.limit}`);
+  }
+  return details.length > 0 ? details.join(" | ") : "No additional parameters";
+}
+
+function formatEvidenceCollectionDetails(item: DiagnosisEvidenceCollectionResult): string {
+  const details = [
+    `observed: ${item.observed_alerts}`,
+    `visible: ${item.active_alerts?.length ?? 0}`
+  ];
+  if (item.alert_source_kind) {
+    details.push(`source: ${item.alert_source_kind}`);
+  }
+  if (item.template_id) {
+    details.push(`template: ${item.template_id}`);
+  }
+  if (item.alert_source_profile_id) {
+    details.push(`profile: ${item.alert_source_profile_id}`);
+  }
+  if (item.limit) {
+    details.push(`limit: ${item.limit}`);
+  }
+  return details.join(" | ");
+}
+
+function formatActiveAlert(alert: DiagnosisActiveAlert): string {
+  const labels = alert.labels ?? {};
+  const alertName = labels.alertname ?? labels.alert ?? "alert";
+  const context = [labels.namespace, labels.pod].filter(Boolean).join(" / ");
+  return context ? `${alertName} / ${context}` : `${alertName} / ${alert.source}`;
+}
+
+function evidenceRequestKey(item: DiagnosisEvidenceRequest, index: number): string {
+  return `${item.tool}-${item.template_id ?? "none"}-${item.reason}-${index}`;
+}
+
+function evidenceCollectionResultKey(item: DiagnosisEvidenceCollectionResult, index: number): string {
+  return `${item.tool}-${item.status}-${item.reason_code}-${item.collected_at}-${index}`;
+}
+
+function consultationEvidenceRequestKey(item: DiagnosisConsultationEvidenceRequest, index: number): string {
+  return `${item.priority}-${item.label}-${index}`;
+}
+
+function activeAlertKey(alert: DiagnosisActiveAlert, index: number): string {
+  const labels = alert.labels ?? {};
+  return `${alert.source}-${labels.alertname ?? labels.alert ?? "alert"}-${labels.namespace ?? "none"}-${index}`;
 }
 
 function finalConclusionLabel(state: DiagnosisStateFrame | null): string {
@@ -590,6 +742,21 @@ function priorityColor(priority: string): string {
       return "processing";
     default:
       return "default";
+  }
+}
+
+function collectionStatusColor(status: string): string {
+  switch (status.toLowerCase()) {
+    case "collected":
+      return "success";
+    case "failed":
+      return "error";
+    case "unsupported":
+      return "warning";
+    case "skipped":
+      return "default";
+    default:
+      return "processing";
   }
 }
 

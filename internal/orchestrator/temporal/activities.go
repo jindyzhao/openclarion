@@ -11,6 +11,7 @@ import (
 	temporalsdk "go.temporal.io/sdk/temporal"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/alertsourceprovider"
 	"github.com/openclarion/openclarion/internal/usecases/llmretry"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 	"github.com/openclarion/openclarion/internal/usecases/reportdraft"
@@ -24,6 +25,7 @@ type Activities struct {
 	imProvider                   ports.IMProvider
 	notificationProviderResolver ports.NotificationChannelProviderResolver
 	containerProvider            ports.ContainerProvider
+	alertSourceProviders         *alertsourceprovider.Builder
 	reportPolicyReplayer         reportPolicyReplayer
 }
 
@@ -62,6 +64,14 @@ func WithNotificationChannelProviderResolver(resolver ports.NotificationChannelP
 func WithContainerProvider(provider ports.ContainerProvider) ActivityOption {
 	return func(a *Activities) {
 		a.containerProvider = provider
+	}
+}
+
+// WithAlertSourceProviderBuilder injects alert source provider construction for
+// diagnosis evidence collection activities.
+func WithAlertSourceProviderBuilder(builder *alertsourceprovider.Builder) ActivityOption {
+	return func(a *Activities) {
+		a.alertSourceProviders = builder
 	}
 }
 

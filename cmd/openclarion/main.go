@@ -209,7 +209,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	diagnosisActivityOptions, err := diagnosisActivityOptionsFromEnv(logger, os.Getenv)
+	diagnosisActivityOptions, err := diagnosisActivityOptionsFromEnv(logger, os.Getenv, httpTracing)
 	if err != nil {
 		return err
 	}
@@ -457,7 +457,26 @@ func reportActivityOptionsFromEnv(
 func diagnosisActivityOptionsFromEnv(
 	logger *slog.Logger,
 	getenv getenvFunc,
+	httpTracing *observabilitytracing.HTTPTracing,
 ) ([]temporalpkg.ActivityOption, error) {
+	var opts []temporalpkg.ActivityOption
+	secretResolver, err := alertSourceSecretResolverFromEnv(getenv)
+	if err != nil {
+		return nil, err
+	}
+	prometheusProfileFactory, alertmanagerProfileFactory := alertSourceMetricsProviderFactories(httpTracing)
+	providerBuilderOptions := []alertsourceprovider.Option{
+		alertsourceprovider.WithAlertmanagerFactory(alertmanagerProfileFactory),
+	}
+	if secretResolver != nil {
+		providerBuilderOptions = append(providerBuilderOptions, alertsourceprovider.WithSecretResolver(secretResolver))
+	}
+	alertSourceProviders, err := alertsourceprovider.NewBuilder(prometheusProfileFactory, providerBuilderOptions...)
+	if err != nil {
+		return nil, fmt.Errorf("configure diagnosis evidence provider builder: %w", err)
+	}
+	opts = append(opts, temporalpkg.WithAlertSourceProviderBuilder(alertSourceProviders))
+
 	sandboxConfigured := anyEnv(getenv,
 		"OPENCLARION_SANDBOX_IMAGE_REF",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT",
@@ -468,7 +487,7 @@ func diagnosisActivityOptionsFromEnv(
 	)
 	if !sandboxConfigured {
 		logger.Warn("diagnosis sandbox provider is not configured; diagnosis-room turns require OPENCLARION_SANDBOX_IMAGE_REF and OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT before live use")
-		return nil, nil
+		return opts, nil
 	}
 
 	imageRef := strings.TrimSpace(getenv("OPENCLARION_SANDBOX_IMAGE_REF"))
@@ -511,7 +530,8 @@ func diagnosisActivityOptionsFromEnv(
 		return nil, fmt.Errorf("configure diagnosis sandbox provider: %w", err)
 	}
 	logger.Info("configured diagnosis sandbox provider", "provider", "docker")
-	return []temporalpkg.ActivityOption{temporalpkg.WithContainerProvider(provider)}, nil
+	opts = append(opts, temporalpkg.WithContainerProvider(provider))
+	return opts, nil
 }
 
 func httpServerOptionsFromEnv(
