@@ -671,7 +671,8 @@ tr:last-child td {
 }
 
 .settings-url-cell,
-.settings-secret-ref {
+.settings-secret-ref,
+.settings-ingest-endpoint {
   max-width: 260px;
   overflow-wrap: anywhere;
 }
@@ -733,6 +734,57 @@ tr:last-child td {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.workflow-readiness-header,
+.workflow-readiness-selected,
+.workflow-readiness-metric-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-readiness-body {
+  display: grid;
+  gap: 16px;
+}
+
+.workflow-readiness-selected h3 {
+  margin: 2px 0 0 !important;
+  font-size: 18px !important;
+  line-height: 1.25 !important;
+  overflow-wrap: anywhere;
+}
+
+.workflow-readiness-steps-wrap {
+  overflow-x: auto;
+}
+
+.workflow-readiness-steps {
+  min-width: 760px;
+}
+
+.workflow-readiness-steps .ant-steps-item-description {
+  max-width: 150px;
+  overflow-wrap: anywhere;
+}
+
+.workflow-readiness-metric {
+  display: grid;
+  min-height: 96px;
+  align-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfd;
+}
+
+.workflow-readiness-metric-value {
+  font-size: 28px;
+  font-weight: 760;
+  line-height: 1;
 }
 
 .settings-event-ids {
@@ -807,6 +859,66 @@ tr:last-child td {
   gap: 8px 0;
 }
 
+.settings-overview-topology-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-overview-topology-body {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-overview-topology-flow {
+  overflow-x: auto;
+}
+
+.settings-overview-topology-steps {
+  min-width: 860px;
+}
+
+.settings-overview-topology-steps .ant-steps-item-description {
+  max-width: 140px;
+  overflow-wrap: anywhere;
+}
+
+.settings-overview-action-list {
+  display: grid;
+  gap: 12px;
+}
+
+.settings-overview-action-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-overview-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.settings-overview-action-item {
+  display: grid;
+  min-height: 142px;
+  align-content: space-between;
+  gap: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfcfd;
+}
+
+.settings-overview-action-copy {
+  margin: 10px 0 0 !important;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
 .settings-overview-boundary {
   height: 100%;
   padding: 16px;
@@ -875,6 +987,11 @@ tr:last-child td {
   .settings-overview-card-body,
   .subreport-conclusion-header,
   .subreport-item-header,
+  .workflow-readiness-header,
+  .workflow-readiness-selected,
+  .workflow-readiness-metric-footer,
+  .settings-overview-topology-header,
+  .settings-overview-action-header,
   .settings-overview-boundary-title,
   .settings-overview-next {
     flex-direction: column;

@@ -1,11 +1,15 @@
 import { ReportShell } from "@/features/reports/report-shell";
+import { fetchReportWorkflowPolicies } from "@/features/settings/report-workflow-policies/api";
 import { fetchReportWorkflowSchedules } from "@/features/settings/report-workflow-schedules/api";
 import { ReportWorkflowScheduleSettingsManager } from "@/features/settings/report-workflow-schedules/report-workflow-schedule-settings-view";
 
 export const dynamic = "force-dynamic";
 
 export default async function ReportWorkflowScheduleSettingsPage() {
-  const result = await fetchReportWorkflowSchedules();
+  const [result, reportWorkflowPoliciesResult] = await Promise.all([
+    fetchReportWorkflowSchedules(),
+    fetchReportWorkflowPolicies()
+  ]);
   const count = result.ok ? result.data.items.length : 0;
 
   return (
@@ -18,7 +22,10 @@ export default async function ReportWorkflowScheduleSettingsPage() {
         <div className="status-line">{count} schedules</div>
       </section>
 
-      <ReportWorkflowScheduleSettingsManager result={result} />
+      <ReportWorkflowScheduleSettingsManager
+        reportWorkflowPoliciesResult={reportWorkflowPoliciesResult}
+        result={result}
+      />
     </ReportShell>
   );
 }

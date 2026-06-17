@@ -41,7 +41,15 @@ export default async function SettingsPage() {
         <div className="status-line">{totalConfigured} configuration objects</div>
       </section>
 
-      <SettingsOverview counts={counts} />
+      <SettingsOverview
+        alertSources={alertSources.ok ? alertSources.data.items : []}
+        counts={counts}
+        diagnosisToolTemplates={diagnosisToolTemplates.ok ? diagnosisToolTemplates.data.items : []}
+        groupingPolicies={groupingPolicies.ok ? groupingPolicies.data.items : []}
+        notificationChannels={notificationChannels.ok ? notificationChannels.data.items : []}
+        workflowPolicies={workflowPolicies.ok ? workflowPolicies.data.items : []}
+        workflowSchedules={workflowSchedules.ok ? workflowSchedules.data.items : []}
+      />
     </ReportShell>
   );
 }

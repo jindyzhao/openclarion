@@ -19,6 +19,7 @@ import {
   Input,
   InputNumber,
   Row,
+  Select,
   Space,
   Statistic,
   Table,
@@ -37,6 +38,10 @@ import {
   useSettingsList,
   useSettingsMutation
 } from "../query-state";
+import type {
+  ReportWorkflowPolicy,
+  ReportWorkflowPolicyListResponse
+} from "../report-workflow-policies/types";
 import {
   disableReportWorkflowScheduleAction,
   enableReportWorkflowScheduleAction,
@@ -56,6 +61,7 @@ import type {
 } from "./types";
 
 type ReportWorkflowScheduleSettingsManagerProps = {
+  reportWorkflowPoliciesResult: ApiResult<ReportWorkflowPolicyListResponse>;
   result: ApiResult<ReportWorkflowScheduleListResponse>;
 };
 
@@ -71,7 +77,22 @@ type EnablementVariables = {
   scheduleID: number;
 };
 
-export function ReportWorkflowScheduleSettingsManager({ result }: ReportWorkflowScheduleSettingsManagerProps) {
+type RelationSelectOption = {
+  label: string;
+  title: string;
+  value: number;
+};
+
+type ScheduleRelationOptions = {
+  policyLabels: Record<number, string>;
+  policyOptions: RelationSelectOption[];
+  warnings: string[];
+};
+
+export function ReportWorkflowScheduleSettingsManager({
+  reportWorkflowPoliciesResult,
+  result
+}: ReportWorkflowScheduleSettingsManagerProps) {
   const [form] = Form.useForm<ReportWorkflowScheduleFormState>();
   const [editingID, setEditingID] = useState<number | null>(null);
   const [actionID, setActionID] = useState<number | null>(null);
@@ -98,6 +119,10 @@ export function ReportWorkflowScheduleSettingsManager({ result }: ReportWorkflow
       enabled ? enableReportWorkflowScheduleAction(scheduleID) : disableReportWorkflowScheduleAction(scheduleID)
   });
   const busy = query.isFetching || saveSchedule.isPending || enablementAction.isPending;
+  const relationOptions = useMemo(
+    () => buildScheduleRelationOptions(reportWorkflowPoliciesResult),
+    [reportWorkflowPoliciesResult]
+  );
 
   const summary = useMemo(() => {
     const enabled = schedules.filter((schedule) => schedule.enabled).length;
@@ -164,6 +189,15 @@ export function ReportWorkflowScheduleSettingsManager({ result }: ReportWorkflow
       </Row>
 
       {notice ? <Notice notice={notice} /> : null}
+      {relationOptions.warnings.length > 0 ? (
+        <Alert
+          description={relationOptions.warnings.join(" ")}
+          message="Related configuration unavailable"
+          role="status"
+          showIcon
+          type="warning"
+        />
+      ) : null}
 
       <Row align="top" className="settings-console-grid" gutter={[16, 16]}>
         <Col lg={8} md={24} xs={24}>
@@ -196,11 +230,16 @@ export function ReportWorkflowScheduleSettingsManager({ result }: ReportWorkflow
               </Form.Item>
 
               <Form.Item
-                label="Report workflow policy ID"
+                label="Report workflow policy"
                 name="reportWorkflowPolicyID"
-                rules={[{ required: true, message: "Report workflow policy ID is required." }]}
+                rules={[{ required: true, message: "Report workflow policy is required." }]}
               >
-                <InputNumber min={1} precision={0} style={{ width: "100%" }} />
+                <Select
+                  optionFilterProp="label"
+                  options={relationOptions.policyOptions}
+                  placeholder="Select workflow policy"
+                  showSearch
+                />
               </Form.Item>
 
               <Form.Item
@@ -304,6 +343,7 @@ export function ReportWorkflowScheduleSettingsManager({ result }: ReportWorkflow
               onDisable={(schedule) => handleEnablement(schedule, false)}
               onEdit={editSchedule}
               onEnable={(schedule) => handleEnablement(schedule, true)}
+              relationOptions={relationOptions}
               schedules={schedules}
             />
           </Card>
@@ -335,12 +375,46 @@ function Notice({ notice }: { notice: SettingsNotice }) {
   );
 }
 
+function buildScheduleRelationOptions(
+  policiesResult: ApiResult<ReportWorkflowPolicyListResponse>
+): ScheduleRelationOptions {
+  if (!policiesResult.ok) {
+    return {
+      policyLabels: {},
+      policyOptions: [],
+      warnings: [`Report workflow policies failed to load: ${policiesResult.error.message}.`]
+    };
+  }
+  return {
+    policyLabels: Object.fromEntries(policiesResult.data.items.map((policy) => [policy.id, policyLabel(policy)])),
+    policyOptions: policiesResult.data.items.map((policy) => relationOption(policy.id, policyLabel(policy))),
+    warnings: []
+  };
+}
+
+function relationOption(value: number, label: string): RelationSelectOption {
+  return { value, label, title: label };
+}
+
+function policyLabel(policy: ReportWorkflowPolicy): string {
+  return `#${policy.id} ${policy.name} (${policy.report_scenario}, ${policy.diagnosis_follow_up}, ${enabledLabel(policy.enabled)})`;
+}
+
+function enabledLabel(enabled: boolean): string {
+  return enabled ? "enabled" : "disabled";
+}
+
+function relationLabel(labels: Record<number, string>, id: number, fallback: string): string {
+  return labels[id] ?? fallback;
+}
+
 type ReportWorkflowScheduleTableProps = {
   actionID: number | null;
   busy: boolean;
   onDisable: (schedule: ReportWorkflowSchedule) => void;
   onEdit: (schedule: ReportWorkflowSchedule) => void;
   onEnable: (schedule: ReportWorkflowSchedule) => void;
+  relationOptions: ScheduleRelationOptions;
   schedules: ReportWorkflowSchedule[];
 };
 
@@ -350,6 +424,7 @@ function ReportWorkflowScheduleTable({
   onDisable,
   onEdit,
   onEnable,
+  relationOptions,
   schedules
 }: ReportWorkflowScheduleTableProps) {
   const columns: TableColumnsType<ReportWorkflowSchedule> = [
@@ -359,7 +434,13 @@ function ReportWorkflowScheduleTable({
       render: (_, schedule) => (
         <Space direction="vertical" size={2}>
           <Typography.Text strong>{schedule.name}</Typography.Text>
-          <Typography.Text type="secondary">Policy #{schedule.report_workflow_policy_id}</Typography.Text>
+          <Typography.Text type="secondary">
+            {relationLabel(
+              relationOptions.policyLabels,
+              schedule.report_workflow_policy_id,
+              `Policy #${schedule.report_workflow_policy_id}`
+            )}
+          </Typography.Text>
           <Typography.Text className="settings-event-ids" type="secondary">
             {schedule.temporal_schedule_id}
           </Typography.Text>

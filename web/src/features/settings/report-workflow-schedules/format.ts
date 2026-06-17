@@ -59,7 +59,7 @@ export function formStateToWriteRequest(
   }
 
   if (!positiveInteger(form.reportWorkflowPolicyID)) {
-    return { ok: false, message: "Report workflow policy ID must be a positive integer." };
+    return { ok: false, message: "Select a report workflow policy." };
   }
   if (!positiveInteger(form.intervalSeconds) || form.intervalSeconds > maxDurationSeconds) {
     return { ok: false, message: "Interval must be between 1 and 31536000 seconds." };

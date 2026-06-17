@@ -13,8 +13,15 @@ import {
   RadarChartOutlined,
   ToolOutlined
 } from "@ant-design/icons";
-import { Alert, Button, Card, Col, Row, Space, Steps, Tag, Typography } from "antd";
+import { Alert, Button, Card, Col, Descriptions, Row, Space, Steps, Tag, Typography } from "antd";
 import type { ReactNode } from "react";
+
+import type { AlertSourceProfile } from "../alert-sources/types";
+import type { DiagnosisToolTemplate } from "../diagnosis-tool-templates/types";
+import type { GroupingPolicy } from "../grouping-policies/types";
+import type { NotificationChannelProfile } from "../notification-channels/types";
+import type { ReportWorkflowPolicy } from "../report-workflow-policies/types";
+import type { ReportWorkflowSchedule } from "../report-workflow-schedules/types";
 
 type SettingsOverviewCounts = {
   alertSources: number | null;
@@ -26,7 +33,13 @@ type SettingsOverviewCounts = {
 };
 
 type SettingsOverviewProps = {
+  alertSources: AlertSourceProfile[];
   counts: SettingsOverviewCounts;
+  diagnosisToolTemplates: DiagnosisToolTemplate[];
+  groupingPolicies: GroupingPolicy[];
+  notificationChannels: NotificationChannelProfile[];
+  workflowPolicies: ReportWorkflowPolicy[];
+  workflowSchedules: ReportWorkflowSchedule[];
 };
 
 type Stage = {
@@ -45,7 +58,39 @@ type ProofTarget = {
   title: string;
 };
 
-export function SettingsOverview({ counts }: SettingsOverviewProps) {
+type WorkflowTopology = {
+  activeSchedule: ReportWorkflowSchedule | null;
+  alertSource: AlertSourceProfile | null;
+  diagnosisTools: DiagnosisToolTemplate[];
+  groupingPolicy: GroupingPolicy | null;
+  notificationChannel: NotificationChannelProfile | null;
+  policy: ReportWorkflowPolicy | null;
+  status: "ready" | "review" | "blocked";
+};
+
+type WorkflowTopologyStep = {
+  description: string;
+  status: "error" | "finish" | "process" | "wait";
+  title: string;
+};
+
+type TopologyAction = {
+  detail: string;
+  href: string;
+  key: string;
+  priority: "high" | "medium" | "low";
+  title: string;
+};
+
+export function SettingsOverview({
+  alertSources,
+  counts,
+  diagnosisToolTemplates,
+  groupingPolicies,
+  notificationChannels,
+  workflowPolicies,
+  workflowSchedules
+}: SettingsOverviewProps) {
   const stages: Stage[] = [
     {
       count: counts.alertSources,
@@ -100,6 +145,14 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
   const currentStep = nextStageIndex === -1 ? stages.length : nextStageIndex;
   const nextStage = nextStageIndex === -1 ? null : stages[nextStageIndex] ?? null;
   const allConfigurationPresent = nextStage === null;
+  const topology = buildWorkflowTopology({
+    alertSources,
+    diagnosisToolTemplates,
+    groupingPolicies,
+    notificationChannels,
+    workflowPolicies,
+    workflowSchedules
+  });
   const proofTargets: ProofTarget[] = [
     {
       evidence: ["PostgreSQL", "Temporal", "Alert source", "Tool template", "LLM", "Notification"],
@@ -159,6 +212,8 @@ export function SettingsOverview({ counts }: SettingsOverviewProps) {
           </Button>
         )}
       </section>
+
+      <WorkflowTopologyPanel topology={topology} />
 
       <Row aria-label="Retained proof targets" gutter={[16, 16]}>
         {proofTargets.map((target) => (
@@ -271,6 +326,389 @@ function BoundaryPanel({
       <Typography.Paragraph className="settings-overview-boundary-copy">{text}</Typography.Paragraph>
     </section>
   );
+}
+
+function WorkflowTopologyPanel({ topology }: { topology: WorkflowTopology }) {
+  const hasPolicy = topology.policy !== null;
+  const steps = workflowTopologySteps(topology);
+  const firstUnready = steps.findIndex((step) => step.status !== "finish");
+  const current = firstUnready === -1 ? steps.length : firstUnready;
+  const actions = workflowTopologyActions(topology);
+
+  return (
+    <section aria-label="Active workflow topology" className="panel settings-overview-topology">
+      <div className="panel-header settings-overview-topology-header">
+        <h2>Active workflow topology</h2>
+        <Tag color={topologyStatusColor(topology.status)}>{topology.status}</Tag>
+      </div>
+      <div className="panel-body settings-overview-topology-body">
+        {hasPolicy ? (
+          <>
+            <div className="settings-overview-topology-flow">
+              <Steps
+                aria-label="Selected alert workflow topology"
+                className="settings-overview-topology-steps"
+                current={current}
+                items={steps}
+                responsive={false}
+                size="small"
+              />
+            </div>
+            <Descriptions
+              bordered
+              column={{ lg: 3, md: 2, sm: 1, xs: 1 }}
+              items={workflowTopologyDescriptions(topology)}
+              size="small"
+            />
+            <TopologyActionList actions={actions} />
+          </>
+        ) : (
+          <Alert
+            message="No workflow policy"
+            description="Create a workflow policy after configuring an alert source and grouping policy."
+            showIcon
+            type="info"
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TopologyActionList({ actions }: { actions: TopologyAction[] }) {
+  if (actions.length === 0) {
+    return (
+      <Alert
+        message="Topology ready"
+        description="The selected workflow chain is ready for retained live proof."
+        showIcon
+        type="success"
+      />
+    );
+  }
+
+  return (
+    <section aria-label="Next topology actions" className="settings-overview-action-list">
+      <div className="settings-overview-action-header">
+        <Typography.Text strong>Next topology actions</Typography.Text>
+        <Tag>{actions.length} open</Tag>
+      </div>
+      <div className="settings-overview-action-grid">
+        {actions.map((action) => (
+          <div className="settings-overview-action-item" key={action.key}>
+            <div>
+              <Space size={8} wrap>
+                <Tag color={actionPriorityColor(action.priority)}>{action.priority}</Tag>
+                <Typography.Text strong>{action.title}</Typography.Text>
+              </Space>
+              <Typography.Paragraph className="settings-overview-action-copy">{action.detail}</Typography.Paragraph>
+            </div>
+            <Button href={action.href} icon={<RadarChartOutlined />} type={action.priority === "high" ? "primary" : "default"}>
+              Open
+            </Button>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function buildWorkflowTopology({
+  alertSources,
+  diagnosisToolTemplates,
+  groupingPolicies,
+  notificationChannels,
+  workflowPolicies,
+  workflowSchedules
+}: {
+  alertSources: AlertSourceProfile[];
+  diagnosisToolTemplates: DiagnosisToolTemplate[];
+  groupingPolicies: GroupingPolicy[];
+  notificationChannels: NotificationChannelProfile[];
+  workflowPolicies: ReportWorkflowPolicy[];
+  workflowSchedules: ReportWorkflowSchedule[];
+}): WorkflowTopology {
+  const policy =
+    workflowPolicies.find((item) => item.enabled && item.diagnosis_follow_up === "suggest_room") ??
+    workflowPolicies.find((item) => item.enabled) ??
+    workflowPolicies[0] ??
+    null;
+  const alertSource = policy === null ? null : alertSources.find((item) => item.id === policy.alert_source_profile_id) ?? null;
+  const groupingPolicy = policy === null ? null : groupingPolicies.find((item) => item.id === policy.grouping_policy_id) ?? null;
+  const notificationChannel =
+    policy?.report_notification_channel_profile_id == null
+      ? null
+      : notificationChannels.find((item) => item.id === policy.report_notification_channel_profile_id) ?? null;
+  const activeSchedule =
+    policy === null
+      ? null
+      : workflowSchedules.find((item) => item.report_workflow_policy_id === policy.id && item.enabled) ??
+        workflowSchedules.find((item) => item.report_workflow_policy_id === policy.id) ??
+        null;
+  const diagnosisTools =
+    alertSource === null
+      ? []
+      : diagnosisToolTemplates.filter((item) => item.alert_source_profile_id === alertSource.id && item.enabled);
+  const status = topologyStatus(policy, alertSource, groupingPolicy, notificationChannel, diagnosisTools);
+  return { activeSchedule, alertSource, diagnosisTools, groupingPolicy, notificationChannel, policy, status };
+}
+
+function workflowTopologyActions(topology: WorkflowTopology): TopologyAction[] {
+  const actions: TopologyAction[] = [];
+
+  if (topology.policy === null) {
+    return [
+      {
+        key: "create-policy",
+        title: "Create workflow policy",
+        detail: "Bind an alert source and grouping policy before replaying alert windows.",
+        href: "/settings/report-workflow-policies",
+        priority: "high"
+      }
+    ];
+  }
+
+  if (!topology.policy.enabled) {
+    actions.push({
+      key: "enable-policy",
+      title: "Enable workflow policy",
+      detail: "The selected workflow policy is still a draft and will not be used for replay or schedule proof.",
+      href: "/settings/report-workflow-policies",
+      priority: "high"
+    });
+  }
+  if (topology.alertSource === null || !topology.alertSource.enabled) {
+    actions.push({
+      key: "alert-source",
+      title: "Review alert source",
+      detail: "The selected workflow needs an enabled alert source before alert windows can be replayed.",
+      href: "/settings/alert-sources",
+      priority: "high"
+    });
+  }
+  if (topology.groupingPolicy === null || !topology.groupingPolicy.enabled) {
+    actions.push({
+      key: "grouping",
+      title: "Review grouping policy",
+      detail: "The selected workflow needs an enabled grouping policy to build incident groups.",
+      href: "/settings/grouping-policies",
+      priority: "high"
+    });
+  }
+  if (topology.policy.diagnosis_follow_up !== "suggest_room") {
+    actions.push({
+      key: "room-follow-up",
+      title: "Enable AI room follow-up",
+      detail: "Set diagnosis follow-up to suggest room so reports hand off into the consultation workflow.",
+      href: "/settings/report-workflow-policies",
+      priority: "medium"
+    });
+  }
+  if (topology.diagnosisTools.length === 0) {
+    actions.push({
+      key: "diagnosis-tools",
+      title: "Enable diagnosis tools",
+      detail: "Enable at least one tool template for the selected alert source so the AI room can collect evidence.",
+      href: "/settings/diagnosis-tool-templates",
+      priority: "medium"
+    });
+  }
+  if (topology.notificationChannel !== null && !topology.notificationChannel.enabled) {
+    actions.push({
+      key: "notification-channel",
+      title: "Enable report channel",
+      detail: "The selected report channel is bound but disabled, so report delivery proof cannot complete.",
+      href: "/settings/notification-channels",
+      priority: "medium"
+    });
+  }
+  if (topology.notificationChannel !== null && !hasReportScope(topology.notificationChannel)) {
+    actions.push({
+      key: "notification-channel-scope",
+      title: "Review report channel scope",
+      detail: "The selected report channel must include the report delivery scope before reports can be delivered.",
+      href: "/settings/notification-channels",
+      priority: "medium"
+    });
+  }
+  if (topology.activeSchedule === null) {
+    actions.push({
+      key: "create-schedule",
+      title: "Create workflow schedule",
+      detail: "Add a schedule when the workflow needs retained scheduled proof instead of manual replay only.",
+      href: "/settings/report-workflow-schedules",
+      priority: "low"
+    });
+  } else if (!topology.activeSchedule.enabled) {
+    actions.push({
+      key: "enable-schedule",
+      title: "Enable workflow schedule",
+      detail: "The schedule exists as a draft; enable it after replay proof is accepted.",
+      href: "/settings/report-workflow-schedules",
+      priority: "low"
+    });
+  }
+
+  if (topology.policy.enabled && topology.alertSource?.enabled && topology.groupingPolicy?.enabled) {
+    actions.push({
+      key: "impact-preview",
+      title: "Run impact preview",
+      detail: "Preview recent alert grouping before replaying a workflow window.",
+      href: "/settings/report-workflow-policies",
+      priority: "low"
+    });
+  }
+
+  return actions.slice(0, 5);
+}
+
+function topologyStatus(
+  policy: ReportWorkflowPolicy | null,
+  alertSource: AlertSourceProfile | null,
+  groupingPolicy: GroupingPolicy | null,
+  notificationChannel: NotificationChannelProfile | null,
+  diagnosisTools: DiagnosisToolTemplate[]
+): WorkflowTopology["status"] {
+  if (policy === null || alertSource === null || groupingPolicy === null) {
+    return "blocked";
+  }
+  if (!policy.enabled || !alertSource.enabled || !groupingPolicy.enabled) {
+    return "blocked";
+  }
+  if (notificationChannel !== null && (!notificationChannel.enabled || !hasReportScope(notificationChannel))) {
+    return "blocked";
+  }
+  if (policy.diagnosis_follow_up !== "suggest_room" || diagnosisTools.length === 0) {
+    return "review";
+  }
+  return "ready";
+}
+
+function workflowTopologySteps(topology: WorkflowTopology): WorkflowTopologyStep[] {
+  return [
+    {
+      title: "Source",
+      description: topology.alertSource?.name ?? "Missing source",
+      status: topology.alertSource?.enabled ? "finish" : "error"
+    },
+    {
+      title: "Grouping",
+      description: topology.groupingPolicy?.name ?? "Missing grouping",
+      status: topology.groupingPolicy?.enabled ? "finish" : "error"
+    },
+    {
+      title: "Evidence",
+      description: `${topology.diagnosisTools.length} enabled tools`,
+      status: topology.diagnosisTools.length > 0 ? "finish" : "wait"
+    },
+    {
+      title: "AI room",
+      description: topology.policy?.diagnosis_follow_up ?? "No policy",
+      status: topology.policy?.enabled && topology.policy.diagnosis_follow_up === "suggest_room" ? "finish" : "wait"
+    },
+    {
+      title: "Delivery",
+      description: topology.notificationChannel?.name ?? "No report channel",
+      status:
+        topology.notificationChannel === null ||
+        (topology.notificationChannel.enabled && hasReportScope(topology.notificationChannel))
+          ? "finish"
+          : "error"
+    },
+    {
+      title: "Schedule",
+      description: topology.activeSchedule?.name ?? "Manual replay",
+      status: topology.activeSchedule?.enabled ? "finish" : "wait"
+    }
+  ];
+}
+
+function workflowTopologyDescriptions(topology: WorkflowTopology) {
+  return [
+    {
+      key: "policy",
+      label: "Policy",
+      children: topology.policy === null ? "None" : topology.policy.name
+    },
+    {
+      key: "source",
+      label: "Alert source",
+      children: topology.alertSource === null ? "Missing" : configLabel(topology.alertSource.name, topology.alertSource.enabled)
+    },
+    {
+      key: "grouping",
+      label: "Grouping",
+      children:
+        topology.groupingPolicy === null
+          ? "Missing"
+          : configLabel(topology.groupingPolicy.name, topology.groupingPolicy.enabled)
+    },
+    {
+      key: "tools",
+      label: "Evidence tools",
+      children:
+        topology.diagnosisTools.length === 0 ? (
+          <Typography.Text type="secondary">No enabled tools for selected source</Typography.Text>
+        ) : (
+          <Space wrap>
+            {topology.diagnosisTools.map((tool) => (
+              <Tag key={tool.id}>{tool.name}</Tag>
+            ))}
+          </Space>
+        )
+    },
+    {
+      key: "channel",
+      label: "Report channel",
+      children:
+        topology.notificationChannel === null
+          ? "Optional"
+          : configLabel(topology.notificationChannel.name, topology.notificationChannel.enabled)
+    },
+    {
+      key: "schedule",
+      label: "Schedule",
+      children:
+        topology.activeSchedule === null
+          ? "Manual replay"
+          : configLabel(topology.activeSchedule.name, topology.activeSchedule.enabled)
+    }
+  ];
+}
+
+function hasReportScope(channel: NotificationChannelProfile): boolean {
+  return channel.delivery_scopes.includes("report");
+}
+
+function configLabel(name: string, enabled: boolean) {
+  return (
+    <Space size={6} wrap>
+      <Typography.Text>{name}</Typography.Text>
+      <Tag color={enabled ? "green" : "default"}>{enabled ? "Enabled" : "Draft"}</Tag>
+    </Space>
+  );
+}
+
+function topologyStatusColor(status: WorkflowTopology["status"]): string {
+  switch (status) {
+    case "ready":
+      return "green";
+    case "review":
+      return "gold";
+    case "blocked":
+      return "red";
+  }
+}
+
+function actionPriorityColor(priority: TopologyAction["priority"]): string {
+  switch (priority) {
+    case "high":
+      return "red";
+    case "medium":
+      return "gold";
+    case "low":
+      return "blue";
+  }
 }
 
 function formatCount(count: number | null): string {

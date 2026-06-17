@@ -339,6 +339,11 @@ function AlertSourceTable({
       )
     },
     {
+      key: "ingest",
+      title: "Ingest",
+      render: (_value, profile) => <IngestEndpoint profile={profile} />
+    },
+    {
       dataIndex: "auth_mode",
       key: "auth",
       title: "Auth",
@@ -408,9 +413,28 @@ function AlertSourceTable({
       locale={{ emptyText: <Empty description="No alert sources configured." /> }}
       pagination={false}
       rowKey="id"
-      scroll={{ x: 1120 }}
+      scroll={{ x: 1260 }}
     />
   );
+}
+
+function IngestEndpoint({ profile }: { profile: AlertSourceProfile }) {
+  if (profile.kind !== "alertmanager") {
+    return <Typography.Text type="secondary">Provider pull</Typography.Text>;
+  }
+  const endpoint = alertmanagerWebhookEndpoint(profile.id);
+  return (
+    <Space direction="vertical" size={2}>
+      <Tag color="red">Webhook</Tag>
+      <Typography.Text className="settings-ingest-endpoint" copyable={{ text: endpoint }} ellipsis={{ tooltip: endpoint }}>
+        {endpoint}
+      </Typography.Text>
+    </Space>
+  );
+}
+
+function alertmanagerWebhookEndpoint(sourceID: number): string {
+  return `/api/v1/alert-sources/${sourceID}/webhooks/alertmanager`;
 }
 
 function ConnectionTestResult({ result }: { result?: AlertSourceConnectionTestResult }) {
