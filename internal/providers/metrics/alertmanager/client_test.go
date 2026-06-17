@@ -51,7 +51,9 @@ func newAlertmanagerServer(t *testing.T, handler http.HandlerFunc) *httptest.Ser
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.Handle("/api/v2/alerts", handler)
+	mux.Handle("/api/v2/alerts/", handler)
 	mux.Handle("/alertmanager/api/v2/alerts", handler)
+	mux.Handle("/alertmanager/api/v2/alerts/", handler)
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
@@ -123,6 +125,42 @@ func TestProviderAppendsAlertsPathBelowRoutePrefix(t *testing.T) {
 	}
 	if seenPath != "/alertmanager/api/v2/alerts" {
 		t.Fatalf("path = %q, want /alertmanager/api/v2/alerts", seenPath)
+	}
+}
+
+func TestProviderAcceptsAPIv2PrefixAndFullAlertsEndpoint(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		wantPath string
+	}{
+		{name: "api prefix", path: "/api/v2", wantPath: "/api/v2/alerts"},
+		{name: "api prefix slash", path: "/api/v2/", wantPath: "/api/v2/alerts"},
+		{name: "full endpoint", path: "/api/v2/alerts", wantPath: "/api/v2/alerts"},
+		{name: "full endpoint slash", path: "/api/v2/alerts/", wantPath: "/api/v2/alerts"},
+		{name: "route api prefix", path: "/alertmanager/api/v2", wantPath: "/alertmanager/api/v2/alerts"},
+		{name: "route full endpoint", path: "/alertmanager/api/v2/alerts", wantPath: "/alertmanager/api/v2/alerts"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var seenPath string
+			srv := newAlertmanagerServer(t, func(w http.ResponseWriter, r *http.Request) {
+				seenPath = r.URL.Path
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`[]`))
+			})
+
+			provider, err := NewProvider(srv.URL + tc.path)
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			if _, err := provider.ListActiveAlerts(context.Background()); err != nil {
+				t.Fatalf("ListActiveAlerts: %v", err)
+			}
+			if seenPath != tc.wantPath {
+				t.Fatalf("path = %q, want %q", seenPath, tc.wantPath)
+			}
+		})
 	}
 }
 
