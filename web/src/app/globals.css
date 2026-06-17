@@ -365,6 +365,13 @@ tr:last-child td {
   padding: 12px;
 }
 
+.subreport-item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .subreport-item h3 {
   margin: 0 0 6px;
   font-size: 15px;
@@ -391,7 +398,7 @@ tr:last-child td {
 
 .diagnosis-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -819,6 +826,7 @@ tr:last-child td {
   }
 
   .settings-overview-card-body,
+  .subreport-item-header,
   .settings-overview-boundary-title,
   .settings-overview-next {
     flex-direction: column;

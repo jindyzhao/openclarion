@@ -4,18 +4,21 @@ import {
   ApiOutlined,
   BulbOutlined,
   DisconnectOutlined,
+  PlusCircleOutlined,
   ReloadOutlined,
   SendOutlined
 } from "@ant-design/icons";
 import { useMutation } from "@tanstack/react-query";
 import {
   Alert,
+  App as AntdApp,
   Button,
   Card,
   Descriptions,
   Empty,
   Form,
   Input,
+  InputNumber,
   List,
   Space,
   Tag,
@@ -27,9 +30,11 @@ import { useEffect, useRef, useState } from "react";
 import { ReportShell } from "@/features/reports/report-shell";
 
 import {
+  createDiagnosisRoom,
   issueDiagnosisWSTicket,
   nextDiagnosisMessageID,
   parseDiagnosisServerFrame,
+  type DiagnosisRoomCreateBundle,
   type DiagnosisWSTicketBundle
 } from "./transport";
 import type {
@@ -49,6 +54,11 @@ import type {
 type ConnectionFormValues = {
   sessionID: string;
   bearerToken: string;
+};
+
+type CreateRoomFormValues = {
+  evidenceSnapshotID?: number | null;
+  authorizationToken: string;
 };
 
 type ComposerValues = {
@@ -86,8 +96,10 @@ class DiagnosisActionError extends Error {
 }
 
 export function DiagnosisRoomView() {
+  const { message } = AntdApp.useApp();
   const socketRef = useRef<WebSocket | null>(null);
   const logIDRef = useRef(0);
+  const [createForm] = Form.useForm<CreateRoomFormValues>();
   const [connectionForm] = Form.useForm<ConnectionFormValues>();
   const [composerForm] = Form.useForm<ComposerValues>();
   const [status, setStatus] = useState<DiagnosisConnectionStatus>("idle");
@@ -108,6 +120,23 @@ export function DiagnosisRoomView() {
     }
   });
 
+  const createRoomMutation = useMutation({
+    mutationFn: async (values: { bearerToken: string; evidenceSnapshotID: number }) => {
+      const result = await createDiagnosisRoom(values.bearerToken, values.evidenceSnapshotID);
+      if (!result.ok) {
+        throw new DiagnosisActionError(result.error.message, result.error.status);
+      }
+      return result.data;
+    }
+  });
+
+  useEffect(() => {
+    const snapshotID = initialEvidenceSnapshotID();
+    if (snapshotID !== undefined) {
+      createForm.setFieldsValue({ evidenceSnapshotID: snapshotID });
+    }
+  }, [createForm]);
+
   useEffect(() => {
     return () => {
       socketRef.current?.close();
@@ -117,6 +146,39 @@ export function DiagnosisRoomView() {
 
   const connected = status === "connected" && socketOpen;
   const busy = ticketMutation.isPending || status === "connecting";
+  const createBusy = createRoomMutation.isPending || busy;
+
+  async function handleCreateRoom(values: CreateRoomFormValues) {
+    const trimmedBearer = values.authorizationToken.trim();
+    const evidenceSnapshotID = values.evidenceSnapshotID;
+    if (!isPositiveSafeInteger(evidenceSnapshotID) || trimmedBearer === "") {
+      pushLog("error", "Evidence snapshot and authorization token are required.");
+      setStatus("error");
+      return;
+    }
+
+    setStatus("ticketing");
+    pushLog("info", `Creating diagnosis room from evidence snapshot #${evidenceSnapshotID}.`);
+    let room: DiagnosisRoomCreateBundle;
+    try {
+      room = await createRoomMutation.mutateAsync({
+        bearerToken: trimmedBearer,
+        evidenceSnapshotID
+      });
+    } catch (error) {
+      setStatus("error");
+      pushLog("error", diagnosisActionErrorMessage(error));
+      return;
+    }
+
+    message.success("Diagnosis room created.");
+    connectionForm.setFieldsValue({
+      bearerToken: trimmedBearer,
+      sessionID: room.session_id
+    });
+    pushLog("info", `Created ${room.session_id} from snapshot #${room.evidence_snapshot_id}.`);
+    await handleConnect({ bearerToken: trimmedBearer, sessionID: room.session_id });
+  }
 
   async function handleConnect(values: ConnectionFormValues) {
     const trimmedSessionID = values.sessionID.trim();
@@ -279,7 +341,7 @@ export function DiagnosisRoomView() {
       <section className="page-heading">
         <div>
           <h1>Diagnosis Room</h1>
-          <p>Short-conversation investigation for an alert diagnosis session.</p>
+          <p>Short-conversation investigation from a frozen evidence snapshot.</p>
         </div>
         <Tag aria-label="Connection status" color={statusColor(status)} role="status">
           {statusLabel(status)}
@@ -287,10 +349,51 @@ export function DiagnosisRoomView() {
       </section>
 
       <div className="diagnosis-layout">
+        <Card className="settings-overview-card" title="Create Room">
+          <Form<CreateRoomFormValues>
+            form={createForm}
+            initialValues={{ authorizationToken: "" }}
+            layout="vertical"
+            onFinish={handleCreateRoom}
+          >
+            <Form.Item
+              label="Evidence snapshot"
+              name="evidenceSnapshotID"
+              rules={[
+                { required: true, message: "Evidence snapshot is required." },
+                {
+                  validator: (_, value: unknown) =>
+                    isPositiveSafeInteger(value)
+                      ? Promise.resolve()
+                      : Promise.reject(new Error("Evidence snapshot must be a positive integer."))
+                }
+              ]}
+            >
+              <InputNumber disabled={createBusy} min={1} precision={0} style={{ width: "100%" }} />
+            </Form.Item>
+            <Form.Item
+              label="Authorization token"
+              name="authorizationToken"
+              rules={[{ required: true, message: "Authorization token is required." }]}
+            >
+              <Input.Password autoComplete="off" disabled={createBusy} />
+            </Form.Item>
+            <Button
+              disabled={createBusy}
+              htmlType="submit"
+              icon={<PlusCircleOutlined />}
+              loading={createRoomMutation.isPending}
+              type="primary"
+            >
+              Create Room
+            </Button>
+          </Form>
+        </Card>
+
         <Card className="settings-overview-card" title="Connection">
           <Form<ConnectionFormValues>
             form={connectionForm}
-            initialValues={{ bearerToken: "", sessionID: "diagnosis-session-42" }}
+            initialValues={{ bearerToken: "", sessionID: "" }}
             layout="vertical"
             onFinish={handleConnect}
           >
@@ -894,4 +997,20 @@ function diagnosisActionErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Request failed.";
+}
+
+function initialEvidenceSnapshotID(): number | undefined {
+  if (typeof window === "undefined") {
+    return undefined;
+  }
+  const raw = new URLSearchParams(window.location.search).get("evidence_snapshot_id");
+  if (raw === null) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  return isPositiveSafeInteger(parsed) ? parsed : undefined;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
