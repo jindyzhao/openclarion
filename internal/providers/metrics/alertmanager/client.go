@@ -52,9 +52,9 @@ func WithRoundTripperDecorator(decorator func(http.RoundTripper) http.RoundTripp
 	return func(c *providerConfig) { c.roundTripperDecorator = decorator }
 }
 
-// NewProvider constructs a Provider against an Alertmanager base URL. The base
-// URL may include Alertmanager's route prefix; the provider appends
-// /api/v2/alerts below that prefix.
+// NewProvider constructs a Provider against an Alertmanager URL. Operators may
+// provide the service root, a route prefix, the /api/v2 prefix, or the full
+// /api/v2/alerts endpoint.
 func NewProvider(addr string, opts ...Option) (*Provider, error) {
 	parsed, err := parseBaseURL(addr)
 	if err != nil {
@@ -99,7 +99,17 @@ func parseBaseURL(addr string) (*url.URL, error) {
 
 func alertListURL(base *url.URL) string {
 	u := *base
-	u.Path = strings.TrimRight(u.Path, "/") + "/api/v2/alerts"
+	path := strings.TrimRight(u.Path, "/")
+	switch {
+	case path == "":
+		u.Path = "/api/v2/alerts"
+	case strings.HasSuffix(path, "/api/v2/alerts"):
+		u.Path = path
+	case strings.HasSuffix(path, "/api/v2"):
+		u.Path = path + "/alerts"
+	default:
+		u.Path = path + "/api/v2/alerts"
+	}
 	query := url.Values{}
 	query.Set("active", "true")
 	query.Set("silenced", "false")
