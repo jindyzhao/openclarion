@@ -259,6 +259,7 @@ func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 	startedAt := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
 	closedAt := startedAt.Add(5 * time.Minute)
 	requiresHumanReview := true
+	latestRequiresHumanReview := false
 	temporalClient := &recordingDiagnosisRoomTemporalClient{
 		queryValue: fakeEncodedValue{value: DiagnosisRoomWorkflowState{
 			SessionID:       "session-1",
@@ -282,8 +283,19 @@ func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 				Confidence:          "high",
 				RequiresHumanReview: &requiresHumanReview,
 			},
-			InFlight:       false,
-			SeenMessageIDs: []string{"msg-1"},
+			LatestInsight: &diagnosisroom.ConsultationInsight{
+				ConfidenceRationale: "CPU evidence is present and restart evidence has recovered.",
+				MissingEvidenceRequests: []diagnosisroom.ConsultationEvidenceRequest{{
+					Label:    "Deployment event",
+					Detail:   "Confirm whether a deployment overlapped with recovery.",
+					Priority: "medium",
+				}},
+				ConclusionStatus: "ready_for_review",
+			},
+			LatestConfidence:          "medium",
+			LatestRequiresHumanReview: &latestRequiresHumanReview,
+			InFlight:                  false,
+			SeenMessageIDs:            []string{"msg-1"},
 			Conversation: []diagnosisroom.ConversationTurn{
 				{Role: "user", Content: "Please continue investigating"},
 				{Role: "assistant", Content: "The alert has recovered."},
@@ -323,6 +335,17 @@ func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 		got.FinalConclusion.RequiresHumanReview == nil ||
 		!*got.FinalConclusion.RequiresHumanReview {
 		t.Fatalf("FinalConclusion = %+v", got.FinalConclusion)
+	}
+	if got.LatestConsultationInsight == nil ||
+		got.LatestConsultationInsight.ConfidenceRationale != "CPU evidence is present and restart evidence has recovered." ||
+		len(got.LatestConsultationInsight.MissingEvidenceRequests) != 1 ||
+		got.LatestConsultationInsight.MissingEvidenceRequests[0].Label != "Deployment event" ||
+		got.LatestConsultationInsight.ConclusionStatus != "ready_for_review" ||
+		got.LatestConfidence != "medium" ||
+		got.LatestRequiresHumanReview == nil ||
+		*got.LatestRequiresHumanReview {
+		t.Fatalf("latest consultation state = insight=%+v confidence=%q review=%v",
+			got.LatestConsultationInsight, got.LatestConfidence, got.LatestRequiresHumanReview)
 	}
 }
 

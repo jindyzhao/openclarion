@@ -2797,6 +2797,7 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("H", diagnosisauth.DefaultTokenBytes)))
 	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
 	requiresHumanReview := true
+	latestRequiresHumanReview := false
 	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
 		Subject: "owner-1",
 		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
@@ -2917,8 +2918,19 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 				Confidence:          "medium",
 				RequiresHumanReview: &requiresHumanReview,
 			},
-			InFlight:       false,
-			SeenMessageIDs: []string{"msg-1"},
+			LatestConsultationInsight: &ports.DiagnosisRoomConsultationInsight{
+				ConfidenceRationale: "Collected evidence now supports final review.",
+				EvidenceCollectionSuggestions: []ports.DiagnosisRoomConsultationEvidenceRequest{{
+					Label:    "Owner confirmation",
+					Detail:   "Confirm the proposed conclusion with the service owner.",
+					Priority: "medium",
+				}},
+				ConclusionStatus: "ready_for_review",
+			},
+			LatestConfidence:          "high",
+			LatestRequiresHumanReview: &latestRequiresHumanReview,
+			InFlight:                  false,
+			SeenMessageIDs:            []string{"msg-1"},
 			Conversation: []ports.DiagnosisRoomConversationTurn{
 				{Role: "user", Content: "Please investigate"},
 				{Role: "assistant", Content: "CPU alert is still firing."},
@@ -3031,6 +3043,17 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 		state.FinalConclusion.RequiresHumanReview == nil ||
 		!*state.FinalConclusion.RequiresHumanReview {
 		t.Fatalf("state final conclusion = %+v", state.FinalConclusion)
+	}
+	if state.ConsultationInsight == nil ||
+		state.ConsultationInsight.ConfidenceRationale != "Collected evidence now supports final review." ||
+		len(state.ConsultationInsight.EvidenceCollectionSuggestions) != 1 ||
+		state.ConsultationInsight.EvidenceCollectionSuggestions[0].Label != "Owner confirmation" ||
+		state.ConsultationInsight.ConclusionStatus != "ready_for_review" ||
+		state.Confidence != "high" ||
+		state.RequiresHumanReview == nil ||
+		*state.RequiresHumanReview {
+		t.Fatalf("state latest consultation = insight=%+v confidence=%q review=%v",
+			state.ConsultationInsight, state.Confidence, state.RequiresHumanReview)
 	}
 	if querySession, queryCalled := workflowClient.querySnapshot(); queryCalled != 1 || querySession != "session-1" {
 		t.Fatalf("QueryDiagnosisRoom calls=%d session=%q, want 1/session-1", queryCalled, querySession)

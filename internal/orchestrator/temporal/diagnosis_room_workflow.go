@@ -120,41 +120,47 @@ type DiagnosisRoomCloseRequest struct {
 // DiagnosisRoomWorkflowState is the read model returned by the state query
 // and by workflow completion.
 type DiagnosisRoomWorkflowState struct {
-	SessionID       string
-	ChatSessionID   int64
-	DiagnosisTaskID int64
-	OwnerSubject    string
-	Status          string
-	TurnCount       int
-	StartedAt       time.Time
-	LastActivityAt  time.Time
-	ClosedAt        *time.Time
-	CloseReason     string
-	FinalConclusion *DiagnosisRoomFinalConclusion
-	InFlight        bool
-	SeenMessageIDs  []string
-	Conversation    []diagnosisroom.ConversationTurn
+	SessionID                 string
+	ChatSessionID             int64
+	DiagnosisTaskID           int64
+	OwnerSubject              string
+	Status                    string
+	TurnCount                 int
+	StartedAt                 time.Time
+	LastActivityAt            time.Time
+	ClosedAt                  *time.Time
+	CloseReason               string
+	FinalConclusion           *DiagnosisRoomFinalConclusion
+	LatestInsight             *diagnosisroom.ConsultationInsight
+	LatestConfidence          string
+	LatestRequiresHumanReview *bool
+	InFlight                  bool
+	SeenMessageIDs            []string
+	Conversation              []diagnosisroom.ConversationTurn
 }
 
 // DiagnosisRoomWorkflowResult is the terminal room state.
 type DiagnosisRoomWorkflowResult = DiagnosisRoomWorkflowState
 
 type diagnosisRoomState struct {
-	input           DiagnosisRoomWorkflowInput
-	policy          diagnosisroom.Policy
-	status          string
-	startedAt       time.Time
-	lastActivityAt  time.Time
-	closedAt        *time.Time
-	closeReason     string
-	finalConclusion *DiagnosisRoomFinalConclusion
-	turnCount       int
-	diagnosisTaskID int64
-	chatSessionID   int64
-	inFlight        bool
-	seen            map[string]struct{}
-	conversation    []diagnosisroom.ConversationTurn
-	evidenceBatches []diagnosisRoomEvidenceContextBatch
+	input                     DiagnosisRoomWorkflowInput
+	policy                    diagnosisroom.Policy
+	status                    string
+	startedAt                 time.Time
+	lastActivityAt            time.Time
+	closedAt                  *time.Time
+	closeReason               string
+	finalConclusion           *DiagnosisRoomFinalConclusion
+	latestInsight             *diagnosisroom.ConsultationInsight
+	latestConfidence          string
+	latestRequiresHumanReview *bool
+	turnCount                 int
+	diagnosisTaskID           int64
+	chatSessionID             int64
+	inFlight                  bool
+	seen                      map[string]struct{}
+	conversation              []diagnosisroom.ConversationTurn
+	evidenceBatches           []diagnosisRoomEvidenceContextBatch
 }
 
 // DiagnosisRoomWorkflow owns the M5 room lifecycle: Update for user messages,
@@ -431,20 +437,23 @@ func (s *diagnosisRoomState) snapshot() DiagnosisRoomWorkflowState {
 	}
 	sort.Strings(seen)
 	return DiagnosisRoomWorkflowState{
-		SessionID:       s.input.SessionID,
-		ChatSessionID:   s.chatSessionID,
-		DiagnosisTaskID: s.diagnosisTaskID,
-		OwnerSubject:    s.input.OwnerSubject,
-		Status:          s.status,
-		TurnCount:       s.turnCount,
-		StartedAt:       s.startedAt,
-		LastActivityAt:  s.lastActivityAt,
-		ClosedAt:        s.closedAt,
-		CloseReason:     s.closeReason,
-		FinalConclusion: s.finalConclusion,
-		InFlight:        s.inFlight,
-		SeenMessageIDs:  seen,
-		Conversation:    s.conversationCopy(),
+		SessionID:                 s.input.SessionID,
+		ChatSessionID:             s.chatSessionID,
+		DiagnosisTaskID:           s.diagnosisTaskID,
+		OwnerSubject:              s.input.OwnerSubject,
+		Status:                    s.status,
+		TurnCount:                 s.turnCount,
+		StartedAt:                 s.startedAt,
+		LastActivityAt:            s.lastActivityAt,
+		ClosedAt:                  s.closedAt,
+		CloseReason:               s.closeReason,
+		FinalConclusion:           s.finalConclusion,
+		LatestInsight:             copyDiagnosisRoomConsultationInsightPtr(s.latestInsight),
+		LatestConfidence:          s.latestConfidence,
+		LatestRequiresHumanReview: copyBoolPtr(s.latestRequiresHumanReview),
+		InFlight:                  s.inFlight,
+		SeenMessageIDs:            seen,
+		Conversation:              s.conversationCopy(),
 	}
 }
 
@@ -544,6 +553,9 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 	if finalConclusionVersion >= diagnosisRoomFinalConclusionVersion && persistResult.FinalConclusion != nil {
 		s.finalConclusion = copyDiagnosisRoomFinalConclusion(*persistResult.FinalConclusion)
 	}
+	s.latestInsight = copyDiagnosisRoomConsultationInsight(persistResult.Insight)
+	s.latestConfidence = activityResult.Confidence
+	s.latestRequiresHumanReview = boolPtr(activityResult.RequiresHumanReview)
 	s.seen[messageID] = struct{}{}
 	s.conversation = append(s.conversation, diagnosisroom.ConversationTurn{
 		Role:    string(diagnosisroomRoleUser),
@@ -739,6 +751,48 @@ func copyDiagnosisRoomFinalConclusion(in DiagnosisRoomFinalConclusion) *Diagnosi
 		requiresHumanReview := *in.RequiresHumanReview
 		out.RequiresHumanReview = &requiresHumanReview
 	}
+	return &out
+}
+
+func copyDiagnosisRoomConsultationInsight(in diagnosisroom.ConsultationInsight) *diagnosisroom.ConsultationInsight {
+	if !diagnosisRoomConsultationInsightHasValue(in) {
+		return nil
+	}
+	out := diagnosisroom.ConsultationInsight{
+		ConfidenceRationale:           in.ConfidenceRationale,
+		MissingEvidenceRequests:       diagnosisroom.CloneConsultationEvidenceRequests(in.MissingEvidenceRequests),
+		EvidenceCollectionSuggestions: diagnosisroom.CloneConsultationEvidenceRequests(in.EvidenceCollectionSuggestions),
+		ConclusionStatus:              in.ConclusionStatus,
+	}
+	return &out
+}
+
+func copyDiagnosisRoomConsultationInsightPtr(
+	in *diagnosisroom.ConsultationInsight,
+) *diagnosisroom.ConsultationInsight {
+	if in == nil {
+		return nil
+	}
+	return copyDiagnosisRoomConsultationInsight(*in)
+}
+
+func diagnosisRoomConsultationInsightHasValue(in diagnosisroom.ConsultationInsight) bool {
+	return strings.TrimSpace(in.ConfidenceRationale) != "" ||
+		len(in.MissingEvidenceRequests) > 0 ||
+		len(in.EvidenceCollectionSuggestions) > 0 ||
+		strings.TrimSpace(in.ConclusionStatus) != ""
+}
+
+func boolPtr(value bool) *bool {
+	out := value
+	return &out
+}
+
+func copyBoolPtr(in *bool) *bool {
+	if in == nil {
+		return nil
+	}
+	out := *in
 	return &out
 }
 
