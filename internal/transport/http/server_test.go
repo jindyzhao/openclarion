@@ -826,6 +826,79 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 			},
 			eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
 				31: {
+					diagnosisConclusionEventTurnPersisted: {
+						{
+							ID:     44,
+							TaskID: 31,
+							Kind:   diagnosisConclusionEventTurnPersisted,
+							Payload: json.RawMessage(`{
+								"kind":"diagnosis_room.turn_persisted",
+								"session_id":"diagnosis-session-31",
+								"chat_session_id":51,
+								"diagnosis_task_id":31,
+								"user_message_id":"msg-2/user",
+								"assistant_message_id":"msg-2/assistant",
+								"user_turn_id":62,
+								"assistant_turn_id":63,
+								"user_sequence":3,
+								"assistant_sequence":4,
+								"turn_count":2,
+								"confidence":"high",
+								"requires_human_review":false,
+								"evidence_requests":[],
+								"consultation_insight":{
+									"confidence_rationale":"Deployment evidence explains the latency onset.",
+									"conclusion_status":"ready_for_review"
+								}
+							}`),
+							OccurredAt: finalCreatedAt.Add(2*time.Minute + 45*time.Second),
+							RecordedAt: finalCreatedAt.Add(2*time.Minute + 46*time.Second),
+						},
+						{
+							ID:     43,
+							TaskID: 31,
+							Kind:   diagnosisConclusionEventTurnPersisted,
+							Payload: json.RawMessage(`{
+								"kind":"diagnosis_room.turn_persisted",
+								"session_id":"diagnosis-session-31",
+								"chat_session_id":51,
+								"diagnosis_task_id":31,
+								"user_message_id":"msg-1/user",
+								"assistant_message_id":"msg-1/assistant",
+								"user_turn_id":60,
+								"assistant_turn_id":61,
+								"user_sequence":1,
+								"assistant_sequence":2,
+								"turn_count":1,
+								"confidence":"low",
+								"requires_human_review":true,
+								"evidence_requests":[{
+									"tool":"metric_range_query",
+									"reason":"Need checkout deployment timing.",
+									"query":"histogram_quantile(0.95, rate(checkout_request_duration_seconds_bucket[5m]))",
+									"window_seconds":1800,
+									"step_seconds":60,
+									"limit":5
+								}],
+								"consultation_insight":{
+									"confidence_rationale":"Latency evidence is present but deployment timing is missing.",
+									"missing_evidence_requests":[{
+										"label":"Deployment window",
+										"detail":"Provide checkout deployment timing before raising confidence.",
+										"priority":"high"
+									}],
+									"evidence_collection_suggestions":[{
+										"label":"Latency trend",
+										"detail":"Collect a bounded checkout p95 range query for the incident window.",
+										"priority":"medium"
+									}],
+									"conclusion_status":"needs_evidence"
+								}
+							}`),
+							OccurredAt: finalCreatedAt.Add(2 * time.Minute),
+							RecordedAt: finalCreatedAt.Add(2*time.Minute + time.Second),
+						},
+					},
 					diagnosisConclusionEventFinalReady: {
 						{
 							ID:     41,
@@ -857,6 +930,34 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 								}`),
 							OccurredAt: finalCreatedAt.Add(3 * time.Minute),
 							RecordedAt: finalCreatedAt.Add(3*time.Minute + time.Second),
+						},
+					},
+					diagnosisConclusionEventSupplementalEvidence: {
+						{
+							ID:     42,
+							TaskID: 31,
+							Kind:   diagnosisConclusionEventSupplementalEvidence,
+							Payload: json.RawMessage(`{
+								"kind":"diagnosis_room.supplemental_evidence_provided",
+								"session_id":"diagnosis-session-31",
+								"chat_session_id":51,
+								"diagnosis_task_id":31,
+								"user_message_id":"msg-1/user",
+								"assistant_message_id":"msg-1/assistant",
+								"user_turn_id":60,
+								"assistant_turn_id":61,
+								"context_refs":["chat_session:51/turn:60","chat_session:51/turn:61"],
+								"supplemental_evidence":{
+									"label":"Deployment window",
+									"detail":"Compare checkout deployment time with the latency onset.",
+									"priority":"high",
+									"evidence":"The payment deployment started two minutes before checkout p95 crossed the warning threshold."
+								},
+								"confidence":"high",
+								"requires_human_review":true
+							}`),
+							OccurredAt: finalCreatedAt.Add(2*time.Minute + 30*time.Second),
+							RecordedAt: finalCreatedAt.Add(2*time.Minute + 31*time.Second),
 						},
 					},
 				},
@@ -911,6 +1012,39 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 		conclusion.RequiresHumanReview == nil ||
 		!*conclusion.RequiresHumanReview {
 		t.Fatalf("unexpected diagnosis conclusion: %+v", conclusion)
+	}
+	if len(conclusion.SupplementalEvidence) != 1 ||
+		conclusion.SupplementalEvidence[0].Label != "Deployment window" ||
+		conclusion.SupplementalEvidence[0].Priority != "high" ||
+		conclusion.SupplementalEvidence[0].Evidence != "The payment deployment started two minutes before checkout p95 crossed the warning threshold." ||
+		len(conclusion.SupplementalEvidence[0].ContextRefs) != 2 ||
+		conclusion.SupplementalEvidence[0].ContextRefs[1] != "chat_session:51/turn:61" ||
+		conclusion.SupplementalEvidence[0].UserTurnID == nil ||
+		*conclusion.SupplementalEvidence[0].UserTurnID != 60 {
+		t.Fatalf("unexpected supplemental evidence: %+v", conclusion.SupplementalEvidence)
+	}
+	if len(conclusion.ConfidenceTimeline) != 2 ||
+		conclusion.ConfidenceTimeline[0].Confidence != api.ReportConfidenceLow ||
+		conclusion.ConfidenceTimeline[0].ConclusionStatus == nil ||
+		*conclusion.ConfidenceTimeline[0].ConclusionStatus != "needs_evidence" ||
+		conclusion.ConfidenceTimeline[0].EvidenceRequestCount != 1 ||
+		len(conclusion.ConfidenceTimeline[0].EvidenceRequests) != 1 ||
+		conclusion.ConfidenceTimeline[0].EvidenceRequests[0].Tool != "metric_range_query" ||
+		conclusion.ConfidenceTimeline[0].EvidenceRequests[0].Query == nil ||
+		*conclusion.ConfidenceTimeline[0].EvidenceRequests[0].Query != "histogram_quantile(0.95, rate(checkout_request_duration_seconds_bucket[5m]))" ||
+		conclusion.ConfidenceTimeline[0].EvidenceRequests[0].WindowSeconds == nil ||
+		*conclusion.ConfidenceTimeline[0].EvidenceRequests[0].WindowSeconds != 1800 ||
+		conclusion.ConfidenceTimeline[0].EvidenceRequests[0].StepSeconds == nil ||
+		*conclusion.ConfidenceTimeline[0].EvidenceRequests[0].StepSeconds != 60 ||
+		len(conclusion.ConfidenceTimeline[0].MissingEvidenceRequests) != 1 ||
+		conclusion.ConfidenceTimeline[0].MissingEvidenceRequests[0].Label != "Deployment window" ||
+		len(conclusion.ConfidenceTimeline[0].EvidenceCollectionSuggestions) != 1 ||
+		conclusion.ConfidenceTimeline[0].EvidenceCollectionSuggestions[0].Label != "Latency trend" ||
+		conclusion.ConfidenceTimeline[1].Confidence != api.ReportConfidenceHigh ||
+		conclusion.ConfidenceTimeline[1].ConclusionStatus == nil ||
+		*conclusion.ConfidenceTimeline[1].ConclusionStatus != "ready_for_review" ||
+		conclusion.ConfidenceTimeline[1].EvidenceRequestCount != 0 {
+		t.Fatalf("unexpected confidence timeline: %+v", conclusion.ConfidenceTimeline)
 	}
 }
 

@@ -181,7 +181,7 @@ func main() {
 func run(args []string, environ []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	target := fs.String("target", "all", "target to check: all, report-live-smoke, report-policy-live-smoke, report-schedule-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-sample-export, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, sandbox-m4-evidence-chain, diagnosis-live-browser-smoke")
+	target := fs.String("target", "all", "target to check: all, alert-operations-live-inputs, report-live-smoke, report-policy-live-smoke, report-schedule-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-sample-export, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, sandbox-m4-evidence-chain, diagnosis-live-browser-smoke")
 	requireReady := fs.Bool("require-ready", false, "return a non-zero exit status when any selected target is blocked")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -192,6 +192,7 @@ func run(args []string, environ []string, stdout io.Writer) error {
 
 	env := environMap(environ)
 	targets := []targetReadiness{
+		alertOperationsLiveInputsReadiness(env),
 		reportLiveSmokeReadiness(env),
 		reportPolicyLiveSmokeReadiness(env),
 		reportScheduleLiveSmokeReadiness(env),
@@ -381,6 +382,66 @@ func selectTargets(targets []targetReadiness, target string) ([]targetReadiness,
 	}
 	sort.Strings(names)
 	return nil, fmt.Errorf("unknown target %q; expected all or one of: %s", target, strings.Join(names, ", "))
+}
+
+func alertOperationsLiveInputsReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:         "alert-operations-live-inputs",
+		Milestone:    "M2-M5",
+		Sequence:     5,
+		EvidenceGoal: "Preflight the environment-provided alert, LLM, and notification endpoints before retained live proof runs.",
+		Command:      "make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=alert-operations-live-inputs",
+		Notes: []string{
+			"Preflight validates only local environment shape; it does not connect to Alertmanager, Thanos, LLM, or Webhook services.",
+			"Output intentionally names only missing or invalid environment variables and never prints endpoint, token, or webhook values.",
+		},
+	}
+	target.MissingEnv = missingEnv(env,
+		"OPENCLARION_PROMETHEUS_URL",
+		"OPENCLARION_LLM_MODEL",
+		"OPENCLARION_IM_WEBHOOK_URL",
+	)
+	for _, name := range []string{
+		"OPENCLARION_PROMETHEUS_URL",
+		"OPENCLARION_ALERTMANAGER_URL",
+		"OPENCLARION_THANOS_RULE_URL",
+		"OPENCLARION_LLM_BASE_URL",
+	} {
+		if envPresent(env, name) {
+			if err := validateReadinessHTTPURL(env[name]); err != nil {
+				target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+					Name:   name,
+					Reason: err.Error(),
+				})
+			}
+		}
+	}
+	if envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") {
+		if err := validateReadinessWebhookURL(env["OPENCLARION_IM_WEBHOOK_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_IM_WEBHOOK_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+	for _, name := range []string{"OPENCLARION_LLM_MODEL", "OPENCLARION_LLM_API_KEY"} {
+		if envPresent(env, name) {
+			if err := validateReadinessOptionalID(env[name]); err != nil {
+				target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+					Name:   name,
+					Reason: err.Error(),
+				})
+			}
+		}
+	}
+	if envPresent(env, "OPENCLARION_IM_WEBHOOK_FORMAT") &&
+		!oneOf(strings.ToLower(strings.TrimSpace(env["OPENCLARION_IM_WEBHOOK_FORMAT"])), "generic", "wecom") {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_IM_WEBHOOK_FORMAT",
+			Reason: "must be generic or wecom when set",
+		})
+	}
+	return finalize(target)
 }
 
 func reportLiveSmokeReadiness(env envMap) targetReadiness {

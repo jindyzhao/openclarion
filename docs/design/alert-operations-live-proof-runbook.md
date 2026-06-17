@@ -189,6 +189,7 @@ Run readiness checks before running live proof:
 export REPORT_LIVE_SMOKE_OUTPUT=/path/to/new-m2-proof.json
 export REPORT_POLICY_LIVE_SMOKE_OUTPUT=/path/to/new-policy-proof.json
 export REPORT_SCHEDULE_LIVE_SMOKE_OUTPUT=/path/to/new-schedule-proof.json
+make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=alert-operations-live-inputs
 make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=report-live-smoke
 make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=report-policy-live-smoke
 make manual-evidence-readiness MANUAL_EVIDENCE_TARGET=report-schedule-live-smoke
@@ -196,6 +197,15 @@ make report-live-smoke
 make report-policy-live-smoke
 make report-schedule-live-smoke
 ```
+
+`make manual-evidence-readiness
+MANUAL_EVIDENCE_TARGET=alert-operations-live-inputs` preflights the
+environment-provided alert, LLM, and notification endpoint configuration before any
+workflow proof runs. It validates URL and token shape for the configured
+Prometheus or Thanos query endpoint, optional direct Alertmanager and Thanos
+Rule references, OpenAI-compatible LLM provider settings, and the legacy Webhook
+or WeCom delivery endpoint. It does not connect to those services, send
+notifications, start workflows, or print endpoint and credential values.
 
 `make report-live-smoke` is the M2 headless proof prerequisite for the later
 profile-driven proof targets. It uses the legacy environment-configured

@@ -284,6 +284,10 @@ tr:last-child td {
   gap: 18px;
 }
 
+.detail-grid-wide {
+  grid-column: 1 / -1;
+}
+
 .stack {
   display: grid;
   gap: 14px;
@@ -429,6 +433,148 @@ tr:last-child td {
   font-size: 13px;
   font-weight: 650;
   overflow-wrap: anywhere;
+}
+
+.confidence-timeline {
+  display: grid;
+  gap: 8px;
+}
+
+.confidence-timeline > strong {
+  font-size: 13px;
+}
+
+.confidence-timeline-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.confidence-timeline-item {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.confidence-timeline-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.confidence-timeline-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.confidence-timeline-heading strong {
+  min-width: 0;
+  font-size: 13px;
+}
+
+.timeline-evidence {
+  display: grid;
+  gap: 8px;
+}
+
+.timeline-evidence-section {
+  display: grid;
+  gap: 6px;
+}
+
+.timeline-evidence-section > strong {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.timeline-evidence-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline-evidence-item {
+  display: grid;
+  gap: 4px;
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+}
+
+.timeline-evidence-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-evidence-heading strong {
+  min-width: 0;
+  font-size: 13px;
+}
+
+.timeline-evidence-item code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.timeline-evidence-action {
+  justify-self: start;
+  margin-top: 2px;
+}
+
+.supplemental-evidence {
+  display: grid;
+  gap: 8px;
+}
+
+.supplemental-evidence > strong {
+  font-size: 13px;
+}
+
+.supplemental-evidence-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.supplemental-evidence-item {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.supplemental-evidence-item:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.supplemental-evidence-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.supplemental-evidence-heading strong {
+  min-width: 0;
+  font-size: 13px;
+}
+
+.supplemental-evidence-text {
+  border-left: 2px solid var(--border);
+  padding-left: 8px;
+  color: var(--text);
+  font-size: 13px;
 }
 
 .action-list {

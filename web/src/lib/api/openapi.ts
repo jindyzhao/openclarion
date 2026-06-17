@@ -2476,6 +2476,8 @@ export interface components {
             conclusion_version?: string;
             confirmed_by?: string;
             supplemental_context_refs?: string[];
+            supplemental_evidence?: components["schemas"]["DiagnosisRoomSupplementalEvidenceSummary"][];
+            confidence_timeline?: components["schemas"]["DiagnosisRoomConfidenceTimelineEntry"][];
             /** Format: int64 */
             assistant_turn_id?: number;
             assistant_message_id?: string;
@@ -2487,6 +2489,58 @@ export interface components {
             requires_human_review?: boolean;
             /** Format: date-time */
             recorded_at: string;
+        };
+        /** @description Operator-provided evidence captured during a diagnosis-room follow-up turn. */
+        DiagnosisRoomSupplementalEvidenceSummary: {
+            label: string;
+            detail: string;
+            priority: string;
+            evidence: string;
+            context_refs?: string[];
+            user_message_id?: string;
+            assistant_message_id?: string;
+            /** Format: int64 */
+            user_turn_id?: number;
+            /** Format: int64 */
+            assistant_turn_id?: number;
+            /** Format: date-time */
+            provided_at: string;
+        };
+        /** @description Executable evidence request proposed by a diagnosis-room assistant turn. */
+        DiagnosisRoomEvidenceRequestSummary: {
+            tool: string;
+            reason: string;
+            query?: string;
+            /** Format: int64 */
+            template_id?: number;
+            window_seconds?: number;
+            step_seconds?: number;
+            limit?: number;
+        };
+        /** @description Human-readable evidence gap or collection suggestion from a diagnosis-room assistant turn. */
+        DiagnosisRoomConsultationEvidenceRequestSummary: {
+            label: string;
+            detail: string;
+            priority: string;
+        };
+        /** @description Confidence assessment retained from a diagnosis-room assistant turn. */
+        DiagnosisRoomConfidenceTimelineEntry: {
+            event_kind: string;
+            confidence: components["schemas"]["ReportConfidence"];
+            requires_human_review: boolean;
+            conclusion_status?: string;
+            confidence_rationale?: string;
+            evidence_request_count: number;
+            evidence_requests?: components["schemas"]["DiagnosisRoomEvidenceRequestSummary"][];
+            missing_evidence_requests?: components["schemas"]["DiagnosisRoomConsultationEvidenceRequestSummary"][];
+            evidence_collection_suggestions?: components["schemas"]["DiagnosisRoomConsultationEvidenceRequestSummary"][];
+            assistant_message_id?: string;
+            /** Format: int64 */
+            assistant_turn_id?: number;
+            assistant_sequence?: number;
+            turn_count?: number;
+            /** Format: date-time */
+            occurred_at: string;
         };
         /** @description SubReport summary embedded in the final report content. */
         FinalReportSubReportSummary: {
