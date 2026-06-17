@@ -41,6 +41,8 @@
 #   make shell-syntax-check # validate tracked shell scripts with bash -n
 #   make yaml-syntax-check # validate tracked YAML syntax and weak-feature policy
 #   make openclarion-release-build # build OpenClarion release binary into an ignored or external path
+#   make openclarion-service-image-build # manual deployment helper: build local scratch service image
+#   make openclarion-service-image-push # manual deployment helper: push service image and print digest ref
 #   make generated-headers # validate generated file headers
 #   make generate-fresh   # validate make generate freshness and idempotence
 #   make go-licenses-check # validate Go dependency license allowlist
@@ -394,7 +396,7 @@ osv-scan: ## Detect known vulnerabilities in npm package-lock files
 # Go gates (activated at M0 bootstrap)
 # ---------------------------------------------------------------------------
 
-.PHONY: generated-headers generate generate-fresh go-vet go-build openclarion-release-build go-test go-coverage temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-m4-baseline-audit sandbox-quality-compare-test sandbox-m4-subreport-generate sandbox-m4-quality-sample-export sandbox-m4-quality-manifest-prepare sandbox-m4-quality-compare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
+.PHONY: generated-headers generate generate-fresh go-vet go-build openclarion-release-build openclarion-service-image-build openclarion-service-image-push go-test go-coverage temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-m4-baseline-audit sandbox-quality-compare-test sandbox-m4-subreport-generate sandbox-m4-quality-sample-export sandbox-m4-quality-manifest-prepare sandbox-m4-quality-compare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
 
 generated-headers: ## Validate generated files carry generator headers
 	@bash scripts/check_generated_headers.sh
@@ -427,6 +429,12 @@ go-build: ## Compile all packages
 openclarion-release-build: ## Build OpenClarion release binary into an ignored or external path
 	@go run ./scripts/openclarion_release_build
 
+openclarion-service-image-build: ## Manual deployment helper: build local scratch service image; set OPENCLARION_SERVICE_IMAGE_REF
+	@bash scripts/run_openclarion_service_image_build.sh
+
+openclarion-service-image-push: ## Manual deployment helper: push service image and print immutable digest ref
+	@bash scripts/run_openclarion_service_image_build.sh --push
+
 go-test: ## Run all tests
 	@go test -race -count=1 $(GO_CHECK_PACKAGES)
 
@@ -434,7 +442,7 @@ go-coverage: ## Enforce handwritten Go package coverage floor
 	@bash scripts/check_go_coverage.sh
 
 temporal-workflow-tests: ## Run focused Temporal workflow integration and replay tests
-	@go test -race -count=1 ./internal/orchestrator/temporal
+	@go test -race -count=1 -timeout=9m ./internal/orchestrator/temporal
 
 report-live-smoke-output-test: ## Run focused M2/M3.1 live report proof validator tests
 	@go test -race -count=1 ./scripts/report_live_smoke_output ./scripts/report_schedule_live_smoke_output

@@ -30,12 +30,42 @@ if [[ ${#packages[@]} -eq 0 ]]; then
   exit 1
 fi
 
-output="$(
-  go test -count=1 -cover "${packages[@]}" 2>&1
-)" || {
-  printf '%s\n' "$output"
-  exit 1
+parallel_packages=()
+serialized_packages=()
+for pkg in "${packages[@]}"; do
+  case "$pkg" in
+    */internal/e2e|*/internal/orchestrator/temporal)
+      serialized_packages+=("$pkg")
+      ;;
+    *)
+      parallel_packages+=("$pkg")
+      ;;
+  esac
+done
+
+outputs=()
+run_coverage() {
+  local chunk_output
+  chunk_output="$(
+    go test -count=1 -cover "$@" 2>&1
+  )" || {
+    printf '%s\n' "$chunk_output"
+    exit 1
+  }
+  outputs+=("$chunk_output")
 }
+
+if [[ ${#parallel_packages[@]} -gt 0 ]]; then
+  run_coverage "${parallel_packages[@]}"
+fi
+
+# These packages cold-start Temporal dev servers; serialize them so coverage does
+# not run competing CLI downloads or server startups on clean CI runners.
+for pkg in "${serialized_packages[@]}"; do
+  run_coverage "$pkg"
+done
+
+output="$(printf '%s\n' "${outputs[@]}")"
 printf '%s\n' "$output"
 
 failures=()

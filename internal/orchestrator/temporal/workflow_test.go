@@ -28,10 +28,14 @@ import (
 )
 
 const (
-	testPGImage    = "postgres:18-alpine"
-	testDBName     = "openclarion_test"
-	testDBUser     = "openclarion"
-	testDBPassword = "openclarion"
+	testPGImage                          = "postgres:18-alpine"
+	testDBName                           = "openclarion_test"
+	testDBUser                           = "openclarion"
+	testDBPassword                       = "openclarion"
+	temporalWorkflowTestTimeout          = 8 * time.Minute
+	temporalWorkflowDevServerStartBudget = 3 * time.Minute
+	temporalWorkflowOperationTimeout     = 45 * time.Second
+	temporalWorkflowCleanupTimeout       = 30 * time.Second
 )
 
 type testEnv struct {
@@ -55,7 +59,8 @@ func TestMain(m *testing.M) {
 }
 
 func runMain(m *testing.M) int {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), temporalWorkflowTestTimeout)
+	defer cancel()
 
 	ctr, err := postgres.Run(
 		ctx,
@@ -71,7 +76,9 @@ func runMain(m *testing.M) int {
 		return 1
 	}
 	defer func() {
-		if terr := ctr.Terminate(ctx); terr != nil {
+		cleanupCtx, cancelCleanup := context.WithTimeout(context.Background(), temporalWorkflowCleanupTimeout)
+		defer cancelCleanup()
+		if terr := ctr.Terminate(cleanupCtx); terr != nil {
 			fmt.Fprintf(os.Stderr, "terminate postgres container: %v\n", terr)
 		}
 	}()
@@ -108,7 +115,9 @@ func runMain(m *testing.M) int {
 
 	factory := repository.NewFactory(entClient)
 
-	server, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
+	devServerStartCtx, cancelDevServerStart := context.WithTimeout(ctx, temporalWorkflowDevServerStartBudget)
+	defer cancelDevServerStart()
+	server, err := testsuite.StartDevServer(devServerStartCtx, testsuite.DevServerOptions{
 		LogLevel: "error",
 		Stdout:   io.Discard,
 		Stderr:   io.Discard,
@@ -157,9 +166,16 @@ func runMain(m *testing.M) int {
 	return m.Run()
 }
 
+func workflowTestContext(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), temporalWorkflowOperationTimeout)
+	t.Cleanup(cancel)
+	return ctx
+}
+
 func seedDiagnosisTask(t *testing.T, label string) seededDiagnosisTask {
 	t.Helper()
-	ctx := context.Background()
+	ctx := workflowTestContext(t)
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	var seeded seededDiagnosisTask
@@ -225,7 +241,7 @@ func diagnosisWorkflowInput(seed seededDiagnosisTask) temporalpkg.DiagnosisWorkf
 func TestDiagnosisWorkflow_UpdateRecordEvent(t *testing.T) {
 	seed := seedDiagnosisTask(t, "update-record")
 
-	ctx := context.Background()
+	ctx := workflowTestContext(t)
 	workflowID := fmt.Sprintf("test-diag-%d", seed.TaskID)
 
 	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
@@ -336,7 +352,7 @@ func collectWorkflowHistory(ctx context.Context, t *testing.T, workflowID, runID
 func TestDiagnosisWorkflow_UpdateValidation_RejectsEmptyKind(t *testing.T) {
 	seed := seedDiagnosisTask(t, "validate-kind")
 
-	ctx := context.Background()
+	ctx := workflowTestContext(t)
 	workflowID := fmt.Sprintf("test-validate-kind-%d", seed.TaskID)
 
 	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
@@ -371,7 +387,7 @@ func TestDiagnosisWorkflow_UpdateValidation_RejectsEmptyKind(t *testing.T) {
 func TestDiagnosisWorkflow_UpdateValidation_RejectsEmptyDedupeKey(t *testing.T) {
 	seed := seedDiagnosisTask(t, "validate-dedupe")
 
-	ctx := context.Background()
+	ctx := workflowTestContext(t)
 	workflowID := fmt.Sprintf("test-validate-dedupe-%d", seed.TaskID)
 
 	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
@@ -416,7 +432,7 @@ func TestDiagnosisWorkflow_UpdateValidation_RejectsEmptyDedupeKey(t *testing.T) 
 // identity, the workflow MUST fail at entry rather than block on
 // signal-wait until an Update happens to reach the activity.
 func TestDiagnosisWorkflow_RejectsZeroTaskIDOnStart(t *testing.T) {
-	ctx := context.Background()
+	ctx := workflowTestContext(t)
 	workflowID := fmt.Sprintf("test-zero-taskid-%d", time.Now().UnixNano())
 
 	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
@@ -441,7 +457,7 @@ func TestDiagnosisWorkflow_RejectsZeroTaskIDOnStart(t *testing.T) {
 func TestDiagnosisWorkflow_RejectsZeroEvidenceSnapshotIDOnStart(t *testing.T) {
 	seed := seedDiagnosisTask(t, "zero-snapshot")
 
-	ctx := context.Background()
+	ctx := workflowTestContext(t)
 	workflowID := fmt.Sprintf("test-zero-snapshot-%d", seed.TaskID)
 
 	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
@@ -471,7 +487,7 @@ func TestDiagnosisWorkflow_RejectsMismatchedEvidenceSnapshotIDOnStart(t *testing
 	taskA := seedDiagnosisTask(t, "snapshot-mismatch-a")
 	taskB := seedDiagnosisTask(t, "snapshot-mismatch-b")
 
-	ctx := context.Background()
+	ctx := workflowTestContext(t)
 	workflowID := fmt.Sprintf("test-snapshot-mismatch-%d", taskA.TaskID)
 
 	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
@@ -507,7 +523,7 @@ func TestDiagnosisWorkflow_UpdateBoundToWorkflowTask(t *testing.T) {
 	taskA := seedDiagnosisTask(t, "bound-a")
 	taskB := seedDiagnosisTask(t, "bound-b")
 
-	ctx := context.Background()
+	ctx := workflowTestContext(t)
 	wfA := fmt.Sprintf("test-bound-a-%d", taskA.TaskID)
 	wfB := fmt.Sprintf("test-bound-b-%d", taskB.TaskID)
 
@@ -573,7 +589,7 @@ func TestDiagnosisWorkflow_UpdateBoundToWorkflowTask(t *testing.T) {
 func TestDiagnosisWorkflow_UpdateIdempotent_SameDedupeKey(t *testing.T) {
 	seed := seedDiagnosisTask(t, "idempotent")
 
-	ctx := context.Background()
+	ctx := workflowTestContext(t)
 	workflowID := fmt.Sprintf("test-idempotent-%d", seed.TaskID)
 
 	run, err := env.tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
@@ -636,7 +652,7 @@ func TestDiagnosisWorkflow_UpdateIdempotent_SameDedupeKey(t *testing.T) {
 
 func listDiagnosisEvents(t *testing.T, taskID domain.DiagnosisTaskID) []domain.DiagnosisTaskEvent {
 	t.Helper()
-	ctx := context.Background()
+	ctx := workflowTestContext(t)
 	var out []domain.DiagnosisTaskEvent
 	err := env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
 		events, err := uow.Diagnosis().ListEvents(ctx, taskID, 100)
@@ -661,7 +677,7 @@ func assertNoDiagnosisEvents(t *testing.T, taskID domain.DiagnosisTaskID) {
 
 func assertDiagnosisTaskPending(t *testing.T, taskID domain.DiagnosisTaskID) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := workflowTestContext(t)
 	err := env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
 		task, err := uow.Diagnosis().FindTaskByID(ctx, taskID)
 		if err != nil {
