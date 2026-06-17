@@ -36,6 +36,100 @@ func TestRunReportsMissingEvidencePrerequisitesWithoutValues(t *testing.T) {
 	}
 }
 
+func TestRunAlertOperationsLiveInputsReadyWithoutValues(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "alert-operations-live-inputs"}, []string{
+		"OPENCLARION_PROMETHEUS_URL=https://thanos-query.example.test",
+		"OPENCLARION_ALERTMANAGER_URL=https://alertmanager.example.test/api/v2/alerts",
+		"OPENCLARION_THANOS_RULE_URL=https://thanos-rule.example.test/alerts",
+		"OPENCLARION_LLM_BASE_URL=https://llm-gateway.example.test/v1",
+		"OPENCLARION_LLM_API_KEY=placeholder-api-key",
+		"OPENCLARION_LLM_MODEL=example-llm-model",
+		"OPENCLARION_IM_WEBHOOK_URL=https://wecom-webhook.example.test/cgi-bin/webhook/send?key=placeholder-webhook-key",
+		"OPENCLARION_IM_WEBHOOK_FORMAT=wecom",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "alert-operations-live-inputs")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+	}
+	if len(target.MissingEnv) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"thanos-query.example.test",
+		"alertmanager.example.test",
+		"thanos-rule.example.test",
+		"llm-gateway.example.test",
+		"placeholder-api-key",
+		"example-llm-model",
+		"wecom-webhook.example.test",
+		"placeholder-webhook-key",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked live input value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsBadAlertOperationsLiveInputsWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "alert-operations-live-inputs"}, []string{
+		"OPENCLARION_PROMETHEUS_URL=https://operator:secret@thanos-query.example.test?token=placeholder",
+		"OPENCLARION_ALERTMANAGER_URL=ftp://alertmanager.example.test/api/v2/alerts",
+		"OPENCLARION_THANOS_RULE_URL=https://thanos-rule.example.test/alerts#placeholder",
+		"OPENCLARION_LLM_BASE_URL=https://operator:secret@llm-gateway.example.test/v1",
+		"OPENCLARION_LLM_API_KEY=placeholder key with spaces",
+		"OPENCLARION_LLM_MODEL= example-llm-model",
+		"OPENCLARION_IM_WEBHOOK_URL=https://operator:secret@wecom-webhook.example.test/cgi-bin/webhook/send?key=placeholder-webhook-key",
+		"OPENCLARION_IM_WEBHOOK_FORMAT=slack",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "alert-operations-live-inputs")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	for _, name := range []string{
+		"OPENCLARION_PROMETHEUS_URL",
+		"OPENCLARION_ALERTMANAGER_URL",
+		"OPENCLARION_THANOS_RULE_URL",
+		"OPENCLARION_LLM_BASE_URL",
+		"OPENCLARION_LLM_API_KEY",
+		"OPENCLARION_LLM_MODEL",
+		"OPENCLARION_IM_WEBHOOK_URL",
+		"OPENCLARION_IM_WEBHOOK_FORMAT",
+	} {
+		if !invalidEnvByName(target.InvalidEnv, name) {
+			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
+		}
+	}
+	for _, secret := range []string{
+		"operator",
+		"secret",
+		"thanos-query.example.test",
+		"alertmanager.example.test",
+		"thanos-rule.example.test",
+		"llm-gateway.example.test",
+		"placeholder key with spaces",
+		"example-llm-model",
+		"wecom-webhook.example.test",
+		"placeholder-webhook-key",
+		"slack",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked invalid live input value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
 func TestRunReportsReadyLiveTargets(t *testing.T) {
 	var stdout bytes.Buffer
 	windowStart, windowEnd := pastReportWindow()
@@ -63,6 +157,9 @@ func TestRunReportsReadyLiveTargets(t *testing.T) {
 	out := decodeOutput(t, stdout.Bytes())
 	if got := targetByName(t, out, "report-live-smoke").Status; got != "ready" {
 		t.Fatalf("report status = %q, want ready", got)
+	}
+	if got := targetByName(t, out, "alert-operations-live-inputs").Status; got != "ready" {
+		t.Fatalf("alert operations live inputs status = %q, want ready", got)
 	}
 	if got := targetByName(t, out, "diagnosis-live-browser-smoke").Status; got != "ready" {
 		t.Fatalf("diagnosis status = %q, want ready", got)
@@ -121,6 +218,7 @@ func TestRunOrdersAllTargetsByMilestoneSequence(t *testing.T) {
 
 	out := decodeOutput(t, stdout.Bytes())
 	wantNames := []string{
+		"alert-operations-live-inputs",
 		"report-live-smoke",
 		"report-policy-live-smoke",
 		"report-schedule-live-smoke",
@@ -143,8 +241,8 @@ func TestRunOrdersAllTargetsByMilestoneSequence(t *testing.T) {
 			t.Fatalf("targets[%d].name = %q, want %q", i, got, want)
 		}
 	}
-	if out.Summary.NextTarget == nil || out.Summary.NextTarget.Name != "report-live-smoke" {
-		t.Fatalf("summary next target = %#v, want report-live-smoke", out.Summary.NextTarget)
+	if out.Summary.NextTarget == nil || out.Summary.NextTarget.Name != "alert-operations-live-inputs" {
+		t.Fatalf("summary next target = %#v, want alert-operations-live-inputs", out.Summary.NextTarget)
 	}
 }
 
@@ -164,7 +262,7 @@ func TestRunRejectsBadReportLiveInputsWithoutLeakingValues(t *testing.T) {
 		"REPORT_CORRELATION_KEY=manual proof",
 		"REPORT_WORKFLOW_ID=workflow\nsecret",
 		"OPENCLARION_LLM_MODEL=gpt-example",
-		"OPENCLARION_IM_WEBHOOK_URL=https://private-user-abc123:private-pass-abc123@webhook.example.test",
+		"OPENCLARION_IM_WEBHOOK_URL=https://placeholder-user-abc123:placeholder-pass-abc123@webhook.example.test",
 	}, &stdout)
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -190,8 +288,8 @@ func TestRunRejectsBadReportLiveInputsWithoutLeakingValues(t *testing.T) {
 		}
 	}
 	for _, secret := range []string{
-		"private-user-abc123",
-		"private-pass-abc123",
+		"placeholder-user-abc123",
+		"placeholder-pass-abc123",
 		"prometheus.example.test",
 		"webhook.example.test",
 		"manual proof",

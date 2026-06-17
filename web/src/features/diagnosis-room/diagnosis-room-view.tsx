@@ -101,6 +101,7 @@ type DiagnosisPageContext = {
   evidenceSnapshotID?: number;
   hasContext: boolean;
   suggestedPrompt: string;
+  supplementalFollowUp?: DiagnosisConsultationEvidenceRequest;
   title: string;
 };
 
@@ -125,10 +126,22 @@ export function DiagnosisRoomView() {
   const [roomState, setRoomState] = useState<DiagnosisStateFrame | null>(null);
   const [transcript, setTranscript] = useState<TranscriptTurn[]>([]);
   const [latestInsight, setLatestInsight] = useState<LatestConsultationInsight | null>(null);
-  const [pendingSupplementalEvidence, setPendingSupplementalEvidence] =
+  const [manualPendingSupplementalEvidence, setManualPendingSupplementalEvidence] =
     useState<DiagnosisConsultationEvidenceRequest | null>(null);
+  const [clearedURLFollowUpKey, setClearedURLFollowUpKey] = useState<string | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const pageContext = diagnosisPageContext(searchParams);
+  const supplementalFollowUpDetail = pageContext.supplementalFollowUp?.detail;
+  const supplementalFollowUpLabel = pageContext.supplementalFollowUp?.label;
+  const supplementalFollowUpPriority = pageContext.supplementalFollowUp?.priority;
+  const urlSupplementalFollowUp = pageContext.supplementalFollowUp;
+  const urlSupplementalFollowUpKey =
+    urlSupplementalFollowUp !== undefined ? supplementalEvidenceRequestIdentity(urlSupplementalFollowUp) : "";
+  const pendingSupplementalEvidence =
+    manualPendingSupplementalEvidence ??
+    (urlSupplementalFollowUp !== undefined && urlSupplementalFollowUpKey !== clearedURLFollowUpKey
+      ? urlSupplementalFollowUp
+      : null);
 
   const ticketMutation = useMutation<DiagnosisWSTicketBundle, DiagnosisActionError, ConnectionFormValues>({
     mutationFn: async (values) => {
@@ -160,7 +173,34 @@ export function DiagnosisRoomView() {
         composerForm.setFieldValue("message", pageContext.suggestedPrompt);
       }
     }
-  }, [composerForm, createForm, pageContext.evidenceSnapshotID, pageContext.suggestedPrompt]);
+    if (
+      supplementalFollowUpDetail !== undefined &&
+      supplementalFollowUpLabel !== undefined &&
+      supplementalFollowUpPriority !== undefined
+    ) {
+      const supplementalFollowUp = {
+        detail: supplementalFollowUpDetail,
+        label: supplementalFollowUpLabel,
+        priority: supplementalFollowUpPriority
+      };
+      const currentMessage = composerForm.getFieldValue("message");
+      if (
+        typeof currentMessage !== "string" ||
+        currentMessage.trim() === "" ||
+        currentMessage === pageContext.suggestedPrompt
+      ) {
+        composerForm.setFieldValue("message", supplementalEvidenceFollowUpMessage(supplementalFollowUp));
+      }
+    }
+  }, [
+    composerForm,
+    createForm,
+    pageContext.evidenceSnapshotID,
+    pageContext.suggestedPrompt,
+    supplementalFollowUpDetail,
+    supplementalFollowUpLabel,
+    supplementalFollowUpPriority
+  ]);
 
   useEffect(() => {
     return () => {
@@ -224,7 +264,7 @@ export function DiagnosisRoomView() {
     setRoomState(null);
     setTranscript([]);
     setLatestInsight(null);
-    setPendingSupplementalEvidence(null);
+    setManualPendingSupplementalEvidence(null);
     ticketMutation.reset();
     pushLog("info", "Requesting WebSocket ticket.");
 
@@ -340,7 +380,10 @@ export function DiagnosisRoomView() {
         content: trimmed
       }
     ]);
-    setPendingSupplementalEvidence(null);
+    setManualPendingSupplementalEvidence(null);
+    if (urlSupplementalFollowUpKey !== "") {
+      setClearedURLFollowUpKey(urlSupplementalFollowUpKey);
+    }
     composerForm.resetFields();
   }
 
@@ -359,14 +402,18 @@ export function DiagnosisRoomView() {
   }
 
   function handleUseSupplementalEvidence(request: DiagnosisConsultationEvidenceRequest) {
-    setPendingSupplementalEvidence(request);
+    setManualPendingSupplementalEvidence(request);
+    setClearedURLFollowUpKey(null);
     composerForm.setFieldValue("message", supplementalEvidenceFollowUpMessage(request));
     pushLog("info", `Prepared supplemental evidence follow-up for ${request.label}.`);
     message.info("Supplemental evidence follow-up prepared.");
   }
 
   function handleClearSupplementalEvidence() {
-    setPendingSupplementalEvidence(null);
+    setManualPendingSupplementalEvidence(null);
+    if (urlSupplementalFollowUpKey !== "") {
+      setClearedURLFollowUpKey(urlSupplementalFollowUpKey);
+    }
     pushLog("info", "Cleared supplemental evidence follow-up.");
   }
 
@@ -1255,6 +1302,10 @@ function consultationEvidenceRequestKey(item: DiagnosisConsultationEvidenceReque
   return `${item.priority}-${item.label}-${index}`;
 }
 
+function supplementalEvidenceRequestIdentity(item: DiagnosisConsultationEvidenceRequest): string {
+  return `${item.priority}:${item.label}:${item.detail}`;
+}
+
 function activeAlertKey(alert: DiagnosisActiveAlert, index: number): string {
   const labels = alert.labels ?? {};
   return `${alert.source}-${labels.alertname ?? labels.alert ?? "alert"}-${labels.namespace ?? "none"}-${index}`;
@@ -1471,6 +1522,7 @@ function diagnosisPageContext(searchParams: { get(name: string): string | null }
   const reportID = positiveIntegerSearchParam(searchParams, "report_id");
   const subReportID = positiveIntegerSearchParam(searchParams, "sub_report_id");
   const intent = searchParams.get("intent") === "review_conclusion" ? "review_conclusion" : "confidence_review";
+  const supplementalFollowUp = supplementalFollowUpSearchParam(searchParams);
 
   if (evidenceSnapshotID === undefined && reportID === undefined) {
     return {
@@ -1501,8 +1553,37 @@ function diagnosisPageContext(searchParams: { get(name: string): string | null }
     evidenceSnapshotID,
     hasContext: true,
     suggestedPrompt,
+    supplementalFollowUp,
     title: reportID !== undefined ? `Report #${reportID} diagnosis` : "Evidence snapshot diagnosis"
   };
+}
+
+function supplementalFollowUpSearchParam(searchParams: {
+  get(name: string): string | null;
+}): DiagnosisConsultationEvidenceRequest | undefined {
+  const label = boundedTextSearchParam(searchParams, "follow_up_label", 120);
+  const detail = boundedTextSearchParam(searchParams, "follow_up_detail", 1000);
+  const priority = boundedTextSearchParam(searchParams, "follow_up_priority", 40);
+  if (label === undefined || detail === undefined || priority === undefined) {
+    return undefined;
+  }
+  return { detail, label, priority };
+}
+
+function boundedTextSearchParam(
+  searchParams: { get(name: string): string | null },
+  name: string,
+  maxLength: number
+): string | undefined {
+  const raw = searchParams.get(name);
+  if (raw === null) {
+    return undefined;
+  }
+  const value = raw.trim();
+  if (value === "" || value.length > maxLength || /[\u0000-\u001f\u007f]/u.test(value)) {
+    return undefined;
+  }
+  return value;
 }
 
 function positiveIntegerSearchParam(

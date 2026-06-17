@@ -32,10 +32,14 @@ const (
 	defaultListLimit = 100
 	maxListLimit     = 500
 
-	diagnosisConclusionTaskLimit = 5
+	diagnosisConclusionTaskLimit       = 5
+	diagnosisSupplementalEvidenceLimit = 20
+	diagnosisConfidenceTimelineLimit   = 20
 
-	diagnosisConclusionEventFinalReady = "diagnosis_room.final_conclusion_ready"
-	diagnosisConclusionEventClosed     = "diagnosis_room.closed"
+	diagnosisConclusionEventTurnPersisted        = "diagnosis_room.turn_persisted"
+	diagnosisConclusionEventFinalReady           = "diagnosis_room.final_conclusion_ready"
+	diagnosisConclusionEventClosed               = "diagnosis_room.closed"
+	diagnosisConclusionEventSupplementalEvidence = "diagnosis_room.supplemental_evidence_provided"
 
 	defaultReportReplayLimit = 10000
 	maxReportReplayLimit     = 100000
@@ -624,6 +628,64 @@ type diagnosisRoomConclusionPayload struct {
 	RequiresHumanReview     *bool      `json:"requires_human_review,omitempty"`
 }
 
+type diagnosisRoomSupplementalEvidenceEventPayload struct {
+	Kind                 string                                   `json:"kind"`
+	SessionID            string                                   `json:"session_id,omitempty"`
+	ChatSessionID        int64                                    `json:"chat_session_id,omitempty"`
+	DiagnosisTaskID      int64                                    `json:"diagnosis_task_id,omitempty"`
+	UserMessageID        string                                   `json:"user_message_id,omitempty"`
+	AssistantMessageID   string                                   `json:"assistant_message_id,omitempty"`
+	UserTurnID           int64                                    `json:"user_turn_id,omitempty"`
+	AssistantTurnID      int64                                    `json:"assistant_turn_id,omitempty"`
+	ContextRefs          []string                                 `json:"context_refs,omitempty"`
+	SupplementalEvidence diagnosisRoomSupplementalEvidencePayload `json:"supplemental_evidence"`
+}
+
+type diagnosisRoomSupplementalEvidencePayload struct {
+	Label    string `json:"label"`
+	Detail   string `json:"detail"`
+	Priority string `json:"priority"`
+	Evidence string `json:"evidence"`
+}
+
+type diagnosisRoomTurnPersistedEventPayload struct {
+	Kind                string                                  `json:"kind"`
+	SessionID           string                                  `json:"session_id,omitempty"`
+	ChatSessionID       int64                                   `json:"chat_session_id,omitempty"`
+	DiagnosisTaskID     int64                                   `json:"diagnosis_task_id,omitempty"`
+	AssistantMessageID  string                                  `json:"assistant_message_id,omitempty"`
+	AssistantTurnID     int64                                   `json:"assistant_turn_id,omitempty"`
+	AssistantSequence   int                                     `json:"assistant_sequence,omitempty"`
+	TurnCount           int                                     `json:"turn_count,omitempty"`
+	Confidence          string                                  `json:"confidence,omitempty"`
+	RequiresHumanReview bool                                    `json:"requires_human_review,omitempty"`
+	EvidenceRequests    []diagnosisRoomEvidenceRequestPayload   `json:"evidence_requests,omitempty"`
+	ConsultationInsight diagnosisRoomConsultationInsightPayload `json:"consultation_insight,omitempty"`
+}
+
+type diagnosisRoomConsultationInsightPayload struct {
+	ConfidenceRationale           string                                            `json:"confidence_rationale,omitempty"`
+	MissingEvidenceRequests       []diagnosisRoomConsultationEvidenceRequestPayload `json:"missing_evidence_requests,omitempty"`
+	EvidenceCollectionSuggestions []diagnosisRoomConsultationEvidenceRequestPayload `json:"evidence_collection_suggestions,omitempty"`
+	ConclusionStatus              string                                            `json:"conclusion_status,omitempty"`
+}
+
+type diagnosisRoomEvidenceRequestPayload struct {
+	TemplateID    int64  `json:"template_id,omitempty"`
+	Tool          string `json:"tool"`
+	Reason        string `json:"reason"`
+	Query         string `json:"query,omitempty"`
+	WindowSeconds int    `json:"window_seconds,omitempty"`
+	StepSeconds   int    `json:"step_seconds,omitempty"`
+	Limit         int    `json:"limit,omitempty"`
+}
+
+type diagnosisRoomConsultationEvidenceRequestPayload struct {
+	Label    string `json:"label"`
+	Detail   string `json:"detail"`
+	Priority string `json:"priority"`
+}
+
 func diagnosisConclusionsForSubReports(ctx context.Context, repo ports.DiagnosisRepository, subReports []domain.SubReport) (diagnosisConclusionBySnapshot, error) {
 	out := diagnosisConclusionBySnapshot{}
 	if repo == nil || len(subReports) == 0 {
@@ -710,6 +772,18 @@ func latestDiagnosisConclusionForTask(
 			bestSet = true
 		}
 	}
+	if bestSet {
+		evidence, err := supplementalEvidenceForDiagnosisTask(ctx, repo, taskID)
+		if err != nil {
+			return api.DiagnosisRoomConclusionSummary{}, time.Time{}, false, err
+		}
+		best.SupplementalEvidence = evidence
+		timeline, err := confidenceTimelineForDiagnosisTask(ctx, repo, taskID)
+		if err != nil {
+			return api.DiagnosisRoomConclusionSummary{}, time.Time{}, false, err
+		}
+		best.ConfidenceTimeline = timeline
+	}
 	return best, bestOccurred, bestSet, nil
 }
 
@@ -760,6 +834,196 @@ func diagnosisConclusionFromEvent(event domain.DiagnosisTaskEvent) (api.Diagnosi
 		RecordedAt:              event.RecordedAt,
 	}
 	return summary, true, nil
+}
+
+func supplementalEvidenceForDiagnosisTask(
+	ctx context.Context,
+	repo ports.DiagnosisRepository,
+	taskID domain.DiagnosisTaskID,
+) ([]api.DiagnosisRoomSupplementalEvidenceSummary, error) {
+	events, err := repo.ListEventsByTaskAndKind(ctx, taskID, diagnosisConclusionEventSupplementalEvidence, diagnosisSupplementalEvidenceLimit)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]api.DiagnosisRoomSupplementalEvidenceSummary, 0, len(events))
+	for i := len(events) - 1; i >= 0; i-- {
+		item, ok, err := supplementalEvidenceFromDiagnosisEvent(events[i])
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			items = append(items, item)
+		}
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	return items, nil
+}
+
+func confidenceTimelineForDiagnosisTask(
+	ctx context.Context,
+	repo ports.DiagnosisRepository,
+	taskID domain.DiagnosisTaskID,
+) ([]api.DiagnosisRoomConfidenceTimelineEntry, error) {
+	events, err := repo.ListEventsByTaskAndKind(ctx, taskID, diagnosisConclusionEventTurnPersisted, diagnosisConfidenceTimelineLimit)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]api.DiagnosisRoomConfidenceTimelineEntry, 0, len(events))
+	for i := len(events) - 1; i >= 0; i-- {
+		item, ok, err := confidenceTimelineEntryFromDiagnosisEvent(events[i])
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			items = append(items, item)
+		}
+	}
+	if len(items) == 0 {
+		return nil, nil
+	}
+	return items, nil
+}
+
+func confidenceTimelineEntryFromDiagnosisEvent(event domain.DiagnosisTaskEvent) (api.DiagnosisRoomConfidenceTimelineEntry, bool, error) {
+	if len(event.Payload) == 0 {
+		return api.DiagnosisRoomConfidenceTimelineEntry{}, false, fmt.Errorf("diagnosis confidence timeline event %d has empty payload: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	if err := strictjson.RejectDuplicateObjectKeys(event.Payload); err != nil {
+		return api.DiagnosisRoomConfidenceTimelineEntry{}, false, fmt.Errorf("diagnosis confidence timeline event %d payload is ambiguous: %w", event.ID, err)
+	}
+	var payload diagnosisRoomTurnPersistedEventPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return api.DiagnosisRoomConfidenceTimelineEntry{}, false, fmt.Errorf("diagnosis confidence timeline event %d payload: %w", event.ID, err)
+	}
+	if payload.Kind != "" && payload.Kind != event.Kind {
+		return api.DiagnosisRoomConfidenceTimelineEntry{}, false, fmt.Errorf("diagnosis confidence timeline event %d kind mismatch: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	if payload.DiagnosisTaskID != 0 && domain.DiagnosisTaskID(payload.DiagnosisTaskID) != event.TaskID {
+		return api.DiagnosisRoomConfidenceTimelineEntry{}, false, fmt.Errorf("diagnosis confidence timeline event %d task mismatch: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	confidence := reportConfidencePtr(payload.Confidence)
+	if confidence == nil {
+		return api.DiagnosisRoomConfidenceTimelineEntry{}, false, nil
+	}
+	occurredAt := event.OccurredAt
+	if occurredAt.IsZero() {
+		occurredAt = event.RecordedAt
+	}
+	evidenceRequests := diagnosisRoomEvidenceRequestSummaries(payload.EvidenceRequests)
+	return api.DiagnosisRoomConfidenceTimelineEntry{
+		EventKind:                     event.Kind,
+		Confidence:                    *confidence,
+		RequiresHumanReview:           payload.RequiresHumanReview,
+		ConclusionStatus:              nonEmptyStringPtr(payload.ConsultationInsight.ConclusionStatus),
+		ConfidenceRationale:           nonEmptyStringPtr(payload.ConsultationInsight.ConfidenceRationale),
+		EvidenceRequestCount:          len(evidenceRequests),
+		EvidenceRequests:              evidenceRequests,
+		MissingEvidenceRequests:       diagnosisRoomConsultationEvidenceRequestSummaries(payload.ConsultationInsight.MissingEvidenceRequests),
+		EvidenceCollectionSuggestions: diagnosisRoomConsultationEvidenceRequestSummaries(payload.ConsultationInsight.EvidenceCollectionSuggestions),
+		AssistantMessageID:            nonEmptyStringPtr(payload.AssistantMessageID),
+		AssistantTurnID:               nonZeroInt64Ptr(payload.AssistantTurnID),
+		AssistantSequence:             nonZeroIntPtr(payload.AssistantSequence),
+		TurnCount:                     nonZeroIntPtr(payload.TurnCount),
+		OccurredAt:                    occurredAt,
+	}, true, nil
+}
+
+func diagnosisRoomEvidenceRequestSummaries(in []diagnosisRoomEvidenceRequestPayload) []api.DiagnosisRoomEvidenceRequestSummary {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]api.DiagnosisRoomEvidenceRequestSummary, 0, len(in))
+	for _, req := range in {
+		tool := strings.TrimSpace(req.Tool)
+		reason := strings.TrimSpace(req.Reason)
+		if tool == "" || reason == "" {
+			continue
+		}
+		out = append(out, api.DiagnosisRoomEvidenceRequestSummary{
+			Tool:          tool,
+			Reason:        reason,
+			Query:         nonEmptyStringPtr(req.Query),
+			TemplateID:    nonZeroInt64Ptr(req.TemplateID),
+			WindowSeconds: nonZeroIntPtr(req.WindowSeconds),
+			StepSeconds:   nonZeroIntPtr(req.StepSeconds),
+			Limit:         nonZeroIntPtr(req.Limit),
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func diagnosisRoomConsultationEvidenceRequestSummaries(
+	in []diagnosisRoomConsultationEvidenceRequestPayload,
+) []api.DiagnosisRoomConsultationEvidenceRequestSummary {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]api.DiagnosisRoomConsultationEvidenceRequestSummary, 0, len(in))
+	for _, req := range in {
+		label := strings.TrimSpace(req.Label)
+		detail := strings.TrimSpace(req.Detail)
+		priority := strings.TrimSpace(req.Priority)
+		if label == "" || detail == "" || priority == "" {
+			continue
+		}
+		out = append(out, api.DiagnosisRoomConsultationEvidenceRequestSummary{
+			Label:    label,
+			Detail:   detail,
+			Priority: priority,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func supplementalEvidenceFromDiagnosisEvent(event domain.DiagnosisTaskEvent) (api.DiagnosisRoomSupplementalEvidenceSummary, bool, error) {
+	if len(event.Payload) == 0 {
+		return api.DiagnosisRoomSupplementalEvidenceSummary{}, false, fmt.Errorf("diagnosis supplemental evidence event %d has empty payload: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	if err := strictjson.RejectDuplicateObjectKeys(event.Payload); err != nil {
+		return api.DiagnosisRoomSupplementalEvidenceSummary{}, false, fmt.Errorf("diagnosis supplemental evidence event %d payload is ambiguous: %w", event.ID, err)
+	}
+	var payload diagnosisRoomSupplementalEvidenceEventPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return api.DiagnosisRoomSupplementalEvidenceSummary{}, false, fmt.Errorf("diagnosis supplemental evidence event %d payload: %w", event.ID, err)
+	}
+	if payload.Kind != "" && payload.Kind != event.Kind {
+		return api.DiagnosisRoomSupplementalEvidenceSummary{}, false, fmt.Errorf("diagnosis supplemental evidence event %d kind mismatch: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	if payload.DiagnosisTaskID != 0 && domain.DiagnosisTaskID(payload.DiagnosisTaskID) != event.TaskID {
+		return api.DiagnosisRoomSupplementalEvidenceSummary{}, false, fmt.Errorf("diagnosis supplemental evidence event %d task mismatch: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	evidence := payload.SupplementalEvidence
+	label := strings.TrimSpace(evidence.Label)
+	detail := strings.TrimSpace(evidence.Detail)
+	priority := strings.TrimSpace(evidence.Priority)
+	value := strings.TrimSpace(evidence.Evidence)
+	if label == "" || detail == "" || priority == "" || value == "" {
+		return api.DiagnosisRoomSupplementalEvidenceSummary{}, false, nil
+	}
+	providedAt := event.OccurredAt
+	if providedAt.IsZero() {
+		providedAt = event.RecordedAt
+	}
+	return api.DiagnosisRoomSupplementalEvidenceSummary{
+		Label:              label,
+		Detail:             detail,
+		Priority:           priority,
+		Evidence:           value,
+		ContextRefs:        nonEmptyStringSlice(payload.ContextRefs),
+		UserMessageID:      nonEmptyStringPtr(payload.UserMessageID),
+		AssistantMessageID: nonEmptyStringPtr(payload.AssistantMessageID),
+		UserTurnID:         nonZeroInt64Ptr(payload.UserTurnID),
+		AssistantTurnID:    nonZeroInt64Ptr(payload.AssistantTurnID),
+		ProvidedAt:         providedAt,
+	}, true, nil
 }
 
 func nonEmptyStringPtr(value string) *string {

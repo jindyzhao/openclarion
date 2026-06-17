@@ -77,6 +77,72 @@ const report = {
         evidence_snapshot_id: 9001,
         conclusion_version: "diagnosis-room-final-ready.v1",
         supplemental_context_refs: ["chat_session:401/turn:500", "chat_session:401/turn:501"],
+        confidence_timeline: [
+          {
+            event_kind: "diagnosis_room.turn_persisted",
+            confidence: "low",
+            requires_human_review: true,
+            conclusion_status: "needs_evidence",
+            confidence_rationale: "Latency evidence is present but deployment timing is missing.",
+            evidence_request_count: 1,
+            evidence_requests: [
+              {
+                tool: "metric_range_query",
+                reason: "Need checkout deployment timing.",
+                query: "histogram_quantile(0.95, rate(checkout_request_duration_seconds_bucket[5m]))",
+                window_seconds: 1800,
+                step_seconds: 60,
+                limit: 5
+              }
+            ],
+            missing_evidence_requests: [
+              {
+                label: "Deployment window",
+                detail: "Provide checkout deployment timing before raising confidence.",
+                priority: "high"
+              }
+            ],
+            evidence_collection_suggestions: [
+              {
+                label: "Latency trend",
+                detail: "Collect a bounded checkout p95 range query for the incident window.",
+                priority: "medium"
+              }
+            ],
+            assistant_message_id: "mock-report-0/assistant",
+            assistant_turn_id: 499,
+            assistant_sequence: 1,
+            turn_count: 1,
+            occurred_at: "2026-05-28T06:01:30Z"
+          },
+          {
+            event_kind: "diagnosis_room.turn_persisted",
+            confidence: "high",
+            requires_human_review: false,
+            conclusion_status: "ready_for_review",
+            confidence_rationale: "Deployment evidence explains the latency onset.",
+            evidence_request_count: 0,
+            assistant_message_id: "mock-report-1/assistant",
+            assistant_turn_id: 501,
+            assistant_sequence: 2,
+            turn_count: 2,
+            occurred_at: "2026-05-28T06:02:30Z"
+          }
+        ],
+        supplemental_evidence: [
+          {
+            label: "Deployment window",
+            detail: "Compare checkout deployment timestamps with the latency onset.",
+            priority: "high",
+            evidence: "The payment deployment started two minutes before checkout p95 crossed the warning threshold.",
+            context_refs: ["chat_session:401/turn:500", "chat_session:401/turn:501"],
+            user_message_id: "mock-report-1/user",
+            assistant_message_id: "mock-report-1/assistant",
+            user_turn_id: 500,
+            assistant_turn_id: 501,
+            provided_at: "2026-05-28T06:02:30Z"
+          }
+        ],
         assistant_turn_id: 501,
         assistant_message_id: "msg-1/assistant",
         assistant_sequence: 2,

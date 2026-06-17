@@ -9,6 +9,14 @@ type ReportDetailViewProps = {
   result: ApiResult<FinalReportDetail>;
 };
 
+type ReportDiagnosisConclusion = NonNullable<
+  FinalReportDetail["linked_sub_reports"][number]["diagnosis_conclusion"]
+>;
+type DiagnosisRoomHref = ReturnType<typeof diagnosisRoomHref>;
+type ReportConsultationEvidenceRequest = NonNullable<
+  NonNullable<ReportDiagnosisConclusion["confidence_timeline"]>[number]["missing_evidence_requests"]
+>[number];
+
 export function ReportDetailView({ reportId, result }: ReportDetailViewProps) {
   return (
     <ReportShell current="reports">
@@ -29,6 +37,7 @@ export function ReportDetailView({ reportId, result }: ReportDetailViewProps) {
 }
 
 function Detail({ report }: { report: FinalReportDetail }) {
+  const readiness = diagnosisReadiness(report);
   return (
     <div className="detail-grid">
       <section className="panel">
@@ -64,7 +73,35 @@ function Detail({ report }: { report: FinalReportDetail }) {
         </div>
       </aside>
 
-      <section className="panel">
+      <aside className="panel">
+        <div className="panel-header">
+          <h2>Diagnosis Readiness</h2>
+        </div>
+        <div className="panel-body">
+          <dl aria-label="Diagnosis readiness" className="stat-list">
+            <div>
+              <dt>Reviewed subreports</dt>
+              <dd>
+                {readiness.reviewed} / {readiness.total}
+              </dd>
+            </div>
+            <div>
+              <dt>Human review</dt>
+              <dd>{readiness.humanReviewRequired}</dd>
+            </div>
+            <div>
+              <dt>Supplemental evidence</dt>
+              <dd>{readiness.supplementalEvidence}</dd>
+            </div>
+            <div>
+              <dt>Latest confidence</dt>
+              <dd>{readiness.latestConfidence}</dd>
+            </div>
+          </dl>
+        </div>
+      </aside>
+
+      <section className="panel detail-grid-wide">
         <div className="panel-header">
           <h2>Evidence Traceability</h2>
         </div>
@@ -86,7 +123,10 @@ function Detail({ report }: { report: FinalReportDetail }) {
                 <span className={severityClass(subReport.severity)}>{subReport.severity}</span>{" "}
                 <span className="muted">{subReport.confidence} confidence</span>
                 {subReport.diagnosis_conclusion ? (
-                  <DiagnosisConclusion conclusion={subReport.diagnosis_conclusion} />
+                  <DiagnosisConclusion
+                    conclusion={subReport.diagnosis_conclusion}
+                    diagnosisHref={diagnosisRoomHref(report, subReport)}
+                  />
                 ) : null}
               </li>
             ))}
@@ -112,13 +152,41 @@ function diagnosisRoomHref(
   };
 }
 
+function diagnosisReadiness(report: FinalReportDetail) {
+  const conclusions = report.linked_sub_reports
+    .map((subReport) => subReport.diagnosis_conclusion)
+    .filter((conclusion): conclusion is ReportDiagnosisConclusion => conclusion !== undefined);
+  const supplementalEvidence = conclusions.reduce(
+    (count, conclusion) => count + (conclusion.supplemental_evidence?.length ?? 0),
+    0
+  );
+  const humanReviewRequired = conclusions.filter((conclusion) => conclusion.requires_human_review).length;
+  const latestConclusion = conclusions.reduce<ReportDiagnosisConclusion | undefined>((latest, conclusion) => {
+    if (!latest) {
+      return conclusion;
+    }
+    return Date.parse(conclusion.recorded_at) >= Date.parse(latest.recorded_at) ? conclusion : latest;
+  }, undefined);
+  return {
+    total: report.linked_sub_reports.length,
+    reviewed: conclusions.length,
+    humanReviewRequired,
+    supplementalEvidence,
+    latestConfidence: latestConclusion?.confidence ?? "pending"
+  };
+}
+
 function DiagnosisConclusion({
-  conclusion
+  conclusion,
+  diagnosisHref
 }: {
-  conclusion: NonNullable<FinalReportDetail["linked_sub_reports"][number]["diagnosis_conclusion"]>;
+  conclusion: ReportDiagnosisConclusion;
+  diagnosisHref: DiagnosisRoomHref;
 }) {
   const metadata = diagnosisConclusionMetadata(conclusion);
   const supplementalRefs = conclusion.supplemental_context_refs ?? [];
+  const confidenceTimeline = conclusion.confidence_timeline ?? [];
+  const supplementalEvidence = conclusion.supplemental_evidence ?? [];
   return (
     <div aria-label="Diagnosis conclusion" className="subreport-conclusion">
       <div className="subreport-conclusion-header">
@@ -153,13 +221,196 @@ function DiagnosisConclusion({
           ))}
         </div>
       ) : null}
+      {confidenceTimeline.length > 0 ? (
+        <section aria-label="Confidence timeline" className="confidence-timeline">
+          <strong>Confidence timeline</strong>
+          <ol className="confidence-timeline-list">
+            {confidenceTimeline.map((item) => (
+              <li className="confidence-timeline-item" key={confidenceTimelineKey(item)}>
+                <div className="confidence-timeline-heading">
+                  <strong>{item.confidence} confidence</strong>
+                  <span className="label-chip">{item.conclusion_status ?? item.event_kind}</span>
+                </div>
+                {item.confidence_rationale ? <p>{item.confidence_rationale}</p> : null}
+                <div className="muted">
+                  {item.evidence_request_count} evidence request{item.evidence_request_count === 1 ? "" : "s"} ·{" "}
+                  {item.requires_human_review ? "human review required" : "human review cleared"} ·{" "}
+                  {formatDateTime(item.occurred_at)}
+                </div>
+                <TimelineEvidenceRequests diagnosisHref={diagnosisHref} item={item} />
+              </li>
+            ))}
+          </ol>
+        </section>
+      ) : null}
+      {supplementalEvidence.length > 0 ? (
+        <section aria-label="Supplemental evidence" className="supplemental-evidence">
+          <strong>Supplemental evidence</strong>
+          <ul className="supplemental-evidence-list">
+            {supplementalEvidence.map((item) => (
+              <li className="supplemental-evidence-item" key={supplementalEvidenceKey(item)}>
+                <div className="supplemental-evidence-heading">
+                  <strong>{item.label}</strong>
+                  <span className="label-chip">{item.priority}</span>
+                </div>
+                <p className="muted">{item.detail}</p>
+                <p className="supplemental-evidence-text">{item.evidence}</p>
+                <div className="muted">Provided {formatDateTime(item.provided_at)}</div>
+                {item.context_refs && item.context_refs.length > 0 ? (
+                  <div aria-label={`${item.label} context references`} className="subreport-conclusion-meta">
+                    {item.context_refs.map((ref) => (
+                      <span className="label-chip" key={ref}>
+                        {ref}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }
 
-function diagnosisConclusionMetadata(
-  conclusion: NonNullable<FinalReportDetail["linked_sub_reports"][number]["diagnosis_conclusion"]>
+function supplementalEvidenceKey(
+  item: NonNullable<ReportDiagnosisConclusion["supplemental_evidence"]>[number]
 ) {
+  return item.user_message_id ?? item.assistant_message_id ?? `${item.label}:${item.provided_at}`;
+}
+
+function confidenceTimelineKey(
+  item: NonNullable<ReportDiagnosisConclusion["confidence_timeline"]>[number]
+) {
+  return item.assistant_message_id ?? `${item.event_kind}:${item.occurred_at}`;
+}
+
+function TimelineEvidenceRequests({
+  diagnosisHref,
+  item
+}: {
+  diagnosisHref: DiagnosisRoomHref;
+  item: NonNullable<ReportDiagnosisConclusion["confidence_timeline"]>[number];
+}) {
+  const evidenceRequests = item.evidence_requests ?? [];
+  const missingRequests = item.missing_evidence_requests ?? [];
+  const collectionSuggestions = item.evidence_collection_suggestions ?? [];
+  if (evidenceRequests.length === 0 && missingRequests.length === 0 && collectionSuggestions.length === 0) {
+    return null;
+  }
+  return (
+    <div className="timeline-evidence">
+      {evidenceRequests.length > 0 ? (
+        <section aria-label="Requested evidence" className="timeline-evidence-section">
+          <strong>Requested evidence</strong>
+          <ul className="timeline-evidence-list">
+            {evidenceRequests.map((request) => (
+              <li className="timeline-evidence-item" key={evidenceRequestKey(request)}>
+                <div className="timeline-evidence-heading">
+                  <span className="label-chip">{request.tool}</span>
+                  <strong>{request.reason}</strong>
+                </div>
+                {evidenceRequestDetail(request) ? <code>{evidenceRequestDetail(request)}</code> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+      <ConsultationEvidenceList diagnosisHref={diagnosisHref} label="Missing evidence" items={missingRequests} />
+      <ConsultationEvidenceList
+        diagnosisHref={diagnosisHref}
+        label="Collection suggestions"
+        items={collectionSuggestions}
+      />
+    </div>
+  );
+}
+
+function ConsultationEvidenceList({
+  diagnosisHref,
+  label,
+  items
+}: {
+  diagnosisHref: DiagnosisRoomHref;
+  label: string;
+  items: ReportConsultationEvidenceRequest[];
+}) {
+  if (items.length === 0) {
+    return null;
+  }
+  return (
+    <section aria-label={label} className="timeline-evidence-section">
+      <strong>{label}</strong>
+      <ul className="timeline-evidence-list">
+        {items.map((item) => (
+          <li className="timeline-evidence-item" key={consultationEvidenceKey(item)}>
+            <div className="timeline-evidence-heading">
+              <span className="label-chip">{item.priority}</span>
+              <strong>{item.label}</strong>
+            </div>
+            <p className="muted">{item.detail}</p>
+            <Link className="timeline-evidence-action link-button" href={supplementalFollowUpHref(diagnosisHref, item)}>
+              Use in diagnosis
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function evidenceRequestDetail(
+  request: NonNullable<
+    NonNullable<ReportDiagnosisConclusion["confidence_timeline"]>[number]["evidence_requests"]
+  >[number]
+) {
+  const parts = [
+    request.query ? `query: ${request.query}` : undefined,
+    request.template_id !== undefined ? `template #${request.template_id}` : undefined,
+    request.window_seconds !== undefined ? `window ${request.window_seconds}s` : undefined,
+    request.step_seconds !== undefined ? `step ${request.step_seconds}s` : undefined,
+    request.limit !== undefined ? `limit ${request.limit}` : undefined
+  ].filter((part): part is string => part !== undefined);
+  return parts.join(" · ");
+}
+
+function evidenceRequestKey(
+  request: NonNullable<
+    NonNullable<ReportDiagnosisConclusion["confidence_timeline"]>[number]["evidence_requests"]
+  >[number]
+) {
+  return [
+    request.tool,
+    request.reason,
+    request.query ?? "",
+    request.template_id ?? "",
+    request.window_seconds ?? "",
+    request.step_seconds ?? "",
+    request.limit ?? ""
+  ].join(":");
+}
+
+function consultationEvidenceKey(
+  item: ReportConsultationEvidenceRequest
+) {
+  return `${item.priority}:${item.label}:${item.detail}`;
+}
+
+function supplementalFollowUpHref(baseHref: DiagnosisRoomHref, item: ReportConsultationEvidenceRequest) {
+  return {
+    pathname: baseHref.pathname,
+    query: {
+      ...baseHref.query,
+      intent: "confidence_review",
+      follow_up_detail: item.detail,
+      follow_up_label: item.label,
+      follow_up_priority: item.priority
+    }
+  };
+}
+
+function diagnosisConclusionMetadata(conclusion: ReportDiagnosisConclusion) {
   const items: Array<{ label: string; value: string }> = [
     { label: "Task", value: String(conclusion.diagnosis_task_id) },
     { label: "Chat", value: String(conclusion.chat_session_id) },

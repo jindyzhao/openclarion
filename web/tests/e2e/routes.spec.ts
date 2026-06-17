@@ -20,6 +20,13 @@ test("report routes render list, detail, and evidence traceability", async ({ pa
   await expect(page).toHaveURL(/\/reports\/101$/);
   await expect(page.getByRole("heading", { name: "Checkout latency incident" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Evidence Traceability" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Diagnosis Readiness" })).toBeVisible();
+  await expect(page.getByLabel("Diagnosis readiness")).toContainText("Reviewed subreports");
+  await expect(page.getByLabel("Diagnosis readiness")).toContainText("1 / 1");
+  await expect(page.getByLabel("Diagnosis readiness")).toContainText("Human review");
+  await expect(page.getByLabel("Diagnosis readiness")).toContainText("Supplemental evidence");
+  await expect(page.getByLabel("Diagnosis readiness")).toContainText("Latest confidence");
+  await expect(page.getByLabel("Diagnosis readiness")).toContainText("high");
   await expect(page.getByText("Evidence snapshot #9001")).toBeVisible();
   await expect(page.getByLabel("Diagnosis conclusion")).toContainText(
     "Checkout latency remains correlated with the payment deployment."
@@ -28,8 +35,50 @@ test("report routes render list, detail, and evidence traceability", async ({ pa
   await expect(page.getByLabel("Diagnosis conclusion")).toContainText("diagnosis-room-final-ready.v1");
   await expect(page.getByLabel("Diagnosis conclusion")).toContainText("Evidence");
   await expect(page.getByLabel("Diagnosis conclusion")).toContainText("#9001");
+  await expect(page.getByLabel("Confidence timeline")).toContainText("low confidence");
+  await expect(page.getByLabel("Confidence timeline")).toContainText("needs_evidence");
+  await expect(page.getByLabel("Confidence timeline")).toContainText("Latency evidence is present but deployment timing is missing.");
+  await expect(page.getByLabel("Requested evidence")).toContainText("metric_range_query");
+  await expect(page.getByLabel("Requested evidence")).toContainText("Need checkout deployment timing.");
+  await expect(page.getByLabel("Requested evidence")).toContainText(
+    "histogram_quantile(0.95, rate(checkout_request_duration_seconds_bucket[5m]))"
+  );
+  await expect(page.getByLabel("Missing evidence")).toContainText("Deployment window");
+  await expect(page.getByLabel("Missing evidence")).toContainText("Provide checkout deployment timing before raising confidence.");
+  await expect(page.getByLabel("Collection suggestions")).toContainText("Latency trend");
+  await expect(page.getByLabel("Collection suggestions")).toContainText(
+    "Collect a bounded checkout p95 range query for the incident window."
+  );
+  await expect(page.getByLabel("Confidence timeline")).toContainText("high confidence");
+  await expect(page.getByLabel("Confidence timeline")).toContainText("ready_for_review");
+  await expect(page.getByLabel("Confidence timeline")).toContainText("Deployment evidence explains the latency onset.");
+  await expect(page.getByLabel("Supplemental evidence")).toContainText("Deployment window");
+  await expect(page.getByLabel("Supplemental evidence")).toContainText(
+    "The payment deployment started two minutes before checkout p95 crossed the warning threshold."
+  );
   await expect(page.getByLabel("Conclusion context references")).toContainText("chat_session:401/turn:501");
+  await expect(page.getByLabel("Deployment window context references")).toContainText("chat_session:401/turn:501");
 
+  await page.getByLabel("Missing evidence").getByRole("link", { name: "Use in diagnosis" }).click();
+  await expect(page).toHaveURL(/\/diagnosis-room\?/);
+  const followUpURL = new URL(page.url());
+  expect(followUpURL.pathname).toBe("/diagnosis-room");
+  expect(followUpURL.searchParams.get("evidence_snapshot_id")).toBe("9001");
+  expect(followUpURL.searchParams.get("report_id")).toBe("101");
+  expect(followUpURL.searchParams.get("sub_report_id")).toBe("501");
+  expect(followUpURL.searchParams.get("intent")).toBe("confidence_review");
+  expect(followUpURL.searchParams.get("follow_up_label")).toBe("Deployment window");
+  expect(followUpURL.searchParams.get("follow_up_priority")).toBe("high");
+  await expect(page.getByText("Report #101 diagnosis")).toBeVisible();
+  await expect(page.getByText("Opened from report #101, subreport #501 using evidence snapshot #9001.")).toBeVisible();
+  const pendingSupplemental = page.locator(".diagnosis-supplemental-pending");
+  await expect(pendingSupplemental).toContainText("Supplemental evidence");
+  await expect(pendingSupplemental).toContainText("Deployment window");
+  await expect(page.getByLabel("Evidence snapshot")).toHaveValue("9001");
+  await expect(page.getByLabel("Message")).toHaveValue(/Supplemental evidence update/);
+  await expect(page.getByLabel("Message")).toHaveValue(/Request: Deployment window/);
+
+  await page.goto("/reports/101");
   await page.getByRole("link", { name: "Review diagnosis" }).click();
   await expect(page).toHaveURL(
     /\/diagnosis-room\?evidence_snapshot_id=9001&report_id=101&sub_report_id=501&intent=review_conclusion$/

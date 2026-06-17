@@ -5595,6 +5595,14 @@ components:
           type: array
           items:
             type: string
+        supplemental_evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomSupplementalEvidenceSummary"
+        confidence_timeline:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomConfidenceTimelineEntry"
         assistant_turn_id:
           type: integer
           format: int64
@@ -5623,6 +5631,123 @@ components:
         - source
         - content
         - recorded_at
+    DiagnosisRoomSupplementalEvidenceSummary:
+      type: object
+      description: Operator-provided evidence captured during a diagnosis-room follow-up turn.
+      properties:
+        label:
+          type: string
+        detail:
+          type: string
+        priority:
+          type: string
+        evidence:
+          type: string
+        context_refs:
+          type: array
+          items:
+            type: string
+        user_message_id:
+          type: string
+        assistant_message_id:
+          type: string
+        user_turn_id:
+          type: integer
+          format: int64
+        assistant_turn_id:
+          type: integer
+          format: int64
+        provided_at:
+          type: string
+          format: date-time
+      required:
+        - label
+        - detail
+        - priority
+        - evidence
+        - provided_at
+    DiagnosisRoomEvidenceRequestSummary:
+      type: object
+      description: Executable evidence request proposed by a diagnosis-room assistant turn.
+      properties:
+        tool:
+          type: string
+        reason:
+          type: string
+        query:
+          type: string
+        template_id:
+          type: integer
+          format: int64
+        window_seconds:
+          type: integer
+        step_seconds:
+          type: integer
+        limit:
+          type: integer
+      required:
+        - tool
+        - reason
+    DiagnosisRoomConsultationEvidenceRequestSummary:
+      type: object
+      description: Human-readable evidence gap or collection suggestion from a diagnosis-room assistant turn.
+      properties:
+        label:
+          type: string
+        detail:
+          type: string
+        priority:
+          type: string
+      required:
+        - label
+        - detail
+        - priority
+    DiagnosisRoomConfidenceTimelineEntry:
+      type: object
+      description: Confidence assessment retained from a diagnosis-room assistant turn.
+      properties:
+        event_kind:
+          type: string
+        confidence:
+          $ref: "#/components/schemas/ReportConfidence"
+        requires_human_review:
+          type: boolean
+        conclusion_status:
+          type: string
+        confidence_rationale:
+          type: string
+        evidence_request_count:
+          type: integer
+        evidence_requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomEvidenceRequestSummary"
+        missing_evidence_requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomConsultationEvidenceRequestSummary"
+        evidence_collection_suggestions:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomConsultationEvidenceRequestSummary"
+        assistant_message_id:
+          type: string
+        assistant_turn_id:
+          type: integer
+          format: int64
+        assistant_sequence:
+          type: integer
+        turn_count:
+          type: integer
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+        - event_kind
+        - confidence
+        - requires_human_review
+        - evidence_request_count
+        - occurred_at
     FinalReportSubReportSummary:
       type: object
       description: SubReport summary embedded in the final report content.
