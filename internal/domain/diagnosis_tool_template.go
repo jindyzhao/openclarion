@@ -179,6 +179,9 @@ func validateDiagnosisToolQueryTemplate(queryTemplate string) error {
 	if len([]byte(queryTemplate)) > maxDiagnosisToolQueryTemplateLen {
 		return fmt.Errorf("diagnosis tool template: query_template exceeds %d bytes: %w", maxDiagnosisToolQueryTemplateLen, ErrInvariantViolation)
 	}
+	if strings.Contains(queryTemplate, "{{") || strings.Contains(queryTemplate, "}}") {
+		return fmt.Errorf("diagnosis tool template: query_template must not include unresolved template delimiters: %w", ErrInvariantViolation)
+	}
 	for _, r := range queryTemplate {
 		if unicode.IsControl(r) {
 			return fmt.Errorf("diagnosis tool template: query_template must be single-line: %w", ErrInvariantViolation)

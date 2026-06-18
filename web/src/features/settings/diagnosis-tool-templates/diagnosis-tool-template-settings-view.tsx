@@ -48,9 +48,14 @@ import {
 } from "./client-api";
 import {
   defaultFormForTool,
+  diagnosisToolSourceReadiness,
+  diagnosisQueryTemplatePreview,
   diagnosisToolKindLabels,
+  diagnosisToolSupportsSourceKind,
+  diagnosisToolTemplatePresets,
   emptyDiagnosisToolTemplateForm,
   formStateToWriteRequest,
+  presetToFormState,
   templateToFormState
 } from "./format";
 import type {
@@ -79,14 +84,15 @@ type EnablementVariables = {
 };
 
 type RelationSelectOption = {
+  disabled?: boolean;
   label: string;
   title: string;
   value: number;
 };
 
 type ToolTemplateRelationOptions = {
+  alertSources: AlertSourceProfile[];
   alertSourceLabels: Record<number, string>;
-  alertSourceOptions: RelationSelectOption[];
   warnings: string[];
 };
 
@@ -122,8 +128,24 @@ export function DiagnosisToolTemplateSettingsManager({
   const busy = query.isFetching || saveTemplate.isPending || enablementAction.isPending;
   const relationOptions = useMemo(() => buildToolTemplateRelationOptions(alertSourcesResult), [alertSourcesResult]);
   const selectedTool = Form.useWatch("tool", form) ?? "active_alerts";
+  const selectedAlertSourceID = Form.useWatch("alertSourceProfileID", form) ?? null;
+  const queryTemplate = Form.useWatch("queryTemplate", form) ?? "";
   const rangeTool = selectedTool === "metric_range_query";
   const queryTool = selectedTool !== "active_alerts";
+  const queryPreview = useMemo(() => diagnosisQueryTemplatePreview(queryTemplate), [queryTemplate]);
+  const sourceReadiness = useMemo(
+    () =>
+      diagnosisToolSourceReadiness({
+        alertSourceProfileID: selectedAlertSourceID,
+        sources: relationOptions.alertSources,
+        tool: selectedTool
+      }),
+    [relationOptions.alertSources, selectedAlertSourceID, selectedTool]
+  );
+  const sourceOptions = useMemo(
+    () => sourceOptionsForTool(selectedTool, relationOptions),
+    [relationOptions, selectedTool]
+  );
 
   const summary = useMemo(() => {
     const enabled = templates.filter((template) => template.enabled).length;
@@ -137,6 +159,16 @@ export function DiagnosisToolTemplateSettingsManager({
   }
 
   async function handleSubmit(values: DiagnosisToolTemplateFormState) {
+    const readiness = diagnosisToolSourceReadiness({
+      alertSourceProfileID: values.alertSourceProfileID,
+      sources: relationOptions.alertSources,
+      tool: values.tool
+    });
+    if (readiness.status !== "ready") {
+      setNotice({ kind: "error", message: readiness.detail });
+      return;
+    }
+
     const parsed = formStateToWriteRequest(values);
     if (!parsed.ok) {
       setNotice({ kind: "error", message: parsed.message });
@@ -184,7 +216,23 @@ export function DiagnosisToolTemplateSettingsManager({
     if (changed.tool === undefined) {
       return;
     }
-    form.setFieldsValue(defaultFormForTool(changed.tool));
+    const currentSourceID = form.getFieldValue("alertSourceProfileID") ?? null;
+    form.setFieldsValue({
+      ...defaultFormForTool(changed.tool),
+      alertSourceProfileID: compatibleSourceIDForTool(changed.tool, currentSourceID, relationOptions)
+    });
+  }
+
+  function applyPreset(presetID: string) {
+    const preset = diagnosisToolTemplatePresets.find((candidate) => candidate.id === presetID);
+    if (preset === undefined) {
+      return;
+    }
+    const currentSourceID = form.getFieldValue("alertSourceProfileID") ?? null;
+    form.setFieldsValue(
+      presetToFormState(preset, compatibleSourceIDForTool(preset.form.tool, currentSourceID, relationOptions))
+    );
+    setNotice(null);
   }
 
   return (
@@ -227,6 +275,23 @@ export function DiagnosisToolTemplateSettingsManager({
               onFinish={handleSubmit}
               onValuesChange={handleValuesChange}
             >
+              <Form.Item label="Preset">
+                <Select
+                  allowClear
+                  onChange={(value: string | undefined) => {
+                    if (value !== undefined) {
+                      applyPreset(value);
+                    }
+                  }}
+                  options={diagnosisToolTemplatePresets.map((preset) => ({
+                    label: preset.label,
+                    value: preset.id
+                  }))}
+                  placeholder="Apply a standard template"
+                  value={undefined}
+                />
+              </Form.Item>
+
               <Form.Item
                 label="Name"
                 name="name"
@@ -245,7 +310,7 @@ export function DiagnosisToolTemplateSettingsManager({
               >
                 <Select
                   optionFilterProp="label"
-                  options={relationOptions.alertSourceOptions}
+                  options={sourceOptions}
                   placeholder="Select alert source"
                   showSearch
                 />
@@ -261,6 +326,7 @@ export function DiagnosisToolTemplateSettingsManager({
                   ]}
                 />
               </Form.Item>
+              <SourceCompatibilityPreview readiness={sourceReadiness} />
 
               <Form.Item
                 label="Query template"
@@ -276,6 +342,7 @@ export function DiagnosisToolTemplateSettingsManager({
                   placeholder="rate(container_cpu_usage_seconds_total[5m])"
                 />
               </Form.Item>
+              {queryTool && queryTemplate.trim() !== "" ? <QueryTemplatePreview preview={queryPreview} /> : null}
 
               <Row gutter={12}>
                 <Col sm={12} xs={24}>
@@ -284,7 +351,12 @@ export function DiagnosisToolTemplateSettingsManager({
                     name="defaultLimit"
                     rules={[{ required: true, message: "Default limit is required." }]}
                   >
-                    <InputNumber max={selectedTool === "active_alerts" ? 10 : 20} min={1} precision={0} style={{ width: "100%" }} />
+                    <InputNumber
+                      max={selectedTool === "active_alerts" ? 10 : 20}
+                      min={1}
+                      precision={0}
+                      style={{ width: "100%" }}
+                    />
                   </Form.Item>
                 </Col>
                 <Col sm={12} xs={24}>
@@ -356,6 +428,66 @@ export function DiagnosisToolTemplateSettingsManager({
   );
 }
 
+function QueryTemplatePreview({ preview }: { preview: ReturnType<typeof diagnosisQueryTemplatePreview> }) {
+  return (
+    <div aria-label="Query template preview" className="settings-preview-panel">
+      <Space direction="vertical" size={8}>
+        <Space wrap>
+          <Tag color={preview.ok ? "green" : "red"}>{preview.ok ? "Valid" : "Invalid"}</Tag>
+          {preview.placeholders.length === 0 ? (
+            <Tag color="default">Static</Tag>
+          ) : (
+            preview.placeholders.map((placeholder) => (
+              <Tag color="geekblue" key={placeholder}>
+                {placeholder}
+              </Tag>
+            ))
+          )}
+        </Space>
+        {preview.ok ? (
+          <Space direction="vertical" size={4}>
+            <Typography.Text type="secondary">Example query</Typography.Text>
+            <Typography.Text className="settings-query-preview" copyable>
+              {preview.previewQuery}
+            </Typography.Text>
+          </Space>
+        ) : (
+          <Alert message={preview.message} showIcon type="error" />
+        )}
+      </Space>
+    </div>
+  );
+}
+
+function SourceCompatibilityPreview({
+  readiness
+}: {
+  readiness: ReturnType<typeof diagnosisToolSourceReadiness>;
+}) {
+  return (
+    <div aria-label="Source compatibility" className="settings-preview-panel">
+      <Space direction="vertical" size={8}>
+        <Space wrap>
+          <Tag color={sourceReadinessColor(readiness.status)}>{readiness.status}</Tag>
+          <Tag>{readiness.compatibleSourceCount} compatible source(s)</Tag>
+          {readiness.requiredKinds.map((kind) => (
+            <Tag color={kind === "prometheus" ? "cyan" : "blue"} key={kind}>
+              {kind}
+            </Tag>
+          ))}
+        </Space>
+        <Typography.Text strong>{readiness.label}</Typography.Text>
+        <Typography.Text type="secondary">{readiness.detail}</Typography.Text>
+        {readiness.status === "blocked" ? (
+          <Button href="/settings/alert-sources" size="small" type="default">
+            Open Alert Sources
+          </Button>
+        ) : null}
+      </Space>
+    </div>
+  );
+}
+
 function MetricCard({ label, value }: { label: string; value: number }) {
   return (
     <Col lg={6} sm={12} xs={24}>
@@ -383,20 +515,49 @@ function buildToolTemplateRelationOptions(
 ): ToolTemplateRelationOptions {
   if (!alertSourcesResult.ok) {
     return {
+      alertSources: [],
       alertSourceLabels: {},
-      alertSourceOptions: [],
       warnings: [`Alert sources failed to load: ${alertSourcesResult.error.message}.`]
     };
   }
   return {
-    alertSourceLabels: Object.fromEntries(alertSourcesResult.data.items.map((source) => [source.id, alertSourceLabel(source)])),
-    alertSourceOptions: alertSourcesResult.data.items.map((source) => relationOption(source.id, alertSourceLabel(source))),
+    alertSources: alertSourcesResult.data.items,
+    alertSourceLabels: Object.fromEntries(
+      alertSourcesResult.data.items.map((source) => [source.id, alertSourceLabel(source)])
+    ),
     warnings: []
   };
 }
 
-function relationOption(value: number, label: string): RelationSelectOption {
-  return { value, label, title: label };
+function sourceOptionsForTool(
+  tool: DiagnosisToolKind,
+  relationOptions: ToolTemplateRelationOptions
+): RelationSelectOption[] {
+  return relationOptions.alertSources.map((source) => {
+    const compatible = diagnosisToolSupportsSourceKind(tool, source.kind);
+    const label = alertSourceLabel(source);
+    return {
+      disabled: !compatible,
+      label: compatible ? label : `${label} - incompatible`,
+      title: compatible ? label : `${label} is not compatible with ${diagnosisToolKindLabels[tool]}`,
+      value: source.id
+    };
+  });
+}
+
+function compatibleSourceIDForTool(
+  tool: DiagnosisToolKind,
+  sourceID: number | null,
+  relationOptions: ToolTemplateRelationOptions
+): number | null {
+  if (sourceID === null) {
+    return null;
+  }
+  const source = relationOptions.alertSources.find((candidate) => candidate.id === sourceID);
+  if (source === undefined || !diagnosisToolSupportsSourceKind(tool, source.kind)) {
+    return null;
+  }
+  return sourceID;
 }
 
 function alertSourceLabel(source: AlertSourceProfile): string {
@@ -466,10 +627,13 @@ function DiagnosisToolTemplateTable({
           <Typography.Text>limit {template.default_limit}</Typography.Text>
           {template.tool === "metric_range_query" ? (
             <Typography.Text type="secondary">
-              {formatDurationSeconds(template.default_window_seconds)} window / {formatDurationSeconds(template.default_step_seconds)} step
+              {formatDurationSeconds(template.default_window_seconds)} window /{" "}
+              {formatDurationSeconds(template.default_step_seconds)} step
             </Typography.Text>
           ) : (
-            <Typography.Text type="secondary">{template.tool === "active_alerts" ? "active alerts" : "instant query"}</Typography.Text>
+            <Typography.Text type="secondary">
+              {template.tool === "active_alerts" ? "active alerts" : "instant query"}
+            </Typography.Text>
           )}
         </Space>
       )
@@ -497,7 +661,12 @@ function DiagnosisToolTemplateTable({
       key: "actions",
       render: (_, template) => (
         <Space wrap>
-          <Button disabled={busy || actionID !== null} icon={<EditOutlined />} onClick={() => onEdit(template)} size="small">
+          <Button
+            disabled={busy || actionID !== null}
+            icon={<EditOutlined />}
+            onClick={() => onEdit(template)}
+            size="small"
+          >
             Edit
           </Button>
           {template.enabled ? (
@@ -556,6 +725,17 @@ function toolTagColor(tool: DiagnosisToolKind): string {
       return "cyan";
     case "metric_range_query":
       return "purple";
+  }
+}
+
+function sourceReadinessColor(status: ReturnType<typeof diagnosisToolSourceReadiness>["status"]): string {
+  switch (status) {
+    case "ready":
+      return "green";
+    case "pending":
+      return "gold";
+    case "blocked":
+      return "red";
   }
 }
 

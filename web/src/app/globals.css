@@ -987,6 +987,18 @@ tr:last-child td {
   border-top: 1px solid var(--border);
 }
 
+.settings-query-preview {
+  display: block;
+  max-width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fbfcfd;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .settings-preview-header {
   display: flex;
   align-items: center;

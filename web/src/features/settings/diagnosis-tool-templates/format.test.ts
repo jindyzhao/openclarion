@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  diagnosisToolSourceReadiness,
+  diagnosisQueryTemplatePreview,
+  diagnosisToolTemplatePresets,
   emptyDiagnosisToolTemplateForm,
   formStateToWriteRequest,
+  presetToFormState,
   templateToFormState
 } from "./format";
+import type { AlertSourceKind, AlertSourceProfile } from "../alert-sources/types";
 
 describe("diagnosis tool template formatting", () => {
   it("builds write requests from range metric form state", () => {
@@ -67,6 +72,94 @@ describe("diagnosis tool template formatting", () => {
     });
   });
 
+  it("rejects parameterized query templates until runtime rendering exists", () => {
+    const preview = diagnosisQueryTemplatePreview(
+      `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`
+    );
+
+    expect(preview).toMatchObject({
+      ok: false,
+      message: "Parameterized query templates require runtime placeholder rendering before they can be saved.",
+      placeholders: []
+    });
+  });
+
+  it("builds valid write requests from standard presets", () => {
+    for (const preset of diagnosisToolTemplatePresets) {
+      const form = presetToFormState(preset, 5);
+      const parsed = formStateToWriteRequest(form);
+
+      expect(parsed, preset.id).toMatchObject({ ok: true });
+      if (parsed.ok) {
+        expect(parsed.value.alert_source_profile_id).toBe(5);
+        expect(parsed.value.query_template).toBe(`db_tablespace_pctusd{job="oracle_exporter"}`);
+      }
+    }
+  });
+
+  it("reports metric source compatibility from Prometheus-compatible profiles", () => {
+    const readiness = diagnosisToolSourceReadiness({
+      alertSourceProfileID: 2,
+      sources: [alertSourceProfile(1, "alertmanager"), alertSourceProfile(2, "prometheus")],
+      tool: "metric_range_query"
+    });
+
+    expect(readiness).toMatchObject({
+      compatibleSourceCount: 1,
+      label: "Source compatible.",
+      selectedSourceKind: "prometheus",
+      status: "ready"
+    });
+  });
+
+  it("blocks metric tools on Alertmanager profiles", () => {
+    const readiness = diagnosisToolSourceReadiness({
+      alertSourceProfileID: 1,
+      sources: [alertSourceProfile(1, "alertmanager"), alertSourceProfile(2, "prometheus")],
+      tool: "metric_query"
+    });
+
+    expect(readiness).toMatchObject({
+      label: "Selected source is incompatible.",
+      selectedSourceKind: "alertmanager",
+      status: "blocked"
+    });
+  });
+
+  it("allows active alerts on Alertmanager and Prometheus-compatible profiles", () => {
+    expect(
+      diagnosisToolSourceReadiness({
+        alertSourceProfileID: 1,
+        sources: [alertSourceProfile(1, "alertmanager"), alertSourceProfile(2, "prometheus")],
+        tool: "active_alerts"
+      })
+    ).toMatchObject({ compatibleSourceCount: 2, status: "ready" });
+  });
+
+  it("rejects unrendered template delimiters", () => {
+    const preview = diagnosisQueryTemplatePreview(`up{job={{label.job}}}`);
+
+    expect(preview).toMatchObject({
+      ok: false,
+      message: "Parameterized query templates require runtime placeholder rendering before they can be saved."
+    });
+  });
+
+  it("rejects invalid placeholders before submit", () => {
+    const parsed = formStateToWriteRequest({
+      ...emptyDiagnosisToolTemplateForm(),
+      name: "Bad query",
+      alertSourceProfileID: 1,
+      tool: "metric_query",
+      queryTemplate: `up{job={{label.job}}}`
+    });
+
+    expect(parsed).toEqual({
+      ok: false,
+      message: "Parameterized query templates require runtime placeholder rendering before they can be saved."
+    });
+  });
+
   it("maps templates back to form state", () => {
     expect(
       templateToFormState({
@@ -93,3 +186,18 @@ describe("diagnosis tool template formatting", () => {
     });
   });
 });
+
+function alertSourceProfile(id: number, kind: AlertSourceKind): AlertSourceProfile {
+  return {
+    auth_mode: "none",
+    base_url: `https://source-${id}.example.test`,
+    created_at: "2026-06-08T08:00:00Z",
+    enabled: true,
+    id,
+    kind,
+    labels: {},
+    name: `Source ${id}`,
+    secret_ref: "",
+    updated_at: "2026-06-08T08:00:00Z"
+  };
+}

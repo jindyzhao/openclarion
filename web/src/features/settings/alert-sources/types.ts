@@ -1,6 +1,6 @@
 import type { components } from "@/lib/api/openapi";
 
-type AlertSourceKind = components["schemas"]["AlertSourceKind"];
+export type AlertSourceKind = components["schemas"]["AlertSourceKind"];
 type AlertSourceAuthMode = components["schemas"]["AlertSourceAuthMode"];
 export type AlertSourceLabels = components["schemas"]["AlertSourceLabels"];
 export type AlertSourceConnectionTestResult = components["schemas"]["AlertSourceConnectionTestResult"];
