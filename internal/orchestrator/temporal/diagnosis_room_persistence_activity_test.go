@@ -349,6 +349,7 @@ func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *tes
 		"message":"CPU saturation has a final bounded diagnosis.",
 		"confidence":"high",
 		"requires_human_review":true,
+		"confidence_rationale":"The diagnosis is bounded but still needs owner confirmation.",
 		"conclusion_status":"final"
 	}`)
 	first, err := activities.PersistDiagnosisTurn(ctx, req)

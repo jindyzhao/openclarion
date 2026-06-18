@@ -27,6 +27,7 @@ const (
 	maxProofIdempotencyKeyBytes               = 256
 	maxProofProviderMessageBytes              = 512
 	maxProofFinalConclusionContentBytes       = 4096
+	maxProofBrowserReadinessTextBytes         = 512
 
 	closeNotificationClosedKind = "diagnosis_room.closed"
 	closeNotificationSentKind   = "diagnosis_room.close_notification_sent"
@@ -66,17 +67,24 @@ type createdRoom struct {
 }
 
 type browserProof struct {
-	StateLoaded               bool   `json:"state_loaded"`
-	TurnResultObserved        bool   `json:"turn_result_observed"`
-	AssistantTurnsBefore      int    `json:"assistant_turns_before"`
-	AssistantTurnsAfter       int    `json:"assistant_turns_after"`
-	TranscriptMessagesBefore  int    `json:"transcript_messages_before"`
-	TranscriptMessagesAfter   int    `json:"transcript_messages_after"`
-	ConnectionStatusAfterTurn string `json:"connection_status_after_turn"`
-	SubmittedMessageVisible   bool   `json:"submitted_message_visible"`
-	SubmittedMessageLength    int    `json:"submitted_message_length"`
-	SubmittedMessageSHA256    string `json:"submitted_message_sha256"`
-	CompletedTurnText         string `json:"completed_turn_text"`
+	StateLoaded                 bool   `json:"state_loaded"`
+	TurnResultObserved          bool   `json:"turn_result_observed"`
+	AssistantTurnsBefore        int    `json:"assistant_turns_before"`
+	AssistantTurnsAfter         int    `json:"assistant_turns_after"`
+	AssistantTurnDelta          int    `json:"assistant_turn_delta"`
+	TranscriptMessagesBefore    int    `json:"transcript_messages_before"`
+	TranscriptMessagesAfter     int    `json:"transcript_messages_after"`
+	ConnectionStatusAfterTurn   string `json:"connection_status_after_turn"`
+	SubmittedMessageVisible     bool   `json:"submitted_message_visible"`
+	SubmittedMessageLength      int    `json:"submitted_message_length"`
+	SubmittedMessageSHA256      string `json:"submitted_message_sha256"`
+	CompletedTurnText           string `json:"completed_turn_text"`
+	ConsultationInsightVisible  bool   `json:"consultation_insight_visible"`
+	ConsultationProgressVisible bool   `json:"consultation_progress_visible"`
+	EvidenceReadinessVisible    bool   `json:"evidence_readiness_visible"`
+	Confidence                  string `json:"confidence"`
+	ConfidenceAriaValue         string `json:"confidence_aria_value"`
+	EvidenceReadinessText       string `json:"evidence_readiness_text"`
 }
 
 type closeProof struct {
@@ -353,8 +361,12 @@ func validateBrowserProof(proof browserProof, messageLength int, messageSHA256 s
 	if proof.AssistantTurnsBefore < 0 {
 		return fmt.Errorf("browser.assistant_turns_before must be >= 0")
 	}
-	if proof.AssistantTurnsAfter != proof.AssistantTurnsBefore+1 {
-		return fmt.Errorf("browser.assistant_turns_after must equal assistant_turns_before + 1")
+	if proof.AssistantTurnsAfter <= proof.AssistantTurnsBefore {
+		return fmt.Errorf("browser.assistant_turns_after must be greater than assistant_turns_before")
+	}
+	assistantTurnDelta := proof.AssistantTurnsAfter - proof.AssistantTurnsBefore
+	if proof.AssistantTurnDelta != assistantTurnDelta {
+		return fmt.Errorf("browser.assistant_turn_delta must equal assistant_turns_after - assistant_turns_before")
 	}
 	if proof.TranscriptMessagesBefore < 0 {
 		return fmt.Errorf("browser.transcript_messages_before must be >= 0")
@@ -362,8 +374,8 @@ func validateBrowserProof(proof browserProof, messageLength int, messageSHA256 s
 	if proof.TranscriptMessagesBefore != proof.AssistantTurnsBefore*2 {
 		return fmt.Errorf("browser.transcript_messages_before must equal assistant_turns_before * 2")
 	}
-	if proof.TranscriptMessagesAfter != proof.TranscriptMessagesBefore+2 {
-		return fmt.Errorf("browser.transcript_messages_after must equal transcript_messages_before + 2")
+	if proof.TranscriptMessagesAfter != proof.TranscriptMessagesBefore+(2*assistantTurnDelta) {
+		return fmt.Errorf("browser.transcript_messages_after must equal transcript_messages_before + 2 * assistant_turn_delta")
 	}
 	if proof.TranscriptMessagesAfter != proof.AssistantTurnsAfter*2 {
 		return fmt.Errorf("browser.transcript_messages_after must equal assistant_turns_after * 2")
@@ -388,6 +400,44 @@ func validateBrowserProof(proof browserProof, messageLength int, messageSHA256 s
 	}
 	if turnNumber != proof.AssistantTurnsAfter {
 		return fmt.Errorf("browser.completed_turn_text must match assistant_turns_after")
+	}
+	if !proof.ConsultationInsightVisible {
+		return fmt.Errorf("browser.consultation_insight_visible must be true")
+	}
+	if !proof.ConsultationProgressVisible {
+		return fmt.Errorf("browser.consultation_progress_visible must be true")
+	}
+	if !proof.EvidenceReadinessVisible {
+		return fmt.Errorf("browser.evidence_readiness_visible must be true")
+	}
+	confidence, err := validateRequiredCleanString("browser.confidence", proof.Confidence)
+	if err != nil {
+		return err
+	}
+	switch confidence {
+	case "low", "medium", "high":
+	default:
+		return fmt.Errorf("browser.confidence = %q, want low, medium, or high", confidence)
+	}
+	confidenceAriaValue, err := validateRequiredCleanString("browser.confidence_aria_value", proof.ConfidenceAriaValue)
+	if err != nil {
+		return err
+	}
+	if confidenceAriaValue != confidence+" confidence" {
+		return fmt.Errorf("browser.confidence_aria_value must match browser.confidence")
+	}
+	readinessText, err := validateBoundedText(
+		"browser.evidence_readiness_text",
+		proof.EvidenceReadinessText,
+		maxProofBrowserReadinessTextBytes,
+	)
+	if err != nil {
+		return err
+	}
+	for _, label := range []string{"Plan", "Collected", "Missing", "Suggestions", "Next"} {
+		if !strings.Contains(readinessText, label) {
+			return fmt.Errorf("browser.evidence_readiness_text must include %s", label)
+		}
 	}
 	return nil
 }

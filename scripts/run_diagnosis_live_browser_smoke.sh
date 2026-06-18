@@ -8,9 +8,19 @@
 # EvidenceSnapshot before launching the browser check.
 
 set -euo pipefail
+umask 077
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+
+private_tmp_dir="${OPENCLARION_LIVE_SMOKE_WORKDIR:-$ROOT_DIR/.openclarion-private/diagnosis-live-browser-smoke}"
+mkdir -p "$private_tmp_dir"
+chmod 700 "$private_tmp_dir"
+
+private_temp_file() {
+  local name="$1"
+  mktemp "$private_tmp_dir/${name}.XXXXXX.json"
+}
 
 missing=()
 require_env() {
@@ -31,6 +41,10 @@ env_truthy() {
   esac
 }
 
+positive_integer() {
+  [[ "${1:-}" =~ ^[1-9][0-9]*$ ]]
+}
+
 require_env OPENCLARION_LIVE_API_BASE_URL
 require_env OPENCLARION_LIVE_BEARER_TOKEN
 if [[ -z "${OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID:-}" && -z "${OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID:-}" ]]; then
@@ -49,9 +63,31 @@ if ((${#missing[@]} > 0)); then
   exit 2
 fi
 
-output="${DIAGNOSIS_LIVE_BROWSER_SMOKE_OUTPUT:-$(mktemp -t openclarion-diagnosis-live-browser-smoke.XXXXXX.json)}"
+if [[ -z "${OPENCLARION_LIVE_TURN_TIMEOUT_MS:-}" ]]; then
+  if [[ -n "${OPENCLARION_DIAGNOSIS_LLM_HTTP_TIMEOUT_SECONDS:-}" ]]; then
+    if ! positive_integer "$OPENCLARION_DIAGNOSIS_LLM_HTTP_TIMEOUT_SECONDS"; then
+      echo "[diagnosis-live-browser-smoke] OPENCLARION_DIAGNOSIS_LLM_HTTP_TIMEOUT_SECONDS must be a positive integer when deriving live timeout" >&2
+      exit 2
+    fi
+    export OPENCLARION_LIVE_TURN_TIMEOUT_MS="$(((OPENCLARION_DIAGNOSIS_LLM_HTTP_TIMEOUT_SECONDS + 60) * 1000))"
+  else
+    export OPENCLARION_LIVE_TURN_TIMEOUT_MS="120000"
+  fi
+elif ! positive_integer "$OPENCLARION_LIVE_TURN_TIMEOUT_MS"; then
+  echo "[diagnosis-live-browser-smoke] OPENCLARION_LIVE_TURN_TIMEOUT_MS must be a positive integer" >&2
+  exit 2
+fi
+
+if [[ -z "${OPENCLARION_LIVE_TEST_TIMEOUT_MS:-}" ]]; then
+  export OPENCLARION_LIVE_TEST_TIMEOUT_MS="$((OPENCLARION_LIVE_TURN_TIMEOUT_MS + 60000))"
+elif ! positive_integer "$OPENCLARION_LIVE_TEST_TIMEOUT_MS"; then
+  echo "[diagnosis-live-browser-smoke] OPENCLARION_LIVE_TEST_TIMEOUT_MS must be a positive integer" >&2
+  exit 2
+fi
+
+output="${DIAGNOSIS_LIVE_BROWSER_SMOKE_OUTPUT:-$(private_temp_file output)}"
 mkdir -p "$(dirname "$output")"
-browser_proof="$(mktemp -t openclarion-diagnosis-live-browser-proof.XXXXXX.json)"
+browser_proof="$(private_temp_file browser-proof)"
 export OPENCLARION_LIVE_BROWSER_PROOF_PATH="$browser_proof"
 
 if [[ -z "${OPENCLARION_LIVE_DIAGNOSIS_MESSAGE:-}" ]]; then
@@ -165,7 +201,7 @@ echo "[diagnosis-live-browser-smoke] running browser round trip against live bac
 (cd web && npm run smoke:live)
 
 if env_truthy "$close_notification_required"; then
-  close_output="$(mktemp -t openclarion-diagnosis-live-close.XXXXXX.json)"
+  close_output="$(private_temp_file close-proof)"
   close_reason="${OPENCLARION_LIVE_CLOSE_REASON:-live_smoke_completed}"
   close_wait_timeout="${OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT:-2m}"
   close_args=(

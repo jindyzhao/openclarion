@@ -13,11 +13,17 @@ import (
 
 const defaultMaxAttempts = 3
 
+// Validator accepts or rejects one provider response. The default is
+// llmoutput.Validate; callers can supply a stricter validator for
+// domain-level report semantics that still deserve LLM feedback.
+type Validator func(ports.LLMRequest, ports.LLMResponse) (llmoutput.Accepted, error)
+
 // Request configures one validated generation run.
 type Request struct {
 	Provider    ports.LLMProvider
 	LLMRequest  ports.LLMRequest
 	MaxAttempts int
+	Validator   Validator
 }
 
 // Attempt records one provider call and its validation outcome.
@@ -80,6 +86,10 @@ func GenerateValidated(ctx context.Context, req Request) (Result, error) {
 	if maxAttempts == 0 {
 		return Result{}, fmt.Errorf("llm retry: max_attempts must be > 0")
 	}
+	validator := req.Validator
+	if validator == nil {
+		validator = llmoutput.Validate
+	}
 
 	attemptReq := cloneRequest(req.LLMRequest)
 	attempts := make([]Attempt, 0, maxAttempts)
@@ -96,7 +106,7 @@ func GenerateValidated(ctx context.Context, req Request) (Result, error) {
 			return Result{}, &Error{Attempts: attempts, Err: err}
 		}
 
-		output, err := llmoutput.Validate(attemptReq, resp)
+		output, err := validator(attemptReq, resp)
 		if err == nil {
 			attempts = append(attempts, Attempt{Number: i, Response: cloneResponse(resp)})
 			return Result{

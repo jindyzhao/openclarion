@@ -10,6 +10,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
+	sdktemporal "go.temporal.io/sdk/temporal"
 
 	"github.com/openclarion/openclarion/internal/domain"
 )
@@ -338,8 +339,15 @@ func scheduleFromCreateOptions(options client.ScheduleOptions) *client.Schedule 
 }
 
 func isTemporalAlreadyExists(err error) bool {
+	if errors.Is(err, sdktemporal.ErrScheduleAlreadyRunning) {
+		return true
+	}
 	var alreadyExists *serviceerror.AlreadyExists
-	return errors.As(err, &alreadyExists)
+	if errors.As(err, &alreadyExists) {
+		return true
+	}
+	var workflowAlreadyStarted *serviceerror.WorkflowExecutionAlreadyStarted
+	return errors.As(err, &workflowAlreadyStarted)
 }
 
 func scheduleLauncherWorkflowID(id domain.ReportWorkflowScheduleID) string {

@@ -28,6 +28,7 @@ const (
 	maxEvidenceRequestMetricLimit  = 20
 
 	maxConsultationEvidenceRequests = 10
+	maxToolRequestSuggestions       = 10
 )
 
 // TurnOutput is the schema-validated response written by the sandboxed
@@ -43,6 +44,7 @@ type TurnOutput struct {
 	ConfidenceRationale           string                        `json:"confidence_rationale,omitempty"`
 	MissingEvidenceRequests       []ConsultationEvidenceRequest `json:"missing_evidence_requests,omitempty"`
 	EvidenceCollectionSuggestions []ConsultationEvidenceRequest `json:"evidence_collection_suggestions,omitempty"`
+	ToolRequestSuggestions        []ToolRequestSuggestion       `json:"tool_request_suggestions,omitempty"`
 	ConclusionStatus              string                        `json:"conclusion_status,omitempty"`
 }
 
@@ -67,6 +69,22 @@ type ConsultationEvidenceRequest struct {
 	Label    string `json:"label"`
 	Detail   string `json:"detail"`
 	Priority string `json:"priority"`
+}
+
+// ToolRequestSuggestion is a runner compatibility shape that combines a
+// displayable evidence collection suggestion with optional bounded tool
+// metadata. Normalization projects it into the stable public fields.
+type ToolRequestSuggestion struct {
+	Label         string                   `json:"label"`
+	Detail        string                   `json:"detail"`
+	Priority      string                   `json:"priority"`
+	TemplateID    int64                    `json:"template_id,omitempty"`
+	Tool          domain.DiagnosisToolKind `json:"tool"`
+	Query         string                   `json:"query,omitempty"`
+	WindowSeconds int                      `json:"window_seconds,omitempty"`
+	WindowMinutes int                      `json:"window_minutes,omitempty"`
+	StepSeconds   int                      `json:"step_seconds,omitempty"`
+	Limit         int                      `json:"limit,omitempty"`
 }
 
 // ConsultationInsight is the structured diagnosis state that can be surfaced
@@ -104,6 +122,100 @@ const turnOutputSchemaJSON = `{
         "priority": {
           "type": "string",
           "enum": ["low", "medium", "high"]
+        }
+      }
+    },
+    "evidence_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tool", "reason"],
+      "properties": {
+        "template_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tool": {
+          "type": "string",
+          "enum": ["active_alerts", "metric_query", "metric_range_query"]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "query": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 21600
+        },
+        "step_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 21600
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
+        }
+      }
+    },
+    "tool_request_suggestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "detail", "priority", "tool"],
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "pattern": "\\S"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "pattern": "\\S"
+        },
+        "priority": {
+          "type": "string",
+          "enum": ["low", "medium", "high"]
+        },
+        "template_id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "tool": {
+          "type": "string",
+          "enum": ["active_alerts", "metric_query", "metric_range_query"]
+        },
+        "query": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "window_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 21600
+        },
+        "window_minutes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 360
+        },
+        "step_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 21600
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 20
         }
       }
     }
@@ -145,43 +257,7 @@ const turnOutputSchemaJSON = `{
       "type": "array",
       "maxItems": 5,
       "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["tool", "reason"],
-        "properties": {
-          "template_id": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "tool": {
-            "type": "string",
-            "enum": ["active_alerts", "metric_query", "metric_range_query"]
-          },
-          "reason": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 500
-          },
-          "query": {
-            "type": "string",
-            "maxLength": 500
-          },
-          "window_seconds": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 21600
-          },
-          "step_seconds": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 21600
-          },
-          "limit": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 20
-          }
-        }
+        "$ref": "#/$defs/evidence_request"
       }
     },
     "confidence": {
@@ -209,6 +285,13 @@ const turnOutputSchemaJSON = `{
       "maxItems": 10,
       "items": {
         "$ref": "#/$defs/consultation_evidence_request"
+      }
+    },
+    "tool_request_suggestions": {
+      "type": "array",
+      "maxItems": 10,
+      "items": {
+        "$ref": "#/$defs/tool_request_suggestion"
       }
     },
     "conclusion_status": {
@@ -298,6 +381,17 @@ func normalizeTurnOutput(out *TurnOutput) error {
 	if err != nil {
 		return err
 	}
+	toolSuggestions, executableToolRequests, err := normalizeToolRequestSuggestions(out.ToolRequestSuggestions)
+	if err != nil {
+		return err
+	}
+	out.ToolRequestSuggestions = nil
+	for _, req := range executableToolRequests {
+		if len(evidenceRequests) >= maxEvidenceRequests {
+			break
+		}
+		evidenceRequests = append(evidenceRequests, req)
+	}
 	out.EvidenceRequests = evidenceRequests
 	out.Confidence = strings.TrimSpace(out.Confidence)
 	out.ConfidenceRationale = strings.TrimSpace(out.ConfidenceRationale)
@@ -315,7 +409,32 @@ func normalizeTurnOutput(out *TurnOutput) error {
 	if err != nil {
 		return err
 	}
+	if len(toolSuggestions) > 0 {
+		if len(out.EvidenceCollectionSuggestions)+len(toolSuggestions) > maxConsultationEvidenceRequests {
+			return fmt.Errorf("diagnosis turn output: evidence_collection_suggestions plus tool_request_suggestions exceeds %d items", maxConsultationEvidenceRequests)
+		}
+		out.EvidenceCollectionSuggestions = append(out.EvidenceCollectionSuggestions, toolSuggestions...)
+	}
 	out.ConclusionStatus = strings.TrimSpace(out.ConclusionStatus)
+	if err := validateConsultationInsightCompleteness(*out); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateConsultationInsightCompleteness(out TurnOutput) error {
+	needsRationale := out.Confidence != "high" || out.RequiresHumanReview
+	if needsRationale && out.ConfidenceRationale == "" {
+		return fmt.Errorf("diagnosis turn output: confidence_rationale is required when confidence is %q or human review is required", out.Confidence)
+	}
+
+	needsImprovementPath := out.Confidence == "low" || out.ConclusionStatus == "needs_evidence"
+	if needsImprovementPath &&
+		len(out.EvidenceRequests) == 0 &&
+		len(out.MissingEvidenceRequests) == 0 &&
+		len(out.EvidenceCollectionSuggestions) == 0 {
+		return fmt.Errorf("diagnosis turn output: low-confidence or evidence-seeking output must include evidence_requests, missing_evidence_requests, or evidence_collection_suggestions")
+	}
 	return nil
 }
 
@@ -390,6 +509,91 @@ func normalizeConsultationEvidenceRequests(
 		out[i] = normalized
 	}
 	return out, nil
+}
+
+func normalizeToolRequestSuggestions(
+	in []ToolRequestSuggestion,
+) ([]ConsultationEvidenceRequest, []EvidenceRequest, error) {
+	if in == nil {
+		return nil, nil, nil
+	}
+	if len(in) > maxToolRequestSuggestions {
+		return nil, nil, fmt.Errorf("diagnosis turn output: tool_request_suggestions exceeds %d items", maxToolRequestSuggestions)
+	}
+	consultation := make([]ConsultationEvidenceRequest, 0, len(in))
+	executable := make([]EvidenceRequest, 0, len(in))
+	for i, suggestion := range in {
+		normalized, err := normalizeToolRequestSuggestion(i, suggestion)
+		if err != nil {
+			return nil, nil, err
+		}
+		consultation = append(consultation, ConsultationEvidenceRequest{
+			Label:    normalized.Label,
+			Detail:   normalized.Detail,
+			Priority: normalized.Priority,
+		})
+		if req, ok := executableEvidenceRequestFromToolSuggestion(normalized); ok {
+			executable = append(executable, req)
+		}
+	}
+	return consultation, executable, nil
+}
+
+func normalizeToolRequestSuggestion(index int, suggestion ToolRequestSuggestion) (ToolRequestSuggestion, error) {
+	suggestion.Label = strings.TrimSpace(suggestion.Label)
+	suggestion.Detail = strings.TrimSpace(suggestion.Detail)
+	suggestion.Priority = strings.TrimSpace(suggestion.Priority)
+	suggestion.Query = strings.TrimSpace(suggestion.Query)
+	if suggestion.Label == "" {
+		return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d].label must be non-empty after trimming", index)
+	}
+	if suggestion.Detail == "" {
+		return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d].detail must be non-empty after trimming", index)
+	}
+	switch suggestion.Priority {
+	case "low", "medium", "high":
+	default:
+		return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d].priority is unsupported", index)
+	}
+	if suggestion.TemplateID < 0 {
+		return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d].template_id must be positive when set", index)
+	}
+	if !suggestion.Tool.Valid() {
+		return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d].tool is unsupported", index)
+	}
+	if suggestion.Query != "" {
+		if len([]byte(suggestion.Query)) > maxEvidenceRequestQueryBytes {
+			return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d].query exceeds %d bytes", index, maxEvidenceRequestQueryBytes)
+		}
+		if containsControlRune(suggestion.Query) {
+			return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d].query must be single-line", index)
+		}
+	}
+	if suggestion.WindowSeconds > 0 && suggestion.WindowMinutes > 0 {
+		return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d] must not include both window_seconds and window_minutes", index)
+	}
+	if suggestion.WindowMinutes > 0 {
+		suggestion.WindowSeconds = suggestion.WindowMinutes * 60
+		suggestion.WindowMinutes = 0
+	}
+	return suggestion, nil
+}
+
+func executableEvidenceRequestFromToolSuggestion(suggestion ToolRequestSuggestion) (EvidenceRequest, bool) {
+	req := EvidenceRequest{
+		TemplateID:    suggestion.TemplateID,
+		Tool:          suggestion.Tool,
+		Reason:        suggestion.Detail,
+		Query:         suggestion.Query,
+		WindowSeconds: suggestion.WindowSeconds,
+		StepSeconds:   suggestion.StepSeconds,
+		Limit:         suggestion.Limit,
+	}
+	normalized, err := normalizeEvidenceRequest(0, req)
+	if err != nil {
+		return EvidenceRequest{}, false
+	}
+	return normalized, true
 }
 
 func normalizeEvidenceRequest(index int, req EvidenceRequest) (EvidenceRequest, error) {

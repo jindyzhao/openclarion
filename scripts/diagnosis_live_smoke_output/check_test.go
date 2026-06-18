@@ -39,13 +39,20 @@ func TestRunAcceptsExistingRoomLiveSmokeProof(t *testing.T) {
     "turn_result_observed": true,
     "assistant_turns_before": 1,
     "assistant_turns_after": 2,
+    "assistant_turn_delta": 1,
     "transcript_messages_before": 2,
     "transcript_messages_after": 4,
     "connection_status_after_turn": "connected",
     "submitted_message_visible": true,
     "submitted_message_length": 42,
     "submitted_message_sha256": "`+testMessageSHA256+`",
-    "completed_turn_text": "Turn 2 completed."
+    "completed_turn_text": "Turn 2 completed.",
+    "consultation_insight_visible": true,
+    "consultation_progress_visible": true,
+    "evidence_readiness_visible": true,
+    "confidence": "medium",
+    "confidence_aria_value": "medium confidence",
+    "evidence_readiness_text": "Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"
   },
   "evidence": "Playwright live diagnosis-room browser smoke passed one connect/query/submit/turn_result round trip."
 }`)
@@ -85,13 +92,20 @@ func TestRunAcceptsCreatedRoomLiveSmokeProof(t *testing.T) {
     "turn_result_observed": true,
     "assistant_turns_before": 0,
     "assistant_turns_after": 1,
+    "assistant_turn_delta": 1,
     "transcript_messages_before": 0,
     "transcript_messages_after": 2,
     "connection_status_after_turn": "connected",
     "submitted_message_visible": true,
     "submitted_message_length": 1,
     "submitted_message_sha256": "`+testMessageSHA256+`",
-    "completed_turn_text": "Turn 1 completed."
+    "completed_turn_text": "Turn 1 completed.",
+    "consultation_insight_visible": true,
+    "consultation_progress_visible": true,
+    "evidence_readiness_visible": true,
+    "confidence": "high",
+    "confidence_aria_value": "high confidence",
+    "evidence_readiness_text": "Plan 1 Collected 1 Missing 0 Suggestions 0 Next Ready for confirmation"
   },
   "evidence": "connect/query/submit/turn_result completed"
 }`)
@@ -103,6 +117,19 @@ func TestRunAcceptsCreatedRoomLiveSmokeProof(t *testing.T) {
 
 func TestRunAcceptsLiveSmokeProofWithCloseNotification(t *testing.T) {
 	path := writeSmokeProof(t, validCreatedProofWithCloseNotification())
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsLiveSmokeProofWithAutoEvidenceFollowUp(t *testing.T) {
+	body := validExistingProof()
+	body = replaceProof(t, body, `"assistant_turns_after":1`, `"assistant_turns_after":2`)
+	body = replaceProof(t, body, `"assistant_turn_delta":1`, `"assistant_turn_delta":2`)
+	body = replaceProof(t, body, `"transcript_messages_after":2`, `"transcript_messages_after":4`)
+	body = replaceProof(t, body, `"completed_turn_text":"Turn 1 completed."`, `"completed_turn_text":"Turn 2 completed."`)
+	path := writeSmokeProof(t, body)
 
 	if err := run([]string{path}); err != nil {
 		t.Fatalf("run: %v", err)
@@ -388,7 +415,7 @@ func TestRunRejectsInvalidLiveSmokeProof(t *testing.T) {
 		{
 			name: "missing browser proof",
 			body: func(t *testing.T) string {
-				return removeProof(t, validExistingProof(), `,"browser":{"state_loaded":true,"turn_result_observed":true,"assistant_turns_before":0,"assistant_turns_after":1,"transcript_messages_before":0,"transcript_messages_after":2,"connection_status_after_turn":"connected","submitted_message_visible":true,"submitted_message_length":1,"submitted_message_sha256":"`+testMessageSHA256+`","completed_turn_text":"Turn 1 completed."}`)
+				return removeProof(t, validExistingProof(), `,"browser":{"state_loaded":true,"turn_result_observed":true,"assistant_turns_before":0,"assistant_turns_after":1,"assistant_turn_delta":1,"transcript_messages_before":0,"transcript_messages_after":2,"connection_status_after_turn":"connected","submitted_message_visible":true,"submitted_message_length":1,"submitted_message_sha256":"`+testMessageSHA256+`","completed_turn_text":"Turn 1 completed.","consultation_insight_visible":true,"consultation_progress_visible":true,"evidence_readiness_visible":true,"confidence":"medium","confidence_aria_value":"medium confidence","evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"}`)
 			},
 			want: "browser proof",
 		},
@@ -408,6 +435,13 @@ func TestRunRejectsInvalidLiveSmokeProof(t *testing.T) {
 				return replaceProof(t, validExistingProof(), `"transcript_messages_after":2`, `"transcript_messages_after":1`)
 			},
 			want: "transcript_messages_after",
+		},
+		{
+			name: "browser assistant delta mismatch",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProof(), `"assistant_turn_delta":1`, `"assistant_turn_delta":2`)
+			},
+			want: "assistant_turn_delta",
 		},
 		{
 			name: "browser transcript count inconsistent before turn",
@@ -480,6 +514,34 @@ func TestRunRejectsInvalidLiveSmokeProof(t *testing.T) {
 				return replaceProof(t, validExistingProof(), `"submitted_message_sha256":"`+testMessageSHA256+`"`, `"submitted_message_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"`)
 			},
 			want: "browser.submitted_message_sha256 must match message_sha256",
+		},
+		{
+			name: "browser missing consultation insight",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProof(), `"consultation_insight_visible":true`, `"consultation_insight_visible":false`)
+			},
+			want: "browser.consultation_insight_visible",
+		},
+		{
+			name: "browser bad confidence",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProof(), `"confidence":"medium"`, `"confidence":"unknown"`)
+			},
+			want: "browser.confidence",
+		},
+		{
+			name: "browser confidence aria mismatch",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProof(), `"confidence_aria_value":"medium confidence"`, `"confidence_aria_value":"high confidence"`)
+			},
+			want: "browser.confidence_aria_value",
+		},
+		{
+			name: "browser evidence readiness missing next step",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProof(), `"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"`, `"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1"`)
+			},
+			want: "browser.evidence_readiness_text",
 		},
 		{
 			name: "evidence snapshot id string",
@@ -637,11 +699,11 @@ func TestRunRejectsInvalidLiveSmokeProof(t *testing.T) {
 }
 
 func validExistingProof() string {
-	return `{"passed":true,"checked_at":"2026-05-29T01:02:03Z","request":{"mode":"existing_session","session_id":"s","evidence_snapshot_id":null,"message_length":1,"message_sha256":"` + testMessageSHA256 + `"},"web_base_url":"http://127.0.0.1:32101","api_base_url":"http://127.0.0.1:8080","session_id":"s","evidence_snapshot_id":null,"created_room":null,"message_length":1,"message_sha256":"` + testMessageSHA256 + `","browser":{"state_loaded":true,"turn_result_observed":true,"assistant_turns_before":0,"assistant_turns_after":1,"transcript_messages_before":0,"transcript_messages_after":2,"connection_status_after_turn":"connected","submitted_message_visible":true,"submitted_message_length":1,"submitted_message_sha256":"` + testMessageSHA256 + `","completed_turn_text":"Turn 1 completed."},"evidence":"turn_result"}`
+	return `{"passed":true,"checked_at":"2026-05-29T01:02:03Z","request":{"mode":"existing_session","session_id":"s","evidence_snapshot_id":null,"message_length":1,"message_sha256":"` + testMessageSHA256 + `"},"web_base_url":"http://127.0.0.1:32101","api_base_url":"http://127.0.0.1:8080","session_id":"s","evidence_snapshot_id":null,"created_room":null,"message_length":1,"message_sha256":"` + testMessageSHA256 + `","browser":{"state_loaded":true,"turn_result_observed":true,"assistant_turns_before":0,"assistant_turns_after":1,"assistant_turn_delta":1,"transcript_messages_before":0,"transcript_messages_after":2,"connection_status_after_turn":"connected","submitted_message_visible":true,"submitted_message_length":1,"submitted_message_sha256":"` + testMessageSHA256 + `","completed_turn_text":"Turn 1 completed.","consultation_insight_visible":true,"consultation_progress_visible":true,"evidence_readiness_visible":true,"confidence":"medium","confidence_aria_value":"medium confidence","evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"},"evidence":"turn_result"}`
 }
 
 func validCreatedProof() string {
-	return `{"passed":true,"checked_at":"2026-05-29T01:02:03Z","request":{"mode":"create_room","session_id":"s","evidence_snapshot_id":7,"message_length":1,"message_sha256":"` + testMessageSHA256 + `"},"web_base_url":"http://127.0.0.1:32101","api_base_url":"http://127.0.0.1:8080","session_id":"s","evidence_snapshot_id":7,"created_room":{"session_id":"s","evidence_snapshot_id":7,"diagnosis_task_id":1,"chat_session_id":1,"workflow_id":"diagnosis-room-s","run_id":"run"},"message_length":1,"message_sha256":"` + testMessageSHA256 + `","browser":{"state_loaded":true,"turn_result_observed":true,"assistant_turns_before":0,"assistant_turns_after":1,"transcript_messages_before":0,"transcript_messages_after":2,"connection_status_after_turn":"connected","submitted_message_visible":true,"submitted_message_length":1,"submitted_message_sha256":"` + testMessageSHA256 + `","completed_turn_text":"Turn 1 completed."},"evidence":"turn_result"}`
+	return `{"passed":true,"checked_at":"2026-05-29T01:02:03Z","request":{"mode":"create_room","session_id":"s","evidence_snapshot_id":7,"message_length":1,"message_sha256":"` + testMessageSHA256 + `"},"web_base_url":"http://127.0.0.1:32101","api_base_url":"http://127.0.0.1:8080","session_id":"s","evidence_snapshot_id":7,"created_room":{"session_id":"s","evidence_snapshot_id":7,"diagnosis_task_id":1,"chat_session_id":1,"workflow_id":"diagnosis-room-s","run_id":"run"},"message_length":1,"message_sha256":"` + testMessageSHA256 + `","browser":{"state_loaded":true,"turn_result_observed":true,"assistant_turns_before":0,"assistant_turns_after":1,"assistant_turn_delta":1,"transcript_messages_before":0,"transcript_messages_after":2,"connection_status_after_turn":"connected","submitted_message_visible":true,"submitted_message_length":1,"submitted_message_sha256":"` + testMessageSHA256 + `","completed_turn_text":"Turn 1 completed.","consultation_insight_visible":true,"consultation_progress_visible":true,"evidence_readiness_visible":true,"confidence":"medium","confidence_aria_value":"medium confidence","evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"},"evidence":"turn_result"}`
 }
 
 func validCreatedProofWithCloseNotification() string {
