@@ -3,6 +3,7 @@ package temporal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/client"
+	sdktemporal "go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/openclarion/openclarion/internal/domain"
@@ -155,6 +157,56 @@ func TestReportWorkflowScheduleRegistrarSyncUpdatesExistingSchedule(t *testing.T
 	}
 	if action.ID != "report-policy-schedule-42" || action.TaskQueue != TaskQueue {
 		t.Fatalf("updated action = %+v", action)
+	}
+}
+
+func TestReportWorkflowScheduleRegistrarSyncUpdatesExistingScheduleFromSDKConflict(t *testing.T) {
+	schedule := mustRegistrarSchedule(t, true)
+	handle := &fakeScheduleHandle{id: "report-schedule-primary"}
+	creator := &recordingScheduleCreator{
+		err: fmt.Errorf("interceptor create schedule: %w", sdktemporal.ErrScheduleAlreadyRunning),
+		handles: map[string]client.ScheduleHandle{
+			"report-schedule-primary": handle,
+		},
+	}
+	registrar := newReportWorkflowScheduleRegistrar(creator)
+
+	result, err := registrar.Sync(context.Background(), schedule)
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if result.Action != ReportWorkflowScheduleSyncActionUpdated ||
+		result.ScheduleID != "report-schedule-primary" ||
+		result.Paused {
+		t.Fatalf("result = %+v", result)
+	}
+	if creator.calls != 1 || creator.getHandleCalls != 1 || handle.updateCalls != 1 {
+		t.Fatalf("calls: create=%d get=%d update=%d", creator.calls, creator.getHandleCalls, handle.updateCalls)
+	}
+}
+
+func TestReportWorkflowScheduleRegistrarSyncUpdatesExistingScheduleFromWorkflowAlreadyStarted(t *testing.T) {
+	schedule := mustRegistrarSchedule(t, true)
+	handle := &fakeScheduleHandle{id: "report-schedule-primary"}
+	creator := &recordingScheduleCreator{
+		err: serviceerror.NewWorkflowExecutionAlreadyStarted("schedule exists", "request-id", "run-id"),
+		handles: map[string]client.ScheduleHandle{
+			"report-schedule-primary": handle,
+		},
+	}
+	registrar := newReportWorkflowScheduleRegistrar(creator)
+
+	result, err := registrar.Sync(context.Background(), schedule)
+	if err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if result.Action != ReportWorkflowScheduleSyncActionUpdated ||
+		result.ScheduleID != "report-schedule-primary" ||
+		result.Paused {
+		t.Fatalf("result = %+v", result)
+	}
+	if creator.calls != 1 || creator.getHandleCalls != 1 || handle.updateCalls != 1 {
+		t.Fatalf("calls: create=%d get=%d update=%d", creator.calls, creator.getHandleCalls, handle.updateCalls)
 	}
 }
 

@@ -121,9 +121,12 @@ Evidence snapshot digest: %s
 Group index: %d
 
 Use only the evidence in this snapshot. Do not invent evidence IDs. Include the evidence snapshot ref in evidence_refs. If evidence is weak, set confidence to low and explain the uncertainty in the summary.
+Return all required top-level fields: title, summary, severity, confidence, findings, recommended_actions, and evidence_refs.
+Every findings item must include label, detail, and evidence_id. Every findings[].evidence_id must appear verbatim in evidence_refs. A safe valid choice is to use the evidence snapshot ref snapshot:%d as each finding evidence_id and include snapshot:%d in evidence_refs.
+Every recommended_actions item must include label, detail, and priority. Use priority only as low, medium, or high.
 
 Evidence snapshot JSON:
-%s`, in.Scenario, scenarioGuidance(in.Scenario), in.Snapshot.ID, in.Snapshot.ID, in.Snapshot.Digest, in.GroupIndex, payload)
+%s`, in.Scenario, scenarioGuidance(in.Scenario), in.Snapshot.ID, in.Snapshot.ID, in.Snapshot.Digest, in.GroupIndex, in.Snapshot.ID, in.Snapshot.ID, payload)
 }
 
 func finalReportUserPrompt(correlationKey string, subReports string) string {
@@ -131,6 +134,8 @@ func finalReportUserPrompt(correlationKey string, subReports string) string {
 Correlation key: %s
 
 Use only these validated SubReports. Do not add facts that are not present in the SubReport JSON. Notification text must be concise and operator-facing.
+Return all required top-level fields: title, executive_summary, severity, confidence, sub_reports, recommended_actions, and notification_text.
+Every recommended_actions item must include label, detail, and priority. Use priority only as low, medium, or high.
 
 Validated SubReports JSON:
 %s`, correlationKey, subReports)
@@ -170,8 +175,11 @@ func marshalCompact(label string, value any) (string, error) {
 
 const subReportSystemPrompt = `You are OpenClarion's headless incident SubReport writer.
 Return only JSON that matches the supplied schema. Do not include markdown, prose outside JSON, or tool-call text.
-Use evidence IDs exactly as supplied. Prefer concise operational language over speculation.`
+Use evidence IDs exactly as supplied. Prefer concise operational language over speculation.
+For findings, use only label, detail, and evidence_id fields.
+For recommended_actions, use only label, detail, and priority fields; do not use an action field.`
 
 const finalReportSystemPrompt = `You are OpenClarion's headless incident FinalReport writer.
 Return only JSON that matches the supplied schema. Do not include markdown, prose outside JSON, or tool-call text.
-Reduce validated SubReports into one operator-facing incident report and preserve uncertainty.`
+Reduce validated SubReports into one operator-facing incident report and preserve uncertainty.
+For recommended_actions, use only label, detail, and priority fields; do not use an action field.`

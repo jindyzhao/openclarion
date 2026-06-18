@@ -21,7 +21,7 @@ const (
 	// HardMaxIdleTimeout is the maximum accepted M5 V1 idle timeout.
 	HardMaxIdleTimeout = 30 * time.Minute
 	// HardMaxTurnTimeout is the maximum accepted M5 V1 per-turn timeout.
-	HardMaxTurnTimeout = 3 * time.Minute
+	HardMaxTurnTimeout = 5 * time.Minute
 	// HardMaxContextBytes is the maximum accepted mounted context size.
 	HardMaxContextBytes = 2 * 1024 * 1024
 	// HardMaxMessageBytes is the maximum accepted user message size.
@@ -37,7 +37,7 @@ const (
 	// DefaultIdleTimeout is the default V1 idle timeout.
 	DefaultIdleTimeout = 10 * time.Minute
 	// DefaultTurnTimeout is the default V1 per-turn timeout.
-	DefaultTurnTimeout = 2 * time.Minute
+	DefaultTurnTimeout = HardMaxTurnTimeout
 	// DefaultContextBytes is the default mounted context budget.
 	DefaultContextBytes = 256 * 1024
 	// DefaultMaxMessageBytes is the default user message byte cap.

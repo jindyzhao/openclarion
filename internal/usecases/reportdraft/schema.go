@@ -131,7 +131,7 @@ func FinalReportSchema() json.RawMessage {
 // ParseSubReport validates resp against the SubReport schema and
 // unmarshals the accepted JSON into a typed draft.
 func ParseSubReport(resp ports.LLMResponse) (SubReport, error) {
-	accepted, err := llmoutput.Validate(schemaRequest(SubReportSchemaID, json.RawMessage(subReportSchemaJSON)), resp)
+	accepted, err := ValidateSubReportResponse(schemaRequest(SubReportSchemaID, json.RawMessage(subReportSchemaJSON)), resp)
 	if err != nil {
 		return SubReport{}, err
 	}
@@ -148,7 +148,7 @@ func ParseSubReport(resp ports.LLMResponse) (SubReport, error) {
 // ParseFinalReport validates resp against the FinalReport schema and
 // unmarshals the accepted JSON into a typed draft.
 func ParseFinalReport(resp ports.LLMResponse) (FinalReport, error) {
-	accepted, err := llmoutput.Validate(schemaRequest(FinalReportSchemaID, json.RawMessage(finalReportSchemaJSON)), resp)
+	accepted, err := ValidateFinalReportResponse(schemaRequest(FinalReportSchemaID, json.RawMessage(finalReportSchemaJSON)), resp)
 	if err != nil {
 		return FinalReport{}, err
 	}
@@ -160,6 +160,40 @@ func ParseFinalReport(resp ports.LLMResponse) (FinalReport, error) {
 		return FinalReport{}, err
 	}
 	return out, nil
+}
+
+// ValidateSubReportResponse checks the provider response against both
+// the request schema and OpenClarion's stricter SubReport semantics.
+func ValidateSubReportResponse(req ports.LLMRequest, resp ports.LLMResponse) (llmoutput.Accepted, error) {
+	accepted, err := llmoutput.Validate(req, resp)
+	if err != nil {
+		return llmoutput.Accepted{}, err
+	}
+	var out SubReport
+	if err := json.Unmarshal(accepted.Content, &out); err != nil {
+		return llmoutput.Accepted{}, reportSchemaViolation(fmt.Errorf("parse sub report: %w", err))
+	}
+	if err := validateSubReport(out); err != nil {
+		return llmoutput.Accepted{}, err
+	}
+	return accepted, nil
+}
+
+// ValidateFinalReportResponse checks the provider response against both
+// the request schema and OpenClarion's stricter FinalReport semantics.
+func ValidateFinalReportResponse(req ports.LLMRequest, resp ports.LLMResponse) (llmoutput.Accepted, error) {
+	accepted, err := llmoutput.Validate(req, resp)
+	if err != nil {
+		return llmoutput.Accepted{}, err
+	}
+	var out FinalReport
+	if err := json.Unmarshal(accepted.Content, &out); err != nil {
+		return llmoutput.Accepted{}, reportSchemaViolation(fmt.Errorf("parse final report: %w", err))
+	}
+	if err := validateFinalReport(out); err != nil {
+		return llmoutput.Accepted{}, err
+	}
+	return accepted, nil
 }
 
 func schemaRequest(id string, schema json.RawMessage) ports.LLMRequest {

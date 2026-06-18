@@ -128,6 +128,51 @@ func TestGenerateValidated_RetriesValidationErrorWithFeedback(t *testing.T) {
 	}
 }
 
+func TestGenerateValidated_UsesCustomValidator(t *testing.T) {
+	rec := &recordingProvider{provider: fakellm.New(map[string][]fakellm.Result{
+		testKey: {
+			{Response: response(`{"title":"CPU","severity":"warning","findings":["high usage"]}`)},
+			{Response: response(`{"title":"CPU","severity":"warning","findings":["high usage"]}`)},
+		},
+	})}
+	validatorCalls := 0
+	validator := func(req ports.LLMRequest, resp ports.LLMResponse) (llmoutput.Accepted, error) {
+		accepted, err := llmoutput.Validate(req, resp)
+		if err != nil {
+			return llmoutput.Accepted{}, err
+		}
+		validatorCalls++
+		if validatorCalls == 1 {
+			return llmoutput.Accepted{}, &llmoutput.Error{
+				Reason:    llmoutput.ReasonSchemaViolation,
+				Retryable: true,
+				Err:       errors.New("semantic evidence_refs mismatch"),
+			}
+		}
+		return accepted, nil
+	}
+
+	got, err := GenerateValidated(context.Background(), Request{
+		Provider:    rec,
+		LLMRequest:  validRequest(),
+		MaxAttempts: 2,
+		Validator:   validator,
+	})
+	if err != nil {
+		t.Fatalf("GenerateValidated: %v", err)
+	}
+	if len(got.Attempts) != 2 {
+		t.Fatalf("attempts = %d, want 2", len(got.Attempts))
+	}
+	if validatorCalls != 2 {
+		t.Fatalf("validator calls = %d, want 2", validatorCalls)
+	}
+	if len(rec.requests) != 2 ||
+		!strings.Contains(rec.requests[1].Messages[1].Content, "semantic evidence_refs mismatch") {
+		t.Fatalf("second request feedback = %+v", rec.requests)
+	}
+}
+
 func TestGenerateValidated_StopsOnNonRetryableRefusal(t *testing.T) {
 	refusal := "cannot comply"
 	provider := fakellm.New(map[string][]fakellm.Result{

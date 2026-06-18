@@ -64,7 +64,12 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 		return DiagnosisTurnActivityResult{}, mapActivityError(err, "run-diagnosis-turn input")
 	}
 
-	containerReq, err := buildDiagnosisTurnContainerRequest(policy, req)
+	containerReq, err := buildDiagnosisTurnContainerRequest(
+		policy,
+		req,
+		a.diagnosisContainerNetworkPolicy(),
+		a.diagnosisContainerCredentials(policy.TurnTimeout),
+	)
 	if err != nil {
 		return DiagnosisTurnActivityResult{}, mapActivityError(err, "run-diagnosis-turn request")
 	}
@@ -146,7 +151,12 @@ func validateDiagnosisTurnActivityInput(policy diagnosisroom.Policy, req Diagnos
 	return nil
 }
 
-func buildDiagnosisTurnContainerRequest(policy diagnosisroom.Policy, req DiagnosisTurnActivityInput) (ports.ContainerRunRequest, error) {
+func buildDiagnosisTurnContainerRequest(
+	policy diagnosisroom.Policy,
+	req DiagnosisTurnActivityInput,
+	network ports.ContainerNetworkPolicy,
+	credentials []ports.ContainerCredential,
+) (ports.ContainerRunRequest, error) {
 	conversationRaw, err := json.Marshal(req.Conversation)
 	if err != nil {
 		return ports.ContainerRunRequest{}, fmt.Errorf("marshal conversation: %w", err)
@@ -166,9 +176,8 @@ func buildDiagnosisTurnContainerRequest(policy diagnosisroom.Policy, req Diagnos
 		Message:      messageRaw,
 		Timeout:      policy.TurnTimeout,
 		OutputMax:    ports.DefaultContainerOutputBytes,
-		Network: ports.ContainerNetworkPolicy{
-			Mode: ports.ContainerNetworkNone,
-		},
+		Network:      cloneContainerNetworkPolicy(network),
+		Credentials:  cloneContainerCredentials(credentials),
 		Metadata: map[string]string{
 			"session_id":         req.SessionID,
 			"diagnosis_task_id":  strconv.FormatInt(req.DiagnosisTaskID, 10),
@@ -185,6 +194,36 @@ func buildDiagnosisTurnContainerRequest(policy diagnosisroom.Policy, req Diagnos
 	return out, nil
 }
 
+func (a *Activities) diagnosisContainerNetworkPolicy() ports.ContainerNetworkPolicy {
+	if a == nil {
+		return ports.ContainerNetworkPolicy{Mode: ports.ContainerNetworkNone}
+	}
+	network := cloneContainerNetworkPolicy(a.containerNetwork)
+	if network.Mode == "" {
+		return ports.ContainerNetworkPolicy{Mode: ports.ContainerNetworkNone}
+	}
+	return network
+}
+
+func (a *Activities) diagnosisContainerCredentials(timeout time.Duration) []ports.ContainerCredential {
+	if a == nil || len(a.containerCredentials) == 0 {
+		return nil
+	}
+	if timeout == 0 {
+		timeout = ports.DefaultContainerRunTimeout
+	}
+	expiresAt := time.Now().UTC().Add(timeout)
+	out := make([]ports.ContainerCredential, 0, len(a.containerCredentials))
+	for _, credential := range a.containerCredentials {
+		out = append(out, ports.ContainerCredential{
+			Name:      credential.Name,
+			Value:     credential.Value,
+			ExpiresAt: expiresAt,
+		})
+	}
+	return out
+}
+
 func diagnosisTurnInvocationID(sessionID, messageID string, taskID int64) string {
 	sum := sha256.Sum256([]byte(sessionID + "\x00" + messageID))
 	return "diagnosis-room/task-" + strconv.FormatInt(taskID, 10) + "/msg-" + hex.EncodeToString(sum[:])[:24]
@@ -199,6 +238,40 @@ func cloneRawMessage(in json.RawMessage) json.RawMessage {
 		return nil
 	}
 	out := make(json.RawMessage, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneContainerCredentialTemplates(in []ContainerCredentialTemplate) []ContainerCredentialTemplate {
+	if in == nil {
+		return nil
+	}
+	out := make([]ContainerCredentialTemplate, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneContainerCredentials(in []ports.ContainerCredential) []ports.ContainerCredential {
+	if in == nil {
+		return nil
+	}
+	out := make([]ports.ContainerCredential, len(in))
+	copy(out, in)
+	return out
+}
+
+func cloneContainerNetworkPolicy(in ports.ContainerNetworkPolicy) ports.ContainerNetworkPolicy {
+	return ports.ContainerNetworkPolicy{
+		Mode:          in.Mode,
+		AllowedEgress: cloneStrings(in.AllowedEgress),
+	}
+}
+
+func cloneStrings(in []string) []string {
+	if in == nil {
+		return nil
+	}
+	out := make([]string, len(in))
 	copy(out, in)
 	return out
 }

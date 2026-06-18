@@ -114,6 +114,74 @@ func TestRunDiagnosisTurn_CallsContainerAndParsesOutput(t *testing.T) {
 	}
 }
 
+func TestRunDiagnosisTurn_InjectsRuntimeCredentialsAndNetwork(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	provider := fake.New(map[string][]fake.Result{
+		invocationID: {{
+			Run: ports.ContainerRunResult{
+				InvocationID: invocationID,
+				AgentName:    diagnosisRoomAgentName,
+				Output: json.RawMessage(`{
+					"schema_version": "diagnosis_turn.v1",
+					"message": "CPU saturation is concentrated on api-1.",
+					"findings": ["api-1 CPU exceeded threshold"],
+					"recommended_actions": ["Inspect recent deployment"],
+					"evidence_requests": [],
+					"confidence": "high",
+					"requires_human_review": false
+				}`),
+				ExitCode:   0,
+				StartedAt:  time.Date(2026, 5, 28, 14, 0, 0, 0, time.UTC),
+				FinishedAt: time.Date(2026, 5, 28, 14, 0, 1, 0, time.UTC),
+			},
+		}},
+	})
+
+	activities := NewActivities(nil,
+		WithContainerProvider(provider),
+		WithContainerCredentials([]ContainerCredentialTemplate{
+			{Name: "OPENCLARION_DIAGNOSIS_LLM_BASE_URL", Value: "https://llm.example.invalid/v1"},
+			{Name: "OPENCLARION_DIAGNOSIS_LLM_API_KEY", Value: "test-api-key"},
+			{Name: "OPENCLARION_DIAGNOSIS_LLM_MODEL", Value: "test-model"},
+		}),
+		WithContainerNetworkPolicy(ports.ContainerNetworkPolicy{
+			Mode:          ports.ContainerNetworkAllowlist,
+			AllowedEgress: []string{"llm.example.invalid:443"},
+		}),
+	)
+	if _, err := activities.RunDiagnosisTurn(context.Background(), req); err != nil {
+		t.Fatalf("RunDiagnosisTurn: %v", err)
+	}
+
+	recorded := provider.Requests(invocationID)
+	if len(recorded) != 1 {
+		t.Fatalf("recorded requests len = %d, want 1", len(recorded))
+	}
+	got := recorded[0]
+	if got.Network.Mode != ports.ContainerNetworkAllowlist ||
+		len(got.Network.AllowedEgress) != 1 ||
+		got.Network.AllowedEgress[0] != "llm.example.invalid:443" {
+		t.Fatalf("network = %+v", got.Network)
+	}
+	if len(got.Credentials) != 3 {
+		t.Fatalf("credentials len = %d, want 3", len(got.Credentials))
+	}
+	wantCredentials := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL": "https://llm.example.invalid/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":  "test-api-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":    "test-model",
+	}
+	for _, credential := range got.Credentials {
+		if wantCredentials[credential.Name] != credential.Value {
+			t.Fatalf("credential %q = %q", credential.Name, credential.Value)
+		}
+		if credential.ExpiresAt.IsZero() {
+			t.Fatalf("credential %q expiry is zero", credential.Name)
+		}
+	}
+}
+
 func TestCollectDiagnosisEvidence_ReturnsSkippedWhenNotConfigured(t *testing.T) {
 	activities := NewActivities(nil)
 	got, err := activities.CollectDiagnosisEvidence(context.Background(), CollectDiagnosisEvidenceInput{

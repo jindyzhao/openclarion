@@ -231,7 +231,7 @@ func reportChildWorkflowOptions(taskQueue string) workflow.ChildWorkflowOptions 
 
 func reportActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
-		StartToCloseTimeout: 2 * time.Minute,
+		StartToCloseTimeout: 5 * time.Minute,
 		RetryPolicy: &temporalsdk.RetryPolicy{
 			InitialInterval:    time.Second,
 			BackoffCoefficient: 2.0,

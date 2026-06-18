@@ -147,6 +147,77 @@ func TestTemporalTaskQueueFromEnv(t *testing.T) {
 	}
 }
 
+func TestPositiveDurationSecondsFromEnv(t *testing.T) {
+	tests := []struct {
+		name       string
+		env        map[string]string
+		fallback   time.Duration
+		want       time.Duration
+		wantSubstr string
+	}{
+		{
+			name:     "default",
+			fallback: 30 * time.Second,
+			want:     30 * time.Second,
+		},
+		{
+			name: "custom seconds",
+			env: map[string]string{
+				reportLLMHTTPTimeoutSecondsEnv: "120",
+			},
+			fallback: 30 * time.Second,
+			want:     120 * time.Second,
+		},
+		{
+			name: "zero",
+			env: map[string]string{
+				reportLLMHTTPTimeoutSecondsEnv: "0",
+			},
+			fallback:   30 * time.Second,
+			wantSubstr: reportLLMHTTPTimeoutSecondsEnv,
+		},
+		{
+			name: "non integer",
+			env: map[string]string{
+				reportLLMHTTPTimeoutSecondsEnv: "soon",
+			},
+			fallback:   30 * time.Second,
+			wantSubstr: reportLLMHTTPTimeoutSecondsEnv,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := positiveDurationSecondsFromEnv(mapGetenv(tc.env), reportLLMHTTPTimeoutSecondsEnv, tc.fallback)
+			if tc.wantSubstr != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tc.wantSubstr)
+				}
+				if !strings.Contains(err.Error(), tc.wantSubstr) {
+					t.Fatalf("error = %q, want substring %q", err.Error(), tc.wantSubstr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("positiveDurationSecondsFromEnv: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("duration = %s, want %s", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestOutboundHTTPClientPreservesTimeoutWithoutTracing(t *testing.T) {
+	client := outboundHTTPClient(nil, 45*time.Second)
+	if client == nil {
+		t.Fatal("client is nil")
+	}
+	if client.Timeout != 45*time.Second {
+		t.Fatalf("Timeout = %s, want 45s", client.Timeout)
+	}
+}
+
 func TestReportActivityOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -440,12 +511,116 @@ func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) 
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
 		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/runner"]`,
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
 	}), nil)
 	if err != nil {
 		t.Fatalf("diagnosisActivityOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 2 {
-		t.Fatalf("len(opts) = %d, want 2", len(opts))
+	if len(opts) != 4 {
+		t.Fatalf("len(opts) = %d, want 4", len(opts))
+	}
+}
+
+func TestDiagnosisActivityOptionsFromEnv_RejectsMissingDiagnosisLLMConfig(t *testing.T) {
+	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
+		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/runner"]`,
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
+	}), nil)
+	if err == nil {
+		t.Fatal("expected diagnosis LLM config error, got nil")
+	}
+	if !strings.Contains(err.Error(), "OPENCLARION_DIAGNOSIS_LLM_API_KEY") {
+		t.Fatalf("error = %q, want OPENCLARION_DIAGNOSIS_LLM_API_KEY", err.Error())
+	}
+	if strings.Contains(err.Error(), "test-api-key") {
+		t.Fatalf("error leaked credential value: %q", err.Error())
+	}
+}
+
+func TestDiagnosisContainerCredentialsFromEnv_IncludesOptionalRunnerConfig(t *testing.T) {
+	got, err := diagnosisContainerCredentialsFromEnv(mapGetenv(map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":             "https://llm.example.invalid/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":              "test-api-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":                "test-model",
+		"OPENCLARION_DIAGNOSIS_LLM_HTTP_TIMEOUT_SECONDS": "170",
+		"OPENCLARION_DIAGNOSIS_LLM_OUTPUT_MODE":          "json_schema",
+	}))
+	if err != nil {
+		t.Fatalf("diagnosisContainerCredentialsFromEnv: %v", err)
+	}
+	want := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":             "https://llm.example.invalid/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":              "test-api-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":                "test-model",
+		"OPENCLARION_DIAGNOSIS_LLM_HTTP_TIMEOUT_SECONDS": "170",
+		"OPENCLARION_DIAGNOSIS_LLM_OUTPUT_MODE":          "json_schema",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("credentials len = %d, want %d: %+v", len(got), len(want), got)
+	}
+	for _, credential := range got {
+		if want[credential.Name] != credential.Value {
+			t.Fatalf("credential %q = %q", credential.Name, credential.Value)
+		}
+		delete(want, credential.Name)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing credentials: %+v", want)
+	}
+}
+
+func TestDiagnosisContainerCredentialsFromEnv_RejectsInvalidOptionalRunnerConfig(t *testing.T) {
+	base := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL": "https://llm.example.invalid/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":  "test-api-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":    "test-model",
+	}
+	tests := []struct {
+		name       string
+		override   map[string]string
+		wantSubstr string
+	}{
+		{
+			name: "invalid timeout",
+			override: map[string]string{
+				"OPENCLARION_DIAGNOSIS_LLM_HTTP_TIMEOUT_SECONDS": "soon",
+			},
+			wantSubstr: "OPENCLARION_DIAGNOSIS_LLM_HTTP_TIMEOUT_SECONDS",
+		},
+		{
+			name: "invalid output mode",
+			override: map[string]string{
+				"OPENCLARION_DIAGNOSIS_LLM_OUTPUT_MODE": "markdown",
+			},
+			wantSubstr: "OPENCLARION_DIAGNOSIS_LLM_OUTPUT_MODE",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := map[string]string{}
+			for key, value := range base {
+				env[key] = value
+			}
+			for key, value := range tc.override {
+				env[key] = value
+			}
+			_, err := diagnosisContainerCredentialsFromEnv(mapGetenv(env))
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.wantSubstr) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tc.wantSubstr)
+			}
+			if strings.Contains(err.Error(), "test-api-key") {
+				t.Fatalf("error leaked credential value: %q", err.Error())
+			}
+		})
 	}
 }
 

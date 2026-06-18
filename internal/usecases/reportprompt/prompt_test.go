@@ -58,6 +58,7 @@ func TestBuildFinalReportRequest_StructuralGolden(t *testing.T) {
 		t.Fatalf("IdempotencyKey = %q", req.IdempotencyKey)
 	}
 	assertMessagesRequireJSON(t, req.Messages)
+	assertActionShapePrompt(t, req.Messages[0].Content)
 	if !strings.Contains(req.Messages[1].Content, `"recommended_actions"`) {
 		t.Fatalf("final user prompt does not include serialized subreports: %s", req.Messages[1].Content)
 	}
@@ -180,6 +181,7 @@ func assertSubReportRequestShape(t *testing.T, req ports.LLMRequest, snapshotID 
 		t.Fatalf("IdempotencyKey = %q, want %q", req.IdempotencyKey, wantKey)
 	}
 	assertMessagesRequireJSON(t, req.Messages)
+	assertActionShapePrompt(t, req.Messages[0].Content)
 	if !strings.Contains(req.Messages[1].Content, string(scenario)) {
 		t.Fatalf("user prompt missing scenario %q: %s", scenario, req.Messages[1].Content)
 	}
@@ -205,6 +207,21 @@ func assertMessagesRequireJSON(t *testing.T, messages []ports.LLMMessage) {
 	for i, msg := range messages {
 		if !strings.Contains(msg.Content, "JSON") {
 			t.Fatalf("message[%d] does not explicitly require JSON: %s", i, msg.Content)
+		}
+	}
+}
+
+func assertActionShapePrompt(t *testing.T, content string) {
+	t.Helper()
+	for _, want := range []string{
+		"recommended_actions",
+		"label",
+		"detail",
+		"priority",
+		"do not use an action field",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("system prompt missing %q: %s", want, content)
 		}
 	}
 }

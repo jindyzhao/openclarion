@@ -25,12 +25,21 @@ type Activities struct {
 	imProvider                   ports.IMProvider
 	notificationProviderResolver ports.NotificationChannelProviderResolver
 	containerProvider            ports.ContainerProvider
+	containerCredentials         []ContainerCredentialTemplate
+	containerNetwork             ports.ContainerNetworkPolicy
 	alertSourceProviders         *alertsourceprovider.Builder
 	reportPolicyReplayer         reportPolicyReplayer
 }
 
 // ActivityOption configures optional dependencies for activity handlers.
 type ActivityOption func(*Activities)
+
+// ContainerCredentialTemplate is a runtime-only environment value injected
+// into one sandbox invocation. Values must never be logged or persisted.
+type ContainerCredentialTemplate struct {
+	Name  string
+	Value string
+}
 
 // WithLLMProvider injects the provider used by report-generation
 // activities. Diagnosis-only workers may omit it; report workflows fail
@@ -64,6 +73,22 @@ func WithNotificationChannelProviderResolver(resolver ports.NotificationChannelP
 func WithContainerProvider(provider ports.ContainerProvider) ActivityOption {
 	return func(a *Activities) {
 		a.containerProvider = provider
+	}
+}
+
+// WithContainerCredentials injects runtime-only environment values for
+// per-turn diagnosis sandbox invocations.
+func WithContainerCredentials(credentials []ContainerCredentialTemplate) ActivityOption {
+	return func(a *Activities) {
+		a.containerCredentials = cloneContainerCredentialTemplates(credentials)
+	}
+}
+
+// WithContainerNetworkPolicy injects the sandbox egress policy used by
+// per-turn diagnosis sandbox invocations.
+func WithContainerNetworkPolicy(policy ports.ContainerNetworkPolicy) ActivityOption {
+	return func(a *Activities) {
+		a.containerNetwork = cloneContainerNetworkPolicy(policy)
 	}
 }
 
@@ -276,6 +301,7 @@ func (a *Activities) GenerateSubReport(ctx context.Context, req ReportFanOutWork
 	result, err := llmretry.GenerateValidated(ctx, llmretry.Request{
 		Provider:   a.llmProvider,
 		LLMRequest: llmReq,
+		Validator:  reportdraft.ValidateSubReportResponse,
 	})
 	if err != nil {
 		return ReportFanOutWorkflowResult{}, fmt.Errorf("generate-sub-report llm: %w", err)
@@ -347,6 +373,7 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 	result, err := llmretry.GenerateValidated(ctx, llmretry.Request{
 		Provider:   a.llmProvider,
 		LLMRequest: llmReq,
+		Validator:  reportdraft.ValidateFinalReportResponse,
 	})
 	if err != nil {
 		return FinalReportWorkflowResult{}, fmt.Errorf("generate-final-report llm: %w", err)

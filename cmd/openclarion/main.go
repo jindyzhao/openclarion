@@ -64,12 +64,14 @@ const (
 	alertSourceSecretRefsEnv = "OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON"
 	// #nosec G101 -- environment variable name only; values are read at runtime.
 	notificationChannelSecretRefsEnv   = "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON"
+	reportLLMHTTPTimeoutSecondsEnv     = "OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS"
 	reportReplayCLICommand             = "report-replay"
 	reportPolicyReplayCLICommand       = "report-policy-replay"
 	reportScheduleLiveSmokeCLICommand  = "report-schedule-live-smoke"
 	reportReplayCLICreatedByWorkflow   = "ReportReplayCLI"
 	defaultReportReplayCLILimit        = 10000
 	defaultReportReplayCLIWait         = 20 * time.Minute
+	defaultReportLLMHTTPTimeout        = 30 * time.Second
 	defaultReportScheduleLiveSmokeWait = 30 * time.Minute
 	defaultReportScheduleLiveSmokePoll = 5 * time.Second
 
@@ -349,11 +351,15 @@ func reportActivityOptionsFromEnv(
 		if model == "" {
 			return nil, fmt.Errorf("OPENCLARION_LLM_MODEL is required when configuring the report LLM provider")
 		}
+		timeout, err := positiveDurationSecondsFromEnv(getenv, reportLLMHTTPTimeoutSecondsEnv, defaultReportLLMHTTPTimeout)
+		if err != nil {
+			return nil, err
+		}
 		provider, err := openaillm.NewProviderWithCapabilityDetection(ctx, openaillm.Config{
 			BaseURL:    strings.TrimSpace(getenv("OPENCLARION_LLM_BASE_URL")),
 			APIKey:     strings.TrimSpace(getenv("OPENCLARION_LLM_API_KEY")),
 			Model:      model,
-			HTTPClient: outboundHTTPClient(httpTracing, 30*time.Second),
+			HTTPClient: outboundHTTPClient(httpTracing, timeout),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("configure report LLM provider: %w", err)
@@ -502,12 +508,17 @@ func diagnosisActivityOptionsFromEnv(
 	if err != nil {
 		return nil, err
 	}
+	containerCredentials, err := diagnosisContainerCredentialsFromEnv(getenv)
+	if err != nil {
+		return nil, err
+	}
 
 	var providerOpts []containerdocker.ProviderOption
 	if workspaceRoot := strings.TrimSpace(getenv("OPENCLARION_SANDBOX_WORKSPACE_ROOT")); workspaceRoot != "" {
 		providerOpts = append(providerOpts, containerdocker.WithWorkspaceRoot(workspaceRoot))
 	}
 	allowedEgress := csvValues(getenv("OPENCLARION_SANDBOX_EGRESS_ALLOWED"))
+	networkPolicy := ports.ContainerNetworkPolicy{Mode: ports.ContainerNetworkNone}
 	if len(allowedEgress) > 0 {
 		networkMode := strings.TrimSpace(getenv("OPENCLARION_SANDBOX_EGRESS_NETWORK"))
 		if networkMode == "" {
@@ -518,6 +529,10 @@ func diagnosisActivityOptionsFromEnv(
 			return nil, fmt.Errorf("configure sandbox egress enforcer: %w", err)
 		}
 		providerOpts = append(providerOpts, containerdocker.WithEgressEnforcer(enforcer))
+		networkPolicy = ports.ContainerNetworkPolicy{
+			Mode:          ports.ContainerNetworkAllowlist,
+			AllowedEgress: allowedEgress,
+		}
 	}
 
 	provider, err := containerdocker.NewProviderFromEnv(containerdocker.Config{
@@ -530,8 +545,52 @@ func diagnosisActivityOptionsFromEnv(
 		return nil, fmt.Errorf("configure diagnosis sandbox provider: %w", err)
 	}
 	logger.Info("configured diagnosis sandbox provider", "provider", "docker")
-	opts = append(opts, temporalpkg.WithContainerProvider(provider))
+	opts = append(opts,
+		temporalpkg.WithContainerProvider(provider),
+		temporalpkg.WithContainerCredentials(containerCredentials),
+		temporalpkg.WithContainerNetworkPolicy(networkPolicy),
+	)
 	return opts, nil
+}
+
+func diagnosisContainerCredentialsFromEnv(getenv getenvFunc) ([]temporalpkg.ContainerCredentialTemplate, error) {
+	requiredKeys := []string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL",
+	}
+	credentials := make([]temporalpkg.ContainerCredentialTemplate, 0, len(requiredKeys)+2)
+	for _, key := range requiredKeys {
+		value := strings.TrimSpace(getenv(key))
+		if value == "" {
+			return nil, fmt.Errorf("%s is required when configuring the diagnosis sandbox provider", key)
+		}
+		credentials = append(credentials, temporalpkg.ContainerCredentialTemplate{
+			Name:  key,
+			Value: value,
+		})
+	}
+	if rawTimeout := strings.TrimSpace(getenv("OPENCLARION_DIAGNOSIS_LLM_HTTP_TIMEOUT_SECONDS")); rawTimeout != "" {
+		if _, err := positiveDurationSecondsFromEnv(getenv, "OPENCLARION_DIAGNOSIS_LLM_HTTP_TIMEOUT_SECONDS", 0); err != nil {
+			return nil, err
+		}
+		credentials = append(credentials, temporalpkg.ContainerCredentialTemplate{
+			Name:  "OPENCLARION_DIAGNOSIS_LLM_HTTP_TIMEOUT_SECONDS",
+			Value: rawTimeout,
+		})
+	}
+	if outputMode := strings.TrimSpace(getenv("OPENCLARION_DIAGNOSIS_LLM_OUTPUT_MODE")); outputMode != "" {
+		switch ports.LLMOutputMode(outputMode) {
+		case ports.LLMOutputModeJSONSchema, ports.LLMOutputModeJSONObject:
+			credentials = append(credentials, temporalpkg.ContainerCredentialTemplate{
+				Name:  "OPENCLARION_DIAGNOSIS_LLM_OUTPUT_MODE",
+				Value: outputMode,
+			})
+		default:
+			return nil, fmt.Errorf("OPENCLARION_DIAGNOSIS_LLM_OUTPUT_MODE must be %q or %q", ports.LLMOutputModeJSONSchema, ports.LLMOutputModeJSONObject)
+		}
+	}
+	return credentials, nil
 }
 
 func httpServerOptionsFromEnv(
@@ -839,8 +898,11 @@ func diagnosisServerOptionsFromEnv(
 }
 
 func outboundHTTPClient(httpTracing *observabilitytracing.HTTPTracing, timeout time.Duration) *http.Client {
+	if timeout <= 0 {
+		timeout = defaultReportLLMHTTPTimeout
+	}
 	if httpTracing == nil {
-		return nil
+		return &http.Client{Timeout: timeout}
 	}
 	return httpTracing.HTTPClient(timeout)
 }
@@ -873,6 +935,22 @@ func anyEnv(getenv getenvFunc, keys ...string) bool {
 		}
 	}
 	return false
+}
+
+func positiveDurationSecondsFromEnv(getenv getenvFunc, key string, fallback time.Duration) (time.Duration, error) {
+	raw := strings.TrimSpace(getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	seconds, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || seconds <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer number of seconds", key)
+	}
+	maxSeconds := int64(1<<63-1) / int64(time.Second)
+	if seconds > maxSeconds {
+		return 0, fmt.Errorf("%s exceeds maximum supported duration", key)
+	}
+	return time.Duration(seconds) * time.Second, nil
 }
 
 type diagnosisChatSessionResolver struct {
