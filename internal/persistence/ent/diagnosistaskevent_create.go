@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
@@ -20,6 +21,7 @@ type DiagnosisTaskEventCreate struct {
 	config
 	mutation *DiagnosisTaskEventMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetTaskID sets the "task_id" field.
@@ -173,6 +175,7 @@ func (_c *DiagnosisTaskEventCreate) createSpec() (*DiagnosisTaskEvent, *sqlgraph
 		_node = &DiagnosisTaskEvent{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(diagnosistaskevent.Table, sqlgraph.NewFieldSpec(diagnosistaskevent.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.Kind(); ok {
 		_spec.SetField(diagnosistaskevent.FieldKind, field.TypeString, value)
 		_node.Kind = value
@@ -213,11 +216,226 @@ func (_c *DiagnosisTaskEventCreate) createSpec() (*DiagnosisTaskEvent, *sqlgraph
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.DiagnosisTaskEvent.Create().
+//		SetTaskID(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.DiagnosisTaskEventUpsert) {
+//			SetTaskID(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *DiagnosisTaskEventCreate) OnConflict(opts ...sql.ConflictOption) *DiagnosisTaskEventUpsertOne {
+	_c.conflict = opts
+	return &DiagnosisTaskEventUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.DiagnosisTaskEvent.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *DiagnosisTaskEventCreate) OnConflictColumns(columns ...string) *DiagnosisTaskEventUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &DiagnosisTaskEventUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// DiagnosisTaskEventUpsertOne is the builder for "upsert"-ing
+	//  one DiagnosisTaskEvent node.
+	DiagnosisTaskEventUpsertOne struct {
+		create *DiagnosisTaskEventCreate
+	}
+
+	// DiagnosisTaskEventUpsert is the "OnConflict" setter.
+	DiagnosisTaskEventUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetPayload sets the "payload" field.
+func (u *DiagnosisTaskEventUpsert) SetPayload(v json.RawMessage) *DiagnosisTaskEventUpsert {
+	u.Set(diagnosistaskevent.FieldPayload, v)
+	return u
+}
+
+// UpdatePayload sets the "payload" field to the value that was provided on create.
+func (u *DiagnosisTaskEventUpsert) UpdatePayload() *DiagnosisTaskEventUpsert {
+	u.SetExcluded(diagnosistaskevent.FieldPayload)
+	return u
+}
+
+// ClearPayload clears the value of the "payload" field.
+func (u *DiagnosisTaskEventUpsert) ClearPayload() *DiagnosisTaskEventUpsert {
+	u.SetNull(diagnosistaskevent.FieldPayload)
+	return u
+}
+
+// SetDedupeKey sets the "dedupe_key" field.
+func (u *DiagnosisTaskEventUpsert) SetDedupeKey(v string) *DiagnosisTaskEventUpsert {
+	u.Set(diagnosistaskevent.FieldDedupeKey, v)
+	return u
+}
+
+// UpdateDedupeKey sets the "dedupe_key" field to the value that was provided on create.
+func (u *DiagnosisTaskEventUpsert) UpdateDedupeKey() *DiagnosisTaskEventUpsert {
+	u.SetExcluded(diagnosistaskevent.FieldDedupeKey)
+	return u
+}
+
+// ClearDedupeKey clears the value of the "dedupe_key" field.
+func (u *DiagnosisTaskEventUpsert) ClearDedupeKey() *DiagnosisTaskEventUpsert {
+	u.SetNull(diagnosistaskevent.FieldDedupeKey)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.DiagnosisTaskEvent.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *DiagnosisTaskEventUpsertOne) UpdateNewValues() *DiagnosisTaskEventUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TaskID(); exists {
+			s.SetIgnore(diagnosistaskevent.FieldTaskID)
+		}
+		if _, exists := u.create.mutation.Kind(); exists {
+			s.SetIgnore(diagnosistaskevent.FieldKind)
+		}
+		if _, exists := u.create.mutation.OccurredAt(); exists {
+			s.SetIgnore(diagnosistaskevent.FieldOccurredAt)
+		}
+		if _, exists := u.create.mutation.RecordedAt(); exists {
+			s.SetIgnore(diagnosistaskevent.FieldRecordedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.DiagnosisTaskEvent.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *DiagnosisTaskEventUpsertOne) Ignore() *DiagnosisTaskEventUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *DiagnosisTaskEventUpsertOne) DoNothing() *DiagnosisTaskEventUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the DiagnosisTaskEventCreate.OnConflict
+// documentation for more info.
+func (u *DiagnosisTaskEventUpsertOne) Update(set func(*DiagnosisTaskEventUpsert)) *DiagnosisTaskEventUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&DiagnosisTaskEventUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetPayload sets the "payload" field.
+func (u *DiagnosisTaskEventUpsertOne) SetPayload(v json.RawMessage) *DiagnosisTaskEventUpsertOne {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.SetPayload(v)
+	})
+}
+
+// UpdatePayload sets the "payload" field to the value that was provided on create.
+func (u *DiagnosisTaskEventUpsertOne) UpdatePayload() *DiagnosisTaskEventUpsertOne {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.UpdatePayload()
+	})
+}
+
+// ClearPayload clears the value of the "payload" field.
+func (u *DiagnosisTaskEventUpsertOne) ClearPayload() *DiagnosisTaskEventUpsertOne {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.ClearPayload()
+	})
+}
+
+// SetDedupeKey sets the "dedupe_key" field.
+func (u *DiagnosisTaskEventUpsertOne) SetDedupeKey(v string) *DiagnosisTaskEventUpsertOne {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.SetDedupeKey(v)
+	})
+}
+
+// UpdateDedupeKey sets the "dedupe_key" field to the value that was provided on create.
+func (u *DiagnosisTaskEventUpsertOne) UpdateDedupeKey() *DiagnosisTaskEventUpsertOne {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.UpdateDedupeKey()
+	})
+}
+
+// ClearDedupeKey clears the value of the "dedupe_key" field.
+func (u *DiagnosisTaskEventUpsertOne) ClearDedupeKey() *DiagnosisTaskEventUpsertOne {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.ClearDedupeKey()
+	})
+}
+
+// Exec executes the query.
+func (u *DiagnosisTaskEventUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for DiagnosisTaskEventCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *DiagnosisTaskEventUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *DiagnosisTaskEventUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *DiagnosisTaskEventUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // DiagnosisTaskEventCreateBulk is the builder for creating many DiagnosisTaskEvent entities in bulk.
 type DiagnosisTaskEventCreateBulk struct {
 	config
 	err      error
 	builders []*DiagnosisTaskEventCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the DiagnosisTaskEvent entities in the database.
@@ -247,6 +465,7 @@ func (_c *DiagnosisTaskEventCreateBulk) Save(ctx context.Context) ([]*DiagnosisT
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -297,6 +516,168 @@ func (_c *DiagnosisTaskEventCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *DiagnosisTaskEventCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.DiagnosisTaskEvent.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.DiagnosisTaskEventUpsert) {
+//			SetTaskID(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *DiagnosisTaskEventCreateBulk) OnConflict(opts ...sql.ConflictOption) *DiagnosisTaskEventUpsertBulk {
+	_c.conflict = opts
+	return &DiagnosisTaskEventUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.DiagnosisTaskEvent.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *DiagnosisTaskEventCreateBulk) OnConflictColumns(columns ...string) *DiagnosisTaskEventUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &DiagnosisTaskEventUpsertBulk{
+		create: _c,
+	}
+}
+
+// DiagnosisTaskEventUpsertBulk is the builder for "upsert"-ing
+// a bulk of DiagnosisTaskEvent nodes.
+type DiagnosisTaskEventUpsertBulk struct {
+	create *DiagnosisTaskEventCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.DiagnosisTaskEvent.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *DiagnosisTaskEventUpsertBulk) UpdateNewValues() *DiagnosisTaskEventUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TaskID(); exists {
+				s.SetIgnore(diagnosistaskevent.FieldTaskID)
+			}
+			if _, exists := b.mutation.Kind(); exists {
+				s.SetIgnore(diagnosistaskevent.FieldKind)
+			}
+			if _, exists := b.mutation.OccurredAt(); exists {
+				s.SetIgnore(diagnosistaskevent.FieldOccurredAt)
+			}
+			if _, exists := b.mutation.RecordedAt(); exists {
+				s.SetIgnore(diagnosistaskevent.FieldRecordedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.DiagnosisTaskEvent.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *DiagnosisTaskEventUpsertBulk) Ignore() *DiagnosisTaskEventUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *DiagnosisTaskEventUpsertBulk) DoNothing() *DiagnosisTaskEventUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the DiagnosisTaskEventCreateBulk.OnConflict
+// documentation for more info.
+func (u *DiagnosisTaskEventUpsertBulk) Update(set func(*DiagnosisTaskEventUpsert)) *DiagnosisTaskEventUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&DiagnosisTaskEventUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetPayload sets the "payload" field.
+func (u *DiagnosisTaskEventUpsertBulk) SetPayload(v json.RawMessage) *DiagnosisTaskEventUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.SetPayload(v)
+	})
+}
+
+// UpdatePayload sets the "payload" field to the value that was provided on create.
+func (u *DiagnosisTaskEventUpsertBulk) UpdatePayload() *DiagnosisTaskEventUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.UpdatePayload()
+	})
+}
+
+// ClearPayload clears the value of the "payload" field.
+func (u *DiagnosisTaskEventUpsertBulk) ClearPayload() *DiagnosisTaskEventUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.ClearPayload()
+	})
+}
+
+// SetDedupeKey sets the "dedupe_key" field.
+func (u *DiagnosisTaskEventUpsertBulk) SetDedupeKey(v string) *DiagnosisTaskEventUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.SetDedupeKey(v)
+	})
+}
+
+// UpdateDedupeKey sets the "dedupe_key" field to the value that was provided on create.
+func (u *DiagnosisTaskEventUpsertBulk) UpdateDedupeKey() *DiagnosisTaskEventUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.UpdateDedupeKey()
+	})
+}
+
+// ClearDedupeKey clears the value of the "dedupe_key" field.
+func (u *DiagnosisTaskEventUpsertBulk) ClearDedupeKey() *DiagnosisTaskEventUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskEventUpsert) {
+		s.ClearDedupeKey()
+	})
+}
+
+// Exec executes the query.
+func (u *DiagnosisTaskEventUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the DiagnosisTaskEventCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for DiagnosisTaskEventCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *DiagnosisTaskEventUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }

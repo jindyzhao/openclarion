@@ -13,4 +13,4 @@
 // pattern already used by `vacuum` and `oapi-codegen-exp`.
 package ent
 
-//go:generate go tool entgo.io/ent/cmd/ent generate ./schema
+//go:generate go tool entgo.io/ent/cmd/ent generate --feature sql/upsert ./schema

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
@@ -21,6 +22,7 @@ type AlertGroupCreate struct {
 	config
 	mutation *AlertGroupMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetGroupKey sets the "group_key" field.
@@ -279,6 +281,7 @@ func (_c *AlertGroupCreate) createSpec() (*AlertGroup, *sqlgraph.CreateSpec) {
 		_node = &AlertGroup{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(alertgroup.Table, sqlgraph.NewFieldSpec(alertgroup.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.GroupKey(); ok {
 		_spec.SetField(alertgroup.FieldGroupKey, field.TypeString, value)
 		_node.GroupKey = value
@@ -350,11 +353,314 @@ func (_c *AlertGroupCreate) createSpec() (*AlertGroup, *sqlgraph.CreateSpec) {
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.AlertGroup.Create().
+//		SetGroupKey(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.AlertGroupUpsert) {
+//			SetGroupKey(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *AlertGroupCreate) OnConflict(opts ...sql.ConflictOption) *AlertGroupUpsertOne {
+	_c.conflict = opts
+	return &AlertGroupUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.AlertGroup.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *AlertGroupCreate) OnConflictColumns(columns ...string) *AlertGroupUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &AlertGroupUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// AlertGroupUpsertOne is the builder for "upsert"-ing
+	//  one AlertGroup node.
+	AlertGroupUpsertOne struct {
+		create *AlertGroupCreate
+	}
+
+	// AlertGroupUpsert is the "OnConflict" setter.
+	AlertGroupUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetDimensions sets the "dimensions" field.
+func (u *AlertGroupUpsert) SetDimensions(v json.RawMessage) *AlertGroupUpsert {
+	u.Set(alertgroup.FieldDimensions, v)
+	return u
+}
+
+// UpdateDimensions sets the "dimensions" field to the value that was provided on create.
+func (u *AlertGroupUpsert) UpdateDimensions() *AlertGroupUpsert {
+	u.SetExcluded(alertgroup.FieldDimensions)
+	return u
+}
+
+// SetSeverity sets the "severity" field.
+func (u *AlertGroupUpsert) SetSeverity(v string) *AlertGroupUpsert {
+	u.Set(alertgroup.FieldSeverity, v)
+	return u
+}
+
+// UpdateSeverity sets the "severity" field to the value that was provided on create.
+func (u *AlertGroupUpsert) UpdateSeverity() *AlertGroupUpsert {
+	u.SetExcluded(alertgroup.FieldSeverity)
+	return u
+}
+
+// SetEventCount sets the "event_count" field.
+func (u *AlertGroupUpsert) SetEventCount(v int) *AlertGroupUpsert {
+	u.Set(alertgroup.FieldEventCount, v)
+	return u
+}
+
+// UpdateEventCount sets the "event_count" field to the value that was provided on create.
+func (u *AlertGroupUpsert) UpdateEventCount() *AlertGroupUpsert {
+	u.SetExcluded(alertgroup.FieldEventCount)
+	return u
+}
+
+// AddEventCount adds v to the "event_count" field.
+func (u *AlertGroupUpsert) AddEventCount(v int) *AlertGroupUpsert {
+	u.Add(alertgroup.FieldEventCount, v)
+	return u
+}
+
+// SetStatus sets the "status" field.
+func (u *AlertGroupUpsert) SetStatus(v string) *AlertGroupUpsert {
+	u.Set(alertgroup.FieldStatus, v)
+	return u
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *AlertGroupUpsert) UpdateStatus() *AlertGroupUpsert {
+	u.SetExcluded(alertgroup.FieldStatus)
+	return u
+}
+
+// SetLastSeenAt sets the "last_seen_at" field.
+func (u *AlertGroupUpsert) SetLastSeenAt(v time.Time) *AlertGroupUpsert {
+	u.Set(alertgroup.FieldLastSeenAt, v)
+	return u
+}
+
+// UpdateLastSeenAt sets the "last_seen_at" field to the value that was provided on create.
+func (u *AlertGroupUpsert) UpdateLastSeenAt() *AlertGroupUpsert {
+	u.SetExcluded(alertgroup.FieldLastSeenAt)
+	return u
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *AlertGroupUpsert) SetUpdatedAt(v time.Time) *AlertGroupUpsert {
+	u.Set(alertgroup.FieldUpdatedAt, v)
+	return u
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *AlertGroupUpsert) UpdateUpdatedAt() *AlertGroupUpsert {
+	u.SetExcluded(alertgroup.FieldUpdatedAt)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.AlertGroup.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *AlertGroupUpsertOne) UpdateNewValues() *AlertGroupUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.GroupKey(); exists {
+			s.SetIgnore(alertgroup.FieldGroupKey)
+		}
+		if _, exists := u.create.mutation.FirstSeenAt(); exists {
+			s.SetIgnore(alertgroup.FieldFirstSeenAt)
+		}
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(alertgroup.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.AlertGroup.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *AlertGroupUpsertOne) Ignore() *AlertGroupUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *AlertGroupUpsertOne) DoNothing() *AlertGroupUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the AlertGroupCreate.OnConflict
+// documentation for more info.
+func (u *AlertGroupUpsertOne) Update(set func(*AlertGroupUpsert)) *AlertGroupUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&AlertGroupUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetDimensions sets the "dimensions" field.
+func (u *AlertGroupUpsertOne) SetDimensions(v json.RawMessage) *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetDimensions(v)
+	})
+}
+
+// UpdateDimensions sets the "dimensions" field to the value that was provided on create.
+func (u *AlertGroupUpsertOne) UpdateDimensions() *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateDimensions()
+	})
+}
+
+// SetSeverity sets the "severity" field.
+func (u *AlertGroupUpsertOne) SetSeverity(v string) *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetSeverity(v)
+	})
+}
+
+// UpdateSeverity sets the "severity" field to the value that was provided on create.
+func (u *AlertGroupUpsertOne) UpdateSeverity() *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateSeverity()
+	})
+}
+
+// SetEventCount sets the "event_count" field.
+func (u *AlertGroupUpsertOne) SetEventCount(v int) *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetEventCount(v)
+	})
+}
+
+// AddEventCount adds v to the "event_count" field.
+func (u *AlertGroupUpsertOne) AddEventCount(v int) *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.AddEventCount(v)
+	})
+}
+
+// UpdateEventCount sets the "event_count" field to the value that was provided on create.
+func (u *AlertGroupUpsertOne) UpdateEventCount() *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateEventCount()
+	})
+}
+
+// SetStatus sets the "status" field.
+func (u *AlertGroupUpsertOne) SetStatus(v string) *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetStatus(v)
+	})
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *AlertGroupUpsertOne) UpdateStatus() *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateStatus()
+	})
+}
+
+// SetLastSeenAt sets the "last_seen_at" field.
+func (u *AlertGroupUpsertOne) SetLastSeenAt(v time.Time) *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetLastSeenAt(v)
+	})
+}
+
+// UpdateLastSeenAt sets the "last_seen_at" field to the value that was provided on create.
+func (u *AlertGroupUpsertOne) UpdateLastSeenAt() *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateLastSeenAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *AlertGroupUpsertOne) SetUpdatedAt(v time.Time) *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *AlertGroupUpsertOne) UpdateUpdatedAt() *AlertGroupUpsertOne {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *AlertGroupUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for AlertGroupCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *AlertGroupUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *AlertGroupUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *AlertGroupUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // AlertGroupCreateBulk is the builder for creating many AlertGroup entities in bulk.
 type AlertGroupCreateBulk struct {
 	config
 	err      error
 	builders []*AlertGroupCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the AlertGroup entities in the database.
@@ -384,6 +690,7 @@ func (_c *AlertGroupCreateBulk) Save(ctx context.Context) ([]*AlertGroup, error)
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -434,6 +741,214 @@ func (_c *AlertGroupCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *AlertGroupCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.AlertGroup.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.AlertGroupUpsert) {
+//			SetGroupKey(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *AlertGroupCreateBulk) OnConflict(opts ...sql.ConflictOption) *AlertGroupUpsertBulk {
+	_c.conflict = opts
+	return &AlertGroupUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.AlertGroup.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *AlertGroupCreateBulk) OnConflictColumns(columns ...string) *AlertGroupUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &AlertGroupUpsertBulk{
+		create: _c,
+	}
+}
+
+// AlertGroupUpsertBulk is the builder for "upsert"-ing
+// a bulk of AlertGroup nodes.
+type AlertGroupUpsertBulk struct {
+	create *AlertGroupCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.AlertGroup.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *AlertGroupUpsertBulk) UpdateNewValues() *AlertGroupUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.GroupKey(); exists {
+				s.SetIgnore(alertgroup.FieldGroupKey)
+			}
+			if _, exists := b.mutation.FirstSeenAt(); exists {
+				s.SetIgnore(alertgroup.FieldFirstSeenAt)
+			}
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(alertgroup.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.AlertGroup.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *AlertGroupUpsertBulk) Ignore() *AlertGroupUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *AlertGroupUpsertBulk) DoNothing() *AlertGroupUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the AlertGroupCreateBulk.OnConflict
+// documentation for more info.
+func (u *AlertGroupUpsertBulk) Update(set func(*AlertGroupUpsert)) *AlertGroupUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&AlertGroupUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetDimensions sets the "dimensions" field.
+func (u *AlertGroupUpsertBulk) SetDimensions(v json.RawMessage) *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetDimensions(v)
+	})
+}
+
+// UpdateDimensions sets the "dimensions" field to the value that was provided on create.
+func (u *AlertGroupUpsertBulk) UpdateDimensions() *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateDimensions()
+	})
+}
+
+// SetSeverity sets the "severity" field.
+func (u *AlertGroupUpsertBulk) SetSeverity(v string) *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetSeverity(v)
+	})
+}
+
+// UpdateSeverity sets the "severity" field to the value that was provided on create.
+func (u *AlertGroupUpsertBulk) UpdateSeverity() *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateSeverity()
+	})
+}
+
+// SetEventCount sets the "event_count" field.
+func (u *AlertGroupUpsertBulk) SetEventCount(v int) *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetEventCount(v)
+	})
+}
+
+// AddEventCount adds v to the "event_count" field.
+func (u *AlertGroupUpsertBulk) AddEventCount(v int) *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.AddEventCount(v)
+	})
+}
+
+// UpdateEventCount sets the "event_count" field to the value that was provided on create.
+func (u *AlertGroupUpsertBulk) UpdateEventCount() *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateEventCount()
+	})
+}
+
+// SetStatus sets the "status" field.
+func (u *AlertGroupUpsertBulk) SetStatus(v string) *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetStatus(v)
+	})
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *AlertGroupUpsertBulk) UpdateStatus() *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateStatus()
+	})
+}
+
+// SetLastSeenAt sets the "last_seen_at" field.
+func (u *AlertGroupUpsertBulk) SetLastSeenAt(v time.Time) *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetLastSeenAt(v)
+	})
+}
+
+// UpdateLastSeenAt sets the "last_seen_at" field to the value that was provided on create.
+func (u *AlertGroupUpsertBulk) UpdateLastSeenAt() *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateLastSeenAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *AlertGroupUpsertBulk) SetUpdatedAt(v time.Time) *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *AlertGroupUpsertBulk) UpdateUpdatedAt() *AlertGroupUpsertBulk {
+	return u.Update(func(s *AlertGroupUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *AlertGroupUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the AlertGroupCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for AlertGroupCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *AlertGroupUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }

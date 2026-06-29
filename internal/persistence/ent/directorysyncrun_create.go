@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/directorysyncrun"
@@ -18,6 +19,7 @@ type DirectorySyncRunCreate struct {
 	config
 	mutation *DirectorySyncRunMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetProvider sets the "provider" field.
@@ -291,6 +293,7 @@ func (_c *DirectorySyncRunCreate) createSpec() (*DirectorySyncRun, *sqlgraph.Cre
 		_node = &DirectorySyncRun{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(directorysyncrun.Table, sqlgraph.NewFieldSpec(directorysyncrun.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.Provider(); ok {
 		_spec.SetField(directorysyncrun.FieldProvider, field.TypeString, value)
 		_node.Provider = value
@@ -342,11 +345,503 @@ func (_c *DirectorySyncRunCreate) createSpec() (*DirectorySyncRun, *sqlgraph.Cre
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.DirectorySyncRun.Create().
+//		SetProvider(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.DirectorySyncRunUpsert) {
+//			SetProvider(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *DirectorySyncRunCreate) OnConflict(opts ...sql.ConflictOption) *DirectorySyncRunUpsertOne {
+	_c.conflict = opts
+	return &DirectorySyncRunUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.DirectorySyncRun.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *DirectorySyncRunCreate) OnConflictColumns(columns ...string) *DirectorySyncRunUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &DirectorySyncRunUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// DirectorySyncRunUpsertOne is the builder for "upsert"-ing
+	//  one DirectorySyncRun node.
+	DirectorySyncRunUpsertOne struct {
+		create *DirectorySyncRunCreate
+	}
+
+	// DirectorySyncRunUpsert is the "OnConflict" setter.
+	DirectorySyncRunUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetProvider sets the "provider" field.
+func (u *DirectorySyncRunUpsert) SetProvider(v string) *DirectorySyncRunUpsert {
+	u.Set(directorysyncrun.FieldProvider, v)
+	return u
+}
+
+// UpdateProvider sets the "provider" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsert) UpdateProvider() *DirectorySyncRunUpsert {
+	u.SetExcluded(directorysyncrun.FieldProvider)
+	return u
+}
+
+// SetPageSize sets the "page_size" field.
+func (u *DirectorySyncRunUpsert) SetPageSize(v int) *DirectorySyncRunUpsert {
+	u.Set(directorysyncrun.FieldPageSize, v)
+	return u
+}
+
+// UpdatePageSize sets the "page_size" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsert) UpdatePageSize() *DirectorySyncRunUpsert {
+	u.SetExcluded(directorysyncrun.FieldPageSize)
+	return u
+}
+
+// AddPageSize adds v to the "page_size" field.
+func (u *DirectorySyncRunUpsert) AddPageSize(v int) *DirectorySyncRunUpsert {
+	u.Add(directorysyncrun.FieldPageSize, v)
+	return u
+}
+
+// SetUpdatedAfter sets the "updated_after" field.
+func (u *DirectorySyncRunUpsert) SetUpdatedAfter(v time.Time) *DirectorySyncRunUpsert {
+	u.Set(directorysyncrun.FieldUpdatedAfter, v)
+	return u
+}
+
+// UpdateUpdatedAfter sets the "updated_after" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsert) UpdateUpdatedAfter() *DirectorySyncRunUpsert {
+	u.SetExcluded(directorysyncrun.FieldUpdatedAfter)
+	return u
+}
+
+// ClearUpdatedAfter clears the value of the "updated_after" field.
+func (u *DirectorySyncRunUpsert) ClearUpdatedAfter() *DirectorySyncRunUpsert {
+	u.SetNull(directorysyncrun.FieldUpdatedAfter)
+	return u
+}
+
+// SetStatus sets the "status" field.
+func (u *DirectorySyncRunUpsert) SetStatus(v string) *DirectorySyncRunUpsert {
+	u.Set(directorysyncrun.FieldStatus, v)
+	return u
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsert) UpdateStatus() *DirectorySyncRunUpsert {
+	u.SetExcluded(directorysyncrun.FieldStatus)
+	return u
+}
+
+// SetFailureCode sets the "failure_code" field.
+func (u *DirectorySyncRunUpsert) SetFailureCode(v string) *DirectorySyncRunUpsert {
+	u.Set(directorysyncrun.FieldFailureCode, v)
+	return u
+}
+
+// UpdateFailureCode sets the "failure_code" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsert) UpdateFailureCode() *DirectorySyncRunUpsert {
+	u.SetExcluded(directorysyncrun.FieldFailureCode)
+	return u
+}
+
+// SetFailureMessage sets the "failure_message" field.
+func (u *DirectorySyncRunUpsert) SetFailureMessage(v string) *DirectorySyncRunUpsert {
+	u.Set(directorysyncrun.FieldFailureMessage, v)
+	return u
+}
+
+// UpdateFailureMessage sets the "failure_message" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsert) UpdateFailureMessage() *DirectorySyncRunUpsert {
+	u.SetExcluded(directorysyncrun.FieldFailureMessage)
+	return u
+}
+
+// SetDepartmentPages sets the "department_pages" field.
+func (u *DirectorySyncRunUpsert) SetDepartmentPages(v int) *DirectorySyncRunUpsert {
+	u.Set(directorysyncrun.FieldDepartmentPages, v)
+	return u
+}
+
+// UpdateDepartmentPages sets the "department_pages" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsert) UpdateDepartmentPages() *DirectorySyncRunUpsert {
+	u.SetExcluded(directorysyncrun.FieldDepartmentPages)
+	return u
+}
+
+// AddDepartmentPages adds v to the "department_pages" field.
+func (u *DirectorySyncRunUpsert) AddDepartmentPages(v int) *DirectorySyncRunUpsert {
+	u.Add(directorysyncrun.FieldDepartmentPages, v)
+	return u
+}
+
+// SetUserPages sets the "user_pages" field.
+func (u *DirectorySyncRunUpsert) SetUserPages(v int) *DirectorySyncRunUpsert {
+	u.Set(directorysyncrun.FieldUserPages, v)
+	return u
+}
+
+// UpdateUserPages sets the "user_pages" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsert) UpdateUserPages() *DirectorySyncRunUpsert {
+	u.SetExcluded(directorysyncrun.FieldUserPages)
+	return u
+}
+
+// AddUserPages adds v to the "user_pages" field.
+func (u *DirectorySyncRunUpsert) AddUserPages(v int) *DirectorySyncRunUpsert {
+	u.Add(directorysyncrun.FieldUserPages, v)
+	return u
+}
+
+// SetDepartmentsUpserted sets the "departments_upserted" field.
+func (u *DirectorySyncRunUpsert) SetDepartmentsUpserted(v int) *DirectorySyncRunUpsert {
+	u.Set(directorysyncrun.FieldDepartmentsUpserted, v)
+	return u
+}
+
+// UpdateDepartmentsUpserted sets the "departments_upserted" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsert) UpdateDepartmentsUpserted() *DirectorySyncRunUpsert {
+	u.SetExcluded(directorysyncrun.FieldDepartmentsUpserted)
+	return u
+}
+
+// AddDepartmentsUpserted adds v to the "departments_upserted" field.
+func (u *DirectorySyncRunUpsert) AddDepartmentsUpserted(v int) *DirectorySyncRunUpsert {
+	u.Add(directorysyncrun.FieldDepartmentsUpserted, v)
+	return u
+}
+
+// SetUsersUpserted sets the "users_upserted" field.
+func (u *DirectorySyncRunUpsert) SetUsersUpserted(v int) *DirectorySyncRunUpsert {
+	u.Set(directorysyncrun.FieldUsersUpserted, v)
+	return u
+}
+
+// UpdateUsersUpserted sets the "users_upserted" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsert) UpdateUsersUpserted() *DirectorySyncRunUpsert {
+	u.SetExcluded(directorysyncrun.FieldUsersUpserted)
+	return u
+}
+
+// AddUsersUpserted adds v to the "users_upserted" field.
+func (u *DirectorySyncRunUpsert) AddUsersUpserted(v int) *DirectorySyncRunUpsert {
+	u.Add(directorysyncrun.FieldUsersUpserted, v)
+	return u
+}
+
+// SetSyncedAt sets the "synced_at" field.
+func (u *DirectorySyncRunUpsert) SetSyncedAt(v time.Time) *DirectorySyncRunUpsert {
+	u.Set(directorysyncrun.FieldSyncedAt, v)
+	return u
+}
+
+// UpdateSyncedAt sets the "synced_at" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsert) UpdateSyncedAt() *DirectorySyncRunUpsert {
+	u.SetExcluded(directorysyncrun.FieldSyncedAt)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.DirectorySyncRun.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *DirectorySyncRunUpsertOne) UpdateNewValues() *DirectorySyncRunUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(directorysyncrun.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.DirectorySyncRun.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *DirectorySyncRunUpsertOne) Ignore() *DirectorySyncRunUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *DirectorySyncRunUpsertOne) DoNothing() *DirectorySyncRunUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the DirectorySyncRunCreate.OnConflict
+// documentation for more info.
+func (u *DirectorySyncRunUpsertOne) Update(set func(*DirectorySyncRunUpsert)) *DirectorySyncRunUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&DirectorySyncRunUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetProvider sets the "provider" field.
+func (u *DirectorySyncRunUpsertOne) SetProvider(v string) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetProvider(v)
+	})
+}
+
+// UpdateProvider sets the "provider" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertOne) UpdateProvider() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateProvider()
+	})
+}
+
+// SetPageSize sets the "page_size" field.
+func (u *DirectorySyncRunUpsertOne) SetPageSize(v int) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetPageSize(v)
+	})
+}
+
+// AddPageSize adds v to the "page_size" field.
+func (u *DirectorySyncRunUpsertOne) AddPageSize(v int) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.AddPageSize(v)
+	})
+}
+
+// UpdatePageSize sets the "page_size" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertOne) UpdatePageSize() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdatePageSize()
+	})
+}
+
+// SetUpdatedAfter sets the "updated_after" field.
+func (u *DirectorySyncRunUpsertOne) SetUpdatedAfter(v time.Time) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetUpdatedAfter(v)
+	})
+}
+
+// UpdateUpdatedAfter sets the "updated_after" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertOne) UpdateUpdatedAfter() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateUpdatedAfter()
+	})
+}
+
+// ClearUpdatedAfter clears the value of the "updated_after" field.
+func (u *DirectorySyncRunUpsertOne) ClearUpdatedAfter() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.ClearUpdatedAfter()
+	})
+}
+
+// SetStatus sets the "status" field.
+func (u *DirectorySyncRunUpsertOne) SetStatus(v string) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetStatus(v)
+	})
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertOne) UpdateStatus() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateStatus()
+	})
+}
+
+// SetFailureCode sets the "failure_code" field.
+func (u *DirectorySyncRunUpsertOne) SetFailureCode(v string) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetFailureCode(v)
+	})
+}
+
+// UpdateFailureCode sets the "failure_code" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertOne) UpdateFailureCode() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateFailureCode()
+	})
+}
+
+// SetFailureMessage sets the "failure_message" field.
+func (u *DirectorySyncRunUpsertOne) SetFailureMessage(v string) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetFailureMessage(v)
+	})
+}
+
+// UpdateFailureMessage sets the "failure_message" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertOne) UpdateFailureMessage() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateFailureMessage()
+	})
+}
+
+// SetDepartmentPages sets the "department_pages" field.
+func (u *DirectorySyncRunUpsertOne) SetDepartmentPages(v int) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetDepartmentPages(v)
+	})
+}
+
+// AddDepartmentPages adds v to the "department_pages" field.
+func (u *DirectorySyncRunUpsertOne) AddDepartmentPages(v int) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.AddDepartmentPages(v)
+	})
+}
+
+// UpdateDepartmentPages sets the "department_pages" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertOne) UpdateDepartmentPages() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateDepartmentPages()
+	})
+}
+
+// SetUserPages sets the "user_pages" field.
+func (u *DirectorySyncRunUpsertOne) SetUserPages(v int) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetUserPages(v)
+	})
+}
+
+// AddUserPages adds v to the "user_pages" field.
+func (u *DirectorySyncRunUpsertOne) AddUserPages(v int) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.AddUserPages(v)
+	})
+}
+
+// UpdateUserPages sets the "user_pages" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertOne) UpdateUserPages() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateUserPages()
+	})
+}
+
+// SetDepartmentsUpserted sets the "departments_upserted" field.
+func (u *DirectorySyncRunUpsertOne) SetDepartmentsUpserted(v int) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetDepartmentsUpserted(v)
+	})
+}
+
+// AddDepartmentsUpserted adds v to the "departments_upserted" field.
+func (u *DirectorySyncRunUpsertOne) AddDepartmentsUpserted(v int) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.AddDepartmentsUpserted(v)
+	})
+}
+
+// UpdateDepartmentsUpserted sets the "departments_upserted" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertOne) UpdateDepartmentsUpserted() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateDepartmentsUpserted()
+	})
+}
+
+// SetUsersUpserted sets the "users_upserted" field.
+func (u *DirectorySyncRunUpsertOne) SetUsersUpserted(v int) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetUsersUpserted(v)
+	})
+}
+
+// AddUsersUpserted adds v to the "users_upserted" field.
+func (u *DirectorySyncRunUpsertOne) AddUsersUpserted(v int) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.AddUsersUpserted(v)
+	})
+}
+
+// UpdateUsersUpserted sets the "users_upserted" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertOne) UpdateUsersUpserted() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateUsersUpserted()
+	})
+}
+
+// SetSyncedAt sets the "synced_at" field.
+func (u *DirectorySyncRunUpsertOne) SetSyncedAt(v time.Time) *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetSyncedAt(v)
+	})
+}
+
+// UpdateSyncedAt sets the "synced_at" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertOne) UpdateSyncedAt() *DirectorySyncRunUpsertOne {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateSyncedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *DirectorySyncRunUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for DirectorySyncRunCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *DirectorySyncRunUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *DirectorySyncRunUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *DirectorySyncRunUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // DirectorySyncRunCreateBulk is the builder for creating many DirectorySyncRun entities in bulk.
 type DirectorySyncRunCreateBulk struct {
 	config
 	err      error
 	builders []*DirectorySyncRunCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the DirectorySyncRun entities in the database.
@@ -376,6 +871,7 @@ func (_c *DirectorySyncRunCreateBulk) Save(ctx context.Context) ([]*DirectorySyn
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -426,6 +922,313 @@ func (_c *DirectorySyncRunCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *DirectorySyncRunCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.DirectorySyncRun.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.DirectorySyncRunUpsert) {
+//			SetProvider(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *DirectorySyncRunCreateBulk) OnConflict(opts ...sql.ConflictOption) *DirectorySyncRunUpsertBulk {
+	_c.conflict = opts
+	return &DirectorySyncRunUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.DirectorySyncRun.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *DirectorySyncRunCreateBulk) OnConflictColumns(columns ...string) *DirectorySyncRunUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &DirectorySyncRunUpsertBulk{
+		create: _c,
+	}
+}
+
+// DirectorySyncRunUpsertBulk is the builder for "upsert"-ing
+// a bulk of DirectorySyncRun nodes.
+type DirectorySyncRunUpsertBulk struct {
+	create *DirectorySyncRunCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.DirectorySyncRun.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *DirectorySyncRunUpsertBulk) UpdateNewValues() *DirectorySyncRunUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(directorysyncrun.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.DirectorySyncRun.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *DirectorySyncRunUpsertBulk) Ignore() *DirectorySyncRunUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *DirectorySyncRunUpsertBulk) DoNothing() *DirectorySyncRunUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the DirectorySyncRunCreateBulk.OnConflict
+// documentation for more info.
+func (u *DirectorySyncRunUpsertBulk) Update(set func(*DirectorySyncRunUpsert)) *DirectorySyncRunUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&DirectorySyncRunUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetProvider sets the "provider" field.
+func (u *DirectorySyncRunUpsertBulk) SetProvider(v string) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetProvider(v)
+	})
+}
+
+// UpdateProvider sets the "provider" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertBulk) UpdateProvider() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateProvider()
+	})
+}
+
+// SetPageSize sets the "page_size" field.
+func (u *DirectorySyncRunUpsertBulk) SetPageSize(v int) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetPageSize(v)
+	})
+}
+
+// AddPageSize adds v to the "page_size" field.
+func (u *DirectorySyncRunUpsertBulk) AddPageSize(v int) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.AddPageSize(v)
+	})
+}
+
+// UpdatePageSize sets the "page_size" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertBulk) UpdatePageSize() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdatePageSize()
+	})
+}
+
+// SetUpdatedAfter sets the "updated_after" field.
+func (u *DirectorySyncRunUpsertBulk) SetUpdatedAfter(v time.Time) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetUpdatedAfter(v)
+	})
+}
+
+// UpdateUpdatedAfter sets the "updated_after" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertBulk) UpdateUpdatedAfter() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateUpdatedAfter()
+	})
+}
+
+// ClearUpdatedAfter clears the value of the "updated_after" field.
+func (u *DirectorySyncRunUpsertBulk) ClearUpdatedAfter() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.ClearUpdatedAfter()
+	})
+}
+
+// SetStatus sets the "status" field.
+func (u *DirectorySyncRunUpsertBulk) SetStatus(v string) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetStatus(v)
+	})
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertBulk) UpdateStatus() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateStatus()
+	})
+}
+
+// SetFailureCode sets the "failure_code" field.
+func (u *DirectorySyncRunUpsertBulk) SetFailureCode(v string) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetFailureCode(v)
+	})
+}
+
+// UpdateFailureCode sets the "failure_code" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertBulk) UpdateFailureCode() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateFailureCode()
+	})
+}
+
+// SetFailureMessage sets the "failure_message" field.
+func (u *DirectorySyncRunUpsertBulk) SetFailureMessage(v string) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetFailureMessage(v)
+	})
+}
+
+// UpdateFailureMessage sets the "failure_message" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertBulk) UpdateFailureMessage() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateFailureMessage()
+	})
+}
+
+// SetDepartmentPages sets the "department_pages" field.
+func (u *DirectorySyncRunUpsertBulk) SetDepartmentPages(v int) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetDepartmentPages(v)
+	})
+}
+
+// AddDepartmentPages adds v to the "department_pages" field.
+func (u *DirectorySyncRunUpsertBulk) AddDepartmentPages(v int) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.AddDepartmentPages(v)
+	})
+}
+
+// UpdateDepartmentPages sets the "department_pages" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertBulk) UpdateDepartmentPages() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateDepartmentPages()
+	})
+}
+
+// SetUserPages sets the "user_pages" field.
+func (u *DirectorySyncRunUpsertBulk) SetUserPages(v int) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetUserPages(v)
+	})
+}
+
+// AddUserPages adds v to the "user_pages" field.
+func (u *DirectorySyncRunUpsertBulk) AddUserPages(v int) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.AddUserPages(v)
+	})
+}
+
+// UpdateUserPages sets the "user_pages" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertBulk) UpdateUserPages() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateUserPages()
+	})
+}
+
+// SetDepartmentsUpserted sets the "departments_upserted" field.
+func (u *DirectorySyncRunUpsertBulk) SetDepartmentsUpserted(v int) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetDepartmentsUpserted(v)
+	})
+}
+
+// AddDepartmentsUpserted adds v to the "departments_upserted" field.
+func (u *DirectorySyncRunUpsertBulk) AddDepartmentsUpserted(v int) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.AddDepartmentsUpserted(v)
+	})
+}
+
+// UpdateDepartmentsUpserted sets the "departments_upserted" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertBulk) UpdateDepartmentsUpserted() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateDepartmentsUpserted()
+	})
+}
+
+// SetUsersUpserted sets the "users_upserted" field.
+func (u *DirectorySyncRunUpsertBulk) SetUsersUpserted(v int) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetUsersUpserted(v)
+	})
+}
+
+// AddUsersUpserted adds v to the "users_upserted" field.
+func (u *DirectorySyncRunUpsertBulk) AddUsersUpserted(v int) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.AddUsersUpserted(v)
+	})
+}
+
+// UpdateUsersUpserted sets the "users_upserted" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertBulk) UpdateUsersUpserted() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateUsersUpserted()
+	})
+}
+
+// SetSyncedAt sets the "synced_at" field.
+func (u *DirectorySyncRunUpsertBulk) SetSyncedAt(v time.Time) *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.SetSyncedAt(v)
+	})
+}
+
+// UpdateSyncedAt sets the "synced_at" field to the value that was provided on create.
+func (u *DirectorySyncRunUpsertBulk) UpdateSyncedAt() *DirectorySyncRunUpsertBulk {
+	return u.Update(func(s *DirectorySyncRunUpsert) {
+		s.UpdateSyncedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *DirectorySyncRunUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the DirectorySyncRunCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for DirectorySyncRunCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *DirectorySyncRunUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
@@ -20,6 +21,7 @@ type ChatTurnCreate struct {
 	config
 	mutation *ChatTurnMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetChatSessionID sets the "chat_session_id" field.
@@ -216,6 +218,7 @@ func (_c *ChatTurnCreate) createSpec() (*ChatTurn, *sqlgraph.CreateSpec) {
 		_node = &ChatTurn{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(chatturn.Table, sqlgraph.NewFieldSpec(chatturn.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.MessageID(); ok {
 		_spec.SetField(chatturn.FieldMessageID, field.TypeString, value)
 		_node.MessageID = value
@@ -268,11 +271,163 @@ func (_c *ChatTurnCreate) createSpec() (*ChatTurn, *sqlgraph.CreateSpec) {
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.ChatTurn.Create().
+//		SetChatSessionID(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.ChatTurnUpsert) {
+//			SetChatSessionID(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *ChatTurnCreate) OnConflict(opts ...sql.ConflictOption) *ChatTurnUpsertOne {
+	_c.conflict = opts
+	return &ChatTurnUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.ChatTurn.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *ChatTurnCreate) OnConflictColumns(columns ...string) *ChatTurnUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &ChatTurnUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// ChatTurnUpsertOne is the builder for "upsert"-ing
+	//  one ChatTurn node.
+	ChatTurnUpsertOne struct {
+		create *ChatTurnCreate
+	}
+
+	// ChatTurnUpsert is the "OnConflict" setter.
+	ChatTurnUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.ChatTurn.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *ChatTurnUpsertOne) UpdateNewValues() *ChatTurnUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.ChatSessionID(); exists {
+			s.SetIgnore(chatturn.FieldChatSessionID)
+		}
+		if _, exists := u.create.mutation.MessageID(); exists {
+			s.SetIgnore(chatturn.FieldMessageID)
+		}
+		if _, exists := u.create.mutation.Sequence(); exists {
+			s.SetIgnore(chatturn.FieldSequence)
+		}
+		if _, exists := u.create.mutation.Role(); exists {
+			s.SetIgnore(chatturn.FieldRole)
+		}
+		if _, exists := u.create.mutation.ActorSubject(); exists {
+			s.SetIgnore(chatturn.FieldActorSubject)
+		}
+		if _, exists := u.create.mutation.Content(); exists {
+			s.SetIgnore(chatturn.FieldContent)
+		}
+		if _, exists := u.create.mutation.Metadata(); exists {
+			s.SetIgnore(chatturn.FieldMetadata)
+		}
+		if _, exists := u.create.mutation.OccurredAt(); exists {
+			s.SetIgnore(chatturn.FieldOccurredAt)
+		}
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(chatturn.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.ChatTurn.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *ChatTurnUpsertOne) Ignore() *ChatTurnUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *ChatTurnUpsertOne) DoNothing() *ChatTurnUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the ChatTurnCreate.OnConflict
+// documentation for more info.
+func (u *ChatTurnUpsertOne) Update(set func(*ChatTurnUpsert)) *ChatTurnUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&ChatTurnUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// Exec executes the query.
+func (u *ChatTurnUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for ChatTurnCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *ChatTurnUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *ChatTurnUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *ChatTurnUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // ChatTurnCreateBulk is the builder for creating many ChatTurn entities in bulk.
 type ChatTurnCreateBulk struct {
 	config
 	err      error
 	builders []*ChatTurnCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the ChatTurn entities in the database.
@@ -302,6 +457,7 @@ func (_c *ChatTurnCreateBulk) Save(ctx context.Context) ([]*ChatTurn, error) {
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -352,6 +508,141 @@ func (_c *ChatTurnCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *ChatTurnCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.ChatTurn.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.ChatTurnUpsert) {
+//			SetChatSessionID(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *ChatTurnCreateBulk) OnConflict(opts ...sql.ConflictOption) *ChatTurnUpsertBulk {
+	_c.conflict = opts
+	return &ChatTurnUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.ChatTurn.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *ChatTurnCreateBulk) OnConflictColumns(columns ...string) *ChatTurnUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &ChatTurnUpsertBulk{
+		create: _c,
+	}
+}
+
+// ChatTurnUpsertBulk is the builder for "upsert"-ing
+// a bulk of ChatTurn nodes.
+type ChatTurnUpsertBulk struct {
+	create *ChatTurnCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.ChatTurn.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *ChatTurnUpsertBulk) UpdateNewValues() *ChatTurnUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.ChatSessionID(); exists {
+				s.SetIgnore(chatturn.FieldChatSessionID)
+			}
+			if _, exists := b.mutation.MessageID(); exists {
+				s.SetIgnore(chatturn.FieldMessageID)
+			}
+			if _, exists := b.mutation.Sequence(); exists {
+				s.SetIgnore(chatturn.FieldSequence)
+			}
+			if _, exists := b.mutation.Role(); exists {
+				s.SetIgnore(chatturn.FieldRole)
+			}
+			if _, exists := b.mutation.ActorSubject(); exists {
+				s.SetIgnore(chatturn.FieldActorSubject)
+			}
+			if _, exists := b.mutation.Content(); exists {
+				s.SetIgnore(chatturn.FieldContent)
+			}
+			if _, exists := b.mutation.Metadata(); exists {
+				s.SetIgnore(chatturn.FieldMetadata)
+			}
+			if _, exists := b.mutation.OccurredAt(); exists {
+				s.SetIgnore(chatturn.FieldOccurredAt)
+			}
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(chatturn.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.ChatTurn.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *ChatTurnUpsertBulk) Ignore() *ChatTurnUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *ChatTurnUpsertBulk) DoNothing() *ChatTurnUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the ChatTurnCreateBulk.OnConflict
+// documentation for more info.
+func (u *ChatTurnUpsertBulk) Update(set func(*ChatTurnUpsert)) *ChatTurnUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&ChatTurnUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// Exec executes the query.
+func (u *ChatTurnUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the ChatTurnCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for ChatTurnCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *ChatTurnUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }

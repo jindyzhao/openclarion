@@ -262,6 +262,8 @@ func (u *fakeWebhookUOW) Evidence() ports.EvidenceRepository    { return nil }
 func (u *fakeWebhookUOW) Diagnosis() ports.DiagnosisRepository  { return nil }
 func (u *fakeWebhookUOW) Reports() ports.ReportRepository       { return nil }
 func (u *fakeWebhookUOW) Config() ports.ConfigurationRepository { return u.config }
+func (u *fakeWebhookUOW) Directory() ports.DirectoryRepository  { return nil }
+func (u *fakeWebhookUOW) RBAC() ports.RBACRepository            { return nil }
 func (u *fakeWebhookUOW) Commit(context.Context) error          { return nil }
 func (u *fakeWebhookUOW) Rollback(context.Context) error        { return nil }
 

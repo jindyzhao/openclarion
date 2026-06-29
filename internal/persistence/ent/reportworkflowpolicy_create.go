@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
@@ -18,6 +19,7 @@ type ReportWorkflowPolicyCreate struct {
 	config
 	mutation *ReportWorkflowPolicyMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetName sets the "name" field.
@@ -315,6 +317,7 @@ func (_c *ReportWorkflowPolicyCreate) createSpec() (*ReportWorkflowPolicy, *sqlg
 		_node = &ReportWorkflowPolicy{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(reportworkflowpolicy.Table, sqlgraph.NewFieldSpec(reportworkflowpolicy.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(reportworkflowpolicy.FieldName, field.TypeString, value)
 		_node.Name = value
@@ -366,11 +369,503 @@ func (_c *ReportWorkflowPolicyCreate) createSpec() (*ReportWorkflowPolicy, *sqlg
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.ReportWorkflowPolicy.Create().
+//		SetName(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.ReportWorkflowPolicyUpsert) {
+//			SetName(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *ReportWorkflowPolicyCreate) OnConflict(opts ...sql.ConflictOption) *ReportWorkflowPolicyUpsertOne {
+	_c.conflict = opts
+	return &ReportWorkflowPolicyUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.ReportWorkflowPolicy.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *ReportWorkflowPolicyCreate) OnConflictColumns(columns ...string) *ReportWorkflowPolicyUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &ReportWorkflowPolicyUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// ReportWorkflowPolicyUpsertOne is the builder for "upsert"-ing
+	//  one ReportWorkflowPolicy node.
+	ReportWorkflowPolicyUpsertOne struct {
+		create *ReportWorkflowPolicyCreate
+	}
+
+	// ReportWorkflowPolicyUpsert is the "OnConflict" setter.
+	ReportWorkflowPolicyUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetName sets the "name" field.
+func (u *ReportWorkflowPolicyUpsert) SetName(v string) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldName, v)
+	return u
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateName() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldName)
+	return u
+}
+
+// SetAlertSourceProfileID sets the "alert_source_profile_id" field.
+func (u *ReportWorkflowPolicyUpsert) SetAlertSourceProfileID(v int) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldAlertSourceProfileID, v)
+	return u
+}
+
+// UpdateAlertSourceProfileID sets the "alert_source_profile_id" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateAlertSourceProfileID() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldAlertSourceProfileID)
+	return u
+}
+
+// AddAlertSourceProfileID adds v to the "alert_source_profile_id" field.
+func (u *ReportWorkflowPolicyUpsert) AddAlertSourceProfileID(v int) *ReportWorkflowPolicyUpsert {
+	u.Add(reportworkflowpolicy.FieldAlertSourceProfileID, v)
+	return u
+}
+
+// SetGroupingPolicyID sets the "grouping_policy_id" field.
+func (u *ReportWorkflowPolicyUpsert) SetGroupingPolicyID(v int) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldGroupingPolicyID, v)
+	return u
+}
+
+// UpdateGroupingPolicyID sets the "grouping_policy_id" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateGroupingPolicyID() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldGroupingPolicyID)
+	return u
+}
+
+// AddGroupingPolicyID adds v to the "grouping_policy_id" field.
+func (u *ReportWorkflowPolicyUpsert) AddGroupingPolicyID(v int) *ReportWorkflowPolicyUpsert {
+	u.Add(reportworkflowpolicy.FieldGroupingPolicyID, v)
+	return u
+}
+
+// SetReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field.
+func (u *ReportWorkflowPolicyUpsert) SetReportNotificationChannelProfileID(v int) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldReportNotificationChannelProfileID, v)
+	return u
+}
+
+// UpdateReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateReportNotificationChannelProfileID() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldReportNotificationChannelProfileID)
+	return u
+}
+
+// AddReportNotificationChannelProfileID adds v to the "report_notification_channel_profile_id" field.
+func (u *ReportWorkflowPolicyUpsert) AddReportNotificationChannelProfileID(v int) *ReportWorkflowPolicyUpsert {
+	u.Add(reportworkflowpolicy.FieldReportNotificationChannelProfileID, v)
+	return u
+}
+
+// ClearReportNotificationChannelProfileID clears the value of the "report_notification_channel_profile_id" field.
+func (u *ReportWorkflowPolicyUpsert) ClearReportNotificationChannelProfileID() *ReportWorkflowPolicyUpsert {
+	u.SetNull(reportworkflowpolicy.FieldReportNotificationChannelProfileID)
+	return u
+}
+
+// SetTriggerMode sets the "trigger_mode" field.
+func (u *ReportWorkflowPolicyUpsert) SetTriggerMode(v string) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldTriggerMode, v)
+	return u
+}
+
+// UpdateTriggerMode sets the "trigger_mode" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateTriggerMode() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldTriggerMode)
+	return u
+}
+
+// SetReportScenario sets the "report_scenario" field.
+func (u *ReportWorkflowPolicyUpsert) SetReportScenario(v string) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldReportScenario, v)
+	return u
+}
+
+// UpdateReportScenario sets the "report_scenario" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateReportScenario() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldReportScenario)
+	return u
+}
+
+// SetDiagnosisFollowUp sets the "diagnosis_follow_up" field.
+func (u *ReportWorkflowPolicyUpsert) SetDiagnosisFollowUp(v string) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldDiagnosisFollowUp, v)
+	return u
+}
+
+// UpdateDiagnosisFollowUp sets the "diagnosis_follow_up" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateDiagnosisFollowUp() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldDiagnosisFollowUp)
+	return u
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *ReportWorkflowPolicyUpsert) SetEnabled(v bool) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldEnabled, v)
+	return u
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateEnabled() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldEnabled)
+	return u
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (u *ReportWorkflowPolicyUpsert) SetEnabledAt(v time.Time) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldEnabledAt, v)
+	return u
+}
+
+// UpdateEnabledAt sets the "enabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateEnabledAt() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldEnabledAt)
+	return u
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (u *ReportWorkflowPolicyUpsert) ClearEnabledAt() *ReportWorkflowPolicyUpsert {
+	u.SetNull(reportworkflowpolicy.FieldEnabledAt)
+	return u
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (u *ReportWorkflowPolicyUpsert) SetDisabledAt(v time.Time) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldDisabledAt, v)
+	return u
+}
+
+// UpdateDisabledAt sets the "disabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateDisabledAt() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldDisabledAt)
+	return u
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (u *ReportWorkflowPolicyUpsert) ClearDisabledAt() *ReportWorkflowPolicyUpsert {
+	u.SetNull(reportworkflowpolicy.FieldDisabledAt)
+	return u
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *ReportWorkflowPolicyUpsert) SetUpdatedAt(v time.Time) *ReportWorkflowPolicyUpsert {
+	u.Set(reportworkflowpolicy.FieldUpdatedAt, v)
+	return u
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsert) UpdateUpdatedAt() *ReportWorkflowPolicyUpsert {
+	u.SetExcluded(reportworkflowpolicy.FieldUpdatedAt)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.ReportWorkflowPolicy.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *ReportWorkflowPolicyUpsertOne) UpdateNewValues() *ReportWorkflowPolicyUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(reportworkflowpolicy.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.ReportWorkflowPolicy.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *ReportWorkflowPolicyUpsertOne) Ignore() *ReportWorkflowPolicyUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *ReportWorkflowPolicyUpsertOne) DoNothing() *ReportWorkflowPolicyUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the ReportWorkflowPolicyCreate.OnConflict
+// documentation for more info.
+func (u *ReportWorkflowPolicyUpsertOne) Update(set func(*ReportWorkflowPolicyUpsert)) *ReportWorkflowPolicyUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&ReportWorkflowPolicyUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetName sets the "name" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetName(v string) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateName() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetAlertSourceProfileID sets the "alert_source_profile_id" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetAlertSourceProfileID(v int) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetAlertSourceProfileID(v)
+	})
+}
+
+// AddAlertSourceProfileID adds v to the "alert_source_profile_id" field.
+func (u *ReportWorkflowPolicyUpsertOne) AddAlertSourceProfileID(v int) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.AddAlertSourceProfileID(v)
+	})
+}
+
+// UpdateAlertSourceProfileID sets the "alert_source_profile_id" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateAlertSourceProfileID() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateAlertSourceProfileID()
+	})
+}
+
+// SetGroupingPolicyID sets the "grouping_policy_id" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetGroupingPolicyID(v int) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetGroupingPolicyID(v)
+	})
+}
+
+// AddGroupingPolicyID adds v to the "grouping_policy_id" field.
+func (u *ReportWorkflowPolicyUpsertOne) AddGroupingPolicyID(v int) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.AddGroupingPolicyID(v)
+	})
+}
+
+// UpdateGroupingPolicyID sets the "grouping_policy_id" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateGroupingPolicyID() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateGroupingPolicyID()
+	})
+}
+
+// SetReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetReportNotificationChannelProfileID(v int) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetReportNotificationChannelProfileID(v)
+	})
+}
+
+// AddReportNotificationChannelProfileID adds v to the "report_notification_channel_profile_id" field.
+func (u *ReportWorkflowPolicyUpsertOne) AddReportNotificationChannelProfileID(v int) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.AddReportNotificationChannelProfileID(v)
+	})
+}
+
+// UpdateReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateReportNotificationChannelProfileID() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateReportNotificationChannelProfileID()
+	})
+}
+
+// ClearReportNotificationChannelProfileID clears the value of the "report_notification_channel_profile_id" field.
+func (u *ReportWorkflowPolicyUpsertOne) ClearReportNotificationChannelProfileID() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.ClearReportNotificationChannelProfileID()
+	})
+}
+
+// SetTriggerMode sets the "trigger_mode" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetTriggerMode(v string) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetTriggerMode(v)
+	})
+}
+
+// UpdateTriggerMode sets the "trigger_mode" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateTriggerMode() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateTriggerMode()
+	})
+}
+
+// SetReportScenario sets the "report_scenario" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetReportScenario(v string) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetReportScenario(v)
+	})
+}
+
+// UpdateReportScenario sets the "report_scenario" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateReportScenario() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateReportScenario()
+	})
+}
+
+// SetDiagnosisFollowUp sets the "diagnosis_follow_up" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetDiagnosisFollowUp(v string) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetDiagnosisFollowUp(v)
+	})
+}
+
+// UpdateDiagnosisFollowUp sets the "diagnosis_follow_up" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateDiagnosisFollowUp() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateDiagnosisFollowUp()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetEnabled(v bool) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateEnabled() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetEnabledAt(v time.Time) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetEnabledAt(v)
+	})
+}
+
+// UpdateEnabledAt sets the "enabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateEnabledAt() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateEnabledAt()
+	})
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (u *ReportWorkflowPolicyUpsertOne) ClearEnabledAt() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.ClearEnabledAt()
+	})
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetDisabledAt(v time.Time) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetDisabledAt(v)
+	})
+}
+
+// UpdateDisabledAt sets the "disabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateDisabledAt() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateDisabledAt()
+	})
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (u *ReportWorkflowPolicyUpsertOne) ClearDisabledAt() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.ClearDisabledAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *ReportWorkflowPolicyUpsertOne) SetUpdatedAt(v time.Time) *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertOne) UpdateUpdatedAt() *ReportWorkflowPolicyUpsertOne {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *ReportWorkflowPolicyUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for ReportWorkflowPolicyCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *ReportWorkflowPolicyUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *ReportWorkflowPolicyUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *ReportWorkflowPolicyUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // ReportWorkflowPolicyCreateBulk is the builder for creating many ReportWorkflowPolicy entities in bulk.
 type ReportWorkflowPolicyCreateBulk struct {
 	config
 	err      error
 	builders []*ReportWorkflowPolicyCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the ReportWorkflowPolicy entities in the database.
@@ -400,6 +895,7 @@ func (_c *ReportWorkflowPolicyCreateBulk) Save(ctx context.Context) ([]*ReportWo
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -450,6 +946,313 @@ func (_c *ReportWorkflowPolicyCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *ReportWorkflowPolicyCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.ReportWorkflowPolicy.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.ReportWorkflowPolicyUpsert) {
+//			SetName(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *ReportWorkflowPolicyCreateBulk) OnConflict(opts ...sql.ConflictOption) *ReportWorkflowPolicyUpsertBulk {
+	_c.conflict = opts
+	return &ReportWorkflowPolicyUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.ReportWorkflowPolicy.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *ReportWorkflowPolicyCreateBulk) OnConflictColumns(columns ...string) *ReportWorkflowPolicyUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &ReportWorkflowPolicyUpsertBulk{
+		create: _c,
+	}
+}
+
+// ReportWorkflowPolicyUpsertBulk is the builder for "upsert"-ing
+// a bulk of ReportWorkflowPolicy nodes.
+type ReportWorkflowPolicyUpsertBulk struct {
+	create *ReportWorkflowPolicyCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.ReportWorkflowPolicy.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateNewValues() *ReportWorkflowPolicyUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(reportworkflowpolicy.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.ReportWorkflowPolicy.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *ReportWorkflowPolicyUpsertBulk) Ignore() *ReportWorkflowPolicyUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *ReportWorkflowPolicyUpsertBulk) DoNothing() *ReportWorkflowPolicyUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the ReportWorkflowPolicyCreateBulk.OnConflict
+// documentation for more info.
+func (u *ReportWorkflowPolicyUpsertBulk) Update(set func(*ReportWorkflowPolicyUpsert)) *ReportWorkflowPolicyUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&ReportWorkflowPolicyUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetName sets the "name" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetName(v string) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateName() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetAlertSourceProfileID sets the "alert_source_profile_id" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetAlertSourceProfileID(v int) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetAlertSourceProfileID(v)
+	})
+}
+
+// AddAlertSourceProfileID adds v to the "alert_source_profile_id" field.
+func (u *ReportWorkflowPolicyUpsertBulk) AddAlertSourceProfileID(v int) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.AddAlertSourceProfileID(v)
+	})
+}
+
+// UpdateAlertSourceProfileID sets the "alert_source_profile_id" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateAlertSourceProfileID() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateAlertSourceProfileID()
+	})
+}
+
+// SetGroupingPolicyID sets the "grouping_policy_id" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetGroupingPolicyID(v int) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetGroupingPolicyID(v)
+	})
+}
+
+// AddGroupingPolicyID adds v to the "grouping_policy_id" field.
+func (u *ReportWorkflowPolicyUpsertBulk) AddGroupingPolicyID(v int) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.AddGroupingPolicyID(v)
+	})
+}
+
+// UpdateGroupingPolicyID sets the "grouping_policy_id" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateGroupingPolicyID() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateGroupingPolicyID()
+	})
+}
+
+// SetReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetReportNotificationChannelProfileID(v int) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetReportNotificationChannelProfileID(v)
+	})
+}
+
+// AddReportNotificationChannelProfileID adds v to the "report_notification_channel_profile_id" field.
+func (u *ReportWorkflowPolicyUpsertBulk) AddReportNotificationChannelProfileID(v int) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.AddReportNotificationChannelProfileID(v)
+	})
+}
+
+// UpdateReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateReportNotificationChannelProfileID() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateReportNotificationChannelProfileID()
+	})
+}
+
+// ClearReportNotificationChannelProfileID clears the value of the "report_notification_channel_profile_id" field.
+func (u *ReportWorkflowPolicyUpsertBulk) ClearReportNotificationChannelProfileID() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.ClearReportNotificationChannelProfileID()
+	})
+}
+
+// SetTriggerMode sets the "trigger_mode" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetTriggerMode(v string) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetTriggerMode(v)
+	})
+}
+
+// UpdateTriggerMode sets the "trigger_mode" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateTriggerMode() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateTriggerMode()
+	})
+}
+
+// SetReportScenario sets the "report_scenario" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetReportScenario(v string) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetReportScenario(v)
+	})
+}
+
+// UpdateReportScenario sets the "report_scenario" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateReportScenario() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateReportScenario()
+	})
+}
+
+// SetDiagnosisFollowUp sets the "diagnosis_follow_up" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetDiagnosisFollowUp(v string) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetDiagnosisFollowUp(v)
+	})
+}
+
+// UpdateDiagnosisFollowUp sets the "diagnosis_follow_up" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateDiagnosisFollowUp() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateDiagnosisFollowUp()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetEnabled(v bool) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateEnabled() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetEnabledAt(v time.Time) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetEnabledAt(v)
+	})
+}
+
+// UpdateEnabledAt sets the "enabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateEnabledAt() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateEnabledAt()
+	})
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (u *ReportWorkflowPolicyUpsertBulk) ClearEnabledAt() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.ClearEnabledAt()
+	})
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetDisabledAt(v time.Time) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetDisabledAt(v)
+	})
+}
+
+// UpdateDisabledAt sets the "disabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateDisabledAt() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateDisabledAt()
+	})
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (u *ReportWorkflowPolicyUpsertBulk) ClearDisabledAt() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.ClearDisabledAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *ReportWorkflowPolicyUpsertBulk) SetUpdatedAt(v time.Time) *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *ReportWorkflowPolicyUpsertBulk) UpdateUpdatedAt() *ReportWorkflowPolicyUpsertBulk {
+	return u.Update(func(s *ReportWorkflowPolicyUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *ReportWorkflowPolicyUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the ReportWorkflowPolicyCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for ReportWorkflowPolicyCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *ReportWorkflowPolicyUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }
