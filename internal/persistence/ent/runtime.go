@@ -14,10 +14,14 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistooltemplate"
+	"github.com/openclarion/openclarion/internal/persistence/ent/directorydepartment"
+	"github.com/openclarion/openclarion/internal/persistence/ent/directorysyncrun"
+	"github.com/openclarion/openclarion/internal/persistence/ent/directoryuser"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
+	"github.com/openclarion/openclarion/internal/persistence/ent/rbacassignment"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
@@ -597,6 +601,320 @@ func init() {
 	diagnosistooltemplate.DefaultUpdatedAt = diagnosistooltemplateDescUpdatedAt.Default.(func() time.Time)
 	// diagnosistooltemplate.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	diagnosistooltemplate.UpdateDefaultUpdatedAt = diagnosistooltemplateDescUpdatedAt.UpdateDefault.(func() time.Time)
+	directorydepartmentFields := schema.DirectoryDepartment{}.Fields()
+	_ = directorydepartmentFields
+	// directorydepartmentDescProvider is the schema descriptor for provider field.
+	directorydepartmentDescProvider := directorydepartmentFields[0].Descriptor()
+	// directorydepartment.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
+	directorydepartment.ProviderValidator = func() func(string) error {
+		validators := directorydepartmentDescProvider.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(provider string) error {
+			for _, fn := range fns {
+				if err := fn(provider); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// directorydepartmentDescExternalID is the schema descriptor for external_id field.
+	directorydepartmentDescExternalID := directorydepartmentFields[1].Descriptor()
+	// directorydepartment.ExternalIDValidator is a validator for the "external_id" field. It is called by the builders before save.
+	directorydepartment.ExternalIDValidator = func() func(string) error {
+		validators := directorydepartmentDescExternalID.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(external_id string) error {
+			for _, fn := range fns {
+				if err := fn(external_id); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// directorydepartmentDescParentExternalID is the schema descriptor for parent_external_id field.
+	directorydepartmentDescParentExternalID := directorydepartmentFields[2].Descriptor()
+	// directorydepartment.ParentExternalIDValidator is a validator for the "parent_external_id" field. It is called by the builders before save.
+	directorydepartment.ParentExternalIDValidator = directorydepartmentDescParentExternalID.Validators[0].(func(string) error)
+	// directorydepartmentDescName is the schema descriptor for name field.
+	directorydepartmentDescName := directorydepartmentFields[3].Descriptor()
+	// directorydepartment.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	directorydepartment.NameValidator = func() func(string) error {
+		validators := directorydepartmentDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// directorydepartmentDescDisplayName is the schema descriptor for display_name field.
+	directorydepartmentDescDisplayName := directorydepartmentFields[4].Descriptor()
+	// directorydepartment.DisplayNameValidator is a validator for the "display_name" field. It is called by the builders before save.
+	directorydepartment.DisplayNameValidator = func() func(string) error {
+		validators := directorydepartmentDescDisplayName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(display_name string) error {
+			for _, fn := range fns {
+				if err := fn(display_name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// directorydepartmentDescPath is the schema descriptor for path field.
+	directorydepartmentDescPath := directorydepartmentFields[5].Descriptor()
+	// directorydepartment.PathValidator is a validator for the "path" field. It is called by the builders before save.
+	directorydepartment.PathValidator = func() func(string) error {
+		validators := directorydepartmentDescPath.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(_path string) error {
+			for _, fn := range fns {
+				if err := fn(_path); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// directorydepartmentDescParentPath is the schema descriptor for parent_path field.
+	directorydepartmentDescParentPath := directorydepartmentFields[6].Descriptor()
+	// directorydepartment.ParentPathValidator is a validator for the "parent_path" field. It is called by the builders before save.
+	directorydepartment.ParentPathValidator = directorydepartmentDescParentPath.Validators[0].(func(string) error)
+	// directorydepartmentDescLevel is the schema descriptor for level field.
+	directorydepartmentDescLevel := directorydepartmentFields[7].Descriptor()
+	// directorydepartment.DefaultLevel holds the default value on creation for the level field.
+	directorydepartment.DefaultLevel = directorydepartmentDescLevel.Default.(int)
+	// directorydepartment.LevelValidator is a validator for the "level" field. It is called by the builders before save.
+	directorydepartment.LevelValidator = directorydepartmentDescLevel.Validators[0].(func(int) error)
+	// directorydepartmentDescSource is the schema descriptor for source field.
+	directorydepartmentDescSource := directorydepartmentFields[8].Descriptor()
+	// directorydepartment.SourceValidator is a validator for the "source" field. It is called by the builders before save.
+	directorydepartment.SourceValidator = directorydepartmentDescSource.Validators[0].(func(string) error)
+	// directorydepartmentDescMemberCount is the schema descriptor for member_count field.
+	directorydepartmentDescMemberCount := directorydepartmentFields[9].Descriptor()
+	// directorydepartment.DefaultMemberCount holds the default value on creation for the member_count field.
+	directorydepartment.DefaultMemberCount = directorydepartmentDescMemberCount.Default.(int)
+	// directorydepartment.MemberCountValidator is a validator for the "member_count" field. It is called by the builders before save.
+	directorydepartment.MemberCountValidator = directorydepartmentDescMemberCount.Validators[0].(func(int) error)
+	// directorydepartmentDescCreatedAt is the schema descriptor for created_at field.
+	directorydepartmentDescCreatedAt := directorydepartmentFields[12].Descriptor()
+	// directorydepartment.DefaultCreatedAt holds the default value on creation for the created_at field.
+	directorydepartment.DefaultCreatedAt = directorydepartmentDescCreatedAt.Default.(func() time.Time)
+	// directorydepartmentDescUpdatedAt is the schema descriptor for updated_at field.
+	directorydepartmentDescUpdatedAt := directorydepartmentFields[13].Descriptor()
+	// directorydepartment.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	directorydepartment.DefaultUpdatedAt = directorydepartmentDescUpdatedAt.Default.(func() time.Time)
+	// directorydepartment.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	directorydepartment.UpdateDefaultUpdatedAt = directorydepartmentDescUpdatedAt.UpdateDefault.(func() time.Time)
+	directorysyncrunFields := schema.DirectorySyncRun{}.Fields()
+	_ = directorysyncrunFields
+	// directorysyncrunDescProvider is the schema descriptor for provider field.
+	directorysyncrunDescProvider := directorysyncrunFields[0].Descriptor()
+	// directorysyncrun.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
+	directorysyncrun.ProviderValidator = func() func(string) error {
+		validators := directorysyncrunDescProvider.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(provider string) error {
+			for _, fn := range fns {
+				if err := fn(provider); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// directorysyncrunDescPageSize is the schema descriptor for page_size field.
+	directorysyncrunDescPageSize := directorysyncrunFields[1].Descriptor()
+	// directorysyncrun.PageSizeValidator is a validator for the "page_size" field. It is called by the builders before save.
+	directorysyncrun.PageSizeValidator = directorysyncrunDescPageSize.Validators[0].(func(int) error)
+	// directorysyncrunDescStatus is the schema descriptor for status field.
+	directorysyncrunDescStatus := directorysyncrunFields[3].Descriptor()
+	// directorysyncrun.DefaultStatus holds the default value on creation for the status field.
+	directorysyncrun.DefaultStatus = directorysyncrunDescStatus.Default.(string)
+	// directorysyncrun.StatusValidator is a validator for the "status" field. It is called by the builders before save.
+	directorysyncrun.StatusValidator = directorysyncrunDescStatus.Validators[0].(func(string) error)
+	// directorysyncrunDescFailureCode is the schema descriptor for failure_code field.
+	directorysyncrunDescFailureCode := directorysyncrunFields[4].Descriptor()
+	// directorysyncrun.DefaultFailureCode holds the default value on creation for the failure_code field.
+	directorysyncrun.DefaultFailureCode = directorysyncrunDescFailureCode.Default.(string)
+	// directorysyncrun.FailureCodeValidator is a validator for the "failure_code" field. It is called by the builders before save.
+	directorysyncrun.FailureCodeValidator = directorysyncrunDescFailureCode.Validators[0].(func(string) error)
+	// directorysyncrunDescFailureMessage is the schema descriptor for failure_message field.
+	directorysyncrunDescFailureMessage := directorysyncrunFields[5].Descriptor()
+	// directorysyncrun.DefaultFailureMessage holds the default value on creation for the failure_message field.
+	directorysyncrun.DefaultFailureMessage = directorysyncrunDescFailureMessage.Default.(string)
+	// directorysyncrun.FailureMessageValidator is a validator for the "failure_message" field. It is called by the builders before save.
+	directorysyncrun.FailureMessageValidator = directorysyncrunDescFailureMessage.Validators[0].(func(string) error)
+	// directorysyncrunDescDepartmentPages is the schema descriptor for department_pages field.
+	directorysyncrunDescDepartmentPages := directorysyncrunFields[6].Descriptor()
+	// directorysyncrun.DepartmentPagesValidator is a validator for the "department_pages" field. It is called by the builders before save.
+	directorysyncrun.DepartmentPagesValidator = directorysyncrunDescDepartmentPages.Validators[0].(func(int) error)
+	// directorysyncrunDescUserPages is the schema descriptor for user_pages field.
+	directorysyncrunDescUserPages := directorysyncrunFields[7].Descriptor()
+	// directorysyncrun.UserPagesValidator is a validator for the "user_pages" field. It is called by the builders before save.
+	directorysyncrun.UserPagesValidator = directorysyncrunDescUserPages.Validators[0].(func(int) error)
+	// directorysyncrunDescDepartmentsUpserted is the schema descriptor for departments_upserted field.
+	directorysyncrunDescDepartmentsUpserted := directorysyncrunFields[8].Descriptor()
+	// directorysyncrun.DepartmentsUpsertedValidator is a validator for the "departments_upserted" field. It is called by the builders before save.
+	directorysyncrun.DepartmentsUpsertedValidator = directorysyncrunDescDepartmentsUpserted.Validators[0].(func(int) error)
+	// directorysyncrunDescUsersUpserted is the schema descriptor for users_upserted field.
+	directorysyncrunDescUsersUpserted := directorysyncrunFields[9].Descriptor()
+	// directorysyncrun.UsersUpsertedValidator is a validator for the "users_upserted" field. It is called by the builders before save.
+	directorysyncrun.UsersUpsertedValidator = directorysyncrunDescUsersUpserted.Validators[0].(func(int) error)
+	// directorysyncrunDescCreatedAt is the schema descriptor for created_at field.
+	directorysyncrunDescCreatedAt := directorysyncrunFields[11].Descriptor()
+	// directorysyncrun.DefaultCreatedAt holds the default value on creation for the created_at field.
+	directorysyncrun.DefaultCreatedAt = directorysyncrunDescCreatedAt.Default.(func() time.Time)
+	directoryuserFields := schema.DirectoryUser{}.Fields()
+	_ = directoryuserFields
+	// directoryuserDescProvider is the schema descriptor for provider field.
+	directoryuserDescProvider := directoryuserFields[0].Descriptor()
+	// directoryuser.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
+	directoryuser.ProviderValidator = func() func(string) error {
+		validators := directoryuserDescProvider.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(provider string) error {
+			for _, fn := range fns {
+				if err := fn(provider); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// directoryuserDescSubject is the schema descriptor for subject field.
+	directoryuserDescSubject := directoryuserFields[1].Descriptor()
+	// directoryuser.SubjectValidator is a validator for the "subject" field. It is called by the builders before save.
+	directoryuser.SubjectValidator = func() func(string) error {
+		validators := directoryuserDescSubject.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(subject string) error {
+			for _, fn := range fns {
+				if err := fn(subject); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// directoryuserDescExternalID is the schema descriptor for external_id field.
+	directoryuserDescExternalID := directoryuserFields[2].Descriptor()
+	// directoryuser.ExternalIDValidator is a validator for the "external_id" field. It is called by the builders before save.
+	directoryuser.ExternalIDValidator = func() func(string) error {
+		validators := directoryuserDescExternalID.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(external_id string) error {
+			for _, fn := range fns {
+				if err := fn(external_id); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// directoryuserDescUsername is the schema descriptor for username field.
+	directoryuserDescUsername := directoryuserFields[3].Descriptor()
+	// directoryuser.UsernameValidator is a validator for the "username" field. It is called by the builders before save.
+	directoryuser.UsernameValidator = func() func(string) error {
+		validators := directoryuserDescUsername.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(username string) error {
+			for _, fn := range fns {
+				if err := fn(username); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// directoryuserDescDisplayName is the schema descriptor for display_name field.
+	directoryuserDescDisplayName := directoryuserFields[4].Descriptor()
+	// directoryuser.DisplayNameValidator is a validator for the "display_name" field. It is called by the builders before save.
+	directoryuser.DisplayNameValidator = func() func(string) error {
+		validators := directoryuserDescDisplayName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(display_name string) error {
+			for _, fn := range fns {
+				if err := fn(display_name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// directoryuserDescEmail is the schema descriptor for email field.
+	directoryuserDescEmail := directoryuserFields[5].Descriptor()
+	// directoryuser.EmailValidator is a validator for the "email" field. It is called by the builders before save.
+	directoryuser.EmailValidator = directoryuserDescEmail.Validators[0].(func(string) error)
+	// directoryuserDescJobTitle is the schema descriptor for job_title field.
+	directoryuserDescJobTitle := directoryuserFields[6].Descriptor()
+	// directoryuser.JobTitleValidator is a validator for the "job_title" field. It is called by the builders before save.
+	directoryuser.JobTitleValidator = directoryuserDescJobTitle.Validators[0].(func(string) error)
+	// directoryuserDescDepartment is the schema descriptor for department field.
+	directoryuserDescDepartment := directoryuserFields[7].Descriptor()
+	// directoryuser.DepartmentValidator is a validator for the "department" field. It is called by the builders before save.
+	directoryuser.DepartmentValidator = directoryuserDescDepartment.Validators[0].(func(string) error)
+	// directoryuserDescSection is the schema descriptor for section field.
+	directoryuserDescSection := directoryuserFields[8].Descriptor()
+	// directoryuser.SectionValidator is a validator for the "section" field. It is called by the builders before save.
+	directoryuser.SectionValidator = directoryuserDescSection.Validators[0].(func(string) error)
+	// directoryuserDescDepartmentPath is the schema descriptor for department_path field.
+	directoryuserDescDepartmentPath := directoryuserFields[9].Descriptor()
+	// directoryuser.DepartmentPathValidator is a validator for the "department_path" field. It is called by the builders before save.
+	directoryuser.DepartmentPathValidator = directoryuserDescDepartmentPath.Validators[0].(func(string) error)
+	// directoryuserDescActive is the schema descriptor for active field.
+	directoryuserDescActive := directoryuserFields[12].Descriptor()
+	// directoryuser.DefaultActive holds the default value on creation for the active field.
+	directoryuser.DefaultActive = directoryuserDescActive.Default.(bool)
+	// directoryuserDescCreatedAt is the schema descriptor for created_at field.
+	directoryuserDescCreatedAt := directoryuserFields[15].Descriptor()
+	// directoryuser.DefaultCreatedAt holds the default value on creation for the created_at field.
+	directoryuser.DefaultCreatedAt = directoryuserDescCreatedAt.Default.(func() time.Time)
+	// directoryuserDescUpdatedAt is the schema descriptor for updated_at field.
+	directoryuserDescUpdatedAt := directoryuserFields[16].Descriptor()
+	// directoryuser.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	directoryuser.DefaultUpdatedAt = directoryuserDescUpdatedAt.Default.(func() time.Time)
+	// directoryuser.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	directoryuser.UpdateDefaultUpdatedAt = directoryuserDescUpdatedAt.UpdateDefault.(func() time.Time)
 	evidencesnapshotFields := schema.EvidenceSnapshot{}.Fields()
 	_ = evidencesnapshotFields
 	// evidencesnapshotDescDigest is the schema descriptor for digest field.
@@ -885,6 +1203,136 @@ func init() {
 	notificationchannelprofile.DefaultUpdatedAt = notificationchannelprofileDescUpdatedAt.Default.(func() time.Time)
 	// notificationchannelprofile.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	notificationchannelprofile.UpdateDefaultUpdatedAt = notificationchannelprofileDescUpdatedAt.UpdateDefault.(func() time.Time)
+	rbacassignmentFields := schema.RBACAssignment{}.Fields()
+	_ = rbacassignmentFields
+	// rbacassignmentDescSubjectKind is the schema descriptor for subject_kind field.
+	rbacassignmentDescSubjectKind := rbacassignmentFields[0].Descriptor()
+	// rbacassignment.SubjectKindValidator is a validator for the "subject_kind" field. It is called by the builders before save.
+	rbacassignment.SubjectKindValidator = func() func(string) error {
+		validators := rbacassignmentDescSubjectKind.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(subject_kind string) error {
+			for _, fn := range fns {
+				if err := fn(subject_kind); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// rbacassignmentDescSubjectKey is the schema descriptor for subject_key field.
+	rbacassignmentDescSubjectKey := rbacassignmentFields[1].Descriptor()
+	// rbacassignment.SubjectKeyValidator is a validator for the "subject_key" field. It is called by the builders before save.
+	rbacassignment.SubjectKeyValidator = func() func(string) error {
+		validators := rbacassignmentDescSubjectKey.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(subject_key string) error {
+			for _, fn := range fns {
+				if err := fn(subject_key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// rbacassignmentDescRole is the schema descriptor for role field.
+	rbacassignmentDescRole := rbacassignmentFields[2].Descriptor()
+	// rbacassignment.RoleValidator is a validator for the "role" field. It is called by the builders before save.
+	rbacassignment.RoleValidator = func() func(string) error {
+		validators := rbacassignmentDescRole.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(role string) error {
+			for _, fn := range fns {
+				if err := fn(role); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// rbacassignmentDescScopeKind is the schema descriptor for scope_kind field.
+	rbacassignmentDescScopeKind := rbacassignmentFields[3].Descriptor()
+	// rbacassignment.ScopeKindValidator is a validator for the "scope_kind" field. It is called by the builders before save.
+	rbacassignment.ScopeKindValidator = func() func(string) error {
+		validators := rbacassignmentDescScopeKind.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(scope_kind string) error {
+			for _, fn := range fns {
+				if err := fn(scope_kind); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// rbacassignmentDescScopeKey is the schema descriptor for scope_key field.
+	rbacassignmentDescScopeKey := rbacassignmentFields[4].Descriptor()
+	// rbacassignment.DefaultScopeKey holds the default value on creation for the scope_key field.
+	rbacassignment.DefaultScopeKey = rbacassignmentDescScopeKey.Default.(string)
+	// rbacassignment.ScopeKeyValidator is a validator for the "scope_key" field. It is called by the builders before save.
+	rbacassignment.ScopeKeyValidator = rbacassignmentDescScopeKey.Validators[0].(func(string) error)
+	// rbacassignmentDescEnabled is the schema descriptor for enabled field.
+	rbacassignmentDescEnabled := rbacassignmentFields[5].Descriptor()
+	// rbacassignment.DefaultEnabled holds the default value on creation for the enabled field.
+	rbacassignment.DefaultEnabled = rbacassignmentDescEnabled.Default.(bool)
+	// rbacassignmentDescCreatedBy is the schema descriptor for created_by field.
+	rbacassignmentDescCreatedBy := rbacassignmentFields[6].Descriptor()
+	// rbacassignment.CreatedByValidator is a validator for the "created_by" field. It is called by the builders before save.
+	rbacassignment.CreatedByValidator = func() func(string) error {
+		validators := rbacassignmentDescCreatedBy.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(created_by string) error {
+			for _, fn := range fns {
+				if err := fn(created_by); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// rbacassignmentDescUpdatedBy is the schema descriptor for updated_by field.
+	rbacassignmentDescUpdatedBy := rbacassignmentFields[7].Descriptor()
+	// rbacassignment.UpdatedByValidator is a validator for the "updated_by" field. It is called by the builders before save.
+	rbacassignment.UpdatedByValidator = func() func(string) error {
+		validators := rbacassignmentDescUpdatedBy.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(updated_by string) error {
+			for _, fn := range fns {
+				if err := fn(updated_by); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// rbacassignmentDescCreatedAt is the schema descriptor for created_at field.
+	rbacassignmentDescCreatedAt := rbacassignmentFields[8].Descriptor()
+	// rbacassignment.DefaultCreatedAt holds the default value on creation for the created_at field.
+	rbacassignment.DefaultCreatedAt = rbacassignmentDescCreatedAt.Default.(func() time.Time)
+	// rbacassignmentDescUpdatedAt is the schema descriptor for updated_at field.
+	rbacassignmentDescUpdatedAt := rbacassignmentFields[9].Descriptor()
+	// rbacassignment.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	rbacassignment.DefaultUpdatedAt = rbacassignmentDescUpdatedAt.Default.(func() time.Time)
+	// rbacassignment.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	rbacassignment.UpdateDefaultUpdatedAt = rbacassignmentDescUpdatedAt.UpdateDefault.(func() time.Time)
 	reportnotificationdeliveryFields := schema.ReportNotificationDelivery{}.Fields()
 	_ = reportnotificationdeliveryFields
 	// reportnotificationdeliveryDescIdempotencyKey is the schema descriptor for idempotency_key field.

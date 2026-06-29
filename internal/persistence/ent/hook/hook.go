@@ -117,6 +117,42 @@ func (f DiagnosisToolTemplateFunc) Mutate(ctx context.Context, m ent.Mutation) (
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DiagnosisToolTemplateMutation", m)
 }
 
+// The DirectoryDepartmentFunc type is an adapter to allow the use of ordinary
+// function as DirectoryDepartment mutator.
+type DirectoryDepartmentFunc func(context.Context, *ent.DirectoryDepartmentMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f DirectoryDepartmentFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.DirectoryDepartmentMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DirectoryDepartmentMutation", m)
+}
+
+// The DirectorySyncRunFunc type is an adapter to allow the use of ordinary
+// function as DirectorySyncRun mutator.
+type DirectorySyncRunFunc func(context.Context, *ent.DirectorySyncRunMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f DirectorySyncRunFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.DirectorySyncRunMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DirectorySyncRunMutation", m)
+}
+
+// The DirectoryUserFunc type is an adapter to allow the use of ordinary
+// function as DirectoryUser mutator.
+type DirectoryUserFunc func(context.Context, *ent.DirectoryUserMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f DirectoryUserFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.DirectoryUserMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.DirectoryUserMutation", m)
+}
+
 // The EvidenceSnapshotFunc type is an adapter to allow the use of ordinary
 // function as EvidenceSnapshot mutator.
 type EvidenceSnapshotFunc func(context.Context, *ent.EvidenceSnapshotMutation) (ent.Value, error)
@@ -163,6 +199,18 @@ func (f NotificationChannelProfileFunc) Mutate(ctx context.Context, m ent.Mutati
 		return f(ctx, mv)
 	}
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.NotificationChannelProfileMutation", m)
+}
+
+// The RBACAssignmentFunc type is an adapter to allow the use of ordinary
+// function as RBACAssignment mutator.
+type RBACAssignmentFunc func(context.Context, *ent.RBACAssignmentMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RBACAssignmentFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RBACAssignmentMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RBACAssignmentMutation", m)
 }
 
 // The ReportNotificationDeliveryFunc type is an adapter to allow the use of ordinary

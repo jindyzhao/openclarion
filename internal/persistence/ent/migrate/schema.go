@@ -380,6 +380,135 @@ var (
 			},
 		},
 	}
+	// DirectoryDepartmentsColumns holds the columns for the "directory_departments" table.
+	DirectoryDepartmentsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "provider", Type: field.TypeString, Size: 64},
+		{Name: "external_id", Type: field.TypeString, Size: 256},
+		{Name: "parent_external_id", Type: field.TypeString, Nullable: true, Size: 256},
+		{Name: "name", Type: field.TypeString, Size: 256},
+		{Name: "display_name", Type: field.TypeString, Size: 256},
+		{Name: "path", Type: field.TypeString, Size: 1024},
+		{Name: "parent_path", Type: field.TypeString, Nullable: true, Size: 1024},
+		{Name: "level", Type: field.TypeInt, Default: 0},
+		{Name: "source", Type: field.TypeString, Nullable: true, Size: 64},
+		{Name: "member_count", Type: field.TypeInt, Default: 0},
+		{Name: "source_updated_at", Type: field.TypeTime, Nullable: true},
+		{Name: "synced_at", Type: field.TypeTime},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+	}
+	// DirectoryDepartmentsTable holds the schema information for the "directory_departments" table.
+	DirectoryDepartmentsTable = &schema.Table{
+		Name:       "directory_departments",
+		Columns:    DirectoryDepartmentsColumns,
+		PrimaryKey: []*schema.Column{DirectoryDepartmentsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "directorydepartment_provider_external_id",
+				Unique:  true,
+				Columns: []*schema.Column{DirectoryDepartmentsColumns[1], DirectoryDepartmentsColumns[2]},
+			},
+			{
+				Name:    "directorydepartment_provider_path",
+				Unique:  false,
+				Columns: []*schema.Column{DirectoryDepartmentsColumns[1], DirectoryDepartmentsColumns[6]},
+			},
+			{
+				Name:    "directorydepartment_path",
+				Unique:  false,
+				Columns: []*schema.Column{DirectoryDepartmentsColumns[6]},
+			},
+		},
+	}
+	// DirectorySyncRunsColumns holds the columns for the "directory_sync_runs" table.
+	DirectorySyncRunsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "provider", Type: field.TypeString, Size: 64},
+		{Name: "page_size", Type: field.TypeInt},
+		{Name: "updated_after", Type: field.TypeTime, Nullable: true},
+		{Name: "status", Type: field.TypeString, Size: 32, Default: "succeeded"},
+		{Name: "failure_code", Type: field.TypeString, Size: 64, Default: ""},
+		{Name: "failure_message", Type: field.TypeString, Size: 240, Default: ""},
+		{Name: "department_pages", Type: field.TypeInt},
+		{Name: "user_pages", Type: field.TypeInt},
+		{Name: "departments_upserted", Type: field.TypeInt},
+		{Name: "users_upserted", Type: field.TypeInt},
+		{Name: "synced_at", Type: field.TypeTime},
+		{Name: "created_at", Type: field.TypeTime},
+	}
+	// DirectorySyncRunsTable holds the schema information for the "directory_sync_runs" table.
+	DirectorySyncRunsTable = &schema.Table{
+		Name:       "directory_sync_runs",
+		Columns:    DirectorySyncRunsColumns,
+		PrimaryKey: []*schema.Column{DirectorySyncRunsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "directorysyncrun_provider_synced_at",
+				Unique:  false,
+				Columns: []*schema.Column{DirectorySyncRunsColumns[1], DirectorySyncRunsColumns[11]},
+			},
+			{
+				Name:    "directorysyncrun_provider_status_synced_at",
+				Unique:  false,
+				Columns: []*schema.Column{DirectorySyncRunsColumns[1], DirectorySyncRunsColumns[4], DirectorySyncRunsColumns[11]},
+			},
+			{
+				Name:    "directorysyncrun_synced_at",
+				Unique:  false,
+				Columns: []*schema.Column{DirectorySyncRunsColumns[11]},
+			},
+		},
+	}
+	// DirectoryUsersColumns holds the columns for the "directory_users" table.
+	DirectoryUsersColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "provider", Type: field.TypeString, Size: 64},
+		{Name: "subject", Type: field.TypeString, Size: 256},
+		{Name: "external_id", Type: field.TypeString, Size: 256},
+		{Name: "username", Type: field.TypeString, Size: 128},
+		{Name: "display_name", Type: field.TypeString, Size: 256},
+		{Name: "email", Type: field.TypeString, Nullable: true, Size: 320},
+		{Name: "job_title", Type: field.TypeString, Nullable: true, Size: 256},
+		{Name: "department", Type: field.TypeString, Nullable: true, Size: 256},
+		{Name: "section", Type: field.TypeString, Nullable: true, Size: 256},
+		{Name: "department_path", Type: field.TypeString, Nullable: true, Size: 1024},
+		{Name: "department_paths", Type: field.TypeJSON},
+		{Name: "department_external_ids", Type: field.TypeJSON},
+		{Name: "active", Type: field.TypeBool, Default: true},
+		{Name: "source_updated_at", Type: field.TypeTime, Nullable: true},
+		{Name: "synced_at", Type: field.TypeTime},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+	}
+	// DirectoryUsersTable holds the schema information for the "directory_users" table.
+	DirectoryUsersTable = &schema.Table{
+		Name:       "directory_users",
+		Columns:    DirectoryUsersColumns,
+		PrimaryKey: []*schema.Column{DirectoryUsersColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "directoryuser_provider_subject",
+				Unique:  true,
+				Columns: []*schema.Column{DirectoryUsersColumns[1], DirectoryUsersColumns[2]},
+			},
+			{
+				Name:    "directoryuser_provider_external_id",
+				Unique:  true,
+				Columns: []*schema.Column{DirectoryUsersColumns[1], DirectoryUsersColumns[3]},
+			},
+			{
+				Name:    "directoryuser_provider_active",
+				Unique:  false,
+				Columns: []*schema.Column{DirectoryUsersColumns[1], DirectoryUsersColumns[13]},
+			},
+			{
+				Name:    "directoryuser_display_name",
+				Unique:  false,
+				Columns: []*schema.Column{DirectoryUsersColumns[5]},
+			},
+		},
+	}
 	// EvidenceSnapshotsColumns holds the columns for the "evidence_snapshots" table.
 	EvidenceSnapshotsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -530,6 +659,43 @@ var (
 						"postgres": "GIN",
 					},
 				},
+			},
+		},
+	}
+	// RbacAssignmentsColumns holds the columns for the "rbac_assignments" table.
+	RbacAssignmentsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "subject_kind", Type: field.TypeString, Size: 32},
+		{Name: "subject_key", Type: field.TypeString, Size: 256},
+		{Name: "role", Type: field.TypeString, Size: 32},
+		{Name: "scope_kind", Type: field.TypeString, Size: 64},
+		{Name: "scope_key", Type: field.TypeString, Size: 256, Default: ""},
+		{Name: "enabled", Type: field.TypeBool, Default: true},
+		{Name: "created_by", Type: field.TypeString, Size: 256},
+		{Name: "updated_by", Type: field.TypeString, Size: 256},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+	}
+	// RbacAssignmentsTable holds the schema information for the "rbac_assignments" table.
+	RbacAssignmentsTable = &schema.Table{
+		Name:       "rbac_assignments",
+		Columns:    RbacAssignmentsColumns,
+		PrimaryKey: []*schema.Column{RbacAssignmentsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "rbacassignment_subject_kind_subject_key_role_scope_kind_scope_key",
+				Unique:  true,
+				Columns: []*schema.Column{RbacAssignmentsColumns[1], RbacAssignmentsColumns[2], RbacAssignmentsColumns[3], RbacAssignmentsColumns[4], RbacAssignmentsColumns[5]},
+			},
+			{
+				Name:    "rbacassignment_subject_kind_subject_key_enabled",
+				Unique:  false,
+				Columns: []*schema.Column{RbacAssignmentsColumns[1], RbacAssignmentsColumns[2], RbacAssignmentsColumns[6]},
+			},
+			{
+				Name:    "rbacassignment_scope_kind_scope_key_enabled",
+				Unique:  false,
+				Columns: []*schema.Column{RbacAssignmentsColumns[4], RbacAssignmentsColumns[5], RbacAssignmentsColumns[6]},
 			},
 		},
 	}
@@ -759,10 +925,14 @@ var (
 		DiagnosisTasksTable,
 		DiagnosisTaskEventsTable,
 		DiagnosisToolTemplatesTable,
+		DirectoryDepartmentsTable,
+		DirectorySyncRunsTable,
+		DirectoryUsersTable,
 		EvidenceSnapshotsTable,
 		FinalReportsTable,
 		GroupingPoliciesTable,
 		NotificationChannelProfilesTable,
+		RbacAssignmentsTable,
 		ReportNotificationDeliveriesTable,
 		ReportWorkflowPoliciesTable,
 		ReportWorkflowSchedulesTable,

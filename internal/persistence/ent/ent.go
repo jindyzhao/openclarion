@@ -21,10 +21,14 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistooltemplate"
+	"github.com/openclarion/openclarion/internal/persistence/ent/directorydepartment"
+	"github.com/openclarion/openclarion/internal/persistence/ent/directorysyncrun"
+	"github.com/openclarion/openclarion/internal/persistence/ent/directoryuser"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
+	"github.com/openclarion/openclarion/internal/persistence/ent/rbacassignment"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
@@ -98,10 +102,14 @@ func checkColumn(t, c string) error {
 			diagnosistask.Table:              diagnosistask.ValidColumn,
 			diagnosistaskevent.Table:         diagnosistaskevent.ValidColumn,
 			diagnosistooltemplate.Table:      diagnosistooltemplate.ValidColumn,
+			directorydepartment.Table:        directorydepartment.ValidColumn,
+			directorysyncrun.Table:           directorysyncrun.ValidColumn,
+			directoryuser.Table:              directoryuser.ValidColumn,
 			evidencesnapshot.Table:           evidencesnapshot.ValidColumn,
 			finalreport.Table:                finalreport.ValidColumn,
 			groupingpolicy.Table:             groupingpolicy.ValidColumn,
 			notificationchannelprofile.Table: notificationchannelprofile.ValidColumn,
+			rbacassignment.Table:             rbacassignment.ValidColumn,
 			reportnotificationdelivery.Table: reportnotificationdelivery.ValidColumn,
 			reportworkflowpolicy.Table:       reportworkflowpolicy.ValidColumn,
 			reportworkflowschedule.Table:     reportworkflowschedule.ValidColumn,
