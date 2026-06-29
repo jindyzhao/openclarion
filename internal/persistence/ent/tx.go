@@ -30,6 +30,12 @@ type Tx struct {
 	DiagnosisTaskEvent *DiagnosisTaskEventClient
 	// DiagnosisToolTemplate is the client for interacting with the DiagnosisToolTemplate builders.
 	DiagnosisToolTemplate *DiagnosisToolTemplateClient
+	// DirectoryDepartment is the client for interacting with the DirectoryDepartment builders.
+	DirectoryDepartment *DirectoryDepartmentClient
+	// DirectorySyncRun is the client for interacting with the DirectorySyncRun builders.
+	DirectorySyncRun *DirectorySyncRunClient
+	// DirectoryUser is the client for interacting with the DirectoryUser builders.
+	DirectoryUser *DirectoryUserClient
 	// EvidenceSnapshot is the client for interacting with the EvidenceSnapshot builders.
 	EvidenceSnapshot *EvidenceSnapshotClient
 	// FinalReport is the client for interacting with the FinalReport builders.
@@ -38,6 +44,8 @@ type Tx struct {
 	GroupingPolicy *GroupingPolicyClient
 	// NotificationChannelProfile is the client for interacting with the NotificationChannelProfile builders.
 	NotificationChannelProfile *NotificationChannelProfileClient
+	// RBACAssignment is the client for interacting with the RBACAssignment builders.
+	RBACAssignment *RBACAssignmentClient
 	// ReportNotificationDelivery is the client for interacting with the ReportNotificationDelivery builders.
 	ReportNotificationDelivery *ReportNotificationDeliveryClient
 	// ReportWorkflowPolicy is the client for interacting with the ReportWorkflowPolicy builders.
@@ -186,10 +194,14 @@ func (tx *Tx) init() {
 	tx.DiagnosisTask = NewDiagnosisTaskClient(tx.config)
 	tx.DiagnosisTaskEvent = NewDiagnosisTaskEventClient(tx.config)
 	tx.DiagnosisToolTemplate = NewDiagnosisToolTemplateClient(tx.config)
+	tx.DirectoryDepartment = NewDirectoryDepartmentClient(tx.config)
+	tx.DirectorySyncRun = NewDirectorySyncRunClient(tx.config)
+	tx.DirectoryUser = NewDirectoryUserClient(tx.config)
 	tx.EvidenceSnapshot = NewEvidenceSnapshotClient(tx.config)
 	tx.FinalReport = NewFinalReportClient(tx.config)
 	tx.GroupingPolicy = NewGroupingPolicyClient(tx.config)
 	tx.NotificationChannelProfile = NewNotificationChannelProfileClient(tx.config)
+	tx.RBACAssignment = NewRBACAssignmentClient(tx.config)
 	tx.ReportNotificationDelivery = NewReportNotificationDeliveryClient(tx.config)
 	tx.ReportWorkflowPolicy = NewReportWorkflowPolicyClient(tx.config)
 	tx.ReportWorkflowSchedule = NewReportWorkflowScheduleClient(tx.config)

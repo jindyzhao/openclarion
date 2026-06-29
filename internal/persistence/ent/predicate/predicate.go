@@ -33,6 +33,15 @@ type DiagnosisTaskEvent func(*sql.Selector)
 // DiagnosisToolTemplate is the predicate function for diagnosistooltemplate builders.
 type DiagnosisToolTemplate func(*sql.Selector)
 
+// DirectoryDepartment is the predicate function for directorydepartment builders.
+type DirectoryDepartment func(*sql.Selector)
+
+// DirectorySyncRun is the predicate function for directorysyncrun builders.
+type DirectorySyncRun func(*sql.Selector)
+
+// DirectoryUser is the predicate function for directoryuser builders.
+type DirectoryUser func(*sql.Selector)
+
 // EvidenceSnapshot is the predicate function for evidencesnapshot builders.
 type EvidenceSnapshot func(*sql.Selector)
 
@@ -44,6 +53,9 @@ type GroupingPolicy func(*sql.Selector)
 
 // NotificationChannelProfile is the predicate function for notificationchannelprofile builders.
 type NotificationChannelProfile func(*sql.Selector)
+
+// RBACAssignment is the predicate function for rbacassignment builders.
+type RBACAssignment func(*sql.Selector)
 
 // ReportNotificationDelivery is the predicate function for reportnotificationdelivery builders.
 type ReportNotificationDelivery func(*sql.Selector)
