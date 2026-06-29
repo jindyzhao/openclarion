@@ -68,6 +68,18 @@ type ReportWorkflowScheduleID int64
 // operator-managed notification channel profile.
 type NotificationChannelProfileID int64
 
+// DirectoryDepartmentID is the surrogate identifier of one locally projected
+// upstream directory department row.
+type DirectoryDepartmentID int64
+
+// DirectoryUserID is the surrogate identifier of one locally projected
+// upstream directory user row.
+type DirectoryUserID int64
+
+// DirectorySyncRunID is the surrogate identifier of one local directory sync
+// run row.
+type DirectorySyncRunID int64
+
 // RBACAssignmentID is the surrogate identifier of one local OpenClarion role
 // assignment row.
 type RBACAssignmentID int64
