@@ -8,7 +8,10 @@ import (
 )
 
 const (
-	maxDirectoryProviderLen     = 64
+	// MaxDirectoryProviderBytes is the shared byte-length limit for directory
+	// provider identifiers stored in local projections and sync-run audits.
+	MaxDirectoryProviderBytes   = 64
+	maxDirectoryProviderLen     = MaxDirectoryProviderBytes
 	maxDirectoryExternalIDLen   = 256
 	maxDirectorySubjectLen      = 256
 	maxDirectoryUsernameLen     = 128

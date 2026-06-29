@@ -111,6 +111,74 @@ type MetricsProvider interface {
 	QueryMetricRange(ctx context.Context, req MetricRangeQueryRequest) (MetricQueryResult, error)
 }
 
+// DirectoryListRequest configures one bounded page request against an upstream
+// identity directory. UpdatedAfter is advisory: providers may ignore it when
+// their upstream API does not support incremental listing.
+type DirectoryListRequest struct {
+	Cursor       string
+	PageSize     int
+	UpdatedAfter *time.Time
+}
+
+// DirectoryDepartmentProjection is the provider-neutral input used to refresh
+// OpenClarion's local department projection. It intentionally excludes local
+// IDs, audit timestamps, credentials, and raw upstream payloads.
+type DirectoryDepartmentProjection struct {
+	ExternalID       string
+	ParentExternalID string
+	Name             string
+	DisplayName      string
+	Path             string
+	ParentPath       string
+	Level            int
+	Source           string
+	MemberCount      int
+	SourceUpdatedAt  *time.Time
+}
+
+// DirectoryUserProjection is the provider-neutral input used to refresh
+// OpenClarion's local user projection. Subject must be the stable login
+// subject emitted by IAM so diagnosis-room attribution and local RBAC checks
+// remain stable across display-name or department changes.
+type DirectoryUserProjection struct {
+	Subject               string
+	ExternalID            string
+	Username              string
+	DisplayName           string
+	Email                 string
+	JobTitle              string
+	Department            string
+	Section               string
+	DepartmentPath        string
+	DepartmentPaths       []string
+	DepartmentExternalIDs []string
+	Active                bool
+	SourceUpdatedAt       *time.Time
+}
+
+// DirectoryDepartmentPage is one page of upstream department projections.
+// NextCursor is empty when no more pages remain.
+type DirectoryDepartmentPage struct {
+	Departments []DirectoryDepartmentProjection
+	NextCursor  string
+}
+
+// DirectoryUserPage is one page of upstream user projections. NextCursor is
+// empty when no more pages remain.
+type DirectoryUserPage struct {
+	Users      []DirectoryUserProjection
+	NextCursor string
+}
+
+// DirectoryProvider lists the upstream identity directory without importing an
+// IAM SDK into the usecase layer. Implementations must not return raw upstream
+// payloads or secrets; the sync usecase owns local domain construction,
+// provider identity, and synced_at timestamps.
+type DirectoryProvider interface {
+	ListDepartments(ctx context.Context, req DirectoryListRequest) (DirectoryDepartmentPage, error)
+	ListUsers(ctx context.Context, req DirectoryListRequest) (DirectoryUserPage, error)
+}
+
 // ErrSecretNotFound is returned by SecretResolver implementations when the
 // referenced deployment-managed secret does not exist in the configured
 // resolver boundary. The error intentionally does not include the secret value.
