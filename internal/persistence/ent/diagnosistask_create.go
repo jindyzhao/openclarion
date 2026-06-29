@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
@@ -21,6 +22,7 @@ type DiagnosisTaskCreate struct {
 	config
 	mutation *DiagnosisTaskMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetEvidenceSnapshotID sets the "evidence_snapshot_id" field.
@@ -284,6 +286,7 @@ func (_c *DiagnosisTaskCreate) createSpec() (*DiagnosisTask, *sqlgraph.CreateSpe
 		_node = &DiagnosisTask{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(diagnosistask.Table, sqlgraph.NewFieldSpec(diagnosistask.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.WorkflowID(); ok {
 		_spec.SetField(diagnosistask.FieldWorkflowID, field.TypeString, value)
 		_node.WorkflowID = value
@@ -368,11 +371,317 @@ func (_c *DiagnosisTaskCreate) createSpec() (*DiagnosisTask, *sqlgraph.CreateSpe
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.DiagnosisTask.Create().
+//		SetEvidenceSnapshotID(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.DiagnosisTaskUpsert) {
+//			SetEvidenceSnapshotID(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *DiagnosisTaskCreate) OnConflict(opts ...sql.ConflictOption) *DiagnosisTaskUpsertOne {
+	_c.conflict = opts
+	return &DiagnosisTaskUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.DiagnosisTask.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *DiagnosisTaskCreate) OnConflictColumns(columns ...string) *DiagnosisTaskUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &DiagnosisTaskUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// DiagnosisTaskUpsertOne is the builder for "upsert"-ing
+	//  one DiagnosisTask node.
+	DiagnosisTaskUpsertOne struct {
+		create *DiagnosisTaskCreate
+	}
+
+	// DiagnosisTaskUpsert is the "OnConflict" setter.
+	DiagnosisTaskUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetStatus sets the "status" field.
+func (u *DiagnosisTaskUpsert) SetStatus(v string) *DiagnosisTaskUpsert {
+	u.Set(diagnosistask.FieldStatus, v)
+	return u
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsert) UpdateStatus() *DiagnosisTaskUpsert {
+	u.SetExcluded(diagnosistask.FieldStatus)
+	return u
+}
+
+// SetFailureReason sets the "failure_reason" field.
+func (u *DiagnosisTaskUpsert) SetFailureReason(v string) *DiagnosisTaskUpsert {
+	u.Set(diagnosistask.FieldFailureReason, v)
+	return u
+}
+
+// UpdateFailureReason sets the "failure_reason" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsert) UpdateFailureReason() *DiagnosisTaskUpsert {
+	u.SetExcluded(diagnosistask.FieldFailureReason)
+	return u
+}
+
+// ClearFailureReason clears the value of the "failure_reason" field.
+func (u *DiagnosisTaskUpsert) ClearFailureReason() *DiagnosisTaskUpsert {
+	u.SetNull(diagnosistask.FieldFailureReason)
+	return u
+}
+
+// SetStartedAt sets the "started_at" field.
+func (u *DiagnosisTaskUpsert) SetStartedAt(v time.Time) *DiagnosisTaskUpsert {
+	u.Set(diagnosistask.FieldStartedAt, v)
+	return u
+}
+
+// UpdateStartedAt sets the "started_at" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsert) UpdateStartedAt() *DiagnosisTaskUpsert {
+	u.SetExcluded(diagnosistask.FieldStartedAt)
+	return u
+}
+
+// ClearStartedAt clears the value of the "started_at" field.
+func (u *DiagnosisTaskUpsert) ClearStartedAt() *DiagnosisTaskUpsert {
+	u.SetNull(diagnosistask.FieldStartedAt)
+	return u
+}
+
+// SetFinishedAt sets the "finished_at" field.
+func (u *DiagnosisTaskUpsert) SetFinishedAt(v time.Time) *DiagnosisTaskUpsert {
+	u.Set(diagnosistask.FieldFinishedAt, v)
+	return u
+}
+
+// UpdateFinishedAt sets the "finished_at" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsert) UpdateFinishedAt() *DiagnosisTaskUpsert {
+	u.SetExcluded(diagnosistask.FieldFinishedAt)
+	return u
+}
+
+// ClearFinishedAt clears the value of the "finished_at" field.
+func (u *DiagnosisTaskUpsert) ClearFinishedAt() *DiagnosisTaskUpsert {
+	u.SetNull(diagnosistask.FieldFinishedAt)
+	return u
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *DiagnosisTaskUpsert) SetUpdatedAt(v time.Time) *DiagnosisTaskUpsert {
+	u.Set(diagnosistask.FieldUpdatedAt, v)
+	return u
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsert) UpdateUpdatedAt() *DiagnosisTaskUpsert {
+	u.SetExcluded(diagnosistask.FieldUpdatedAt)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.DiagnosisTask.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *DiagnosisTaskUpsertOne) UpdateNewValues() *DiagnosisTaskUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.EvidenceSnapshotID(); exists {
+			s.SetIgnore(diagnosistask.FieldEvidenceSnapshotID)
+		}
+		if _, exists := u.create.mutation.WorkflowID(); exists {
+			s.SetIgnore(diagnosistask.FieldWorkflowID)
+		}
+		if _, exists := u.create.mutation.RunID(); exists {
+			s.SetIgnore(diagnosistask.FieldRunID)
+		}
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(diagnosistask.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.DiagnosisTask.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *DiagnosisTaskUpsertOne) Ignore() *DiagnosisTaskUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *DiagnosisTaskUpsertOne) DoNothing() *DiagnosisTaskUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the DiagnosisTaskCreate.OnConflict
+// documentation for more info.
+func (u *DiagnosisTaskUpsertOne) Update(set func(*DiagnosisTaskUpsert)) *DiagnosisTaskUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&DiagnosisTaskUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetStatus sets the "status" field.
+func (u *DiagnosisTaskUpsertOne) SetStatus(v string) *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.SetStatus(v)
+	})
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsertOne) UpdateStatus() *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.UpdateStatus()
+	})
+}
+
+// SetFailureReason sets the "failure_reason" field.
+func (u *DiagnosisTaskUpsertOne) SetFailureReason(v string) *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.SetFailureReason(v)
+	})
+}
+
+// UpdateFailureReason sets the "failure_reason" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsertOne) UpdateFailureReason() *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.UpdateFailureReason()
+	})
+}
+
+// ClearFailureReason clears the value of the "failure_reason" field.
+func (u *DiagnosisTaskUpsertOne) ClearFailureReason() *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.ClearFailureReason()
+	})
+}
+
+// SetStartedAt sets the "started_at" field.
+func (u *DiagnosisTaskUpsertOne) SetStartedAt(v time.Time) *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.SetStartedAt(v)
+	})
+}
+
+// UpdateStartedAt sets the "started_at" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsertOne) UpdateStartedAt() *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.UpdateStartedAt()
+	})
+}
+
+// ClearStartedAt clears the value of the "started_at" field.
+func (u *DiagnosisTaskUpsertOne) ClearStartedAt() *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.ClearStartedAt()
+	})
+}
+
+// SetFinishedAt sets the "finished_at" field.
+func (u *DiagnosisTaskUpsertOne) SetFinishedAt(v time.Time) *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.SetFinishedAt(v)
+	})
+}
+
+// UpdateFinishedAt sets the "finished_at" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsertOne) UpdateFinishedAt() *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.UpdateFinishedAt()
+	})
+}
+
+// ClearFinishedAt clears the value of the "finished_at" field.
+func (u *DiagnosisTaskUpsertOne) ClearFinishedAt() *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.ClearFinishedAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *DiagnosisTaskUpsertOne) SetUpdatedAt(v time.Time) *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsertOne) UpdateUpdatedAt() *DiagnosisTaskUpsertOne {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *DiagnosisTaskUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for DiagnosisTaskCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *DiagnosisTaskUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *DiagnosisTaskUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *DiagnosisTaskUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // DiagnosisTaskCreateBulk is the builder for creating many DiagnosisTask entities in bulk.
 type DiagnosisTaskCreateBulk struct {
 	config
 	err      error
 	builders []*DiagnosisTaskCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the DiagnosisTask entities in the database.
@@ -402,6 +711,7 @@ func (_c *DiagnosisTaskCreateBulk) Save(ctx context.Context) ([]*DiagnosisTask, 
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -452,6 +762,217 @@ func (_c *DiagnosisTaskCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *DiagnosisTaskCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.DiagnosisTask.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.DiagnosisTaskUpsert) {
+//			SetEvidenceSnapshotID(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *DiagnosisTaskCreateBulk) OnConflict(opts ...sql.ConflictOption) *DiagnosisTaskUpsertBulk {
+	_c.conflict = opts
+	return &DiagnosisTaskUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.DiagnosisTask.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *DiagnosisTaskCreateBulk) OnConflictColumns(columns ...string) *DiagnosisTaskUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &DiagnosisTaskUpsertBulk{
+		create: _c,
+	}
+}
+
+// DiagnosisTaskUpsertBulk is the builder for "upsert"-ing
+// a bulk of DiagnosisTask nodes.
+type DiagnosisTaskUpsertBulk struct {
+	create *DiagnosisTaskCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.DiagnosisTask.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *DiagnosisTaskUpsertBulk) UpdateNewValues() *DiagnosisTaskUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.EvidenceSnapshotID(); exists {
+				s.SetIgnore(diagnosistask.FieldEvidenceSnapshotID)
+			}
+			if _, exists := b.mutation.WorkflowID(); exists {
+				s.SetIgnore(diagnosistask.FieldWorkflowID)
+			}
+			if _, exists := b.mutation.RunID(); exists {
+				s.SetIgnore(diagnosistask.FieldRunID)
+			}
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(diagnosistask.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.DiagnosisTask.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *DiagnosisTaskUpsertBulk) Ignore() *DiagnosisTaskUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *DiagnosisTaskUpsertBulk) DoNothing() *DiagnosisTaskUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the DiagnosisTaskCreateBulk.OnConflict
+// documentation for more info.
+func (u *DiagnosisTaskUpsertBulk) Update(set func(*DiagnosisTaskUpsert)) *DiagnosisTaskUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&DiagnosisTaskUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetStatus sets the "status" field.
+func (u *DiagnosisTaskUpsertBulk) SetStatus(v string) *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.SetStatus(v)
+	})
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsertBulk) UpdateStatus() *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.UpdateStatus()
+	})
+}
+
+// SetFailureReason sets the "failure_reason" field.
+func (u *DiagnosisTaskUpsertBulk) SetFailureReason(v string) *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.SetFailureReason(v)
+	})
+}
+
+// UpdateFailureReason sets the "failure_reason" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsertBulk) UpdateFailureReason() *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.UpdateFailureReason()
+	})
+}
+
+// ClearFailureReason clears the value of the "failure_reason" field.
+func (u *DiagnosisTaskUpsertBulk) ClearFailureReason() *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.ClearFailureReason()
+	})
+}
+
+// SetStartedAt sets the "started_at" field.
+func (u *DiagnosisTaskUpsertBulk) SetStartedAt(v time.Time) *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.SetStartedAt(v)
+	})
+}
+
+// UpdateStartedAt sets the "started_at" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsertBulk) UpdateStartedAt() *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.UpdateStartedAt()
+	})
+}
+
+// ClearStartedAt clears the value of the "started_at" field.
+func (u *DiagnosisTaskUpsertBulk) ClearStartedAt() *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.ClearStartedAt()
+	})
+}
+
+// SetFinishedAt sets the "finished_at" field.
+func (u *DiagnosisTaskUpsertBulk) SetFinishedAt(v time.Time) *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.SetFinishedAt(v)
+	})
+}
+
+// UpdateFinishedAt sets the "finished_at" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsertBulk) UpdateFinishedAt() *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.UpdateFinishedAt()
+	})
+}
+
+// ClearFinishedAt clears the value of the "finished_at" field.
+func (u *DiagnosisTaskUpsertBulk) ClearFinishedAt() *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.ClearFinishedAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *DiagnosisTaskUpsertBulk) SetUpdatedAt(v time.Time) *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *DiagnosisTaskUpsertBulk) UpdateUpdatedAt() *DiagnosisTaskUpsertBulk {
+	return u.Update(func(s *DiagnosisTaskUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *DiagnosisTaskUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the DiagnosisTaskCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for DiagnosisTaskCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *DiagnosisTaskUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }

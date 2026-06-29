@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/rbacassignment"
@@ -18,6 +19,7 @@ type RBACAssignmentCreate struct {
 	config
 	mutation *RBACAssignmentMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetSubjectKind sets the "subject_kind" field.
@@ -258,6 +260,7 @@ func (_c *RBACAssignmentCreate) createSpec() (*RBACAssignment, *sqlgraph.CreateS
 		_node = &RBACAssignment{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(rbacassignment.Table, sqlgraph.NewFieldSpec(rbacassignment.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.SubjectKind(); ok {
 		_spec.SetField(rbacassignment.FieldSubjectKind, field.TypeString, value)
 		_node.SubjectKind = value
@@ -301,11 +304,373 @@ func (_c *RBACAssignmentCreate) createSpec() (*RBACAssignment, *sqlgraph.CreateS
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.RBACAssignment.Create().
+//		SetSubjectKind(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.RBACAssignmentUpsert) {
+//			SetSubjectKind(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *RBACAssignmentCreate) OnConflict(opts ...sql.ConflictOption) *RBACAssignmentUpsertOne {
+	_c.conflict = opts
+	return &RBACAssignmentUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.RBACAssignment.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *RBACAssignmentCreate) OnConflictColumns(columns ...string) *RBACAssignmentUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &RBACAssignmentUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// RBACAssignmentUpsertOne is the builder for "upsert"-ing
+	//  one RBACAssignment node.
+	RBACAssignmentUpsertOne struct {
+		create *RBACAssignmentCreate
+	}
+
+	// RBACAssignmentUpsert is the "OnConflict" setter.
+	RBACAssignmentUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetSubjectKind sets the "subject_kind" field.
+func (u *RBACAssignmentUpsert) SetSubjectKind(v string) *RBACAssignmentUpsert {
+	u.Set(rbacassignment.FieldSubjectKind, v)
+	return u
+}
+
+// UpdateSubjectKind sets the "subject_kind" field to the value that was provided on create.
+func (u *RBACAssignmentUpsert) UpdateSubjectKind() *RBACAssignmentUpsert {
+	u.SetExcluded(rbacassignment.FieldSubjectKind)
+	return u
+}
+
+// SetSubjectKey sets the "subject_key" field.
+func (u *RBACAssignmentUpsert) SetSubjectKey(v string) *RBACAssignmentUpsert {
+	u.Set(rbacassignment.FieldSubjectKey, v)
+	return u
+}
+
+// UpdateSubjectKey sets the "subject_key" field to the value that was provided on create.
+func (u *RBACAssignmentUpsert) UpdateSubjectKey() *RBACAssignmentUpsert {
+	u.SetExcluded(rbacassignment.FieldSubjectKey)
+	return u
+}
+
+// SetRole sets the "role" field.
+func (u *RBACAssignmentUpsert) SetRole(v string) *RBACAssignmentUpsert {
+	u.Set(rbacassignment.FieldRole, v)
+	return u
+}
+
+// UpdateRole sets the "role" field to the value that was provided on create.
+func (u *RBACAssignmentUpsert) UpdateRole() *RBACAssignmentUpsert {
+	u.SetExcluded(rbacassignment.FieldRole)
+	return u
+}
+
+// SetScopeKind sets the "scope_kind" field.
+func (u *RBACAssignmentUpsert) SetScopeKind(v string) *RBACAssignmentUpsert {
+	u.Set(rbacassignment.FieldScopeKind, v)
+	return u
+}
+
+// UpdateScopeKind sets the "scope_kind" field to the value that was provided on create.
+func (u *RBACAssignmentUpsert) UpdateScopeKind() *RBACAssignmentUpsert {
+	u.SetExcluded(rbacassignment.FieldScopeKind)
+	return u
+}
+
+// SetScopeKey sets the "scope_key" field.
+func (u *RBACAssignmentUpsert) SetScopeKey(v string) *RBACAssignmentUpsert {
+	u.Set(rbacassignment.FieldScopeKey, v)
+	return u
+}
+
+// UpdateScopeKey sets the "scope_key" field to the value that was provided on create.
+func (u *RBACAssignmentUpsert) UpdateScopeKey() *RBACAssignmentUpsert {
+	u.SetExcluded(rbacassignment.FieldScopeKey)
+	return u
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *RBACAssignmentUpsert) SetEnabled(v bool) *RBACAssignmentUpsert {
+	u.Set(rbacassignment.FieldEnabled, v)
+	return u
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *RBACAssignmentUpsert) UpdateEnabled() *RBACAssignmentUpsert {
+	u.SetExcluded(rbacassignment.FieldEnabled)
+	return u
+}
+
+// SetCreatedBy sets the "created_by" field.
+func (u *RBACAssignmentUpsert) SetCreatedBy(v string) *RBACAssignmentUpsert {
+	u.Set(rbacassignment.FieldCreatedBy, v)
+	return u
+}
+
+// UpdateCreatedBy sets the "created_by" field to the value that was provided on create.
+func (u *RBACAssignmentUpsert) UpdateCreatedBy() *RBACAssignmentUpsert {
+	u.SetExcluded(rbacassignment.FieldCreatedBy)
+	return u
+}
+
+// SetUpdatedBy sets the "updated_by" field.
+func (u *RBACAssignmentUpsert) SetUpdatedBy(v string) *RBACAssignmentUpsert {
+	u.Set(rbacassignment.FieldUpdatedBy, v)
+	return u
+}
+
+// UpdateUpdatedBy sets the "updated_by" field to the value that was provided on create.
+func (u *RBACAssignmentUpsert) UpdateUpdatedBy() *RBACAssignmentUpsert {
+	u.SetExcluded(rbacassignment.FieldUpdatedBy)
+	return u
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *RBACAssignmentUpsert) SetUpdatedAt(v time.Time) *RBACAssignmentUpsert {
+	u.Set(rbacassignment.FieldUpdatedAt, v)
+	return u
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *RBACAssignmentUpsert) UpdateUpdatedAt() *RBACAssignmentUpsert {
+	u.SetExcluded(rbacassignment.FieldUpdatedAt)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.RBACAssignment.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *RBACAssignmentUpsertOne) UpdateNewValues() *RBACAssignmentUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(rbacassignment.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.RBACAssignment.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *RBACAssignmentUpsertOne) Ignore() *RBACAssignmentUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *RBACAssignmentUpsertOne) DoNothing() *RBACAssignmentUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the RBACAssignmentCreate.OnConflict
+// documentation for more info.
+func (u *RBACAssignmentUpsertOne) Update(set func(*RBACAssignmentUpsert)) *RBACAssignmentUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&RBACAssignmentUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetSubjectKind sets the "subject_kind" field.
+func (u *RBACAssignmentUpsertOne) SetSubjectKind(v string) *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetSubjectKind(v)
+	})
+}
+
+// UpdateSubjectKind sets the "subject_kind" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertOne) UpdateSubjectKind() *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateSubjectKind()
+	})
+}
+
+// SetSubjectKey sets the "subject_key" field.
+func (u *RBACAssignmentUpsertOne) SetSubjectKey(v string) *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetSubjectKey(v)
+	})
+}
+
+// UpdateSubjectKey sets the "subject_key" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertOne) UpdateSubjectKey() *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateSubjectKey()
+	})
+}
+
+// SetRole sets the "role" field.
+func (u *RBACAssignmentUpsertOne) SetRole(v string) *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetRole(v)
+	})
+}
+
+// UpdateRole sets the "role" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertOne) UpdateRole() *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateRole()
+	})
+}
+
+// SetScopeKind sets the "scope_kind" field.
+func (u *RBACAssignmentUpsertOne) SetScopeKind(v string) *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetScopeKind(v)
+	})
+}
+
+// UpdateScopeKind sets the "scope_kind" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertOne) UpdateScopeKind() *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateScopeKind()
+	})
+}
+
+// SetScopeKey sets the "scope_key" field.
+func (u *RBACAssignmentUpsertOne) SetScopeKey(v string) *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetScopeKey(v)
+	})
+}
+
+// UpdateScopeKey sets the "scope_key" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertOne) UpdateScopeKey() *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateScopeKey()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *RBACAssignmentUpsertOne) SetEnabled(v bool) *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertOne) UpdateEnabled() *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetCreatedBy sets the "created_by" field.
+func (u *RBACAssignmentUpsertOne) SetCreatedBy(v string) *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetCreatedBy(v)
+	})
+}
+
+// UpdateCreatedBy sets the "created_by" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertOne) UpdateCreatedBy() *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateCreatedBy()
+	})
+}
+
+// SetUpdatedBy sets the "updated_by" field.
+func (u *RBACAssignmentUpsertOne) SetUpdatedBy(v string) *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetUpdatedBy(v)
+	})
+}
+
+// UpdateUpdatedBy sets the "updated_by" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertOne) UpdateUpdatedBy() *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateUpdatedBy()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *RBACAssignmentUpsertOne) SetUpdatedAt(v time.Time) *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertOne) UpdateUpdatedAt() *RBACAssignmentUpsertOne {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *RBACAssignmentUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for RBACAssignmentCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *RBACAssignmentUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *RBACAssignmentUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *RBACAssignmentUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // RBACAssignmentCreateBulk is the builder for creating many RBACAssignment entities in bulk.
 type RBACAssignmentCreateBulk struct {
 	config
 	err      error
 	builders []*RBACAssignmentCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the RBACAssignment entities in the database.
@@ -335,6 +700,7 @@ func (_c *RBACAssignmentCreateBulk) Save(ctx context.Context) ([]*RBACAssignment
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -385,6 +751,243 @@ func (_c *RBACAssignmentCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *RBACAssignmentCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.RBACAssignment.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.RBACAssignmentUpsert) {
+//			SetSubjectKind(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *RBACAssignmentCreateBulk) OnConflict(opts ...sql.ConflictOption) *RBACAssignmentUpsertBulk {
+	_c.conflict = opts
+	return &RBACAssignmentUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.RBACAssignment.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *RBACAssignmentCreateBulk) OnConflictColumns(columns ...string) *RBACAssignmentUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &RBACAssignmentUpsertBulk{
+		create: _c,
+	}
+}
+
+// RBACAssignmentUpsertBulk is the builder for "upsert"-ing
+// a bulk of RBACAssignment nodes.
+type RBACAssignmentUpsertBulk struct {
+	create *RBACAssignmentCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.RBACAssignment.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *RBACAssignmentUpsertBulk) UpdateNewValues() *RBACAssignmentUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(rbacassignment.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.RBACAssignment.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *RBACAssignmentUpsertBulk) Ignore() *RBACAssignmentUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *RBACAssignmentUpsertBulk) DoNothing() *RBACAssignmentUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the RBACAssignmentCreateBulk.OnConflict
+// documentation for more info.
+func (u *RBACAssignmentUpsertBulk) Update(set func(*RBACAssignmentUpsert)) *RBACAssignmentUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&RBACAssignmentUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetSubjectKind sets the "subject_kind" field.
+func (u *RBACAssignmentUpsertBulk) SetSubjectKind(v string) *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetSubjectKind(v)
+	})
+}
+
+// UpdateSubjectKind sets the "subject_kind" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertBulk) UpdateSubjectKind() *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateSubjectKind()
+	})
+}
+
+// SetSubjectKey sets the "subject_key" field.
+func (u *RBACAssignmentUpsertBulk) SetSubjectKey(v string) *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetSubjectKey(v)
+	})
+}
+
+// UpdateSubjectKey sets the "subject_key" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertBulk) UpdateSubjectKey() *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateSubjectKey()
+	})
+}
+
+// SetRole sets the "role" field.
+func (u *RBACAssignmentUpsertBulk) SetRole(v string) *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetRole(v)
+	})
+}
+
+// UpdateRole sets the "role" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertBulk) UpdateRole() *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateRole()
+	})
+}
+
+// SetScopeKind sets the "scope_kind" field.
+func (u *RBACAssignmentUpsertBulk) SetScopeKind(v string) *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetScopeKind(v)
+	})
+}
+
+// UpdateScopeKind sets the "scope_kind" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertBulk) UpdateScopeKind() *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateScopeKind()
+	})
+}
+
+// SetScopeKey sets the "scope_key" field.
+func (u *RBACAssignmentUpsertBulk) SetScopeKey(v string) *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetScopeKey(v)
+	})
+}
+
+// UpdateScopeKey sets the "scope_key" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertBulk) UpdateScopeKey() *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateScopeKey()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *RBACAssignmentUpsertBulk) SetEnabled(v bool) *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertBulk) UpdateEnabled() *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetCreatedBy sets the "created_by" field.
+func (u *RBACAssignmentUpsertBulk) SetCreatedBy(v string) *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetCreatedBy(v)
+	})
+}
+
+// UpdateCreatedBy sets the "created_by" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertBulk) UpdateCreatedBy() *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateCreatedBy()
+	})
+}
+
+// SetUpdatedBy sets the "updated_by" field.
+func (u *RBACAssignmentUpsertBulk) SetUpdatedBy(v string) *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetUpdatedBy(v)
+	})
+}
+
+// UpdateUpdatedBy sets the "updated_by" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertBulk) UpdateUpdatedBy() *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateUpdatedBy()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *RBACAssignmentUpsertBulk) SetUpdatedAt(v time.Time) *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *RBACAssignmentUpsertBulk) UpdateUpdatedAt() *RBACAssignmentUpsertBulk {
+	return u.Update(func(s *RBACAssignmentUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *RBACAssignmentUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the RBACAssignmentCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for RBACAssignmentCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *RBACAssignmentUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }

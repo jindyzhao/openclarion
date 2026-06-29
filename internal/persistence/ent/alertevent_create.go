@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
@@ -20,6 +21,7 @@ type AlertEventCreate struct {
 	config
 	mutation *AlertEventMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetSource sets the "source" field.
@@ -238,6 +240,7 @@ func (_c *AlertEventCreate) createSpec() (*AlertEvent, *sqlgraph.CreateSpec) {
 		_node = &AlertEvent{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(alertevent.Table, sqlgraph.NewFieldSpec(alertevent.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.Source(); ok {
 		_spec.SetField(alertevent.FieldSource, field.TypeString, value)
 		_node.Source = value
@@ -297,11 +300,307 @@ func (_c *AlertEventCreate) createSpec() (*AlertEvent, *sqlgraph.CreateSpec) {
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.AlertEvent.Create().
+//		SetSource(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.AlertEventUpsert) {
+//			SetSource(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *AlertEventCreate) OnConflict(opts ...sql.ConflictOption) *AlertEventUpsertOne {
+	_c.conflict = opts
+	return &AlertEventUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.AlertEvent.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *AlertEventCreate) OnConflictColumns(columns ...string) *AlertEventUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &AlertEventUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// AlertEventUpsertOne is the builder for "upsert"-ing
+	//  one AlertEvent node.
+	AlertEventUpsertOne struct {
+		create *AlertEventCreate
+	}
+
+	// AlertEventUpsert is the "OnConflict" setter.
+	AlertEventUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetLabels sets the "labels" field.
+func (u *AlertEventUpsert) SetLabels(v map[string]string) *AlertEventUpsert {
+	u.Set(alertevent.FieldLabels, v)
+	return u
+}
+
+// UpdateLabels sets the "labels" field to the value that was provided on create.
+func (u *AlertEventUpsert) UpdateLabels() *AlertEventUpsert {
+	u.SetExcluded(alertevent.FieldLabels)
+	return u
+}
+
+// SetAnnotations sets the "annotations" field.
+func (u *AlertEventUpsert) SetAnnotations(v map[string]string) *AlertEventUpsert {
+	u.Set(alertevent.FieldAnnotations, v)
+	return u
+}
+
+// UpdateAnnotations sets the "annotations" field to the value that was provided on create.
+func (u *AlertEventUpsert) UpdateAnnotations() *AlertEventUpsert {
+	u.SetExcluded(alertevent.FieldAnnotations)
+	return u
+}
+
+// SetRawPayload sets the "raw_payload" field.
+func (u *AlertEventUpsert) SetRawPayload(v json.RawMessage) *AlertEventUpsert {
+	u.Set(alertevent.FieldRawPayload, v)
+	return u
+}
+
+// UpdateRawPayload sets the "raw_payload" field to the value that was provided on create.
+func (u *AlertEventUpsert) UpdateRawPayload() *AlertEventUpsert {
+	u.SetExcluded(alertevent.FieldRawPayload)
+	return u
+}
+
+// ClearRawPayload clears the value of the "raw_payload" field.
+func (u *AlertEventUpsert) ClearRawPayload() *AlertEventUpsert {
+	u.SetNull(alertevent.FieldRawPayload)
+	return u
+}
+
+// SetStatus sets the "status" field.
+func (u *AlertEventUpsert) SetStatus(v string) *AlertEventUpsert {
+	u.Set(alertevent.FieldStatus, v)
+	return u
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *AlertEventUpsert) UpdateStatus() *AlertEventUpsert {
+	u.SetExcluded(alertevent.FieldStatus)
+	return u
+}
+
+// SetEndsAt sets the "ends_at" field.
+func (u *AlertEventUpsert) SetEndsAt(v time.Time) *AlertEventUpsert {
+	u.Set(alertevent.FieldEndsAt, v)
+	return u
+}
+
+// UpdateEndsAt sets the "ends_at" field to the value that was provided on create.
+func (u *AlertEventUpsert) UpdateEndsAt() *AlertEventUpsert {
+	u.SetExcluded(alertevent.FieldEndsAt)
+	return u
+}
+
+// ClearEndsAt clears the value of the "ends_at" field.
+func (u *AlertEventUpsert) ClearEndsAt() *AlertEventUpsert {
+	u.SetNull(alertevent.FieldEndsAt)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.AlertEvent.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *AlertEventUpsertOne) UpdateNewValues() *AlertEventUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.Source(); exists {
+			s.SetIgnore(alertevent.FieldSource)
+		}
+		if _, exists := u.create.mutation.SourceFingerprint(); exists {
+			s.SetIgnore(alertevent.FieldSourceFingerprint)
+		}
+		if _, exists := u.create.mutation.CanonicalFingerprint(); exists {
+			s.SetIgnore(alertevent.FieldCanonicalFingerprint)
+		}
+		if _, exists := u.create.mutation.StartsAt(); exists {
+			s.SetIgnore(alertevent.FieldStartsAt)
+		}
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(alertevent.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.AlertEvent.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *AlertEventUpsertOne) Ignore() *AlertEventUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *AlertEventUpsertOne) DoNothing() *AlertEventUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the AlertEventCreate.OnConflict
+// documentation for more info.
+func (u *AlertEventUpsertOne) Update(set func(*AlertEventUpsert)) *AlertEventUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&AlertEventUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetLabels sets the "labels" field.
+func (u *AlertEventUpsertOne) SetLabels(v map[string]string) *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.SetLabels(v)
+	})
+}
+
+// UpdateLabels sets the "labels" field to the value that was provided on create.
+func (u *AlertEventUpsertOne) UpdateLabels() *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.UpdateLabels()
+	})
+}
+
+// SetAnnotations sets the "annotations" field.
+func (u *AlertEventUpsertOne) SetAnnotations(v map[string]string) *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.SetAnnotations(v)
+	})
+}
+
+// UpdateAnnotations sets the "annotations" field to the value that was provided on create.
+func (u *AlertEventUpsertOne) UpdateAnnotations() *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.UpdateAnnotations()
+	})
+}
+
+// SetRawPayload sets the "raw_payload" field.
+func (u *AlertEventUpsertOne) SetRawPayload(v json.RawMessage) *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.SetRawPayload(v)
+	})
+}
+
+// UpdateRawPayload sets the "raw_payload" field to the value that was provided on create.
+func (u *AlertEventUpsertOne) UpdateRawPayload() *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.UpdateRawPayload()
+	})
+}
+
+// ClearRawPayload clears the value of the "raw_payload" field.
+func (u *AlertEventUpsertOne) ClearRawPayload() *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.ClearRawPayload()
+	})
+}
+
+// SetStatus sets the "status" field.
+func (u *AlertEventUpsertOne) SetStatus(v string) *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.SetStatus(v)
+	})
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *AlertEventUpsertOne) UpdateStatus() *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.UpdateStatus()
+	})
+}
+
+// SetEndsAt sets the "ends_at" field.
+func (u *AlertEventUpsertOne) SetEndsAt(v time.Time) *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.SetEndsAt(v)
+	})
+}
+
+// UpdateEndsAt sets the "ends_at" field to the value that was provided on create.
+func (u *AlertEventUpsertOne) UpdateEndsAt() *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.UpdateEndsAt()
+	})
+}
+
+// ClearEndsAt clears the value of the "ends_at" field.
+func (u *AlertEventUpsertOne) ClearEndsAt() *AlertEventUpsertOne {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.ClearEndsAt()
+	})
+}
+
+// Exec executes the query.
+func (u *AlertEventUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for AlertEventCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *AlertEventUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *AlertEventUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *AlertEventUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // AlertEventCreateBulk is the builder for creating many AlertEvent entities in bulk.
 type AlertEventCreateBulk struct {
 	config
 	err      error
 	builders []*AlertEventCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the AlertEvent entities in the database.
@@ -331,6 +630,7 @@ func (_c *AlertEventCreateBulk) Save(ctx context.Context) ([]*AlertEvent, error)
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -381,6 +681,213 @@ func (_c *AlertEventCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *AlertEventCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.AlertEvent.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.AlertEventUpsert) {
+//			SetSource(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *AlertEventCreateBulk) OnConflict(opts ...sql.ConflictOption) *AlertEventUpsertBulk {
+	_c.conflict = opts
+	return &AlertEventUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.AlertEvent.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *AlertEventCreateBulk) OnConflictColumns(columns ...string) *AlertEventUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &AlertEventUpsertBulk{
+		create: _c,
+	}
+}
+
+// AlertEventUpsertBulk is the builder for "upsert"-ing
+// a bulk of AlertEvent nodes.
+type AlertEventUpsertBulk struct {
+	create *AlertEventCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.AlertEvent.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *AlertEventUpsertBulk) UpdateNewValues() *AlertEventUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.Source(); exists {
+				s.SetIgnore(alertevent.FieldSource)
+			}
+			if _, exists := b.mutation.SourceFingerprint(); exists {
+				s.SetIgnore(alertevent.FieldSourceFingerprint)
+			}
+			if _, exists := b.mutation.CanonicalFingerprint(); exists {
+				s.SetIgnore(alertevent.FieldCanonicalFingerprint)
+			}
+			if _, exists := b.mutation.StartsAt(); exists {
+				s.SetIgnore(alertevent.FieldStartsAt)
+			}
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(alertevent.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.AlertEvent.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *AlertEventUpsertBulk) Ignore() *AlertEventUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *AlertEventUpsertBulk) DoNothing() *AlertEventUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the AlertEventCreateBulk.OnConflict
+// documentation for more info.
+func (u *AlertEventUpsertBulk) Update(set func(*AlertEventUpsert)) *AlertEventUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&AlertEventUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetLabels sets the "labels" field.
+func (u *AlertEventUpsertBulk) SetLabels(v map[string]string) *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.SetLabels(v)
+	})
+}
+
+// UpdateLabels sets the "labels" field to the value that was provided on create.
+func (u *AlertEventUpsertBulk) UpdateLabels() *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.UpdateLabels()
+	})
+}
+
+// SetAnnotations sets the "annotations" field.
+func (u *AlertEventUpsertBulk) SetAnnotations(v map[string]string) *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.SetAnnotations(v)
+	})
+}
+
+// UpdateAnnotations sets the "annotations" field to the value that was provided on create.
+func (u *AlertEventUpsertBulk) UpdateAnnotations() *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.UpdateAnnotations()
+	})
+}
+
+// SetRawPayload sets the "raw_payload" field.
+func (u *AlertEventUpsertBulk) SetRawPayload(v json.RawMessage) *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.SetRawPayload(v)
+	})
+}
+
+// UpdateRawPayload sets the "raw_payload" field to the value that was provided on create.
+func (u *AlertEventUpsertBulk) UpdateRawPayload() *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.UpdateRawPayload()
+	})
+}
+
+// ClearRawPayload clears the value of the "raw_payload" field.
+func (u *AlertEventUpsertBulk) ClearRawPayload() *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.ClearRawPayload()
+	})
+}
+
+// SetStatus sets the "status" field.
+func (u *AlertEventUpsertBulk) SetStatus(v string) *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.SetStatus(v)
+	})
+}
+
+// UpdateStatus sets the "status" field to the value that was provided on create.
+func (u *AlertEventUpsertBulk) UpdateStatus() *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.UpdateStatus()
+	})
+}
+
+// SetEndsAt sets the "ends_at" field.
+func (u *AlertEventUpsertBulk) SetEndsAt(v time.Time) *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.SetEndsAt(v)
+	})
+}
+
+// UpdateEndsAt sets the "ends_at" field to the value that was provided on create.
+func (u *AlertEventUpsertBulk) UpdateEndsAt() *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.UpdateEndsAt()
+	})
+}
+
+// ClearEndsAt clears the value of the "ends_at" field.
+func (u *AlertEventUpsertBulk) ClearEndsAt() *AlertEventUpsertBulk {
+	return u.Update(func(s *AlertEventUpsert) {
+		s.ClearEndsAt()
+	})
+}
+
+// Exec executes the query.
+func (u *AlertEventUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the AlertEventCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for AlertEventCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *AlertEventUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }

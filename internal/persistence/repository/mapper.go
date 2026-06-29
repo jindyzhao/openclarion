@@ -366,6 +366,97 @@ func notificationDeliveryScopesToStrings(scopes []domain.NotificationDeliverySco
 	return out
 }
 
+// directoryDepartmentToDomain converts an Ent DirectoryDepartment row to a
+// domain entity.
+func directoryDepartmentToDomain(d *ent.DirectoryDepartment) domain.DirectoryDepartment {
+	return domain.DirectoryDepartment{
+		ID:               domain.DirectoryDepartmentID(d.ID),
+		Provider:         d.Provider,
+		ExternalID:       d.ExternalID,
+		ParentExternalID: d.ParentExternalID,
+		Name:             d.Name,
+		DisplayName:      d.DisplayName,
+		Path:             d.Path,
+		ParentPath:       d.ParentPath,
+		Level:            d.Level,
+		Source:           d.Source,
+		MemberCount:      d.MemberCount,
+		SourceUpdatedAt:  d.SourceUpdatedAt,
+		SyncedAt:         d.SyncedAt,
+		CreatedAt:        d.CreatedAt,
+		UpdatedAt:        d.UpdatedAt,
+	}
+}
+
+// directoryUserToDomain converts an Ent DirectoryUser row to a domain entity.
+func directoryUserToDomain(u *ent.DirectoryUser) domain.DirectoryUser {
+	departmentPaths := u.DepartmentPaths
+	if departmentPaths == nil {
+		departmentPaths = []string{}
+	}
+	departmentExternalIDs := u.DepartmentExternalIds
+	if departmentExternalIDs == nil {
+		departmentExternalIDs = []string{}
+	}
+	return domain.DirectoryUser{
+		ID:                    domain.DirectoryUserID(u.ID),
+		Provider:              u.Provider,
+		Subject:               u.Subject,
+		ExternalID:            u.ExternalID,
+		Username:              u.Username,
+		DisplayName:           u.DisplayName,
+		Email:                 u.Email,
+		JobTitle:              u.JobTitle,
+		Department:            u.Department,
+		Section:               u.Section,
+		DepartmentPath:        u.DepartmentPath,
+		DepartmentPaths:       departmentPaths,
+		DepartmentExternalIDs: departmentExternalIDs,
+		Active:                u.Active,
+		SourceUpdatedAt:       u.SourceUpdatedAt,
+		SyncedAt:              u.SyncedAt,
+		CreatedAt:             u.CreatedAt,
+		UpdatedAt:             u.UpdatedAt,
+	}
+}
+
+// directorySyncRunToDomain converts an Ent DirectorySyncRun row to a domain
+// entity.
+func directorySyncRunToDomain(r *ent.DirectorySyncRun) domain.DirectorySyncRun {
+	return domain.DirectorySyncRun{
+		ID:                  domain.DirectorySyncRunID(r.ID),
+		Provider:            r.Provider,
+		PageSize:            r.PageSize,
+		UpdatedAfter:        r.UpdatedAfter,
+		Status:              domain.DirectorySyncRunStatus(r.Status),
+		FailureCode:         r.FailureCode,
+		FailureMessage:      r.FailureMessage,
+		DepartmentPages:     r.DepartmentPages,
+		UserPages:           r.UserPages,
+		DepartmentsUpserted: r.DepartmentsUpserted,
+		UsersUpserted:       r.UsersUpserted,
+		SyncedAt:            r.SyncedAt,
+		CreatedAt:           r.CreatedAt,
+	}
+}
+
+// rbacAssignmentToDomain converts an Ent RBACAssignment row to a domain entity.
+func rbacAssignmentToDomain(a *ent.RBACAssignment) domain.RBACAssignment {
+	return domain.RBACAssignment{
+		ID:          domain.RBACAssignmentID(a.ID),
+		SubjectKind: domain.RBACSubjectKind(a.SubjectKind),
+		SubjectKey:  a.SubjectKey,
+		Role:        domain.RBACRole(a.Role),
+		ScopeKind:   domain.RBACScopeKind(a.ScopeKind),
+		ScopeKey:    a.ScopeKey,
+		Enabled:     a.Enabled,
+		CreatedBy:   a.CreatedBy,
+		UpdatedBy:   a.UpdatedBy,
+		CreatedAt:   a.CreatedAt,
+		UpdatedAt:   a.UpdatedAt,
+	}
+}
+
 // alertEventIDsToEnt converts a slice of domain.AlertEventID
 // (int64) to a slice of Ent IDs (int). Used by LinkEventsToGroup
 // to feed AddEventIDs. The conversion is unconditional because

@@ -181,6 +181,8 @@ func (u fakeUOW) Evidence() ports.EvidenceRepository    { return u.evidence }
 func (u fakeUOW) Diagnosis() ports.DiagnosisRepository  { panic("Diagnosis not implemented") }
 func (u fakeUOW) Reports() ports.ReportRepository       { panic("Reports not implemented") }
 func (u fakeUOW) Config() ports.ConfigurationRepository { panic("Config not implemented") }
+func (u fakeUOW) Directory() ports.DirectoryRepository  { panic("Directory not implemented") }
+func (u fakeUOW) RBAC() ports.RBACRepository            { panic("RBAC not implemented") }
 func (u fakeUOW) Commit(context.Context) error          { return nil }
 func (u fakeUOW) Rollback(context.Context) error        { return nil }
 

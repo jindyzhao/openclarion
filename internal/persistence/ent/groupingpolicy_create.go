@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
@@ -18,6 +19,7 @@ type GroupingPolicyCreate struct {
 	config
 	mutation *GroupingPolicyMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetName sets the "name" field.
@@ -194,6 +196,7 @@ func (_c *GroupingPolicyCreate) createSpec() (*GroupingPolicy, *sqlgraph.CreateS
 		_node = &GroupingPolicy{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(groupingpolicy.Table, sqlgraph.NewFieldSpec(groupingpolicy.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(groupingpolicy.FieldName, field.TypeString, value)
 		_node.Name = value
@@ -225,11 +228,295 @@ func (_c *GroupingPolicyCreate) createSpec() (*GroupingPolicy, *sqlgraph.CreateS
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.GroupingPolicy.Create().
+//		SetName(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.GroupingPolicyUpsert) {
+//			SetName(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *GroupingPolicyCreate) OnConflict(opts ...sql.ConflictOption) *GroupingPolicyUpsertOne {
+	_c.conflict = opts
+	return &GroupingPolicyUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.GroupingPolicy.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *GroupingPolicyCreate) OnConflictColumns(columns ...string) *GroupingPolicyUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &GroupingPolicyUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// GroupingPolicyUpsertOne is the builder for "upsert"-ing
+	//  one GroupingPolicy node.
+	GroupingPolicyUpsertOne struct {
+		create *GroupingPolicyCreate
+	}
+
+	// GroupingPolicyUpsert is the "OnConflict" setter.
+	GroupingPolicyUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetName sets the "name" field.
+func (u *GroupingPolicyUpsert) SetName(v string) *GroupingPolicyUpsert {
+	u.Set(groupingpolicy.FieldName, v)
+	return u
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *GroupingPolicyUpsert) UpdateName() *GroupingPolicyUpsert {
+	u.SetExcluded(groupingpolicy.FieldName)
+	return u
+}
+
+// SetDimensionKeys sets the "dimension_keys" field.
+func (u *GroupingPolicyUpsert) SetDimensionKeys(v []string) *GroupingPolicyUpsert {
+	u.Set(groupingpolicy.FieldDimensionKeys, v)
+	return u
+}
+
+// UpdateDimensionKeys sets the "dimension_keys" field to the value that was provided on create.
+func (u *GroupingPolicyUpsert) UpdateDimensionKeys() *GroupingPolicyUpsert {
+	u.SetExcluded(groupingpolicy.FieldDimensionKeys)
+	return u
+}
+
+// SetSeverityKey sets the "severity_key" field.
+func (u *GroupingPolicyUpsert) SetSeverityKey(v string) *GroupingPolicyUpsert {
+	u.Set(groupingpolicy.FieldSeverityKey, v)
+	return u
+}
+
+// UpdateSeverityKey sets the "severity_key" field to the value that was provided on create.
+func (u *GroupingPolicyUpsert) UpdateSeverityKey() *GroupingPolicyUpsert {
+	u.SetExcluded(groupingpolicy.FieldSeverityKey)
+	return u
+}
+
+// SetSourceFilter sets the "source_filter" field.
+func (u *GroupingPolicyUpsert) SetSourceFilter(v []string) *GroupingPolicyUpsert {
+	u.Set(groupingpolicy.FieldSourceFilter, v)
+	return u
+}
+
+// UpdateSourceFilter sets the "source_filter" field to the value that was provided on create.
+func (u *GroupingPolicyUpsert) UpdateSourceFilter() *GroupingPolicyUpsert {
+	u.SetExcluded(groupingpolicy.FieldSourceFilter)
+	return u
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *GroupingPolicyUpsert) SetEnabled(v bool) *GroupingPolicyUpsert {
+	u.Set(groupingpolicy.FieldEnabled, v)
+	return u
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *GroupingPolicyUpsert) UpdateEnabled() *GroupingPolicyUpsert {
+	u.SetExcluded(groupingpolicy.FieldEnabled)
+	return u
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *GroupingPolicyUpsert) SetUpdatedAt(v time.Time) *GroupingPolicyUpsert {
+	u.Set(groupingpolicy.FieldUpdatedAt, v)
+	return u
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *GroupingPolicyUpsert) UpdateUpdatedAt() *GroupingPolicyUpsert {
+	u.SetExcluded(groupingpolicy.FieldUpdatedAt)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.GroupingPolicy.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *GroupingPolicyUpsertOne) UpdateNewValues() *GroupingPolicyUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(groupingpolicy.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.GroupingPolicy.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *GroupingPolicyUpsertOne) Ignore() *GroupingPolicyUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *GroupingPolicyUpsertOne) DoNothing() *GroupingPolicyUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the GroupingPolicyCreate.OnConflict
+// documentation for more info.
+func (u *GroupingPolicyUpsertOne) Update(set func(*GroupingPolicyUpsert)) *GroupingPolicyUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&GroupingPolicyUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetName sets the "name" field.
+func (u *GroupingPolicyUpsertOne) SetName(v string) *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertOne) UpdateName() *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetDimensionKeys sets the "dimension_keys" field.
+func (u *GroupingPolicyUpsertOne) SetDimensionKeys(v []string) *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetDimensionKeys(v)
+	})
+}
+
+// UpdateDimensionKeys sets the "dimension_keys" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertOne) UpdateDimensionKeys() *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateDimensionKeys()
+	})
+}
+
+// SetSeverityKey sets the "severity_key" field.
+func (u *GroupingPolicyUpsertOne) SetSeverityKey(v string) *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetSeverityKey(v)
+	})
+}
+
+// UpdateSeverityKey sets the "severity_key" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertOne) UpdateSeverityKey() *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateSeverityKey()
+	})
+}
+
+// SetSourceFilter sets the "source_filter" field.
+func (u *GroupingPolicyUpsertOne) SetSourceFilter(v []string) *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetSourceFilter(v)
+	})
+}
+
+// UpdateSourceFilter sets the "source_filter" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertOne) UpdateSourceFilter() *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateSourceFilter()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *GroupingPolicyUpsertOne) SetEnabled(v bool) *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertOne) UpdateEnabled() *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *GroupingPolicyUpsertOne) SetUpdatedAt(v time.Time) *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertOne) UpdateUpdatedAt() *GroupingPolicyUpsertOne {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *GroupingPolicyUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for GroupingPolicyCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *GroupingPolicyUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *GroupingPolicyUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *GroupingPolicyUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // GroupingPolicyCreateBulk is the builder for creating many GroupingPolicy entities in bulk.
 type GroupingPolicyCreateBulk struct {
 	config
 	err      error
 	builders []*GroupingPolicyCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the GroupingPolicy entities in the database.
@@ -259,6 +546,7 @@ func (_c *GroupingPolicyCreateBulk) Save(ctx context.Context) ([]*GroupingPolicy
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -309,6 +597,201 @@ func (_c *GroupingPolicyCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *GroupingPolicyCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.GroupingPolicy.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.GroupingPolicyUpsert) {
+//			SetName(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *GroupingPolicyCreateBulk) OnConflict(opts ...sql.ConflictOption) *GroupingPolicyUpsertBulk {
+	_c.conflict = opts
+	return &GroupingPolicyUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.GroupingPolicy.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *GroupingPolicyCreateBulk) OnConflictColumns(columns ...string) *GroupingPolicyUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &GroupingPolicyUpsertBulk{
+		create: _c,
+	}
+}
+
+// GroupingPolicyUpsertBulk is the builder for "upsert"-ing
+// a bulk of GroupingPolicy nodes.
+type GroupingPolicyUpsertBulk struct {
+	create *GroupingPolicyCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.GroupingPolicy.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *GroupingPolicyUpsertBulk) UpdateNewValues() *GroupingPolicyUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(groupingpolicy.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.GroupingPolicy.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *GroupingPolicyUpsertBulk) Ignore() *GroupingPolicyUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *GroupingPolicyUpsertBulk) DoNothing() *GroupingPolicyUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the GroupingPolicyCreateBulk.OnConflict
+// documentation for more info.
+func (u *GroupingPolicyUpsertBulk) Update(set func(*GroupingPolicyUpsert)) *GroupingPolicyUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&GroupingPolicyUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetName sets the "name" field.
+func (u *GroupingPolicyUpsertBulk) SetName(v string) *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertBulk) UpdateName() *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetDimensionKeys sets the "dimension_keys" field.
+func (u *GroupingPolicyUpsertBulk) SetDimensionKeys(v []string) *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetDimensionKeys(v)
+	})
+}
+
+// UpdateDimensionKeys sets the "dimension_keys" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertBulk) UpdateDimensionKeys() *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateDimensionKeys()
+	})
+}
+
+// SetSeverityKey sets the "severity_key" field.
+func (u *GroupingPolicyUpsertBulk) SetSeverityKey(v string) *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetSeverityKey(v)
+	})
+}
+
+// UpdateSeverityKey sets the "severity_key" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertBulk) UpdateSeverityKey() *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateSeverityKey()
+	})
+}
+
+// SetSourceFilter sets the "source_filter" field.
+func (u *GroupingPolicyUpsertBulk) SetSourceFilter(v []string) *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetSourceFilter(v)
+	})
+}
+
+// UpdateSourceFilter sets the "source_filter" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertBulk) UpdateSourceFilter() *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateSourceFilter()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *GroupingPolicyUpsertBulk) SetEnabled(v bool) *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertBulk) UpdateEnabled() *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *GroupingPolicyUpsertBulk) SetUpdatedAt(v time.Time) *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *GroupingPolicyUpsertBulk) UpdateUpdatedAt() *GroupingPolicyUpsertBulk {
+	return u.Update(func(s *GroupingPolicyUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *GroupingPolicyUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the GroupingPolicyCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for GroupingPolicyCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *GroupingPolicyUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/directorydepartment"
@@ -18,6 +19,7 @@ type DirectoryDepartmentCreate struct {
 	config
 	mutation *DirectoryDepartmentMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetProvider sets the "provider" field.
@@ -329,6 +331,7 @@ func (_c *DirectoryDepartmentCreate) createSpec() (*DirectoryDepartment, *sqlgra
 		_node = &DirectoryDepartment{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(directorydepartment.Table, sqlgraph.NewFieldSpec(directorydepartment.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.Provider(); ok {
 		_spec.SetField(directorydepartment.FieldProvider, field.TypeString, value)
 		_node.Provider = value
@@ -388,11 +391,555 @@ func (_c *DirectoryDepartmentCreate) createSpec() (*DirectoryDepartment, *sqlgra
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.DirectoryDepartment.Create().
+//		SetProvider(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.DirectoryDepartmentUpsert) {
+//			SetProvider(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *DirectoryDepartmentCreate) OnConflict(opts ...sql.ConflictOption) *DirectoryDepartmentUpsertOne {
+	_c.conflict = opts
+	return &DirectoryDepartmentUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.DirectoryDepartment.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *DirectoryDepartmentCreate) OnConflictColumns(columns ...string) *DirectoryDepartmentUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &DirectoryDepartmentUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// DirectoryDepartmentUpsertOne is the builder for "upsert"-ing
+	//  one DirectoryDepartment node.
+	DirectoryDepartmentUpsertOne struct {
+		create *DirectoryDepartmentCreate
+	}
+
+	// DirectoryDepartmentUpsert is the "OnConflict" setter.
+	DirectoryDepartmentUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetProvider sets the "provider" field.
+func (u *DirectoryDepartmentUpsert) SetProvider(v string) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldProvider, v)
+	return u
+}
+
+// UpdateProvider sets the "provider" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateProvider() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldProvider)
+	return u
+}
+
+// SetExternalID sets the "external_id" field.
+func (u *DirectoryDepartmentUpsert) SetExternalID(v string) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldExternalID, v)
+	return u
+}
+
+// UpdateExternalID sets the "external_id" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateExternalID() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldExternalID)
+	return u
+}
+
+// SetParentExternalID sets the "parent_external_id" field.
+func (u *DirectoryDepartmentUpsert) SetParentExternalID(v string) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldParentExternalID, v)
+	return u
+}
+
+// UpdateParentExternalID sets the "parent_external_id" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateParentExternalID() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldParentExternalID)
+	return u
+}
+
+// ClearParentExternalID clears the value of the "parent_external_id" field.
+func (u *DirectoryDepartmentUpsert) ClearParentExternalID() *DirectoryDepartmentUpsert {
+	u.SetNull(directorydepartment.FieldParentExternalID)
+	return u
+}
+
+// SetName sets the "name" field.
+func (u *DirectoryDepartmentUpsert) SetName(v string) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldName, v)
+	return u
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateName() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldName)
+	return u
+}
+
+// SetDisplayName sets the "display_name" field.
+func (u *DirectoryDepartmentUpsert) SetDisplayName(v string) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldDisplayName, v)
+	return u
+}
+
+// UpdateDisplayName sets the "display_name" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateDisplayName() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldDisplayName)
+	return u
+}
+
+// SetPath sets the "path" field.
+func (u *DirectoryDepartmentUpsert) SetPath(v string) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldPath, v)
+	return u
+}
+
+// UpdatePath sets the "path" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdatePath() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldPath)
+	return u
+}
+
+// SetParentPath sets the "parent_path" field.
+func (u *DirectoryDepartmentUpsert) SetParentPath(v string) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldParentPath, v)
+	return u
+}
+
+// UpdateParentPath sets the "parent_path" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateParentPath() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldParentPath)
+	return u
+}
+
+// ClearParentPath clears the value of the "parent_path" field.
+func (u *DirectoryDepartmentUpsert) ClearParentPath() *DirectoryDepartmentUpsert {
+	u.SetNull(directorydepartment.FieldParentPath)
+	return u
+}
+
+// SetLevel sets the "level" field.
+func (u *DirectoryDepartmentUpsert) SetLevel(v int) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldLevel, v)
+	return u
+}
+
+// UpdateLevel sets the "level" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateLevel() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldLevel)
+	return u
+}
+
+// AddLevel adds v to the "level" field.
+func (u *DirectoryDepartmentUpsert) AddLevel(v int) *DirectoryDepartmentUpsert {
+	u.Add(directorydepartment.FieldLevel, v)
+	return u
+}
+
+// SetSource sets the "source" field.
+func (u *DirectoryDepartmentUpsert) SetSource(v string) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldSource, v)
+	return u
+}
+
+// UpdateSource sets the "source" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateSource() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldSource)
+	return u
+}
+
+// ClearSource clears the value of the "source" field.
+func (u *DirectoryDepartmentUpsert) ClearSource() *DirectoryDepartmentUpsert {
+	u.SetNull(directorydepartment.FieldSource)
+	return u
+}
+
+// SetMemberCount sets the "member_count" field.
+func (u *DirectoryDepartmentUpsert) SetMemberCount(v int) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldMemberCount, v)
+	return u
+}
+
+// UpdateMemberCount sets the "member_count" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateMemberCount() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldMemberCount)
+	return u
+}
+
+// AddMemberCount adds v to the "member_count" field.
+func (u *DirectoryDepartmentUpsert) AddMemberCount(v int) *DirectoryDepartmentUpsert {
+	u.Add(directorydepartment.FieldMemberCount, v)
+	return u
+}
+
+// SetSourceUpdatedAt sets the "source_updated_at" field.
+func (u *DirectoryDepartmentUpsert) SetSourceUpdatedAt(v time.Time) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldSourceUpdatedAt, v)
+	return u
+}
+
+// UpdateSourceUpdatedAt sets the "source_updated_at" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateSourceUpdatedAt() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldSourceUpdatedAt)
+	return u
+}
+
+// ClearSourceUpdatedAt clears the value of the "source_updated_at" field.
+func (u *DirectoryDepartmentUpsert) ClearSourceUpdatedAt() *DirectoryDepartmentUpsert {
+	u.SetNull(directorydepartment.FieldSourceUpdatedAt)
+	return u
+}
+
+// SetSyncedAt sets the "synced_at" field.
+func (u *DirectoryDepartmentUpsert) SetSyncedAt(v time.Time) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldSyncedAt, v)
+	return u
+}
+
+// UpdateSyncedAt sets the "synced_at" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateSyncedAt() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldSyncedAt)
+	return u
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *DirectoryDepartmentUpsert) SetUpdatedAt(v time.Time) *DirectoryDepartmentUpsert {
+	u.Set(directorydepartment.FieldUpdatedAt, v)
+	return u
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsert) UpdateUpdatedAt() *DirectoryDepartmentUpsert {
+	u.SetExcluded(directorydepartment.FieldUpdatedAt)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.DirectoryDepartment.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *DirectoryDepartmentUpsertOne) UpdateNewValues() *DirectoryDepartmentUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(directorydepartment.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.DirectoryDepartment.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *DirectoryDepartmentUpsertOne) Ignore() *DirectoryDepartmentUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *DirectoryDepartmentUpsertOne) DoNothing() *DirectoryDepartmentUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the DirectoryDepartmentCreate.OnConflict
+// documentation for more info.
+func (u *DirectoryDepartmentUpsertOne) Update(set func(*DirectoryDepartmentUpsert)) *DirectoryDepartmentUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&DirectoryDepartmentUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetProvider sets the "provider" field.
+func (u *DirectoryDepartmentUpsertOne) SetProvider(v string) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetProvider(v)
+	})
+}
+
+// UpdateProvider sets the "provider" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateProvider() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateProvider()
+	})
+}
+
+// SetExternalID sets the "external_id" field.
+func (u *DirectoryDepartmentUpsertOne) SetExternalID(v string) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetExternalID(v)
+	})
+}
+
+// UpdateExternalID sets the "external_id" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateExternalID() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateExternalID()
+	})
+}
+
+// SetParentExternalID sets the "parent_external_id" field.
+func (u *DirectoryDepartmentUpsertOne) SetParentExternalID(v string) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetParentExternalID(v)
+	})
+}
+
+// UpdateParentExternalID sets the "parent_external_id" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateParentExternalID() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateParentExternalID()
+	})
+}
+
+// ClearParentExternalID clears the value of the "parent_external_id" field.
+func (u *DirectoryDepartmentUpsertOne) ClearParentExternalID() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.ClearParentExternalID()
+	})
+}
+
+// SetName sets the "name" field.
+func (u *DirectoryDepartmentUpsertOne) SetName(v string) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateName() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetDisplayName sets the "display_name" field.
+func (u *DirectoryDepartmentUpsertOne) SetDisplayName(v string) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetDisplayName(v)
+	})
+}
+
+// UpdateDisplayName sets the "display_name" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateDisplayName() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateDisplayName()
+	})
+}
+
+// SetPath sets the "path" field.
+func (u *DirectoryDepartmentUpsertOne) SetPath(v string) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetPath(v)
+	})
+}
+
+// UpdatePath sets the "path" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdatePath() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdatePath()
+	})
+}
+
+// SetParentPath sets the "parent_path" field.
+func (u *DirectoryDepartmentUpsertOne) SetParentPath(v string) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetParentPath(v)
+	})
+}
+
+// UpdateParentPath sets the "parent_path" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateParentPath() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateParentPath()
+	})
+}
+
+// ClearParentPath clears the value of the "parent_path" field.
+func (u *DirectoryDepartmentUpsertOne) ClearParentPath() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.ClearParentPath()
+	})
+}
+
+// SetLevel sets the "level" field.
+func (u *DirectoryDepartmentUpsertOne) SetLevel(v int) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetLevel(v)
+	})
+}
+
+// AddLevel adds v to the "level" field.
+func (u *DirectoryDepartmentUpsertOne) AddLevel(v int) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.AddLevel(v)
+	})
+}
+
+// UpdateLevel sets the "level" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateLevel() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateLevel()
+	})
+}
+
+// SetSource sets the "source" field.
+func (u *DirectoryDepartmentUpsertOne) SetSource(v string) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetSource(v)
+	})
+}
+
+// UpdateSource sets the "source" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateSource() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateSource()
+	})
+}
+
+// ClearSource clears the value of the "source" field.
+func (u *DirectoryDepartmentUpsertOne) ClearSource() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.ClearSource()
+	})
+}
+
+// SetMemberCount sets the "member_count" field.
+func (u *DirectoryDepartmentUpsertOne) SetMemberCount(v int) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetMemberCount(v)
+	})
+}
+
+// AddMemberCount adds v to the "member_count" field.
+func (u *DirectoryDepartmentUpsertOne) AddMemberCount(v int) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.AddMemberCount(v)
+	})
+}
+
+// UpdateMemberCount sets the "member_count" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateMemberCount() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateMemberCount()
+	})
+}
+
+// SetSourceUpdatedAt sets the "source_updated_at" field.
+func (u *DirectoryDepartmentUpsertOne) SetSourceUpdatedAt(v time.Time) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetSourceUpdatedAt(v)
+	})
+}
+
+// UpdateSourceUpdatedAt sets the "source_updated_at" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateSourceUpdatedAt() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateSourceUpdatedAt()
+	})
+}
+
+// ClearSourceUpdatedAt clears the value of the "source_updated_at" field.
+func (u *DirectoryDepartmentUpsertOne) ClearSourceUpdatedAt() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.ClearSourceUpdatedAt()
+	})
+}
+
+// SetSyncedAt sets the "synced_at" field.
+func (u *DirectoryDepartmentUpsertOne) SetSyncedAt(v time.Time) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetSyncedAt(v)
+	})
+}
+
+// UpdateSyncedAt sets the "synced_at" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateSyncedAt() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateSyncedAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *DirectoryDepartmentUpsertOne) SetUpdatedAt(v time.Time) *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertOne) UpdateUpdatedAt() *DirectoryDepartmentUpsertOne {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *DirectoryDepartmentUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for DirectoryDepartmentCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *DirectoryDepartmentUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *DirectoryDepartmentUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *DirectoryDepartmentUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // DirectoryDepartmentCreateBulk is the builder for creating many DirectoryDepartment entities in bulk.
 type DirectoryDepartmentCreateBulk struct {
 	config
 	err      error
 	builders []*DirectoryDepartmentCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the DirectoryDepartment entities in the database.
@@ -422,6 +969,7 @@ func (_c *DirectoryDepartmentCreateBulk) Save(ctx context.Context) ([]*Directory
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -472,6 +1020,341 @@ func (_c *DirectoryDepartmentCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *DirectoryDepartmentCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.DirectoryDepartment.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.DirectoryDepartmentUpsert) {
+//			SetProvider(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *DirectoryDepartmentCreateBulk) OnConflict(opts ...sql.ConflictOption) *DirectoryDepartmentUpsertBulk {
+	_c.conflict = opts
+	return &DirectoryDepartmentUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.DirectoryDepartment.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *DirectoryDepartmentCreateBulk) OnConflictColumns(columns ...string) *DirectoryDepartmentUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &DirectoryDepartmentUpsertBulk{
+		create: _c,
+	}
+}
+
+// DirectoryDepartmentUpsertBulk is the builder for "upsert"-ing
+// a bulk of DirectoryDepartment nodes.
+type DirectoryDepartmentUpsertBulk struct {
+	create *DirectoryDepartmentCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.DirectoryDepartment.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *DirectoryDepartmentUpsertBulk) UpdateNewValues() *DirectoryDepartmentUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(directorydepartment.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.DirectoryDepartment.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *DirectoryDepartmentUpsertBulk) Ignore() *DirectoryDepartmentUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *DirectoryDepartmentUpsertBulk) DoNothing() *DirectoryDepartmentUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the DirectoryDepartmentCreateBulk.OnConflict
+// documentation for more info.
+func (u *DirectoryDepartmentUpsertBulk) Update(set func(*DirectoryDepartmentUpsert)) *DirectoryDepartmentUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&DirectoryDepartmentUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetProvider sets the "provider" field.
+func (u *DirectoryDepartmentUpsertBulk) SetProvider(v string) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetProvider(v)
+	})
+}
+
+// UpdateProvider sets the "provider" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateProvider() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateProvider()
+	})
+}
+
+// SetExternalID sets the "external_id" field.
+func (u *DirectoryDepartmentUpsertBulk) SetExternalID(v string) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetExternalID(v)
+	})
+}
+
+// UpdateExternalID sets the "external_id" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateExternalID() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateExternalID()
+	})
+}
+
+// SetParentExternalID sets the "parent_external_id" field.
+func (u *DirectoryDepartmentUpsertBulk) SetParentExternalID(v string) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetParentExternalID(v)
+	})
+}
+
+// UpdateParentExternalID sets the "parent_external_id" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateParentExternalID() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateParentExternalID()
+	})
+}
+
+// ClearParentExternalID clears the value of the "parent_external_id" field.
+func (u *DirectoryDepartmentUpsertBulk) ClearParentExternalID() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.ClearParentExternalID()
+	})
+}
+
+// SetName sets the "name" field.
+func (u *DirectoryDepartmentUpsertBulk) SetName(v string) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateName() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetDisplayName sets the "display_name" field.
+func (u *DirectoryDepartmentUpsertBulk) SetDisplayName(v string) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetDisplayName(v)
+	})
+}
+
+// UpdateDisplayName sets the "display_name" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateDisplayName() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateDisplayName()
+	})
+}
+
+// SetPath sets the "path" field.
+func (u *DirectoryDepartmentUpsertBulk) SetPath(v string) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetPath(v)
+	})
+}
+
+// UpdatePath sets the "path" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdatePath() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdatePath()
+	})
+}
+
+// SetParentPath sets the "parent_path" field.
+func (u *DirectoryDepartmentUpsertBulk) SetParentPath(v string) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetParentPath(v)
+	})
+}
+
+// UpdateParentPath sets the "parent_path" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateParentPath() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateParentPath()
+	})
+}
+
+// ClearParentPath clears the value of the "parent_path" field.
+func (u *DirectoryDepartmentUpsertBulk) ClearParentPath() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.ClearParentPath()
+	})
+}
+
+// SetLevel sets the "level" field.
+func (u *DirectoryDepartmentUpsertBulk) SetLevel(v int) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetLevel(v)
+	})
+}
+
+// AddLevel adds v to the "level" field.
+func (u *DirectoryDepartmentUpsertBulk) AddLevel(v int) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.AddLevel(v)
+	})
+}
+
+// UpdateLevel sets the "level" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateLevel() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateLevel()
+	})
+}
+
+// SetSource sets the "source" field.
+func (u *DirectoryDepartmentUpsertBulk) SetSource(v string) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetSource(v)
+	})
+}
+
+// UpdateSource sets the "source" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateSource() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateSource()
+	})
+}
+
+// ClearSource clears the value of the "source" field.
+func (u *DirectoryDepartmentUpsertBulk) ClearSource() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.ClearSource()
+	})
+}
+
+// SetMemberCount sets the "member_count" field.
+func (u *DirectoryDepartmentUpsertBulk) SetMemberCount(v int) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetMemberCount(v)
+	})
+}
+
+// AddMemberCount adds v to the "member_count" field.
+func (u *DirectoryDepartmentUpsertBulk) AddMemberCount(v int) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.AddMemberCount(v)
+	})
+}
+
+// UpdateMemberCount sets the "member_count" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateMemberCount() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateMemberCount()
+	})
+}
+
+// SetSourceUpdatedAt sets the "source_updated_at" field.
+func (u *DirectoryDepartmentUpsertBulk) SetSourceUpdatedAt(v time.Time) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetSourceUpdatedAt(v)
+	})
+}
+
+// UpdateSourceUpdatedAt sets the "source_updated_at" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateSourceUpdatedAt() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateSourceUpdatedAt()
+	})
+}
+
+// ClearSourceUpdatedAt clears the value of the "source_updated_at" field.
+func (u *DirectoryDepartmentUpsertBulk) ClearSourceUpdatedAt() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.ClearSourceUpdatedAt()
+	})
+}
+
+// SetSyncedAt sets the "synced_at" field.
+func (u *DirectoryDepartmentUpsertBulk) SetSyncedAt(v time.Time) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetSyncedAt(v)
+	})
+}
+
+// UpdateSyncedAt sets the "synced_at" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateSyncedAt() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateSyncedAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *DirectoryDepartmentUpsertBulk) SetUpdatedAt(v time.Time) *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *DirectoryDepartmentUpsertBulk) UpdateUpdatedAt() *DirectoryDepartmentUpsertBulk {
+	return u.Update(func(s *DirectoryDepartmentUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *DirectoryDepartmentUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the DirectoryDepartmentCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for DirectoryDepartmentCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *DirectoryDepartmentUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }

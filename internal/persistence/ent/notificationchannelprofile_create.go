@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
@@ -18,6 +19,7 @@ type NotificationChannelProfileCreate struct {
 	config
 	mutation *NotificationChannelProfileMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetName sets the "name" field.
@@ -220,6 +222,7 @@ func (_c *NotificationChannelProfileCreate) createSpec() (*NotificationChannelPr
 		_node = &NotificationChannelProfile{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(notificationchannelprofile.Table, sqlgraph.NewFieldSpec(notificationchannelprofile.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(notificationchannelprofile.FieldName, field.TypeString, value)
 		_node.Name = value
@@ -255,11 +258,321 @@ func (_c *NotificationChannelProfileCreate) createSpec() (*NotificationChannelPr
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.NotificationChannelProfile.Create().
+//		SetName(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.NotificationChannelProfileUpsert) {
+//			SetName(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *NotificationChannelProfileCreate) OnConflict(opts ...sql.ConflictOption) *NotificationChannelProfileUpsertOne {
+	_c.conflict = opts
+	return &NotificationChannelProfileUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.NotificationChannelProfile.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *NotificationChannelProfileCreate) OnConflictColumns(columns ...string) *NotificationChannelProfileUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &NotificationChannelProfileUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// NotificationChannelProfileUpsertOne is the builder for "upsert"-ing
+	//  one NotificationChannelProfile node.
+	NotificationChannelProfileUpsertOne struct {
+		create *NotificationChannelProfileCreate
+	}
+
+	// NotificationChannelProfileUpsert is the "OnConflict" setter.
+	NotificationChannelProfileUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetName sets the "name" field.
+func (u *NotificationChannelProfileUpsert) SetName(v string) *NotificationChannelProfileUpsert {
+	u.Set(notificationchannelprofile.FieldName, v)
+	return u
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsert) UpdateName() *NotificationChannelProfileUpsert {
+	u.SetExcluded(notificationchannelprofile.FieldName)
+	return u
+}
+
+// SetKind sets the "kind" field.
+func (u *NotificationChannelProfileUpsert) SetKind(v string) *NotificationChannelProfileUpsert {
+	u.Set(notificationchannelprofile.FieldKind, v)
+	return u
+}
+
+// UpdateKind sets the "kind" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsert) UpdateKind() *NotificationChannelProfileUpsert {
+	u.SetExcluded(notificationchannelprofile.FieldKind)
+	return u
+}
+
+// SetSecretRef sets the "secret_ref" field.
+func (u *NotificationChannelProfileUpsert) SetSecretRef(v string) *NotificationChannelProfileUpsert {
+	u.Set(notificationchannelprofile.FieldSecretRef, v)
+	return u
+}
+
+// UpdateSecretRef sets the "secret_ref" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsert) UpdateSecretRef() *NotificationChannelProfileUpsert {
+	u.SetExcluded(notificationchannelprofile.FieldSecretRef)
+	return u
+}
+
+// SetDeliveryScopes sets the "delivery_scopes" field.
+func (u *NotificationChannelProfileUpsert) SetDeliveryScopes(v []string) *NotificationChannelProfileUpsert {
+	u.Set(notificationchannelprofile.FieldDeliveryScopes, v)
+	return u
+}
+
+// UpdateDeliveryScopes sets the "delivery_scopes" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsert) UpdateDeliveryScopes() *NotificationChannelProfileUpsert {
+	u.SetExcluded(notificationchannelprofile.FieldDeliveryScopes)
+	return u
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *NotificationChannelProfileUpsert) SetEnabled(v bool) *NotificationChannelProfileUpsert {
+	u.Set(notificationchannelprofile.FieldEnabled, v)
+	return u
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsert) UpdateEnabled() *NotificationChannelProfileUpsert {
+	u.SetExcluded(notificationchannelprofile.FieldEnabled)
+	return u
+}
+
+// SetLabels sets the "labels" field.
+func (u *NotificationChannelProfileUpsert) SetLabels(v map[string]string) *NotificationChannelProfileUpsert {
+	u.Set(notificationchannelprofile.FieldLabels, v)
+	return u
+}
+
+// UpdateLabels sets the "labels" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsert) UpdateLabels() *NotificationChannelProfileUpsert {
+	u.SetExcluded(notificationchannelprofile.FieldLabels)
+	return u
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *NotificationChannelProfileUpsert) SetUpdatedAt(v time.Time) *NotificationChannelProfileUpsert {
+	u.Set(notificationchannelprofile.FieldUpdatedAt, v)
+	return u
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsert) UpdateUpdatedAt() *NotificationChannelProfileUpsert {
+	u.SetExcluded(notificationchannelprofile.FieldUpdatedAt)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.NotificationChannelProfile.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *NotificationChannelProfileUpsertOne) UpdateNewValues() *NotificationChannelProfileUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(notificationchannelprofile.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.NotificationChannelProfile.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *NotificationChannelProfileUpsertOne) Ignore() *NotificationChannelProfileUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *NotificationChannelProfileUpsertOne) DoNothing() *NotificationChannelProfileUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the NotificationChannelProfileCreate.OnConflict
+// documentation for more info.
+func (u *NotificationChannelProfileUpsertOne) Update(set func(*NotificationChannelProfileUpsert)) *NotificationChannelProfileUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&NotificationChannelProfileUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetName sets the "name" field.
+func (u *NotificationChannelProfileUpsertOne) SetName(v string) *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertOne) UpdateName() *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetKind sets the "kind" field.
+func (u *NotificationChannelProfileUpsertOne) SetKind(v string) *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetKind(v)
+	})
+}
+
+// UpdateKind sets the "kind" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertOne) UpdateKind() *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateKind()
+	})
+}
+
+// SetSecretRef sets the "secret_ref" field.
+func (u *NotificationChannelProfileUpsertOne) SetSecretRef(v string) *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetSecretRef(v)
+	})
+}
+
+// UpdateSecretRef sets the "secret_ref" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertOne) UpdateSecretRef() *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateSecretRef()
+	})
+}
+
+// SetDeliveryScopes sets the "delivery_scopes" field.
+func (u *NotificationChannelProfileUpsertOne) SetDeliveryScopes(v []string) *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetDeliveryScopes(v)
+	})
+}
+
+// UpdateDeliveryScopes sets the "delivery_scopes" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertOne) UpdateDeliveryScopes() *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateDeliveryScopes()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *NotificationChannelProfileUpsertOne) SetEnabled(v bool) *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertOne) UpdateEnabled() *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetLabels sets the "labels" field.
+func (u *NotificationChannelProfileUpsertOne) SetLabels(v map[string]string) *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetLabels(v)
+	})
+}
+
+// UpdateLabels sets the "labels" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertOne) UpdateLabels() *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateLabels()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *NotificationChannelProfileUpsertOne) SetUpdatedAt(v time.Time) *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertOne) UpdateUpdatedAt() *NotificationChannelProfileUpsertOne {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *NotificationChannelProfileUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for NotificationChannelProfileCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *NotificationChannelProfileUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *NotificationChannelProfileUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *NotificationChannelProfileUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // NotificationChannelProfileCreateBulk is the builder for creating many NotificationChannelProfile entities in bulk.
 type NotificationChannelProfileCreateBulk struct {
 	config
 	err      error
 	builders []*NotificationChannelProfileCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the NotificationChannelProfile entities in the database.
@@ -289,6 +602,7 @@ func (_c *NotificationChannelProfileCreateBulk) Save(ctx context.Context) ([]*No
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -339,6 +653,215 @@ func (_c *NotificationChannelProfileCreateBulk) Exec(ctx context.Context) error 
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *NotificationChannelProfileCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.NotificationChannelProfile.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.NotificationChannelProfileUpsert) {
+//			SetName(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *NotificationChannelProfileCreateBulk) OnConflict(opts ...sql.ConflictOption) *NotificationChannelProfileUpsertBulk {
+	_c.conflict = opts
+	return &NotificationChannelProfileUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.NotificationChannelProfile.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *NotificationChannelProfileCreateBulk) OnConflictColumns(columns ...string) *NotificationChannelProfileUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &NotificationChannelProfileUpsertBulk{
+		create: _c,
+	}
+}
+
+// NotificationChannelProfileUpsertBulk is the builder for "upsert"-ing
+// a bulk of NotificationChannelProfile nodes.
+type NotificationChannelProfileUpsertBulk struct {
+	create *NotificationChannelProfileCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.NotificationChannelProfile.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *NotificationChannelProfileUpsertBulk) UpdateNewValues() *NotificationChannelProfileUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(notificationchannelprofile.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.NotificationChannelProfile.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *NotificationChannelProfileUpsertBulk) Ignore() *NotificationChannelProfileUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *NotificationChannelProfileUpsertBulk) DoNothing() *NotificationChannelProfileUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the NotificationChannelProfileCreateBulk.OnConflict
+// documentation for more info.
+func (u *NotificationChannelProfileUpsertBulk) Update(set func(*NotificationChannelProfileUpsert)) *NotificationChannelProfileUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&NotificationChannelProfileUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetName sets the "name" field.
+func (u *NotificationChannelProfileUpsertBulk) SetName(v string) *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertBulk) UpdateName() *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetKind sets the "kind" field.
+func (u *NotificationChannelProfileUpsertBulk) SetKind(v string) *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetKind(v)
+	})
+}
+
+// UpdateKind sets the "kind" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertBulk) UpdateKind() *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateKind()
+	})
+}
+
+// SetSecretRef sets the "secret_ref" field.
+func (u *NotificationChannelProfileUpsertBulk) SetSecretRef(v string) *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetSecretRef(v)
+	})
+}
+
+// UpdateSecretRef sets the "secret_ref" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertBulk) UpdateSecretRef() *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateSecretRef()
+	})
+}
+
+// SetDeliveryScopes sets the "delivery_scopes" field.
+func (u *NotificationChannelProfileUpsertBulk) SetDeliveryScopes(v []string) *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetDeliveryScopes(v)
+	})
+}
+
+// UpdateDeliveryScopes sets the "delivery_scopes" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertBulk) UpdateDeliveryScopes() *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateDeliveryScopes()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *NotificationChannelProfileUpsertBulk) SetEnabled(v bool) *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertBulk) UpdateEnabled() *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetLabels sets the "labels" field.
+func (u *NotificationChannelProfileUpsertBulk) SetLabels(v map[string]string) *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetLabels(v)
+	})
+}
+
+// UpdateLabels sets the "labels" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertBulk) UpdateLabels() *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateLabels()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *NotificationChannelProfileUpsertBulk) SetUpdatedAt(v time.Time) *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *NotificationChannelProfileUpsertBulk) UpdateUpdatedAt() *NotificationChannelProfileUpsertBulk {
+	return u.Update(func(s *NotificationChannelProfileUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *NotificationChannelProfileUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the NotificationChannelProfileCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for NotificationChannelProfileCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *NotificationChannelProfileUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }

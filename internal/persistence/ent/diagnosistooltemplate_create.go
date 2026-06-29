@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistooltemplate"
@@ -18,6 +19,7 @@ type DiagnosisToolTemplateCreate struct {
 	config
 	mutation *DiagnosisToolTemplateMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetName sets the "name" field.
@@ -288,6 +290,7 @@ func (_c *DiagnosisToolTemplateCreate) createSpec() (*DiagnosisToolTemplate, *sq
 		_node = &DiagnosisToolTemplate{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(diagnosistooltemplate.Table, sqlgraph.NewFieldSpec(diagnosistooltemplate.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(diagnosistooltemplate.FieldName, field.TypeString, value)
 		_node.Name = value
@@ -343,11 +346,555 @@ func (_c *DiagnosisToolTemplateCreate) createSpec() (*DiagnosisToolTemplate, *sq
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.DiagnosisToolTemplate.Create().
+//		SetName(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.DiagnosisToolTemplateUpsert) {
+//			SetName(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *DiagnosisToolTemplateCreate) OnConflict(opts ...sql.ConflictOption) *DiagnosisToolTemplateUpsertOne {
+	_c.conflict = opts
+	return &DiagnosisToolTemplateUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.DiagnosisToolTemplate.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *DiagnosisToolTemplateCreate) OnConflictColumns(columns ...string) *DiagnosisToolTemplateUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &DiagnosisToolTemplateUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// DiagnosisToolTemplateUpsertOne is the builder for "upsert"-ing
+	//  one DiagnosisToolTemplate node.
+	DiagnosisToolTemplateUpsertOne struct {
+		create *DiagnosisToolTemplateCreate
+	}
+
+	// DiagnosisToolTemplateUpsert is the "OnConflict" setter.
+	DiagnosisToolTemplateUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetName sets the "name" field.
+func (u *DiagnosisToolTemplateUpsert) SetName(v string) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldName, v)
+	return u
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateName() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldName)
+	return u
+}
+
+// SetAlertSourceProfileID sets the "alert_source_profile_id" field.
+func (u *DiagnosisToolTemplateUpsert) SetAlertSourceProfileID(v int) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldAlertSourceProfileID, v)
+	return u
+}
+
+// UpdateAlertSourceProfileID sets the "alert_source_profile_id" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateAlertSourceProfileID() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldAlertSourceProfileID)
+	return u
+}
+
+// AddAlertSourceProfileID adds v to the "alert_source_profile_id" field.
+func (u *DiagnosisToolTemplateUpsert) AddAlertSourceProfileID(v int) *DiagnosisToolTemplateUpsert {
+	u.Add(diagnosistooltemplate.FieldAlertSourceProfileID, v)
+	return u
+}
+
+// SetTool sets the "tool" field.
+func (u *DiagnosisToolTemplateUpsert) SetTool(v string) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldTool, v)
+	return u
+}
+
+// UpdateTool sets the "tool" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateTool() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldTool)
+	return u
+}
+
+// SetQueryTemplate sets the "query_template" field.
+func (u *DiagnosisToolTemplateUpsert) SetQueryTemplate(v string) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldQueryTemplate, v)
+	return u
+}
+
+// UpdateQueryTemplate sets the "query_template" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateQueryTemplate() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldQueryTemplate)
+	return u
+}
+
+// ClearQueryTemplate clears the value of the "query_template" field.
+func (u *DiagnosisToolTemplateUpsert) ClearQueryTemplate() *DiagnosisToolTemplateUpsert {
+	u.SetNull(diagnosistooltemplate.FieldQueryTemplate)
+	return u
+}
+
+// SetDefaultLimit sets the "default_limit" field.
+func (u *DiagnosisToolTemplateUpsert) SetDefaultLimit(v int) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldDefaultLimit, v)
+	return u
+}
+
+// UpdateDefaultLimit sets the "default_limit" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateDefaultLimit() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldDefaultLimit)
+	return u
+}
+
+// AddDefaultLimit adds v to the "default_limit" field.
+func (u *DiagnosisToolTemplateUpsert) AddDefaultLimit(v int) *DiagnosisToolTemplateUpsert {
+	u.Add(diagnosistooltemplate.FieldDefaultLimit, v)
+	return u
+}
+
+// SetDefaultWindowNs sets the "default_window_ns" field.
+func (u *DiagnosisToolTemplateUpsert) SetDefaultWindowNs(v int64) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldDefaultWindowNs, v)
+	return u
+}
+
+// UpdateDefaultWindowNs sets the "default_window_ns" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateDefaultWindowNs() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldDefaultWindowNs)
+	return u
+}
+
+// AddDefaultWindowNs adds v to the "default_window_ns" field.
+func (u *DiagnosisToolTemplateUpsert) AddDefaultWindowNs(v int64) *DiagnosisToolTemplateUpsert {
+	u.Add(diagnosistooltemplate.FieldDefaultWindowNs, v)
+	return u
+}
+
+// SetMaxWindowNs sets the "max_window_ns" field.
+func (u *DiagnosisToolTemplateUpsert) SetMaxWindowNs(v int64) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldMaxWindowNs, v)
+	return u
+}
+
+// UpdateMaxWindowNs sets the "max_window_ns" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateMaxWindowNs() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldMaxWindowNs)
+	return u
+}
+
+// AddMaxWindowNs adds v to the "max_window_ns" field.
+func (u *DiagnosisToolTemplateUpsert) AddMaxWindowNs(v int64) *DiagnosisToolTemplateUpsert {
+	u.Add(diagnosistooltemplate.FieldMaxWindowNs, v)
+	return u
+}
+
+// SetDefaultStepNs sets the "default_step_ns" field.
+func (u *DiagnosisToolTemplateUpsert) SetDefaultStepNs(v int64) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldDefaultStepNs, v)
+	return u
+}
+
+// UpdateDefaultStepNs sets the "default_step_ns" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateDefaultStepNs() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldDefaultStepNs)
+	return u
+}
+
+// AddDefaultStepNs adds v to the "default_step_ns" field.
+func (u *DiagnosisToolTemplateUpsert) AddDefaultStepNs(v int64) *DiagnosisToolTemplateUpsert {
+	u.Add(diagnosistooltemplate.FieldDefaultStepNs, v)
+	return u
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *DiagnosisToolTemplateUpsert) SetEnabled(v bool) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldEnabled, v)
+	return u
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateEnabled() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldEnabled)
+	return u
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (u *DiagnosisToolTemplateUpsert) SetEnabledAt(v time.Time) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldEnabledAt, v)
+	return u
+}
+
+// UpdateEnabledAt sets the "enabled_at" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateEnabledAt() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldEnabledAt)
+	return u
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (u *DiagnosisToolTemplateUpsert) ClearEnabledAt() *DiagnosisToolTemplateUpsert {
+	u.SetNull(diagnosistooltemplate.FieldEnabledAt)
+	return u
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (u *DiagnosisToolTemplateUpsert) SetDisabledAt(v time.Time) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldDisabledAt, v)
+	return u
+}
+
+// UpdateDisabledAt sets the "disabled_at" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateDisabledAt() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldDisabledAt)
+	return u
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (u *DiagnosisToolTemplateUpsert) ClearDisabledAt() *DiagnosisToolTemplateUpsert {
+	u.SetNull(diagnosistooltemplate.FieldDisabledAt)
+	return u
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *DiagnosisToolTemplateUpsert) SetUpdatedAt(v time.Time) *DiagnosisToolTemplateUpsert {
+	u.Set(diagnosistooltemplate.FieldUpdatedAt, v)
+	return u
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsert) UpdateUpdatedAt() *DiagnosisToolTemplateUpsert {
+	u.SetExcluded(diagnosistooltemplate.FieldUpdatedAt)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.DiagnosisToolTemplate.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *DiagnosisToolTemplateUpsertOne) UpdateNewValues() *DiagnosisToolTemplateUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(diagnosistooltemplate.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.DiagnosisToolTemplate.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *DiagnosisToolTemplateUpsertOne) Ignore() *DiagnosisToolTemplateUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *DiagnosisToolTemplateUpsertOne) DoNothing() *DiagnosisToolTemplateUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the DiagnosisToolTemplateCreate.OnConflict
+// documentation for more info.
+func (u *DiagnosisToolTemplateUpsertOne) Update(set func(*DiagnosisToolTemplateUpsert)) *DiagnosisToolTemplateUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&DiagnosisToolTemplateUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetName sets the "name" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetName(v string) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateName() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetAlertSourceProfileID sets the "alert_source_profile_id" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetAlertSourceProfileID(v int) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetAlertSourceProfileID(v)
+	})
+}
+
+// AddAlertSourceProfileID adds v to the "alert_source_profile_id" field.
+func (u *DiagnosisToolTemplateUpsertOne) AddAlertSourceProfileID(v int) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.AddAlertSourceProfileID(v)
+	})
+}
+
+// UpdateAlertSourceProfileID sets the "alert_source_profile_id" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateAlertSourceProfileID() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateAlertSourceProfileID()
+	})
+}
+
+// SetTool sets the "tool" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetTool(v string) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetTool(v)
+	})
+}
+
+// UpdateTool sets the "tool" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateTool() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateTool()
+	})
+}
+
+// SetQueryTemplate sets the "query_template" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetQueryTemplate(v string) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetQueryTemplate(v)
+	})
+}
+
+// UpdateQueryTemplate sets the "query_template" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateQueryTemplate() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateQueryTemplate()
+	})
+}
+
+// ClearQueryTemplate clears the value of the "query_template" field.
+func (u *DiagnosisToolTemplateUpsertOne) ClearQueryTemplate() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.ClearQueryTemplate()
+	})
+}
+
+// SetDefaultLimit sets the "default_limit" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetDefaultLimit(v int) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetDefaultLimit(v)
+	})
+}
+
+// AddDefaultLimit adds v to the "default_limit" field.
+func (u *DiagnosisToolTemplateUpsertOne) AddDefaultLimit(v int) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.AddDefaultLimit(v)
+	})
+}
+
+// UpdateDefaultLimit sets the "default_limit" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateDefaultLimit() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateDefaultLimit()
+	})
+}
+
+// SetDefaultWindowNs sets the "default_window_ns" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetDefaultWindowNs(v int64) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetDefaultWindowNs(v)
+	})
+}
+
+// AddDefaultWindowNs adds v to the "default_window_ns" field.
+func (u *DiagnosisToolTemplateUpsertOne) AddDefaultWindowNs(v int64) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.AddDefaultWindowNs(v)
+	})
+}
+
+// UpdateDefaultWindowNs sets the "default_window_ns" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateDefaultWindowNs() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateDefaultWindowNs()
+	})
+}
+
+// SetMaxWindowNs sets the "max_window_ns" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetMaxWindowNs(v int64) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetMaxWindowNs(v)
+	})
+}
+
+// AddMaxWindowNs adds v to the "max_window_ns" field.
+func (u *DiagnosisToolTemplateUpsertOne) AddMaxWindowNs(v int64) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.AddMaxWindowNs(v)
+	})
+}
+
+// UpdateMaxWindowNs sets the "max_window_ns" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateMaxWindowNs() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateMaxWindowNs()
+	})
+}
+
+// SetDefaultStepNs sets the "default_step_ns" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetDefaultStepNs(v int64) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetDefaultStepNs(v)
+	})
+}
+
+// AddDefaultStepNs adds v to the "default_step_ns" field.
+func (u *DiagnosisToolTemplateUpsertOne) AddDefaultStepNs(v int64) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.AddDefaultStepNs(v)
+	})
+}
+
+// UpdateDefaultStepNs sets the "default_step_ns" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateDefaultStepNs() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateDefaultStepNs()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetEnabled(v bool) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateEnabled() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetEnabledAt(v time.Time) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetEnabledAt(v)
+	})
+}
+
+// UpdateEnabledAt sets the "enabled_at" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateEnabledAt() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateEnabledAt()
+	})
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (u *DiagnosisToolTemplateUpsertOne) ClearEnabledAt() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.ClearEnabledAt()
+	})
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetDisabledAt(v time.Time) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetDisabledAt(v)
+	})
+}
+
+// UpdateDisabledAt sets the "disabled_at" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateDisabledAt() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateDisabledAt()
+	})
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (u *DiagnosisToolTemplateUpsertOne) ClearDisabledAt() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.ClearDisabledAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *DiagnosisToolTemplateUpsertOne) SetUpdatedAt(v time.Time) *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertOne) UpdateUpdatedAt() *DiagnosisToolTemplateUpsertOne {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *DiagnosisToolTemplateUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for DiagnosisToolTemplateCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *DiagnosisToolTemplateUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *DiagnosisToolTemplateUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *DiagnosisToolTemplateUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // DiagnosisToolTemplateCreateBulk is the builder for creating many DiagnosisToolTemplate entities in bulk.
 type DiagnosisToolTemplateCreateBulk struct {
 	config
 	err      error
 	builders []*DiagnosisToolTemplateCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the DiagnosisToolTemplate entities in the database.
@@ -377,6 +924,7 @@ func (_c *DiagnosisToolTemplateCreateBulk) Save(ctx context.Context) ([]*Diagnos
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -427,6 +975,341 @@ func (_c *DiagnosisToolTemplateCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *DiagnosisToolTemplateCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.DiagnosisToolTemplate.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.DiagnosisToolTemplateUpsert) {
+//			SetName(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *DiagnosisToolTemplateCreateBulk) OnConflict(opts ...sql.ConflictOption) *DiagnosisToolTemplateUpsertBulk {
+	_c.conflict = opts
+	return &DiagnosisToolTemplateUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.DiagnosisToolTemplate.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *DiagnosisToolTemplateCreateBulk) OnConflictColumns(columns ...string) *DiagnosisToolTemplateUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &DiagnosisToolTemplateUpsertBulk{
+		create: _c,
+	}
+}
+
+// DiagnosisToolTemplateUpsertBulk is the builder for "upsert"-ing
+// a bulk of DiagnosisToolTemplate nodes.
+type DiagnosisToolTemplateUpsertBulk struct {
+	create *DiagnosisToolTemplateCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.DiagnosisToolTemplate.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateNewValues() *DiagnosisToolTemplateUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(diagnosistooltemplate.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.DiagnosisToolTemplate.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *DiagnosisToolTemplateUpsertBulk) Ignore() *DiagnosisToolTemplateUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *DiagnosisToolTemplateUpsertBulk) DoNothing() *DiagnosisToolTemplateUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the DiagnosisToolTemplateCreateBulk.OnConflict
+// documentation for more info.
+func (u *DiagnosisToolTemplateUpsertBulk) Update(set func(*DiagnosisToolTemplateUpsert)) *DiagnosisToolTemplateUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&DiagnosisToolTemplateUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetName sets the "name" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetName(v string) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateName() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetAlertSourceProfileID sets the "alert_source_profile_id" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetAlertSourceProfileID(v int) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetAlertSourceProfileID(v)
+	})
+}
+
+// AddAlertSourceProfileID adds v to the "alert_source_profile_id" field.
+func (u *DiagnosisToolTemplateUpsertBulk) AddAlertSourceProfileID(v int) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.AddAlertSourceProfileID(v)
+	})
+}
+
+// UpdateAlertSourceProfileID sets the "alert_source_profile_id" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateAlertSourceProfileID() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateAlertSourceProfileID()
+	})
+}
+
+// SetTool sets the "tool" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetTool(v string) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetTool(v)
+	})
+}
+
+// UpdateTool sets the "tool" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateTool() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateTool()
+	})
+}
+
+// SetQueryTemplate sets the "query_template" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetQueryTemplate(v string) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetQueryTemplate(v)
+	})
+}
+
+// UpdateQueryTemplate sets the "query_template" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateQueryTemplate() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateQueryTemplate()
+	})
+}
+
+// ClearQueryTemplate clears the value of the "query_template" field.
+func (u *DiagnosisToolTemplateUpsertBulk) ClearQueryTemplate() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.ClearQueryTemplate()
+	})
+}
+
+// SetDefaultLimit sets the "default_limit" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetDefaultLimit(v int) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetDefaultLimit(v)
+	})
+}
+
+// AddDefaultLimit adds v to the "default_limit" field.
+func (u *DiagnosisToolTemplateUpsertBulk) AddDefaultLimit(v int) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.AddDefaultLimit(v)
+	})
+}
+
+// UpdateDefaultLimit sets the "default_limit" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateDefaultLimit() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateDefaultLimit()
+	})
+}
+
+// SetDefaultWindowNs sets the "default_window_ns" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetDefaultWindowNs(v int64) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetDefaultWindowNs(v)
+	})
+}
+
+// AddDefaultWindowNs adds v to the "default_window_ns" field.
+func (u *DiagnosisToolTemplateUpsertBulk) AddDefaultWindowNs(v int64) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.AddDefaultWindowNs(v)
+	})
+}
+
+// UpdateDefaultWindowNs sets the "default_window_ns" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateDefaultWindowNs() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateDefaultWindowNs()
+	})
+}
+
+// SetMaxWindowNs sets the "max_window_ns" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetMaxWindowNs(v int64) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetMaxWindowNs(v)
+	})
+}
+
+// AddMaxWindowNs adds v to the "max_window_ns" field.
+func (u *DiagnosisToolTemplateUpsertBulk) AddMaxWindowNs(v int64) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.AddMaxWindowNs(v)
+	})
+}
+
+// UpdateMaxWindowNs sets the "max_window_ns" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateMaxWindowNs() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateMaxWindowNs()
+	})
+}
+
+// SetDefaultStepNs sets the "default_step_ns" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetDefaultStepNs(v int64) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetDefaultStepNs(v)
+	})
+}
+
+// AddDefaultStepNs adds v to the "default_step_ns" field.
+func (u *DiagnosisToolTemplateUpsertBulk) AddDefaultStepNs(v int64) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.AddDefaultStepNs(v)
+	})
+}
+
+// UpdateDefaultStepNs sets the "default_step_ns" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateDefaultStepNs() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateDefaultStepNs()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetEnabled(v bool) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateEnabled() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetEnabledAt(v time.Time) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetEnabledAt(v)
+	})
+}
+
+// UpdateEnabledAt sets the "enabled_at" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateEnabledAt() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateEnabledAt()
+	})
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (u *DiagnosisToolTemplateUpsertBulk) ClearEnabledAt() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.ClearEnabledAt()
+	})
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetDisabledAt(v time.Time) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetDisabledAt(v)
+	})
+}
+
+// UpdateDisabledAt sets the "disabled_at" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateDisabledAt() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateDisabledAt()
+	})
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (u *DiagnosisToolTemplateUpsertBulk) ClearDisabledAt() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.ClearDisabledAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *DiagnosisToolTemplateUpsertBulk) SetUpdatedAt(v time.Time) *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *DiagnosisToolTemplateUpsertBulk) UpdateUpdatedAt() *DiagnosisToolTemplateUpsertBulk {
+	return u.Update(func(s *DiagnosisToolTemplateUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *DiagnosisToolTemplateUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the DiagnosisToolTemplateCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for DiagnosisToolTemplateCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *DiagnosisToolTemplateUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }

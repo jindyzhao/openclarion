@@ -24,6 +24,10 @@
 //     report read paths
 //   - ConfigurationRepository: operator-managed alert source and policy
 //     profiles that drive provider and workflow wiring
+//   - DirectoryRepository: local directory projections and sync-run audit
+//     records copied from IAM
+//   - RBACRepository: product-specific local role assignments evaluated
+//     after IAM authentication
 //
 // Five entity-level repositories were rejected because they would
 // project the Ent table layout into the usecase layer, encouraging
@@ -477,7 +481,77 @@ type ConfigurationRepository interface {
 	ListNotificationChannelProfiles(ctx context.Context, limit int) ([]domain.NotificationChannelProfile, error)
 }
 
-// UnitOfWork bundles the three aggregate-root repositories under a
+// DirectoryRepository covers local directory projections and sync-run audit
+// records. IAM remains the source of truth; this repository stores only the
+// bounded projection needed for attribution, operator pickers, and local RBAC.
+type DirectoryRepository interface {
+	// UpsertDepartment inserts or updates one provider department projection
+	// identified by (provider, external_id). The returned department has ID,
+	// CreatedAt, and UpdatedAt populated.
+	UpsertDepartment(ctx context.Context, d domain.DirectoryDepartment) (domain.DirectoryDepartment, error)
+
+	// FindDepartmentByExternalID returns one provider department projection by
+	// natural key, or domain.ErrNotFound.
+	FindDepartmentByExternalID(ctx context.Context, provider, externalID string) (domain.DirectoryDepartment, error)
+
+	// ListDepartments returns provider departments ordered by (path ASC, id ASC),
+	// capped by limit. provider MUST be non-empty and limit MUST be > 0.
+	ListDepartments(ctx context.Context, provider string, limit int) ([]domain.DirectoryDepartment, error)
+
+	// UpsertUser inserts or updates one provider user projection identified by
+	// (provider, subject). A conflicting (provider, external_id) for another
+	// subject returns a wrapped domain.ErrAlreadyExists.
+	UpsertUser(ctx context.Context, u domain.DirectoryUser) (domain.DirectoryUser, error)
+
+	// FindUserBySubject returns one provider user projection by login subject, or
+	// domain.ErrNotFound.
+	FindUserBySubject(ctx context.Context, provider, subject string) (domain.DirectoryUser, error)
+
+	// FindUserByExternalID returns one provider user projection by upstream
+	// external identifier, or domain.ErrNotFound.
+	FindUserByExternalID(ctx context.Context, provider, externalID string) (domain.DirectoryUser, error)
+
+	// ListUsers returns provider users ordered by (display_name ASC, id ASC),
+	// capped by limit. provider MUST be non-empty and limit MUST be > 0.
+	ListUsers(ctx context.Context, provider string, activeOnly bool, limit int) ([]domain.DirectoryUser, error)
+
+	// SaveSyncRun records one admitted directory sync result. The returned run
+	// has ID and CreatedAt populated.
+	SaveSyncRun(ctx context.Context, run domain.DirectorySyncRun) (domain.DirectorySyncRun, error)
+
+	// ListSyncRuns returns provider sync runs ordered by (synced_at DESC, id DESC),
+	// capped by limit. provider MUST be non-empty and limit MUST be > 0.
+	ListSyncRuns(ctx context.Context, provider string, limit int) ([]domain.DirectorySyncRun, error)
+}
+
+// RBACRepository covers OpenClarion-owned product authorization rules. IAM
+// authenticates the principal; this repository stores local role assignments
+// that are evaluated by domain.RBACAuthorize.
+type RBACRepository interface {
+	// SaveAssignment inserts one local role assignment. Duplicate natural role
+	// bindings return a wrapped domain.ErrAlreadyExists. The returned assignment
+	// has ID, CreatedAt, and UpdatedAt populated.
+	SaveAssignment(ctx context.Context, a domain.RBACAssignment) (domain.RBACAssignment, error)
+
+	// UpdateAssignment persists mutable assignment fields. The assignment ID is
+	// required. Returns domain.ErrNotFound if the row is missing.
+	UpdateAssignment(ctx context.Context, a domain.RBACAssignment) (domain.RBACAssignment, error)
+
+	// FindAssignmentByID returns one role assignment by ID, or
+	// domain.ErrNotFound.
+	FindAssignmentByID(ctx context.Context, id domain.RBACAssignmentID) (domain.RBACAssignment, error)
+
+	// ListAssignments returns role assignments ordered by
+	// (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListAssignments(ctx context.Context, limit int) ([]domain.RBACAssignment, error)
+
+	// ListEnabledAssignmentsForPrincipal returns enabled user and department
+	// assignments that may apply to one principal. The domain authorization
+	// function still owns the final permission and scope decision.
+	ListEnabledAssignmentsForPrincipal(ctx context.Context, principal domain.RBACPrincipal) ([]domain.RBACAssignment, error)
+}
+
+// UnitOfWork bundles the aggregate-root repositories under a
 // single Postgres transaction.
 //
 // Lifecycle: exactly one of Commit / Rollback MUST be called. After
@@ -504,6 +578,12 @@ type UnitOfWork interface {
 
 	// Config returns the ConfigurationRepository bound to this transaction.
 	Config() ConfigurationRepository
+
+	// Directory returns the DirectoryRepository bound to this transaction.
+	Directory() DirectoryRepository
+
+	// RBAC returns the RBACRepository bound to this transaction.
+	RBAC() RBACRepository
 
 	// Commit finalises the transaction. After a successful Commit
 	// the UoW is closed; subsequent Commit / Rollback calls return

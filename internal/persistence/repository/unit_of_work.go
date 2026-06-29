@@ -184,6 +184,8 @@ type unitOfWork struct {
 	diagnosis *diagnosisRepo
 	reports   *reportRepo
 	config    *configRepo
+	directory *directoryRepo
+	rbac      *rbacRepo
 }
 
 func newUnitOfWork(tx *ent.Tx) *unitOfWork {
@@ -193,6 +195,8 @@ func newUnitOfWork(tx *ent.Tx) *unitOfWork {
 	uow.diagnosis = &diagnosisRepo{tx: tx, closed: &uow.closed}
 	uow.reports = &reportRepo{tx: tx, closed: &uow.closed}
 	uow.config = &configRepo{tx: tx, closed: &uow.closed}
+	uow.directory = &directoryRepo{tx: tx, closed: &uow.closed}
+	uow.rbac = &rbacRepo{tx: tx, closed: &uow.closed}
 	return uow
 }
 
@@ -205,6 +209,8 @@ func (u *unitOfWork) Evidence() ports.EvidenceRepository    { return u.evidence 
 func (u *unitOfWork) Diagnosis() ports.DiagnosisRepository  { return u.diagnosis }
 func (u *unitOfWork) Reports() ports.ReportRepository       { return u.reports }
 func (u *unitOfWork) Config() ports.ConfigurationRepository { return u.config }
+func (u *unitOfWork) Directory() ports.DirectoryRepository  { return u.directory }
+func (u *unitOfWork) RBAC() ports.RBACRepository            { return u.rbac }
 
 // Commit finalises the transaction. After a successful Commit the
 // UoW is closed; subsequent Commit / Rollback calls return

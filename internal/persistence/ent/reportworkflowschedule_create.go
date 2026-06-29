@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
@@ -18,6 +19,7 @@ type ReportWorkflowScheduleCreate struct {
 	config
 	mutation *ReportWorkflowScheduleMutation
 	hooks    []Hook
+	conflict []sql.ConflictOption
 }
 
 // SetName sets the "name" field.
@@ -302,6 +304,7 @@ func (_c *ReportWorkflowScheduleCreate) createSpec() (*ReportWorkflowSchedule, *
 		_node = &ReportWorkflowSchedule{config: _c.config}
 		_spec = sqlgraph.NewCreateSpec(reportworkflowschedule.Table, sqlgraph.NewFieldSpec(reportworkflowschedule.FieldID, field.TypeInt))
 	)
+	_spec.OnConflict = _c.conflict
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(reportworkflowschedule.FieldName, field.TypeString, value)
 		_node.Name = value
@@ -361,11 +364,594 @@ func (_c *ReportWorkflowScheduleCreate) createSpec() (*ReportWorkflowSchedule, *
 	return _node, _spec
 }
 
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.ReportWorkflowSchedule.Create().
+//		SetName(v).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.ReportWorkflowScheduleUpsert) {
+//			SetName(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *ReportWorkflowScheduleCreate) OnConflict(opts ...sql.ConflictOption) *ReportWorkflowScheduleUpsertOne {
+	_c.conflict = opts
+	return &ReportWorkflowScheduleUpsertOne{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.ReportWorkflowSchedule.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *ReportWorkflowScheduleCreate) OnConflictColumns(columns ...string) *ReportWorkflowScheduleUpsertOne {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &ReportWorkflowScheduleUpsertOne{
+		create: _c,
+	}
+}
+
+type (
+	// ReportWorkflowScheduleUpsertOne is the builder for "upsert"-ing
+	//  one ReportWorkflowSchedule node.
+	ReportWorkflowScheduleUpsertOne struct {
+		create *ReportWorkflowScheduleCreate
+	}
+
+	// ReportWorkflowScheduleUpsert is the "OnConflict" setter.
+	ReportWorkflowScheduleUpsert struct {
+		*sql.UpdateSet
+	}
+)
+
+// SetName sets the "name" field.
+func (u *ReportWorkflowScheduleUpsert) SetName(v string) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldName, v)
+	return u
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateName() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldName)
+	return u
+}
+
+// SetReportWorkflowPolicyID sets the "report_workflow_policy_id" field.
+func (u *ReportWorkflowScheduleUpsert) SetReportWorkflowPolicyID(v int) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldReportWorkflowPolicyID, v)
+	return u
+}
+
+// UpdateReportWorkflowPolicyID sets the "report_workflow_policy_id" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateReportWorkflowPolicyID() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldReportWorkflowPolicyID)
+	return u
+}
+
+// AddReportWorkflowPolicyID adds v to the "report_workflow_policy_id" field.
+func (u *ReportWorkflowScheduleUpsert) AddReportWorkflowPolicyID(v int) *ReportWorkflowScheduleUpsert {
+	u.Add(reportworkflowschedule.FieldReportWorkflowPolicyID, v)
+	return u
+}
+
+// SetTemporalScheduleID sets the "temporal_schedule_id" field.
+func (u *ReportWorkflowScheduleUpsert) SetTemporalScheduleID(v string) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldTemporalScheduleID, v)
+	return u
+}
+
+// UpdateTemporalScheduleID sets the "temporal_schedule_id" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateTemporalScheduleID() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldTemporalScheduleID)
+	return u
+}
+
+// SetIntervalNs sets the "interval_ns" field.
+func (u *ReportWorkflowScheduleUpsert) SetIntervalNs(v int64) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldIntervalNs, v)
+	return u
+}
+
+// UpdateIntervalNs sets the "interval_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateIntervalNs() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldIntervalNs)
+	return u
+}
+
+// AddIntervalNs adds v to the "interval_ns" field.
+func (u *ReportWorkflowScheduleUpsert) AddIntervalNs(v int64) *ReportWorkflowScheduleUpsert {
+	u.Add(reportworkflowschedule.FieldIntervalNs, v)
+	return u
+}
+
+// SetOffsetNs sets the "offset_ns" field.
+func (u *ReportWorkflowScheduleUpsert) SetOffsetNs(v int64) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldOffsetNs, v)
+	return u
+}
+
+// UpdateOffsetNs sets the "offset_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateOffsetNs() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldOffsetNs)
+	return u
+}
+
+// AddOffsetNs adds v to the "offset_ns" field.
+func (u *ReportWorkflowScheduleUpsert) AddOffsetNs(v int64) *ReportWorkflowScheduleUpsert {
+	u.Add(reportworkflowschedule.FieldOffsetNs, v)
+	return u
+}
+
+// SetReplayWindowNs sets the "replay_window_ns" field.
+func (u *ReportWorkflowScheduleUpsert) SetReplayWindowNs(v int64) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldReplayWindowNs, v)
+	return u
+}
+
+// UpdateReplayWindowNs sets the "replay_window_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateReplayWindowNs() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldReplayWindowNs)
+	return u
+}
+
+// AddReplayWindowNs adds v to the "replay_window_ns" field.
+func (u *ReportWorkflowScheduleUpsert) AddReplayWindowNs(v int64) *ReportWorkflowScheduleUpsert {
+	u.Add(reportworkflowschedule.FieldReplayWindowNs, v)
+	return u
+}
+
+// SetReplayDelayNs sets the "replay_delay_ns" field.
+func (u *ReportWorkflowScheduleUpsert) SetReplayDelayNs(v int64) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldReplayDelayNs, v)
+	return u
+}
+
+// UpdateReplayDelayNs sets the "replay_delay_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateReplayDelayNs() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldReplayDelayNs)
+	return u
+}
+
+// AddReplayDelayNs adds v to the "replay_delay_ns" field.
+func (u *ReportWorkflowScheduleUpsert) AddReplayDelayNs(v int64) *ReportWorkflowScheduleUpsert {
+	u.Add(reportworkflowschedule.FieldReplayDelayNs, v)
+	return u
+}
+
+// SetReplayLimit sets the "replay_limit" field.
+func (u *ReportWorkflowScheduleUpsert) SetReplayLimit(v int) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldReplayLimit, v)
+	return u
+}
+
+// UpdateReplayLimit sets the "replay_limit" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateReplayLimit() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldReplayLimit)
+	return u
+}
+
+// AddReplayLimit adds v to the "replay_limit" field.
+func (u *ReportWorkflowScheduleUpsert) AddReplayLimit(v int) *ReportWorkflowScheduleUpsert {
+	u.Add(reportworkflowschedule.FieldReplayLimit, v)
+	return u
+}
+
+// SetCatchupWindowNs sets the "catchup_window_ns" field.
+func (u *ReportWorkflowScheduleUpsert) SetCatchupWindowNs(v int64) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldCatchupWindowNs, v)
+	return u
+}
+
+// UpdateCatchupWindowNs sets the "catchup_window_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateCatchupWindowNs() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldCatchupWindowNs)
+	return u
+}
+
+// AddCatchupWindowNs adds v to the "catchup_window_ns" field.
+func (u *ReportWorkflowScheduleUpsert) AddCatchupWindowNs(v int64) *ReportWorkflowScheduleUpsert {
+	u.Add(reportworkflowschedule.FieldCatchupWindowNs, v)
+	return u
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *ReportWorkflowScheduleUpsert) SetEnabled(v bool) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldEnabled, v)
+	return u
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateEnabled() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldEnabled)
+	return u
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (u *ReportWorkflowScheduleUpsert) SetEnabledAt(v time.Time) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldEnabledAt, v)
+	return u
+}
+
+// UpdateEnabledAt sets the "enabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateEnabledAt() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldEnabledAt)
+	return u
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (u *ReportWorkflowScheduleUpsert) ClearEnabledAt() *ReportWorkflowScheduleUpsert {
+	u.SetNull(reportworkflowschedule.FieldEnabledAt)
+	return u
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (u *ReportWorkflowScheduleUpsert) SetDisabledAt(v time.Time) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldDisabledAt, v)
+	return u
+}
+
+// UpdateDisabledAt sets the "disabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateDisabledAt() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldDisabledAt)
+	return u
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (u *ReportWorkflowScheduleUpsert) ClearDisabledAt() *ReportWorkflowScheduleUpsert {
+	u.SetNull(reportworkflowschedule.FieldDisabledAt)
+	return u
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *ReportWorkflowScheduleUpsert) SetUpdatedAt(v time.Time) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldUpdatedAt, v)
+	return u
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateUpdatedAt() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldUpdatedAt)
+	return u
+}
+
+// UpdateNewValues updates the mutable fields using the new values that were set on create.
+// Using this option is equivalent to using:
+//
+//	client.ReportWorkflowSchedule.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *ReportWorkflowScheduleUpsertOne) UpdateNewValues() *ReportWorkflowScheduleUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.CreatedAt(); exists {
+			s.SetIgnore(reportworkflowschedule.FieldCreatedAt)
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.ReportWorkflowSchedule.Create().
+//	    OnConflict(sql.ResolveWithIgnore()).
+//	    Exec(ctx)
+func (u *ReportWorkflowScheduleUpsertOne) Ignore() *ReportWorkflowScheduleUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *ReportWorkflowScheduleUpsertOne) DoNothing() *ReportWorkflowScheduleUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the ReportWorkflowScheduleCreate.OnConflict
+// documentation for more info.
+func (u *ReportWorkflowScheduleUpsertOne) Update(set func(*ReportWorkflowScheduleUpsert)) *ReportWorkflowScheduleUpsertOne {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&ReportWorkflowScheduleUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetName sets the "name" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetName(v string) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateName() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetReportWorkflowPolicyID sets the "report_workflow_policy_id" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetReportWorkflowPolicyID(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetReportWorkflowPolicyID(v)
+	})
+}
+
+// AddReportWorkflowPolicyID adds v to the "report_workflow_policy_id" field.
+func (u *ReportWorkflowScheduleUpsertOne) AddReportWorkflowPolicyID(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddReportWorkflowPolicyID(v)
+	})
+}
+
+// UpdateReportWorkflowPolicyID sets the "report_workflow_policy_id" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateReportWorkflowPolicyID() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateReportWorkflowPolicyID()
+	})
+}
+
+// SetTemporalScheduleID sets the "temporal_schedule_id" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetTemporalScheduleID(v string) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetTemporalScheduleID(v)
+	})
+}
+
+// UpdateTemporalScheduleID sets the "temporal_schedule_id" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateTemporalScheduleID() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateTemporalScheduleID()
+	})
+}
+
+// SetIntervalNs sets the "interval_ns" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetIntervalNs(v int64) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetIntervalNs(v)
+	})
+}
+
+// AddIntervalNs adds v to the "interval_ns" field.
+func (u *ReportWorkflowScheduleUpsertOne) AddIntervalNs(v int64) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddIntervalNs(v)
+	})
+}
+
+// UpdateIntervalNs sets the "interval_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateIntervalNs() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateIntervalNs()
+	})
+}
+
+// SetOffsetNs sets the "offset_ns" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetOffsetNs(v int64) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetOffsetNs(v)
+	})
+}
+
+// AddOffsetNs adds v to the "offset_ns" field.
+func (u *ReportWorkflowScheduleUpsertOne) AddOffsetNs(v int64) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddOffsetNs(v)
+	})
+}
+
+// UpdateOffsetNs sets the "offset_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateOffsetNs() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateOffsetNs()
+	})
+}
+
+// SetReplayWindowNs sets the "replay_window_ns" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetReplayWindowNs(v int64) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetReplayWindowNs(v)
+	})
+}
+
+// AddReplayWindowNs adds v to the "replay_window_ns" field.
+func (u *ReportWorkflowScheduleUpsertOne) AddReplayWindowNs(v int64) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddReplayWindowNs(v)
+	})
+}
+
+// UpdateReplayWindowNs sets the "replay_window_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateReplayWindowNs() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateReplayWindowNs()
+	})
+}
+
+// SetReplayDelayNs sets the "replay_delay_ns" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetReplayDelayNs(v int64) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetReplayDelayNs(v)
+	})
+}
+
+// AddReplayDelayNs adds v to the "replay_delay_ns" field.
+func (u *ReportWorkflowScheduleUpsertOne) AddReplayDelayNs(v int64) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddReplayDelayNs(v)
+	})
+}
+
+// UpdateReplayDelayNs sets the "replay_delay_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateReplayDelayNs() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateReplayDelayNs()
+	})
+}
+
+// SetReplayLimit sets the "replay_limit" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetReplayLimit(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetReplayLimit(v)
+	})
+}
+
+// AddReplayLimit adds v to the "replay_limit" field.
+func (u *ReportWorkflowScheduleUpsertOne) AddReplayLimit(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddReplayLimit(v)
+	})
+}
+
+// UpdateReplayLimit sets the "replay_limit" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateReplayLimit() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateReplayLimit()
+	})
+}
+
+// SetCatchupWindowNs sets the "catchup_window_ns" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetCatchupWindowNs(v int64) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCatchupWindowNs(v)
+	})
+}
+
+// AddCatchupWindowNs adds v to the "catchup_window_ns" field.
+func (u *ReportWorkflowScheduleUpsertOne) AddCatchupWindowNs(v int64) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddCatchupWindowNs(v)
+	})
+}
+
+// UpdateCatchupWindowNs sets the "catchup_window_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateCatchupWindowNs() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCatchupWindowNs()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetEnabled(v bool) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateEnabled() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetEnabledAt(v time.Time) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetEnabledAt(v)
+	})
+}
+
+// UpdateEnabledAt sets the "enabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateEnabledAt() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateEnabledAt()
+	})
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (u *ReportWorkflowScheduleUpsertOne) ClearEnabledAt() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.ClearEnabledAt()
+	})
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetDisabledAt(v time.Time) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetDisabledAt(v)
+	})
+}
+
+// UpdateDisabledAt sets the "disabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateDisabledAt() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateDisabledAt()
+	})
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (u *ReportWorkflowScheduleUpsertOne) ClearDisabledAt() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.ClearDisabledAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetUpdatedAt(v time.Time) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateUpdatedAt() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *ReportWorkflowScheduleUpsertOne) Exec(ctx context.Context) error {
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for ReportWorkflowScheduleCreate.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *ReportWorkflowScheduleUpsertOne) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// Exec executes the UPSERT query and returns the inserted/updated ID.
+func (u *ReportWorkflowScheduleUpsertOne) ID(ctx context.Context) (id int, err error) {
+	node, err := u.create.Save(ctx)
+	if err != nil {
+		return id, err
+	}
+	return node.ID, nil
+}
+
+// IDX is like ID, but panics if an error occurs.
+func (u *ReportWorkflowScheduleUpsertOne) IDX(ctx context.Context) int {
+	id, err := u.ID(ctx)
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
 // ReportWorkflowScheduleCreateBulk is the builder for creating many ReportWorkflowSchedule entities in bulk.
 type ReportWorkflowScheduleCreateBulk struct {
 	config
 	err      error
 	builders []*ReportWorkflowScheduleCreate
+	conflict []sql.ConflictOption
 }
 
 // Save creates the ReportWorkflowSchedule entities in the database.
@@ -395,6 +981,7 @@ func (_c *ReportWorkflowScheduleCreateBulk) Save(ctx context.Context) ([]*Report
 					_, err = mutators[i+1].Mutate(root, _c.builders[i+1].mutation)
 				} else {
 					spec := &sqlgraph.BatchCreateSpec{Nodes: specs}
+					spec.OnConflict = _c.conflict
 					// Invoke the actual operation on the latest mutation in the chain.
 					if err = sqlgraph.BatchCreate(ctx, _c.driver, spec); err != nil {
 						if sqlgraph.IsConstraintError(err) {
@@ -445,6 +1032,362 @@ func (_c *ReportWorkflowScheduleCreateBulk) Exec(ctx context.Context) error {
 // ExecX is like Exec, but panics if an error occurs.
 func (_c *ReportWorkflowScheduleCreateBulk) ExecX(ctx context.Context) {
 	if err := _c.Exec(ctx); err != nil {
+		panic(err)
+	}
+}
+
+// OnConflict allows configuring the `ON CONFLICT` / `ON DUPLICATE KEY` clause
+// of the `INSERT` statement. For example:
+//
+//	client.ReportWorkflowSchedule.CreateBulk(builders...).
+//		OnConflict(
+//			// Update the row with the new values
+//			// the was proposed for insertion.
+//			sql.ResolveWithNewValues(),
+//		).
+//		// Override some of the fields with custom
+//		// update values.
+//		Update(func(u *ent.ReportWorkflowScheduleUpsert) {
+//			SetName(v+v).
+//		}).
+//		Exec(ctx)
+func (_c *ReportWorkflowScheduleCreateBulk) OnConflict(opts ...sql.ConflictOption) *ReportWorkflowScheduleUpsertBulk {
+	_c.conflict = opts
+	return &ReportWorkflowScheduleUpsertBulk{
+		create: _c,
+	}
+}
+
+// OnConflictColumns calls `OnConflict` and configures the columns
+// as conflict target. Using this option is equivalent to using:
+//
+//	client.ReportWorkflowSchedule.Create().
+//		OnConflict(sql.ConflictColumns(columns...)).
+//		Exec(ctx)
+func (_c *ReportWorkflowScheduleCreateBulk) OnConflictColumns(columns ...string) *ReportWorkflowScheduleUpsertBulk {
+	_c.conflict = append(_c.conflict, sql.ConflictColumns(columns...))
+	return &ReportWorkflowScheduleUpsertBulk{
+		create: _c,
+	}
+}
+
+// ReportWorkflowScheduleUpsertBulk is the builder for "upsert"-ing
+// a bulk of ReportWorkflowSchedule nodes.
+type ReportWorkflowScheduleUpsertBulk struct {
+	create *ReportWorkflowScheduleCreateBulk
+}
+
+// UpdateNewValues updates the mutable fields using the new values that
+// were set on create. Using this option is equivalent to using:
+//
+//	client.ReportWorkflowSchedule.Create().
+//		OnConflict(
+//			sql.ResolveWithNewValues(),
+//		).
+//		Exec(ctx)
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateNewValues() *ReportWorkflowScheduleUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		for _, b := range u.create.builders {
+			if _, exists := b.mutation.CreatedAt(); exists {
+				s.SetIgnore(reportworkflowschedule.FieldCreatedAt)
+			}
+		}
+	}))
+	return u
+}
+
+// Ignore sets each column to itself in case of conflict.
+// Using this option is equivalent to using:
+//
+//	client.ReportWorkflowSchedule.Create().
+//		OnConflict(sql.ResolveWithIgnore()).
+//		Exec(ctx)
+func (u *ReportWorkflowScheduleUpsertBulk) Ignore() *ReportWorkflowScheduleUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWithIgnore())
+	return u
+}
+
+// DoNothing configures the conflict_action to `DO NOTHING`.
+// Supported only by SQLite and PostgreSQL.
+func (u *ReportWorkflowScheduleUpsertBulk) DoNothing() *ReportWorkflowScheduleUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.DoNothing())
+	return u
+}
+
+// Update allows overriding fields `UPDATE` values. See the ReportWorkflowScheduleCreateBulk.OnConflict
+// documentation for more info.
+func (u *ReportWorkflowScheduleUpsertBulk) Update(set func(*ReportWorkflowScheduleUpsert)) *ReportWorkflowScheduleUpsertBulk {
+	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(update *sql.UpdateSet) {
+		set(&ReportWorkflowScheduleUpsert{UpdateSet: update})
+	}))
+	return u
+}
+
+// SetName sets the "name" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetName(v string) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetName(v)
+	})
+}
+
+// UpdateName sets the "name" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateName() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateName()
+	})
+}
+
+// SetReportWorkflowPolicyID sets the "report_workflow_policy_id" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetReportWorkflowPolicyID(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetReportWorkflowPolicyID(v)
+	})
+}
+
+// AddReportWorkflowPolicyID adds v to the "report_workflow_policy_id" field.
+func (u *ReportWorkflowScheduleUpsertBulk) AddReportWorkflowPolicyID(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddReportWorkflowPolicyID(v)
+	})
+}
+
+// UpdateReportWorkflowPolicyID sets the "report_workflow_policy_id" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateReportWorkflowPolicyID() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateReportWorkflowPolicyID()
+	})
+}
+
+// SetTemporalScheduleID sets the "temporal_schedule_id" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetTemporalScheduleID(v string) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetTemporalScheduleID(v)
+	})
+}
+
+// UpdateTemporalScheduleID sets the "temporal_schedule_id" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateTemporalScheduleID() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateTemporalScheduleID()
+	})
+}
+
+// SetIntervalNs sets the "interval_ns" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetIntervalNs(v int64) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetIntervalNs(v)
+	})
+}
+
+// AddIntervalNs adds v to the "interval_ns" field.
+func (u *ReportWorkflowScheduleUpsertBulk) AddIntervalNs(v int64) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddIntervalNs(v)
+	})
+}
+
+// UpdateIntervalNs sets the "interval_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateIntervalNs() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateIntervalNs()
+	})
+}
+
+// SetOffsetNs sets the "offset_ns" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetOffsetNs(v int64) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetOffsetNs(v)
+	})
+}
+
+// AddOffsetNs adds v to the "offset_ns" field.
+func (u *ReportWorkflowScheduleUpsertBulk) AddOffsetNs(v int64) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddOffsetNs(v)
+	})
+}
+
+// UpdateOffsetNs sets the "offset_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateOffsetNs() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateOffsetNs()
+	})
+}
+
+// SetReplayWindowNs sets the "replay_window_ns" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetReplayWindowNs(v int64) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetReplayWindowNs(v)
+	})
+}
+
+// AddReplayWindowNs adds v to the "replay_window_ns" field.
+func (u *ReportWorkflowScheduleUpsertBulk) AddReplayWindowNs(v int64) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddReplayWindowNs(v)
+	})
+}
+
+// UpdateReplayWindowNs sets the "replay_window_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateReplayWindowNs() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateReplayWindowNs()
+	})
+}
+
+// SetReplayDelayNs sets the "replay_delay_ns" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetReplayDelayNs(v int64) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetReplayDelayNs(v)
+	})
+}
+
+// AddReplayDelayNs adds v to the "replay_delay_ns" field.
+func (u *ReportWorkflowScheduleUpsertBulk) AddReplayDelayNs(v int64) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddReplayDelayNs(v)
+	})
+}
+
+// UpdateReplayDelayNs sets the "replay_delay_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateReplayDelayNs() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateReplayDelayNs()
+	})
+}
+
+// SetReplayLimit sets the "replay_limit" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetReplayLimit(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetReplayLimit(v)
+	})
+}
+
+// AddReplayLimit adds v to the "replay_limit" field.
+func (u *ReportWorkflowScheduleUpsertBulk) AddReplayLimit(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddReplayLimit(v)
+	})
+}
+
+// UpdateReplayLimit sets the "replay_limit" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateReplayLimit() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateReplayLimit()
+	})
+}
+
+// SetCatchupWindowNs sets the "catchup_window_ns" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetCatchupWindowNs(v int64) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCatchupWindowNs(v)
+	})
+}
+
+// AddCatchupWindowNs adds v to the "catchup_window_ns" field.
+func (u *ReportWorkflowScheduleUpsertBulk) AddCatchupWindowNs(v int64) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddCatchupWindowNs(v)
+	})
+}
+
+// UpdateCatchupWindowNs sets the "catchup_window_ns" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateCatchupWindowNs() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCatchupWindowNs()
+	})
+}
+
+// SetEnabled sets the "enabled" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetEnabled(v bool) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetEnabled(v)
+	})
+}
+
+// UpdateEnabled sets the "enabled" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateEnabled() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateEnabled()
+	})
+}
+
+// SetEnabledAt sets the "enabled_at" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetEnabledAt(v time.Time) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetEnabledAt(v)
+	})
+}
+
+// UpdateEnabledAt sets the "enabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateEnabledAt() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateEnabledAt()
+	})
+}
+
+// ClearEnabledAt clears the value of the "enabled_at" field.
+func (u *ReportWorkflowScheduleUpsertBulk) ClearEnabledAt() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.ClearEnabledAt()
+	})
+}
+
+// SetDisabledAt sets the "disabled_at" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetDisabledAt(v time.Time) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetDisabledAt(v)
+	})
+}
+
+// UpdateDisabledAt sets the "disabled_at" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateDisabledAt() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateDisabledAt()
+	})
+}
+
+// ClearDisabledAt clears the value of the "disabled_at" field.
+func (u *ReportWorkflowScheduleUpsertBulk) ClearDisabledAt() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.ClearDisabledAt()
+	})
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetUpdatedAt(v time.Time) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetUpdatedAt(v)
+	})
+}
+
+// UpdateUpdatedAt sets the "updated_at" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateUpdatedAt() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateUpdatedAt()
+	})
+}
+
+// Exec executes the query.
+func (u *ReportWorkflowScheduleUpsertBulk) Exec(ctx context.Context) error {
+	if u.create.err != nil {
+		return u.create.err
+	}
+	for i, b := range u.create.builders {
+		if len(b.conflict) != 0 {
+			return fmt.Errorf("ent: OnConflict was set for builder %d. Set it on the ReportWorkflowScheduleCreateBulk instead", i)
+		}
+	}
+	if len(u.create.conflict) == 0 {
+		return errors.New("ent: missing options for ReportWorkflowScheduleCreateBulk.OnConflict")
+	}
+	return u.create.Exec(ctx)
+}
+
+// ExecX is like Exec, but panics if an error occurs.
+func (u *ReportWorkflowScheduleUpsertBulk) ExecX(ctx context.Context) {
+	if err := u.create.Exec(ctx); err != nil {
 		panic(err)
 	}
 }
