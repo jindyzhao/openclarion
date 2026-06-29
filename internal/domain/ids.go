@@ -67,3 +67,7 @@ type ReportWorkflowScheduleID int64
 // NotificationChannelProfileID is the surrogate identifier of an
 // operator-managed notification channel profile.
 type NotificationChannelProfileID int64
+
+// RBACAssignmentID is the surrogate identifier of one local OpenClarion role
+// assignment row.
+type RBACAssignmentID int64
