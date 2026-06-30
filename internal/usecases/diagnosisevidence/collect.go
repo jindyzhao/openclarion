@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/openclarion/openclarion/internal/diagnosisquery"
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourceprovider"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
@@ -400,11 +401,16 @@ func (s *Service) resolvePlan(
 		item.Message = "Diagnosis tool template does not match the requested tool."
 		return resolvedPlan{}, &item, nil
 	}
-	if isMetricTool(req.Tool) && req.Query != "" && req.Query != template.QueryTemplate {
-		item.Status = StatusSkipped
-		item.ReasonCode = ReasonTemplateQueryMismatch
-		item.Message = "Diagnosis tool template query does not match the requested query."
-		return resolvedPlan{}, &item, nil
+	query := template.QueryTemplate
+	if isMetricTool(req.Tool) {
+		var ok bool
+		query, ok = diagnosisquery.ResolveExecutableQuery(template.QueryTemplate, req.Query)
+		if !ok {
+			item.Status = StatusSkipped
+			item.ReasonCode = ReasonTemplateQueryMismatch
+			item.Message = "Diagnosis tool template query does not match the requested query."
+			return resolvedPlan{}, &item, nil
+		}
 	}
 	if !profile.Enabled {
 		item.AlertSourceKind = profile.Kind
@@ -431,7 +437,7 @@ func (s *Service) resolvePlan(
 		item.Message = "Evidence request limit is invalid."
 		return resolvedPlan{}, &item, nil
 	}
-	plan := resolvedPlan{template: template, profile: profile, limit: limit, query: template.QueryTemplate}
+	plan := resolvedPlan{template: template, profile: profile, limit: limit, query: query}
 	if req.Tool == domain.DiagnosisToolKindMetricRangeQuery {
 		window, step, ok := resolveMetricRange(req, template)
 		if !ok {
@@ -477,7 +483,7 @@ func resolveTemplate(
 		if !template.Enabled || template.Tool != req.Tool {
 			continue
 		}
-		if isMetricTool(req.Tool) && req.Query != "" && template.QueryTemplate != req.Query {
+		if isMetricTool(req.Tool) && req.Query != "" && !diagnosisquery.MatchesTemplate(template.QueryTemplate, req.Query) {
 			continue
 		}
 		matches = append(matches, template)
