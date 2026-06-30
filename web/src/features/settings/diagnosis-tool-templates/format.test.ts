@@ -72,15 +72,16 @@ describe("diagnosis tool template formatting", () => {
     });
   });
 
-  it("rejects parameterized query templates until runtime rendering exists", () => {
+  it("previews parameterized query templates", () => {
     const preview = diagnosisQueryTemplatePreview(
       `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`
     );
 
-    expect(preview).toMatchObject({
-      ok: false,
-      message: "Parameterized query templates require runtime placeholder rendering before they can be saved.",
-      placeholders: []
+    expect(preview).toEqual({
+      ok: true,
+      message: "Parameterized query template.",
+      placeholders: ["label.ORACLE_SID", "label.TABLESPACE"],
+      previewQuery: `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="sample_oracle_sid",TABLESPACE="sample_tablespace"}`
     });
   });
 
@@ -92,7 +93,9 @@ describe("diagnosis tool template formatting", () => {
       expect(parsed, preset.id).toMatchObject({ ok: true });
       if (parsed.ok) {
         expect(parsed.value.alert_source_profile_id).toBe(5);
-        expect(parsed.value.query_template).toBe(`db_tablespace_pctusd{job="oracle_exporter"}`);
+        expect(parsed.value.query_template).toBe(
+          `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`
+        );
       }
     }
   });
@@ -136,12 +139,30 @@ describe("diagnosis tool template formatting", () => {
     ).toMatchObject({ compatibleSourceCount: 2, status: "ready" });
   });
 
-  it("rejects unrendered template delimiters", () => {
+  it("rejects invalid placeholder placement", () => {
     const preview = diagnosisQueryTemplatePreview(`up{job={{label.job}}}`);
 
     expect(preview).toMatchObject({
       ok: false,
-      message: "Parameterized query templates require runtime placeholder rendering before they can be saved."
+      message: "Placeholders must use {{label.NAME}} or {{annotation.NAME}} inside quoted PromQL label values."
+    });
+  });
+
+  it("rejects placeholders outside label matchers", () => {
+    const preview = diagnosisQueryTemplatePreview(`label_replace(up, "dst", "{{label.job}}", "src", "(.*)")`);
+
+    expect(preview).toMatchObject({
+      ok: false,
+      message: "Placeholders must use {{label.NAME}} or {{annotation.NAME}} inside quoted PromQL label values."
+    });
+  });
+
+  it("rejects placeholders in regex matchers", () => {
+    const preview = diagnosisQueryTemplatePreview(`up{job=~"{{label.job}}"}`);
+
+    expect(preview).toMatchObject({
+      ok: false,
+      message: "Placeholders must use {{label.NAME}} or {{annotation.NAME}} inside quoted PromQL label values."
     });
   });
 
@@ -156,7 +177,7 @@ describe("diagnosis tool template formatting", () => {
 
     expect(parsed).toEqual({
       ok: false,
-      message: "Parameterized query templates require runtime placeholder rendering before they can be saved."
+      message: "Placeholders must use {{label.NAME}} or {{annotation.NAME}} inside quoted PromQL label values."
     });
   });
 

@@ -139,7 +139,7 @@ func TestServiceCollectReportsUnsupportedTools(t *testing.T) {
 func TestServiceCollectMetricQueryUsesTemplateQuery(t *testing.T) {
 	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
 	repo := newFakeConfigRepo()
-	repo.templates[9] = metricQueryTemplate(9, true, "up")
+	repo.templates[9] = metricQueryTemplate("up")
 	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
 	provider := &fakeMetricsProvider{metricResult: ports.MetricQueryResult{
 		ResultType: "vector",
@@ -182,10 +182,98 @@ func TestServiceCollectMetricQueryUsesTemplateQuery(t *testing.T) {
 	}
 }
 
+func TestServiceCollectMetricQueryAllowsParameterizedTemplateQuery(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	concreteQuery := `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="sapprd1",TABLESPACE="PSAPSR3USR"}`
+	repo := newFakeConfigRepo()
+	repo.templates[9] = metricQueryTemplate(
+		`db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`,
+	)
+	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
+	provider := &fakeMetricsProvider{metricResult: ports.MetricQueryResult{
+		ResultType: "vector",
+		Series: []ports.MetricSeries{{
+			Metric: map[string]string{"ORACLE_SID": "sapprd1", "TABLESPACE": "PSAPSR3USR"},
+			Points: []ports.MetricPoint{{Timestamp: now, Value: "96.5"}},
+		}},
+	}}
+	svc := mustService(t, repo, provider, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		TemplateID: 9,
+		Tool:       domain.DiagnosisToolKindMetricQuery,
+		Reason:     "Need concrete tablespace usage.",
+		Query:      concreteQuery,
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusCollected || item.ReasonCode != ReasonOK || item.Query != concreteQuery {
+		t.Fatalf("item = %+v", item)
+	}
+	if provider.metricCalls != 1 || provider.lastMetricReq.Query != concreteQuery {
+		t.Fatalf("metric request calls=%d req=%+v", provider.metricCalls, provider.lastMetricReq)
+	}
+}
+
+func TestServiceCollectMetricQueryRejectsParameterizedTemplateMismatch(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	repo := newFakeConfigRepo()
+	repo.templates[9] = metricQueryTemplate(
+		`db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`,
+	)
+	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
+	provider := &fakeMetricsProvider{}
+	svc := mustService(t, repo, provider, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		TemplateID: 9,
+		Tool:       domain.DiagnosisToolKindMetricQuery,
+		Reason:     "Need concrete tablespace usage.",
+		Query:      `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="sapprd1",TABLESPACE="PSAPSR3USR",pod="api-1"}`,
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusSkipped || item.ReasonCode != ReasonTemplateQueryMismatch {
+		t.Fatalf("item = %+v", item)
+	}
+	if provider.metricCalls != 0 {
+		t.Fatalf("metric calls = %d, want 0", provider.metricCalls)
+	}
+}
+
+func TestServiceCollectMetricQueryRejectsParameterizedTemplateWithoutQuery(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	repo := newFakeConfigRepo()
+	repo.templates[9] = metricQueryTemplate(`up{job="{{label.job}}"}`)
+	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
+	provider := &fakeMetricsProvider{}
+	svc := mustService(t, repo, provider, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		TemplateID: 9,
+		Tool:       domain.DiagnosisToolKindMetricQuery,
+		Reason:     "Need current health.",
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusSkipped || item.ReasonCode != ReasonTemplateQueryMismatch {
+		t.Fatalf("item = %+v", item)
+	}
+	if provider.metricCalls != 0 {
+		t.Fatalf("metric calls = %d, want 0", provider.metricCalls)
+	}
+}
+
 func TestServiceCollectMetricQueryRejectsTemplateQueryMismatch(t *testing.T) {
 	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
 	repo := newFakeConfigRepo()
-	repo.templates[9] = metricQueryTemplate(9, true, "up")
+	repo.templates[9] = metricQueryTemplate("up")
 	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
 	provider := &fakeMetricsProvider{}
 	svc := mustService(t, repo, provider, now)
@@ -326,8 +414,6 @@ func activeAlertsTemplate(
 }
 
 func metricQueryTemplate(
-	id domain.DiagnosisToolTemplateID,
-	enabled bool,
 	query string,
 ) domain.DiagnosisToolTemplate {
 	template, err := domain.NewDiagnosisToolTemplate(
@@ -339,14 +425,14 @@ func metricQueryTemplate(
 		0,
 		0,
 		0,
-		enabled,
+		true,
 		nil,
 		nil,
 	)
 	if err != nil {
 		panic(err)
 	}
-	template.ID = id
+	template.ID = 9
 	return template
 }
 

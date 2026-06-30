@@ -74,9 +74,9 @@ func TestNewDiagnosisToolTemplateRejectsInvalidInputs(t *testing.T) {
 			a.maxWindow = 0
 			a.defaultStep = 0
 		}},
-		{name: "metric_unresolved_template_delimiters", edit: func(a *diagnosisToolTemplateArgs) {
+		{name: "metric_bad_placeholder", edit: func(a *diagnosisToolTemplateArgs) {
 			a.tool = DiagnosisToolKindMetricQuery
-			a.query = `up{job="{{label.job}}"}`
+			a.query = `up{job={{label.job}}}`
 			a.defaultWindow = 0
 			a.maxWindow = 0
 			a.defaultStep = 0
@@ -112,6 +112,28 @@ func TestNewDiagnosisToolTemplateRejectsInvalidInputs(t *testing.T) {
 				t.Fatalf("err = %v, want ErrInvariantViolation", err)
 			}
 		})
+	}
+}
+
+func TestNewDiagnosisToolTemplateAcceptsSafePlaceholders(t *testing.T) {
+	template, err := NewDiagnosisToolTemplate(
+		"Parameterized metric",
+		AlertSourceProfileID(1),
+		DiagnosisToolKindMetricQuery,
+		`up{job="{{label.job}}"}`,
+		5,
+		0,
+		0,
+		0,
+		false,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewDiagnosisToolTemplate: %v", err)
+	}
+	if template.QueryTemplate != `up{job="{{label.job}}"}` {
+		t.Fatalf("query template = %q", template.QueryTemplate)
 	}
 }
 

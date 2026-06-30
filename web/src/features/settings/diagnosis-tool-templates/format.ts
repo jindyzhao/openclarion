@@ -37,9 +37,10 @@ export type DiagnosisToolSourceReadiness = {
   status: DiagnosisToolSourceReadinessStatus;
 };
 
-const unsupportedTemplateDelimiterMessage =
-  "Parameterized query templates require runtime placeholder rendering before they can be saved.";
-const oracleTablespacePctUsedQuery = `db_tablespace_pctusd{job="oracle_exporter"}`;
+const diagnosisQueryPlaceholderPattern = /\{\{\s*(label|annotation)\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g;
+const labelMatcherPrefixPattern = /(?:^|[,{])\s*[A-Za-z_][A-Za-z0-9_]*\s*(=|!=|=~|!~)\s*$/;
+const oracleTablespacePctUsedQuery =
+  `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`;
 
 export const diagnosisToolKindLabels: Record<DiagnosisToolKind, string> = {
   active_alerts: "Active alerts",
@@ -323,11 +324,49 @@ export function diagnosisQueryTemplatePreview(queryTemplate: string): DiagnosisQ
     };
   }
 
+  const matches = Array.from(query.matchAll(diagnosisQueryPlaceholderPattern));
+  if (matches.length === 0) {
+    return invalidQueryTemplatePreview(query);
+  }
+
+  const placeholders: string[] = [];
+  const seenPlaceholders = new Set<string>();
+  let lastIndex = 0;
+  let previewQuery = "";
+  for (const match of matches) {
+    if (match.index === undefined) {
+      return invalidQueryTemplatePreview(query);
+    }
+    if (containsTemplateDelimiter(query.slice(lastIndex, match.index))) {
+      return invalidQueryTemplatePreview(query);
+    }
+    const endIndex = match.index + match[0].length;
+    if (!placeholderIsQuotedValue(query, match.index, endIndex)) {
+      return invalidQueryTemplatePreview(query);
+    }
+    const kind = match[1];
+    const key = match[2];
+    if (kind === undefined || key === undefined) {
+      return invalidQueryTemplatePreview(query);
+    }
+    const placeholder = `${kind}.${key}`;
+    if (!seenPlaceholders.has(placeholder)) {
+      placeholders.push(placeholder);
+      seenPlaceholders.add(placeholder);
+    }
+    previewQuery += query.slice(lastIndex, match.index);
+    previewQuery += samplePlaceholderValue(key);
+    lastIndex = endIndex;
+  }
+  if (containsTemplateDelimiter(query.slice(lastIndex))) {
+    return invalidQueryTemplatePreview(query);
+  }
+  previewQuery += query.slice(lastIndex);
   return {
-    ok: false,
-    message: unsupportedTemplateDelimiterMessage,
-    placeholders: [],
-    previewQuery: query
+    ok: true,
+    message: "Parameterized query template.",
+    placeholders,
+    previewQuery
   };
 }
 
@@ -395,4 +434,29 @@ function rangeLabel(key: string): string {
 
 function containsTemplateDelimiter(value: string): boolean {
   return value.includes("{{") || value.includes("}}");
+}
+
+function placeholderIsQuotedValue(query: string, start: number, end: number): boolean {
+  const matcher = labelMatcherPrefixPattern.exec(query.slice(0, start - 1));
+  return (
+    start > 0 &&
+    end < query.length &&
+    query[start - 1] === `"` &&
+    query[end] === `"` &&
+    matcher !== null &&
+    (matcher[1] === "=" || matcher[1] === "!=")
+  );
+}
+
+function samplePlaceholderValue(key: string): string {
+  return `sample_${key.toLowerCase()}`;
+}
+
+function invalidQueryTemplatePreview(query: string): DiagnosisQueryTemplatePreview {
+  return {
+    ok: false,
+    message: "Placeholders must use {{label.NAME}} or {{annotation.NAME}} inside quoted PromQL label values.",
+    placeholders: [],
+    previewQuery: query
+  };
 }
