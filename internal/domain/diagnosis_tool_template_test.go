@@ -74,6 +74,13 @@ func TestNewDiagnosisToolTemplateRejectsInvalidInputs(t *testing.T) {
 			a.maxWindow = 0
 			a.defaultStep = 0
 		}},
+		{name: "metric_unresolved_template_delimiters", edit: func(a *diagnosisToolTemplateArgs) {
+			a.tool = DiagnosisToolKindMetricQuery
+			a.query = `up{job="{{label.job}}"}`
+			a.defaultWindow = 0
+			a.maxWindow = 0
+			a.defaultStep = 0
+		}},
 		{name: "range_window_too_large", edit: func(a *diagnosisToolTemplateArgs) { a.maxWindow = 7 * time.Hour }},
 		{name: "range_max_before_default", edit: func(a *diagnosisToolTemplateArgs) { a.maxWindow = 30 * time.Minute }},
 		{name: "range_step_too_small", edit: func(a *diagnosisToolTemplateArgs) { a.defaultStep = time.Second }},

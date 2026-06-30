@@ -1,4 +1,8 @@
 import type {
+  AlertSourceKind,
+  AlertSourceProfile
+} from "../alert-sources/types";
+import type {
   DiagnosisToolKind,
   DiagnosisToolTemplate,
   DiagnosisToolTemplateFormState,
@@ -9,11 +13,68 @@ type ParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; message: string };
 
+export type DiagnosisQueryTemplatePreview = {
+  ok: boolean;
+  message: string;
+  placeholders: string[];
+  previewQuery: string;
+};
+
+export type DiagnosisToolTemplatePreset = {
+  id: string;
+  label: string;
+  form: Omit<DiagnosisToolTemplateFormState, "alertSourceProfileID">;
+};
+
+type DiagnosisToolSourceReadinessStatus = "ready" | "pending" | "blocked";
+
+export type DiagnosisToolSourceReadiness = {
+  compatibleSourceCount: number;
+  detail: string;
+  label: string;
+  requiredKinds: AlertSourceKind[];
+  selectedSourceKind: AlertSourceKind | null;
+  status: DiagnosisToolSourceReadinessStatus;
+};
+
+const unsupportedTemplateDelimiterMessage =
+  "Parameterized query templates require runtime placeholder rendering before they can be saved.";
+const oracleTablespacePctUsedQuery = `db_tablespace_pctusd{job="oracle_exporter"}`;
+
 export const diagnosisToolKindLabels: Record<DiagnosisToolKind, string> = {
   active_alerts: "Active alerts",
   metric_query: "Instant metric",
   metric_range_query: "Range metric"
 };
+
+export const diagnosisToolTemplatePresets: DiagnosisToolTemplatePreset[] = [
+  {
+    id: "oracle-tablespace-pct-used-instant",
+    label: "Oracle tablespace pct used instant",
+    form: {
+      name: "Oracle tablespace pct used instant",
+      tool: "metric_query",
+      queryTemplate: oracleTablespacePctUsedQuery,
+      defaultLimit: 5,
+      defaultWindowSeconds: 0,
+      maxWindowSeconds: 0,
+      defaultStepSeconds: 0
+    }
+  },
+  {
+    id: "oracle-tablespace-pct-used-range",
+    label: "Oracle tablespace pct used range",
+    form: {
+      name: "Oracle tablespace pct used range",
+      tool: "metric_range_query",
+      queryTemplate: oracleTablespacePctUsedQuery,
+      defaultLimit: 5,
+      defaultWindowSeconds: 3600,
+      maxWindowSeconds: 21600,
+      defaultStepSeconds: 60
+    }
+  }
+];
 
 export function emptyDiagnosisToolTemplateForm(): DiagnosisToolTemplateFormState {
   return {
@@ -25,6 +86,16 @@ export function emptyDiagnosisToolTemplateForm(): DiagnosisToolTemplateFormState
     defaultWindowSeconds: 0,
     maxWindowSeconds: 0,
     defaultStepSeconds: 0
+  };
+}
+
+export function presetToFormState(
+  preset: DiagnosisToolTemplatePreset,
+  alertSourceProfileID: number | null
+): DiagnosisToolTemplateFormState {
+  return {
+    ...preset.form,
+    alertSourceProfileID
   };
 }
 
@@ -68,6 +139,77 @@ export function defaultFormForTool(tool: DiagnosisToolKind): Partial<DiagnosisTo
   }
 }
 
+function diagnosisToolCompatibleSourceKinds(tool: DiagnosisToolKind): AlertSourceKind[] {
+  switch (tool) {
+    case "active_alerts":
+      return ["alertmanager", "prometheus"];
+    case "metric_query":
+    case "metric_range_query":
+      return ["prometheus"];
+  }
+}
+
+export function diagnosisToolSupportsSourceKind(tool: DiagnosisToolKind, kind: AlertSourceKind): boolean {
+  return diagnosisToolCompatibleSourceKinds(tool).includes(kind);
+}
+
+export function diagnosisToolSourceReadiness({
+  alertSourceProfileID,
+  sources,
+  tool
+}: {
+  alertSourceProfileID: number | null;
+  sources: AlertSourceProfile[];
+  tool: DiagnosisToolKind;
+}): DiagnosisToolSourceReadiness {
+  const requiredKinds = diagnosisToolCompatibleSourceKinds(tool);
+  const compatibleSources = sources.filter((source) => diagnosisToolSupportsSourceKind(tool, source.kind));
+  const selectedSource =
+    alertSourceProfileID === null ? null : sources.find((source) => source.id === alertSourceProfileID) ?? null;
+
+  if (compatibleSources.length === 0) {
+    return {
+      compatibleSourceCount: 0,
+      detail: `${diagnosisToolKindLabels[tool]} needs ${sourceKindList(requiredKinds)} before it can collect evidence.`,
+      label: "No compatible alert source.",
+      requiredKinds,
+      selectedSourceKind: selectedSource?.kind ?? null,
+      status: "blocked"
+    };
+  }
+  if (selectedSource === null) {
+    return {
+      compatibleSourceCount: compatibleSources.length,
+      detail: `Select ${sourceKindList(requiredKinds)} for this tool.`,
+      label: "Select a compatible source.",
+      requiredKinds,
+      selectedSourceKind: null,
+      status: "pending"
+    };
+  }
+  if (!diagnosisToolSupportsSourceKind(tool, selectedSource.kind)) {
+    return {
+      compatibleSourceCount: compatibleSources.length,
+      detail: `${diagnosisToolKindLabels[tool]} cannot run against ${sourceKindLabel(selectedSource.kind)}.`,
+      label: "Selected source is incompatible.",
+      requiredKinds,
+      selectedSourceKind: selectedSource.kind,
+      status: "blocked"
+    };
+  }
+  return {
+    compatibleSourceCount: compatibleSources.length,
+    detail:
+      tool === "active_alerts"
+        ? "Active alert collection can read Alertmanager or Prometheus-compatible alert APIs."
+        : "Metric evidence runs against Prometheus-compatible query APIs, including Thanos query endpoints.",
+    label: "Source compatible.",
+    requiredKinds,
+    selectedSourceKind: selectedSource.kind,
+    status: "ready"
+  };
+}
+
 export function formStateToWriteRequest(
   form: DiagnosisToolTemplateFormState
 ): ParseResult<DiagnosisToolTemplateWriteRequest> {
@@ -94,6 +236,10 @@ export function formStateToWriteRequest(
   }
   if (/[\u0000-\u001f\u007f]/.test(queryTemplate)) {
     return { ok: false, message: "Query template must be a single line." };
+  }
+  const queryPreview = diagnosisQueryTemplatePreview(queryTemplate);
+  if (!queryPreview.ok) {
+    return { ok: false, message: queryPreview.message };
   }
 
   const range = parseRangeBounds(form);
@@ -158,6 +304,33 @@ export function formStateToWriteRequest(
   };
 }
 
+export function diagnosisQueryTemplatePreview(queryTemplate: string): DiagnosisQueryTemplatePreview {
+  const query = queryTemplate.trim();
+  if (query === "") {
+    return {
+      ok: true,
+      message: "No query template.",
+      placeholders: [],
+      previewQuery: ""
+    };
+  }
+  if (!containsTemplateDelimiter(query)) {
+    return {
+      ok: true,
+      message: "Static query template.",
+      placeholders: [],
+      previewQuery: query
+    };
+  }
+
+  return {
+    ok: false,
+    message: unsupportedTemplateDelimiterMessage,
+    placeholders: [],
+    previewQuery: query
+  };
+}
+
 type RangeBounds = {
   defaultWindowSeconds: number;
   maxWindowSeconds: number;
@@ -186,6 +359,19 @@ function isDiagnosisToolKind(value: string): value is DiagnosisToolKind {
   return value === "active_alerts" || value === "metric_query" || value === "metric_range_query";
 }
 
+function sourceKindLabel(kind: AlertSourceKind): string {
+  switch (kind) {
+    case "alertmanager":
+      return "Alertmanager";
+    case "prometheus":
+      return "Prometheus-compatible";
+  }
+}
+
+function sourceKindList(kinds: AlertSourceKind[]): string {
+  return kinds.map(sourceKindLabel).join(" or ");
+}
+
 function positiveInteger(value: number | null): value is number {
   return Number.isSafeInteger(value) && value !== null && value > 0;
 }
@@ -205,4 +391,8 @@ function rangeLabel(key: string): string {
     default:
       return "Range field";
   }
+}
+
+function containsTemplateDelimiter(value: string): boolean {
+  return value.includes("{{") || value.includes("}}");
 }

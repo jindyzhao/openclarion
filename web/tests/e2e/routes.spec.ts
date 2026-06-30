@@ -336,12 +336,18 @@ test("diagnosis tool template settings route creates and toggles templates", asy
   await expect(page.getByText("CPU saturation range")).toBeVisible();
 
   const settingsForm = page.locator("form");
+  const sourceCompatibility = page.getByLabel("Source compatibility");
+  await expect(sourceCompatibility).toContainText("Select a compatible source.");
+  await expect(sourceCompatibility).toContainText("compatible source(s)");
   await page.getByLabel("Name").fill("Memory pressure range");
   const alertSourceSelect = settingsForm.getByRole("combobox", { name: /Alert source/ });
+  await settingsForm.getByText("Range", { exact: true }).click();
+  await expect(sourceCompatibility).toContainText("compatible source(s)");
+  await expect(sourceCompatibility).toContainText("Select Prometheus-compatible");
   await alertSourceSelect.click();
   await alertSourceSelect.fill("Primary Prometheus");
   await alertSourceSelect.press("Enter");
-  await settingsForm.getByText("Range", { exact: true }).click();
+  await expect(sourceCompatibility).toContainText("Source compatible.");
   await page.getByLabel("Query template").fill("container_memory_working_set_bytes");
   await page.getByLabel("Default limit").fill("5");
   await page.getByLabel("Step seconds").fill("60");
