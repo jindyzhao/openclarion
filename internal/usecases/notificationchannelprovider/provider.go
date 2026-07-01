@@ -6,10 +6,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
+	"strings"
 	"unicode"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+)
+
+const (
+	weComWebhookHost = "qyapi.weixin.qq.com"
+	weComWebhookPath = "/cgi-bin/webhook/send"
 )
 
 var (
@@ -29,10 +36,11 @@ var (
 	ErrCredentialUnusable = errors.New("notification channel resolved credential is unusable")
 )
 
-// WebhookCredentials carries the resolved webhook endpoint URL. It intentionally
-// stays outside persisted profile rows and OpenAPI responses.
+// WebhookCredentials carries resolved webhook endpoint material. It
+// intentionally stays outside persisted profile rows and OpenAPI responses.
 type WebhookCredentials struct {
-	URL string
+	URL    string
+	Format string
 }
 
 // WebhookFactory constructs a webhook-backed IMProvider from a stored profile
@@ -76,12 +84,12 @@ func (b *Builder) Build(ctx context.Context, profile domain.NotificationChannelP
 		return nil, fmt.Errorf("notification channel provider: builder must be non-nil: %w", domain.ErrInvariantViolation)
 	}
 	switch profile.Kind {
-	case domain.NotificationChannelKindWebhook:
-		url, err := b.resolveWebhookURL(ctx, profile.SecretRef)
+	case domain.NotificationChannelKindWebhook, domain.NotificationChannelKindWeCom:
+		credentials, err := b.resolveWebhookCredentials(ctx, profile)
 		if err != nil {
 			return nil, err
 		}
-		provider, err := b.webhookFactory(profile, WebhookCredentials{URL: url})
+		provider, err := b.webhookFactory(profile, credentials)
 		if err != nil {
 			return nil, fmt.Errorf("notification channel provider: webhook provider could not be constructed from stored profile: %w", domain.ErrInvariantViolation)
 		}
@@ -94,21 +102,27 @@ func (b *Builder) Build(ctx context.Context, profile domain.NotificationChannelP
 	}
 }
 
-func (b *Builder) resolveWebhookURL(ctx context.Context, secretRef string) (string, error) {
+func (b *Builder) resolveWebhookCredentials(ctx context.Context, profile domain.NotificationChannelProfile) (WebhookCredentials, error) {
 	if b.secretResolver == nil {
-		return "", ErrSecretResolverUnavailable
+		return WebhookCredentials{}, ErrSecretResolverUnavailable
 	}
-	secret, err := b.secretResolver.ResolveSecret(ctx, secretRef)
+	secret, err := b.secretResolver.ResolveSecret(ctx, profile.SecretRef)
 	if err != nil {
 		if errors.Is(err, ports.ErrSecretNotFound) {
-			return "", ErrSecretNotFound
+			return WebhookCredentials{}, ErrSecretNotFound
 		}
-		return "", ErrSecretResolveFailed
+		return WebhookCredentials{}, ErrSecretResolveFailed
 	}
 	if secret.Value == "" || containsControlOrSpace(secret.Value) {
-		return "", ErrCredentialUnusable
+		return WebhookCredentials{}, ErrCredentialUnusable
 	}
-	return secret.Value, nil
+	if profile.Kind == domain.NotificationChannelKindWeCom && !validWeComWebhookEndpoint(secret.Value) {
+		return WebhookCredentials{}, ErrCredentialUnusable
+	}
+	return WebhookCredentials{
+		URL:    secret.Value,
+		Format: notificationWebhookFormat(profile.Kind, secret.Value),
+	}, nil
 }
 
 // Resolver loads persisted notification channel profiles and resolves them into
@@ -131,6 +145,25 @@ func NewResolver(uowFactory ports.UnitOfWorkFactory, builder *Builder) (*Resolve
 
 // ResolveReportNotificationProvider implements ports.NotificationChannelProviderResolver.
 func (r *Resolver) ResolveReportNotificationProvider(ctx context.Context, channelProfileID domain.NotificationChannelProfileID) (ports.IMProvider, error) {
+	return r.resolveScopedNotificationProvider(ctx, channelProfileID, domain.NotificationDeliveryScopeReport, "report")
+}
+
+// ResolveDiagnosisConsultationNotificationProvider implements ports.NotificationChannelProviderResolver.
+func (r *Resolver) ResolveDiagnosisConsultationNotificationProvider(ctx context.Context, channelProfileID domain.NotificationChannelProfileID) (ports.IMProvider, error) {
+	return r.resolveScopedNotificationProvider(ctx, channelProfileID, domain.NotificationDeliveryScopeDiagnosisConsultation, "diagnosis consultation")
+}
+
+// ResolveDiagnosisCloseNotificationProvider implements ports.NotificationChannelProviderResolver.
+func (r *Resolver) ResolveDiagnosisCloseNotificationProvider(ctx context.Context, channelProfileID domain.NotificationChannelProfileID) (ports.IMProvider, error) {
+	return r.resolveScopedNotificationProvider(ctx, channelProfileID, domain.NotificationDeliveryScopeDiagnosisClose, "diagnosis close")
+}
+
+func (r *Resolver) resolveScopedNotificationProvider(
+	ctx context.Context,
+	channelProfileID domain.NotificationChannelProfileID,
+	scope domain.NotificationDeliveryScope,
+	deliveryName string,
+) (ports.IMProvider, error) {
 	if r == nil {
 		return nil, fmt.Errorf("notification channel provider: resolver must be non-nil: %w", domain.ErrInvariantViolation)
 	}
@@ -143,14 +176,17 @@ func (r *Resolver) ResolveReportNotificationProvider(ctx context.Context, channe
 		return nil, err
 	}
 	if !profile.Enabled {
-		return nil, fmt.Errorf("notification channel provider: channel profile must be enabled before report notification delivery: %w", domain.ErrInvariantViolation)
+		return nil, fmt.Errorf("notification channel provider: channel profile must be enabled before %s notification delivery: %w", deliveryName, domain.ErrInvariantViolation)
 	}
-	if !supportsReport(profile) {
-		return nil, fmt.Errorf("notification channel provider: channel profile must include report delivery scope: %w", domain.ErrInvariantViolation)
+	if diagnosisDeliveryScope(scope) && profile.Kind != domain.NotificationChannelKindWeCom {
+		return nil, fmt.Errorf("notification channel provider: channel profile must be an Enterprise WeChat channel before %s notification delivery: %w", deliveryName, domain.ErrInvariantViolation)
+	}
+	if !supportsDeliveryScope(profile, scope) {
+		return nil, fmt.Errorf("notification channel provider: channel profile must include %s delivery scope: %w", scope, domain.ErrInvariantViolation)
 	}
 	provider, err := r.builder.Build(ctx, profile)
 	if err != nil {
-		return nil, mapBuildError(err)
+		return nil, mapBuildError(err, deliveryName)
 	}
 	return provider, nil
 }
@@ -171,24 +207,33 @@ func (r *Resolver) loadProfile(ctx context.Context, id domain.NotificationChanne
 	return profile, err
 }
 
-func supportsReport(profile domain.NotificationChannelProfile) bool {
+func diagnosisDeliveryScope(scope domain.NotificationDeliveryScope) bool {
+	switch scope {
+	case domain.NotificationDeliveryScopeDiagnosisConsultation, domain.NotificationDeliveryScopeDiagnosisClose:
+		return true
+	default:
+		return false
+	}
+}
+
+func supportsDeliveryScope(profile domain.NotificationChannelProfile, want domain.NotificationDeliveryScope) bool {
 	for _, scope := range profile.DeliveryScopes {
-		if scope == domain.NotificationDeliveryScopeReport {
+		if scope == want {
 			return true
 		}
 	}
 	return false
 }
 
-func mapBuildError(err error) error {
+func mapBuildError(err error, deliveryName string) error {
 	if err == nil || errors.Is(err, domain.ErrInvariantViolation) {
 		return err
 	}
 	switch {
 	case errors.Is(err, ErrUnsupportedKind):
-		return fmt.Errorf("notification channel provider: channel profile kind is unsupported for report delivery: %w", domain.ErrInvariantViolation)
+		return fmt.Errorf("notification channel provider: channel profile kind is unsupported for %s delivery: %w", deliveryName, domain.ErrInvariantViolation)
 	case errors.Is(err, ErrSecretResolverUnavailable):
-		return fmt.Errorf("notification channel provider: secret resolver is required for profile-backed report delivery: %w", domain.ErrInvariantViolation)
+		return fmt.Errorf("notification channel provider: secret resolver is required for profile-backed %s delivery: %w", deliveryName, domain.ErrInvariantViolation)
 	case errors.Is(err, ErrSecretNotFound):
 		return fmt.Errorf("notification channel provider: channel profile secret reference is unavailable: %w", domain.ErrInvariantViolation)
 	case errors.Is(err, ErrSecretResolveFailed):
@@ -207,4 +252,42 @@ func containsControlOrSpace(s string) bool {
 		}
 	}
 	return false
+}
+
+func inferredWebhookFormat(raw string) string {
+	if validWeComWebhookEndpoint(raw) {
+		return "wecom"
+	}
+	return ""
+}
+
+func notificationWebhookFormat(kind domain.NotificationChannelKind, raw string) string {
+	if kind == domain.NotificationChannelKindWeCom {
+		return "wecom"
+	}
+	return inferredWebhookFormat(raw)
+}
+
+func validWeComWebhookEndpoint(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+		return false
+	}
+	if !strings.EqualFold(parsed.Hostname(), weComWebhookHost) ||
+		!strings.EqualFold(parsed.EscapedPath(), weComWebhookPath) {
+		return false
+	}
+	values, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return false
+	}
+	keys, ok := values["key"]
+	if !ok || len(values) != 1 || len(keys) != 1 {
+		return false
+	}
+	key := keys[0]
+	return key != "" && !containsControlOrSpace(key)
 }

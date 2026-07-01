@@ -30,6 +30,7 @@ func validEvents() []domain.AlertEvent {
 		{
 			ID:                   10,
 			Source:               "prometheus",
+			AlertSourceProfileID: 7,
 			SourceFingerprint:    "sfp1",
 			CanonicalFingerprint: "cfp1",
 			Labels:               map[string]string{"alertname": "HighCPU", "severity": "critical"},
@@ -196,6 +197,28 @@ func TestBuildSnapshot_EventOrderInPayload(t *testing.T) {
 	}
 	if p.Events[1].ID != 20 {
 		t.Errorf("second event ID = %d, want 20", p.Events[1].ID)
+	}
+}
+
+func TestBuildSnapshot_IncludesAlertSourceProfileIDWhenPresent(t *testing.T) {
+	in := validInput()
+	snap, err := BuildSnapshot(in)
+	if err != nil {
+		t.Fatalf("BuildSnapshot: %v", err)
+	}
+
+	var p snapshotPayload
+	if err := json.Unmarshal(snap.Payload, &p); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if len(p.Events) != 2 {
+		t.Fatalf("events len = %d, want 2", len(p.Events))
+	}
+	if p.Events[0].AlertSourceProfileID != 7 {
+		t.Fatalf("events[0].alert_source_profile_id = %d, want 7", p.Events[0].AlertSourceProfileID)
+	}
+	if p.Events[1].AlertSourceProfileID != 0 {
+		t.Fatalf("events[1].alert_source_profile_id = %d, want omitted/zero", p.Events[1].AlertSourceProfileID)
 	}
 }
 

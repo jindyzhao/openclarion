@@ -101,6 +101,33 @@ type ContainerRunResult struct {
 	RuntimeID    string
 }
 
+// ContainerExitError is returned when a sandbox runtime starts successfully but
+// the agent process exits non-zero. Diagnostic text must already be redacted by
+// the concrete provider before crossing this port boundary.
+type ContainerExitError struct {
+	RuntimeID  string
+	ExitCode   int
+	Diagnostic string
+}
+
+func (e *ContainerExitError) Error() string {
+	if e == nil {
+		return "container exited"
+	}
+	runtimeID := strings.TrimSpace(e.RuntimeID)
+	diagnostic := strings.TrimSpace(e.Diagnostic)
+	if runtimeID == "" {
+		if diagnostic == "" {
+			return fmt.Sprintf("container exited with code %d", e.ExitCode)
+		}
+		return fmt.Sprintf("container exited with code %d; %s", e.ExitCode, diagnostic)
+	}
+	if diagnostic == "" {
+		return fmt.Sprintf("container %s exited with code %d", runtimeID, e.ExitCode)
+	}
+	return fmt.Sprintf("container %s exited with code %d; %s", runtimeID, e.ExitCode, diagnostic)
+}
+
 // ContainerProvider owns sandbox lifecycle for one invocation. It must
 // prepare readonly input mounts, run the container with a writable
 // size-capped SandboxOutputDir, capture SandboxOutputPath, and clean up the

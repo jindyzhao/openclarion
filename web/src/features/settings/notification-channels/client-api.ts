@@ -7,6 +7,7 @@ import type {
   NotificationChannelProfile,
   NotificationChannelProfileListResponse,
   NotificationChannelTestResult,
+  NotificationChannelTestContentKind,
   NotificationChannelProfileWriteRequest
 } from "./types";
 
@@ -30,8 +31,12 @@ export async function submitNotificationChannelProfile(
   });
 }
 
-export async function testNotificationChannel(channelID: number): Promise<ApiResult<NotificationChannelTestResult>> {
-  return requestSameOriginJSON<NotificationChannelTestResult>(`/api/config/notification-channels/${channelID}/test`, {
+export async function testNotificationChannel(
+  channelID: number,
+  contentKind?: NotificationChannelTestContentKind
+): Promise<ApiResult<NotificationChannelTestResult>> {
+  const query = contentKind === undefined ? "" : `?content_kind=${encodeURIComponent(contentKind)}`;
+  return requestSameOriginJSON<NotificationChannelTestResult>(`/api/config/notification-channels/${channelID}/test${query}`, {
     method: "POST"
   });
 }

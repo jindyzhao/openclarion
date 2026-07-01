@@ -286,6 +286,11 @@ type DiagnosisRepository interface {
 	// external WebSocket/session key, or domain.ErrNotFound.
 	FindChatSessionByKey(ctx context.Context, sessionKey string) (domain.ChatSession, error)
 
+	// ListChatSessions returns recent diagnosis-room sessions ordered by
+	// (updated_at DESC, id DESC), with their backing DiagnosisTask loaded.
+	// limit MUST be > 0.
+	ListChatSessions(ctx context.Context, limit int) ([]domain.ChatSessionWithTask, error)
+
 	// SaveChatTurn appends one immutable chat transcript row. A
 	// duplicate (chat_session_id, message_id) or
 	// (chat_session_id, sequence) returns a wrapped
@@ -479,6 +484,79 @@ type ConfigurationRepository interface {
 	// ordered by (updated_at DESC, id DESC), capped by limit. limit MUST be
 	// > 0.
 	ListNotificationChannelProfiles(ctx context.Context, limit int) ([]domain.NotificationChannelProfile, error)
+
+	// SaveNotificationChannelTestProof appends one sanitized notification
+	// channel test proof row. The returned proof has ID and CreatedAt
+	// populated.
+	SaveNotificationChannelTestProof(ctx context.Context, proof domain.NotificationChannelTestProof) (domain.NotificationChannelTestProof, error)
+
+	// ListLatestNotificationChannelTestProofs returns the latest proof per
+	// content kind for one notification channel profile, ordered by recency.
+	// limit MUST be > 0.
+	ListLatestNotificationChannelTestProofs(ctx context.Context, profileID domain.NotificationChannelProfileID, limit int) ([]domain.NotificationChannelTestProof, error)
+
+	// UpsertDirectoryDepartment inserts or replaces the local projection for
+	// one upstream directory department, keyed by (provider, external_id). The
+	// returned row has ID, CreatedAt, and UpdatedAt populated.
+	UpsertDirectoryDepartment(ctx context.Context, d domain.DirectoryDepartment) (domain.DirectoryDepartment, error)
+
+	// UpsertDirectoryUser inserts or replaces the local projection for one
+	// upstream directory user. Replays with the same (provider, subject) or
+	// (provider, external_id) converge to one row. The returned row has ID,
+	// CreatedAt, and UpdatedAt populated.
+	UpsertDirectoryUser(ctx context.Context, u domain.DirectoryUser) (domain.DirectoryUser, error)
+
+	// FindDirectoryDepartmentByProviderExternalID returns one projected
+	// department by provider natural key, or domain.ErrNotFound.
+	FindDirectoryDepartmentByProviderExternalID(ctx context.Context, provider, externalID string) (domain.DirectoryDepartment, error)
+
+	// FindDirectoryUserByProviderSubject returns one projected user by stable
+	// provider subject, or domain.ErrNotFound.
+	FindDirectoryUserByProviderSubject(ctx context.Context, provider, subject string) (domain.DirectoryUser, error)
+
+	// ListDirectoryUsersBySubject returns projected users matching one stable
+	// IAM subject across directory providers, ordered by (provider ASC, id ASC),
+	// capped by limit. limit MUST be > 0.
+	ListDirectoryUsersBySubject(ctx context.Context, subject string, limit int) ([]domain.DirectoryUser, error)
+
+	// ListDirectoryDepartments returns projected departments ordered by
+	// (path ASC, id ASC), capped by limit. Provider is optional; when non-empty
+	// it filters to one upstream source.
+	ListDirectoryDepartments(ctx context.Context, provider string, limit int) ([]domain.DirectoryDepartment, error)
+
+	// ListDirectoryUsers returns projected users ordered by
+	// (display_name ASC, subject ASC, id ASC), capped by limit. Provider is
+	// optional; when non-empty it filters to one upstream source.
+	ListDirectoryUsers(ctx context.Context, provider string, limit int) ([]domain.DirectoryUser, error)
+
+	// DeactivateStaleDirectoryUsers marks active users for provider inactive
+	// when they were not refreshed by the current full sync timestamp. This is
+	// only valid after a full sync; incremental sync callers must not use it.
+	DeactivateStaleDirectoryUsers(ctx context.Context, provider string, syncedAt time.Time) (int, error)
+
+	// SaveDirectorySyncRun appends one admitted local directory projection sync
+	// run summary. It stores aggregate counters and sanitized failure details
+	// only, not upstream raw records or credentials.
+	SaveDirectorySyncRun(ctx context.Context, run domain.DirectorySyncRun) (domain.DirectorySyncRun, error)
+
+	// ListDirectorySyncRuns returns sync runs ordered by
+	// (synced_at DESC, id DESC), capped by limit. Provider is optional; when
+	// non-empty it filters to one upstream source.
+	ListDirectorySyncRuns(ctx context.Context, provider string, limit int) ([]domain.DirectorySyncRun, error)
+
+	// UpsertRBACAssignment inserts or replaces one local OpenClarion role
+	// assignment keyed by (subject_kind, subject_key, role, scope_kind,
+	// scope_key). The returned row has ID, CreatedAt, and UpdatedAt populated.
+	UpsertRBACAssignment(ctx context.Context, a domain.RBACAssignment) (domain.RBACAssignment, error)
+
+	// ListRBACAssignments returns local role assignments ordered by
+	// (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListRBACAssignments(ctx context.Context, limit int) ([]domain.RBACAssignment, error)
+
+	// ListRBACAssignmentsForPrincipal returns enabled role assignments matching
+	// one IAM subject or any of its local directory department keys. Results are
+	// ordered by (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListRBACAssignmentsForPrincipal(ctx context.Context, subject string, departmentKeys []string, limit int) ([]domain.RBACAssignment, error)
 }
 
 // DirectoryRepository covers local directory projections and sync-run audit

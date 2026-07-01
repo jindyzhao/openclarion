@@ -69,10 +69,16 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomStartsWorkflowAndWaitsReady(t *t
 	)
 
 	got, err := starter.StartDiagnosisRoom(context.Background(), ports.DiagnosisRoomStartRequest{
-		SessionID:          "session-1",
-		EvidenceSnapshotID: 42,
-		OwnerSubject:       "owner-1",
-		Evidence:           []byte(`{"alert":"cpu"}`),
+		SessionID:                         "session-1",
+		EvidenceSnapshotID:                42,
+		OwnerSubject:                      "owner-1",
+		Evidence:                          []byte(`{"alert":"cpu"}`),
+		CloseNotificationChannelProfileID: 9,
+		InitialTurn: &ports.DiagnosisRoomInitialTurnRequest{
+			MessageID:    "initial-1",
+			ActorSubject: "openclarion.alertmanager-webhook:7:policy:3",
+			Message:      "Generate the initial diagnosis.",
+		},
 	})
 	if err != nil {
 		t.Fatalf("StartDiagnosisRoom: %v", err)
@@ -101,8 +107,17 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomStartsWorkflowAndWaitsReady(t *t
 	if !ok {
 		t.Fatalf("arg[0] = %T, want DiagnosisRoomWorkflowInput", client.args[0])
 	}
-	if input.SessionID != "session-1" || input.EvidenceSnapshotID != 42 || input.OwnerSubject != "owner-1" {
+	if input.SessionID != "session-1" ||
+		input.EvidenceSnapshotID != 42 ||
+		input.OwnerSubject != "owner-1" ||
+		input.CloseNotificationChannelProfileID != 9 {
 		t.Fatalf("input = %+v", input)
+	}
+	if input.InitialTurn == nil ||
+		input.InitialTurn.MessageID != "initial-1" ||
+		input.InitialTurn.ActorSubject != "openclarion.alertmanager-webhook:7:policy:3" ||
+		input.InitialTurn.Message != "Generate the initial diagnosis." {
+		t.Fatalf("initial turn input = %+v", input.InitialTurn)
 	}
 	if client.queryCalled == 0 || client.queryWorkflowID != "diagnosis-room-session-1" || client.queryRunID != "run-1" || client.queryType != DiagnosisRoomStateQuery {
 		t.Fatalf("query calls=%d workflow=%q run=%q type=%q", client.queryCalled, client.queryWorkflowID, client.queryRunID, client.queryType)
@@ -127,6 +142,9 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomValidation(t *testing.T) {
 		{name: "empty_session", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.SessionID = "" })},
 		{name: "trimmed_session", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.SessionID = " session-1 " })},
 		{name: "zero_snapshot", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.EvidenceSnapshotID = 0 })},
+		{name: "negative_close_channel", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) {
+			req.CloseNotificationChannelProfileID = -1
+		})},
 		{name: "empty_owner", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.OwnerSubject = " " })},
 		{
 			name:       "invalid_evidence",

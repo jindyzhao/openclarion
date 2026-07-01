@@ -46,9 +46,9 @@ func TestIssuedTokenAuthenticatesThroughRuntimeOIDCProvider(t *testing.T) {
 		t.Fatalf("token response missing bearer fields: %+v", token)
 	}
 
-	principal, err := provider.AuthenticateBearer(context.Background(), token.AuthorizationHeader)
+	principal, err := provider.AuthenticateAuthorization(context.Background(), token.AuthorizationHeader)
 	if err != nil {
-		t.Fatalf("AuthenticateBearer: %v", err)
+		t.Fatalf("AuthenticateAuthorization: %v", err)
 	}
 	if principal.Subject != "operator-42" {
 		t.Fatalf("subject = %q, want operator-42", principal.Subject)

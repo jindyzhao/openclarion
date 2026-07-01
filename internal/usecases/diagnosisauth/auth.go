@@ -154,6 +154,25 @@ func (s Service) IssueTicket(ctx context.Context, principal ports.AuthPrincipal,
 	if err := AuthorizeSessionAccess(principal, session); err != nil {
 		return Ticket{}, err
 	}
+	return s.issueAuthorizedTicket(ctx, principal, session.SessionID, now)
+}
+
+// IssueAuthorizedTicket stores a new ticket after the caller has already
+// authorized the principal for the diagnosis session.
+func (s Service) IssueAuthorizedTicket(ctx context.Context, principal ports.AuthPrincipal, sessionID string, now time.Time) (Ticket, error) {
+	if now.IsZero() {
+		return Ticket{}, fmt.Errorf("diagnosis auth: now must be set: %w", domain.ErrInvariantViolation)
+	}
+	if strings.TrimSpace(principal.Subject) == "" {
+		return Ticket{}, fmt.Errorf("diagnosis auth: principal subject is required: %w", ErrUnauthenticated)
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return Ticket{}, fmt.Errorf("diagnosis auth: session id is required: %w", domain.ErrInvariantViolation)
+	}
+	return s.issueAuthorizedTicket(ctx, principal, sessionID, now)
+}
+
+func (s Service) issueAuthorizedTicket(ctx context.Context, principal ports.AuthPrincipal, sessionID string, now time.Time) (Ticket, error) {
 	token, err := randomToken(s.random, s.policy.TokenBytes)
 	if err != nil {
 		return Ticket{}, err
@@ -162,7 +181,7 @@ func (s Service) IssueTicket(ctx context.Context, principal ports.AuthPrincipal,
 		Token:     token,
 		Subject:   principal.Subject,
 		Roles:     append([]ports.AuthRole(nil), principal.Roles...),
-		SessionID: session.SessionID,
+		SessionID: sessionID,
 		Scope:     s.policy.Scope,
 		IssuedAt:  now.UTC(),
 		ExpiresAt: now.Add(s.policy.TTL).UTC(),
@@ -179,14 +198,36 @@ func (s Service) IssueTicket(ctx context.Context, principal ports.AuthPrincipal,
 // ConsumeTicket atomically consumes a ticket and rechecks that it belongs to
 // the requested session. The returned Ticket includes ConsumedAt.
 func (s Service) ConsumeTicket(ctx context.Context, token string, session SessionRef, now time.Time) (Ticket, error) {
+	if strings.TrimSpace(session.SessionID) == "" {
+		return Ticket{}, fmt.Errorf("diagnosis auth: session id is required: %w", domain.ErrInvariantViolation)
+	}
+	ticket, err := s.consumeAuthorizedTicket(ctx, token, session.SessionID, now)
+	if err != nil {
+		return Ticket{}, err
+	}
+	principal := ports.AuthPrincipal{Subject: ticket.Subject, Roles: ticket.Roles}
+	if err := AuthorizeSessionAccess(principal, session); err != nil {
+		return Ticket{}, err
+	}
+	return ticket, nil
+}
+
+// ConsumeAuthorizedTicket atomically consumes a ticket after the requested
+// session has already been authorized by the caller. The returned Ticket
+// includes ConsumedAt and has Token redacted.
+func (s Service) ConsumeAuthorizedTicket(ctx context.Context, token string, sessionID string, now time.Time) (Ticket, error) {
+	if strings.TrimSpace(sessionID) == "" {
+		return Ticket{}, fmt.Errorf("diagnosis auth: session id is required: %w", domain.ErrInvariantViolation)
+	}
+	return s.consumeAuthorizedTicket(ctx, token, sessionID, now)
+}
+
+func (s Service) consumeAuthorizedTicket(ctx context.Context, token string, sessionID string, now time.Time) (Ticket, error) {
 	if strings.TrimSpace(token) == "" {
 		return Ticket{}, fmt.Errorf("diagnosis auth: ticket token is required: %w", ErrUnauthenticated)
 	}
 	if now.IsZero() {
 		return Ticket{}, fmt.Errorf("diagnosis auth: now must be set: %w", domain.ErrInvariantViolation)
-	}
-	if strings.TrimSpace(session.SessionID) == "" {
-		return Ticket{}, fmt.Errorf("diagnosis auth: session id is required: %w", domain.ErrInvariantViolation)
 	}
 	ticket, err := s.store.ConsumeTicket(ctx, token, now.UTC())
 	if err != nil {
@@ -195,12 +236,8 @@ func (s Service) ConsumeTicket(ctx context.Context, token string, session Sessio
 	if ticket.Scope != s.policy.Scope {
 		return Ticket{}, fmt.Errorf("diagnosis auth: ticket scope %q does not match %q: %w", ticket.Scope, s.policy.Scope, ErrUnauthorized)
 	}
-	if ticket.SessionID != session.SessionID {
-		return Ticket{}, fmt.Errorf("diagnosis auth: ticket session %q does not match %q: %w", ticket.SessionID, session.SessionID, ErrUnauthorized)
-	}
-	principal := ports.AuthPrincipal{Subject: ticket.Subject, Roles: ticket.Roles}
-	if err := AuthorizeSessionAccess(principal, session); err != nil {
-		return Ticket{}, err
+	if ticket.SessionID != sessionID {
+		return Ticket{}, fmt.Errorf("diagnosis auth: ticket session %q does not match %q: %w", ticket.SessionID, sessionID, ErrUnauthorized)
 	}
 	ticket.Token = ""
 	return ticket, nil

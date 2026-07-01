@@ -11,6 +11,7 @@ import (
 	temporalsdk "go.temporal.io/sdk/temporal"
 
 	"github.com/openclarion/openclarion/internal/providers/container/fake"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosiscontext"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -182,6 +183,272 @@ func TestRunDiagnosisTurn_InjectsRuntimeCredentialsAndNetwork(t *testing.T) {
 	}
 }
 
+func TestRunDiagnosisTurn_FillsEvidenceRequestIDsFromCatalog(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.Evidence = json.RawMessage(`{
+		"alert": "cascade",
+		"` + diagnosiscontext.AvailableDiagnosisToolsKey + `": {
+			"items": [{
+				"template_id": 7,
+				"alert_source_profile_id": 5,
+				"alert_source_kind": "prometheus",
+				"tool": "metric_query",
+				"query_template": "sum(up)",
+				"default_limit": 5
+			}]
+		}
+	}`)
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	provider := fake.New(map[string][]fake.Result{
+		invocationID: {{
+			Run: ports.ContainerRunResult{
+				InvocationID: invocationID,
+				AgentName:    diagnosisRoomAgentName,
+				Output: json.RawMessage(`{
+					"schema_version": "diagnosis_turn.v1",
+					"message": "Need current availability.",
+					"evidence_requests": [{
+						"tool": "metric_query",
+						"query": "sum(up)",
+						"reason": "Need current target availability."
+					}],
+					"confidence": "low",
+					"requires_human_review": true,
+					"confidence_rationale": "The current evidence is incomplete."
+				}`),
+				ExitCode:   0,
+				StartedAt:  time.Date(2026, 5, 28, 14, 0, 0, 0, time.UTC),
+				FinishedAt: time.Date(2026, 5, 28, 14, 0, 1, 0, time.UTC),
+			},
+		}},
+	})
+
+	got, err := NewActivities(nil, WithContainerProvider(provider)).RunDiagnosisTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("RunDiagnosisTurn: %v", err)
+	}
+	if len(got.Output.EvidenceRequests) != 1 ||
+		got.Output.EvidenceRequests[0].TemplateID != 7 ||
+		got.Output.EvidenceRequests[0].AlertSourceProfileID != 5 ||
+		got.Output.EvidenceRequests[0].Limit != 5 {
+		t.Fatalf("evidence requests = %+v", got.Output.EvidenceRequests)
+	}
+	parsed, err := diagnosisroom.ParseTurnOutput(got.RawOutput)
+	if err != nil {
+		t.Fatalf("parse enriched raw output: %v", err)
+	}
+	if parsed.EvidenceRequests[0].TemplateID != 7 || parsed.EvidenceRequests[0].AlertSourceProfileID != 5 {
+		t.Fatalf("raw output evidence requests = %+v", parsed.EvidenceRequests)
+	}
+}
+
+func TestRunDiagnosisTurn_FillsParameterizedMetricIDsFromCatalog(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.Evidence = json.RawMessage(`{
+		"alert": "oracle tablespace",
+		"` + diagnosiscontext.AvailableDiagnosisToolsKey + `": {
+			"items": [{
+				"template_id": 11,
+				"alert_source_profile_id": 5,
+				"alert_source_kind": "prometheus",
+				"tool": "metric_query",
+				"query_template": "db_tablespace_pctusd{job=\"oracle_exporter\",ORACLE_SID=\"{{label.ORACLE_SID}}\",TABLESPACE=\"{{label.TABLESPACE}}\"}",
+				"default_limit": 5,
+				"evidence_request_example": {
+					"template_id": 11,
+					"alert_source_profile_id": 5,
+					"tool": "metric_query",
+					"reason": "Need current tablespace saturation.",
+					"query": "db_tablespace_pctusd{job=\"oracle_exporter\",ORACLE_SID=\"sapprd1\",TABLESPACE=\"PSAPSR3USR\"}",
+					"limit": 5
+				}
+			}]
+		}
+	}`)
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	provider := fake.New(map[string][]fake.Result{
+		invocationID: {{
+			Run: ports.ContainerRunResult{
+				InvocationID: invocationID,
+				AgentName:    diagnosisRoomAgentName,
+				Output: json.RawMessage(`{
+					"schema_version": "diagnosis_turn.v1",
+					"message": "Need current tablespace saturation.",
+					"evidence_requests": [{
+						"tool": "metric_query",
+						"query": "db_tablespace_pctusd{job=\"oracle_exporter\",ORACLE_SID=\"sapprd1\",TABLESPACE=\"PSAPSR3USR\"}",
+						"reason": "Need current tablespace saturation."
+					}],
+					"confidence": "low",
+					"requires_human_review": true,
+					"confidence_rationale": "The current evidence is incomplete."
+				}`),
+				ExitCode:   0,
+				StartedAt:  time.Date(2026, 5, 28, 14, 0, 0, 0, time.UTC),
+				FinishedAt: time.Date(2026, 5, 28, 14, 0, 1, 0, time.UTC),
+			},
+		}},
+	})
+
+	got, err := NewActivities(nil, WithContainerProvider(provider)).RunDiagnosisTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("RunDiagnosisTurn: %v", err)
+	}
+	if len(got.Output.EvidenceRequests) != 1 ||
+		got.Output.EvidenceRequests[0].TemplateID != 11 ||
+		got.Output.EvidenceRequests[0].AlertSourceProfileID != 5 ||
+		got.Output.EvidenceRequests[0].Limit != 5 {
+		t.Fatalf("evidence requests = %+v", got.Output.EvidenceRequests)
+	}
+}
+
+func TestRunDiagnosisTurn_DoesNotGuessAmbiguousCatalogTool(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.Evidence = json.RawMessage(`{
+		"alert": "cascade",
+		"` + diagnosiscontext.AvailableDiagnosisToolsKey + `": {
+			"items": [
+				{"template_id": 4, "alert_source_profile_id": 2, "alert_source_kind": "alertmanager", "tool": "active_alerts", "default_limit": 5},
+				{"template_id": 5, "alert_source_profile_id": 3, "alert_source_kind": "alertmanager", "tool": "active_alerts", "default_limit": 5}
+			]
+		}
+	}`)
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	provider := fake.New(map[string][]fake.Result{
+		invocationID: {{
+			Run: ports.ContainerRunResult{
+				InvocationID: invocationID,
+				AgentName:    diagnosisRoomAgentName,
+				Output: json.RawMessage(`{
+					"schema_version": "diagnosis_turn.v1",
+					"message": "Need current active alerts.",
+					"evidence_requests": [{
+						"tool": "active_alerts",
+						"reason": "Need current sibling alerts.",
+						"limit": 5
+					}],
+					"confidence": "low",
+					"requires_human_review": true,
+					"confidence_rationale": "The current evidence is incomplete."
+				}`),
+				ExitCode:   0,
+				StartedAt:  time.Date(2026, 5, 28, 14, 0, 0, 0, time.UTC),
+				FinishedAt: time.Date(2026, 5, 28, 14, 0, 1, 0, time.UTC),
+			},
+		}},
+	})
+
+	got, err := NewActivities(nil, WithContainerProvider(provider)).RunDiagnosisTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("RunDiagnosisTurn: %v", err)
+	}
+	if len(got.Output.EvidenceRequests) != 1 ||
+		got.Output.EvidenceRequests[0].TemplateID != 0 ||
+		got.Output.EvidenceRequests[0].AlertSourceProfileID != 0 {
+		t.Fatalf("evidence requests = %+v, want unresolved ambiguous request", got.Output.EvidenceRequests)
+	}
+}
+
+func TestRunDiagnosisTurn_FillsAmbiguousActiveAlertsFromSnapshotSourceProfile(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.Evidence = json.RawMessage(`{
+		"schema_version": "m1.evidence_snapshot.v1",
+		"events": [{
+			"id": 10,
+			"source": "alertmanager",
+			"alert_source_profile_id": 3
+		}],
+		"` + diagnosiscontext.AvailableDiagnosisToolsKey + `": {
+			"items": [
+				{"template_id": 4, "alert_source_profile_id": 2, "alert_source_kind": "alertmanager", "tool": "active_alerts", "default_limit": 5},
+				{"template_id": 5, "alert_source_profile_id": 3, "alert_source_kind": "alertmanager", "tool": "active_alerts", "default_limit": 7}
+			]
+		}
+	}`)
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	provider := fake.New(map[string][]fake.Result{
+		invocationID: {{
+			Run: ports.ContainerRunResult{
+				InvocationID: invocationID,
+				AgentName:    diagnosisRoomAgentName,
+				Output: json.RawMessage(`{
+					"schema_version": "diagnosis_turn.v1",
+					"message": "Need current active alerts.",
+					"evidence_requests": [{
+						"tool": "active_alerts",
+						"reason": "Need current sibling alerts."
+					}],
+					"confidence": "low",
+					"requires_human_review": true,
+					"confidence_rationale": "The current evidence is incomplete."
+				}`),
+				ExitCode:   0,
+				StartedAt:  time.Date(2026, 5, 28, 14, 0, 0, 0, time.UTC),
+				FinishedAt: time.Date(2026, 5, 28, 14, 0, 1, 0, time.UTC),
+			},
+		}},
+	})
+
+	got, err := NewActivities(nil, WithContainerProvider(provider)).RunDiagnosisTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("RunDiagnosisTurn: %v", err)
+	}
+	if len(got.Output.EvidenceRequests) != 1 ||
+		got.Output.EvidenceRequests[0].TemplateID != 5 ||
+		got.Output.EvidenceRequests[0].AlertSourceProfileID != 3 ||
+		got.Output.EvidenceRequests[0].Limit != 7 {
+		t.Fatalf("evidence requests = %+v, want source-profile resolved active_alerts", got.Output.EvidenceRequests)
+	}
+}
+
+func TestRunDiagnosisTurn_FillsAmbiguousMetricFromCatalogScope(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.Evidence = json.RawMessage(`{
+		"alert": "tablespace capacity",
+		"` + diagnosiscontext.AvailableDiagnosisToolsKey + `": {
+			"items": [
+				{"template_id": 4, "alert_source_profile_id": 2, "alert_source_kind": "prometheus", "snapshot_source_scope": "supplemental", "tool": "metric_query", "query_template": "sum(up)", "default_limit": 5},
+				{"template_id": 5, "alert_source_profile_id": 3, "alert_source_kind": "prometheus", "snapshot_source_scope": "matched", "tool": "metric_query", "query_template": "sum(up)", "default_limit": 7}
+			]
+		}
+	}`)
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	provider := fake.New(map[string][]fake.Result{
+		invocationID: {{
+			Run: ports.ContainerRunResult{
+				InvocationID: invocationID,
+				AgentName:    diagnosisRoomAgentName,
+				Output: json.RawMessage(`{
+					"schema_version": "diagnosis_turn.v1",
+					"message": "Need current metric evidence.",
+					"evidence_requests": [{
+						"tool": "metric_query",
+						"query": "sum(up)",
+						"reason": "Need current metric evidence."
+					}],
+					"confidence": "low",
+					"requires_human_review": true,
+					"confidence_rationale": "The current evidence is incomplete."
+				}`),
+				ExitCode:   0,
+				StartedAt:  time.Date(2026, 5, 28, 14, 0, 0, 0, time.UTC),
+				FinishedAt: time.Date(2026, 5, 28, 14, 0, 1, 0, time.UTC),
+			},
+		}},
+	})
+
+	got, err := NewActivities(nil, WithContainerProvider(provider)).RunDiagnosisTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("RunDiagnosisTurn: %v", err)
+	}
+	if len(got.Output.EvidenceRequests) != 1 ||
+		got.Output.EvidenceRequests[0].TemplateID != 5 ||
+		got.Output.EvidenceRequests[0].AlertSourceProfileID != 3 ||
+		got.Output.EvidenceRequests[0].Limit != 7 {
+		t.Fatalf("evidence requests = %+v, want catalog-scope resolved metric request", got.Output.EvidenceRequests)
+	}
+}
+
 func TestCollectDiagnosisEvidence_ReturnsSkippedWhenNotConfigured(t *testing.T) {
 	activities := NewActivities(nil)
 	got, err := activities.CollectDiagnosisEvidence(context.Background(), CollectDiagnosisEvidenceInput{
@@ -229,6 +496,139 @@ func TestRunDiagnosisTurn_RejectsInvalidContainerOutputAsNonRetryable(t *testing
 	var appErr *temporalsdk.ApplicationError
 	if !errors.As(err, &appErr) || appErr.Type() != errTypeInvariantViolation {
 		t.Fatalf("error type = %T/%v, want non-retryable invariant application error", err, err)
+	}
+}
+
+func TestRunDiagnosisTurn_NormalizesSupplementalResidualBoundaryOutput(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.MessageID = "msg-supplemental"
+	req.SupplementalEvidence = &DiagnosisRoomSupplementalEvidence{
+		Label:    "DBA storage confirmation",
+		Detail:   "Confirm whether DBA can attach the detailed storage expansion ticket.",
+		Priority: "high",
+		Evidence: strings.Join([]string{
+			"The requested operator or DBA artifact is not available in this live validation window.",
+			"Operator accepts this as residual uncertainty for review purposes.",
+		}, " "),
+	}
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	provider := fake.New(map[string][]fake.Result{
+		invocationID: {{
+			Run: ports.ContainerRunResult{
+				InvocationID: invocationID,
+				AgentName:    diagnosisRoomAgentName,
+				Output:       json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"Bounded diagnosis is ready for operator review.","confidence":"low","requires_human_review":true,"conclusion_status":"needs_evidence"}`),
+				ExitCode:     0,
+				StartedAt:    time.Date(2026, 5, 28, 14, 0, 0, 0, time.UTC),
+				FinishedAt:   time.Date(2026, 5, 28, 14, 0, 1, 0, time.UTC),
+			},
+		}},
+	})
+
+	got, err := NewActivities(nil, WithContainerProvider(provider)).RunDiagnosisTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("RunDiagnosisTurn: %v", err)
+	}
+	if got.Confidence != "medium" ||
+		!got.RequiresHumanReview ||
+		got.Insight.ConclusionStatus != "ready_for_review" ||
+		len(got.Output.EvidenceRequests) != 0 ||
+		len(got.Insight.MissingEvidenceRequests) != 0 ||
+		len(got.Insight.EvidenceCollectionSuggestions) != 0 {
+		t.Fatalf("result = %+v insight=%+v", got.Output, got.Insight)
+	}
+	parsed, err := diagnosisroom.ParseTurnOutput(got.RawOutput)
+	if err != nil {
+		t.Fatalf("RawOutput did not remain parseable: %v", err)
+	}
+	if parsed.Confidence != "medium" || parsed.ConclusionStatus != "ready_for_review" {
+		t.Fatalf("parsed raw output = %+v", parsed)
+	}
+}
+
+func TestRunDiagnosisTurn_DoesNotNormalizeLowConfidenceOutputWithoutResidualBoundary(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.MessageID = "msg-supplemental"
+	req.SupplementalEvidence = &DiagnosisRoomSupplementalEvidence{
+		Label:    "DBA storage confirmation",
+		Detail:   "Confirm whether DBA can attach the detailed storage expansion ticket.",
+		Priority: "high",
+		Evidence: "Operator is still looking for the DBA ticket.",
+	}
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	provider := fake.New(map[string][]fake.Result{
+		invocationID: {{
+			Run: ports.ContainerRunResult{
+				InvocationID: invocationID,
+				AgentName:    diagnosisRoomAgentName,
+				Output:       json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"Need more evidence.","confidence":"low","requires_human_review":true,"conclusion_status":"needs_evidence"}`),
+				ExitCode:     0,
+				StartedAt:    time.Date(2026, 5, 28, 14, 0, 0, 0, time.UTC),
+				FinishedAt:   time.Date(2026, 5, 28, 14, 0, 1, 0, time.UTC),
+			},
+		}},
+	})
+
+	_, err := NewActivities(nil, WithContainerProvider(provider)).RunDiagnosisTurn(context.Background(), req)
+	if err == nil {
+		t.Fatal("RunDiagnosisTurn returned nil error")
+	}
+	if !strings.Contains(err.Error(), "low-confidence or evidence-seeking output must include") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRunDiagnosisTurn_RejectsContainerExitAsNonRetryableRuntimeFailure(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	provider := fake.New(map[string][]fake.Result{
+		invocationID: {{
+			Err: &ports.ContainerExitError{
+				RuntimeID:  "runtime-1",
+				ExitCode:   1,
+				Diagnostic: `stderr_tail="diagnosis assistant output.json was missing"`,
+			},
+		}},
+	})
+
+	_, err := NewActivities(nil, WithContainerProvider(provider)).RunDiagnosisTurn(context.Background(), req)
+	if err == nil {
+		t.Fatal("RunDiagnosisTurn returned nil error")
+	}
+	if !strings.Contains(err.Error(), "run-diagnosis-turn container") {
+		t.Fatalf("error = %v, want container context", err)
+	}
+	var appErr *temporalsdk.ApplicationError
+	if !errors.As(err, &appErr) || appErr.Type() != errTypeRuntimeFailure {
+		t.Fatalf("error type = %T/%v, want non-retryable runtime failure application error", err, err)
+	}
+}
+
+func TestRunDiagnosisTurn_RetriesTransientLLMContainerExit(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	exitErr := &ports.ContainerExitError{
+		RuntimeID:  "runtime-1",
+		ExitCode:   1,
+		Diagnostic: `stderr_tail="[diagnosis-assistant-runner] diagnosis assistant LLM validation failed: llm retry failed: openai llm: post chat completion: context deadline exceeded"`,
+	}
+	provider := fake.New(map[string][]fake.Result{
+		invocationID: {{Err: exitErr}},
+	})
+
+	_, err := NewActivities(nil, WithContainerProvider(provider)).RunDiagnosisTurn(context.Background(), req)
+	if err == nil {
+		t.Fatal("RunDiagnosisTurn returned nil error")
+	}
+	if !strings.Contains(err.Error(), "run-diagnosis-turn container") {
+		t.Fatalf("error = %v, want container context", err)
+	}
+	var appErr *temporalsdk.ApplicationError
+	if errors.As(err, &appErr) {
+		t.Fatalf("error type = %T/%v, want retryable non-application error", err, err)
+	}
+	if !errors.Is(err, exitErr) {
+		t.Fatalf("error = %v, want wrapped container exit error", err)
 	}
 }
 

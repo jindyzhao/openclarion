@@ -154,8 +154,14 @@ func (s *SessionTokenService) AuthenticateBearer(ctx context.Context, bearerToke
 	return ports.AuthPrincipal{
 		Subject: session.Subject,
 		Roles:   session.Roles,
-		Claims:  json.RawMessage(fmt.Sprintf(`{"provider":%q}`, session.Provider)),
+		Claims:  json.RawMessage(fmt.Sprintf(`{"auth_provider":%q}`, session.Provider)),
 	}, nil
+}
+
+// AuthenticateAuthorization verifies a session Authorization value and returns
+// its embedded principal.
+func (s *SessionTokenService) AuthenticateAuthorization(ctx context.Context, authorization string) (ports.AuthPrincipal, error) {
+	return s.AuthenticateBearer(ctx, authorization)
 }
 
 // AuthenticateSession verifies a session bearer token and returns token metadata.

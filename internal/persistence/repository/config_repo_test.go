@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -723,7 +724,7 @@ func TestConfigRepo_SaveFindUpdateAndListNotificationChannelProfile(t *testing.T
 			t.Fatalf("FindNotificationChannelProfileByID: %v", err)
 		}
 		if got.Name != "Operations webhook" ||
-			got.SecretRef != "secret/openclarion/ops-webhook" ||
+			got.SecretRef != "secret/openclarion/ops-wecom" ||
 			len(got.DeliveryScopes) != 2 ||
 			!got.Enabled {
 			t.Fatalf("got = %+v", got)
@@ -832,6 +833,49 @@ func TestConfigRepo_ListNotificationChannelProfilesOrdersByUpdatedAt(t *testing.
 	})
 }
 
+func TestConfigRepo_SaveAndListLatestNotificationChannelTestProofs(t *testing.T) {
+	resetDB(t)
+	base := time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)
+	var savedProfile domain.NotificationChannelProfile
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		var err error
+		savedProfile, err = uow.Config().SaveNotificationChannelProfile(ctx, mustNewNotificationChannelProfile(t, "Operations WeCom"))
+		if err != nil {
+			t.Fatalf("SaveNotificationChannelProfile: %v", err)
+		}
+		for _, proof := range []domain.NotificationChannelTestProof{
+			mustNewNotificationChannelTestProof(t, savedProfile.ID, domain.NotificationChannelTestContentAIDiagnosisSample, base, "old-ai"),
+			mustNewNotificationChannelTestProof(t, savedProfile.ID, domain.NotificationChannelTestContentDiagnosisCloseSample, base.Add(time.Minute), "close"),
+			mustNewNotificationChannelTestProof(t, savedProfile.ID, domain.NotificationChannelTestContentAIDiagnosisSample, base.Add(2*time.Minute), "new-ai"),
+		} {
+			if _, err := uow.Config().SaveNotificationChannelTestProof(ctx, proof); err != nil {
+				t.Fatalf("SaveNotificationChannelTestProof: %v", err)
+			}
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		proofs, err := uow.Config().ListLatestNotificationChannelTestProofs(ctx, savedProfile.ID, 4)
+		if err != nil {
+			t.Fatalf("ListLatestNotificationChannelTestProofs: %v", err)
+		}
+		if len(proofs) != 2 ||
+			proofs[0].ProviderMessageID != "new-ai" ||
+			proofs[1].ProviderMessageID != "close" {
+			t.Fatalf("proofs = %+v, want newest per content kind", proofs)
+		}
+
+		profile, err := uow.Config().FindNotificationChannelProfileByID(ctx, savedProfile.ID)
+		if err != nil {
+			t.Fatalf("FindNotificationChannelProfileByID: %v", err)
+		}
+		if len(profile.LatestTestProofs) != 2 {
+			t.Fatalf("profile latest proofs = %+v, want 2", profile.LatestTestProofs)
+		}
+	})
+}
+
 func mustNewAlertSourceProfile(t *testing.T, name string) domain.AlertSourceProfile {
 	t.Helper()
 	profile, err := domain.NewAlertSourceProfile(
@@ -847,6 +891,32 @@ func mustNewAlertSourceProfile(t *testing.T, name string) domain.AlertSourceProf
 		t.Fatalf("NewAlertSourceProfile: %v", err)
 	}
 	return profile
+}
+
+func mustNewNotificationChannelTestProof(
+	t *testing.T,
+	profileID domain.NotificationChannelProfileID,
+	contentKind domain.NotificationChannelTestContentKind,
+	checkedAt time.Time,
+	providerMessageID string,
+) domain.NotificationChannelTestProof {
+	t.Helper()
+	proof, err := domain.NewNotificationChannelTestProof(
+		profileID,
+		domain.NotificationChannelKindWeCom,
+		domain.NotificationChannelTestStatusSuccess,
+		domain.NotificationChannelTestReasonOK,
+		"Notification channel test delivery succeeded.",
+		contentKind,
+		strings.Repeat("a", 64),
+		checkedAt,
+		providerMessageID,
+		"accepted",
+	)
+	if err != nil {
+		t.Fatalf("NewNotificationChannelTestProof: %v", err)
+	}
+	return proof
 }
 
 func mustNewGroupingPolicy(t *testing.T, name string) domain.GroupingPolicy {
@@ -931,8 +1001,8 @@ func mustNewNotificationChannelProfile(t *testing.T, name string) domain.Notific
 	t.Helper()
 	profile, err := domain.NewNotificationChannelProfile(
 		name,
-		domain.NotificationChannelKindWebhook,
-		"secret/openclarion/ops-webhook",
+		domain.NotificationChannelKindWeCom,
+		"secret/openclarion/ops-wecom",
 		[]domain.NotificationDeliveryScope{
 			domain.NotificationDeliveryScopeDiagnosisClose,
 			domain.NotificationDeliveryScopeReport,

@@ -13,6 +13,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -49,28 +50,45 @@ type Request struct {
 
 // Result is the sanitized response surface for one webhook ingest.
 type Result struct {
-	ProfileID       domain.AlertSourceProfileID
-	Received        int
-	SkippedResolved int
-	TruncatedAlerts int
-	Ingested        alertingest.Stats
+	ProfileID         domain.AlertSourceProfileID
+	Received          int
+	SkippedResolved   int
+	SkippedSuppressed int
+	TruncatedAlerts   int
+	Ingested          alertingest.Stats
+	AutoDiagnosis     *alertdiagnosis.Result
 }
 
 // Service validates the bound alert source profile, checks inbound
 // authorization when required, parses the webhook payload, and persists firing
 // alerts through alertingest.
 type Service struct {
-	uowFactory     ports.UnitOfWorkFactory
-	secretResolver ports.SecretResolver
+	uowFactory           ports.UnitOfWorkFactory
+	secretResolver       ports.SecretResolver
+	autoDiagnosisTrigger AutoDiagnosisTrigger
 }
 
 // Option customizes Service construction.
 type Option func(*Service)
 
+// AutoDiagnosisTrigger starts automatic diagnosis work after firing alerts are
+// durably ingested.
+type AutoDiagnosisTrigger interface {
+	Trigger(context.Context, alertdiagnosis.Request) (alertdiagnosis.Result, error)
+}
+
 // WithSecretResolver enables bearer-backed webhook authorization.
 func WithSecretResolver(resolver ports.SecretResolver) Option {
 	return func(s *Service) {
 		s.secretResolver = resolver
+	}
+}
+
+// WithAutoDiagnosisTrigger enables automatic diagnosis-room handoff for
+// profiles with enabled auto_room workflow policies.
+func WithAutoDiagnosisTrigger(trigger AutoDiagnosisTrigger) Option {
+	return func(s *Service) {
+		s.autoDiagnosisTrigger = trigger
 	}
 }
 
@@ -111,20 +129,33 @@ func (s *Service) Ingest(ctx context.Context, req Request) (Result, error) {
 		return Result{}, err
 	}
 
-	decoded, err := decodePayload(req.Body)
+	decoded, err := decodePayload(req.Body, req.ProfileID)
 	if err != nil {
 		return Result{}, err
 	}
 	stats, err := alertingest.IngestAlerts(ctx, decoded.alerts, s.uowFactory)
 	result := Result{
-		ProfileID:       req.ProfileID,
-		Received:        decoded.received,
-		SkippedResolved: decoded.skippedResolved,
-		TruncatedAlerts: decoded.truncatedAlerts,
-		Ingested:        stats,
+		ProfileID:         req.ProfileID,
+		Received:          decoded.received,
+		SkippedResolved:   decoded.skippedResolved,
+		SkippedSuppressed: decoded.skippedSuppressed,
+		TruncatedAlerts:   decoded.truncatedAlerts,
+		Ingested:          stats,
 	}
 	if err != nil {
 		return result, err
+	}
+	if s.autoDiagnosisTrigger != nil && !decoded.windowStart.IsZero() && !decoded.windowEnd.IsZero() {
+		triggered, terr := s.autoDiagnosisTrigger.Trigger(ctx, alertdiagnosis.Request{
+			AlertSourceProfileID: req.ProfileID,
+			WindowStart:          decoded.windowStart,
+			WindowEnd:            decoded.windowEnd,
+			Limit:                maxWebhookAlertEntries,
+		})
+		result.AutoDiagnosis = &triggered
+		if terr != nil {
+			return result, fmt.Errorf("alertmanager webhook: auto diagnosis trigger: %w", terr)
+		}
 	}
 	return result, nil
 }
@@ -181,10 +212,13 @@ func (s *Service) authorize(ctx context.Context, profile domain.AlertSourceProfi
 }
 
 type decodedPayload struct {
-	received        int
-	skippedResolved int
-	truncatedAlerts int
-	alerts          []ports.ActiveAlert
+	received          int
+	skippedResolved   int
+	skippedSuppressed int
+	truncatedAlerts   int
+	windowStart       time.Time
+	windowEnd         time.Time
+	alerts            []ports.ActiveAlert
 }
 
 type webhookPayload struct {
@@ -208,9 +242,12 @@ type webhookAlert struct {
 	EndsAt       time.Time          `json:"endsAt"`
 	GeneratorURL string             `json:"generatorURL"`
 	Fingerprint  string             `json:"fingerprint"`
+	SilencedBy   []string           `json:"silencedBy,omitempty"`
+	InhibitedBy  []string           `json:"inhibitedBy,omitempty"`
+	MutedBy      []string           `json:"mutedBy,omitempty"`
 }
 
-func decodePayload(raw json.RawMessage) (decodedPayload, error) {
+func decodePayload(raw json.RawMessage, profileID domain.AlertSourceProfileID) (decodedPayload, error) {
 	var payload webhookPayload
 	if err := strictjson.Unmarshal(raw, &payload); err != nil {
 		return decodedPayload{}, fmt.Errorf("alertmanager webhook: decode payload: %w", err)
@@ -243,21 +280,36 @@ func decodePayload(raw json.RawMessage) (decodedPayload, error) {
 		}
 		switch alert.Status {
 		case statusFiring:
+			if alertSuppressed(alert) {
+				decoded.skippedSuppressed++
+				continue
+			}
 			if alert.StartsAt.IsZero() {
 				return decodedPayload{}, fmt.Errorf("startsAt must be set for firing alert: %w", domain.ErrInvariantViolation)
 			}
+			startsAt := domain.NormalizeUTCMicro(alert.StartsAt)
+			if decoded.windowStart.IsZero() || startsAt.Before(decoded.windowStart) {
+				decoded.windowStart = startsAt
+			}
+			if decoded.windowEnd.IsZero() || startsAt.After(decoded.windowEnd) {
+				decoded.windowEnd = startsAt
+			}
 			decoded.alerts = append(decoded.alerts, ports.ActiveAlert{
-				Source:      sourceName,
-				Labels:      *alert.Labels,
-				Annotations: *alert.Annotations,
-				StartsAt:    alert.StartsAt,
-				RawPayload:  append(json.RawMessage(nil), encoded...),
+				Source:               sourceName,
+				AlertSourceProfileID: profileID,
+				Labels:               *alert.Labels,
+				Annotations:          *alert.Annotations,
+				StartsAt:             startsAt,
+				RawPayload:           append(json.RawMessage(nil), encoded...),
 			})
 		case statusResolved:
 			decoded.skippedResolved++
 		default:
 			return decodedPayload{}, fmt.Errorf("status %q is unsupported: %w", alert.Status, domain.ErrInvariantViolation)
 		}
+	}
+	if !decoded.windowEnd.IsZero() {
+		decoded.windowEnd = decoded.windowEnd.Add(time.Microsecond)
 	}
 	return decoded, nil
 }
@@ -277,6 +329,10 @@ func decodeAlert(raw json.RawMessage) (webhookAlert, error) {
 		return webhookAlert{}, fmt.Errorf("annotations must be present: %w", domain.ErrInvariantViolation)
 	}
 	return alert, nil
+}
+
+func alertSuppressed(alert webhookAlert) bool {
+	return len(alert.SilencedBy) > 0 || len(alert.InhibitedBy) > 0 || len(alert.MutedBy) > 0
 }
 
 func bearerToken(header string) (string, bool) {

@@ -14,6 +14,9 @@ import (
 
 // ListAlertSourceProfiles implements api.ServerInterface.
 func (s *Server) ListAlertSourceProfiles(w http.ResponseWriter, r *http.Request, params api.ListAlertSourceProfilesParams) {
+	if !s.authorizeLocalRBACRequest(w, r, domain.RBACPermissionAlertSourceRead) {
+		return
+	}
 	limit, err := parseListLimit(params.Limit)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -38,6 +41,9 @@ func (s *Server) ListAlertSourceProfiles(w http.ResponseWriter, r *http.Request,
 
 // CreateAlertSourceProfile implements api.ServerInterface.
 func (s *Server) CreateAlertSourceProfile(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeLocalRBACRequest(w, r, domain.RBACPermissionAlertSourceManage) {
+		return
+	}
 	body, err := decodeAlertSourceProfileWriteRequest(w, r)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -64,6 +70,9 @@ func (s *Server) GetAlertSourceProfile(w http.ResponseWriter, r *http.Request, s
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "source_id must be positive", nil)
 		return
 	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionAlertSourceRead, domain.RBACScopeKindAlertSource, rbacResourceScopeKey(sourceID)) {
+		return
+	}
 
 	var profile domain.AlertSourceProfile
 	err := s.uowFactory.WithinTx(r.Context(), func(ctx context.Context, uow ports.UnitOfWork) error {
@@ -86,6 +95,9 @@ func (s *Server) GetAlertSourceProfile(w http.ResponseWriter, r *http.Request, s
 func (s *Server) ReplaceAlertSourceProfile(w http.ResponseWriter, r *http.Request, sourceID int64) {
 	if sourceID <= 0 {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "source_id must be positive", nil)
+		return
+	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionAlertSourceManage, domain.RBACScopeKindAlertSource, rbacResourceScopeKey(sourceID)) {
 		return
 	}
 	body, err := decodeAlertSourceProfileWriteRequest(w, r)
@@ -113,6 +125,9 @@ func (s *Server) ReplaceAlertSourceProfile(w http.ResponseWriter, r *http.Reques
 func (s *Server) TestAlertSourceProfileConnection(w http.ResponseWriter, r *http.Request, sourceID int64) {
 	if sourceID <= 0 {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "source_id must be positive", nil)
+		return
+	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionAlertSourceManage, domain.RBACScopeKindAlertSource, rbacResourceScopeKey(sourceID)) {
 		return
 	}
 	if s.alertSourceTester == nil {

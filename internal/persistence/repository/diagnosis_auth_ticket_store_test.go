@@ -65,6 +65,34 @@ func TestDiagnosisAuthTicketStore_IssueConsumeSingleUse(t *testing.T) {
 	}
 }
 
+func TestDiagnosisAuthTicketStore_IssuesAuthorizedTicketWithoutLegacyRoles(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+	store := mustNewDiagnosisAuthTicketStore(t)
+	service := mustNewDiagnosisAuthService(t, store, bytes.NewReader(bytes.Repeat([]byte{0x64}, diagnosisauth.DefaultTokenBytes)))
+	now := time.Date(2026, 6, 28, 9, 30, 0, 0, time.UTC)
+	principal := ports.AuthPrincipal{Subject: "responder-1"}
+
+	ticket, err := service.IssueAuthorizedTicket(ctx, principal, "diag-session-rbac", now)
+	if err != nil {
+		t.Fatalf("IssueAuthorizedTicket: %v", err)
+	}
+	row, err := integration.client.DiagnosisAuthTicket.Query().Only(ctx)
+	if err != nil {
+		t.Fatalf("query persisted ticket: %v", err)
+	}
+	if len(row.Roles) != 0 {
+		t.Fatalf("Roles = %#v, want empty roles for local RBAC ticket", row.Roles)
+	}
+	consumed, err := service.ConsumeAuthorizedTicket(ctx, ticket.Token, "diag-session-rbac", now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("ConsumeAuthorizedTicket: %v", err)
+	}
+	if consumed.Subject != "responder-1" || len(consumed.Roles) != 0 || consumed.Token != "" {
+		t.Fatalf("consumed ticket = %+v", consumed)
+	}
+}
+
 func TestDiagnosisAuthTicketStore_RejectsExpiredAndUnknownTickets(t *testing.T) {
 	resetDB(t)
 	ctx := context.Background()

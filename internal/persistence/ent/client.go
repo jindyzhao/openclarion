@@ -31,6 +31,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
+	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchanneltestproof"
 	"github.com/openclarion/openclarion/internal/persistence/ent/rbacassignment"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
@@ -75,6 +76,8 @@ type Client struct {
 	GroupingPolicy *GroupingPolicyClient
 	// NotificationChannelProfile is the client for interacting with the NotificationChannelProfile builders.
 	NotificationChannelProfile *NotificationChannelProfileClient
+	// NotificationChannelTestProof is the client for interacting with the NotificationChannelTestProof builders.
+	NotificationChannelTestProof *NotificationChannelTestProofClient
 	// RBACAssignment is the client for interacting with the RBACAssignment builders.
 	RBACAssignment *RBACAssignmentClient
 	// ReportNotificationDelivery is the client for interacting with the ReportNotificationDelivery builders.
@@ -112,6 +115,7 @@ func (c *Client) init() {
 	c.FinalReport = NewFinalReportClient(c.config)
 	c.GroupingPolicy = NewGroupingPolicyClient(c.config)
 	c.NotificationChannelProfile = NewNotificationChannelProfileClient(c.config)
+	c.NotificationChannelTestProof = NewNotificationChannelTestProofClient(c.config)
 	c.RBACAssignment = NewRBACAssignmentClient(c.config)
 	c.ReportNotificationDelivery = NewReportNotificationDeliveryClient(c.config)
 	c.ReportWorkflowPolicy = NewReportWorkflowPolicyClient(c.config)
@@ -207,29 +211,30 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 	cfg := c.config
 	cfg.driver = tx
 	return &Tx{
-		ctx:                        ctx,
-		config:                     cfg,
-		AlertEvent:                 NewAlertEventClient(cfg),
-		AlertGroup:                 NewAlertGroupClient(cfg),
-		AlertSourceProfile:         NewAlertSourceProfileClient(cfg),
-		ChatSession:                NewChatSessionClient(cfg),
-		ChatTurn:                   NewChatTurnClient(cfg),
-		DiagnosisAuthTicket:        NewDiagnosisAuthTicketClient(cfg),
-		DiagnosisTask:              NewDiagnosisTaskClient(cfg),
-		DiagnosisTaskEvent:         NewDiagnosisTaskEventClient(cfg),
-		DiagnosisToolTemplate:      NewDiagnosisToolTemplateClient(cfg),
-		DirectoryDepartment:        NewDirectoryDepartmentClient(cfg),
-		DirectorySyncRun:           NewDirectorySyncRunClient(cfg),
-		DirectoryUser:              NewDirectoryUserClient(cfg),
-		EvidenceSnapshot:           NewEvidenceSnapshotClient(cfg),
-		FinalReport:                NewFinalReportClient(cfg),
-		GroupingPolicy:             NewGroupingPolicyClient(cfg),
-		NotificationChannelProfile: NewNotificationChannelProfileClient(cfg),
-		RBACAssignment:             NewRBACAssignmentClient(cfg),
-		ReportNotificationDelivery: NewReportNotificationDeliveryClient(cfg),
-		ReportWorkflowPolicy:       NewReportWorkflowPolicyClient(cfg),
-		ReportWorkflowSchedule:     NewReportWorkflowScheduleClient(cfg),
-		SubReport:                  NewSubReportClient(cfg),
+		ctx:                          ctx,
+		config:                       cfg,
+		AlertEvent:                   NewAlertEventClient(cfg),
+		AlertGroup:                   NewAlertGroupClient(cfg),
+		AlertSourceProfile:           NewAlertSourceProfileClient(cfg),
+		ChatSession:                  NewChatSessionClient(cfg),
+		ChatTurn:                     NewChatTurnClient(cfg),
+		DiagnosisAuthTicket:          NewDiagnosisAuthTicketClient(cfg),
+		DiagnosisTask:                NewDiagnosisTaskClient(cfg),
+		DiagnosisTaskEvent:           NewDiagnosisTaskEventClient(cfg),
+		DiagnosisToolTemplate:        NewDiagnosisToolTemplateClient(cfg),
+		DirectoryDepartment:          NewDirectoryDepartmentClient(cfg),
+		DirectorySyncRun:             NewDirectorySyncRunClient(cfg),
+		DirectoryUser:                NewDirectoryUserClient(cfg),
+		EvidenceSnapshot:             NewEvidenceSnapshotClient(cfg),
+		FinalReport:                  NewFinalReportClient(cfg),
+		GroupingPolicy:               NewGroupingPolicyClient(cfg),
+		NotificationChannelProfile:   NewNotificationChannelProfileClient(cfg),
+		NotificationChannelTestProof: NewNotificationChannelTestProofClient(cfg),
+		RBACAssignment:               NewRBACAssignmentClient(cfg),
+		ReportNotificationDelivery:   NewReportNotificationDeliveryClient(cfg),
+		ReportWorkflowPolicy:         NewReportWorkflowPolicyClient(cfg),
+		ReportWorkflowSchedule:       NewReportWorkflowScheduleClient(cfg),
+		SubReport:                    NewSubReportClient(cfg),
 	}, nil
 }
 
@@ -247,29 +252,30 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 	cfg := c.config
 	cfg.driver = &txDriver{tx: tx, drv: c.driver}
 	return &Tx{
-		ctx:                        ctx,
-		config:                     cfg,
-		AlertEvent:                 NewAlertEventClient(cfg),
-		AlertGroup:                 NewAlertGroupClient(cfg),
-		AlertSourceProfile:         NewAlertSourceProfileClient(cfg),
-		ChatSession:                NewChatSessionClient(cfg),
-		ChatTurn:                   NewChatTurnClient(cfg),
-		DiagnosisAuthTicket:        NewDiagnosisAuthTicketClient(cfg),
-		DiagnosisTask:              NewDiagnosisTaskClient(cfg),
-		DiagnosisTaskEvent:         NewDiagnosisTaskEventClient(cfg),
-		DiagnosisToolTemplate:      NewDiagnosisToolTemplateClient(cfg),
-		DirectoryDepartment:        NewDirectoryDepartmentClient(cfg),
-		DirectorySyncRun:           NewDirectorySyncRunClient(cfg),
-		DirectoryUser:              NewDirectoryUserClient(cfg),
-		EvidenceSnapshot:           NewEvidenceSnapshotClient(cfg),
-		FinalReport:                NewFinalReportClient(cfg),
-		GroupingPolicy:             NewGroupingPolicyClient(cfg),
-		NotificationChannelProfile: NewNotificationChannelProfileClient(cfg),
-		RBACAssignment:             NewRBACAssignmentClient(cfg),
-		ReportNotificationDelivery: NewReportNotificationDeliveryClient(cfg),
-		ReportWorkflowPolicy:       NewReportWorkflowPolicyClient(cfg),
-		ReportWorkflowSchedule:     NewReportWorkflowScheduleClient(cfg),
-		SubReport:                  NewSubReportClient(cfg),
+		ctx:                          ctx,
+		config:                       cfg,
+		AlertEvent:                   NewAlertEventClient(cfg),
+		AlertGroup:                   NewAlertGroupClient(cfg),
+		AlertSourceProfile:           NewAlertSourceProfileClient(cfg),
+		ChatSession:                  NewChatSessionClient(cfg),
+		ChatTurn:                     NewChatTurnClient(cfg),
+		DiagnosisAuthTicket:          NewDiagnosisAuthTicketClient(cfg),
+		DiagnosisTask:                NewDiagnosisTaskClient(cfg),
+		DiagnosisTaskEvent:           NewDiagnosisTaskEventClient(cfg),
+		DiagnosisToolTemplate:        NewDiagnosisToolTemplateClient(cfg),
+		DirectoryDepartment:          NewDirectoryDepartmentClient(cfg),
+		DirectorySyncRun:             NewDirectorySyncRunClient(cfg),
+		DirectoryUser:                NewDirectoryUserClient(cfg),
+		EvidenceSnapshot:             NewEvidenceSnapshotClient(cfg),
+		FinalReport:                  NewFinalReportClient(cfg),
+		GroupingPolicy:               NewGroupingPolicyClient(cfg),
+		NotificationChannelProfile:   NewNotificationChannelProfileClient(cfg),
+		NotificationChannelTestProof: NewNotificationChannelTestProofClient(cfg),
+		RBACAssignment:               NewRBACAssignmentClient(cfg),
+		ReportNotificationDelivery:   NewReportNotificationDeliveryClient(cfg),
+		ReportWorkflowPolicy:         NewReportWorkflowPolicyClient(cfg),
+		ReportWorkflowSchedule:       NewReportWorkflowScheduleClient(cfg),
+		SubReport:                    NewSubReportClient(cfg),
 	}, nil
 }
 
@@ -303,8 +309,9 @@ func (c *Client) Use(hooks ...Hook) {
 		c.DiagnosisAuthTicket, c.DiagnosisTask, c.DiagnosisTaskEvent,
 		c.DiagnosisToolTemplate, c.DirectoryDepartment, c.DirectorySyncRun,
 		c.DirectoryUser, c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
-		c.NotificationChannelProfile, c.RBACAssignment, c.ReportNotificationDelivery,
-		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.SubReport,
+		c.NotificationChannelProfile, c.NotificationChannelTestProof, c.RBACAssignment,
+		c.ReportNotificationDelivery, c.ReportWorkflowPolicy, c.ReportWorkflowSchedule,
+		c.SubReport,
 	} {
 		n.Use(hooks...)
 	}
@@ -318,8 +325,9 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.DiagnosisAuthTicket, c.DiagnosisTask, c.DiagnosisTaskEvent,
 		c.DiagnosisToolTemplate, c.DirectoryDepartment, c.DirectorySyncRun,
 		c.DirectoryUser, c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
-		c.NotificationChannelProfile, c.RBACAssignment, c.ReportNotificationDelivery,
-		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.SubReport,
+		c.NotificationChannelProfile, c.NotificationChannelTestProof, c.RBACAssignment,
+		c.ReportNotificationDelivery, c.ReportWorkflowPolicy, c.ReportWorkflowSchedule,
+		c.SubReport,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -360,6 +368,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.GroupingPolicy.mutate(ctx, m)
 	case *NotificationChannelProfileMutation:
 		return c.NotificationChannelProfile.mutate(ctx, m)
+	case *NotificationChannelTestProofMutation:
+		return c.NotificationChannelTestProof.mutate(ctx, m)
 	case *RBACAssignmentMutation:
 		return c.RBACAssignment.mutate(ctx, m)
 	case *ReportNotificationDeliveryMutation:
@@ -2718,6 +2728,22 @@ func (c *NotificationChannelProfileClient) GetX(ctx context.Context, id int) *No
 	return obj
 }
 
+// QueryTestProofs queries the test_proofs edge of a NotificationChannelProfile.
+func (c *NotificationChannelProfileClient) QueryTestProofs(_m *NotificationChannelProfile) *NotificationChannelTestProofQuery {
+	query := (&NotificationChannelTestProofClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(notificationchannelprofile.Table, notificationchannelprofile.FieldID, id),
+			sqlgraph.To(notificationchanneltestproof.Table, notificationchanneltestproof.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, notificationchannelprofile.TestProofsTable, notificationchannelprofile.TestProofsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *NotificationChannelProfileClient) Hooks() []Hook {
 	return c.hooks.NotificationChannelProfile
@@ -2740,6 +2766,155 @@ func (c *NotificationChannelProfileClient) mutate(ctx context.Context, m *Notifi
 		return (&NotificationChannelProfileDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown NotificationChannelProfile mutation op: %q", m.Op())
+	}
+}
+
+// NotificationChannelTestProofClient is a client for the NotificationChannelTestProof schema.
+type NotificationChannelTestProofClient struct {
+	config
+}
+
+// NewNotificationChannelTestProofClient returns a client for the NotificationChannelTestProof from the given config.
+func NewNotificationChannelTestProofClient(c config) *NotificationChannelTestProofClient {
+	return &NotificationChannelTestProofClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `notificationchanneltestproof.Hooks(f(g(h())))`.
+func (c *NotificationChannelTestProofClient) Use(hooks ...Hook) {
+	c.hooks.NotificationChannelTestProof = append(c.hooks.NotificationChannelTestProof, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `notificationchanneltestproof.Intercept(f(g(h())))`.
+func (c *NotificationChannelTestProofClient) Intercept(interceptors ...Interceptor) {
+	c.inters.NotificationChannelTestProof = append(c.inters.NotificationChannelTestProof, interceptors...)
+}
+
+// Create returns a builder for creating a NotificationChannelTestProof entity.
+func (c *NotificationChannelTestProofClient) Create() *NotificationChannelTestProofCreate {
+	mutation := newNotificationChannelTestProofMutation(c.config, OpCreate)
+	return &NotificationChannelTestProofCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of NotificationChannelTestProof entities.
+func (c *NotificationChannelTestProofClient) CreateBulk(builders ...*NotificationChannelTestProofCreate) *NotificationChannelTestProofCreateBulk {
+	return &NotificationChannelTestProofCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *NotificationChannelTestProofClient) MapCreateBulk(slice any, setFunc func(*NotificationChannelTestProofCreate, int)) *NotificationChannelTestProofCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &NotificationChannelTestProofCreateBulk{err: fmt.Errorf("calling to NotificationChannelTestProofClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*NotificationChannelTestProofCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &NotificationChannelTestProofCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for NotificationChannelTestProof.
+func (c *NotificationChannelTestProofClient) Update() *NotificationChannelTestProofUpdate {
+	mutation := newNotificationChannelTestProofMutation(c.config, OpUpdate)
+	return &NotificationChannelTestProofUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *NotificationChannelTestProofClient) UpdateOne(_m *NotificationChannelTestProof) *NotificationChannelTestProofUpdateOne {
+	mutation := newNotificationChannelTestProofMutation(c.config, OpUpdateOne, withNotificationChannelTestProof(_m))
+	return &NotificationChannelTestProofUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *NotificationChannelTestProofClient) UpdateOneID(id int) *NotificationChannelTestProofUpdateOne {
+	mutation := newNotificationChannelTestProofMutation(c.config, OpUpdateOne, withNotificationChannelTestProofID(id))
+	return &NotificationChannelTestProofUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for NotificationChannelTestProof.
+func (c *NotificationChannelTestProofClient) Delete() *NotificationChannelTestProofDelete {
+	mutation := newNotificationChannelTestProofMutation(c.config, OpDelete)
+	return &NotificationChannelTestProofDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *NotificationChannelTestProofClient) DeleteOne(_m *NotificationChannelTestProof) *NotificationChannelTestProofDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *NotificationChannelTestProofClient) DeleteOneID(id int) *NotificationChannelTestProofDeleteOne {
+	builder := c.Delete().Where(notificationchanneltestproof.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &NotificationChannelTestProofDeleteOne{builder}
+}
+
+// Query returns a query builder for NotificationChannelTestProof.
+func (c *NotificationChannelTestProofClient) Query() *NotificationChannelTestProofQuery {
+	return &NotificationChannelTestProofQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeNotificationChannelTestProof},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a NotificationChannelTestProof entity by its id.
+func (c *NotificationChannelTestProofClient) Get(ctx context.Context, id int) (*NotificationChannelTestProof, error) {
+	return c.Query().Where(notificationchanneltestproof.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *NotificationChannelTestProofClient) GetX(ctx context.Context, id int) *NotificationChannelTestProof {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryNotificationChannelProfile queries the notification_channel_profile edge of a NotificationChannelTestProof.
+func (c *NotificationChannelTestProofClient) QueryNotificationChannelProfile(_m *NotificationChannelTestProof) *NotificationChannelProfileQuery {
+	query := (&NotificationChannelProfileClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(notificationchanneltestproof.Table, notificationchanneltestproof.FieldID, id),
+			sqlgraph.To(notificationchannelprofile.Table, notificationchannelprofile.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, notificationchanneltestproof.NotificationChannelProfileTable, notificationchanneltestproof.NotificationChannelProfileColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *NotificationChannelTestProofClient) Hooks() []Hook {
+	return c.hooks.NotificationChannelTestProof
+}
+
+// Interceptors returns the client interceptors.
+func (c *NotificationChannelTestProofClient) Interceptors() []Interceptor {
+	return c.inters.NotificationChannelTestProof
+}
+
+func (c *NotificationChannelTestProofClient) mutate(ctx context.Context, m *NotificationChannelTestProofMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&NotificationChannelTestProofCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&NotificationChannelTestProofUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&NotificationChannelTestProofUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&NotificationChannelTestProofDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown NotificationChannelTestProof mutation op: %q", m.Op())
 	}
 }
 
@@ -3462,16 +3637,16 @@ type (
 		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatTurn,
 		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, DiagnosisToolTemplate,
 		DirectoryDepartment, DirectorySyncRun, DirectoryUser, EvidenceSnapshot,
-		FinalReport, GroupingPolicy, NotificationChannelProfile, RBACAssignment,
-		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
-		SubReport []ent.Hook
+		FinalReport, GroupingPolicy, NotificationChannelProfile,
+		NotificationChannelTestProof, RBACAssignment, ReportNotificationDelivery,
+		ReportWorkflowPolicy, ReportWorkflowSchedule, SubReport []ent.Hook
 	}
 	inters struct {
 		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatTurn,
 		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, DiagnosisToolTemplate,
 		DirectoryDepartment, DirectorySyncRun, DirectoryUser, EvidenceSnapshot,
-		FinalReport, GroupingPolicy, NotificationChannelProfile, RBACAssignment,
-		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
-		SubReport []ent.Interceptor
+		FinalReport, GroupingPolicy, NotificationChannelProfile,
+		NotificationChannelTestProof, RBACAssignment, ReportNotificationDelivery,
+		ReportWorkflowPolicy, ReportWorkflowSchedule, SubReport []ent.Interceptor
 	}
 )

@@ -17,6 +17,9 @@ const maxDiagnosisToolTemplateAPILimit = 20
 
 // ListDiagnosisToolTemplates implements api.ServerInterface.
 func (s *Server) ListDiagnosisToolTemplates(w http.ResponseWriter, r *http.Request, params api.ListDiagnosisToolTemplatesParams) {
+	if !s.authorizeLocalRBACRequest(w, r, domain.RBACPermissionDiagnosisToolTemplateRead) {
+		return
+	}
 	limit, err := parseListLimit(params.Limit)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -41,6 +44,9 @@ func (s *Server) ListDiagnosisToolTemplates(w http.ResponseWriter, r *http.Reque
 
 // CreateDiagnosisToolTemplate implements api.ServerInterface.
 func (s *Server) CreateDiagnosisToolTemplate(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeLocalRBACRequest(w, r, domain.RBACPermissionDiagnosisToolTemplateManage) {
+		return
+	}
 	body, err := decodeDiagnosisToolTemplateWriteRequest(w, r)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -61,6 +67,9 @@ func (s *Server) CreateDiagnosisToolTemplate(w http.ResponseWriter, r *http.Requ
 func (s *Server) GetDiagnosisToolTemplate(w http.ResponseWriter, r *http.Request, templateID int64) {
 	if templateID <= 0 {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "template_id must be positive", nil)
+		return
+	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionDiagnosisToolTemplateRead, domain.RBACScopeKindDiagnosisToolTemplate, rbacResourceScopeKey(templateID)) {
 		return
 	}
 
@@ -85,6 +94,9 @@ func (s *Server) GetDiagnosisToolTemplate(w http.ResponseWriter, r *http.Request
 func (s *Server) ReplaceDiagnosisToolTemplate(w http.ResponseWriter, r *http.Request, templateID int64) {
 	if templateID <= 0 {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "template_id must be positive", nil)
+		return
+	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionDiagnosisToolTemplateManage, domain.RBACScopeKindDiagnosisToolTemplate, rbacResourceScopeKey(templateID)) {
 		return
 	}
 	body, err := decodeDiagnosisToolTemplateWriteRequest(w, r)
@@ -115,6 +127,9 @@ func (s *Server) DisableDiagnosisToolTemplate(w http.ResponseWriter, r *http.Req
 func (s *Server) runDiagnosisToolTemplateAction(w http.ResponseWriter, r *http.Request, templateID int64, enabled bool) {
 	if templateID <= 0 {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "template_id must be positive", nil)
+		return
+	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionDiagnosisToolTemplateManage, domain.RBACScopeKindDiagnosisToolTemplate, rbacResourceScopeKey(templateID)) {
 		return
 	}
 	svc, err := s.newDiagnosisToolTemplateService()

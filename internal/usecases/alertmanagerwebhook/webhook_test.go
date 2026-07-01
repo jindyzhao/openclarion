@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -25,21 +26,124 @@ func TestIngestPersistsFiringAlertsAndSkipsResolved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-	if result.ProfileID != 7 || result.Received != 2 || result.SkippedResolved != 1 || result.TruncatedAlerts != 1 {
+	if result.ProfileID != 7 || result.Received != 2 || result.SkippedResolved != 1 || result.SkippedSuppressed != 0 || result.TruncatedAlerts != 1 {
 		t.Fatalf("result counters = %+v", result)
 	}
 	if result.Ingested.Total != 1 || result.Ingested.Saved != 1 {
 		t.Fatalf("ingested stats = %+v", result.Ingested)
 	}
+	if result.AutoDiagnosis != nil {
+		t.Fatalf("auto diagnosis result = %+v, want nil without trigger", result.AutoDiagnosis)
+	}
 	if len(factory.alerts.saved) != 1 {
 		t.Fatalf("saved alerts = %d, want 1", len(factory.alerts.saved))
 	}
 	saved := factory.alerts.saved[0]
-	if saved.Source != sourceName || saved.Labels["alertname"] != "HighCPU" || saved.Annotations["summary"] != "CPU high" {
+	if saved.Source != sourceName ||
+		saved.AlertSourceProfileID != 7 ||
+		saved.Labels["alertname"] != "HighCPU" ||
+		saved.Annotations["summary"] != "CPU high" {
 		t.Fatalf("saved alert = %+v", saved)
 	}
 	if !json.Valid(saved.RawPayload) {
 		t.Fatalf("raw payload is not valid JSON: %s", saved.RawPayload)
+	}
+}
+
+func TestIngestTriggersAutoDiagnosisForFiringWindow(t *testing.T) {
+	factory := newWebhookTestFactory(mustAlertmanagerProfile(t, domain.AlertSourceAuthModeNone, true))
+	trigger := &recordingAutoDiagnosisTrigger{
+		result: alertdiagnosis.Result{PoliciesMatched: 1},
+	}
+	service, err := NewService(factory, WithAutoDiagnosisTrigger(trigger))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.Ingest(context.Background(), Request{
+		ProfileID: 7,
+		Body:      json.RawMessage(validWebhookPayload()),
+	})
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+
+	if result.AutoDiagnosis == nil || result.AutoDiagnosis.PoliciesMatched != 1 {
+		t.Fatalf("auto diagnosis result = %+v, want matched result", result.AutoDiagnosis)
+	}
+	if len(trigger.requests) != 1 {
+		t.Fatalf("trigger requests = %d, want 1", len(trigger.requests))
+	}
+	got := trigger.requests[0]
+	wantStart := time.Date(2026, 6, 6, 1, 0, 0, 0, time.UTC)
+	wantEnd := wantStart.Add(time.Microsecond)
+	if got.AlertSourceProfileID != 7 || !got.WindowStart.Equal(wantStart) || !got.WindowEnd.Equal(wantEnd) || got.Limit != maxWebhookAlertEntries {
+		t.Fatalf("trigger request = %+v, want source=7 window=[%s,%s) limit=%d", got, wantStart, wantEnd, maxWebhookAlertEntries)
+	}
+}
+
+func TestIngestIgnoresSuppressedFiringAlerts(t *testing.T) {
+	factory := newWebhookTestFactory(mustAlertmanagerProfile(t, domain.AlertSourceAuthModeNone, true))
+	trigger := &recordingAutoDiagnosisTrigger{
+		result: alertdiagnosis.Result{PoliciesMatched: 1},
+	}
+	service, err := NewService(factory, WithAutoDiagnosisTrigger(trigger))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.Ingest(context.Background(), Request{
+		ProfileID: 7,
+		Body:      json.RawMessage(suppressedWebhookPayload()),
+	})
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+
+	if result.Received != 5 || result.SkippedResolved != 1 || result.SkippedSuppressed != 3 || result.Ingested.Total != 1 || result.Ingested.Saved != 1 {
+		t.Fatalf("result counters = %+v", result)
+	}
+	if len(factory.alerts.saved) != 1 {
+		t.Fatalf("saved alerts = %d, want 1", len(factory.alerts.saved))
+	}
+	if got := factory.alerts.saved[0].Labels["alertname"]; got != "HighCPU" {
+		t.Fatalf("saved alertname = %q, want HighCPU", got)
+	}
+	if len(trigger.requests) != 1 {
+		t.Fatalf("trigger requests = %d, want 1", len(trigger.requests))
+	}
+	got := trigger.requests[0]
+	wantStart := time.Date(2026, 6, 6, 1, 0, 0, 0, time.UTC)
+	wantEnd := wantStart.Add(time.Microsecond)
+	if !got.WindowStart.Equal(wantStart) || !got.WindowEnd.Equal(wantEnd) {
+		t.Fatalf("trigger window = [%s,%s), want [%s,%s)", got.WindowStart, got.WindowEnd, wantStart, wantEnd)
+	}
+}
+
+func TestIngestSkipsAutoDiagnosisForResolvedOnlyPayload(t *testing.T) {
+	factory := newWebhookTestFactory(mustAlertmanagerProfile(t, domain.AlertSourceAuthModeNone, true))
+	trigger := &recordingAutoDiagnosisTrigger{}
+	service, err := NewService(factory, WithAutoDiagnosisTrigger(trigger))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.Ingest(context.Background(), Request{
+		ProfileID: 7,
+		Body:      json.RawMessage(resolvedOnlyWebhookPayload()),
+	})
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+
+	if result.Received != 1 || result.SkippedResolved != 1 || result.SkippedSuppressed != 0 || result.Ingested.Total != 0 {
+		t.Fatalf("result counters = %+v", result)
+	}
+	if result.AutoDiagnosis != nil {
+		t.Fatalf("auto diagnosis result = %+v, want nil for resolved-only payload", result.AutoDiagnosis)
+	}
+	if len(trigger.requests) != 0 {
+		t.Fatalf("trigger requests = %d, want 0", len(trigger.requests))
 	}
 }
 
@@ -148,7 +252,7 @@ func TestDecodePayloadRejectsInvalidJSONShapes(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := decodePayload(json.RawMessage(tc.body))
+			_, err := decodePayload(json.RawMessage(tc.body), 7)
 			if err == nil {
 				t.Fatal("decodePayload err = nil, want error")
 			}
@@ -185,6 +289,104 @@ func validWebhookPayload() string {
 				"endsAt":"2026-06-06T01:30:00Z",
 				"generatorURL":"https://prometheus.example/graph",
 				"fingerprint":"def456"
+			}
+		]
+	}`
+}
+
+func resolvedOnlyWebhookPayload() string {
+	return `{
+		"version":"4",
+		"groupKey":"{}:{alertname=\"HighMemory\"}",
+		"truncatedAlerts":0,
+		"status":"resolved",
+		"receiver":"openclarion",
+		"groupLabels":{"alertname":"HighMemory"},
+		"commonLabels":{"severity":"warning"},
+		"commonAnnotations":{"runbook":"https://runbooks.example/high-memory"},
+		"externalURL":"https://alertmanager.example",
+		"alerts":[
+			{
+				"status":"resolved",
+				"labels":{"alertname":"HighMemory","instance":"api-2"},
+				"annotations":{"summary":"Memory recovered"},
+				"startsAt":"2026-06-06T00:30:00Z",
+				"endsAt":"2026-06-06T01:30:00Z",
+				"generatorURL":"https://prometheus.example/graph",
+				"fingerprint":"def456"
+			}
+		]
+	}`
+}
+
+func suppressedWebhookPayload() string {
+	return `{
+		"version":"4",
+		"groupKey":"{}:{alertname=\"HighCPU\"}",
+		"truncatedAlerts":0,
+		"status":"firing",
+		"receiver":"openclarion",
+		"groupLabels":{"alertname":"HighCPU"},
+		"commonLabels":{"severity":"warning"},
+		"commonAnnotations":{"runbook":"https://runbooks.example/high-cpu"},
+		"externalURL":"https://alertmanager.example",
+		"alerts":[
+			{
+				"status":"firing",
+				"labels":{"alertname":"HighCPU","instance":"api-1","severity":"warning"},
+				"annotations":{"summary":"CPU high"},
+				"startsAt":"2026-06-06T01:00:00Z",
+				"endsAt":"0001-01-01T00:00:00Z",
+				"generatorURL":"https://prometheus.example/graph",
+				"fingerprint":"abc123",
+				"silencedBy":[],
+				"inhibitedBy":[],
+				"mutedBy":[]
+			},
+			{
+				"status":"firing",
+				"labels":{"alertname":"HighDisk","instance":"api-2","severity":"warning"},
+				"annotations":{"summary":"Disk high but silenced"},
+				"startsAt":"2026-06-06T00:50:00Z",
+				"endsAt":"0001-01-01T00:00:00Z",
+				"generatorURL":"https://prometheus.example/graph",
+				"fingerprint":"silenced123",
+				"silencedBy":["silence-1"],
+				"inhibitedBy":[],
+				"mutedBy":[]
+			},
+			{
+				"status":"firing",
+				"labels":{"alertname":"HighMemory","instance":"api-3","severity":"warning"},
+				"annotations":{"summary":"Memory high but inhibited"},
+				"startsAt":"2026-06-06T00:55:00Z",
+				"endsAt":"0001-01-01T00:00:00Z",
+				"generatorURL":"https://prometheus.example/graph",
+				"fingerprint":"inhibited123",
+				"silencedBy":[],
+				"inhibitedBy":["inhibit-1"],
+				"mutedBy":[]
+			},
+			{
+				"status":"firing",
+				"labels":{"alertname":"HighLatency","instance":"api-5","severity":"warning"},
+				"annotations":{"summary":"Latency high but muted"},
+				"startsAt":"2026-06-06T00:45:00Z",
+				"endsAt":"0001-01-01T00:00:00Z",
+				"generatorURL":"https://prometheus.example/graph",
+				"fingerprint":"muted123",
+				"silencedBy":[],
+				"inhibitedBy":[],
+				"mutedBy":["mute-1"]
+			},
+			{
+				"status":"resolved",
+				"labels":{"alertname":"HighNetwork","instance":"api-4","severity":"warning"},
+				"annotations":{"summary":"Network recovered"},
+				"startsAt":"2026-06-06T00:30:00Z",
+				"endsAt":"2026-06-06T01:30:00Z",
+				"generatorURL":"https://prometheus.example/graph",
+				"fingerprint":"resolved123"
 			}
 		]
 	}`
@@ -230,6 +432,17 @@ func (r fakeSecretResolver) ResolveSecret(_ context.Context, ref string) (ports.
 		return ports.Secret{}, ports.ErrSecretNotFound
 	}
 	return ports.Secret{Value: value}, nil
+}
+
+type recordingAutoDiagnosisTrigger struct {
+	requests []alertdiagnosis.Request
+	result   alertdiagnosis.Result
+	err      error
+}
+
+func (t *recordingAutoDiagnosisTrigger) Trigger(_ context.Context, req alertdiagnosis.Request) (alertdiagnosis.Result, error) {
+	t.requests = append(t.requests, req)
+	return t.result, t.err
 }
 
 type webhookTestFactory struct {
@@ -327,6 +540,7 @@ func (r *fakeWebhookAlertRepo) ListActiveGroups(context.Context, int) ([]domain.
 }
 
 type fakeWebhookConfigRepo struct {
+	ports.ConfigurationRepository
 	profile domain.AlertSourceProfile
 }
 
@@ -426,5 +640,13 @@ func (r *fakeWebhookConfigRepo) FindNotificationChannelProfileByID(context.Conte
 }
 
 func (r *fakeWebhookConfigRepo) ListNotificationChannelProfiles(context.Context, int) ([]domain.NotificationChannelProfile, error) {
+	return nil, nil
+}
+
+func (r *fakeWebhookConfigRepo) SaveNotificationChannelTestProof(context.Context, domain.NotificationChannelTestProof) (domain.NotificationChannelTestProof, error) {
+	return domain.NotificationChannelTestProof{}, nil
+}
+
+func (r *fakeWebhookConfigRepo) ListLatestNotificationChannelTestProofs(context.Context, domain.NotificationChannelProfileID, int) ([]domain.NotificationChannelTestProof, error) {
 	return nil, nil
 }

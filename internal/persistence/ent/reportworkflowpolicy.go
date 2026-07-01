@@ -29,7 +29,7 @@ type ReportWorkflowPolicy struct {
 	TriggerMode string `json:"trigger_mode,omitempty"`
 	// "single_alert" | "cascade" | "alert_storm"
 	ReportScenario string `json:"report_scenario,omitempty"`
-	// "disabled" | "suggest_room"
+	// "disabled" | "suggest_room" | "auto_room"
 	DiagnosisFollowUp string `json:"diagnosis_follow_up,omitempty"`
 	// whether operators explicitly enabled this policy for report workflow binding
 	Enabled bool `json:"enabled,omitempty"`

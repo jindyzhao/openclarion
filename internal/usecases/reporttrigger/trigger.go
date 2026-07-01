@@ -27,9 +27,10 @@ type Request struct {
 
 // Result records both replay output and the optional workflow handle.
 type Result struct {
-	Replay   alertreplay.Result
-	Workflow ports.WorkflowHandle
-	Started  bool
+	CorrelationKey string
+	Replay         alertreplay.Result
+	Workflow       ports.WorkflowHandle
+	Started        bool
 }
 
 // Service owns the dependencies needed to replay alerts and start
@@ -87,6 +88,11 @@ func ReplayAndStart(
 	if err != nil {
 		return result, err
 	}
+	correlationKey, err := correlationKeyForRequest(req)
+	if err != nil {
+		return result, err
+	}
+	result.CorrelationKey = correlationKey
 
 	startReq, ok, err := BuildStartRequest(replay, req)
 	if err != nil {

@@ -34,6 +34,7 @@ type recordingNotificationProviderResolver struct {
 	mu       sync.Mutex
 	calls    int
 	profile  domain.NotificationChannelProfileID
+	scope    domain.NotificationDeliveryScope
 	provider ports.IMProvider
 	err      error
 }
@@ -101,6 +102,18 @@ func (p *recordingIMProvider) Requests() []ports.IMNotification {
 }
 
 func (r *recordingNotificationProviderResolver) ResolveReportNotificationProvider(ctx context.Context, profileID domain.NotificationChannelProfileID) (ports.IMProvider, error) {
+	return r.resolve(ctx, profileID, domain.NotificationDeliveryScopeReport)
+}
+
+func (r *recordingNotificationProviderResolver) ResolveDiagnosisConsultationNotificationProvider(ctx context.Context, profileID domain.NotificationChannelProfileID) (ports.IMProvider, error) {
+	return r.resolve(ctx, profileID, domain.NotificationDeliveryScopeDiagnosisConsultation)
+}
+
+func (r *recordingNotificationProviderResolver) ResolveDiagnosisCloseNotificationProvider(ctx context.Context, profileID domain.NotificationChannelProfileID) (ports.IMProvider, error) {
+	return r.resolve(ctx, profileID, domain.NotificationDeliveryScopeDiagnosisClose)
+}
+
+func (r *recordingNotificationProviderResolver) resolve(ctx context.Context, profileID domain.NotificationChannelProfileID, scope domain.NotificationDeliveryScope) (ports.IMProvider, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -108,6 +121,7 @@ func (r *recordingNotificationProviderResolver) ResolveReportNotificationProvide
 	defer r.mu.Unlock()
 	r.calls++
 	r.profile = profileID
+	r.scope = scope
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -118,6 +132,12 @@ func (r *recordingNotificationProviderResolver) LastCall() (int, domain.Notifica
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.calls, r.profile
+}
+
+func (r *recordingNotificationProviderResolver) LastScope() domain.NotificationDeliveryScope {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.scope
 }
 
 func llmResponse(content string) ports.LLMResponse {
@@ -279,7 +299,7 @@ func TestReportActivities_SendReportNotificationLoadsPersistedReport(t *testing.
 	if err != nil {
 		t.Fatalf("SendReportNotification: %v", err)
 	}
-	wantKey := "final_report:" + strconv.FormatInt(final.FinalReportID, 10) + "/notification"
+	wantKey := "final_report:" + strconv.FormatInt(final.FinalReportID, 10) + "/notification/handoff"
 	if notification.FinalReportID != final.FinalReportID ||
 		notification.NotificationIdempotencyKey != wantKey ||
 		notification.ProviderMessageID != "msg-1" ||
@@ -375,6 +395,9 @@ func TestReportActivities_SendReportNotificationUsesProfileResolver(t *testing.T
 	if calls != 1 || profileID != 3 {
 		t.Fatalf("resolver calls=%d profileID=%d, want 1/3", calls, profileID)
 	}
+	if scope := resolver.LastScope(); scope != domain.NotificationDeliveryScopeReport {
+		t.Fatalf("resolver scope = %s, want %s", scope, domain.NotificationDeliveryScopeReport)
+	}
 	if notification.ProviderMessageID != "profile-msg-1" || notification.Status != "accepted" {
 		t.Fatalf("notification = %+v", notification)
 	}
@@ -416,7 +439,7 @@ func TestReportActivities_SendReportNotificationPersistsFailure(t *testing.T) {
 	if err == nil {
 		t.Fatalf("SendReportNotification: want provider error")
 	}
-	wantKey := "final_report:" + strconv.FormatInt(final.FinalReportID, 10) + "/notification"
+	wantKey := "final_report:" + strconv.FormatInt(final.FinalReportID, 10) + "/notification/handoff"
 	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
 		delivery, err := uow.Reports().FindNotificationDeliveryByIdempotencyKey(ctx, wantKey)
 		if err != nil {
@@ -432,6 +455,59 @@ func TestReportActivities_SendReportNotificationPersistsFailure(t *testing.T) {
 			delivery.FailureReason == "" ||
 			delivery.DeliveredAt != nil ||
 			failurePayload.StatusCode != 503 {
+			t.Fatalf("failed delivery log = %+v raw=%s", delivery, delivery.Raw)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify failed delivery log: %v", err)
+	}
+}
+
+func TestReportActivities_SendReportNotificationPersistsProviderResolutionFailure(t *testing.T) {
+	seed := seedDiagnosisTask(t, "report-notify-provider-resolution-failure")
+	provider := newReportLLMProvider()
+	activities := temporalpkg.NewActivities(env.factory, temporalpkg.WithLLMProvider(provider))
+	ctx := context.Background()
+
+	sub, err := activities.GenerateSubReport(ctx, temporalpkg.ReportFanOutWorkflowInput{
+		EvidenceSnapshotID: int64(seed.SnapshotID),
+		Scenario:           "single_alert",
+		GroupIndex:         0,
+	})
+	if err != nil {
+		t.Fatalf("GenerateSubReport: %v", err)
+	}
+	final, err := activities.GenerateFinalReport(ctx, temporalpkg.FinalReportWorkflowInput{
+		CorrelationKey: "window-report-notify-provider-resolution-failure",
+		SubReportIDs:   []int64{sub.SubReportID},
+	})
+	if err != nil {
+		t.Fatalf("GenerateFinalReport: %v", err)
+	}
+
+	_, err = activities.SendReportNotification(ctx, temporalpkg.ReportNotificationActivityInput{
+		FinalReportID: final.FinalReportID,
+	})
+	if err == nil || !strings.Contains(err.Error(), "im provider is not configured") {
+		t.Fatalf("SendReportNotification err = %v, want provider configuration error", err)
+	}
+	wantKey := "final_report:" + strconv.FormatInt(final.FinalReportID, 10) + "/notification/handoff"
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		delivery, err := uow.Reports().FindNotificationDeliveryByIdempotencyKey(ctx, wantKey)
+		if err != nil {
+			return err
+		}
+		var failurePayload struct {
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(delivery.Raw, &failurePayload); err != nil {
+			t.Fatalf("decode failure raw: %v", err)
+		}
+		if delivery.Status != domain.ReportNotificationDeliveryStatusFailed ||
+			!strings.Contains(delivery.FailureReason, "im provider is not configured") ||
+			!strings.Contains(failurePayload.Error, "im provider is not configured") ||
+			delivery.DeliveredAt != nil {
 			t.Fatalf("failed delivery log = %+v raw=%s", delivery, delivery.Raw)
 		}
 		return nil
@@ -587,7 +663,7 @@ func TestFinalReportWorkflow_ExecutesGenerateFinalReportActivity(t *testing.T) {
 			}
 			return temporalpkg.ReportNotificationResult{
 				FinalReportID:              got.FinalReportID,
-				NotificationIdempotencyKey: "final_report:77/notification",
+				NotificationIdempotencyKey: "final_report:77/notification/handoff",
 				ProviderMessageID:          "msg-77",
 				Status:                     "delivered",
 			}, nil
@@ -609,7 +685,7 @@ func TestFinalReportWorkflow_ExecutesGenerateFinalReportActivity(t *testing.T) {
 	if result.FinalReportID != 77 {
 		t.Fatalf("FinalReportID = %d, want 77", result.FinalReportID)
 	}
-	if result.NotificationIdempotencyKey != "final_report:77/notification" ||
+	if result.NotificationIdempotencyKey != "final_report:77/notification/handoff" ||
 		result.ProviderMessageID != "msg-77" ||
 		result.NotificationStatus != "delivered" {
 		t.Fatalf("notification fields = %+v", result)
@@ -667,7 +743,7 @@ func TestReportBatchWorkflow_FansOutThenFinalizes(t *testing.T) {
 			}
 			return temporalpkg.ReportNotificationResult{
 				FinalReportID:              got.FinalReportID,
-				NotificationIdempotencyKey: "final_report:500/notification",
+				NotificationIdempotencyKey: "final_report:500/notification/handoff",
 				ProviderMessageID:          "msg-500",
 				Status:                     "delivered",
 			}, nil
@@ -687,7 +763,7 @@ func TestReportBatchWorkflow_FansOutThenFinalizes(t *testing.T) {
 		t.Fatalf("GetWorkflowResult: %v", err)
 	}
 	if result.FinalReportID != 500 ||
-		result.NotificationIdempotencyKey != "final_report:500/notification" ||
+		result.NotificationIdempotencyKey != "final_report:500/notification/handoff" ||
 		result.ProviderMessageID != "msg-500" ||
 		result.NotificationStatus != "delivered" {
 		t.Fatalf("batch result = %+v", result)

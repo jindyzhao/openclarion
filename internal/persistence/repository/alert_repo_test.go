@@ -63,6 +63,10 @@ func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 	resetDB(t)
 	startsAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
 	e := mustNewAlertEvent(t, "prometheus", "fp-1", "canon-A", startsAt)
+	e, err := e.WithAlertSourceProfile(7)
+	if err != nil {
+		t.Fatalf("WithAlertSourceProfile: %v", err)
+	}
 
 	var saved domain.AlertEvent
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
@@ -81,6 +85,9 @@ func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 	if saved.Status != domain.AlertStatusFiring {
 		t.Errorf("saved.Status = %q, want %q", saved.Status, domain.AlertStatusFiring)
 	}
+	if saved.AlertSourceProfileID != 7 {
+		t.Errorf("saved.AlertSourceProfileID = %d, want 7", saved.AlertSourceProfileID)
+	}
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
 		byID, err := uow.Alerts().FindEventByID(ctx, saved.ID)
@@ -89,6 +96,9 @@ func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 		}
 		if byID.CanonicalFingerprint != "canon-A" {
 			t.Errorf("FindEventByID.CanonicalFingerprint = %q, want %q", byID.CanonicalFingerprint, "canon-A")
+		}
+		if byID.AlertSourceProfileID != 7 {
+			t.Errorf("FindEventByID.AlertSourceProfileID = %d, want 7", byID.AlertSourceProfileID)
 		}
 		// Natural key lookup uses the same normalised timestamp the
 		// repository writes; passing the original (already UTC)

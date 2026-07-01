@@ -18,43 +18,58 @@ import (
 )
 
 const (
-	maxProofBytes                       int64 = 10 * 1024 * 1024
-	maxProofSessionIDBytes                    = 128
-	maxProofWorkflowIDBytes                   = 256
-	maxProofRunIDBytes                        = 256
-	maxProofEvidenceBytes                     = 512
-	maxProofCloseReasonBytes                  = 128
-	maxProofIdempotencyKeyBytes               = 256
-	maxProofProviderMessageBytes              = 512
-	maxProofFinalConclusionContentBytes       = 4096
-	maxProofBrowserReadinessTextBytes         = 512
+	maxProofBytes                               int64 = 10 * 1024 * 1024
+	maxProofSessionIDBytes                            = 128
+	maxProofWorkflowIDBytes                           = 256
+	maxProofRunIDBytes                                = 256
+	maxProofEvidenceBytes                             = 512
+	maxProofCloseReasonBytes                          = 128
+	maxProofIdempotencyKeyBytes                       = 256
+	maxProofProviderMessageBytes                      = 512
+	maxProofFinalConclusionContentBytes               = 4096
+	maxProofBrowserReadinessTextBytes                 = 512
+	maxProofBrowserCollectionSummaryTextBytes         = 256
+	maxProofBrowserConfirmBlockReasonBytes            = 128
+	maxProofBrowserCompletionEvidenceBytes            = 128
+	maxProofBrowserSupplementalLabelBytes             = 256
+	maxProofBrowserSupplementalBlockReasonBytes       = 128
+	maxProofBrowserSeedMissingBytes                   = 512
 
 	closeNotificationClosedKind = "diagnosis_room.closed"
 	closeNotificationSentKind   = "diagnosis_room.close_notification_sent"
 )
 
+var requiredNotificationProofEvents = []string{
+	"diagnosis_room.assistant_turn_notification_sent",
+	"diagnosis_room.final_ready_notification_sent",
+	"diagnosis_room.close_notification_sent",
+}
+
 type smokeOutput struct {
-	Passed             bool            `json:"passed"`
-	CheckedAt          string          `json:"checked_at"`
-	Request            proofRequest    `json:"request"`
-	WebBaseURL         string          `json:"web_base_url"`
-	APIBaseURL         string          `json:"api_base_url"`
-	SessionID          string          `json:"session_id"`
-	EvidenceSnapshotID json.RawMessage `json:"evidence_snapshot_id"`
-	CreatedRoom        *createdRoom    `json:"created_room"`
-	MessageLength      int             `json:"message_length"`
-	MessageSHA256      string          `json:"message_sha256"`
-	Browser            *browserProof   `json:"browser"`
-	CloseNotification  *closeProof     `json:"close_notification"`
-	Evidence           string          `json:"evidence"`
+	Passed             bool               `json:"passed"`
+	CheckedAt          string             `json:"checked_at"`
+	Request            proofRequest       `json:"request"`
+	WebBaseURL         string             `json:"web_base_url"`
+	APIBaseURL         string             `json:"api_base_url"`
+	SessionID          string             `json:"session_id"`
+	EvidenceSnapshotID json.RawMessage    `json:"evidence_snapshot_id"`
+	CreatedRoom        *createdRoom       `json:"created_room"`
+	MessageLength      int                `json:"message_length"`
+	MessageSHA256      string             `json:"message_sha256"`
+	Browser            *browserProof      `json:"browser"`
+	CloseNotification  *closeProof        `json:"close_notification"`
+	NotificationProof  *notificationProof `json:"notification_proof"`
+	Evidence           string             `json:"evidence"`
 }
 
 type proofRequest struct {
-	Mode               string          `json:"mode"`
-	SessionID          string          `json:"session_id"`
-	EvidenceSnapshotID json.RawMessage `json:"evidence_snapshot_id"`
-	MessageLength      int             `json:"message_length"`
-	MessageSHA256      string          `json:"message_sha256"`
+	Mode                         string          `json:"mode"`
+	SessionID                    string          `json:"session_id"`
+	EvidenceSnapshotID           json.RawMessage `json:"evidence_snapshot_id"`
+	NotificationChannelProfileID json.RawMessage `json:"notification_channel_profile_id"`
+	RequireNotificationProof     bool            `json:"require_notification_proof"`
+	MessageLength                int             `json:"message_length"`
+	MessageSHA256                string          `json:"message_sha256"`
 }
 
 type createdRoom struct {
@@ -67,24 +82,111 @@ type createdRoom struct {
 }
 
 type browserProof struct {
-	StateLoaded                 bool   `json:"state_loaded"`
-	TurnResultObserved          bool   `json:"turn_result_observed"`
-	AssistantTurnsBefore        int    `json:"assistant_turns_before"`
-	AssistantTurnsAfter         int    `json:"assistant_turns_after"`
-	AssistantTurnDelta          int    `json:"assistant_turn_delta"`
-	TranscriptMessagesBefore    int    `json:"transcript_messages_before"`
-	TranscriptMessagesAfter     int    `json:"transcript_messages_after"`
-	ConnectionStatusAfterTurn   string `json:"connection_status_after_turn"`
-	SubmittedMessageVisible     bool   `json:"submitted_message_visible"`
-	SubmittedMessageLength      int    `json:"submitted_message_length"`
-	SubmittedMessageSHA256      string `json:"submitted_message_sha256"`
-	CompletedTurnText           string `json:"completed_turn_text"`
-	ConsultationInsightVisible  bool   `json:"consultation_insight_visible"`
-	ConsultationProgressVisible bool   `json:"consultation_progress_visible"`
-	EvidenceReadinessVisible    bool   `json:"evidence_readiness_visible"`
-	Confidence                  string `json:"confidence"`
-	ConfidenceAriaValue         string `json:"confidence_aria_value"`
-	EvidenceReadinessText       string `json:"evidence_readiness_text"`
+	StateLoaded                       bool   `json:"state_loaded"`
+	TurnResultObserved                bool   `json:"turn_result_observed"`
+	AssistantTurnsBefore              int    `json:"assistant_turns_before"`
+	AssistantTurnsAfter               int    `json:"assistant_turns_after"`
+	AssistantTurnDelta                int    `json:"assistant_turn_delta"`
+	TranscriptMessagesBefore          int    `json:"transcript_messages_before"`
+	TranscriptMessagesAfter           int    `json:"transcript_messages_after"`
+	ConnectionStatusAfterTurn         string `json:"connection_status_after_turn"`
+	SubmittedMessageVisible           bool   `json:"submitted_message_visible"`
+	SubmittedMessageLength            int    `json:"submitted_message_length"`
+	SubmittedMessageSHA256            string `json:"submitted_message_sha256"`
+	CompletedTurnText                 string `json:"completed_turn_text"`
+	ConsultationInsightVisible        bool   `json:"consultation_insight_visible"`
+	ConsultationProgressVisible       bool   `json:"consultation_progress_visible"`
+	EvidenceReadinessVisible          bool   `json:"evidence_readiness_visible"`
+	Confidence                        string `json:"confidence"`
+	ConfidenceAriaValue               string `json:"confidence_aria_value"`
+	EvidenceReadinessText             string `json:"evidence_readiness_text"`
+	ToolRequestSeedRequested          bool   `json:"tool_request_seed_requested,omitempty"`
+	ToolRequestSeedCount              int    `json:"tool_request_seed_count,omitempty"`
+	ToolRequestSeedMatchedCount       int    `json:"tool_request_seed_matched_count,omitempty"`
+	ToolRequestSeedMissing            string `json:"tool_request_seed_missing,omitempty"`
+	OperatorSeedCollectionRequested   *bool  `json:"operator_seed_collection_requested,omitempty"`
+	OperatorSeedCollectionTriggered   *bool  `json:"operator_seed_collection_triggered,omitempty"`
+	OperatorSeedCollectionCount       int    `json:"operator_seed_collection_count,omitempty"`
+	OperatorSeedCollectionBefore      int    `json:"operator_seed_collection_result_count_before,omitempty"`
+	OperatorSeedCollectionAfter       int    `json:"operator_seed_collection_result_count_after,omitempty"`
+	OperatorSeedAssistantBefore       int    `json:"operator_seed_collection_assistant_turns_before,omitempty"`
+	OperatorSeedAssistantAfter        int    `json:"operator_seed_collection_assistant_turns_after,omitempty"`
+	OperatorSeedAssistantDelta        int    `json:"operator_seed_collection_assistant_turn_delta,omitempty"`
+	OperatorSeedConfidenceBefore      string `json:"operator_seed_collection_confidence_before,omitempty"`
+	OperatorSeedConfidenceAfter       string `json:"operator_seed_collection_confidence_after,omitempty"`
+	OperatorSeedCollectionSummary     string `json:"operator_seed_collection_summary_text,omitempty"`
+	OperatorStagedCollectionRequested bool   `json:"operator_staged_collection_requested,omitempty"`
+	OperatorStagedCollectionCount     int    `json:"operator_staged_collection_count,omitempty"`
+	OperatorStagedCollectionTriggered *bool  `json:"operator_staged_collection_triggered,omitempty"`
+	OperatorStagedCollectionMatched   int    `json:"operator_staged_collection_matched_count,omitempty"`
+	OperatorStagedCollectionMissing   string `json:"operator_staged_collection_missing,omitempty"`
+	OperatorStagedCollectionModes     string `json:"operator_staged_collection_modes,omitempty"`
+	OperatorStagedCollectionBefore    int    `json:"operator_staged_collection_result_count_before,omitempty"`
+	OperatorStagedCollectionAfter     int    `json:"operator_staged_collection_result_count_after,omitempty"`
+	OperatorStagedAssistantBefore     int    `json:"operator_staged_collection_assistant_turns_before,omitempty"`
+	OperatorStagedAssistantAfter      int    `json:"operator_staged_collection_assistant_turns_after,omitempty"`
+	OperatorStagedAssistantDelta      int    `json:"operator_staged_collection_assistant_turn_delta,omitempty"`
+	OperatorStagedConfidenceBefore    string `json:"operator_staged_collection_confidence_before,omitempty"`
+	OperatorStagedConfidenceAfter     string `json:"operator_staged_collection_confidence_after,omitempty"`
+	OperatorStagedCollectionSummary   string `json:"operator_staged_collection_summary_text,omitempty"`
+	EvidencePlanCount                 int    `json:"evidence_plan_count,omitempty"`
+	EvidenceCollectionResultCount     int    `json:"evidence_collection_result_count,omitempty"`
+	EvidenceCollectionSummaryVisible  *bool  `json:"evidence_collection_summary_visible,omitempty"`
+	EvidenceCollectionSummaryText     string `json:"evidence_collection_summary_text,omitempty"`
+	PlannedEvidenceRequested          *bool  `json:"planned_evidence_collection_requested,omitempty"`
+	PlannedEvidenceAvailable          *bool  `json:"planned_evidence_collection_available,omitempty"`
+	PlannedEvidenceActionCount        int    `json:"planned_evidence_collection_action_count,omitempty"`
+	PlannedEvidenceTool               string `json:"planned_evidence_collection_tool,omitempty"`
+	PlannedEvidenceMode               string `json:"planned_evidence_collection_mode,omitempty"`
+	PlannedEvidenceSatisfied          *bool  `json:"planned_evidence_collection_satisfied,omitempty"`
+	PlannedEvidenceTriggered          *bool  `json:"planned_evidence_collection_triggered,omitempty"`
+	PlannedEvidenceAssistantBefore    int    `json:"planned_evidence_assistant_turns_before,omitempty"`
+	PlannedEvidenceAssistantAfter     int    `json:"planned_evidence_assistant_turns_after,omitempty"`
+	PlannedEvidenceAssistantDelta     int    `json:"planned_evidence_assistant_turn_delta,omitempty"`
+	PlannedEvidenceConfidenceBefore   string `json:"planned_evidence_confidence_before,omitempty"`
+	PlannedEvidenceConfidenceAfter    string `json:"planned_evidence_confidence_after,omitempty"`
+	PlannedEvidenceResultsBefore      int    `json:"planned_evidence_collection_result_count_before,omitempty"`
+	PlannedEvidenceResultsAfter       int    `json:"planned_evidence_collection_result_count_after,omitempty"`
+	PlannedEvidenceBackendResults     int    `json:"planned_evidence_backend_collection_result_count,omitempty"`
+	PlannedEvidenceBackendCollected   int    `json:"planned_evidence_backend_collected_result_count,omitempty"`
+	PlannedEvidenceSummaryText        string `json:"planned_evidence_collection_summary_text,omitempty"`
+	PlannedEvidenceSummaryVisible     *bool  `json:"planned_evidence_collection_summary_visible,omitempty"`
+	PlannedEvidenceFinalVisible       *bool  `json:"planned_evidence_final_conclusion_visible,omitempty"`
+	PlannedEvidenceReadyVisible       *bool  `json:"planned_evidence_ready_for_confirmation_visible,omitempty"`
+	PlannedEvidenceTimelineVisible    *bool  `json:"planned_evidence_timeline_visible,omitempty"`
+	SupplementalEvidenceRequested     *bool  `json:"supplemental_evidence_requested,omitempty"`
+	SupplementalEvidenceRequired      *bool  `json:"supplemental_evidence_required,omitempty"`
+	SupplementalFollowUpAvailable     *bool  `json:"supplemental_follow_up_available,omitempty"`
+	SupplementalFollowUpCount         int    `json:"supplemental_follow_up_count,omitempty"`
+	SupplementalRequestLabel          string `json:"supplemental_request_label,omitempty"`
+	SupplementalBlockReason           string `json:"supplemental_block_reason,omitempty"`
+	SupplementalEvidenceSubmitted     *bool  `json:"supplemental_evidence_submitted,omitempty"`
+	SupplementalEvidenceLength        int    `json:"supplemental_evidence_length,omitempty"`
+	SupplementalEvidenceSHA256        string `json:"supplemental_evidence_sha256,omitempty"`
+	SupplementalAssistantBefore       int    `json:"supplemental_assistant_turns_before,omitempty"`
+	SupplementalAssistantAfter        int    `json:"supplemental_assistant_turns_after,omitempty"`
+	SupplementalAssistantDelta        int    `json:"supplemental_assistant_turn_delta,omitempty"`
+	SupplementalCompletionEvidence    string `json:"supplemental_completion_evidence_after,omitempty"`
+	SupplementalConfidenceBefore      string `json:"supplemental_confidence_before,omitempty"`
+	SupplementalConfidenceAfter       string `json:"supplemental_confidence_after,omitempty"`
+	SupplementalHistoryVisible        *bool  `json:"supplemental_history_visible,omitempty"`
+	SupplementalHistoryBefore         int    `json:"supplemental_history_count_before,omitempty"`
+	SupplementalHistoryAfter          int    `json:"supplemental_history_count_after,omitempty"`
+	SupplementalReviewQueueVisible    *bool  `json:"supplemental_review_queue_visible,omitempty"`
+	SupplementalReviewQueueItemCount  int    `json:"supplemental_review_queue_item_count,omitempty"`
+	SupplementalConfirmAvailable      *bool  `json:"supplemental_confirm_conclusion_available_after,omitempty"`
+	SupplementalConfirmBlockReason    string `json:"supplemental_confirm_block_reason_after,omitempty"`
+	ConfirmConclusionRequested        *bool  `json:"confirm_conclusion_requested,omitempty"`
+	ConfirmConclusionAvailable        *bool  `json:"confirm_conclusion_available,omitempty"`
+	ConfirmConclusionBlocked          *bool  `json:"confirm_conclusion_blocked,omitempty"`
+	ConfirmConclusionBlockReason      string `json:"confirm_conclusion_block_reason,omitempty"`
+	FinalConclusionConfirmed          *bool  `json:"final_conclusion_confirmed,omitempty"`
+	FinalConclusionVisible            *bool  `json:"final_conclusion_visible,omitempty"`
+	ConfirmedStateText                string `json:"confirmed_state_text,omitempty"`
+	ConnectionStatusAfterConfirm      string `json:"connection_status_after_confirm,omitempty"`
+	ConfirmButtonDisabled             *bool  `json:"confirm_button_disabled_after_confirm,omitempty"`
+	CloseReasonVisible                *bool  `json:"close_reason_visible,omitempty"`
+	ConclusionVersionVisible          *bool  `json:"conclusion_version_visible,omitempty"`
 }
 
 type closeProof struct {
@@ -148,6 +250,29 @@ type closeNotificationEvent struct {
 	IdempotencyKey    string `json:"idempotency_key"`
 	ProviderMessageID string `json:"provider_message_id"`
 	ProviderStatus    string `json:"provider_status"`
+}
+
+type notificationProof struct {
+	CheckedAt     string                   `json:"checked_at"`
+	Requested     bool                     `json:"requested"`
+	Passed        bool                     `json:"passed"`
+	SkippedReason string                   `json:"skipped_reason,omitempty"`
+	Entries       []notificationProofEntry `json:"entries,omitempty"`
+}
+
+type notificationProofEntry struct {
+	EventKind                    string          `json:"event_kind"`
+	NotificationChannelProfileID json.RawMessage `json:"notification_channel_profile_id"`
+	ProviderStatus               string          `json:"provider_status"`
+	ProviderMessageID            string          `json:"provider_message_id,omitempty"`
+	AssistantMessageID           string          `json:"assistant_message_id,omitempty"`
+	AssistantTurnID              json.RawMessage `json:"assistant_turn_id,omitempty"`
+	TurnCount                    json.RawMessage `json:"turn_count,omitempty"`
+	ContentKind                  string          `json:"content_kind"`
+	ContentSHA256                string          `json:"content_sha256"`
+	RecommendedActionCount       json.RawMessage `json:"recommended_action_count,omitempty"`
+	EvidenceRequestCount         json.RawMessage `json:"evidence_request_count,omitempty"`
+	OccurredAt                   string          `json:"occurred_at"`
 }
 
 var nowUTC = func() time.Time {
@@ -249,11 +374,42 @@ func validate(out smokeOutput) error {
 	if out.Browser == nil {
 		return fmt.Errorf("browser proof is required")
 	}
-	if err := validateBrowserProof(*out.Browser, out.MessageLength, messageSHA256); err != nil {
+	browserConfirmedConclusion, err := validateBrowserProof(*out.Browser, out.MessageLength, messageSHA256)
+	if err != nil {
 		return err
 	}
 	if out.CloseNotification != nil && !strings.Contains(evidence, "close_notification") {
 		return fmt.Errorf("evidence must mention close_notification when close_notification proof is present")
+	}
+	notificationChannelID, notificationRequested, err := optionalPositiveInt64(out.Request.NotificationChannelProfileID)
+	if err != nil {
+		return fmt.Errorf("request.notification_channel_profile_id: %w", err)
+	}
+	if out.Request.RequireNotificationProof {
+		if !notificationRequested {
+			return fmt.Errorf("request.require_notification_proof requires request.notification_channel_profile_id")
+		}
+		if out.CloseNotification == nil {
+			return fmt.Errorf("request.require_notification_proof requires close_notification proof")
+		}
+		if !strings.Contains(evidence, "ai_notification_delivery") {
+			return fmt.Errorf("evidence must mention ai_notification_delivery when notification proof is required")
+		}
+	}
+	if browserConfirmedConclusion && !strings.Contains(evidence, "confirm_conclusion") {
+		return fmt.Errorf("evidence must mention confirm_conclusion when browser confirmation proof is present")
+	}
+	if browserSatisfiedPlannedEvidence(*out.Browser) && !strings.Contains(evidence, "planned_evidence_collection") {
+		return fmt.Errorf("evidence must mention planned_evidence_collection when browser planned evidence proof is present")
+	}
+	if strings.Contains(evidence, "planned_evidence_collection") && !browserSatisfiedPlannedEvidence(*out.Browser) {
+		return fmt.Errorf("evidence must not mention planned_evidence_collection without browser planned evidence proof")
+	}
+	if browserSubmittedSupplementalEvidence(*out.Browser) && !strings.Contains(evidence, "supplemental_evidence") {
+		return fmt.Errorf("evidence must mention supplemental_evidence when browser supplemental evidence proof is present")
+	}
+	if strings.Contains(evidence, "supplemental_evidence") && !browserSubmittedSupplementalEvidence(*out.Browser) {
+		return fmt.Errorf("evidence must not mention supplemental_evidence without browser supplemental evidence proof")
 	}
 
 	requestEvidenceSnapshotID, requestHasEvidenceSnapshot, err := validateProofRequest(out.Request, sessionID, out.MessageLength, messageSHA256, out.CreatedRoom != nil)
@@ -280,9 +436,11 @@ func validate(out smokeOutput) error {
 		}
 	}
 	if out.CloseNotification != nil {
-		return validateCloseProof(*out.CloseNotification, sessionID, out.Browser.AssistantTurnsAfter, out.CreatedRoom)
+		if err := validateCloseProof(*out.CloseNotification, sessionID, out.Browser.AssistantTurnsAfter, out.CreatedRoom); err != nil {
+			return err
+		}
 	}
-	return nil
+	return validateNotificationProof(out.NotificationProof, notificationChannelID, out.Request.RequireNotificationProof || notificationRequested)
 }
 
 func validateProofRequest(req proofRequest, sessionID string, messageLength int, messageSHA256 string, createdRoom bool) (int64, bool, error) {
@@ -332,99 +490,107 @@ func validateProofRequest(req proofRequest, sessionID string, messageLength int,
 	if mode == "create_room" && !hasValue {
 		return 0, false, fmt.Errorf("request.evidence_snapshot_id is required for create_room")
 	}
+	if _, hasNotificationChannel, err := optionalPositiveInt64(req.NotificationChannelProfileID); err != nil {
+		return 0, false, fmt.Errorf("request.notification_channel_profile_id: %w", err)
+	} else if req.RequireNotificationProof && !hasNotificationChannel {
+		return 0, false, fmt.Errorf("request.require_notification_proof requires request.notification_channel_profile_id")
+	}
 	return value, hasValue, nil
 }
 
-func validateBrowserProof(proof browserProof, messageLength int, messageSHA256 string) error {
+func validateBrowserProof(proof browserProof, messageLength int, messageSHA256 string) (bool, error) {
 	if !proof.StateLoaded {
-		return fmt.Errorf("browser.state_loaded must be true")
+		return false, fmt.Errorf("browser.state_loaded must be true")
 	}
 	if !proof.TurnResultObserved {
-		return fmt.Errorf("browser.turn_result_observed must be true")
+		return false, fmt.Errorf("browser.turn_result_observed must be true")
 	}
 	if !proof.SubmittedMessageVisible {
-		return fmt.Errorf("browser.submitted_message_visible must be true")
+		return false, fmt.Errorf("browser.submitted_message_visible must be true")
 	}
 	if proof.SubmittedMessageLength <= 0 {
-		return fmt.Errorf("browser.submitted_message_length must be > 0")
+		return false, fmt.Errorf("browser.submitted_message_length must be > 0")
 	}
 	if proof.SubmittedMessageLength != messageLength {
-		return fmt.Errorf("browser.submitted_message_length must match message_length")
+		return false, fmt.Errorf("browser.submitted_message_length must match message_length")
 	}
 	submittedMessageSHA256, err := validateSHA256Hex("browser.submitted_message_sha256", proof.SubmittedMessageSHA256)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if submittedMessageSHA256 != messageSHA256 {
-		return fmt.Errorf("browser.submitted_message_sha256 must match message_sha256")
+		return false, fmt.Errorf("browser.submitted_message_sha256 must match message_sha256")
 	}
 	if proof.AssistantTurnsBefore < 0 {
-		return fmt.Errorf("browser.assistant_turns_before must be >= 0")
+		return false, fmt.Errorf("browser.assistant_turns_before must be >= 0")
 	}
 	if proof.AssistantTurnsAfter <= proof.AssistantTurnsBefore {
-		return fmt.Errorf("browser.assistant_turns_after must be greater than assistant_turns_before")
+		return false, fmt.Errorf("browser.assistant_turns_after must be greater than assistant_turns_before")
 	}
 	assistantTurnDelta := proof.AssistantTurnsAfter - proof.AssistantTurnsBefore
 	if proof.AssistantTurnDelta != assistantTurnDelta {
-		return fmt.Errorf("browser.assistant_turn_delta must equal assistant_turns_after - assistant_turns_before")
+		return false, fmt.Errorf("browser.assistant_turn_delta must equal assistant_turns_after - assistant_turns_before")
 	}
 	if proof.TranscriptMessagesBefore < 0 {
-		return fmt.Errorf("browser.transcript_messages_before must be >= 0")
+		return false, fmt.Errorf("browser.transcript_messages_before must be >= 0")
 	}
 	if proof.TranscriptMessagesBefore != proof.AssistantTurnsBefore*2 {
-		return fmt.Errorf("browser.transcript_messages_before must equal assistant_turns_before * 2")
+		return false, fmt.Errorf("browser.transcript_messages_before must equal assistant_turns_before * 2")
 	}
 	if proof.TranscriptMessagesAfter != proof.TranscriptMessagesBefore+(2*assistantTurnDelta) {
-		return fmt.Errorf("browser.transcript_messages_after must equal transcript_messages_before + 2 * assistant_turn_delta")
+		return false, fmt.Errorf("browser.transcript_messages_after must equal transcript_messages_before + 2 * assistant_turn_delta")
 	}
 	if proof.TranscriptMessagesAfter != proof.AssistantTurnsAfter*2 {
-		return fmt.Errorf("browser.transcript_messages_after must equal assistant_turns_after * 2")
+		return false, fmt.Errorf("browser.transcript_messages_after must equal assistant_turns_after * 2")
 	}
 	status := strings.TrimSpace(proof.ConnectionStatusAfterTurn)
 	if status == "" {
-		return fmt.Errorf("browser.connection_status_after_turn must be non-empty")
+		return false, fmt.Errorf("browser.connection_status_after_turn must be non-empty")
 	}
 	if status != proof.ConnectionStatusAfterTurn {
-		return fmt.Errorf("browser.connection_status_after_turn must not contain leading or trailing whitespace")
+		return false, fmt.Errorf("browser.connection_status_after_turn must not contain leading or trailing whitespace")
 	}
 	if status != "connected" {
-		return fmt.Errorf("browser.connection_status_after_turn = %q, want connected", status)
+		return false, fmt.Errorf("browser.connection_status_after_turn = %q, want connected", status)
 	}
 	completedTurnText, err := validateRequiredCleanString("browser.completed_turn_text", proof.CompletedTurnText)
 	if err != nil {
-		return err
+		return false, err
 	}
 	turnNumber, ok := completedTurnNumber(completedTurnText)
 	if !ok {
-		return fmt.Errorf("browser.completed_turn_text must match a completed turn log entry")
+		return false, fmt.Errorf("browser.completed_turn_text must match a completed turn or loaded state log entry")
 	}
-	if turnNumber != proof.AssistantTurnsAfter {
-		return fmt.Errorf("browser.completed_turn_text must match assistant_turns_after")
+	if turnNumber <= proof.AssistantTurnsBefore || turnNumber > proof.AssistantTurnsAfter {
+		return false, fmt.Errorf("browser.completed_turn_text must be within observed assistant turn bounds")
+	}
+	if turnNumber != proof.AssistantTurnsAfter && !browserCompletedTurnTextMayLag(proof, turnNumber) {
+		return false, fmt.Errorf("browser.completed_turn_text must match assistant_turns_after")
 	}
 	if !proof.ConsultationInsightVisible {
-		return fmt.Errorf("browser.consultation_insight_visible must be true")
+		return false, fmt.Errorf("browser.consultation_insight_visible must be true")
 	}
 	if !proof.ConsultationProgressVisible {
-		return fmt.Errorf("browser.consultation_progress_visible must be true")
+		return false, fmt.Errorf("browser.consultation_progress_visible must be true")
 	}
 	if !proof.EvidenceReadinessVisible {
-		return fmt.Errorf("browser.evidence_readiness_visible must be true")
+		return false, fmt.Errorf("browser.evidence_readiness_visible must be true")
 	}
 	confidence, err := validateRequiredCleanString("browser.confidence", proof.Confidence)
 	if err != nil {
-		return err
+		return false, err
 	}
 	switch confidence {
 	case "low", "medium", "high":
 	default:
-		return fmt.Errorf("browser.confidence = %q, want low, medium, or high", confidence)
+		return false, fmt.Errorf("browser.confidence = %q, want low, medium, or high", confidence)
 	}
 	confidenceAriaValue, err := validateRequiredCleanString("browser.confidence_aria_value", proof.ConfidenceAriaValue)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if confidenceAriaValue != confidence+" confidence" {
-		return fmt.Errorf("browser.confidence_aria_value must match browser.confidence")
+		return false, fmt.Errorf("browser.confidence_aria_value must match browser.confidence")
 	}
 	readinessText, err := validateBoundedText(
 		"browser.evidence_readiness_text",
@@ -432,14 +598,579 @@ func validateBrowserProof(proof browserProof, messageLength int, messageSHA256 s
 		maxProofBrowserReadinessTextBytes,
 	)
 	if err != nil {
-		return err
+		return false, err
 	}
 	for _, label := range []string{"Plan", "Collected", "Missing", "Suggestions", "Next"} {
 		if !strings.Contains(readinessText, label) {
-			return fmt.Errorf("browser.evidence_readiness_text must include %s", label)
+			return false, fmt.Errorf("browser.evidence_readiness_text must include %s", label)
+		}
+	}
+	if proof.ToolRequestSeedCount < 0 {
+		return false, fmt.Errorf("browser.tool_request_seed_count must be >= 0")
+	}
+	if !proof.ToolRequestSeedRequested && proof.ToolRequestSeedCount != 0 {
+		return false, fmt.Errorf("browser.tool_request_seed_count must be 0 unless tool_request_seed_requested is true")
+	}
+	if proof.ToolRequestSeedRequested && proof.ToolRequestSeedCount == 0 {
+		return false, fmt.Errorf("browser.tool_request_seed_count must be > 0 when tool_request_seed_requested is true")
+	}
+	if proof.ToolRequestSeedMatchedCount < 0 {
+		return false, fmt.Errorf("browser.tool_request_seed_matched_count must be >= 0")
+	}
+	if !proof.ToolRequestSeedRequested {
+		if proof.ToolRequestSeedMatchedCount != 0 {
+			return false, fmt.Errorf("browser.tool_request_seed_matched_count must be 0 unless tool_request_seed_requested is true")
+		}
+		if strings.TrimSpace(proof.ToolRequestSeedMissing) != "" {
+			return false, fmt.Errorf("browser.tool_request_seed_missing must be empty unless tool_request_seed_requested is true")
+		}
+	}
+	if proof.ToolRequestSeedRequested {
+		if proof.ToolRequestSeedMatchedCount != proof.ToolRequestSeedCount {
+			missing, err := validateBoundedText(
+				"browser.tool_request_seed_missing",
+				proof.ToolRequestSeedMissing,
+				maxProofBrowserSeedMissingBytes,
+			)
+			if err != nil {
+				return false, err
+			}
+			if missing == "" {
+				return false, fmt.Errorf("browser.tool_request_seed_missing must describe unmatched seeded tool requests")
+			}
+			return false, fmt.Errorf("browser.tool_request_seed_matched_count must cover seeded tool requests")
+		}
+		if strings.TrimSpace(proof.ToolRequestSeedMissing) != "" {
+			return false, fmt.Errorf("browser.tool_request_seed_missing must be empty when all seeded tool requests matched")
+		}
+	}
+	if proof.EvidencePlanCount < 0 {
+		return false, fmt.Errorf("browser.evidence_plan_count must be >= 0")
+	}
+	if proof.EvidenceCollectionResultCount < 0 {
+		return false, fmt.Errorf("browser.evidence_collection_result_count must be >= 0")
+	}
+	if proof.EvidenceCollectionSummaryVisible != nil {
+		if *proof.EvidenceCollectionSummaryVisible {
+			if _, err := validateBoundedText(
+				"browser.evidence_collection_summary_text",
+				proof.EvidenceCollectionSummaryText,
+				maxProofBrowserCollectionSummaryTextBytes,
+			); err != nil {
+				return false, err
+			}
+		} else if strings.TrimSpace(proof.EvidenceCollectionSummaryText) != "" {
+			return false, fmt.Errorf("browser.evidence_collection_summary_text must be empty when summary is not visible")
+		}
+		if proof.EvidenceCollectionResultCount > 0 &&
+			!*proof.EvidenceCollectionSummaryVisible &&
+			proof.PlannedEvidenceMode != "already_final" {
+			return false, fmt.Errorf("browser.evidence_collection_summary_visible must be true when collection results are present")
+		}
+	}
+	if err := validateBrowserPlannedEvidenceProof(proof); err != nil {
+		return false, err
+	}
+	if err := validateBrowserOperatorSeedCollectionProof(proof); err != nil {
+		return false, err
+	}
+	if err := validateBrowserSupplementalEvidenceProof(proof); err != nil {
+		return false, err
+	}
+	if proof.ConfirmConclusionRequested == nil || !*proof.ConfirmConclusionRequested {
+		return false, nil
+	}
+	if proof.ConfirmConclusionAvailable == nil {
+		return false, fmt.Errorf("browser.confirm_conclusion_available is required when confirmation is requested")
+	}
+	if !*proof.ConfirmConclusionAvailable {
+		if proof.ConfirmConclusionBlocked == nil || !*proof.ConfirmConclusionBlocked {
+			return false, fmt.Errorf("browser.confirm_conclusion_blocked must be true when requested confirmation is unavailable")
+		}
+		if _, err := validateBoundedCleanString(
+			"browser.confirm_conclusion_block_reason",
+			proof.ConfirmConclusionBlockReason,
+			maxProofBrowserConfirmBlockReasonBytes,
+		); err != nil {
+			return false, err
+		}
+		if proof.FinalConclusionConfirmed != nil && *proof.FinalConclusionConfirmed {
+			return false, fmt.Errorf("browser.final_conclusion_confirmed must not be true when requested confirmation is unavailable")
+		}
+		return false, nil
+	}
+	if proof.FinalConclusionConfirmed == nil || !*proof.FinalConclusionConfirmed {
+		return false, fmt.Errorf("browser.final_conclusion_confirmed must be true when confirmation is requested")
+	}
+	if proof.FinalConclusionVisible == nil || !*proof.FinalConclusionVisible {
+		return false, fmt.Errorf("browser.final_conclusion_visible must be true when confirmation is requested")
+	}
+	confirmedStateText, err := validateRequiredCleanString("browser.confirmed_state_text", proof.ConfirmedStateText)
+	if err != nil {
+		return false, err
+	}
+	wantConfirmedStateText := fmt.Sprintf("Loaded state: closed, %d turn(s).", proof.AssistantTurnsAfter)
+	if confirmedStateText != wantConfirmedStateText {
+		return false, fmt.Errorf("browser.confirmed_state_text = %q, want %q", confirmedStateText, wantConfirmedStateText)
+	}
+	statusAfterConfirm, err := validateRequiredCleanString("browser.connection_status_after_confirm", proof.ConnectionStatusAfterConfirm)
+	if err != nil {
+		return false, err
+	}
+	if statusAfterConfirm != "connected" {
+		return false, fmt.Errorf("browser.connection_status_after_confirm = %q, want connected", statusAfterConfirm)
+	}
+	if proof.ConfirmButtonDisabled == nil || !*proof.ConfirmButtonDisabled {
+		return false, fmt.Errorf("browser.confirm_button_disabled_after_confirm must be true when confirmation is requested")
+	}
+	if proof.CloseReasonVisible == nil || !*proof.CloseReasonVisible {
+		return false, fmt.Errorf("browser.close_reason_visible must be true when confirmation is requested")
+	}
+	if proof.ConclusionVersionVisible == nil || !*proof.ConclusionVersionVisible {
+		return false, fmt.Errorf("browser.conclusion_version_visible must be true when confirmation is requested")
+	}
+	return true, nil
+}
+
+func validateBrowserPlannedEvidenceProof(proof browserProof) error {
+	if proof.PlannedEvidenceRequested == nil || !*proof.PlannedEvidenceRequested {
+		if proof.PlannedEvidenceTriggered != nil && *proof.PlannedEvidenceTriggered {
+			return fmt.Errorf("browser.planned_evidence_collection_triggered must not be true when planned evidence collection is not requested")
+		}
+		if proof.PlannedEvidenceSatisfied != nil && *proof.PlannedEvidenceSatisfied {
+			return fmt.Errorf("browser.planned_evidence_collection_satisfied must not be true when planned evidence collection is not requested")
+		}
+		return nil
+	}
+	if proof.PlannedEvidenceSatisfied == nil || !*proof.PlannedEvidenceSatisfied {
+		return fmt.Errorf("browser.planned_evidence_collection_satisfied must be true when planned evidence collection is requested")
+	}
+	switch proof.PlannedEvidenceMode {
+	case "manual_update":
+		return validateBrowserManualPlannedEvidenceProof(proof)
+	case "auto_collected":
+		return validateBrowserAutoCollectedPlannedEvidenceProof(proof)
+	case "already_final":
+		return validateBrowserAlreadyFinalPlannedEvidenceProof(proof)
+	default:
+		return fmt.Errorf("browser.planned_evidence_collection_mode must be manual_update, auto_collected, or already_final")
+	}
+}
+
+func validateBrowserManualPlannedEvidenceProof(proof browserProof) error {
+	if proof.PlannedEvidenceAvailable == nil {
+		return fmt.Errorf("browser.planned_evidence_collection_available is required when planned evidence collection is requested")
+	}
+	if !*proof.PlannedEvidenceAvailable {
+		return fmt.Errorf("browser.planned_evidence_collection_available must be true when planned evidence collection is requested")
+	}
+	if proof.PlannedEvidenceActionCount <= 0 {
+		return fmt.Errorf("browser.planned_evidence_collection_action_count must be > 0 when planned evidence collection is available")
+	}
+	switch proof.PlannedEvidenceTool {
+	case "active_alerts", "metric_query", "metric_range_query":
+	default:
+		return fmt.Errorf("browser.planned_evidence_collection_tool must be active_alerts, metric_query, or metric_range_query")
+	}
+	if proof.PlannedEvidenceTriggered == nil || !*proof.PlannedEvidenceTriggered {
+		return fmt.Errorf("browser.planned_evidence_collection_triggered must be true when planned evidence collection is requested")
+	}
+	if proof.PlannedEvidenceAssistantBefore < proof.AssistantTurnsBefore {
+		return fmt.Errorf("browser.planned_evidence_assistant_turns_before must be >= browser.assistant_turns_before")
+	}
+	if proof.PlannedEvidenceAssistantAfter <= proof.PlannedEvidenceAssistantBefore {
+		return fmt.Errorf("browser.planned_evidence_assistant_turns_after must be greater than planned_evidence_assistant_turns_before")
+	}
+	if proof.PlannedEvidenceAssistantAfter > proof.AssistantTurnsAfter {
+		return fmt.Errorf("browser.planned_evidence_assistant_turns_after must not exceed browser.assistant_turns_after")
+	}
+	if proof.PlannedEvidenceAssistantDelta != proof.PlannedEvidenceAssistantAfter-proof.PlannedEvidenceAssistantBefore {
+		return fmt.Errorf("browser.planned_evidence_assistant_turn_delta must equal planned_evidence_assistant_turns_after - planned_evidence_assistant_turns_before")
+	}
+	if _, err := validateConfidenceValue("browser.planned_evidence_confidence_before", proof.PlannedEvidenceConfidenceBefore); err != nil {
+		return err
+	}
+	plannedEvidenceConfidenceAfter, err := validateConfidenceValue(
+		"browser.planned_evidence_confidence_after",
+		proof.PlannedEvidenceConfidenceAfter,
+	)
+	if err != nil {
+		return err
+	}
+	if proof.PlannedEvidenceAssistantAfter == proof.AssistantTurnsAfter && plannedEvidenceConfidenceAfter != proof.Confidence {
+		return fmt.Errorf("browser.planned_evidence_confidence_after must match browser.confidence when planned evidence collection is the latest assistant turn")
+	}
+	if proof.PlannedEvidenceResultsBefore < 0 {
+		return fmt.Errorf("browser.planned_evidence_collection_result_count_before must be >= 0")
+	}
+	if proof.PlannedEvidenceResultsAfter < proof.PlannedEvidenceResultsBefore {
+		return fmt.Errorf("browser.planned_evidence_collection_result_count_after must be >= planned_evidence_collection_result_count_before")
+	}
+	if proof.PlannedEvidenceAssistantAfter == proof.AssistantTurnsAfter &&
+		proof.PlannedEvidenceResultsAfter != proof.EvidenceCollectionResultCount {
+		return fmt.Errorf("browser.planned_evidence_collection_result_count_after must match evidence_collection_result_count when planned evidence collection is the latest assistant turn")
+	}
+	if proof.PlannedEvidenceTimelineVisible == nil || !*proof.PlannedEvidenceTimelineVisible {
+		return fmt.Errorf("browser.planned_evidence_timeline_visible must be true when planned evidence collection is triggered")
+	}
+	return nil
+}
+
+func validateBrowserAutoCollectedPlannedEvidenceProof(proof browserProof) error {
+	if proof.PlannedEvidenceAvailable == nil {
+		return fmt.Errorf("browser.planned_evidence_collection_available is required when planned evidence collection is requested")
+	}
+	if *proof.PlannedEvidenceAvailable {
+		return fmt.Errorf("browser.planned_evidence_collection_available must be false when planned evidence was auto-collected")
+	}
+	if proof.PlannedEvidenceActionCount != 0 {
+		return fmt.Errorf("browser.planned_evidence_collection_action_count must be 0 when planned evidence was auto-collected")
+	}
+	if proof.PlannedEvidenceTriggered != nil && *proof.PlannedEvidenceTriggered {
+		return fmt.Errorf("browser.planned_evidence_collection_triggered must not be true when planned evidence was auto-collected")
+	}
+	if proof.PlannedEvidenceResultsBefore < 0 {
+		return fmt.Errorf("browser.planned_evidence_collection_result_count_before must be >= 0 when planned evidence was auto-collected")
+	}
+	if proof.PlannedEvidenceResultsAfter < proof.PlannedEvidenceResultsBefore {
+		return fmt.Errorf("browser.planned_evidence_collection_result_count_after must be >= planned_evidence_collection_result_count_before when planned evidence was auto-collected")
+	}
+	if proof.PlannedEvidenceResultsAfter != proof.EvidenceCollectionResultCount {
+		return fmt.Errorf("browser.planned_evidence_collection_result_count_after must match evidence_collection_result_count when planned evidence was auto-collected")
+	}
+	if proof.PlannedEvidenceBackendResults < 0 {
+		return fmt.Errorf("browser.planned_evidence_backend_collection_result_count must be >= 0")
+	}
+	if proof.PlannedEvidenceBackendCollected < 0 {
+		return fmt.Errorf("browser.planned_evidence_backend_collected_result_count must be >= 0")
+	}
+	if proof.PlannedEvidenceBackendCollected > proof.PlannedEvidenceBackendResults {
+		return fmt.Errorf("browser.planned_evidence_backend_collected_result_count must not exceed planned_evidence_backend_collection_result_count")
+	}
+	if proof.PlannedEvidenceResultsAfter == 0 && proof.PlannedEvidenceBackendCollected == 0 {
+		return fmt.Errorf("browser.planned_evidence_collection_result_count_after or planned_evidence_backend_collected_result_count must prove collected evidence")
+	}
+	if _, err := validateConfidenceValue("browser.planned_evidence_confidence_after", proof.PlannedEvidenceConfidenceAfter); err != nil {
+		return err
+	}
+	if proof.PlannedEvidenceSummaryVisible != nil && !*proof.PlannedEvidenceSummaryVisible {
+		if strings.TrimSpace(proof.PlannedEvidenceSummaryText) != "" {
+			return fmt.Errorf("browser.planned_evidence_collection_summary_text must be empty when planned evidence collection summary is not visible")
+		}
+		if plannedEvidenceFinalStateVisible(proof) {
+			return nil
+		}
+	}
+	summary, err := validateBoundedText(
+		"browser.planned_evidence_collection_summary_text",
+		proof.PlannedEvidenceSummaryText,
+		maxProofBrowserCollectionSummaryTextBytes,
+	)
+	if err != nil {
+		return err
+	}
+	if strings.HasPrefix(summary, "0/") || strings.Contains(summary, " 0/") {
+		return fmt.Errorf("browser.planned_evidence_collection_summary_text must not report zero collected evidence")
+	}
+	return nil
+}
+
+func validateBrowserAlreadyFinalPlannedEvidenceProof(proof browserProof) error {
+	if proof.PlannedEvidenceAvailable == nil {
+		return fmt.Errorf("browser.planned_evidence_collection_available is required when planned evidence collection is requested")
+	}
+	if *proof.PlannedEvidenceAvailable {
+		return fmt.Errorf("browser.planned_evidence_collection_available must be false when diagnosis is already final")
+	}
+	if proof.PlannedEvidenceActionCount != 0 {
+		return fmt.Errorf("browser.planned_evidence_collection_action_count must be 0 when diagnosis is already final")
+	}
+	if strings.TrimSpace(proof.PlannedEvidenceTool) != "" {
+		return fmt.Errorf("browser.planned_evidence_collection_tool must be empty when diagnosis is already final")
+	}
+	if proof.PlannedEvidenceTriggered != nil && *proof.PlannedEvidenceTriggered {
+		return fmt.Errorf("browser.planned_evidence_collection_triggered must not be true when diagnosis is already final")
+	}
+	if !plannedEvidenceFinalStateVisible(proof) {
+		return fmt.Errorf("browser.planned_evidence_final_conclusion_visible or browser.planned_evidence_ready_for_confirmation_visible must be true when diagnosis is already final")
+	}
+	if proof.PlannedEvidenceResultsBefore < 0 {
+		return fmt.Errorf("browser.planned_evidence_collection_result_count_before must be >= 0")
+	}
+	if proof.PlannedEvidenceResultsAfter != proof.PlannedEvidenceResultsBefore {
+		return fmt.Errorf("browser.planned_evidence_collection_result_count_after must match planned_evidence_collection_result_count_before when diagnosis is already final")
+	}
+	if proof.PlannedEvidenceResultsAfter != proof.EvidenceCollectionResultCount {
+		return fmt.Errorf("browser.planned_evidence_collection_result_count_after must match evidence_collection_result_count when diagnosis is already final")
+	}
+	if proof.PlannedEvidenceAssistantAfter <= 0 {
+		return fmt.Errorf("browser.planned_evidence_assistant_turns_after must be > 0 when diagnosis is already final")
+	}
+	if proof.PlannedEvidenceAssistantAfter != proof.AssistantTurnsAfter {
+		return fmt.Errorf("browser.planned_evidence_assistant_turns_after must match browser.assistant_turns_after when diagnosis is already final")
+	}
+	plannedEvidenceConfidenceAfter, err := validateConfidenceValue(
+		"browser.planned_evidence_confidence_after",
+		proof.PlannedEvidenceConfidenceAfter,
+	)
+	if err != nil {
+		return err
+	}
+	if plannedEvidenceConfidenceAfter != proof.Confidence {
+		return fmt.Errorf("browser.planned_evidence_confidence_after must match browser.confidence when diagnosis is already final")
+	}
+	if proof.PlannedEvidenceSummaryVisible != nil {
+		if *proof.PlannedEvidenceSummaryVisible {
+			if _, err := validateBoundedText(
+				"browser.planned_evidence_collection_summary_text",
+				proof.PlannedEvidenceSummaryText,
+				maxProofBrowserCollectionSummaryTextBytes,
+			); err != nil {
+				return err
+			}
+		} else if strings.TrimSpace(proof.PlannedEvidenceSummaryText) != "" {
+			return fmt.Errorf("browser.planned_evidence_collection_summary_text must be empty when planned evidence collection summary is not visible")
 		}
 	}
 	return nil
+}
+
+func plannedEvidenceFinalStateVisible(proof browserProof) bool {
+	return (proof.PlannedEvidenceFinalVisible != nil && *proof.PlannedEvidenceFinalVisible) ||
+		(proof.PlannedEvidenceReadyVisible != nil && *proof.PlannedEvidenceReadyVisible)
+}
+
+func validateBrowserOperatorSeedCollectionProof(proof browserProof) error {
+	if proof.OperatorSeedCollectionRequested == nil || !*proof.OperatorSeedCollectionRequested {
+		if proof.OperatorSeedCollectionTriggered != nil && *proof.OperatorSeedCollectionTriggered {
+			return fmt.Errorf("browser.operator_seed_collection_triggered must not be true when operator seed collection is not requested")
+		}
+		if proof.OperatorSeedCollectionCount != 0 {
+			return fmt.Errorf("browser.operator_seed_collection_count must be 0 when operator seed collection is not requested")
+		}
+		return nil
+	}
+	if !proof.ToolRequestSeedRequested {
+		return fmt.Errorf("browser.operator_seed_collection_requested requires tool_request_seed_requested")
+	}
+	if proof.OperatorSeedCollectionCount != proof.ToolRequestSeedCount {
+		return fmt.Errorf("browser.operator_seed_collection_count must match tool_request_seed_count")
+	}
+	if proof.OperatorSeedCollectionTriggered == nil || !*proof.OperatorSeedCollectionTriggered {
+		return fmt.Errorf("browser.operator_seed_collection_triggered must be true when operator seed collection is requested")
+	}
+	if proof.OperatorSeedCollectionBefore < 0 {
+		return fmt.Errorf("browser.operator_seed_collection_result_count_before must be >= 0")
+	}
+	if proof.OperatorSeedCollectionAfter <= 0 {
+		return fmt.Errorf("browser.operator_seed_collection_result_count_after must be > 0")
+	}
+	if proof.OperatorSeedCollectionAfter > proof.EvidenceCollectionResultCount {
+		return fmt.Errorf("browser.operator_seed_collection_result_count_after must not exceed evidence_collection_result_count")
+	}
+	if proof.OperatorSeedAssistantBefore < proof.AssistantTurnsBefore {
+		return fmt.Errorf("browser.operator_seed_collection_assistant_turns_before must be within assistant turn bounds")
+	}
+	if proof.OperatorSeedAssistantAfter <= proof.OperatorSeedAssistantBefore {
+		return fmt.Errorf("browser.operator_seed_collection_assistant_turns_after must be greater than before")
+	}
+	if proof.OperatorSeedAssistantAfter > proof.AssistantTurnsAfter {
+		return fmt.Errorf("browser.operator_seed_collection_assistant_turns_after must not exceed assistant_turns_after")
+	}
+	if proof.OperatorSeedAssistantDelta != proof.OperatorSeedAssistantAfter-proof.OperatorSeedAssistantBefore {
+		return fmt.Errorf("browser.operator_seed_collection_assistant_turn_delta must equal after - before")
+	}
+	if _, err := validateConfidenceValue("browser.operator_seed_collection_confidence_before", proof.OperatorSeedConfidenceBefore); err != nil {
+		return err
+	}
+	operatorConfidenceAfter, err := validateConfidenceValue(
+		"browser.operator_seed_collection_confidence_after",
+		proof.OperatorSeedConfidenceAfter,
+	)
+	if err != nil {
+		return err
+	}
+	if proof.OperatorSeedAssistantAfter == proof.AssistantTurnsAfter && operatorConfidenceAfter != proof.Confidence {
+		return fmt.Errorf("browser.operator_seed_collection_confidence_after must match browser.confidence")
+	}
+	if strings.TrimSpace(proof.OperatorSeedCollectionSummary) != "" {
+		if _, err := validateBoundedText(
+			"browser.operator_seed_collection_summary_text",
+			proof.OperatorSeedCollectionSummary,
+			maxProofBrowserCollectionSummaryTextBytes,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateBrowserSupplementalEvidenceProof(proof browserProof) error {
+	if proof.SupplementalEvidenceRequested == nil || !*proof.SupplementalEvidenceRequested {
+		if proof.SupplementalEvidenceSubmitted != nil && *proof.SupplementalEvidenceSubmitted {
+			return fmt.Errorf("browser.supplemental_evidence_submitted must not be true when supplemental evidence is not requested")
+		}
+		return nil
+	}
+	if proof.SupplementalEvidenceRequired == nil {
+		return fmt.Errorf("browser.supplemental_evidence_required is required when supplemental evidence is requested")
+	}
+	if proof.SupplementalFollowUpAvailable == nil {
+		return fmt.Errorf("browser.supplemental_follow_up_available is required when supplemental evidence is requested")
+	}
+	if !*proof.SupplementalFollowUpAvailable {
+		if proof.SupplementalEvidenceSubmitted != nil && *proof.SupplementalEvidenceSubmitted {
+			return fmt.Errorf("browser.supplemental_evidence_submitted must not be true when no follow-up is available")
+		}
+		if *proof.SupplementalEvidenceRequired {
+			return fmt.Errorf("browser.supplemental_follow_up_available must be true when supplemental evidence is required")
+		}
+		if _, err := validateBoundedCleanString(
+			"browser.supplemental_block_reason",
+			proof.SupplementalBlockReason,
+			maxProofBrowserSupplementalBlockReasonBytes,
+		); err != nil {
+			return err
+		}
+		return nil
+	}
+	if proof.SupplementalFollowUpCount <= 0 {
+		return fmt.Errorf("browser.supplemental_follow_up_count must be > 0 when follow-up is available")
+	}
+	if _, err := validateBoundedCleanString(
+		"browser.supplemental_request_label",
+		proof.SupplementalRequestLabel,
+		maxProofBrowserSupplementalLabelBytes,
+	); err != nil {
+		return err
+	}
+	if proof.SupplementalEvidenceSubmitted == nil || !*proof.SupplementalEvidenceSubmitted {
+		return fmt.Errorf("browser.supplemental_evidence_submitted must be true when follow-up is available")
+	}
+	if proof.SupplementalEvidenceLength <= 0 {
+		return fmt.Errorf("browser.supplemental_evidence_length must be > 0 when supplemental evidence is submitted")
+	}
+	if _, err := validateSHA256Hex("browser.supplemental_evidence_sha256", proof.SupplementalEvidenceSHA256); err != nil {
+		return err
+	}
+	if proof.SupplementalAssistantBefore < proof.AssistantTurnsBefore {
+		return fmt.Errorf("browser.supplemental_assistant_turns_before must be >= browser.assistant_turns_before")
+	}
+	if proof.SupplementalAssistantAfter != proof.AssistantTurnsAfter {
+		return fmt.Errorf("browser.supplemental_assistant_turns_after must match browser.assistant_turns_after")
+	}
+	if proof.SupplementalAssistantAfter <= proof.SupplementalAssistantBefore {
+		return fmt.Errorf("browser.supplemental_assistant_turns_after must be greater than supplemental_assistant_turns_before")
+	}
+	if proof.SupplementalAssistantDelta != proof.SupplementalAssistantAfter-proof.SupplementalAssistantBefore {
+		return fmt.Errorf("browser.supplemental_assistant_turn_delta must equal supplemental_assistant_turns_after - supplemental_assistant_turns_before")
+	}
+	if proof.SupplementalAssistantAfter > proof.AssistantTurnsAfter {
+		return fmt.Errorf("browser.supplemental_assistant_turns_after must not exceed browser.assistant_turns_after")
+	}
+	if strings.TrimSpace(proof.SupplementalCompletionEvidence) != "" {
+		completionEvidence, err := validateBoundedCleanString(
+			"browser.supplemental_completion_evidence_after",
+			proof.SupplementalCompletionEvidence,
+			maxProofBrowserCompletionEvidenceBytes,
+		)
+		if err != nil {
+			return err
+		}
+		turnNumber, ok := completedTurnNumber(completionEvidence)
+		if !ok {
+			return fmt.Errorf("browser.supplemental_completion_evidence_after must match a completed turn or loaded state log entry")
+		}
+		if turnNumber != proof.SupplementalAssistantAfter {
+			return fmt.Errorf("browser.supplemental_completion_evidence_after must match browser.supplemental_assistant_turns_after")
+		}
+	}
+	if _, err := validateConfidenceValue("browser.supplemental_confidence_before", proof.SupplementalConfidenceBefore); err != nil {
+		return err
+	}
+	supplementalConfidenceAfter, err := validateConfidenceValue(
+		"browser.supplemental_confidence_after",
+		proof.SupplementalConfidenceAfter,
+	)
+	if err != nil {
+		return err
+	}
+	if supplementalConfidenceAfter != proof.Confidence {
+		return fmt.Errorf("browser.supplemental_confidence_after must match browser.confidence")
+	}
+	if proof.SupplementalHistoryVisible == nil || !*proof.SupplementalHistoryVisible {
+		return fmt.Errorf("browser.supplemental_history_visible must be true when supplemental evidence is submitted")
+	}
+	if proof.SupplementalHistoryBefore < 0 {
+		return fmt.Errorf("browser.supplemental_history_count_before must be >= 0")
+	}
+	if proof.SupplementalHistoryAfter <= proof.SupplementalHistoryBefore {
+		return fmt.Errorf("browser.supplemental_history_count_after must be greater than supplemental_history_count_before")
+	}
+	if proof.SupplementalReviewQueueVisible == nil || !*proof.SupplementalReviewQueueVisible {
+		return fmt.Errorf("browser.supplemental_review_queue_visible must be true when supplemental evidence is submitted")
+	}
+	if proof.SupplementalReviewQueueItemCount <= 0 {
+		return fmt.Errorf("browser.supplemental_review_queue_item_count must be > 0 when supplemental evidence is submitted")
+	}
+	if proof.SupplementalConfirmAvailable == nil {
+		return fmt.Errorf("browser.supplemental_confirm_conclusion_available_after is required when supplemental evidence is submitted")
+	}
+	if !*proof.SupplementalConfirmAvailable {
+		if _, err := validateBoundedCleanString(
+			"browser.supplemental_confirm_block_reason_after",
+			proof.SupplementalConfirmBlockReason,
+			maxProofBrowserConfirmBlockReasonBytes,
+		); err != nil {
+			return err
+		}
+	} else if strings.TrimSpace(proof.SupplementalConfirmBlockReason) != "" {
+		return fmt.Errorf("browser.supplemental_confirm_block_reason_after must be empty when supplemental confirmation is available")
+	}
+	return nil
+}
+
+func browserCollectedPlannedEvidence(proof browserProof) bool {
+	return proof.PlannedEvidenceRequested != nil &&
+		*proof.PlannedEvidenceRequested &&
+		proof.PlannedEvidenceMode == "manual_update" &&
+		proof.PlannedEvidenceTriggered != nil &&
+		*proof.PlannedEvidenceTriggered
+}
+
+func browserCollectedOperatorSeedEvidence(proof browserProof) bool {
+	return proof.OperatorSeedCollectionRequested != nil &&
+		*proof.OperatorSeedCollectionRequested &&
+		proof.OperatorSeedCollectionTriggered != nil &&
+		*proof.OperatorSeedCollectionTriggered
+}
+
+func browserCompletedTurnTextMayLag(proof browserProof, turnNumber int) bool {
+	if browserSubmittedSupplementalEvidence(proof) {
+		return false
+	}
+	if browserCollectedPlannedEvidence(proof) &&
+		proof.PlannedEvidenceAssistantBefore == turnNumber &&
+		proof.PlannedEvidenceAssistantAfter == proof.AssistantTurnsAfter {
+		return true
+	}
+	return browserCollectedOperatorSeedEvidence(proof) &&
+		proof.OperatorSeedAssistantBefore == turnNumber &&
+		proof.OperatorSeedAssistantAfter == proof.AssistantTurnsAfter
+}
+
+func browserSatisfiedPlannedEvidence(proof browserProof) bool {
+	return proof.PlannedEvidenceRequested != nil &&
+		*proof.PlannedEvidenceRequested &&
+		proof.PlannedEvidenceSatisfied != nil &&
+		*proof.PlannedEvidenceSatisfied
+}
+
+func browserSubmittedSupplementalEvidence(proof browserProof) bool {
+	return proof.SupplementalEvidenceRequested != nil &&
+		*proof.SupplementalEvidenceRequested &&
+		proof.SupplementalEvidenceSubmitted != nil &&
+		*proof.SupplementalEvidenceSubmitted
 }
 
 func validateCreatedRoom(room createdRoom, sessionID string, proofEvidenceSnapshotID int64, hasProofEvidenceSnapshotID bool) error {
@@ -812,11 +1543,162 @@ func validateCloseNotificationEvent(event closeNotificationEvent, wantKind strin
 	}
 }
 
-func completedTurnNumber(value string) (int, bool) {
-	if !strings.HasPrefix(value, "Turn ") || !strings.HasSuffix(value, " completed.") {
-		return 0, false
+func validateNotificationProof(proof *notificationProof, expectedChannelID int64, required bool) error {
+	if proof == nil {
+		if required {
+			return fmt.Errorf("notification_proof is required")
+		}
+		return nil
 	}
-	middle := strings.TrimSuffix(strings.TrimPrefix(value, "Turn "), " completed.")
+	if !required && !proof.Requested {
+		return nil
+	}
+	if !proof.Requested {
+		return fmt.Errorf("notification_proof.requested must be true")
+	}
+	if !proof.Passed {
+		return fmt.Errorf("notification_proof.passed must be true")
+	}
+	if proof.SkippedReason != "" {
+		return fmt.Errorf("notification_proof.skipped_reason must be empty")
+	}
+	if _, err := validateCanonicalUTCTime("notification_proof.checked_at", proof.CheckedAt); err != nil {
+		return err
+	}
+	if len(proof.Entries) == 0 {
+		return fmt.Errorf("notification_proof.entries must be non-empty")
+	}
+	seenEvents := map[string]bool{}
+	for i, entry := range proof.Entries {
+		if err := validateNotificationProofEntry(entry, expectedChannelID); err != nil {
+			return fmt.Errorf("notification_proof.entries[%d]: %w", i, err)
+		}
+		seenEvents[entry.EventKind] = true
+	}
+	for _, eventKind := range requiredNotificationProofEvents {
+		if !seenEvents[eventKind] {
+			return fmt.Errorf("notification_proof.entries missing required event_kind %q", eventKind)
+		}
+	}
+	return nil
+}
+
+func validateNotificationProofEntry(entry notificationProofEntry, expectedChannelID int64) error {
+	switch entry.EventKind {
+	case "diagnosis_room.assistant_turn_notification_sent",
+		"diagnosis_room.final_ready_notification_sent",
+		"diagnosis_room.close_notification_sent":
+	default:
+		return fmt.Errorf("event_kind = %q, want AI diagnosis notification event", entry.EventKind)
+	}
+	channelID, ok, err := optionalPositiveInt64(entry.NotificationChannelProfileID)
+	if err != nil {
+		return fmt.Errorf("notification_channel_profile_id: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("notification_channel_profile_id is required")
+	}
+	if expectedChannelID > 0 && channelID != expectedChannelID {
+		return fmt.Errorf("notification_channel_profile_id = %d, want %d", channelID, expectedChannelID)
+	}
+	status := strings.ToLower(strings.TrimSpace(entry.ProviderStatus))
+	if !notificationProviderStatusAccepted(status) {
+		return fmt.Errorf("provider_status = %q, want accepted, delivered, sent, or success", entry.ProviderStatus)
+	}
+	if expectedContentKind := notificationProofExpectedContentKind(entry.EventKind); entry.ContentKind != expectedContentKind {
+		return fmt.Errorf("content_kind = %q, want %s for event_kind %q", entry.ContentKind, expectedContentKind, entry.EventKind)
+	}
+	if _, err := validateSHA256Hex("content_sha256", entry.ContentSHA256); err != nil {
+		return err
+	}
+	if err := validateOptionalNonNegativeInt64("assistant_turn_id", entry.AssistantTurnID); err != nil {
+		return err
+	}
+	if err := validateOptionalNonNegativeInt64("turn_count", entry.TurnCount); err != nil {
+		return err
+	}
+	if err := validateOptionalNonNegativeInt64("recommended_action_count", entry.RecommendedActionCount); err != nil {
+		return err
+	}
+	if err := validateOptionalNonNegativeInt64("evidence_request_count", entry.EvidenceRequestCount); err != nil {
+		return err
+	}
+	if entry.ProviderMessageID != "" {
+		if _, err := validateBoundedCleanString("provider_message_id", entry.ProviderMessageID, maxProofProviderMessageBytes); err != nil {
+			return err
+		}
+	}
+	if entry.AssistantMessageID != "" {
+		if _, err := validateProofID("assistant_message_id", entry.AssistantMessageID, maxProofIdempotencyKeyBytes); err != nil {
+			return err
+		}
+	}
+	_, err = validateCanonicalUTCTime("occurred_at", entry.OccurredAt)
+	return err
+}
+
+func notificationProofExpectedContentKind(eventKind string) string {
+	switch eventKind {
+	case "diagnosis_room.assistant_turn_notification_sent":
+		return "assistant_message"
+	case "diagnosis_room.final_ready_notification_sent", "diagnosis_room.close_notification_sent":
+		return "final_conclusion"
+	default:
+		return ""
+	}
+}
+
+func notificationProviderStatusAccepted(status string) bool {
+	switch status {
+	case "accepted", "delivered", "sent", "success":
+		return true
+	default:
+		return false
+	}
+}
+
+func validateOptionalNonNegativeInt64(field string, raw json.RawMessage) error {
+	valueBytes := bytes.TrimSpace(raw)
+	if len(valueBytes) == 0 || string(valueBytes) == "null" {
+		return nil
+	}
+	if !bytes.Equal(valueBytes, raw) {
+		return fmt.Errorf("%s must not contain leading or trailing whitespace", field)
+	}
+	if valueBytes[0] == '"' {
+		return fmt.Errorf("%s must be null or a non-negative integer", field)
+	}
+	var number json.Number
+	dec := json.NewDecoder(strings.NewReader(string(valueBytes)))
+	dec.UseNumber()
+	if err := dec.Decode(&number); err != nil {
+		return fmt.Errorf("%s must be null or a non-negative integer: %w", field, err)
+	}
+	value, err := strconv.ParseInt(number.String(), 10, 64)
+	if err != nil || value < 0 {
+		return fmt.Errorf("%s must be null or a non-negative integer", field)
+	}
+	return nil
+}
+
+func completedTurnNumber(value string) (int, bool) {
+	if strings.HasPrefix(value, "Turn ") && strings.HasSuffix(value, " completed.") {
+		middle := strings.TrimSuffix(strings.TrimPrefix(value, "Turn "), " completed.")
+		return positiveCanonicalInt(middle)
+	}
+	if strings.HasPrefix(value, "Loaded state: ") && strings.HasSuffix(value, " turn(s).") {
+		comma := strings.LastIndex(value, ", ")
+		if comma < 0 {
+			return 0, false
+		}
+		middle := strings.TrimSuffix(value[comma+2:], " turn(s).")
+		return positiveCanonicalInt(middle)
+	}
+	return 0, false
+}
+
+func positiveCanonicalInt(raw string) (int, bool) {
+	middle := strings.TrimSpace(raw)
 	if middle == "" {
 		return 0, false
 	}
@@ -916,6 +1798,19 @@ func validateBoundedText(field, raw string, maxBytes int) (string, error) {
 		return "", fmt.Errorf("%s exceeds %d bytes", field, maxBytes)
 	}
 	return value, nil
+}
+
+func validateConfidenceValue(field, raw string) (string, error) {
+	confidence, err := validateRequiredCleanString(field, raw)
+	if err != nil {
+		return "", err
+	}
+	switch confidence {
+	case "low", "medium", "high":
+		return confidence, nil
+	default:
+		return "", fmt.Errorf("%s = %q, want low, medium, or high", field, confidence)
+	}
 }
 
 func validateProofID(field, raw string, maxBytes int) (string, error) {

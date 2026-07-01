@@ -156,7 +156,88 @@ func TestProvider_ListActiveAlerts_AcceptsThanosRuleAlertsCasing(t *testing.T) {
 	}
 }
 
-func TestNewProvider_RejectsAddressUserinfo(t *testing.T) {
+func TestProvider_ListActiveAlerts_AcceptsThanosRuleAlertsCasingWithRoutePrefix(t *testing.T) {
+	const thanosRuleEnvelope = `{
+  "status": "success",
+  "data": {
+    "Alerts": [
+      {
+        "labels":      {"alertname": "HighCPU", "instance": "i-1"},
+        "annotations": {"summary": "cpu high"},
+        "state":       "firing",
+        "activeAt":    "2026-06-08T01:24:35.000000000Z",
+        "value":       "1e+00"
+      }
+    ]
+  }
+}`
+	var seenPath string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(thanosRuleEnvelope))
+	}))
+	t.Cleanup(srv.Close)
+
+	p, err := NewProvider(srv.URL + "/thanos")
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	got, err := p.ListActiveAlerts(context.Background())
+	if err != nil {
+		t.Fatalf("ListActiveAlerts: %v", err)
+	}
+	if seenPath != "/thanos/api/v1/alerts" {
+		t.Fatalf("path = %q, want /thanos/api/v1/alerts", seenPath)
+	}
+	if len(got) != 1 {
+		t.Fatalf("len(got) = %d, want 1", len(got))
+	}
+}
+
+func TestNewProvider_NormalizesPrometheusAPIAddressToRoutePrefix(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		wantPath string
+	}{
+		{name: "api prefix", path: "/api/v1", wantPath: "/api/v1/alerts"},
+		{name: "alerts endpoint", path: "/api/v1/alerts", wantPath: "/api/v1/alerts"},
+		{name: "query endpoint", path: "/api/v1/query", wantPath: "/api/v1/alerts"},
+		{name: "range query endpoint behind route prefix", path: "/thanos/api/v1/query_range", wantPath: "/thanos/api/v1/alerts"},
+		{name: "ui graph", path: "/graph", wantPath: "/api/v1/alerts"},
+		{name: "ui alerts", path: "/alerts", wantPath: "/api/v1/alerts"},
+		{name: "ui rules", path: "/rules", wantPath: "/api/v1/alerts"},
+		{name: "ui targets", path: "/targets", wantPath: "/api/v1/alerts"},
+		{name: "route ui graph", path: "/thanos/graph", wantPath: "/thanos/api/v1/alerts"},
+		{name: "route ui alerts", path: "/thanos/alerts", wantPath: "/thanos/api/v1/alerts"},
+		{name: "route health", path: "/thanos/-/healthy", wantPath: "/thanos/api/v1/alerts"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var seenPath string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				seenPath = r.URL.Path
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"status":"success","data":{"alerts":[]}}`))
+			}))
+			t.Cleanup(srv.Close)
+
+			p, err := NewProvider(srv.URL + tc.path)
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			if _, err := p.ListActiveAlerts(context.Background()); err != nil {
+				t.Fatalf("ListActiveAlerts: %v", err)
+			}
+			if seenPath != tc.wantPath {
+				t.Fatalf("path = %q, want %q", seenPath, tc.wantPath)
+			}
+		})
+	}
+}
+
+func TestNewProvider_RejectsUnsafeAddress(t *testing.T) {
 	credentialedURL := func(password string) string {
 		return (&url.URL{
 			Scheme: "http",
@@ -179,6 +260,10 @@ func TestNewProvider_RejectsAddressUserinfo(t *testing.T) {
 		addr string
 		want string
 	}{
+		{name: "unsupported scheme", addr: "ftp://example.invalid", want: "scheme"},
+		{name: "missing host", addr: "http:///api/v1", want: "host"},
+		{name: "query", addr: "http://example.invalid?tenant=prod", want: "query or fragment"},
+		{name: "fragment", addr: "http://example.invalid#alerts", want: "query or fragment"},
 		{name: "empty userinfo", addr: "http://@example.invalid", want: "must not include userinfo"},
 		{name: "username", addr: "http://operator@example.invalid", want: "must not include userinfo"},
 		{name: "username password", addr: credentialedURL("credential-value"), want: "must not include userinfo"},

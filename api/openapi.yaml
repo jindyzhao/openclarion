@@ -52,7 +52,7 @@ paths:
     get:
       operationId: getDashboard
       summary: Get operational dashboard summary
-      description: Returns a bounded operational summary for recent alerts and final report delivery outcomes.
+      description: Authenticates and authorizes a local operations reader, then returns a bounded operational summary for recent alerts and final report delivery outcomes.
       tags:
         - operations
       responses:
@@ -70,6 +70,11 @@ paths:
                       total_recent: 20
                       firing: 18
                       resolved: 2
+                    diagnosis:
+                      linked_snapshots: 6
+                      rooms_started: 4
+                      snapshots_needing_room: 2
+                      affected_alerts_needing_room: 2
                     reports:
                       total_recent: 8
                       delivered: 7
@@ -81,6 +86,18 @@ paths:
                         info: 2
                         warning: 5
                         critical: 1
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller is not authorized to read operational data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "500":
           description: Dashboard summary failed server-side
           content:
@@ -435,7 +452,7 @@ paths:
     post:
       operationId: ingestAlertmanagerWebhook
       summary: Ingest an Alertmanager webhook payload
-      description: Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts as AlertEvent rows, skips resolved alerts, and returns sanitized ingest counters without starting report workflows.
+      description: Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts as AlertEvent rows, skips resolved alerts, starts automatic diagnosis rooms for enabled auto_room policies, and returns sanitized ingest and auto-diagnosis counters without starting report workflows.
       tags:
         - alerts
       parameters:
@@ -487,12 +504,18 @@ paths:
                     source_id: 2
                     received: 2
                     skipped_resolved: 1
+                    skipped_suppressed: 0
                     truncated_alerts: 0
                     ingested:
                       total: 1
                       saved: 1
                       duplicate: 0
                       failed: 0
+                    auto_diagnosis:
+                      policies_matched: 1
+                      snapshots: 1
+                      rooms_started: 1
+                      rooms_skipped: 0
         "400":
           description: Webhook request or payload is invalid
           content:
@@ -1274,6 +1297,102 @@ paths:
                 server-error:
                   value:
                     error: disable report workflow policy failed
+  /api/v1/config/report-workflow-policies/impact-preview:
+    post:
+      operationId: previewReportWorkflowPolicyDraftImpact
+      summary: Preview report workflow policy draft impact
+      description: Evaluates an unsaved report workflow policy draft against its bound alert source/grouping/channel configuration and a bounded recent alert sample. This action does not store the draft, call alert providers, resolve secrets, start workflows, send notifications, or persist groups or snapshots.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      requestBody:
+        description: Unsaved report workflow policy draft metadata to preview.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportWorkflowPolicyWriteRequest"
+            examples:
+              auto-room-draft:
+                value:
+                  name: Automatic diagnosis workflow
+                  alert_source_profile_id: 1
+                  grouping_policy_id: 1
+                  report_notification_channel_profile_id: 1
+                  trigger_mode: manual_replay
+                  report_scenario: single_alert
+                  diagnosis_follow_up: auto_room
+      responses:
+        "200":
+          description: Sanitized report workflow policy draft impact preview result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportWorkflowPolicyImpactPreviewResult"
+              examples:
+                ready:
+                  value:
+                    policy_id: 0
+                    status: ready
+                    reason_codes:
+                      - ok
+                    message: Report workflow policy impact preview is ready.
+                    checked_at: "2026-06-05T10:00:00Z"
+                    trigger_mode: manual_replay
+                    report_scenario: single_alert
+                    diagnosis_follow_up: auto_room
+                    alert_source_profile_id: 1
+                    alert_source_kind: alertmanager
+                    alert_source_auth_mode: none
+                    alert_source_enabled: true
+                    grouping_policy_id: 1
+                    grouping_policy_enabled: true
+                    grouping_dimension_keys:
+                      - alertname
+                    grouping_severity_key: severity
+                    grouping_source_filter:
+                      - alertmanager
+                    report_notification_channel_profile_id: 1
+                    report_notification_channel_bound: true
+                    report_notification_channel_enabled: true
+                    report_notification_channel_has_report_scope: true
+                    report_notification_channel_has_diagnosis_consultation_scope: true
+                    report_notification_channel_has_diagnosis_close_scope: true
+                    events_scanned: 3
+                    events_matched: 2
+                    groups_estimated: 1
+                    groups: []
+        "400":
+          description: Draft impact preview request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: "report workflow policy: name must be non-empty"
+        "404":
+          description: Draft-bound profile was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                binding-not-found:
+                  value:
+                    error: report workflow policy binding not found
+        "500":
+          description: Report workflow policy draft impact preview failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: preview report workflow policy draft impact failed
   /api/v1/config/report-workflow-policies/{policy_id}/impact-preview:
     post:
       operationId: previewReportWorkflowPolicyImpact
@@ -1319,6 +1438,8 @@ paths:
                     report_notification_channel_bound: true
                     report_notification_channel_enabled: true
                     report_notification_channel_has_report_scope: true
+                    report_notification_channel_has_diagnosis_consultation_scope: true
+                    report_notification_channel_has_diagnosis_close_scope: true
                     events_scanned: 3
                     events_matched: 2
                     groups_estimated: 1
@@ -1397,6 +1518,7 @@ paths:
                 started:
                   value:
                     started: true
+                    correlation_key: incident-window-20260605T0800Z
                     workflow_id: report-batch-0bf4f5e1a8cb2d3299dcb4d280d5a6a0
                     run_id: 7a2a1f6f-f114-4f6d-92d7-9b59f1c9f6f4
                     stats:
@@ -1462,7 +1584,7 @@ paths:
     get:
       operationId: listReportWorkflowSchedules
       summary: List report workflow schedules
-      description: Returns operator-managed report workflow schedule metadata. This read does not inspect Temporal Schedule state.
+      description: Returns persisted operator-managed report workflow schedule metadata. This read does not query Temporal Schedule runtime state.
       tags:
         - config
       parameters:
@@ -1516,7 +1638,7 @@ paths:
     post:
       operationId: createReportWorkflowSchedule
       summary: Create a report workflow schedule
-      description: Stores report workflow schedule metadata as a disabled draft. This operation does not register a Temporal Schedule, start workflows, call alert providers, resolve secrets, or send notifications.
+      description: Stores report workflow schedule metadata as a disabled draft. When a schedule synchronizer is configured, the HTTP handler synchronizes a paused Temporal Schedule after persistence. This operation does not start workflows, call alert providers, resolve secrets, or send notifications.
       tags:
         - config
       requestBody:
@@ -1660,7 +1782,7 @@ paths:
     put:
       operationId: replaceReportWorkflowSchedule
       summary: Replace a report workflow schedule
-      description: Replaces report workflow schedule metadata while preserving explicit enabled state. This operation does not register a Temporal Schedule, start workflows, call alert providers, resolve secrets, or send notifications.
+      description: Replaces report workflow schedule metadata while preserving explicit enabled state. When a schedule synchronizer is configured, the HTTP handler synchronizes Temporal Schedule spec and pause state after persistence. This operation does not immediately start workflows, call alert providers, resolve secrets, or send notifications.
       tags:
         - config
       parameters:
@@ -1753,7 +1875,7 @@ paths:
     post:
       operationId: enableReportWorkflowSchedule
       summary: Enable a report workflow schedule
-      description: Explicitly enables a report workflow schedule after validating that the bound report workflow policy is enabled. This action does not register or unpause a Temporal Schedule.
+      description: Explicitly enables a report workflow schedule after validating that the bound report workflow policy is enabled. When a schedule synchronizer is configured, the HTTP handler creates or updates and unpauses the Temporal Schedule for future starts. This action does not immediately start a report workflow.
       tags:
         - config
       parameters:
@@ -1817,7 +1939,7 @@ paths:
     post:
       operationId: disableReportWorkflowSchedule
       summary: Disable a report workflow schedule
-      description: Explicitly disables a report workflow schedule. This action pauses future starts only after the later Temporal registration slice wires schedule state to Temporal; it does not cancel already-started report workflows.
+      description: Explicitly disables a report workflow schedule. When a schedule synchronizer is configured, the HTTP handler pauses the Temporal Schedule for future starts. This action does not cancel already-started report workflows.
       tags:
         - config
       parameters:
@@ -2134,15 +2256,16 @@ paths:
                   value:
                     items:
                       - id: 1
-                        name: Operations webhook
-                        kind: webhook
-                        secret_ref: secret/example/ops-webhook
+                        name: Operations WeCom
+                        kind: wecom
+                        secret_ref: secret/example/ops-wecom
                         delivery_scopes:
                           - report
                           - diagnosis_close
                         enabled: false
                         labels:
                           team: ops
+                        latest_test_results: []
                         created_at: "2026-06-05T09:00:00Z"
                         updated_at: "2026-06-05T09:00:00Z"
         "400":
@@ -2168,7 +2291,7 @@ paths:
     post:
       operationId: createNotificationChannelProfile
       summary: Create a notification channel profile
-      description: Stores notification channel metadata with a deployment-managed secret reference only. This operation does not send notifications.
+      description: Stores notification channel metadata with a deployment-managed secret reference only. This operation does not send notifications. Diagnosis consultation and close delivery scopes require an Enterprise WeChat channel.
       tags:
         - config
       requestBody:
@@ -2179,11 +2302,11 @@ paths:
             schema:
               $ref: "#/components/schemas/NotificationChannelProfileWriteRequest"
             examples:
-              webhook:
+              wecom:
                 value:
-                  name: Operations webhook
-                  kind: webhook
-                  secret_ref: secret/example/ops-webhook
+                  name: Operations WeCom
+                  kind: wecom
+                  secret_ref: secret/example/ops-wecom
                   delivery_scopes:
                     - report
                     - diagnosis_close
@@ -2201,15 +2324,16 @@ paths:
                 created:
                   value:
                     id: 1
-                    name: Operations webhook
-                    kind: webhook
-                    secret_ref: secret/example/ops-webhook
+                    name: Operations WeCom
+                    kind: wecom
+                    secret_ref: secret/example/ops-wecom
                     delivery_scopes:
                       - report
                       - diagnosis_close
                     enabled: false
                     labels:
                       team: ops
+                    latest_test_results: []
                     created_at: "2026-06-05T09:00:00Z"
                     updated_at: "2026-06-05T09:00:00Z"
         "400":
@@ -2262,15 +2386,16 @@ paths:
                 channel:
                   value:
                     id: 1
-                    name: Operations webhook
-                    kind: webhook
-                    secret_ref: secret/example/ops-webhook
+                    name: Operations WeCom
+                    kind: wecom
+                    secret_ref: secret/example/ops-wecom
                     delivery_scopes:
                       - report
                       - diagnosis_close
                     enabled: true
                     labels:
                       team: ops
+                    latest_test_results: []
                     created_at: "2026-06-05T09:00:00Z"
                     updated_at: "2026-06-05T09:05:00Z"
         "404":
@@ -2296,7 +2421,7 @@ paths:
     put:
       operationId: replaceNotificationChannelProfile
       summary: Replace a notification channel profile
-      description: Replaces mutable notification channel profile metadata. This operation does not send notifications.
+      description: Replaces mutable notification channel profile metadata. This operation does not send notifications. Diagnosis consultation and close delivery scopes require an Enterprise WeChat channel.
       tags:
         - config
       parameters:
@@ -2338,6 +2463,7 @@ paths:
                     enabled: false
                     labels:
                       team: ops
+                    latest_test_results: []
                     created_at: "2026-06-05T09:00:00Z"
                     updated_at: "2026-06-05T09:10:00Z"
         "400":
@@ -2384,11 +2510,21 @@ paths:
     post:
       operationId: testNotificationChannelProfile
       summary: Test a notification channel profile
-      description: Sends one bounded backend test notification for a persisted notification channel profile and returns sanitized status only. This action does not create report delivery records.
+      description: Sends one bounded backend test notification for a persisted notification channel profile, records sanitized test proof, and returns sanitized status only. This action does not create report delivery records.
       tags:
         - config
       parameters:
         - $ref: "#/components/parameters/NotificationChannelProfileID"
+        - name: content_kind
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - transport_sample
+              - ai_diagnosis_sample
+              - diagnosis_close_sample
+          description: Optional sanitized test notification sample to send. When omitted, the server picks the highest-signal sample supported by the profile delivery scopes.
       responses:
         "200":
           description: Sanitized notification channel test result
@@ -2457,11 +2593,448 @@ paths:
                 server-error:
                   value:
                     error: test notification channel failed
+  /api/v1/config/directory/sync:
+    post:
+      operationId: syncDirectory
+      summary: Sync local directory projection
+      description: Pulls normalized users and departments from the configured IAM directory provider into OpenClarion's local projection. This endpoint never accepts IAM secrets or raw Enterprise WeChat payloads.
+      tags:
+        - config
+      requestBody:
+        description: Optional bounded sync request.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DirectorySyncRequest"
+            examples:
+              incremental:
+                value:
+                  page_size: 100
+                  updated_after: "2026-06-26T00:00:00Z"
+      responses:
+        "200":
+          description: Directory sync completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectorySyncResponse"
+              examples:
+                completed:
+                  value:
+                    department_pages: 1
+                    user_pages: 1
+                    departments_upserted: 8
+                    users_upserted: 96
+                    users_deactivated: 0
+                    synced_at: "2026-06-26T08:00:00Z"
+        "400":
+          description: Directory sync request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: Directory syncer is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Directory sync failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/config/directory/sync-runs:
+    get:
+      operationId: listDirectorySyncRuns
+      summary: List local directory sync runs
+      description: Returns successful local directory projection sync run summaries for operator review. The response never includes IAM secrets, raw Enterprise WeChat payloads, or upstream credentials.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/DirectoryProvider"
+      responses:
+        "200":
+          description: Local directory sync runs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectorySyncRunListResponse"
+              examples:
+                runs:
+                  value:
+                    items:
+                      - id: 1
+                        provider: ops_iam
+                        page_size: 100
+                        updated_after: "2026-06-26T00:00:00Z"
+                        status: succeeded
+                        failure_code: ""
+                        failure_message: ""
+                        department_pages: 1
+                        user_pages: 1
+                        departments_upserted: 8
+                        users_upserted: 96
+                        synced_at: "2026-06-26T08:00:00Z"
+                        created_at: "2026-06-26T08:00:00Z"
+        "400":
+          description: Directory sync run list parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Directory sync run list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/config/directory/users:
+    get:
+      operationId: listDirectoryUsers
+      summary: List local directory users
+      description: Returns OpenClarion's local directory user projection for operator pickers, audit attribution, and local RBAC configuration.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/DirectoryProvider"
+      responses:
+        "200":
+          description: Local directory users
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectoryUserListResponse"
+              examples:
+                users:
+                  value:
+                    items:
+                      - id: 1
+                        provider: ops_iam
+                        subject: iam-user-1
+                        external_id: wecom-user-1
+                        username: alice
+                        display_name: Alice
+                        email: alice@example.test
+                        job_title: SRE
+                        department: Platform
+                        section: SRE
+                        department_path: IT/Platform/SRE
+                        department_external_ids:
+                          - dep-2
+                        active: true
+                        synced_at: "2026-06-26T08:00:00Z"
+                        created_at: "2026-06-26T08:00:00Z"
+                        updated_at: "2026-06-26T08:00:00Z"
+        "400":
+          description: Directory user list parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Directory user list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/config/directory/departments:
+    get:
+      operationId: listDirectoryDepartments
+      summary: List local directory departments
+      description: Returns OpenClarion's local directory department projection for operator pickers and local RBAC configuration.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+        - $ref: "#/components/parameters/DirectoryProvider"
+      responses:
+        "200":
+          description: Local directory departments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DirectoryDepartmentListResponse"
+              examples:
+                departments:
+                  value:
+                    items:
+                      - id: 1
+                        provider: ops_iam
+                        external_id: dep-2
+                        parent_external_id: dep-1
+                        name: SRE
+                        display_name: SRE
+                        path: IT/Platform/SRE
+                        parent_path: IT/Platform
+                        level: 3
+                        source: iam
+                        member_count: 12
+                        synced_at: "2026-06-26T08:00:00Z"
+                        created_at: "2026-06-26T08:00:00Z"
+                        updated_at: "2026-06-26T08:00:00Z"
+        "400":
+          description: Directory department list parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Directory department list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/config/rbac/assignments:
+    get:
+      operationId: listRBACAssignments
+      summary: List local RBAC assignments
+      description: Returns OpenClarion-local role assignments for operator review and access-control management. IAM authenticates users and supplies directory data; OpenClarion owns product-specific authorization.
+      tags:
+        - config
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Local RBAC assignments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RBACAssignmentListResponse"
+              examples:
+                assignments:
+                  value:
+                    items:
+                      - id: 1
+                        subject_kind: department
+                        subject_key: dep-2
+                        role: responder
+                        scope_kind: diagnosis_room
+                        scope_key: room-1
+                        enabled: true
+                        created_by: iam-admin-1
+                        updated_by: iam-admin-1
+                        created_at: "2026-06-26T08:00:00Z"
+                        updated_at: "2026-06-26T08:00:00Z"
+        "400":
+          description: RBAC assignment list parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: RBAC assignment list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: upsertRBACAssignment
+      summary: Upsert a local RBAC assignment
+      description: Creates or updates one OpenClarion-local role assignment. IAM authenticates users and supplies directory data; OpenClarion owns product-specific authorization.
+      tags:
+        - config
+      requestBody:
+        description: Local role assignment to upsert.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RBACAssignmentWriteRequest"
+            examples:
+              department-responder:
+                value:
+                  subject_kind: department
+                  subject_key: dep-2
+                  role: responder
+                  scope_kind: diagnosis_room
+                  scope_key: room-1
+                  enabled: true
+      responses:
+        "200":
+          description: RBAC assignment upserted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RBACAssignment"
+              examples:
+                assignment:
+                  value:
+                    id: 1
+                    subject_kind: department
+                    subject_key: dep-2
+                    role: responder
+                    scope_kind: diagnosis_room
+                    scope_key: room-1
+                    enabled: true
+                    created_by: iam-admin-1
+                    updated_by: iam-admin-1
+                    created_at: "2026-06-26T08:00:00Z"
+                    updated_at: "2026-06-26T08:00:00Z"
+        "400":
+          description: RBAC assignment request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: RBAC assignment upsert failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/config/rbac/authorize:
+    post:
+      operationId: authorizeRBAC
+      summary: Preview a local RBAC decision
+      description: Evaluates OpenClarion-local role assignments for one principal and requested action. This endpoint is intended for admin UI previews and tests; business endpoints must still enforce their own authorization checks.
+      tags:
+        - config
+      requestBody:
+        description: Authorization decision request.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RBACAuthorizeRequest"
+            examples:
+              room-participation:
+                value:
+                  subject: iam-user-1
+                  department_keys:
+                    - dep-2
+                  permission: diagnosis_room.participate
+                  scope_kind: diagnosis_room
+                  scope_key: room-1
+      responses:
+        "200":
+          description: Local RBAC decision
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RBACAuthorizeResponse"
+              examples:
+                allowed:
+                  value:
+                    allowed: true
+                    checked_at: "2026-06-26T08:00:00Z"
+        "400":
+          description: RBAC authorization request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: RBAC authorizer is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: RBAC authorization failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/config/rbac/current-authorizations:
+    post:
+      operationId: authorizeCurrentRBAC
+      summary: Evaluate current operator RBAC decisions
+      description: Evaluates OpenClarion-local role assignments for the authenticated current operator. This endpoint is intended for permission-aware UI controls; business endpoints must still enforce their own authorization checks.
+      tags:
+        - config
+      requestBody:
+        description: Current operator authorization checks.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RBACCurrentAuthorizationRequest"
+            examples:
+              settings-controls:
+                value:
+                  requests:
+                    - permission: directory.read
+                      scope_kind: global
+                      scope_key: ""
+                    - permission: alert_source.manage
+                      scope_kind: alert_source
+                      scope_key: "7"
+      responses:
+        "200":
+          description: Current operator local RBAC decisions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RBACCurrentAuthorizationResponse"
+              examples:
+                allowed:
+                  value:
+                    subject: iam-user-1
+                    department_keys:
+                      - dep-2
+                    directory_users:
+                      - id: 1
+                        provider: ops_iam
+                        subject: iam-user-1
+                        external_id: wecom-user-1
+                        username: alice
+                        display_name: Alice
+                        email: alice@example.test
+                        job_title: SRE
+                        department: Platform
+                        section: SRE
+                        department_path: IT/Platform/SRE
+                        department_external_ids:
+                          - dep-2
+                        active: true
+                        synced_at: "2026-06-26T08:00:00Z"
+                        created_at: "2026-06-26T08:00:00Z"
+                        updated_at: "2026-06-26T08:00:00Z"
+                    decisions:
+                      - permission: directory.read
+                        scope_kind: global
+                        scope_key: ""
+                        allowed: true
+                        checked_at: "2026-06-26T08:00:00Z"
+                      - permission: alert_source.manage
+                        scope_kind: alert_source
+                        scope_key: "7"
+                        allowed: false
+                        checked_at: "2026-06-26T08:00:00Z"
+        "400":
+          description: Current RBAC authorization request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          description: RBAC authorization dependencies are not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Current RBAC authorization failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
   /api/v1/alerts:
     get:
       operationId: listAlerts
       summary: List alert events
-      description: Returns the most recent alert events ordered by starts_at descending.
+      description: Authenticates and authorizes a local operations reader, then returns the most recent alert events ordered by starts_at descending.
       tags:
         - alerts
       parameters:
@@ -2479,6 +3052,7 @@ paths:
                     items:
                       - id: 42
                         source: prometheus
+                        alert_source_profile_id: 1
                         source_fingerprint: prom:cpu:node-a
                         canonical_fingerprint: sha256:93b885adfe0da089cdf634904fd59f71
                         labels:
@@ -2489,6 +3063,7 @@ paths:
                         status: firing
                         starts_at: "2026-05-27T08:00:00Z"
                         ends_at: null
+                        linked_evidence_snapshots: []
                         created_at: "2026-05-27T08:00:01Z"
         "400":
           description: Alert list request parameters are invalid
@@ -2500,6 +3075,18 @@ paths:
                 invalid-limit:
                   value:
                     error: "limit must be between 1 and 500 (got 0)"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller is not authorized to read operational data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "500":
           description: Alert list failed server-side
           content:
@@ -2514,7 +3101,7 @@ paths:
     get:
       operationId: listEvidenceSnapshots
       summary: List evidence snapshots
-      description: Returns the most recent evidence snapshots ordered by created_at descending.
+      description: Authenticates and authorizes a local operations reader, then returns the most recent evidence snapshots ordered by created_at descending.
       tags:
         - evidence
       parameters:
@@ -2552,6 +3139,18 @@ paths:
                 invalid-limit:
                   value:
                     error: "limit must be between 1 and 500 (got 0)"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller is not authorized to read operational data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "500":
           description: Evidence snapshot list failed server-side
           content:
@@ -2566,7 +3165,7 @@ paths:
     get:
       operationId: listReports
       summary: List final reports
-      description: Returns the most recent final reports ordered by created_at descending.
+      description: Authenticates and authorizes a local operations reader, then returns the most recent final reports ordered by created_at descending.
       tags:
         - reports
       parameters:
@@ -2601,6 +3200,18 @@ paths:
                 invalid-limit:
                   value:
                     error: "limit must be between 1 and 500 (got 0)"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller is not authorized to read operational data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "500":
           description: Report list failed server-side
           content:
@@ -2615,7 +3226,7 @@ paths:
     post:
       operationId: triggerReportReplay
       summary: Replay an alert window and start report generation
-      description: Replays a bounded alert window, persists EvidenceSnapshots, and starts the report batch workflow when snapshots are available.
+      description: Authenticates and authorizes a local report-workflow manager, replays a bounded alert window, persists EvidenceSnapshots, and starts the report batch workflow when snapshots are available.
       tags:
         - reports
       requestBody:
@@ -2643,6 +3254,7 @@ paths:
                 started:
                   value:
                     started: true
+                    correlation_key: incident-window-20260527T0900Z
                     workflow_id: report-batch-0bf4f5e1a8cb2d3299dcb4d280d5a6a0
                     run_id: 7a2a1f6f-f114-4f6d-92d7-9b59f1c9f6f4
                     stats:
@@ -2674,6 +3286,18 @@ paths:
                 invalid-window:
                   value:
                     error: "window_end must be after window_start"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller is not authorized to manage report workflows
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: Report trigger provider wiring is not configured
           content:
@@ -2697,33 +3321,168 @@ paths:
   /api/v1/diagnosis/auth/status:
     get:
       operationId: getDiagnosisAuthStatus
-      summary: Get diagnosis auth status
-      description: Returns non-sensitive diagnosis auth wiring status. It never returns issuer URLs, tokens, claims, or signing keys.
+      summary: Get diagnosis auth wiring status
+      description: Returns non-sensitive diagnosis auth provider wiring status. The response does not include endpoint URLs, directory names, credentials, tokens, or claims.
       tags:
         - diagnosis
       responses:
         "200":
-          description: Diagnosis auth status
+          description: Diagnosis auth wiring status
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/DiagnosisAuthStatusResponse"
               examples:
-                ready:
+                ldap:
                   value:
                     configured: true
-                    mode: oidc
-                    supported_modes:
-                      - oidc
-                disabled:
+                    mode: ldap
+                not-configured:
                   value:
                     configured: false
                     mode: none
-                    supported_modes: []
+  /api/v1/diagnosis/wecom/app-callback:
+    get:
+      operationId: verifyDiagnosisWeComAppCallback
+      summary: Verify Enterprise WeChat app callback URL
+      description: Verifies the Enterprise WeChat application message callback challenge and returns the decrypted echo string as text/plain. The response never includes callback token, EncodingAESKey, raw encrypted payloads, or decrypted message bodies beyond the provider challenge echo.
+      tags:
+        - diagnosis
+      parameters:
+        - name: msg_signature
+          in: query
+          description: Enterprise WeChat callback signature.
+          required: true
+          schema:
+            type: string
+            maxLength: 512
+        - name: timestamp
+          in: query
+          description: Enterprise WeChat callback timestamp.
+          required: true
+          schema:
+            type: string
+            maxLength: 512
+        - name: nonce
+          in: query
+          description: Enterprise WeChat callback nonce.
+          required: true
+          schema:
+            type: string
+            maxLength: 512
+        - name: echostr
+          in: query
+          description: Enterprise WeChat encrypted callback echo challenge.
+          required: true
+          schema:
+            type: string
+            maxLength: 65536
+      responses:
+        "200":
+          description: Callback URL challenge verified
+          content:
+            text/plain:
+              schema:
+                type: string
+              examples:
+                verified:
+                  value: callback-echo-token
+        "400":
+          description: Callback verification query is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: Enterprise WeChat app callback verification failed
+        "503":
+          description: Enterprise WeChat app callback verifier is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: Enterprise WeChat app callback is not configured
+    post:
+      operationId: acceptDiagnosisWeComAppCallback
+      summary: Accept Enterprise WeChat app callback message
+      description: Verifies and decrypts one Enterprise WeChat application message callback, extracts the sender identity and message metadata for the server-side callback boundary, and acknowledges the provider without returning decrypted message content.
+      tags:
+        - diagnosis
+      parameters:
+        - name: msg_signature
+          in: query
+          description: Enterprise WeChat callback signature.
+          required: true
+          schema:
+            type: string
+            maxLength: 512
+        - name: timestamp
+          in: query
+          description: Enterprise WeChat callback timestamp.
+          required: true
+          schema:
+            type: string
+            maxLength: 512
+        - name: nonce
+          in: query
+          description: Enterprise WeChat callback nonce.
+          required: true
+          schema:
+            type: string
+            maxLength: 512
+      requestBody:
+        description: Enterprise WeChat encrypted XML callback body.
+        required: true
+        content:
+          application/xml:
+            schema:
+              type: string
+              maxLength: 65536
+          text/xml:
+            schema:
+              type: string
+              maxLength: 65536
+      responses:
+        "200":
+          description: Callback message accepted
+          content:
+            text/plain:
+              schema:
+                type: string
+                enum:
+                  - success
+              examples:
+                accepted:
+                  value: success
+        "400":
+          description: Callback message query or body is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: Enterprise WeChat app callback message rejected
+        "503":
+          description: Enterprise WeChat app callback verifier is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: Enterprise WeChat app callback is not configured
   /api/v1/diagnosis/auth/check:
     post:
       operationId: checkDiagnosisAuth
-      summary: Check diagnosis authorization
+      summary: Check diagnosis authorization credentials
       description: Authenticates diagnosis Authorization credentials and returns a sanitized principal summary without issuing a WebSocket ticket.
       tags:
         - diagnosis
@@ -2740,8 +3499,8 @@ paths:
                     subject: operator-1
                     roles:
                       - owner
-                    mode: oidc
-                    checked_at: "2026-06-30T10:00:00Z"
+                    mode: ldap
+                    checked_at: "2026-06-21T04:00:00Z"
                     role_authorized: true
         "401":
           description: Authorization credentials are missing or invalid
@@ -2767,7 +3526,7 @@ paths:
     post:
       operationId: issueDiagnosisAuthSession
       summary: Issue diagnosis browser session
-      description: Authenticates an IAM OIDC bearer token and returns a short-lived OpenClarion session token for the trusted browser BFF to store in an HttpOnly cookie. The session token must not be exposed to page JavaScript.
+      description: Authenticates diagnosis Authorization credentials and returns a short-lived OpenClarion session token for the trusted browser BFF to store in an HTTP-only cookie. IAM OIDC bearer tokens are the standard browser path; explicit compatibility modes such as LDAP Basic can still be exchanged without persisting upstream credentials in browser state.
       tags:
         - diagnosis
       responses:
@@ -2778,15 +3537,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/DiagnosisAuthSessionResponse"
               examples:
-                issued:
+                oidc:
+                  value:
+                    token: openclarion.session.token
+                    subject: operator-oidc
+                    roles:
+                      - owner
+                    mode: oidc
+                    role_authorized: true
+                    checked_at: "2026-06-01T00:00:00Z"
+                    expires_at: "2026-06-01T08:00:00Z"
+                ldap:
                   value:
                     token: openclarion.session.token
                     subject: operator-1
                     roles:
                       - owner
-                    mode: oidc
-                    checked_at: "2026-06-30T10:00:00Z"
-                    expires_at: "2026-06-30T18:00:00Z"
+                    mode: ldap
+                    checked_at: "2026-06-21T04:00:00Z"
+                    expires_at: "2026-06-21T12:00:00Z"
                     role_authorized: true
         "401":
           description: Authorization credentials are missing or invalid
@@ -2812,7 +3581,7 @@ paths:
     post:
       operationId: issueDiagnosisWSTicket
       summary: Issue a diagnosis WebSocket ticket
-      description: Authenticates an OIDC bearer token or an OpenClarion browser-session bearer token, checks diagnosis-room RBAC, and returns a short-lived single-use ticket for the WebSocket upgrade.
+      description: Authenticates diagnosis Authorization credentials, checks diagnosis-room RBAC, and returns a short-lived single-use ticket for the WebSocket upgrade.
       tags:
         - diagnosis
       requestBody:
@@ -2850,7 +3619,7 @@ paths:
                   value:
                     error: session_id must be non-empty
         "401":
-          description: Bearer token is missing or invalid
+          description: Authorization credentials are missing or invalid
           content:
             application/json:
               schema:
@@ -2900,10 +3669,89 @@ paths:
                   value:
                     error: issue diagnosis WebSocket ticket failed
   /api/v1/diagnosis/rooms:
+    get:
+      operationId: listDiagnosisRooms
+      summary: List diagnosis rooms
+      description: Returns the most recent diagnosis-room sessions with their backing task and evidence references ordered by updated_at descending.
+      tags:
+        - diagnosis
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Recent diagnosis rooms
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisRoomListResponse"
+              examples:
+                recent-rooms:
+                  value:
+                    items:
+                      - session_id: diagnosis-session-auto-p3-s247
+                        chat_session_id: 353
+                        diagnosis_task_id: 353
+                        evidence_snapshot_id: 247
+                        workflow_id: diagnosis-room-diagnosis-session-auto-p3-s247
+                        run_id: run-247
+                        task_status: running
+                        room_status: open
+                        turn_count: 1
+                        started_at: "2026-06-18T02:20:28Z"
+                        last_activity_at: "2026-06-18T02:20:31Z"
+                        closed_at: null
+                        close_reason: ""
+                        latest_conclusion:
+                          diagnosis_task_id: 353
+                          session_id: diagnosis-session-auto-p3-s247
+                          chat_session_id: 353
+                          event_kind: diagnosis_room.final_conclusion_ready
+                          status: available
+                          source: assistant
+                          evidence_snapshot_id: 247
+                          conclusion_version: diagnosis-session-auto-p3-s247:2
+                          content: Database storage saturation is the primary outage risk.
+                          confidence: high
+                          requires_human_review: true
+                          recorded_at: "2026-06-18T02:20:31Z"
+                        notification_timeline:
+                          - event_kind: diagnosis_room.assistant_turn_notification_sent
+                            notification_channel_profile_id: 2
+                            provider_status: delivered
+                            provider_message_id: wecom-msg-1
+                            assistant_message_id: msg-1/assistant
+                            assistant_turn_id: 354
+                            assistant_sequence: 2
+                            turn_count: 1
+                            confidence: low
+                            requires_human_review: true
+                            occurred_at: "2026-06-18T02:20:31Z"
+                        created_at: "2026-06-18T02:20:28Z"
+                        updated_at: "2026-06-18T02:20:31Z"
+        "400":
+          description: Diagnosis room list request parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-limit:
+                  value:
+                    error: "limit must be between 1 and 500 (got 0)"
+        "500":
+          description: Diagnosis room list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: list diagnosis rooms failed
     post:
       operationId: createDiagnosisRoom
       summary: Create a diagnosis room
-      description: Authenticates an OIDC bearer token or an OpenClarion browser-session bearer token, starts a short-conversation diagnosis room from a frozen EvidenceSnapshot, and returns the session identifier once the room is ready for WebSocket tickets.
+      description: Authenticates diagnosis Authorization credentials, starts a short-conversation diagnosis room from a frozen EvidenceSnapshot, and returns the session identifier once the room is ready for WebSocket tickets.
       tags:
         - diagnosis
       requestBody:
@@ -2944,7 +3792,7 @@ paths:
                   value:
                     error: evidence_snapshot_id must be positive
         "401":
-          description: Bearer token is missing, invalid, or lacks a principal subject
+          description: Authorization credentials are missing, invalid, or lack a principal subject
           content:
             application/json:
               schema:
@@ -2993,11 +3841,413 @@ paths:
                 server-error:
                   value:
                     error: create diagnosis room failed
+  /api/v1/diagnosis/rooms/{session_id}:
+    get:
+      operationId: getDiagnosisRoom
+      summary: Get a diagnosis room
+      description: Returns one exact diagnosis-room session with its backing task, retained conclusion, progress, notification proof, and sanitized workflow visibility when available.
+      tags:
+        - diagnosis
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: External diagnosis room session key to read.
+          schema:
+            type: string
+            minLength: 1
+          examples:
+            room:
+              value: diagnosis-session-auto-p3-s247
+      responses:
+        "200":
+          description: Exact diagnosis room
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisRoomSummary"
+              examples:
+                room:
+                  value:
+                    session_id: diagnosis-session-auto-p3-s247
+                    chat_session_id: 353
+                    diagnosis_task_id: 353
+                    evidence_snapshot_id: 247
+                    workflow_id: diagnosis-room-diagnosis-session-auto-p3-s247
+                    run_id: run-247
+                    task_status: running
+                    room_status: open
+                    turn_count: 1
+                    started_at: "2026-06-18T02:20:28Z"
+                    last_activity_at: "2026-06-18T02:20:31Z"
+                    closed_at: null
+                    close_reason: ""
+                    latest_conclusion:
+                      diagnosis_task_id: 353
+                      session_id: diagnosis-session-auto-p3-s247
+                      chat_session_id: 353
+                      event_kind: diagnosis_room.final_conclusion_ready
+                      status: available
+                      source: assistant
+                      evidence_snapshot_id: 247
+                      conclusion_version: diagnosis-session-auto-p3-s247:2
+                      content: Database storage saturation is the primary outage risk.
+                      confidence: high
+                      requires_human_review: true
+                      recorded_at: "2026-06-18T02:20:31Z"
+                    notification_timeline:
+                      - event_kind: diagnosis_room.final_ready_notification_sent
+                        notification_channel_profile_id: 2
+                        provider_status: delivered
+                        provider_message_id: wecom-msg-final-ready
+                        assistant_message_id: msg-1/assistant
+                        assistant_turn_id: 354
+                        assistant_sequence: 2
+                        turn_count: 1
+                        confidence: high
+                        requires_human_review: true
+                        occurred_at: "2026-06-18T02:20:32Z"
+                    created_at: "2026-06-18T02:20:28Z"
+                    updated_at: "2026-06-18T02:20:31Z"
+        "400":
+          description: Diagnosis room session key is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-session:
+                  value:
+                    error: session_id is required
+        "404":
+          description: Diagnosis room was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: diagnosis room not found
+        "500":
+          description: Diagnosis room lookup failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: get diagnosis room failed
+  /api/v1/diagnosis/rooms/{session_id}/notifications/retry:
+    post:
+      operationId: retryDiagnosisRoomNotification
+      summary: Retry diagnosis room notification
+      description: Authenticates diagnosis Authorization credentials, retries the latest still-failed notification of the requested diagnosis-room notification kind, and appends a sanitized immutable retry event. The request does not accept provider endpoints, credentials, or idempotency keys.
+      tags:
+        - diagnosis
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: External diagnosis room session key whose failed notification should be retried.
+          schema:
+            type: string
+            minLength: 1
+          examples:
+            room:
+              value: diagnosis-session-auto-p3-s247
+      requestBody:
+        description: Notification event kind to retry.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiagnosisNotificationRetryRequest"
+            examples:
+              final-ready:
+                value:
+                  event_kind: diagnosis_room.final_ready_notification_sent
+      responses:
+        "200":
+          description: Diagnosis notification retry completed or an existing successful delivery was returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisNotificationRetryResponse"
+              examples:
+                sent:
+                  value:
+                    retry_state: sent
+                    notification:
+                      event_kind: diagnosis_room.final_ready_notification_sent
+                      notification_channel_profile_id: 2
+                      provider_status: delivered
+                      provider_message_id: wecom-msg-final-ready-retry
+                      assistant_message_id: msg-1/assistant
+                      assistant_turn_id: 354
+                      assistant_sequence: 2
+                      turn_count: 1
+                      confidence: high
+                      requires_human_review: true
+                      occurred_at: "2026-06-18T02:25:00Z"
+        "400":
+          description: Retry request is invalid or no retryable failed notification exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: diagnosis notification retry request is invalid
+        "401":
+          description: Authorization credentials are missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthenticated:
+                  value:
+                    error: authentication failed
+        "403":
+          description: Authenticated principal cannot access the diagnosis session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthorized:
+                  value:
+                    error: unauthorized
+        "404":
+          description: Diagnosis room was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: diagnosis room not found
+        "503":
+          description: Diagnosis notification retry wiring is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: diagnosis notification retry is not configured
+        "500":
+          description: Retry failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: retry diagnosis room notification failed
+  /api/v1/diagnosis/handoffs:
+    get:
+      operationId: listDiagnosisHandoffs
+      summary: List pending diagnosis handoffs
+      description: Authenticates and authorizes a local operations reader, then returns recent evidence snapshots linked to alert events that do not have a diagnosis room yet.
+      tags:
+        - diagnosis
+      parameters:
+        - $ref: "#/components/parameters/ListLimit"
+      responses:
+        "200":
+          description: Pending diagnosis handoffs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisHandoffListResponse"
+              examples:
+                pending-handoffs:
+                  value:
+                    items:
+                      - reason: missing_diagnosis_room
+                        evidence_snapshot:
+                          id: 247
+                          alert_group_id: 31
+                          digest: sha256:7a38bf81f383f69433ad6e900434f376
+                          status: complete
+                          created_by_workflow: AlertmanagerWebhookAutoDiagnosis
+                          created_at: "2026-06-18T02:20:28Z"
+                          diagnosis_rooms: []
+                        alerts:
+                          - id: 42
+                            source: alertmanager
+                            alert_source_profile_id: 1
+                            source_fingerprint: am:checkout-latency:prod
+                            canonical_fingerprint: sha256:checkout-latency-prod
+                            labels:
+                              alertname: CheckoutLatencyHigh
+                              severity: warning
+                            annotations:
+                              summary: Checkout p95 latency is above the warning threshold.
+                            status: firing
+                            starts_at: "2026-06-18T02:20:00Z"
+                            ends_at: null
+                            linked_evidence_snapshots: []
+                            created_at: "2026-06-18T02:20:01Z"
+        "400":
+          description: Diagnosis handoff list request parameters are invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid-limit:
+                  value:
+                    error: "limit must be between 1 and 500 (got 0)"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller is not authorized to read operational data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Diagnosis handoff list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: list diagnosis handoffs failed
+  /api/v1/diagnosis/rooms/{session_id}/close-unavailable:
+    post:
+      operationId: closeUnavailableDiagnosisRoom
+      summary: Close an unavailable diagnosis room
+      description: Authenticates diagnosis Authorization credentials, verifies the diagnosis-room workflow is no longer usable through backend workflow visibility, closes the local room lifecycle row, and returns the updated room summary. This endpoint does not start a replacement room.
+      tags:
+        - diagnosis
+      parameters:
+        - name: session_id
+          in: path
+          required: true
+          description: External diagnosis room session key to close.
+          schema:
+            type: string
+            minLength: 1
+          examples:
+            room:
+              value: diagnosis-session-orphaned-workflow
+      requestBody:
+        description: Optional operator close reason.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiagnosisRoomCloseUnavailableRequest"
+            examples:
+              default:
+                value:
+                  reason: workflow_unavailable
+      responses:
+        "200":
+          description: Diagnosis room was closed locally because its workflow is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisRoomSummary"
+              examples:
+                closed:
+                  value:
+                    session_id: diagnosis-session-orphaned-workflow
+                    chat_session_id: 409
+                    diagnosis_task_id: 309
+                    evidence_snapshot_id: 9001
+                    workflow_id: diagnosis-room-diagnosis-session-orphaned-workflow
+                    run_id: run-orphaned-9001
+                    task_status: cancelled
+                    room_status: closed
+                    turn_count: 1
+                    started_at: "2026-05-28T06:03:30Z"
+                    last_activity_at: "2026-05-28T06:05:00Z"
+                    closed_at: "2026-05-28T06:05:00Z"
+                    close_reason: workflow_unavailable
+                    notification_timeline: []
+                    created_at: "2026-05-28T06:03:30Z"
+                    updated_at: "2026-05-28T06:05:00Z"
+        "400":
+          description: Close request is invalid or the workflow is still usable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                still-running:
+                  value:
+                    error: diagnosis room workflow is still running
+        "401":
+          description: Authorization credentials are missing, invalid, or lack a principal subject
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthenticated:
+                  value:
+                    error: authentication failed
+        "403":
+          description: Authenticated principal cannot close the diagnosis room
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthorized:
+                  value:
+                    error: unauthorized
+        "404":
+          description: Diagnosis room was not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                not-found:
+                  value:
+                    error: diagnosis room not found
+        "503":
+          description: Workflow visibility lookup or diagnosis auth is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: diagnosis room recovery is not configured
+        "500":
+          description: Close failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                server-error:
+                  value:
+                    error: close unavailable diagnosis room failed
   /api/v1/reports/{report_id}:
     get:
       operationId: getReport
       summary: Get final report detail
-      description: Returns one final report with linked subreports for evidence traceability.
+      description: Authenticates and authorizes a local operations reader, then returns one final report with linked subreports for evidence traceability.
       tags:
         - reports
       parameters:
@@ -3027,6 +4277,23 @@ paths:
                         detail: Compare checkout deployment timestamps with latency onset.
                         priority: high
                     notification_text: Checkout latency incident requires review.
+                    notification_deliveries:
+                      - id: 31
+                        idempotency_key: final_report:11/notification/final
+                        notification_purpose: final
+                        report_notification_channel_profile_id: 2
+                        status: delivered
+                        provider_message_id: msg-31
+                        provider_status: accepted
+                        delivered_at: "2026-05-27T09:05:10Z"
+                        created_at: "2026-05-27T09:05:00Z"
+                        updated_at: "2026-05-27T09:05:10Z"
+                    final_notification_readiness:
+                      ready: true
+                      notification_purpose: final
+                      status: ready
+                      status_label: Final notification ready
+                      detail: All linked subreports have operator-confirmed AI conclusions; final notification can be sent.
                     content:
                       title: Checkout latency incident
                       executive_summary: Checkout latency increased after a deployment.
@@ -3069,6 +4336,18 @@ paths:
                 invalid-id:
                   value:
                     error: "report_id must be positive"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Caller is not authorized to read operational data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "404":
           description: Report was not found
           content:
@@ -3089,6 +4368,116 @@ paths:
                 server-error:
                   value:
                     error: get report failed
+  /api/v1/reports/{report_id}/notification/retry:
+    post:
+      operationId: retryReportNotification
+      summary: Retry report notification
+      description: Authenticates and authorizes a local report-workflow manager, sends or retries a persisted report notification as either a diagnosis handoff or an operator-confirmed final report notification, and returns delivery proof plus whether this call sent a provider request or returned an existing in-flight/completed proof.
+      tags:
+        - reports
+      parameters:
+        - $ref: "#/components/parameters/ReportID"
+      requestBody:
+        description: Optional notification channel and purpose override for the retry attempt.
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReportNotificationRetryRequest"
+            examples:
+              profile:
+                value:
+                  report_notification_channel_profile_id: 2
+                  notification_purpose: handoff
+              final:
+                value:
+                  report_notification_channel_profile_id: 2
+                  notification_purpose: final
+              fallback:
+                value: {}
+      responses:
+        "200":
+          description: Report notification retry completed or existing delivery proof was returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReportNotificationRetryResponse"
+              examples:
+                delivered:
+                  value:
+                    retry_state: sent
+                    delivery:
+                      id: 31
+                      idempotency_key: final_report:11/notification/final
+                      notification_purpose: final
+                      report_notification_channel_profile_id: 2
+                      status: delivered
+                      provider_message_id: msg-31
+                      provider_status: accepted
+                      delivered_at: "2026-05-27T09:10:10Z"
+                      created_at: "2026-05-27T09:05:00Z"
+                      updated_at: "2026-05-27T09:10:10Z"
+                pending:
+                  value:
+                    retry_state: already_pending
+                    delivery:
+                      id: 32
+                      idempotency_key: final_report:11/notification/final
+                      notification_purpose: final
+                      report_notification_channel_profile_id: 2
+                      status: pending
+                      created_at: "2026-05-27T09:05:00Z"
+                      updated_at: "2026-05-27T09:05:00Z"
+        "400":
+          description: Retry request is invalid or notification configuration is unusable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                invalid:
+                  value:
+                    error: report notification retry failed
+        "401":
+          description: Report notification retry credentials are missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthenticated:
+                  value:
+                    error: authentication failed
+        "403":
+          description: Authenticated principal cannot retry report notifications
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthorized:
+                  value:
+                    error: unauthorized
+        "503":
+          description: Report notification retry wiring is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: report notification retry is not configured
+        "500":
+          description: Retry failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                provider-error:
+                  value:
+                    error: retry report notification failed
 
 components:
   parameters:
@@ -3166,6 +4555,18 @@ components:
         type: integer
         format: int64
         minimum: 1
+    DirectoryProvider:
+      name: provider
+      in: query
+      description: Optional local directory provider filter.
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+      examples:
+        ops-iam:
+          value: ops_iam
   schemas:
     HealthResponse:
       type: object
@@ -3195,6 +4596,15 @@ components:
             - total_recent: 20
               firing: 18
               resolved: 2
+        diagnosis:
+          allOf:
+            - $ref: "#/components/schemas/DashboardDiagnosisStats"
+            - type: object
+          examples:
+            - linked_snapshots: 6
+              rooms_started: 4
+              snapshots_needing_room: 2
+              affected_alerts_needing_room: 2
         reports:
           allOf:
             - $ref: "#/components/schemas/DashboardReportStats"
@@ -3213,6 +4623,7 @@ components:
       required:
         - generated_at
         - alerts
+        - diagnosis
         - reports
     DashboardAlertStats:
       type: object
@@ -3234,6 +4645,35 @@ components:
         - total_recent
         - firing
         - resolved
+    DashboardDiagnosisStats:
+      type: object
+      description: AI diagnosis counters mapped from the recent alert-event window.
+      properties:
+        linked_snapshots:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Evidence snapshots linked to recent alert events.
+        rooms_started:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Diagnosis rooms linked to those evidence snapshots.
+        snapshots_needing_room:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Linked evidence snapshots that do not have a diagnosis room yet.
+        affected_alerts_needing_room:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Recent alert events with at least one linked evidence snapshot that needs a diagnosis room.
+      required:
+        - linked_snapshots
+        - rooms_started
+        - snapshots_needing_room
+        - affected_alerts_needing_room
     AlertSourceKind:
       type: string
       description: Supported alert source adapter kind.
@@ -3453,13 +4893,16 @@ components:
       description: Supported notification channel adapter kind.
       enum:
         - webhook
+        - wecom
       examples:
         - webhook
+        - wecom
     NotificationDeliveryScope:
       type: string
       description: Notification flow that may use a channel once workflow binding is implemented.
       enum:
         - report
+        - diagnosis_consultation
         - diagnosis_close
       examples:
         - report
@@ -3495,7 +4938,7 @@ components:
           env: test
     NotificationChannelProfile:
       type: object
-      description: Operator-managed notification channel profile without endpoint URLs or credential values.
+      description: Operator-managed notification channel profile without endpoint URLs or credential values. Diagnosis consultation and close delivery scopes are valid only on Enterprise WeChat channels.
       properties:
         id:
           type: integer
@@ -3521,13 +4964,12 @@ components:
         delivery_scopes:
           type: array
           minItems: 1
-          maxItems: 2
-          description: Notification flows that may use this channel after later workflow binding.
+          maxItems: 3
+          description: Notification flows that may use this channel after later workflow binding. Diagnosis consultation and close scopes require kind=wecom.
           items:
             $ref: "#/components/schemas/NotificationDeliveryScope"
           examples:
             - - report
-              - diagnosis_close
         enabled:
           type: boolean
           description: Whether operators enabled this channel for future notification binding.
@@ -3535,6 +4977,22 @@ components:
             - false
         labels:
           $ref: "#/components/schemas/NotificationChannelLabels"
+        latest_test_results:
+          type: array
+          description: Latest sanitized notification-channel test proof rows, grouped by content kind. Endpoint URLs, secret references, raw provider responses, and raw provider errors are never returned.
+          items:
+            $ref: "#/components/schemas/NotificationChannelTestResult"
+          examples:
+            - - channel_id: 1
+                kind: wecom
+                status: success
+                reason_code: ok
+                message: Notification channel test delivery succeeded.
+                content_kind: ai_diagnosis_sample
+                content_sha256: 5c6ffbdd40d9556b73a21e63c3e0e9047c7f534c2ab09dc7ed89b889f0d011e7
+                checked_at: "2026-06-05T10:00:00Z"
+                provider_message_id: msg-42
+                provider_status: accepted
         created_at:
           type: string
           format: date-time
@@ -3553,11 +5011,12 @@ components:
         - delivery_scopes
         - enabled
         - labels
+        - latest_test_results
         - created_at
         - updated_at
     NotificationChannelProfileWriteRequest:
       type: object
-      description: Notification channel profile metadata accepted by create and replace operations.
+      description: Notification channel profile metadata accepted by create and replace operations. Diagnosis consultation and close delivery scopes require kind=wecom.
       properties:
         name:
           type: string
@@ -3577,12 +5036,12 @@ components:
         delivery_scopes:
           type: array
           minItems: 1
-          maxItems: 2
+          maxItems: 3
+          description: Notification flows that may use this channel. Diagnosis consultation and close scopes require kind=wecom.
           items:
             $ref: "#/components/schemas/NotificationDeliveryScope"
           examples:
             - - report
-              - diagnosis_close
         enabled:
           type: boolean
           default: false
@@ -3617,6 +5076,23 @@ components:
           description: Operator-facing sanitized message. It must not include endpoint URLs, secret references, tokens, or raw provider error text.
           examples:
             - Notification channel test delivery succeeded.
+        content_kind:
+          type: string
+          enum:
+            - transport_sample
+            - ai_diagnosis_sample
+            - diagnosis_close_sample
+          description: Sanitized kind of test notification content prepared for provider delivery. It is omitted when no provider delivery attempt was made.
+          examples:
+            - ai_diagnosis_sample
+        content_sha256:
+          type: string
+          minLength: 64
+          maxLength: 64
+          pattern: "^[a-f0-9]{64}$"
+          description: SHA-256 digest of the sanitized test notification body prepared for provider delivery. It is omitted when no provider delivery attempt was made.
+          examples:
+            - 5c6ffbdd40d9556b73a21e63c3e0e9047c7f534c2ab09dc7ed89b889f0d011e7
         checked_at:
           type: string
           format: date-time
@@ -3652,21 +5128,803 @@ components:
           examples:
             -
               - id: 1
-                name: Operations webhook
-                kind: webhook
-                secret_ref: secret/example/ops-webhook
+                name: Operations WeCom
+                kind: wecom
+                secret_ref: secret/example/ops-wecom
                 delivery_scopes:
                   - report
                   - diagnosis_close
                 enabled: false
                 labels:
                   team: ops
+                latest_test_results: []
                 created_at: "2026-06-05T09:00:00Z"
                 updated_at: "2026-06-05T09:00:00Z"
           items:
             $ref: "#/components/schemas/NotificationChannelProfile"
       required:
         - items
+    DirectorySyncRequest:
+      type: object
+      description: Optional request body for one IAM-to-local directory sync run.
+      properties:
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 500
+          default: 100
+          description: Upstream directory page size.
+          examples:
+            - 100
+        updated_after:
+          type: string
+          format: date-time
+          description: Optional incremental sync lower bound.
+          examples:
+            - "2026-06-26T00:00:00Z"
+      additionalProperties: false
+    DirectorySyncResponse:
+      type: object
+      description: Summary of a completed local directory projection sync run.
+      properties:
+        department_pages:
+          type: integer
+          minimum: 0
+          examples:
+            - 1
+        user_pages:
+          type: integer
+          minimum: 0
+          examples:
+            - 1
+        departments_upserted:
+          type: integer
+          minimum: 0
+          examples:
+            - 8
+        users_upserted:
+          type: integer
+          minimum: 0
+          examples:
+            - 96
+        users_deactivated:
+          type: integer
+          minimum: 0
+          description: Active projected users marked inactive because they were absent from a completed full sync. Incremental syncs report 0.
+          examples:
+            - 0
+        synced_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+      required:
+        - department_pages
+        - user_pages
+        - departments_upserted
+        - users_upserted
+        - users_deactivated
+        - synced_at
+    DirectorySyncRun:
+      type: object
+      description: Persisted summary of one admitted local directory projection sync run.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        provider:
+          type: string
+          maxLength: 64
+          examples:
+            - ops_iam
+        page_size:
+          type: integer
+          minimum: 1
+          maximum: 500
+          examples:
+            - 100
+        updated_after:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T00:00:00Z"
+        status:
+          type: string
+          enum:
+            - succeeded
+            - failed
+          examples:
+            - succeeded
+        failure_code:
+          type: string
+          maxLength: 64
+          description: Stable sanitized failure reason code when status is failed; empty for successful runs.
+          examples:
+            - invalid_provider_record
+        failure_message:
+          type: string
+          maxLength: 240
+          description: Operator-facing sanitized failure summary when status is failed; empty for successful runs.
+          examples:
+            - Directory sync received a provider record that failed local validation.
+        department_pages:
+          type: integer
+          minimum: 0
+          examples:
+            - 1
+        user_pages:
+          type: integer
+          minimum: 0
+          examples:
+            - 1
+        departments_upserted:
+          type: integer
+          minimum: 0
+          examples:
+            - 8
+        users_upserted:
+          type: integer
+          minimum: 0
+          examples:
+            - 96
+        synced_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+      required:
+        - id
+        - provider
+        - page_size
+        - status
+        - failure_code
+        - failure_message
+        - department_pages
+        - user_pages
+        - departments_upserted
+        - users_upserted
+        - synced_at
+        - created_at
+    DirectorySyncRunListResponse:
+      type: object
+      description: Local directory sync run history response.
+      properties:
+        items:
+          type: array
+          examples:
+            -
+              - id: 1
+                provider: ops_iam
+                page_size: 100
+                updated_after: "2026-06-26T00:00:00Z"
+                status: succeeded
+                failure_code: ""
+                failure_message: ""
+                department_pages: 1
+                user_pages: 1
+                departments_upserted: 8
+                users_upserted: 96
+                synced_at: "2026-06-26T08:00:00Z"
+                created_at: "2026-06-26T08:00:00Z"
+          items:
+            $ref: "#/components/schemas/DirectorySyncRun"
+      required:
+        - items
+    DirectoryDepartment:
+      type: object
+      description: Local projection of one upstream directory department.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        provider:
+          type: string
+          maxLength: 64
+          examples:
+            - ops_iam
+        external_id:
+          type: string
+          maxLength: 256
+          examples:
+            - dep-2
+        parent_external_id:
+          type: string
+          maxLength: 256
+          examples:
+            - dep-1
+        name:
+          type: string
+          maxLength: 256
+          examples:
+            - SRE
+        display_name:
+          type: string
+          maxLength: 256
+          examples:
+            - SRE
+        path:
+          type: string
+          maxLength: 1024
+          examples:
+            - IT/Platform/SRE
+        parent_path:
+          type: string
+          maxLength: 1024
+          examples:
+            - IT/Platform
+        level:
+          type: integer
+          minimum: 0
+          examples:
+            - 3
+        source:
+          type: string
+          maxLength: 64
+          examples:
+            - iam
+        member_count:
+          type: integer
+          minimum: 0
+          examples:
+            - 12
+        source_updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T07:50:00Z"
+        synced_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+      required:
+        - id
+        - provider
+        - external_id
+        - parent_external_id
+        - name
+        - display_name
+        - path
+        - parent_path
+        - level
+        - source
+        - member_count
+        - synced_at
+        - created_at
+        - updated_at
+    DirectoryDepartmentListResponse:
+      type: object
+      description: Local directory department list response.
+      properties:
+        items:
+          type: array
+          examples:
+            -
+              - id: 1
+                provider: ops_iam
+                external_id: dep-2
+                parent_external_id: dep-1
+                name: SRE
+                display_name: SRE
+                path: IT/Platform/SRE
+                parent_path: IT/Platform
+                level: 3
+                source: iam
+                member_count: 12
+                synced_at: "2026-06-26T08:00:00Z"
+                created_at: "2026-06-26T08:00:00Z"
+                updated_at: "2026-06-26T08:00:00Z"
+          items:
+            $ref: "#/components/schemas/DirectoryDepartment"
+      required:
+        - items
+    DirectoryUser:
+      type: object
+      description: Local projection of one upstream directory user for attribution, pickers, and local RBAC.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        provider:
+          type: string
+          maxLength: 64
+          examples:
+            - ops_iam
+        subject:
+          type: string
+          maxLength: 256
+          examples:
+            - iam-user-1
+        external_id:
+          type: string
+          maxLength: 256
+          examples:
+            - wecom-user-1
+        username:
+          type: string
+          maxLength: 128
+          examples:
+            - alice
+        display_name:
+          type: string
+          maxLength: 256
+          examples:
+            - Alice
+        email:
+          type: string
+          maxLength: 320
+          examples:
+            - alice@example.test
+        job_title:
+          type: string
+          maxLength: 256
+          examples:
+            - SRE
+        department:
+          type: string
+          maxLength: 256
+          examples:
+            - Platform
+        section:
+          type: string
+          maxLength: 1024
+          examples:
+            - SRE
+        department_path:
+          type: string
+          maxLength: 1024
+          examples:
+            - IT/Platform/SRE
+        department_paths:
+          type: array
+          examples:
+            -
+              - IT/Platform/SRE
+              - IT/Shared
+          items:
+            type: string
+            maxLength: 1024
+        department_external_ids:
+          type: array
+          examples:
+            -
+              - dep-2
+          items:
+            type: string
+            maxLength: 256
+        active:
+          type: boolean
+          examples:
+            - true
+        source_updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T07:50:00Z"
+        synced_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+      required:
+        - id
+        - provider
+        - subject
+        - external_id
+        - username
+        - display_name
+        - email
+        - job_title
+        - department
+        - section
+        - department_path
+        - department_paths
+        - department_external_ids
+        - active
+        - synced_at
+        - created_at
+        - updated_at
+    DirectoryUserListResponse:
+      type: object
+      description: Local directory user list response.
+      properties:
+        items:
+          type: array
+          examples:
+            -
+              - id: 1
+                provider: ops_iam
+                subject: iam-user-1
+                external_id: wecom-user-1
+                username: alice
+                display_name: Alice
+                email: alice@example.test
+                job_title: SRE
+                department: Platform
+                section: SRE
+                department_path: IT/Platform/SRE
+                department_external_ids:
+                  - dep-2
+                active: true
+                synced_at: "2026-06-26T08:00:00Z"
+                created_at: "2026-06-26T08:00:00Z"
+                updated_at: "2026-06-26T08:00:00Z"
+          items:
+            $ref: "#/components/schemas/DirectoryUser"
+      required:
+        - items
+    RBACSubjectKind:
+      type: string
+      description: Local role assignment subject type.
+      enum:
+        - user
+        - department
+    RBACScopeKind:
+      type: string
+      description: OpenClarion product resource family covered by a local role assignment.
+      enum:
+        - global
+        - diagnosis_room
+        - alert_source
+        - grouping_policy
+        - report_workflow
+        - report_workflow_schedule
+        - notification_channel
+        - diagnosis_tool_template
+    RBACRole:
+      type: string
+      description: OpenClarion-local role.
+      enum:
+        - admin
+        - operator
+        - responder
+        - viewer
+    RBACPermission:
+      type: string
+      description: OpenClarion-local action-level permission.
+      enum:
+        - directory.read
+        - directory.manage
+        - rbac.manage
+        - operations.read
+        - diagnosis_room.read
+        - diagnosis_room.participate
+        - diagnosis_room.administer
+        - alert_source.read
+        - alert_source.manage
+        - grouping_policy.read
+        - grouping_policy.manage
+        - report_workflow.read
+        - report_workflow.manage
+        - notification_channel.read
+        - notification_channel.manage
+        - notification_channel.test
+        - diagnosis_tool_template.read
+        - diagnosis_tool_template.manage
+    RBACAssignment:
+      type: object
+      description: Local OpenClarion role assignment.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 1
+        subject_kind:
+          $ref: "#/components/schemas/RBACSubjectKind"
+        subject_key:
+          type: string
+          maxLength: 256
+          examples:
+            - dep-2
+        role:
+          $ref: "#/components/schemas/RBACRole"
+        scope_kind:
+          $ref: "#/components/schemas/RBACScopeKind"
+        scope_key:
+          type: string
+          maxLength: 256
+          examples:
+            - room-1
+        enabled:
+          type: boolean
+          examples:
+            - true
+        created_by:
+          type: string
+          maxLength: 256
+          description: Authenticated subject that created this local role assignment.
+          examples:
+            - iam-admin-1
+        updated_by:
+          type: string
+          maxLength: 256
+          description: Authenticated subject that last mutated this local role assignment.
+          examples:
+            - iam-admin-1
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+      required:
+        - id
+        - subject_kind
+        - subject_key
+        - role
+        - scope_kind
+        - scope_key
+        - enabled
+        - created_by
+        - updated_by
+        - created_at
+        - updated_at
+    RBACAssignmentListResponse:
+      type: object
+      description: Local RBAC assignment list response.
+      properties:
+        items:
+          type: array
+          examples:
+            - - id: 1
+                subject_kind: department
+                subject_key: dep-2
+                role: responder
+                scope_kind: diagnosis_room
+                scope_key: room-1
+                enabled: true
+                created_by: iam-admin-1
+                updated_by: iam-admin-1
+                created_at: "2026-06-26T08:00:00Z"
+                updated_at: "2026-06-26T08:00:00Z"
+          items:
+            $ref: "#/components/schemas/RBACAssignment"
+      required:
+        - items
+    RBACAssignmentWriteRequest:
+      type: object
+      description: Local role assignment write request.
+      properties:
+        subject_kind:
+          $ref: "#/components/schemas/RBACSubjectKind"
+        subject_key:
+          type: string
+          minLength: 1
+          maxLength: 256
+          examples:
+            - dep-2
+        role:
+          $ref: "#/components/schemas/RBACRole"
+        scope_kind:
+          $ref: "#/components/schemas/RBACScopeKind"
+        scope_key:
+          type: string
+          maxLength: 256
+          default: ""
+          examples:
+            - room-1
+        enabled:
+          type: boolean
+          default: true
+          examples:
+            - true
+      required:
+        - subject_kind
+        - subject_key
+        - role
+        - scope_kind
+      additionalProperties: false
+    RBACAuthorizeRequest:
+      type: object
+      description: Local RBAC authorization preview request.
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 256
+          examples:
+            - iam-user-1
+        department_keys:
+          type: array
+          examples:
+            -
+              - dep-2
+          items:
+            type: string
+            maxLength: 256
+        permission:
+          $ref: "#/components/schemas/RBACPermission"
+        scope_kind:
+          $ref: "#/components/schemas/RBACScopeKind"
+        scope_key:
+          type: string
+          maxLength: 256
+          default: ""
+          examples:
+            - room-1
+      required:
+        - subject
+        - department_keys
+        - permission
+        - scope_kind
+      additionalProperties: false
+    RBACAuthorizeResponse:
+      type: object
+      description: Local RBAC authorization preview response.
+      properties:
+        allowed:
+          type: boolean
+          examples:
+            - true
+        checked_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+      required:
+        - allowed
+        - checked_at
+    RBACCurrentAuthorizationCheck:
+      type: object
+      description: One authorization check for the authenticated current operator.
+      properties:
+        permission:
+          $ref: "#/components/schemas/RBACPermission"
+        scope_kind:
+          $ref: "#/components/schemas/RBACScopeKind"
+        scope_key:
+          type: string
+          maxLength: 256
+          default: ""
+          examples:
+            - room-1
+      required:
+        - permission
+        - scope_kind
+      additionalProperties: false
+    RBACCurrentAuthorizationRequest:
+      type: object
+      description: Current operator authorization check batch request.
+      properties:
+        requests:
+          type: array
+          minItems: 1
+          maxItems: 50
+          examples:
+            -
+              - permission: directory.read
+                scope_kind: global
+                scope_key: ""
+          items:
+            $ref: "#/components/schemas/RBACCurrentAuthorizationCheck"
+      required:
+        - requests
+      additionalProperties: false
+    RBACCurrentAuthorizationDecision:
+      type: object
+      description: One current operator authorization decision.
+      properties:
+        permission:
+          $ref: "#/components/schemas/RBACPermission"
+        scope_kind:
+          $ref: "#/components/schemas/RBACScopeKind"
+        scope_key:
+          type: string
+          maxLength: 256
+          examples:
+            - room-1
+        allowed:
+          type: boolean
+          examples:
+            - true
+        checked_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-06-26T08:00:00Z"
+      required:
+        - permission
+        - scope_kind
+        - scope_key
+        - allowed
+        - checked_at
+    RBACCurrentAuthorizationResponse:
+      type: object
+      description: Current operator authorization check batch response.
+      properties:
+        subject:
+          type: string
+          maxLength: 256
+          examples:
+            - iam-user-1
+        department_keys:
+          type: array
+          examples:
+            -
+              - dep-2
+          items:
+            type: string
+            maxLength: 256
+        directory_users:
+          type: array
+          description: Local directory projections matching the authenticated subject. Inactive rows are returned for identity visibility, but only active rows contribute department keys.
+          examples:
+            -
+              - id: 1
+                provider: ops_iam
+                subject: iam-user-1
+                external_id: wecom-user-1
+                username: alice
+                display_name: Alice
+                email: alice@example.test
+                job_title: SRE
+                department: Platform
+                section: SRE
+                department_path: IT/Platform/SRE
+                department_external_ids:
+                  - dep-2
+                active: true
+                synced_at: "2026-06-26T08:00:00Z"
+                created_at: "2026-06-26T08:00:00Z"
+                updated_at: "2026-06-26T08:00:00Z"
+          items:
+            $ref: "#/components/schemas/DirectoryUser"
+        decisions:
+          type: array
+          examples:
+            -
+              - permission: directory.read
+                scope_kind: global
+                scope_key: ""
+                allowed: true
+                checked_at: "2026-06-26T08:00:00Z"
+          items:
+            $ref: "#/components/schemas/RBACCurrentAuthorizationDecision"
+      required:
+        - subject
+        - department_keys
+        - directory_users
+        - decisions
     GroupingPolicyPreviewSeverity:
       type: string
       description: Group severity computed from alert labels during grouping preview.
@@ -3831,10 +6089,11 @@ components:
         - single_alert
     DiagnosisFollowUpMode:
       type: string
-      description: Diagnosis-room handoff behavior after report creation.
+      description: Diagnosis-room handoff behavior after report creation or alert intake.
       enum:
         - disabled
         - suggest_room
+        - auto_room
       examples:
         - suggest_room
     ReportWorkflowPolicy:
@@ -3975,6 +6234,7 @@ components:
           enum:
             - disabled
             - suggest_room
+            - auto_room
           default: disabled
       required:
         - name
@@ -4008,7 +6268,7 @@ components:
         - items
     ReportWorkflowSchedule:
       type: object
-      description: Operator-managed report workflow schedule metadata. Enabled state changes only through explicit action endpoints and does not imply Temporal registration in this slice.
+      description: Operator-managed report workflow schedule metadata. Enabled state changes only through explicit action endpoints; configured runtime synchronizers may project persisted state into Temporal Schedule registration and pause state.
       properties:
         id:
           type: integer
@@ -4033,7 +6293,7 @@ components:
           type: string
           minLength: 1
           maxLength: 200
-          description: Stable Temporal Schedule identifier reserved for the later registration slice.
+          description: Stable Temporal Schedule identifier used by runtime schedule synchronization.
           examples:
             - openclarion-report-policy-1-daily
         interval_seconds:
@@ -4159,31 +6419,43 @@ components:
           format: int64
           minimum: 1
           maximum: 31536000
+          examples:
+            - 86400
         offset_seconds:
           type: integer
           format: int64
           minimum: 0
           maximum: 31536000
+          examples:
+            - 21600
         replay_window_seconds:
           type: integer
           format: int64
           minimum: 1
           maximum: 31536000
+          examples:
+            - 3600
         replay_delay_seconds:
           type: integer
           format: int64
           minimum: 0
           maximum: 31536000
+          examples:
+            - 300
         replay_limit:
           type: integer
           format: int32
           minimum: 1
           maximum: 100000
+          examples:
+            - 10000
         catchup_window_seconds:
           type: integer
           format: int64
           minimum: 1
           maximum: 31536000
+          examples:
+            - 3600
       required:
         - name
         - report_workflow_policy_id
@@ -4449,9 +6721,15 @@ components:
       enum:
         - ok
         - alert_source_disabled
+        - auto_room_requires_alertmanager
         - grouping_policy_disabled
         - notification_channel_disabled
+        - notification_channel_missing
+        - notification_channel_not_wecom
         - notification_channel_missing_report_scope
+        - notification_channel_missing_diagnosis_consultation_scope
+        - notification_channel_missing_diagnosis_close_scope
+        - notification_channel_missing_ai_delivery_proof
         - unsupported_trigger_mode
         - no_matching_events
       examples:
@@ -4463,7 +6741,8 @@ components:
         policy_id:
           type: integer
           format: int64
-          minimum: 1
+          minimum: 0
+          description: Persisted policy identifier. Draft previews return 0 because no report workflow policy is stored.
           examples:
             - 1
         status:
@@ -4561,6 +6840,16 @@ components:
           type: boolean
           examples:
             - true
+        report_notification_channel_has_diagnosis_consultation_scope:
+          type: boolean
+          description: Whether the bound notification channel can deliver diagnosis-room assistant and final-ready consultation updates for auto_room policies.
+          examples:
+            - true
+        report_notification_channel_has_diagnosis_close_scope:
+          type: boolean
+          description: Whether the bound notification channel can deliver diagnosis-room close notifications for auto_room policies.
+          examples:
+            - true
         events_scanned:
           type: integer
           format: int64
@@ -4618,6 +6907,8 @@ components:
         - report_notification_channel_bound
         - report_notification_channel_enabled
         - report_notification_channel_has_report_scope
+        - report_notification_channel_has_diagnosis_consultation_scope
+        - report_notification_channel_has_diagnosis_close_scope
         - events_scanned
         - events_matched
         - groups_estimated
@@ -4817,6 +7108,7 @@ components:
           examples:
             - - id: 42
                 source: prometheus
+                alert_source_profile_id: 1
                 source_fingerprint: prom:cpu:node-a
                 canonical_fingerprint: sha256:93b885adfe0da089cdf634904fd59f71
                 labels:
@@ -4826,6 +7118,7 @@ components:
                 status: firing
                 starts_at: "2026-05-27T08:00:00Z"
                 ends_at: null
+                linked_evidence_snapshots: []
                 created_at: "2026-05-27T08:00:01Z"
           items:
             $ref: "#/components/schemas/AlertEventSummary"
@@ -4833,6 +7126,7 @@ components:
         - items:
             - id: 42
               source: prometheus
+              alert_source_profile_id: 1
               source_fingerprint: prom:cpu:node-a
               canonical_fingerprint: sha256:93b885adfe0da089cdf634904fd59f71
               labels:
@@ -4842,6 +7136,7 @@ components:
               status: firing
               starts_at: "2026-05-27T08:00:00Z"
               ends_at: null
+              linked_evidence_snapshots: []
               created_at: "2026-05-27T08:00:01Z"
       required:
         - items
@@ -4856,6 +7151,11 @@ components:
             - 42
         source:
           type: string
+        alert_source_profile_id:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Operator-managed alert source profile that produced this alert; 0 marks legacy provider-only events.
         source_fingerprint:
           type: string
         canonical_fingerprint:
@@ -4881,12 +7181,18 @@ components:
             - string
             - "null"
           format: date-time
+        linked_evidence_snapshots:
+          type: array
+          description: Lightweight EvidenceSnapshot links whose payload events contain this alert fingerprint.
+          items:
+            $ref: "#/components/schemas/AlertEvidenceSnapshotLink"
         created_at:
           type: string
           format: date-time
       required:
         - id
         - source
+        - alert_source_profile_id
         - source_fingerprint
         - canonical_fingerprint
         - labels
@@ -4894,7 +7200,60 @@ components:
         - status
         - starts_at
         - ends_at
+        - linked_evidence_snapshots
         - created_at
+    AlertEvidenceSnapshotLink:
+      type: object
+      description: Lightweight EvidenceSnapshot and diagnosis-room links for an alert event.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: EvidenceSnapshot identifier.
+          examples:
+            - 247
+        alert_group_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: AlertGroup that produced the evidence snapshot.
+          examples:
+            - 31
+        digest:
+          type: string
+          minLength: 1
+          description: Snapshot digest used for evidence idempotency.
+          examples:
+            - sha256:7a38bf81f383f69433ad6e900434f376
+        status:
+          type: string
+          enum:
+            - complete
+            - partial
+            - failed
+        created_by_workflow:
+          type: string
+          description: Workflow or trigger that created the snapshot.
+          examples:
+            - AlertmanagerWebhookAutoDiagnosis
+        created_at:
+          type: string
+          format: date-time
+          description: Snapshot creation timestamp.
+        diagnosis_rooms:
+          type: array
+          description: Diagnosis rooms backed by this evidence snapshot.
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomSummary"
+      required:
+        - id
+        - alert_group_id
+        - digest
+        - status
+        - created_by_workflow
+        - created_at
+        - diagnosis_rooms
     EvidenceSnapshotListResponse:
       type: object
       description: List response for recent evidence snapshots.
@@ -4993,136 +7352,419 @@ components:
             $ref: "#/components/schemas/FinalReportSummary"
       required:
         - items
-    DiagnosisAuthCheckResponse:
+    DiagnosisTaskStatus:
+      type: string
+      description: Lifecycle status of a diagnosis workflow task.
+      enum:
+        - pending
+        - running
+        - succeeded
+        - failed
+        - cancelled
+      examples:
+        - running
+    DiagnosisRoomStatus:
+      type: string
+      description: Lifecycle status of a diagnosis-room chat session.
+      enum:
+        - open
+        - closed
+      examples:
+        - open
+    DiagnosisHandoffReason:
+      type: string
+      description: Reason a diagnosis handoff item is waiting for operator action.
+      enum:
+        - missing_diagnosis_room
+      examples:
+        - missing_diagnosis_room
+    DiagnosisHandoffListResponse:
       type: object
-      description: Sanitized diagnosis authentication principal summary.
+      description: List response for pending diagnosis handoffs.
+      properties:
+        items:
+          type: array
+          examples:
+            - - reason: missing_diagnosis_room
+                evidence_snapshot:
+                  id: 247
+                  alert_group_id: 31
+                  digest: sha256:7a38bf81f383f69433ad6e900434f376
+                  status: complete
+                  created_by_workflow: AlertmanagerWebhookAutoDiagnosis
+                  created_at: "2026-06-18T02:20:28Z"
+                  diagnosis_rooms: []
+                alerts:
+                  - id: 42
+                    source: alertmanager
+                    alert_source_profile_id: 1
+                    source_fingerprint: am:checkout-latency:prod
+                    canonical_fingerprint: sha256:checkout-latency-prod
+                    labels:
+                      alertname: CheckoutLatencyHigh
+                      severity: warning
+                    annotations:
+                      summary: Checkout p95 latency is above the warning threshold.
+                    status: firing
+                    starts_at: "2026-06-18T02:20:00Z"
+                    ends_at: null
+                    linked_evidence_snapshots: []
+                    created_at: "2026-06-18T02:20:01Z"
+          items:
+            $ref: "#/components/schemas/DiagnosisHandoffBacklogItem"
+      required:
+        - items
+    DiagnosisHandoffBacklogItem:
+      type: object
+      description: Pending AI diagnosis handoff for one evidence snapshot.
+      properties:
+        reason:
+          $ref: "#/components/schemas/DiagnosisHandoffReason"
+        evidence_snapshot:
+          $ref: "#/components/schemas/AlertEvidenceSnapshotLink"
+        alerts:
+          type: array
+          description: Recent alert events linked to this evidence snapshot.
+          items:
+            $ref: "#/components/schemas/AlertEventSummary"
+      required:
+        - reason
+        - evidence_snapshot
+        - alerts
+    DiagnosisRoomListResponse:
+      type: object
+      description: List response for recent diagnosis-room sessions.
+      properties:
+        items:
+          type: array
+          examples:
+            - - session_id: diagnosis-session-auto-p3-s247
+                chat_session_id: 353
+                diagnosis_task_id: 353
+                evidence_snapshot_id: 247
+                workflow_id: diagnosis-room-diagnosis-session-auto-p3-s247
+                run_id: run-247
+                task_status: running
+                room_status: open
+                turn_count: 1
+                started_at: "2026-06-18T02:20:28Z"
+                last_activity_at: "2026-06-18T02:20:31Z"
+                closed_at: null
+                close_reason: ""
+                created_at: "2026-06-18T02:20:28Z"
+                updated_at: "2026-06-18T02:20:31Z"
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomSummary"
+      required:
+        - items
+    DiagnosisRoomWorkflowVisibility:
+      type: object
+      description: Sanitized Temporal execution metadata for a diagnosis-room workflow.
+      properties:
+        status:
+          type: string
+          minLength: 1
+          description: Temporal workflow execution status, or not_found when visibility lookup could not find the stored execution.
+          examples:
+            - running
+        task_queue:
+          type: string
+          description: Temporal task queue recorded for the execution.
+          examples:
+            - openclarion
+        start_time:
+          type: string
+          format: date-time
+          description: Temporal workflow start time.
+        execution_time:
+          type: string
+          format: date-time
+          description: Temporal workflow execution time.
+        close_time:
+          type: string
+          format: date-time
+          description: Temporal workflow close time, when available.
+        history_length:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Temporal history event count.
+        history_size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Temporal history size in bytes.
+      required:
+        - status
+    DiagnosisRoomSummary:
+      type: object
+      description: Operator-facing diagnosis-room lifecycle summary.
+      properties:
+        session_id:
+          type: string
+          minLength: 1
+          description: External diagnosis room session key used for WebSocket ticket issuance.
+          examples:
+            - diagnosis-session-auto-p3-s247
+        chat_session_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Persistent ChatSession lifecycle row.
+          examples:
+            - 353
+        diagnosis_task_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Persistent DiagnosisTask that backs this room.
+          examples:
+            - 353
+        evidence_snapshot_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: EvidenceSnapshot frozen for the room.
+          examples:
+            - 247
+        workflow_id:
+          type: string
+          minLength: 1
+          description: Temporal workflow ID for the room.
+          examples:
+            - diagnosis-room-diagnosis-session-auto-p3-s247
+        run_id:
+          type: string
+          minLength: 1
+          description: Temporal run ID for the room.
+          examples:
+            - run-247
+        task_status:
+          $ref: "#/components/schemas/DiagnosisTaskStatus"
+        room_status:
+          $ref: "#/components/schemas/DiagnosisRoomStatus"
+        turn_count:
+          type: integer
+          minimum: 0
+          description: Accepted user-turn count tracked by the room workflow.
+          examples:
+            - 1
+        started_at:
+          type: string
+          format: date-time
+          description: Time the room session started.
+          examples:
+            - "2026-06-18T02:20:28Z"
+        last_activity_at:
+          type: string
+          format: date-time
+          description: Last accepted turn or close time.
+          examples:
+            - "2026-06-18T02:20:31Z"
+        closed_at:
+          type:
+            - string
+            - "null"
+          format: date-time
+          description: Terminal close time, when the room is closed.
+          examples:
+            - null
+        close_reason:
+          type: string
+          description: Workflow, user, or system reason that closed the room.
+          examples:
+            - ""
+        participants:
+          type: array
+          description: Sanitized participant summary derived from room ownership, transcript turns, supplemental evidence, and confirmation metadata.
+          examples:
+            - - subject: operator:alice
+                roles:
+                  - owner
+                  - message
+                  - confirmation
+                is_system: false
+                message_count: 1
+                evidence_collection_count: 0
+                supplemental_evidence_count: 0
+                confirmed_conclusion: true
+              - subject: openclarion:auto-diagnosis
+                roles:
+                  - assistant
+                is_system: true
+                message_count: 1
+                evidence_collection_count: 0
+                supplemental_evidence_count: 0
+                confirmed_conclusion: false
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomParticipantSummary"
+        participant_directory_users:
+          type: array
+          description: Minimal directory display projections for non-system room participant subjects that matched local directory users. This is limited to participants visible in this room and is not a full directory listing.
+          examples:
+            -
+              - subject: operator:alice
+                username: alice
+                display_name: Alice
+                job_title: SRE
+                department: Platform
+                section: SRE
+                department_path: IT/Platform/SRE
+                active: true
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomParticipantDirectoryUser"
+        latest_conclusion:
+          $ref: "#/components/schemas/DiagnosisRoomConclusionSummary"
+        latest_progress:
+          $ref: "#/components/schemas/DiagnosisRoomProgressSummary"
+        notification_timeline:
+          type: array
+          description: Sanitized outbound diagnosis-room notification delivery timeline.
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomNotificationTimelineEntry"
+        workflow_visibility:
+          $ref: "#/components/schemas/DiagnosisRoomWorkflowVisibility"
+        created_at:
+          type: string
+          format: date-time
+          description: Server-side room row creation timestamp.
+          examples:
+            - "2026-06-18T02:20:28Z"
+        updated_at:
+          type: string
+          format: date-time
+          description: Server-side last-mutation timestamp.
+          examples:
+            - "2026-06-18T02:20:31Z"
+      required:
+        - session_id
+        - chat_session_id
+        - diagnosis_task_id
+        - evidence_snapshot_id
+        - workflow_id
+        - run_id
+        - task_status
+        - room_status
+        - turn_count
+        - started_at
+        - last_activity_at
+        - closed_at
+        - close_reason
+        - created_at
+        - updated_at
+    DiagnosisRoomParticipantSummary:
+      type: object
+      description: Sanitized diagnosis-room participant activity summary.
       properties:
         subject:
           type: string
           minLength: 1
-          description: Stable authenticated subject used by diagnosis-room ownership checks.
-          examples:
-            - operator-1
+          maxLength: 256
+          description: Stable authenticated subject used for audit and room authorization.
         roles:
           type: array
-          description: OpenClarion diagnosis authorization roles mapped from IAM claims or browser session state.
-          items:
-            type: string
-          examples:
-            - - owner
-        mode:
-          type: string
-          description: Diagnosis auth provider mode that accepted the credentials.
-          enum:
-            - oidc
-            - unknown
-          examples:
-            - oidc
-        checked_at:
-          type: string
-          format: date-time
-          description: Server-side timestamp when the credentials were checked.
-          examples:
-            - "2026-06-30T10:00:00Z"
-        role_authorized:
-          type: boolean
-          description: Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
-          examples:
-            - true
-      required:
-        - subject
-        - roles
-        - mode
-        - checked_at
-        - role_authorized
-    DiagnosisAuthSessionResponse:
-      type: object
-      description: Short-lived diagnosis browser session issued after accepted IAM OIDC Authorization credentials.
-      properties:
-        token:
-          type: string
-          minLength: 1
-          description: OpenClarion diagnosis bearer session token. The BFF stores this value in an HttpOnly cookie and does not expose it to browser JavaScript.
-          examples:
-            - openclarion.session.token
-        subject:
-          type: string
-          minLength: 1
-          description: Stable authenticated subject used by diagnosis-room ownership checks.
-          examples:
-            - operator-1
-        roles:
-          type: array
-          description: OpenClarion diagnosis authorization roles mapped from IAM claims.
-          items:
-            type: string
-          examples:
-            - - owner
-        mode:
-          type: string
-          description: Diagnosis auth provider mode that accepted the credentials.
-          enum:
-            - oidc
-            - unknown
-          examples:
-            - oidc
-        checked_at:
-          type: string
-          format: date-time
-          description: Server-side timestamp when the credentials were checked.
-          examples:
-            - "2026-06-30T10:00:00Z"
-        expires_at:
-          type: string
-          format: date-time
-          description: Expiry time for the issued OpenClarion session token.
-          examples:
-            - "2026-06-30T18:00:00Z"
-        role_authorized:
-          type: boolean
-          description: Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
-          examples:
-            - true
-      required:
-        - token
-        - subject
-        - roles
-        - mode
-        - checked_at
-        - expires_at
-        - role_authorized
-    DiagnosisAuthStatusResponse:
-      type: object
-      description: Non-sensitive diagnosis auth provider wiring status.
-      properties:
-        configured:
-          type: boolean
-          description: Whether diagnosis auth is wired in the running backend.
-          examples:
-            - true
-        mode:
-          type: string
-          description: Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
-          enum:
-            - oidc
-            - unknown
-            - none
-          examples:
-            - oidc
-        supported_modes:
-          type: array
-          description: Configured diagnosis auth modes accepted by the running backend.
           items:
             type: string
             enum:
-              - oidc
-              - unknown
-          examples:
-            - - oidc
+              - owner
+              - message
+              - evidence
+              - supplemental_evidence
+              - confirmation
+              - assistant
+        is_system:
+          type: boolean
+          description: Whether the subject is an OpenClarion system actor.
+        message_count:
+          type: integer
+          minimum: 0
+        evidence_collection_count:
+          type: integer
+          minimum: 0
+        supplemental_evidence_count:
+          type: integer
+          minimum: 0
+        confirmed_conclusion:
+          type: boolean
       required:
-        - configured
-        - mode
-        - supported_modes
+        - subject
+        - roles
+        - is_system
+        - message_count
+        - evidence_collection_count
+        - supplemental_evidence_count
+        - confirmed_conclusion
+    DiagnosisRoomParticipantDirectoryUser:
+      type: object
+      description: Minimal local directory display projection for one diagnosis-room participant.
+      properties:
+        subject:
+          type: string
+          maxLength: 256
+          description: Stable authenticated subject used for audit and room authorization.
+          examples:
+            - iam-user-1
+        username:
+          type: string
+          maxLength: 128
+          description: Directory username when available.
+          examples:
+            - alice
+        display_name:
+          type: string
+          maxLength: 256
+          description: Human-readable display name when available.
+          examples:
+            - Alice
+        job_title:
+          type: string
+          maxLength: 256
+          description: Job title when available.
+          examples:
+            - SRE
+        department:
+          type: string
+          maxLength: 256
+          description: Immediate department name when available.
+          examples:
+            - Platform
+        section:
+          type: string
+          maxLength: 1024
+          description: Section name when available.
+          examples:
+            - SRE
+        department_path:
+          type: string
+          maxLength: 1024
+          description: Human-readable department path when available.
+          examples:
+            - IT/Platform/SRE
+        department_paths:
+          type: array
+          description: All human-readable department paths when available.
+          examples:
+            -
+              - IT/Platform/SRE
+              - IT/Shared
+          items:
+            type: string
+            maxLength: 1024
+        active:
+          type: boolean
+          description: Whether the directory user is active in the upstream projection.
+          examples:
+            - true
+      required:
+        - subject
+        - username
+        - display_name
+        - job_title
+        - department
+        - section
+        - department_path
+        - department_paths
+        - active
     DiagnosisRoomCreateRequest:
       type: object
       description: Request to create a short-conversation diagnosis room from a frozen EvidenceSnapshot.
@@ -5134,8 +7776,28 @@ components:
           description: EvidenceSnapshot identifier that freezes the diagnosis context.
           examples:
             - 7
+        close_notification_channel_profile_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Optional notification channel profile used for AI diagnosis update, final-ready, and close notifications from this room.
+          examples:
+            - 2
       required:
         - evidence_snapshot_id
+      additionalProperties: false
+    DiagnosisRoomCloseUnavailableRequest:
+      type: object
+      description: Request to close a local diagnosis-room lifecycle row after backend workflow visibility proves the workflow is unavailable.
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 120
+          pattern: ^[A-Za-z0-9_.:-]+$
+          description: Operator-facing reason stored on the closed room. Defaults to workflow_unavailable.
+          examples:
+            - workflow_unavailable
       additionalProperties: false
     DiagnosisRoomCreateResponse:
       type: object
@@ -5187,6 +7849,200 @@ components:
         - chat_session_id
         - workflow_id
         - run_id
+    DiagnosisAuthCheckResponse:
+      type: object
+      description: Sanitized diagnosis authentication principal summary.
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          description: Stable authenticated subject used by diagnosis-room ownership checks.
+          examples:
+            - operator-1
+        roles:
+          type: array
+          description: Diagnosis authorization roles mapped by the configured auth provider. V1 roles are owner and admin.
+          items:
+            type: string
+          examples:
+            -
+              - owner
+        mode:
+          type: string
+          description: Configured diagnosis auth provider mode that accepted the credentials. none is never returned by a successful check.
+          enum:
+            - ldap
+            - static
+            - oidc
+            - unknown
+          examples:
+            - ldap
+        checked_at:
+          type: string
+          format: date-time
+          description: Server-side timestamp when the credentials were checked.
+          examples:
+            - "2026-06-21T04:00:00Z"
+        role_authorized:
+          type: boolean
+          description: Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
+          examples:
+            - true
+      required:
+        - subject
+        - roles
+        - mode
+        - checked_at
+        - role_authorized
+    DiagnosisAuthSessionResponse:
+      type: object
+      description: Short-lived diagnosis browser session issued after accepted Authorization credentials. The token is intended only for the trusted browser BFF to store in an HTTP-only cookie and must not be exposed to page JavaScript.
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: OpenClarion diagnosis bearer session token. The BFF stores this value in an HTTP-only cookie and does not expose it to the browser UI.
+          examples:
+            - openclarion.session.token
+        subject:
+          type: string
+          minLength: 1
+          description: Stable authenticated subject used by diagnosis-room ownership checks.
+          examples:
+            - operator-1
+        roles:
+          type: array
+          description: Diagnosis authorization roles mapped by the configured auth provider. V1 roles are owner and admin.
+          items:
+            type: string
+          examples:
+            -
+              - owner
+        mode:
+          type: string
+          description: Diagnosis auth provider mode that accepted the credentials. none is never returned by a successful session issue.
+          enum:
+            - ldap
+            - static
+            - oidc
+            - unknown
+          examples:
+            - ldap
+        checked_at:
+          type: string
+          format: date-time
+          description: Server-side timestamp when the credentials were checked.
+          examples:
+            - "2026-06-21T04:00:00Z"
+        expires_at:
+          type: string
+          format: date-time
+          description: Expiry time for the issued OpenClarion session token.
+          examples:
+            - "2026-06-21T12:00:00Z"
+        role_authorized:
+          type: boolean
+          description: Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
+          examples:
+            - true
+      required:
+        - token
+        - subject
+        - roles
+        - mode
+        - checked_at
+        - expires_at
+        - role_authorized
+    DiagnosisAuthStatusResponse:
+      type: object
+      description: Non-sensitive diagnosis auth provider wiring status.
+      properties:
+        configured:
+          type: boolean
+          description: Whether diagnosis auth is wired in the running backend.
+          examples:
+            - true
+        mode:
+          type: string
+          description: Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
+          enum:
+            - ldap
+            - static
+            - oidc
+            - unknown
+            - none
+          examples:
+            - ldap
+        supported_modes:
+          type: array
+          description: Configured diagnosis auth modes accepted by the running backend.
+          items:
+            type: string
+            enum:
+              - ldap
+              - static
+              - oidc
+              - unknown
+          examples:
+            - - oidc
+        role_mapping:
+          $ref: "#/components/schemas/DiagnosisAuthRoleMappingStatus"
+        transport_policy:
+          $ref: "#/components/schemas/DiagnosisAuthTransportPolicyStatus"
+      required:
+        - configured
+        - mode
+    DiagnosisAuthTransportPolicyStatus:
+      type: object
+      description: Non-sensitive credential transport readiness summary. It reports only the security class and never includes endpoints, DNs, usernames, domains, certificates, or secrets.
+      properties:
+        security:
+          type: string
+          description: Credential transport security class accepted by the running backend.
+          enum:
+            - tls
+            - start_tls
+            - insecure_plaintext
+          examples:
+            - tls
+      required:
+        - security
+    DiagnosisAuthRoleMappingStatus:
+      type: object
+      description: Non-sensitive owner/admin role mapping readiness summary. Counts indicate configured mapping paths only and never include upstream role values, user IDs, DNs, claims, endpoints, or secrets.
+      properties:
+        owner_mapping_count:
+          type: integer
+          minimum: 0
+          description: Number of configured upstream mappings that grant OpenClarion owner access.
+          examples:
+            - 1
+        admin_mapping_count:
+          type: integer
+          minimum: 0
+          description: Number of configured upstream mappings that grant OpenClarion admin access.
+          examples:
+            - 1
+        default_roles:
+          type: array
+          description: OpenClarion roles granted by default by the configured provider.
+          items:
+            type: string
+            enum:
+              - owner
+              - admin
+          examples:
+            - ["owner"]
+        configured:
+          type: boolean
+          description: Whether at least one owner/admin mapping path or default role is configured.
+          examples:
+            - true
+      required:
+        - owner_mapping_count
+        - admin_mapping_count
+        - default_roles
+        - configured
     DiagnosisWSTicketRequest:
       type: object
       description: Request to issue a short-lived WebSocket ticket for a diagnosis session.
@@ -5281,6 +8137,11 @@ components:
           description: True when at least one EvidenceSnapshot was available and workflow start was accepted.
           examples:
             - true
+        correlation_key:
+          type: string
+          description: Final report correlation key used by the replayed report workflow and downstream delivery proof.
+          examples:
+            - incident-window-20260527T0900Z
         workflow_id:
           type: string
           description: Started workflow ID, or empty when no snapshots were available.
@@ -5301,8 +8162,11 @@ components:
                 event_count: 5
           items:
             $ref: "#/components/schemas/ReportReplaySnapshotRef"
+        auto_diagnosis:
+          $ref: "#/components/schemas/AlertmanagerWebhookAutoDiagnosisSummary"
       required:
         - started
+        - correlation_key
         - workflow_id
         - run_id
         - stats
@@ -5501,6 +8365,27 @@ components:
           type: string
           examples:
             - abc123
+        silencedBy:
+          type: array
+          description: Optional Alertmanager API suppression references; alerts with entries here are ignored by webhook ingestion.
+          items:
+            type: string
+          examples:
+            - - silence-1
+        inhibitedBy:
+          type: array
+          description: Optional Alertmanager API inhibition references; alerts with entries here are ignored by webhook ingestion.
+          items:
+            type: string
+          examples:
+            - - inhibit-1
+        mutedBy:
+          type: array
+          description: Optional Alertmanager API mute references; alerts with entries here are ignored by webhook ingestion.
+          items:
+            type: string
+          examples:
+            - - mute-1
       required:
         - status
         - labels
@@ -5526,6 +8411,12 @@ components:
           format: int64
           examples:
             - 1
+        skipped_suppressed:
+          type: integer
+          format: int64
+          description: Firing alert entries ignored because Alertmanager marked them silenced, inhibited, or muted.
+          examples:
+            - 2
         truncated_alerts:
           type: integer
           format: int64
@@ -5557,12 +8448,98 @@ components:
               saved: 1
               duplicate: 0
               failed: 0
+        auto_diagnosis:
+          $ref: "#/components/schemas/AlertmanagerWebhookAutoDiagnosisSummary"
       required:
         - source_id
         - received
         - skipped_resolved
+        - skipped_suppressed
         - truncated_alerts
         - ingested
+    AlertmanagerWebhookAutoDiagnosisSummary:
+      type: object
+      description: Sanitized summary of automatic diagnosis-room handoff triggered by a webhook ingest.
+      properties:
+        policies_matched:
+          type: integer
+          format: int64
+          description: Enabled auto_room report workflow policies matched for this alert source.
+          examples:
+            - 1
+        snapshots:
+          type: integer
+          format: int64
+          description: Evidence snapshots produced or reused for automatic diagnosis.
+          examples:
+            - 1
+        rooms_started:
+          type: integer
+          format: int64
+          description: Diagnosis room workflows accepted for automatic consultation.
+          examples:
+            - 1
+        rooms_skipped:
+          type: integer
+          format: int64
+          description: Evidence snapshots intentionally left without an automatic diagnosis room in this trigger because the runtime safety cap was reached.
+          examples:
+            - 0
+        rooms:
+          type: array
+          description: Diagnosis rooms accepted for automatic consultation, with only navigation-safe identifiers.
+          items:
+            $ref: "#/components/schemas/AlertmanagerWebhookAutoDiagnosisRoom"
+      required:
+        - policies_matched
+        - snapshots
+        - rooms_started
+        - rooms_skipped
+      additionalProperties: false
+    AlertmanagerWebhookAutoDiagnosisRoom:
+      type: object
+      description: Navigation-safe reference to one automatic diagnosis room started for alert diagnosis.
+      properties:
+        policy_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 7
+        evidence_snapshot_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 17
+        session_id:
+          type: string
+          description: External diagnosis-room session key.
+          examples:
+            - diagnosis-session-auto-p7-s17
+        initial_message_id:
+          type: string
+          description: Deterministic first-turn message id used by automatic diagnosis.
+          examples:
+            - diagnosis-auto-initial-p7-s17
+        workflow_id:
+          type: string
+          description: Diagnosis-room workflow id accepted by the orchestration runtime.
+          examples:
+            - diagnosis-room-diagnosis-session-auto-p7-s17
+        run_id:
+          type: string
+          description: Diagnosis-room workflow run id accepted by the orchestration runtime.
+          examples:
+            - run-17
+      required:
+        - policy_id
+        - evidence_snapshot_id
+        - session_id
+        - initial_message_id
+        - workflow_id
+        - run_id
+      additionalProperties: false
     ReportReplaySnapshotRef:
       type: object
       description: EvidenceSnapshot reference returned by replay.
@@ -5616,6 +8593,148 @@ components:
         - notification_text
         - created_by_workflow
         - created_at
+    ReportNotificationDeliveryStatus:
+      type: string
+      description: Final report notification delivery lifecycle status.
+      enum:
+        - pending
+        - delivered
+        - failed
+    ReportNotificationDeliveryProof:
+      type: object
+      description: Sanitized final report notification delivery proof retained for audit.
+      properties:
+        id:
+          type: integer
+          format: int64
+          examples:
+            - 31
+        idempotency_key:
+          type: string
+          examples:
+            - final_report:11/notification/final
+        notification_purpose:
+          $ref: "#/components/schemas/ReportNotificationPurpose"
+        report_notification_channel_profile_id:
+          type:
+            - integer
+            - "null"
+          format: int64
+          description: Notification channel profile used for this delivery attempt, or null for legacy fallback.
+          examples:
+            - 2
+        status:
+          $ref: "#/components/schemas/ReportNotificationDeliveryStatus"
+        provider_message_id:
+          type: string
+          examples:
+            - msg-31
+        provider_status:
+          type: string
+          examples:
+            - accepted
+        failure_reason:
+          type: string
+          examples:
+            - webhook returned 500
+        delivered_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-05-27T09:05:10Z"
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-05-27T09:05:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-05-27T09:05:10Z"
+      required:
+        - id
+        - idempotency_key
+        - notification_purpose
+        - report_notification_channel_profile_id
+        - status
+        - created_at
+        - updated_at
+    ReportNotificationRetryRequest:
+      type: object
+      description: Optional override for retrying a report notification.
+      properties:
+        report_notification_channel_profile_id:
+          type:
+            - integer
+            - "null"
+          format: int64
+          minimum: 1
+          description: Optional notification channel profile identifier for this retry attempt. Omit or set null to use the legacy fallback provider.
+          examples:
+            - 2
+        notification_purpose:
+          $ref: "#/components/schemas/ReportNotificationPurpose"
+    ReportNotificationPurpose:
+      type: string
+      description: Operator-facing report notification purpose. Handoff means the report is asking operators to complete diagnosis readiness; final means the report is already operator-confirmed.
+      enum:
+        - handoff
+        - final
+      default: handoff
+      examples:
+        - handoff
+    ReportNotificationRetryState:
+      type: string
+      description: Outcome of a report notification retry request. Sent means a provider request was made; already_pending and already_delivered mean existing delivery proof was returned without another provider request.
+      enum:
+        - sent
+        - already_pending
+        - already_delivered
+      examples:
+        - sent
+    ReportNotificationRetryResponse:
+      type: object
+      description: Delivery proof and retry outcome after a report notification retry request.
+      properties:
+        retry_state:
+          $ref: "#/components/schemas/ReportNotificationRetryState"
+        delivery:
+          $ref: "#/components/schemas/ReportNotificationDeliveryProof"
+      required:
+        - retry_state
+        - delivery
+    ReportFinalNotificationReadiness:
+      type: object
+      description: Server-derived readiness for sending the operator-confirmed final report notification.
+      properties:
+        ready:
+          type: boolean
+          examples:
+            - true
+        notification_purpose:
+          $ref: "#/components/schemas/ReportNotificationPurpose"
+        status:
+          type: string
+          enum:
+            - ready
+            - blocked
+          examples:
+            - ready
+        status_label:
+          type: string
+          examples:
+            - Final notification ready
+        detail:
+          type: string
+          examples:
+            - All linked subreports have operator-confirmed AI conclusions; final notification can be sent.
+      required:
+        - ready
+        - notification_purpose
+        - status
+        - status_label
+        - detail
     FinalReportDetail:
       type: object
       description: Final report detail with linked SubReports.
@@ -5661,6 +8780,24 @@ components:
           type: string
           examples:
             - Checkout latency incident requires review.
+        notification_deliveries:
+          type: array
+          description: Sanitized final report notification delivery proof, ordered by recency.
+          examples:
+            - - id: 31
+                idempotency_key: final_report:11/notification/final
+                notification_purpose: final
+                report_notification_channel_profile_id: 2
+                status: delivered
+                provider_message_id: msg-31
+                provider_status: accepted
+                delivered_at: "2026-05-27T09:05:10Z"
+                created_at: "2026-05-27T09:05:00Z"
+                updated_at: "2026-05-27T09:05:10Z"
+          items:
+            $ref: "#/components/schemas/ReportNotificationDeliveryProof"
+        final_notification_readiness:
+          $ref: "#/components/schemas/ReportFinalNotificationReadiness"
         content:
           type: object
           examples:
@@ -5726,6 +8863,52 @@ components:
                   confidence: high
                   requires_human_review: true
                   recorded_at: "2026-05-27T09:08:01Z"
+                diagnosis_progress:
+                  diagnosis_task_id: 301
+                  session_id: diagnosis-session-301
+                  chat_session_id: 401
+                  event_kind: diagnosis_room.turn_persisted
+                  status: in_progress
+                  evidence_snapshot_id: 7
+                  confidence: low
+                  requires_human_review: true
+                  conclusion_status: needs_evidence
+                  confidence_rationale: Deployment timing is still missing.
+                  evidence_request_count: 1
+                  missing_evidence_requests:
+                    - label: Deployment window
+                      detail: Provide checkout deployment timing before raising confidence.
+                      priority: high
+                  occurred_at: "2026-05-27T09:07:00Z"
+                  recorded_at: "2026-05-27T09:07:01Z"
+                diagnosis_room:
+                  session_id: diagnosis-session-301
+                  chat_session_id: 401
+                  diagnosis_task_id: 301
+                  evidence_snapshot_id: 7
+                  workflow_id: diagnosis-room-diagnosis-session-301
+                  run_id: run-301
+                  task_status: running
+                  room_status: open
+                  turn_count: 2
+                  started_at: "2026-05-27T09:06:00Z"
+                  last_activity_at: "2026-05-27T09:08:01Z"
+                  closed_at: null
+                  close_reason: ""
+                  notification_timeline:
+                    - event_kind: diagnosis_room.final_ready_notification_sent
+                      notification_channel_profile_id: 2
+                      provider_status: delivered
+                      provider_message_id: wecom-final-ready-301
+                      assistant_message_id: msg-1/assistant
+                      assistant_turn_id: 501
+                      assistant_sequence: 2
+                      turn_count: 2
+                      confidence: high
+                      requires_human_review: true
+                      occurred_at: "2026-05-27T09:08:02Z"
+                  created_at: "2026-05-27T09:06:00Z"
+                  updated_at: "2026-05-27T09:08:01Z"
           items:
             $ref: "#/components/schemas/SubReportDetail"
       required:
@@ -5738,6 +8921,8 @@ components:
         - sub_reports
         - recommended_actions
         - notification_text
+        - notification_deliveries
+        - final_notification_readiness
         - content
         - model
         - output_mode
@@ -5790,6 +8975,10 @@ components:
           format: date-time
         diagnosis_conclusion:
           $ref: "#/components/schemas/DiagnosisRoomConclusionSummary"
+        diagnosis_progress:
+          $ref: "#/components/schemas/DiagnosisRoomProgressSummary"
+        diagnosis_room:
+          $ref: "#/components/schemas/DiagnosisRoomSummary"
       required:
         - id
         - evidence_snapshot_id
@@ -5806,6 +8995,91 @@ components:
         - output_mode
         - created_by_workflow
         - created_at
+    DiagnosisRoomProgressSummary:
+      type: object
+      description: Latest non-final diagnosis-room AI progress linked to a report evidence snapshot.
+      properties:
+        diagnosis_task_id:
+          type: integer
+          format: int64
+        session_id:
+          type: string
+        chat_session_id:
+          type: integer
+          format: int64
+        event_kind:
+          type: string
+        status:
+          type: string
+          enum:
+            - in_progress
+            - failed
+          description: Current non-final diagnosis progress state. Failed means the diagnosis task terminated before a final conclusion was recorded.
+        evidence_snapshot_id:
+          type: integer
+          format: int64
+        confidence:
+          $ref: "#/components/schemas/ReportConfidence"
+        requires_human_review:
+          type: boolean
+        conclusion_status:
+          type: string
+        confidence_rationale:
+          type: string
+        failure_reason:
+          type: string
+          description: Sanitized terminal failure reason when status is failed.
+        evidence_request_count:
+          type: integer
+        evidence_requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomEvidenceRequestSummary"
+        evidence_collection_results:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomEvidenceCollectionResultSummary"
+        missing_evidence_requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomConsultationEvidenceRequestSummary"
+        evidence_collection_suggestions:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomConsultationEvidenceRequestSummary"
+        supplemental_evidence:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomSupplementalEvidenceSummary"
+        confidence_timeline:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomConfidenceTimelineEntry"
+        assistant_message_id:
+          type: string
+        assistant_turn_id:
+          type: integer
+          format: int64
+        assistant_sequence:
+          type: integer
+        turn_count:
+          type: integer
+        occurred_at:
+          type: string
+          format: date-time
+        recorded_at:
+          type: string
+          format: date-time
+      required:
+        - diagnosis_task_id
+        - event_kind
+        - status
+        - evidence_snapshot_id
+        - confidence
+        - requires_human_review
+        - evidence_request_count
+        - occurred_at
+        - recorded_at
     DiagnosisRoomConclusionSummary:
       type: object
       description: Latest available diagnosis-room conclusion linked to a report evidence snapshot.
@@ -5863,6 +9137,28 @@ components:
           $ref: "#/components/schemas/ReportConfidence"
         requires_human_review:
           type: boolean
+        confidence_rationale:
+          type: string
+        findings:
+          type: array
+          items:
+            type: string
+        recommended_actions:
+          type: array
+          items:
+            type: string
+        evidence_requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomEvidenceRequestSummary"
+        missing_evidence_requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomConsultationEvidenceRequestSummary"
+        evidence_collection_suggestions:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomConsultationEvidenceRequestSummary"
         recorded_at:
           type: string
           format: date-time
@@ -5887,6 +9183,11 @@ components:
           type: string
         evidence:
           type: string
+        actor_subject:
+          type: string
+          description: Authenticated subject that provided the supplemental evidence, when retained by the event payload.
+          examples:
+            - operator:bob
         context_refs:
           type: array
           items:
@@ -5901,6 +9202,10 @@ components:
         assistant_turn_id:
           type: integer
           format: int64
+        user_sequence:
+          type: integer
+        assistant_sequence:
+          type: integer
         provided_at:
           type: string
           format: date-time
@@ -5923,6 +9228,9 @@ components:
         template_id:
           type: integer
           format: int64
+        alert_source_profile_id:
+          type: integer
+          format: int64
         window_seconds:
           type: integer
         step_seconds:
@@ -5932,6 +9240,47 @@ components:
       required:
         - tool
         - reason
+    DiagnosisRoomEvidenceCollectionResultSummary:
+      type: object
+      description: Sanitized provider-backed evidence collection result for a diagnosis-room assistant turn.
+      properties:
+        tool:
+          type: string
+        status:
+          type: string
+        reason_code:
+          type: string
+        message:
+          type: string
+        request_reason:
+          type: string
+        query:
+          type: string
+        template_id:
+          type: integer
+          format: int64
+        alert_source_profile_id:
+          type: integer
+          format: int64
+        alert_source_kind:
+          type: string
+        window_seconds:
+          type: integer
+        step_seconds:
+          type: integer
+        limit:
+          type: integer
+        observed_alerts:
+          type: integer
+        observed_metric_series:
+          type: integer
+        collected_at:
+          type: string
+          format: date-time
+      required:
+        - tool
+        - status
+        - collected_at
     DiagnosisRoomConsultationEvidenceRequestSummary:
       type: object
       description: Human-readable evidence gap or collection suggestion from a diagnosis-room assistant turn.
@@ -5966,6 +9315,10 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/DiagnosisRoomEvidenceRequestSummary"
+        evidence_collection_results:
+          type: array
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomEvidenceCollectionResultSummary"
         missing_evidence_requests:
           type: array
           items:
@@ -5992,6 +9345,85 @@ components:
         - requires_human_review
         - evidence_request_count
         - occurred_at
+    DiagnosisRoomNotificationTimelineEntry:
+      type: object
+      description: Sanitized outbound notification delivery retained from diagnosis-room lifecycle events.
+      properties:
+        event_kind:
+          type: string
+        notification_channel_profile_id:
+          type: integer
+          format: int64
+        provider_status:
+          type: string
+        provider_message_id:
+          type: string
+        assistant_message_id:
+          type: string
+        assistant_turn_id:
+          type: integer
+          format: int64
+        assistant_sequence:
+          type: integer
+        turn_count:
+          type: integer
+        confidence:
+          $ref: "#/components/schemas/ReportConfidence"
+        requires_human_review:
+          type: boolean
+        content_kind:
+          type: string
+          description: Sanitized proof source for the AI content used to build the outbound notification.
+          enum:
+            - assistant_message
+            - final_conclusion
+        content_sha256:
+          type: string
+          description: SHA-256 digest of the trimmed AI content used to build the outbound notification.
+          pattern: "^[a-f0-9]{64}$"
+        recommended_action_count:
+          type: integer
+          minimum: 0
+        evidence_request_count:
+          type: integer
+          minimum: 0
+        occurred_at:
+          type: string
+          format: date-time
+      required:
+        - event_kind
+        - provider_status
+        - occurred_at
+    DiagnosisNotificationRetryRequest:
+      type: object
+      description: Request to retry the latest still-failed diagnosis-room notification of a specific lifecycle kind.
+      additionalProperties: false
+      properties:
+        event_kind:
+          type: string
+          enum:
+            - diagnosis_room.assistant_turn_notification_sent
+            - diagnosis_room.final_ready_notification_sent
+            - diagnosis_room.close_notification_sent
+      required:
+        - event_kind
+    DiagnosisNotificationRetryState:
+      type: string
+      description: Outcome of a diagnosis-room notification retry request.
+      enum:
+        - sent
+        - already_delivered
+    DiagnosisNotificationRetryResponse:
+      type: object
+      description: Sanitized retry result for one diagnosis-room notification lifecycle event.
+      properties:
+        retry_state:
+          $ref: "#/components/schemas/DiagnosisNotificationRetryState"
+        notification:
+          $ref: "#/components/schemas/DiagnosisRoomNotificationTimelineEntry"
+      required:
+        - retry_state
+        - notification
     FinalReportSubReportSummary:
       type: object
       description: SubReport summary embedded in the final report content.

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
+	"golang.org/x/oauth2"
 
 	"github.com/openclarion/openclarion/internal/observability/correlation"
 	"github.com/openclarion/openclarion/internal/strictjson"
@@ -42,6 +43,7 @@ type Config struct {
 // Provider verifies OIDC ID tokens and maps configured role claims into
 // OpenClarion's provider-neutral AuthPrincipal shape.
 type Provider struct {
+	provider   *gooidc.Provider
 	verifier   *gooidc.IDTokenVerifier
 	roleClaim  string
 	ownerRoles map[string]struct{}
@@ -49,6 +51,7 @@ type Provider struct {
 }
 
 var _ ports.AuthProvider = (*Provider)(nil)
+var _ ports.AuthProviderWithAuxiliaryCredentials = (*Provider)(nil)
 
 // NewProvider discovers the issuer metadata, builds an ID token verifier, and
 // returns an AuthProvider. The configured HTTP client is also used for JWKS
@@ -89,6 +92,7 @@ func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
 		SupportedSigningAlgs: append([]string(nil), cfg.SupportedSigningAlgs...),
 	})
 	return &Provider{
+		provider:   provider,
 		verifier:   verifier,
 		roleClaim:  roleClaim,
 		ownerRoles: ownerRoles,
@@ -96,13 +100,24 @@ func NewProvider(ctx context.Context, cfg Config) (*Provider, error) {
 	}, nil
 }
 
-// AuthenticateBearer verifies a bearer ID token and maps its configured role
-// claim into owner/admin roles.
-func (p *Provider) AuthenticateBearer(ctx context.Context, bearerToken string) (ports.AuthPrincipal, error) {
+// AuthenticateAuthorization verifies a bearer ID token and maps its configured
+// role claim into owner/admin roles.
+func (p *Provider) AuthenticateAuthorization(ctx context.Context, authorization string) (ports.AuthPrincipal, error) {
+	return p.authenticateAuthorization(ctx, authorization, "")
+}
+
+// AuthenticateAuthorizationWithAuxiliaryCredentials verifies the ID token and,
+// when an OIDC access token is supplied, enriches non-core claims from the
+// provider's UserInfo endpoint.
+func (p *Provider) AuthenticateAuthorizationWithAuxiliaryCredentials(ctx context.Context, authorization string, credentials ports.AuthAuxiliaryCredentials) (ports.AuthPrincipal, error) {
+	return p.authenticateAuthorization(ctx, authorization, credentials.OIDCAccessToken)
+}
+
+func (p *Provider) authenticateAuthorization(ctx context.Context, authorization, accessToken string) (ports.AuthPrincipal, error) {
 	if p == nil || p.verifier == nil {
 		return ports.AuthPrincipal{}, fmt.Errorf("oidc auth: provider is not configured")
 	}
-	rawToken, err := bearerTokenValue(bearerToken)
+	rawToken, err := bearerTokenValue(authorization)
 	if err != nil {
 		return ports.AuthPrincipal{}, err
 	}
@@ -118,6 +133,10 @@ func (p *Provider) AuthenticateBearer(ctx context.Context, bearerToken string) (
 	if err := idToken.Claims(&claims); err != nil {
 		return ports.AuthPrincipal{}, fmt.Errorf("oidc auth: decode claims: %w", err)
 	}
+	claims, err = p.claimsWithUserInfo(ctx, idToken.Subject, accessToken, claims)
+	if err != nil {
+		return ports.AuthPrincipal{}, err
+	}
 	rawClaims, err := json.Marshal(claims)
 	if err != nil {
 		return ports.AuthPrincipal{}, fmt.Errorf("oidc auth: marshal claims: %w", err)
@@ -131,6 +150,41 @@ func (p *Provider) AuthenticateBearer(ctx context.Context, bearerToken string) (
 		Roles:   roles,
 		Claims:  json.RawMessage(rawClaims),
 	}, nil
+}
+
+func (p *Provider) claimsWithUserInfo(ctx context.Context, subject, accessToken string, tokenClaims map[string]json.RawMessage) (map[string]json.RawMessage, error) {
+	accessToken = strings.TrimSpace(accessToken)
+	if accessToken == "" || p.provider == nil || p.provider.UserInfoEndpoint() == "" {
+		return tokenClaims, nil
+	}
+	if len(strings.Fields(accessToken)) != 1 {
+		return nil, fmt.Errorf("oidc auth: access token must be a single token")
+	}
+	userInfo, err := p.provider.UserInfo(ctx, oauth2.StaticTokenSource(&oauth2.Token{
+		AccessToken: accessToken,
+		TokenType:   "Bearer",
+	}))
+	if err != nil {
+		return nil, fmt.Errorf("oidc auth: fetch userinfo: %w", err)
+	}
+	if userInfo.Subject != "" && userInfo.Subject != subject {
+		return nil, fmt.Errorf("oidc auth: userinfo subject does not match ID token subject")
+	}
+	var userInfoClaims map[string]json.RawMessage
+	if err := userInfo.Claims(&userInfoClaims); err != nil {
+		return nil, fmt.Errorf("oidc auth: decode userinfo claims: %w", err)
+	}
+	merged := make(map[string]json.RawMessage, len(tokenClaims)+len(userInfoClaims))
+	for key, value := range tokenClaims {
+		merged[key] = cloneRawMessage(value)
+	}
+	for key, value := range userInfoClaims {
+		if oidcCoreIDTokenClaim(key) || len(value) == 0 {
+			continue
+		}
+		merged[key] = cloneRawMessage(value)
+	}
+	return merged, nil
 }
 
 func normalizeIssuer(raw string) (string, error) {
@@ -257,4 +311,22 @@ func roleClaimValues(raw json.RawMessage) ([]string, error) {
 		out = append(out, value)
 	}
 	return out, nil
+}
+
+func oidcCoreIDTokenClaim(key string) bool {
+	switch key {
+	case "acr", "amr", "at_hash", "aud", "auth_time", "azp", "c_hash", "exp", "iat", "iss", "jti", "nbf", "nonce", "sub":
+		return true
+	default:
+		return false
+	}
+}
+
+func cloneRawMessage(in json.RawMessage) json.RawMessage {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(json.RawMessage, len(in))
+	copy(out, in)
+	return out
 }

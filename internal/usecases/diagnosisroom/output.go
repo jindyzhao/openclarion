@@ -52,13 +52,14 @@ type TurnOutput struct {
 // It is planning metadata only; parsing a request never calls an upstream
 // provider or starts a workflow.
 type EvidenceRequest struct {
-	TemplateID    int64                    `json:"template_id,omitempty"`
-	Tool          domain.DiagnosisToolKind `json:"tool"`
-	Reason        string                   `json:"reason"`
-	Query         string                   `json:"query,omitempty"`
-	WindowSeconds int                      `json:"window_seconds,omitempty"`
-	StepSeconds   int                      `json:"step_seconds,omitempty"`
-	Limit         int                      `json:"limit,omitempty"`
+	TemplateID           int64                    `json:"template_id,omitempty"`
+	AlertSourceProfileID int64                    `json:"alert_source_profile_id,omitempty"`
+	Tool                 domain.DiagnosisToolKind `json:"tool"`
+	Reason               string                   `json:"reason"`
+	Query                string                   `json:"query,omitempty"`
+	WindowSeconds        int                      `json:"window_seconds,omitempty"`
+	StepSeconds          int                      `json:"step_seconds,omitempty"`
+	Limit                int                      `json:"limit,omitempty"`
 }
 
 // ConsultationEvidenceRequest captures a human-readable evidence gap or
@@ -75,16 +76,17 @@ type ConsultationEvidenceRequest struct {
 // displayable evidence collection suggestion with optional bounded tool
 // metadata. Normalization projects it into the stable public fields.
 type ToolRequestSuggestion struct {
-	Label         string                   `json:"label"`
-	Detail        string                   `json:"detail"`
-	Priority      string                   `json:"priority"`
-	TemplateID    int64                    `json:"template_id,omitempty"`
-	Tool          domain.DiagnosisToolKind `json:"tool"`
-	Query         string                   `json:"query,omitempty"`
-	WindowSeconds int                      `json:"window_seconds,omitempty"`
-	WindowMinutes int                      `json:"window_minutes,omitempty"`
-	StepSeconds   int                      `json:"step_seconds,omitempty"`
-	Limit         int                      `json:"limit,omitempty"`
+	Label                string                   `json:"label"`
+	Detail               string                   `json:"detail"`
+	Priority             string                   `json:"priority"`
+	TemplateID           int64                    `json:"template_id,omitempty"`
+	AlertSourceProfileID int64                    `json:"alert_source_profile_id,omitempty"`
+	Tool                 domain.DiagnosisToolKind `json:"tool"`
+	Query                string                   `json:"query,omitempty"`
+	WindowSeconds        int                      `json:"window_seconds,omitempty"`
+	WindowMinutes        int                      `json:"window_minutes,omitempty"`
+	StepSeconds          int                      `json:"step_seconds,omitempty"`
+	Limit                int                      `json:"limit,omitempty"`
 }
 
 // ConsultationInsight is the structured diagnosis state that can be surfaced
@@ -134,6 +136,10 @@ const turnOutputSchemaJSON = `{
           "type": "integer",
           "minimum": 1
         },
+        "alert_source_profile_id": {
+          "type": "integer",
+          "minimum": 1
+        },
         "tool": {
           "type": "string",
           "enum": ["active_alerts", "metric_query", "metric_range_query"]
@@ -167,31 +173,30 @@ const turnOutputSchemaJSON = `{
     "tool_request_suggestion": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["label", "detail", "priority", "tool"],
       "properties": {
         "label": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 120,
-          "pattern": "\\S"
+          "maxLength": 120
         },
         "detail": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 1000,
-          "pattern": "\\S"
+          "maxLength": 1000
         },
         "priority": {
           "type": "string",
-          "enum": ["low", "medium", "high"]
+          "maxLength": 20
         },
         "template_id": {
           "type": "integer",
-          "minimum": 1
+          "minimum": 0
+        },
+        "alert_source_profile_id": {
+          "type": "integer",
+          "minimum": 0
         },
         "tool": {
           "type": "string",
-          "enum": ["active_alerts", "metric_query", "metric_range_query"]
+          "maxLength": 80
         },
         "query": {
           "type": "string",
@@ -395,6 +400,9 @@ func normalizeTurnOutput(out *TurnOutput) error {
 	out.EvidenceRequests = evidenceRequests
 	out.Confidence = strings.TrimSpace(out.Confidence)
 	out.ConfidenceRationale = strings.TrimSpace(out.ConfidenceRationale)
+	if out.ConfidenceRationale == "" && turnOutputNeedsConfidenceRationale(*out) {
+		out.ConfidenceRationale = "The assistant did not provide a confidence rationale; treat this confidence as unverified until a human reviewer checks the evidence."
+	}
 	out.MissingEvidenceRequests, err = normalizeConsultationEvidenceRequests(
 		"missing_evidence_requests",
 		out.MissingEvidenceRequests,
@@ -423,11 +431,6 @@ func normalizeTurnOutput(out *TurnOutput) error {
 }
 
 func validateConsultationInsightCompleteness(out TurnOutput) error {
-	needsRationale := out.Confidence != "high" || out.RequiresHumanReview
-	if needsRationale && out.ConfidenceRationale == "" {
-		return fmt.Errorf("diagnosis turn output: confidence_rationale is required when confidence is %q or human review is required", out.Confidence)
-	}
-
 	needsImprovementPath := out.Confidence == "low" || out.ConclusionStatus == "needs_evidence"
 	if needsImprovementPath &&
 		len(out.EvidenceRequests) == 0 &&
@@ -436,6 +439,10 @@ func validateConsultationInsightCompleteness(out TurnOutput) error {
 		return fmt.Errorf("diagnosis turn output: low-confidence or evidence-seeking output must include evidence_requests, missing_evidence_requests, or evidence_collection_suggestions")
 	}
 	return nil
+}
+
+func turnOutputNeedsConfidenceRationale(out TurnOutput) bool {
+	return out.Confidence != "high" || out.RequiresHumanReview
 }
 
 // Insight returns the optional structured consultation fields from the
@@ -523,20 +530,30 @@ func normalizeToolRequestSuggestions(
 	consultation := make([]ConsultationEvidenceRequest, 0, len(in))
 	executable := make([]EvidenceRequest, 0, len(in))
 	for i, suggestion := range in {
+		if incompleteToolRequestSuggestion(suggestion) {
+			continue
+		}
 		normalized, err := normalizeToolRequestSuggestion(i, suggestion)
 		if err != nil {
 			return nil, nil, err
+		}
+		if req, ok := executableEvidenceRequestFromToolSuggestion(normalized); ok {
+			executable = append(executable, req)
+			continue
 		}
 		consultation = append(consultation, ConsultationEvidenceRequest{
 			Label:    normalized.Label,
 			Detail:   normalized.Detail,
 			Priority: normalized.Priority,
 		})
-		if req, ok := executableEvidenceRequestFromToolSuggestion(normalized); ok {
-			executable = append(executable, req)
-		}
 	}
 	return consultation, executable, nil
+}
+
+func incompleteToolRequestSuggestion(suggestion ToolRequestSuggestion) bool {
+	return strings.TrimSpace(suggestion.Label) == "" ||
+		strings.TrimSpace(suggestion.Detail) == "" ||
+		strings.TrimSpace(suggestion.Priority) == ""
 }
 
 func normalizeToolRequestSuggestion(index int, suggestion ToolRequestSuggestion) (ToolRequestSuggestion, error) {
@@ -544,6 +561,7 @@ func normalizeToolRequestSuggestion(index int, suggestion ToolRequestSuggestion)
 	suggestion.Detail = strings.TrimSpace(suggestion.Detail)
 	suggestion.Priority = strings.TrimSpace(suggestion.Priority)
 	suggestion.Query = strings.TrimSpace(suggestion.Query)
+	suggestion.Tool = domain.DiagnosisToolKind(strings.TrimSpace(string(suggestion.Tool)))
 	if suggestion.Label == "" {
 		return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d].label must be non-empty after trimming", index)
 	}
@@ -558,8 +576,17 @@ func normalizeToolRequestSuggestion(index int, suggestion ToolRequestSuggestion)
 	if suggestion.TemplateID < 0 {
 		return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d].template_id must be positive when set", index)
 	}
-	if !suggestion.Tool.Valid() {
+	if suggestion.AlertSourceProfileID < 0 {
+		return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d].alert_source_profile_id must be positive when set", index)
+	}
+	if suggestion.Tool != "" && !suggestion.Tool.Valid() {
 		return ToolRequestSuggestion{}, fmt.Errorf("diagnosis turn output: tool_request_suggestions[%d].tool is unsupported", index)
+	}
+	if suggestion.Tool == domain.DiagnosisToolKindActiveAlerts {
+		suggestion.Query = ""
+		suggestion.WindowSeconds = 0
+		suggestion.WindowMinutes = 0
+		suggestion.StepSeconds = 0
 	}
 	if suggestion.Query != "" {
 		if len([]byte(suggestion.Query)) > maxEvidenceRequestQueryBytes {
@@ -580,14 +607,18 @@ func normalizeToolRequestSuggestion(index int, suggestion ToolRequestSuggestion)
 }
 
 func executableEvidenceRequestFromToolSuggestion(suggestion ToolRequestSuggestion) (EvidenceRequest, bool) {
+	if suggestion.Tool == "" {
+		return EvidenceRequest{}, false
+	}
 	req := EvidenceRequest{
-		TemplateID:    suggestion.TemplateID,
-		Tool:          suggestion.Tool,
-		Reason:        suggestion.Detail,
-		Query:         suggestion.Query,
-		WindowSeconds: suggestion.WindowSeconds,
-		StepSeconds:   suggestion.StepSeconds,
-		Limit:         suggestion.Limit,
+		TemplateID:           suggestion.TemplateID,
+		AlertSourceProfileID: suggestion.AlertSourceProfileID,
+		Tool:                 suggestion.Tool,
+		Reason:               suggestion.Detail,
+		Query:                suggestion.Query,
+		WindowSeconds:        suggestion.WindowSeconds,
+		StepSeconds:          suggestion.StepSeconds,
+		Limit:                suggestion.Limit,
 	}
 	normalized, err := normalizeEvidenceRequest(0, req)
 	if err != nil {
@@ -601,6 +632,9 @@ func normalizeEvidenceRequest(index int, req EvidenceRequest) (EvidenceRequest, 
 	req.Query = strings.TrimSpace(req.Query)
 	if req.TemplateID < 0 {
 		return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d].template_id must be positive when set", index)
+	}
+	if req.AlertSourceProfileID < 0 {
+		return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d].alert_source_profile_id must be positive when set", index)
 	}
 	if !req.Tool.Valid() {
 		return EvidenceRequest{}, fmt.Errorf("diagnosis turn output: evidence_requests[%d].tool is unsupported", index)

@@ -55,6 +55,18 @@ export async function previewReportWorkflowPolicyImpactAction(
   );
 }
 
+export async function previewReportWorkflowPolicyDraftImpactAction(
+  body: ReportWorkflowPolicyWriteRequest
+): Promise<ApiResult<ReportWorkflowPolicyImpactPreviewResult>> {
+  return requestSameOriginJSON<ReportWorkflowPolicyImpactPreviewResult>(
+    "/api/config/report-workflow-policies/impact-preview",
+    {
+      method: "POST",
+      body
+    }
+  );
+}
+
 export async function triggerReportWorkflowPolicyReplayAction(
   policyID: number,
   body: ReportWorkflowPolicyReplayRequest

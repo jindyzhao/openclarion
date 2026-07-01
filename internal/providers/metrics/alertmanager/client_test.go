@@ -108,6 +108,60 @@ func TestProviderListActiveAlerts(t *testing.T) {
 	}
 }
 
+func TestProviderListActiveAlertsFiltersSuppressedMarkers(t *testing.T) {
+	responseBody := `[
+	  {
+	    "labels": {"alertname": "SilencedEvenIfActive"},
+	    "annotations": {},
+	    "startsAt": "2026-06-05T04:00:00Z",
+	    "status": {
+	      "state": "active",
+	      "silencedBy": ["silence-1"],
+	      "inhibitedBy": [],
+	      "mutedBy": []
+	    }
+	  },
+	  {
+	    "labels": {"alertname": "InhibitedEvenIfActive"},
+	    "annotations": {},
+	    "startsAt": "2026-06-05T04:00:00Z",
+	    "status": {
+	      "state": "active",
+	      "silencedBy": [],
+	      "inhibitedBy": ["inhibit-1"],
+	      "mutedBy": []
+	    }
+	  },
+	  {
+	    "labels": {"alertname": "MutedEvenIfActive"},
+	    "annotations": {},
+	    "startsAt": "2026-06-05T04:00:00Z",
+	    "status": {
+	      "state": "active",
+	      "silencedBy": [],
+	      "inhibitedBy": [],
+	      "mutedBy": ["mute-1"]
+	    }
+	  }
+	]`
+	srv := newAlertmanagerServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(responseBody))
+	})
+
+	provider, err := NewProvider(srv.URL)
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	alerts, err := provider.ListActiveAlerts(context.Background())
+	if err != nil {
+		t.Fatalf("ListActiveAlerts: %v", err)
+	}
+	if len(alerts) != 0 {
+		t.Fatalf("len(alerts) = %d, want 0", len(alerts))
+	}
+}
+
 func TestProviderAppendsAlertsPathBelowRoutePrefix(t *testing.T) {
 	var seenPath string
 	srv := newAlertmanagerServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -117,6 +171,26 @@ func TestProviderAppendsAlertsPathBelowRoutePrefix(t *testing.T) {
 	})
 
 	provider, err := NewProvider(srv.URL + "/alertmanager/")
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	if _, err := provider.ListActiveAlerts(context.Background()); err != nil {
+		t.Fatalf("ListActiveAlerts: %v", err)
+	}
+	if seenPath != "/alertmanager/api/v2/alerts" {
+		t.Fatalf("path = %q, want /alertmanager/api/v2/alerts", seenPath)
+	}
+}
+
+func TestNewProviderTrimsPastedAddressWhitespace(t *testing.T) {
+	var seenPath string
+	srv := newAlertmanagerServer(t, func(w http.ResponseWriter, r *http.Request) {
+		seenPath = r.URL.Path
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[]`))
+	})
+
+	provider, err := NewProvider(" \t" + srv.URL + "/alertmanager/ \n")
 	if err != nil {
 		t.Fatalf("NewProvider: %v", err)
 	}
@@ -138,8 +212,15 @@ func TestProviderAcceptsAPIv2PrefixAndFullAlertsEndpoint(t *testing.T) {
 		{name: "api prefix slash", path: "/api/v2/", wantPath: "/api/v2/alerts"},
 		{name: "full endpoint", path: "/api/v2/alerts", wantPath: "/api/v2/alerts"},
 		{name: "full endpoint slash", path: "/api/v2/alerts/", wantPath: "/api/v2/alerts"},
+		{name: "ui alerts", path: "/alerts", wantPath: "/api/v2/alerts"},
+		{name: "ui silences", path: "/silences", wantPath: "/api/v2/alerts"},
+		{name: "ui status", path: "/status", wantPath: "/api/v2/alerts"},
+		{name: "ui receivers", path: "/receivers", wantPath: "/api/v2/alerts"},
+		{name: "groups endpoint", path: "/api/v2/alerts/groups", wantPath: "/api/v2/alerts"},
 		{name: "route api prefix", path: "/alertmanager/api/v2", wantPath: "/alertmanager/api/v2/alerts"},
 		{name: "route full endpoint", path: "/alertmanager/api/v2/alerts", wantPath: "/alertmanager/api/v2/alerts"},
+		{name: "route ui alerts", path: "/alertmanager/alerts", wantPath: "/alertmanager/api/v2/alerts"},
+		{name: "route groups endpoint", path: "/alertmanager/api/v2/alerts/groups", wantPath: "/alertmanager/api/v2/alerts"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

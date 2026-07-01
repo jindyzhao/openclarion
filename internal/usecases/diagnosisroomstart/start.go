@@ -6,12 +6,15 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosiscontext"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -20,12 +23,16 @@ const (
 	sessionIDBytes                   = 18
 	reportWorkflowAutomationSubject  = "openclarion.report-workflow"
 	reportWorkflowAutomationSubjectP = reportWorkflowAutomationSubject + ":"
+	supportedEvidenceSnapshotSchema  = "m1.evidence_snapshot.v1"
 )
 
-// Request starts one room owned by the authenticated principal.
+// Request starts one room owned by the authenticated principal. Callers are
+// responsible for authorizing the principal through OpenClarion-local RBAC
+// before invoking this use case.
 type Request struct {
-	EvidenceSnapshotID domain.EvidenceSnapshotID
-	Principal          ports.AuthPrincipal
+	EvidenceSnapshotID                domain.EvidenceSnapshotID
+	CloseNotificationChannelProfileID domain.NotificationChannelProfileID
+	Principal                         ports.AuthPrincipal
 }
 
 // Result returns the external session key plus the underlying workflow and
@@ -79,7 +86,7 @@ func NewService(uowFactory ports.UnitOfWorkFactory, starter ports.DiagnosisRoomW
 	return service, nil
 }
 
-// Start verifies the caller, loads the immutable EvidenceSnapshot, and starts
+// Start verifies the caller identity, loads the immutable EvidenceSnapshot, and starts
 // the room workflow. The returned room is ready for ticket issuance.
 func (s *Service) Start(ctx context.Context, req Request) (Result, error) {
 	if s == nil || s.uowFactory == nil || s.starter == nil {
@@ -87,6 +94,9 @@ func (s *Service) Start(ctx context.Context, req Request) (Result, error) {
 	}
 	if req.EvidenceSnapshotID == 0 {
 		return Result{}, fmt.Errorf("diagnosis room start: evidence_snapshot_id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if req.CloseNotificationChannelProfileID < 0 {
+		return Result{}, fmt.Errorf("diagnosis room start: close_notification_channel_profile_id must be non-negative: %w", domain.ErrInvariantViolation)
 	}
 	subject := strings.TrimSpace(req.Principal.Subject)
 	if subject == "" {
@@ -99,10 +109,7 @@ func (s *Service) Start(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	if err := diagnosisauth.AuthorizeSessionAccess(req.Principal, diagnosisauth.SessionRef{
-		SessionID:    sessionID,
-		OwnerSubject: subject,
-	}); err != nil {
+	if err := s.validateCloseNotificationChannel(ctx, req.CloseNotificationChannelProfileID); err != nil {
 		return Result{}, err
 	}
 
@@ -113,12 +120,20 @@ func (s *Service) Start(ctx context.Context, req Request) (Result, error) {
 	if snapshot.Status == domain.SnapshotStatusFailed {
 		return Result{}, fmt.Errorf("diagnosis room start: evidence snapshot %d has failed status: %w", snapshot.ID, domain.ErrInvariantViolation)
 	}
+	if err := validateSnapshotPayloadForDiagnosisRoom(snapshot); err != nil {
+		return Result{}, err
+	}
+	evidence, err := diagnosiscontext.EvidenceWithAvailableDiagnosisTools(ctx, s.uowFactory, snapshot.Payload)
+	if err != nil {
+		return Result{}, err
+	}
 
 	started, err := s.starter.StartDiagnosisRoom(ctx, ports.DiagnosisRoomStartRequest{
-		SessionID:          sessionID,
-		EvidenceSnapshotID: snapshot.ID,
-		OwnerSubject:       subject,
-		Evidence:           snapshot.Payload,
+		SessionID:                         sessionID,
+		EvidenceSnapshotID:                snapshot.ID,
+		OwnerSubject:                      subject,
+		Evidence:                          evidence,
+		CloseNotificationChannelProfileID: req.CloseNotificationChannelProfileID,
 	})
 	if err != nil {
 		return Result{}, err
@@ -142,9 +157,91 @@ func (s *Service) loadSnapshot(ctx context.Context, id domain.EvidenceSnapshotID
 	return snapshot, err
 }
 
+func (s *Service) validateCloseNotificationChannel(ctx context.Context, id domain.NotificationChannelProfileID) error {
+	if id == 0 {
+		return nil
+	}
+	var channel domain.NotificationChannelProfile
+	err := s.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		got, err := uow.Config().FindNotificationChannelProfileByID(ctx, id)
+		if errors.Is(err, domain.ErrNotFound) {
+			return fmt.Errorf("diagnosis room start: close notification channel profile not found: %w", domain.ErrInvariantViolation)
+		}
+		if err != nil {
+			return err
+		}
+		channel = got
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	if !channel.Enabled {
+		return fmt.Errorf("diagnosis room start: close notification channel profile must be enabled: %w", domain.ErrInvariantViolation)
+	}
+	if channel.Kind != domain.NotificationChannelKindWeCom {
+		return fmt.Errorf("diagnosis room start: close notification channel profile must be an Enterprise WeChat channel: %w", domain.ErrInvariantViolation)
+	}
+	if !notificationChannelSupportsScope(channel, domain.NotificationDeliveryScopeDiagnosisConsultation) {
+		return fmt.Errorf("diagnosis room start: close notification channel profile must include diagnosis_consultation delivery scope: %w", domain.ErrInvariantViolation)
+	}
+	if !notificationChannelSupportsScope(channel, domain.NotificationDeliveryScopeDiagnosisClose) {
+		return fmt.Errorf("diagnosis room start: close notification channel profile must include diagnosis_close delivery scope: %w", domain.ErrInvariantViolation)
+	}
+	if missingProofs := channel.MissingAIDiagnosisProofContentKinds(); len(missingProofs) > 0 {
+		return fmt.Errorf("diagnosis room start: close notification channel profile must have current AI delivery test proof for %s: %w", notificationProofKindList(missingProofs), domain.ErrInvariantViolation)
+	}
+	return nil
+}
+
+type diagnosisRoomSnapshotPayload struct {
+	SchemaVersion string                       `json:"schema_version"`
+	Events        []diagnosisRoomSnapshotEvent `json:"events"`
+}
+
+type diagnosisRoomSnapshotEvent struct {
+	AlertSourceProfileID int64 `json:"alert_source_profile_id"`
+}
+
+func validateSnapshotPayloadForDiagnosisRoom(snapshot domain.EvidenceSnapshot) error {
+	var payload diagnosisRoomSnapshotPayload
+	if err := json.Unmarshal(snapshot.Payload, &payload); err != nil {
+		return fmt.Errorf("diagnosis room start: evidence snapshot %d payload must be valid JSON: %w: %w", snapshot.ID, err, domain.ErrInvariantViolation)
+	}
+	if payload.SchemaVersion != supportedEvidenceSnapshotSchema {
+		return fmt.Errorf("diagnosis room start: evidence snapshot %d schema_version must be %q: %w", snapshot.ID, supportedEvidenceSnapshotSchema, domain.ErrInvariantViolation)
+	}
+	if len(payload.Events) == 0 {
+		return fmt.Errorf("diagnosis room start: evidence snapshot %d events must be non-empty: %w", snapshot.ID, domain.ErrInvariantViolation)
+	}
+	for i, event := range payload.Events {
+		if event.AlertSourceProfileID <= 0 {
+			return fmt.Errorf("diagnosis room start: evidence snapshot %d events[%d].alert_source_profile_id must be positive: %w", snapshot.ID, i, domain.ErrInvariantViolation)
+		}
+	}
+	return nil
+}
+
 func isReportWorkflowAutomationSubject(subject string) bool {
 	subject = strings.TrimSpace(subject)
 	return subject == reportWorkflowAutomationSubject || strings.HasPrefix(subject, reportWorkflowAutomationSubjectP)
+}
+
+func notificationChannelSupportsScope(channel domain.NotificationChannelProfile, want domain.NotificationDeliveryScope) bool {
+	for _, scope := range channel.DeliveryScopes {
+		if scope == want {
+			return true
+		}
+	}
+	return false
+}
+
+func notificationProofKindList(kinds []domain.NotificationChannelTestContentKind) string {
+	values := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		values = append(values, string(kind))
+	}
+	return strings.Join(values, " and ")
 }
 
 func newSessionID(random io.Reader) (string, error) {

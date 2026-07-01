@@ -52,6 +52,7 @@ func TestNewReportWorkflowScheduleRejectsInvalidInputs(t *testing.T) {
 		{name: "negative_offset", edit: func(a *reportWorkflowScheduleArgs) { a.offset = -time.Second }},
 		{name: "offset_equals_interval", edit: func(a *reportWorkflowScheduleArgs) { a.offset = time.Hour }},
 		{name: "zero_replay_window", edit: func(a *reportWorkflowScheduleArgs) { a.replayWindow = 0 }},
+		{name: "replay_window_exceeds_interval", edit: func(a *reportWorkflowScheduleArgs) { a.replayWindow = 2 * time.Hour }},
 		{name: "negative_replay_delay", edit: func(a *reportWorkflowScheduleArgs) { a.replayDelay = -time.Second }},
 		{name: "zero_replay_limit", edit: func(a *reportWorkflowScheduleArgs) { a.replayLimit = 0 }},
 		{name: "zero_catchup", edit: func(a *reportWorkflowScheduleArgs) { a.catchupWindow = 0 }},
@@ -106,6 +107,26 @@ func TestWithReportWorkflowScheduleEnabledTogglesExplicitState(t *testing.T) {
 		t.Fatalf("disable: %v", err)
 	}
 	if disabled.Enabled || disabled.EnabledAt != nil || disabled.DisabledAt == nil || !disabled.DisabledAt.Equal(time.Date(2026, 6, 5, 7, 1, 0, 123456000, time.UTC)) {
+		t.Fatalf("disabled = %+v", disabled)
+	}
+}
+
+func TestWithReportWorkflowScheduleEnabledRejectsOverlappingReplayWindow(t *testing.T) {
+	schedule := mustReportWorkflowSchedule(t)
+	schedule.ID = 9
+	schedule.Interval = time.Minute
+	schedule.ReplayWindow = time.Hour
+
+	_, err := WithReportWorkflowScheduleEnabled(schedule, true, time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC))
+	if !errors.Is(err, ErrInvariantViolation) {
+		t.Fatalf("enable err = %v, want ErrInvariantViolation", err)
+	}
+
+	disabled, err := WithReportWorkflowScheduleEnabled(schedule, false, time.Date(2026, 6, 5, 8, 1, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("disable invalid historical schedule: %v", err)
+	}
+	if disabled.Enabled || disabled.DisabledAt == nil {
 		t.Fatalf("disabled = %+v", disabled)
 	}
 }

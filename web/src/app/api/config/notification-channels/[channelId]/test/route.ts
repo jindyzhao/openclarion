@@ -1,4 +1,5 @@
 import { testNotificationChannelProfile } from "@/features/settings/notification-channels/api";
+import { authorizedBackendResultResponse } from "@/lib/api/protected-route";
 import { apiResultResponse, parsePositiveIntegerRouteParam } from "@/lib/api/route";
 
 type RouteContext = {
@@ -7,12 +8,15 @@ type RouteContext = {
 
 export const dynamic = "force-dynamic";
 
-export async function POST(_request: Request, context: RouteContext) {
+export async function POST(request: Request, context: RouteContext) {
   const { channelId } = await context.params;
   const parsedID = parsePositiveIntegerRouteParam(channelId, "Notification channel ID");
   if (!parsedID.ok) {
     return apiResultResponse(parsedID);
   }
 
-  return apiResultResponse(await testNotificationChannelProfile(parsedID.data));
+  const contentKind = new URL(request.url).searchParams.get("content_kind") ?? undefined;
+  return authorizedBackendResultResponse(request, (headers) =>
+    testNotificationChannelProfile(parsedID.data, contentKind, { headers }),
+  );
 }

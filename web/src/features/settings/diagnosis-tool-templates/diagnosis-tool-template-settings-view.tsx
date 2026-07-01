@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BranchesOutlined,
   EditOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
@@ -25,6 +26,7 @@ import {
   Statistic,
   Table,
   Tag,
+  Tooltip,
   Typography
 } from "antd";
 import type { TableColumnsType } from "antd";
@@ -35,10 +37,19 @@ import type { ApiResult } from "@/lib/api/client";
 import { formatDateTime, formatDurationSeconds } from "../format";
 import {
   settingsErrorMessage,
+  settingsManagePermissionNotice,
+  settingsReadPermissionEmptyDescription,
+  settingsReadPermissionNotice,
   type SettingsNotice,
+  useClientReady,
   useSettingsList,
   useSettingsMutation
 } from "../query-state";
+import { ReadOnlyModeAlert } from "../permission-notice";
+import {
+  useCurrentRBACAuthorizations,
+  type CurrentRBACAuthorizationCheck
+} from "../rbac-capabilities";
 import type { AlertSourceProfile, AlertSourceProfileListResponse } from "../alert-sources/types";
 import {
   disableDiagnosisToolTemplateAction,
@@ -48,15 +59,22 @@ import {
 } from "./client-api";
 import {
   defaultFormForTool,
+  diagnosisToolCoverage,
+  diagnosisToolTemplateRecommendations,
   diagnosisToolSourceReadiness,
+  diagnosisToolSaveCompatibility,
   diagnosisQueryTemplatePreview,
   diagnosisToolKindLabels,
-  diagnosisToolSupportsSourceKind,
+  diagnosisToolSupportsSourceProfile,
+  diagnosisToolTemplatePresetByID,
   diagnosisToolTemplatePresets,
   emptyDiagnosisToolTemplateForm,
   formStateToWriteRequest,
   presetToFormState,
-  templateToFormState
+  templateToFormState,
+  type DiagnosisToolCoverage,
+  type DiagnosisToolTemplateLaunchIntent,
+  type DiagnosisToolTemplateWorkflowReturn
 } from "./format";
 import type {
   DiagnosisToolKind,
@@ -68,6 +86,7 @@ import type {
 
 type DiagnosisToolTemplateSettingsManagerProps = {
   alertSourcesResult: ApiResult<AlertSourceProfileListResponse>;
+  launchIntent?: DiagnosisToolTemplateLaunchIntent | null;
   result: ApiResult<DiagnosisToolTemplateListResponse>;
 };
 
@@ -77,6 +96,18 @@ type SaveTemplateVariables = {
   body: DiagnosisToolTemplateWriteRequest;
   templateID: number | null;
 };
+
+const diagnosisToolTemplateBaseAuthorizationChecks: CurrentRBACAuthorizationCheck[] =
+  [
+    {
+      key: "diagnosisToolTemplateRead",
+      permission: "diagnosis_tool_template.read"
+    },
+    {
+      key: "diagnosisToolTemplateManage",
+      permission: "diagnosis_tool_template.manage"
+    }
+  ];
 
 type EnablementVariables = {
   enabled: boolean;
@@ -90,20 +121,35 @@ type RelationSelectOption = {
   value: number;
 };
 
+type RecommendationSelectOption = {
+  label: string;
+  title: string;
+  value: string;
+};
+
 type ToolTemplateRelationOptions = {
   alertSources: AlertSourceProfile[];
   alertSourceLabels: Record<number, string>;
   warnings: string[];
 };
 
+type RecommendationSelectGroup = {
+  label: string;
+  options: RecommendationSelectOption[];
+};
+
 export function DiagnosisToolTemplateSettingsManager({
   alertSourcesResult,
+  launchIntent = null,
   result
 }: DiagnosisToolTemplateSettingsManagerProps) {
   const [form] = Form.useForm<DiagnosisToolTemplateFormState>();
+  const clientReady = useClientReady();
   const [editingID, setEditingID] = useState<number | null>(null);
   const [actionID, setActionID] = useState<number | null>(null);
+  const [launchNotice, setLaunchNotice] = useState<string | null>(launchIntent?.message ?? null);
   const {
+    errorStatus,
     items: templates,
     notice,
     query,
@@ -125,8 +171,67 @@ export function DiagnosisToolTemplateSettingsManager({
     mutationFn: ({ templateID, enabled }) =>
       enabled ? enableDiagnosisToolTemplateAction(templateID) : disableDiagnosisToolTemplateAction(templateID)
   });
-  const busy = query.isFetching || saveTemplate.isPending || enablementAction.isPending;
+  const authorizationChecks = useMemo(
+    () => [
+      ...diagnosisToolTemplateBaseAuthorizationChecks,
+      ...templates.map((template) => ({
+        key: diagnosisToolTemplateManageKey(template.id),
+        permission: "diagnosis_tool_template.manage" as const,
+        scopeKey: String(template.id),
+        scopeKind: "diagnosis_tool_template" as const
+      }))
+    ],
+    [templates]
+  );
+  const currentAuthorization = useCurrentRBACAuthorizations(
+    authorizationChecks,
+    clientReady
+  );
+  const busy =
+    !clientReady ||
+    currentAuthorization.isChecking ||
+    query.isFetching ||
+    saveTemplate.isPending ||
+    enablementAction.isPending;
+  const canReadTemplates = currentAuthorization.can("diagnosisToolTemplateRead");
+  const canCreateTemplate = currentAuthorization.can("diagnosisToolTemplateManage");
+  const canSaveCurrentTemplate =
+    editingID === null
+      ? canCreateTemplate
+      : currentAuthorization.can(diagnosisToolTemplateManageKey(editingID));
+  const formPermissionNotice = settingsManagePermissionNotice({
+    canManage: canSaveCurrentTemplate,
+    isChecking: !clientReady || currentAuthorization.isChecking,
+    resourceLabel:
+      editingID === null
+        ? "diagnosis tool template creation"
+        : `diagnosis tool template #${editingID}`,
+  });
+  const readPermissionNotice = settingsReadPermissionNotice({
+    canRead: canReadTemplates,
+    errorStatus,
+    isChecking: !clientReady || currentAuthorization.isChecking,
+    resourceLabel: "diagnosis tool templates",
+  });
+  const visibleNotice =
+    currentAuthorization.notice ?? readPermissionNotice ?? notice;
   const relationOptions = useMemo(() => buildToolTemplateRelationOptions(alertSourcesResult), [alertSourcesResult]);
+  const initialFormValues = useMemo(
+    () => diagnosisToolTemplateLaunchInitialForm(launchIntent, relationOptions),
+    [launchIntent, relationOptions]
+  );
+  const coverage = useMemo(
+    () => diagnosisToolCoverage({ sources: relationOptions.alertSources, templates }),
+    [relationOptions.alertSources, templates]
+  );
+  const recommendations = useMemo(
+    () => diagnosisToolTemplateRecommendations(relationOptions.alertSources),
+    [relationOptions.alertSources]
+  );
+  const recommendationOptions = useMemo(
+    () => recommendationSelectOptions(recommendations),
+    [recommendations]
+  );
   const selectedTool = Form.useWatch("tool", form) ?? "active_alerts";
   const selectedAlertSourceID = Form.useWatch("alertSourceProfileID", form) ?? null;
   const queryTemplate = Form.useWatch("queryTemplate", form) ?? "";
@@ -146,6 +251,7 @@ export function DiagnosisToolTemplateSettingsManager({
     () => sourceOptionsForTool(selectedTool, relationOptions),
     [relationOptions, selectedTool]
   );
+  const workflowReturn = launchIntent?.workflowReturn ?? null;
 
   const summary = useMemo(() => {
     const enabled = templates.filter((template) => template.enabled).length;
@@ -159,19 +265,18 @@ export function DiagnosisToolTemplateSettingsManager({
   }
 
   async function handleSubmit(values: DiagnosisToolTemplateFormState) {
-    const readiness = diagnosisToolSourceReadiness({
+    const parsed = formStateToWriteRequest(values);
+    if (!parsed.ok) {
+      setNotice({ kind: "error", message: parsed.message });
+      return;
+    }
+    const saveCompatibility = diagnosisToolSaveCompatibility({
       alertSourceProfileID: values.alertSourceProfileID,
       sources: relationOptions.alertSources,
       tool: values.tool
     });
-    if (readiness.status !== "ready") {
-      setNotice({ kind: "error", message: readiness.detail });
-      return;
-    }
-
-    const parsed = formStateToWriteRequest(values);
-    if (!parsed.ok) {
-      setNotice({ kind: "error", message: parsed.message });
+    if (!saveCompatibility.ok) {
+      setNotice({ kind: "error", message: saveCompatibility.message });
       return;
     }
 
@@ -184,10 +289,29 @@ export function DiagnosisToolTemplateSettingsManager({
 
     form.setFieldsValue(emptyDiagnosisToolTemplateForm());
     setEditingID(null);
-    setNotice({ kind: "info", message: "Template saved." });
+    setLaunchNotice(null);
+    setNotice({
+      kind: "info",
+      message:
+        workflowReturn === null
+          ? "Template saved."
+          : "Template saved. Enable the required evidence templates before returning to workflow enablement."
+    });
   }
 
   async function handleEnablement(template: DiagnosisToolTemplate, enabled: boolean) {
+    if (enabled) {
+      const readiness = diagnosisToolSourceReadiness({
+        alertSourceProfileID: template.alert_source_profile_id,
+        sources: relationOptions.alertSources,
+        tool: template.tool
+      });
+      if (readiness.status !== "ready") {
+        setNotice({ kind: "error", message: readiness.blockers.join(" ") || readiness.detail });
+        return;
+      }
+    }
+
     setActionID(template.id);
     try {
       await enablementAction.mutateAsync({ templateID: template.id, enabled });
@@ -203,12 +327,14 @@ export function DiagnosisToolTemplateSettingsManager({
   function editTemplate(template: DiagnosisToolTemplate) {
     setEditingID(template.id);
     form.setFieldsValue(templateToFormState(template));
+    setLaunchNotice(null);
     setNotice(null);
   }
 
   function resetForm() {
     setEditingID(null);
     form.setFieldsValue(emptyDiagnosisToolTemplateForm());
+    setLaunchNotice(null);
     setNotice(null);
   }
 
@@ -224,14 +350,29 @@ export function DiagnosisToolTemplateSettingsManager({
   }
 
   function applyPreset(presetID: string) {
-    const preset = diagnosisToolTemplatePresets.find((candidate) => candidate.id === presetID);
-    if (preset === undefined) {
+    const preset = diagnosisToolTemplatePresetByID(presetID);
+    if (preset === null) {
       return;
     }
     const currentSourceID = form.getFieldValue("alertSourceProfileID") ?? null;
     form.setFieldsValue(
       presetToFormState(preset, compatibleSourceIDForTool(preset.form.tool, currentSourceID, relationOptions))
     );
+    setLaunchNotice(null);
+    setNotice(null);
+  }
+
+  function applyRecommendation(recommendationID: string) {
+    const recommendation = recommendations.find((item) => item.id === recommendationID);
+    if (recommendation === undefined) {
+      return;
+    }
+    const preset = diagnosisToolTemplatePresetByID(recommendation.presetID);
+    if (preset === null) {
+      return;
+    }
+    form.setFieldsValue(presetToFormState(preset, recommendation.sourceID));
+    setLaunchNotice(recommendation.detail);
     setNotice(null);
   }
 
@@ -244,7 +385,18 @@ export function DiagnosisToolTemplateSettingsManager({
         <MetricCard label="Range" value={summary.range} />
       </Row>
 
-      {notice ? <Notice notice={notice} /> : null}
+      {launchNotice ? (
+        <Alert
+          aria-label="Diagnosis tool launch preset"
+          description={launchNotice}
+          message="Preset loaded"
+          role="status"
+          showIcon
+          type="info"
+        />
+      ) : null}
+      {visibleNotice ? <Notice notice={visibleNotice} /> : null}
+      <DiagnosisToolWorkflowReturnPanel workflowReturn={workflowReturn} />
       {relationOptions.warnings.length > 0 ? (
         <Alert
           description={relationOptions.warnings.join(" ")}
@@ -254,23 +406,27 @@ export function DiagnosisToolTemplateSettingsManager({
           type="warning"
         />
       ) : null}
+      <EvidenceCoveragePanel coverage={coverage} />
 
       <Row align="top" className="settings-console-grid" gutter={[16, 16]}>
         <Col lg={8} md={24} xs={24}>
           <Card
             extra={
               editingID === null ? null : (
-                <Button disabled={busy} icon={<PlusOutlined />} onClick={resetForm} type="default">
+                <Button disabled={busy || !canCreateTemplate} icon={<PlusOutlined />} onClick={resetForm} type="default">
                   New
                 </Button>
               )
             }
             title={editingID === null ? "New Tool Template" : `Edit Template #${editingID}`}
           >
+            {formPermissionNotice ? (
+              <ReadOnlyModeAlert notice={formPermissionNotice} />
+            ) : null}
             <Form<DiagnosisToolTemplateFormState>
-              disabled={busy}
+              disabled={busy || !canSaveCurrentTemplate}
               form={form}
-              initialValues={emptyDiagnosisToolTemplateForm()}
+              initialValues={initialFormValues}
               layout="vertical"
               onFinish={handleSubmit}
               onValuesChange={handleValuesChange}
@@ -288,6 +444,27 @@ export function DiagnosisToolTemplateSettingsManager({
                     value: preset.id
                   }))}
                   placeholder="Apply a standard template"
+                  value={undefined}
+                />
+              </Form.Item>
+
+              <Form.Item label="Recommended by sources">
+                <Select
+                  allowClear
+                  disabled={recommendationOptions.length === 0}
+                  onChange={(value: string | undefined) => {
+                    if (value !== undefined) {
+                      applyRecommendation(value);
+                    }
+                  }}
+                  optionFilterProp="label"
+                  options={recommendationOptions}
+                  placeholder={
+                    recommendationOptions.length === 0
+                      ? "No enabled compatible sources"
+                      : "Apply a source-aware recommendation"
+                  }
+                  showSearch
                   value={undefined}
                 />
               </Form.Item>
@@ -351,12 +528,7 @@ export function DiagnosisToolTemplateSettingsManager({
                     name="defaultLimit"
                     rules={[{ required: true, message: "Default limit is required." }]}
                   >
-                    <InputNumber
-                      max={selectedTool === "active_alerts" ? 10 : 20}
-                      min={1}
-                      precision={0}
-                      style={{ width: "100%" }}
-                    />
+                    <InputNumber max={selectedTool === "active_alerts" ? 10 : 20} min={1} precision={0} style={{ width: "100%" }} />
                   </Form.Item>
                 </Col>
                 <Col sm={12} xs={24}>
@@ -392,7 +564,7 @@ export function DiagnosisToolTemplateSettingsManager({
               </Row>
 
               <Space wrap>
-                <Button htmlType="submit" icon={<SaveOutlined />} loading={busy} type="primary">
+                <Button disabled={busy || !canSaveCurrentTemplate} htmlType="submit" icon={<SaveOutlined />} loading={busy} type="primary">
                   Save Template
                 </Button>
                 <Button disabled={busy} onClick={resetForm} type="default">
@@ -406,7 +578,7 @@ export function DiagnosisToolTemplateSettingsManager({
         <Col lg={16} md={24} xs={24}>
           <Card
             extra={
-              <Button disabled={busy} icon={<ReloadOutlined />} loading={busy} onClick={handleRefresh} type="default">
+              <Button disabled={busy || !canReadTemplates} icon={<ReloadOutlined />} loading={busy} onClick={handleRefresh} type="default">
                 Refresh
               </Button>
             }
@@ -415,6 +587,10 @@ export function DiagnosisToolTemplateSettingsManager({
             <DiagnosisToolTemplateTable
               actionID={actionID}
               busy={busy}
+              canRead={canReadTemplates}
+              canManageTemplate={(templateID) =>
+                currentAuthorization.can(diagnosisToolTemplateManageKey(templateID))
+              }
               onDisable={(template) => handleEnablement(template, false)}
               onEdit={editTemplate}
               onEnable={(template) => handleEnablement(template, true)}
@@ -426,6 +602,103 @@ export function DiagnosisToolTemplateSettingsManager({
       </Row>
     </div>
   );
+}
+
+function diagnosisToolTemplateManageKey(templateID: number): string {
+  return `diagnosisToolTemplateManage:${templateID}`;
+}
+
+function DiagnosisToolWorkflowReturnPanel({
+  workflowReturn
+}: {
+  workflowReturn: DiagnosisToolTemplateWorkflowReturn | null;
+}) {
+  if (workflowReturn === null) {
+    return null;
+  }
+  return (
+    <Alert
+      action={
+        <Button href={workflowReturn.href} icon={<BranchesOutlined />} type="primary">
+          {workflowReturn.label}
+        </Button>
+      }
+      aria-label="Diagnosis tool workflow return"
+      description={workflowReturn.detail}
+      message="Workflow return"
+      role="status"
+      showIcon
+      type="info"
+    />
+  );
+}
+
+function EvidenceCoveragePanel({ coverage }: { coverage: DiagnosisToolCoverage }) {
+  return (
+    <Alert
+      aria-label="AI evidence tool coverage"
+      description={
+        <Space direction="vertical" size={8}>
+          <Typography.Text>{coverage.detail}</Typography.Text>
+          <Space wrap>
+            <Tag color="blue">Active alerts {coverage.activeAlertTemplates}</Tag>
+            <Tag color="cyan">Metric tools {coverage.metricTemplates}</Tag>
+            <Tag color="purple">Range tools {coverage.rangeMetricTemplates}</Tag>
+            <Tag>Enabled {coverage.enabledTemplates}</Tag>
+          </Space>
+          {coverage.sourceNames.length > 0 ? (
+            <Space wrap>
+              {coverage.sourceNames.slice(0, 4).map((name) => (
+                <Tag key={name}>{name}</Tag>
+              ))}
+              {coverage.sourceNames.length > 4 ? <Tag>+{coverage.sourceNames.length - 4}</Tag> : null}
+            </Space>
+          ) : null}
+        </Space>
+      }
+      message={
+        <Space wrap>
+          <Tag color={coverageStatusColor(coverage.status)}>{coverageStatusLabel(coverage.status)}</Tag>
+          <Typography.Text strong>{coverage.label}</Typography.Text>
+        </Space>
+      }
+      showIcon
+      type={coverageAlertType(coverage.status)}
+    />
+  );
+}
+
+function coverageStatusColor(status: DiagnosisToolCoverage["status"]): string {
+  switch (status) {
+    case "ready":
+      return "green";
+    case "review":
+      return "gold";
+    case "pending":
+      return "default";
+  }
+}
+
+function coverageStatusLabel(status: DiagnosisToolCoverage["status"]): string {
+  switch (status) {
+    case "ready":
+      return "Ready";
+    case "review":
+      return "Review";
+    case "pending":
+      return "Pending";
+  }
+}
+
+function coverageAlertType(status: DiagnosisToolCoverage["status"]) {
+  switch (status) {
+    case "ready":
+      return "success";
+    case "review":
+      return "warning";
+    case "pending":
+      return "info";
+  }
 }
 
 function QueryTemplatePreview({ preview }: { preview: ReturnType<typeof diagnosisQueryTemplatePreview> }) {
@@ -522,11 +795,46 @@ function buildToolTemplateRelationOptions(
   }
   return {
     alertSources: alertSourcesResult.data.items,
-    alertSourceLabels: Object.fromEntries(
-      alertSourcesResult.data.items.map((source) => [source.id, alertSourceLabel(source)])
-    ),
+    alertSourceLabels: Object.fromEntries(alertSourcesResult.data.items.map((source) => [source.id, alertSourceLabel(source)])),
     warnings: []
   };
+}
+
+function diagnosisToolTemplateLaunchInitialForm(
+  launchIntent: DiagnosisToolTemplateLaunchIntent | null,
+  relationOptions: ToolTemplateRelationOptions
+): DiagnosisToolTemplateFormState {
+  if (launchIntent === null) {
+    return emptyDiagnosisToolTemplateForm();
+  }
+  const preset = diagnosisToolTemplatePresetByID(launchIntent.presetID);
+  if (preset === null) {
+    return emptyDiagnosisToolTemplateForm();
+  }
+  return presetToFormState(
+    preset,
+    launchSourceIDForTool(preset.form.tool, launchIntent.alertSourceProfileID, relationOptions)
+  );
+}
+
+function launchSourceIDForTool(
+  tool: DiagnosisToolKind,
+  sourceID: number | null,
+  relationOptions: ToolTemplateRelationOptions
+): number | null {
+  const requestedSourceID = compatibleSourceIDForTool(tool, sourceID, relationOptions);
+  if (requestedSourceID !== null) {
+    return requestedSourceID;
+  }
+  const enabledSource = relationOptions.alertSources.find(
+    (source) => source.enabled && diagnosisToolSupportsSourceProfile(tool, source)
+  );
+  if (enabledSource !== undefined) {
+    return enabledSource.id;
+  }
+  return (
+    relationOptions.alertSources.find((source) => diagnosisToolSupportsSourceProfile(tool, source))?.id ?? null
+  );
 }
 
 function sourceOptionsForTool(
@@ -534,7 +842,7 @@ function sourceOptionsForTool(
   relationOptions: ToolTemplateRelationOptions
 ): RelationSelectOption[] {
   return relationOptions.alertSources.map((source) => {
-    const compatible = diagnosisToolSupportsSourceKind(tool, source.kind);
+    const compatible = diagnosisToolSupportsSourceProfile(tool, source);
     const label = alertSourceLabel(source);
     return {
       disabled: !compatible,
@@ -543,6 +851,25 @@ function sourceOptionsForTool(
       value: source.id
     };
   });
+}
+
+function recommendationSelectOptions(
+  recommendations: ReturnType<typeof diagnosisToolTemplateRecommendations>
+): RecommendationSelectGroup[] {
+  const groups = new Map<string, RecommendationSelectOption[]>();
+  recommendations.forEach((recommendation) => {
+    const options = groups.get(recommendation.group) ?? [];
+    options.push({
+      label: `${recommendation.label} - ${recommendation.sourceName}`,
+      title: recommendation.detail,
+      value: recommendation.id
+    });
+    groups.set(recommendation.group, options);
+  });
+  return Array.from(groups.entries()).map(([label, options]) => ({
+    label,
+    options
+  }));
 }
 
 function compatibleSourceIDForTool(
@@ -554,7 +881,7 @@ function compatibleSourceIDForTool(
     return null;
   }
   const source = relationOptions.alertSources.find((candidate) => candidate.id === sourceID);
-  if (source === undefined || !diagnosisToolSupportsSourceKind(tool, source.kind)) {
+  if (source === undefined || !diagnosisToolSupportsSourceProfile(tool, source)) {
     return null;
   }
   return sourceID;
@@ -575,6 +902,8 @@ function relationLabel(labels: Record<number, string>, id: number, fallback: str
 type DiagnosisToolTemplateTableProps = {
   actionID: number | null;
   busy: boolean;
+  canRead: boolean;
+  canManageTemplate: (templateID: number) => boolean;
   onDisable: (template: DiagnosisToolTemplate) => void;
   onEdit: (template: DiagnosisToolTemplate) => void;
   onEnable: (template: DiagnosisToolTemplate) => void;
@@ -585,6 +914,8 @@ type DiagnosisToolTemplateTableProps = {
 function DiagnosisToolTemplateTable({
   actionID,
   busy,
+  canRead,
+  canManageTemplate,
   onDisable,
   onEdit,
   onEnable,
@@ -627,13 +958,10 @@ function DiagnosisToolTemplateTable({
           <Typography.Text>limit {template.default_limit}</Typography.Text>
           {template.tool === "metric_range_query" ? (
             <Typography.Text type="secondary">
-              {formatDurationSeconds(template.default_window_seconds)} window /{" "}
-              {formatDurationSeconds(template.default_step_seconds)} step
+              {formatDurationSeconds(template.default_window_seconds)} window / {formatDurationSeconds(template.default_step_seconds)} step
             </Typography.Text>
           ) : (
-            <Typography.Text type="secondary">
-              {template.tool === "active_alerts" ? "active alerts" : "instant query"}
-            </Typography.Text>
+            <Typography.Text type="secondary">{template.tool === "active_alerts" ? "active alerts" : "instant query"}</Typography.Text>
           )}
         </Space>
       )
@@ -659,40 +987,41 @@ function DiagnosisToolTemplateTable({
     },
     {
       key: "actions",
-      render: (_, template) => (
-        <Space wrap>
-          <Button
-            disabled={busy || actionID !== null}
-            icon={<EditOutlined />}
-            onClick={() => onEdit(template)}
-            size="small"
-          >
-            Edit
-          </Button>
-          {template.enabled ? (
+      render: (_, template) => {
+        const canManage = canManageTemplate(template.id);
+        return (
+          <Space wrap>
             <Button
-              disabled={busy || actionID !== null}
-              icon={<PauseCircleOutlined />}
-              loading={actionID === template.id}
-              onClick={() => onDisable(template)}
+              disabled={busy || actionID !== null || !canManage}
+              icon={<EditOutlined />}
+              onClick={() => onEdit(template)}
               size="small"
             >
-              Disable
+              Edit
             </Button>
-          ) : (
-            <Button
-              disabled={busy || actionID !== null}
-              icon={<PlayCircleOutlined />}
-              loading={actionID === template.id}
-              onClick={() => onEnable(template)}
-              size="small"
-              type="primary"
-            >
-              Enable
-            </Button>
-          )}
-        </Space>
-      ),
+            {template.enabled ? (
+              <Button
+                disabled={busy || actionID !== null || !canManage}
+                icon={<PauseCircleOutlined />}
+                loading={actionID === template.id}
+                onClick={() => onDisable(template)}
+                size="small"
+              >
+                Disable
+              </Button>
+            ) : (
+              <EnableTemplateButton
+                actionID={actionID}
+                busy={busy}
+                canManage={canManage}
+                onEnable={onEnable}
+                relationOptions={relationOptions}
+                template={template}
+              />
+            )}
+          </Space>
+        );
+      },
       title: "Actions"
     }
   ];
@@ -705,7 +1034,11 @@ function DiagnosisToolTemplateTable({
       locale={{
         emptyText: (
           <Empty
-            description="No diagnosis tool templates"
+            description={settingsReadPermissionEmptyDescription({
+              canRead,
+              emptyDescription: "No diagnosis tool templates",
+              resourceLabel: "diagnosis tool templates",
+            })}
             image={<ToolOutlined aria-hidden className="settings-empty-icon" />}
           />
         )
@@ -714,6 +1047,49 @@ function DiagnosisToolTemplateTable({
       rowKey="id"
       scroll={{ x: 1080 }}
     />
+  );
+}
+
+function EnableTemplateButton({
+  actionID,
+  busy,
+  canManage,
+  onEnable,
+  relationOptions,
+  template
+}: {
+  actionID: number | null;
+  busy: boolean;
+  canManage: boolean;
+  onEnable: (template: DiagnosisToolTemplate) => void;
+  relationOptions: ToolTemplateRelationOptions;
+  template: DiagnosisToolTemplate;
+}) {
+  const readiness = diagnosisToolSourceReadiness({
+    alertSourceProfileID: template.alert_source_profile_id,
+    sources: relationOptions.alertSources,
+    tool: template.tool
+  });
+  const blocked = readiness.status !== "ready";
+  const button = (
+    <Button
+      disabled={busy || actionID !== null || blocked || !canManage}
+      icon={<PlayCircleOutlined />}
+      loading={actionID === template.id}
+      onClick={() => onEnable(template)}
+      size="small"
+      type="primary"
+    >
+      Enable
+    </Button>
+  );
+  if (!blocked) {
+    return button;
+  }
+  return (
+    <Tooltip title={readiness.blockers.join(" ") || readiness.detail}>
+      <span>{button}</span>
+    </Tooltip>
   );
 }
 

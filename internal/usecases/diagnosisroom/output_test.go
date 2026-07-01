@@ -16,6 +16,7 @@ func TestParseTurnOutput_AcceptsValidOutput(t *testing.T) {
 		"recommended_actions": ["Check top processes", "Review recent deploys"],
 		"evidence_requests": [{
 			"template_id": 3,
+			"alert_source_profile_id": 2,
 			"tool": "metric_range_query",
 			"reason": "  Need the CPU trend around the alert onset.  ",
 			"window_seconds": 3600,
@@ -56,6 +57,7 @@ func TestParseTurnOutput_AcceptsValidOutput(t *testing.T) {
 	}
 	req := got.EvidenceRequests[0]
 	if req.TemplateID != 3 ||
+		req.AlertSourceProfileID != 2 ||
 		req.Tool != domain.DiagnosisToolKindMetricRangeQuery ||
 		req.Reason != "Need the CPU trend around the alert onset." ||
 		req.WindowSeconds != 3600 ||
@@ -84,7 +86,7 @@ func TestParseTurnOutput_AcceptsValidOutput(t *testing.T) {
 	}
 }
 
-func TestParseTurnOutput_NormalizesToolRequestSuggestions(t *testing.T) {
+func TestParseTurnOutput_ProjectsExecutableToolRequestSuggestionsOnlyIntoEvidenceRequests(t *testing.T) {
 	raw := json.RawMessage(`{
 		"schema_version": "diagnosis_turn.v1",
 		"message": "The alert needs more database and Kubernetes evidence.",
@@ -96,7 +98,11 @@ func TestParseTurnOutput_NormalizesToolRequestSuggestions(t *testing.T) {
 			"label": "  Check active alerts  ",
 			"detail": "  Verify whether sibling database or storage alerts are firing.  ",
 			"priority": "high",
+			"alert_source_profile_id": 2,
 			"tool": "active_alerts",
+			"query": "ALERTS{alertstate=\"firing\"}",
+			"window_minutes": 15,
+			"step_seconds": 60,
 			"limit": 5
 		}, {
 			"label": "Current tablespace usage",
@@ -122,19 +128,22 @@ func TestParseTurnOutput_NormalizesToolRequestSuggestions(t *testing.T) {
 	if len(got.ToolRequestSuggestions) != 0 {
 		t.Fatalf("ToolRequestSuggestions should be normalized away: %+v", got.ToolRequestSuggestions)
 	}
-	if len(got.EvidenceCollectionSuggestions) != 3 {
-		t.Fatalf("EvidenceCollectionSuggestions len = %d, want 3", len(got.EvidenceCollectionSuggestions))
+	if len(got.EvidenceCollectionSuggestions) != 1 {
+		t.Fatalf("EvidenceCollectionSuggestions len = %d, want 1: %+v", len(got.EvidenceCollectionSuggestions), got.EvidenceCollectionSuggestions)
 	}
-	if got.EvidenceCollectionSuggestions[0].Label != "Check active alerts" ||
-		got.EvidenceCollectionSuggestions[0].Detail != "Verify whether sibling database or storage alerts are firing." ||
-		got.EvidenceCollectionSuggestions[2].Label != "Tablespace usage trend" {
-		t.Fatalf("EvidenceCollectionSuggestions = %+v", got.EvidenceCollectionSuggestions)
+	if got.EvidenceCollectionSuggestions[0].Label != "Tablespace usage trend" ||
+		got.EvidenceCollectionSuggestions[0].Priority != "medium" {
+		t.Fatalf("EvidenceCollectionSuggestions[0] = %+v", got.EvidenceCollectionSuggestions[0])
 	}
 	if len(got.EvidenceRequests) != 2 {
 		t.Fatalf("EvidenceRequests len = %d, want 2: %+v", len(got.EvidenceRequests), got.EvidenceRequests)
 	}
 	if got.EvidenceRequests[0].Tool != domain.DiagnosisToolKindActiveAlerts ||
+		got.EvidenceRequests[0].AlertSourceProfileID != 2 ||
 		got.EvidenceRequests[0].Reason != "Verify whether sibling database or storage alerts are firing." ||
+		got.EvidenceRequests[0].Query != "" ||
+		got.EvidenceRequests[0].WindowSeconds != 0 ||
+		got.EvidenceRequests[0].StepSeconds != 0 ||
 		got.EvidenceRequests[0].Limit != 5 {
 		t.Fatalf("EvidenceRequests[0] = %+v", got.EvidenceRequests[0])
 	}
@@ -142,6 +151,82 @@ func TestParseTurnOutput_NormalizesToolRequestSuggestions(t *testing.T) {
 		got.EvidenceRequests[1].Query != `oracle_tablespace_usage_percent{tablespace="OMPLATFORM"}` ||
 		got.EvidenceRequests[1].Limit != 10 {
 		t.Fatalf("EvidenceRequests[1] = %+v", got.EvidenceRequests[1])
+	}
+}
+
+func TestParseTurnOutput_DropsIncompleteToolRequestSuggestions(t *testing.T) {
+	raw := json.RawMessage(`{
+		"schema_version": "diagnosis_turn.v1",
+		"message": "The alert still needs a valid current-alert collection plan.",
+		"confidence": "low",
+		"requires_human_review": true,
+		"confidence_rationale": "The output includes one valid executable request and one malformed compatibility suggestion.",
+		"conclusion_status": "needs_evidence",
+		"evidence_requests": [{
+			"tool": "active_alerts",
+			"reason": "Collect current sibling alerts.",
+			"limit": 5
+		}],
+		"tool_request_suggestions": [{
+			"label": "",
+			"detail": "",
+			"priority": "",
+			"tool": "active_alerts",
+			"limit": 5
+		}]
+	}`)
+
+	got, err := ParseTurnOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseTurnOutput: %v", err)
+	}
+	if len(got.ToolRequestSuggestions) != 0 {
+		t.Fatalf("ToolRequestSuggestions should be normalized away: %+v", got.ToolRequestSuggestions)
+	}
+	if len(got.EvidenceCollectionSuggestions) != 0 {
+		t.Fatalf("EvidenceCollectionSuggestions len = %d, want 0", len(got.EvidenceCollectionSuggestions))
+	}
+	if len(got.EvidenceRequests) != 1 {
+		t.Fatalf("EvidenceRequests len = %d, want 1: %+v", len(got.EvidenceRequests), got.EvidenceRequests)
+	}
+	if got.EvidenceRequests[0].Tool != domain.DiagnosisToolKindActiveAlerts ||
+		got.EvidenceRequests[0].Reason != "Collect current sibling alerts." ||
+		got.EvidenceRequests[0].Limit != 5 {
+		t.Fatalf("EvidenceRequests[0] = %+v", got.EvidenceRequests[0])
+	}
+}
+
+func TestParseTurnOutput_KeepsToolRequestSuggestionWithoutToolAsConsultationRequest(t *testing.T) {
+	raw := json.RawMessage(`{
+		"schema_version": "diagnosis_turn.v1",
+		"message": "The alert needs operator-provided context before confidence can improve.",
+		"confidence": "low",
+		"requires_human_review": true,
+		"confidence_rationale": "The assistant has a concrete evidence gap but no executable tool plan.",
+		"conclusion_status": "needs_evidence",
+		"tool_request_suggestions": [{
+			"label": "Database owner confirmation",
+			"detail": "Confirm whether a planned ASM expansion is already scheduled.",
+			"priority": "high"
+		}]
+	}`)
+
+	got, err := ParseTurnOutput(raw)
+	if err != nil {
+		t.Fatalf("ParseTurnOutput: %v", err)
+	}
+	if len(got.ToolRequestSuggestions) != 0 {
+		t.Fatalf("ToolRequestSuggestions should be normalized away: %+v", got.ToolRequestSuggestions)
+	}
+	if len(got.EvidenceCollectionSuggestions) != 1 {
+		t.Fatalf("EvidenceCollectionSuggestions len = %d, want 1", len(got.EvidenceCollectionSuggestions))
+	}
+	if got.EvidenceCollectionSuggestions[0].Label != "Database owner confirmation" ||
+		got.EvidenceCollectionSuggestions[0].Priority != "high" {
+		t.Fatalf("EvidenceCollectionSuggestions[0] = %+v", got.EvidenceCollectionSuggestions[0])
+	}
+	if len(got.EvidenceRequests) != 0 {
+		t.Fatalf("EvidenceRequests len = %d, want 0: %+v", len(got.EvidenceRequests), got.EvidenceRequests)
 	}
 }
 
@@ -297,22 +382,40 @@ func TestParseTurnOutput_RejectsSchemaViolations(t *testing.T) {
 	}
 }
 
+func TestParseTurnOutput_FillsMissingConfidenceRationale(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{
+			name: "medium confidence",
+			raw:  `{"schema_version":"diagnosis_turn.v1","message":"ok","confidence":"medium","requires_human_review":false}`,
+		},
+		{
+			name: "human review",
+			raw:  `{"schema_version":"diagnosis_turn.v1","message":"ok","confidence":"high","requires_human_review":true,"missing_evidence_requests":[{"label":"Owner review","detail":"Confirm the diagnosis before closing.","priority":"medium"}]}`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := ParseTurnOutput(json.RawMessage(tc.raw))
+			if err != nil {
+				t.Fatalf("ParseTurnOutput: %v", err)
+			}
+			if !strings.Contains(got.ConfidenceRationale, "did not provide a confidence rationale") {
+				t.Fatalf("ConfidenceRationale = %q, want fallback", got.ConfidenceRationale)
+			}
+		})
+	}
+}
+
 func TestParseTurnOutput_RejectsIncompleteConsultationInsight(t *testing.T) {
 	tests := []struct {
 		name string
 		raw  string
 		want string
 	}{
-		{
-			name: "medium confidence requires rationale",
-			raw:  `{"schema_version":"diagnosis_turn.v1","message":"ok","confidence":"medium","requires_human_review":false}`,
-			want: "confidence_rationale is required",
-		},
-		{
-			name: "human review requires rationale",
-			raw:  `{"schema_version":"diagnosis_turn.v1","message":"ok","confidence":"high","requires_human_review":true,"missing_evidence_requests":[{"label":"Owner review","detail":"Confirm the diagnosis before closing.","priority":"medium"}]}`,
-			want: "confidence_rationale is required",
-		},
 		{
 			name: "low confidence requires improvement path",
 			raw:  `{"schema_version":"diagnosis_turn.v1","message":"ok","confidence":"low","requires_human_review":false,"confidence_rationale":"Alert evidence is incomplete."}`,

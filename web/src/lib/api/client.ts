@@ -12,7 +12,7 @@ export type ApiResult<T> =
   | { ok: false; error: ApiError };
 
 export type RequestJSONOptions = {
-  method?: "GET" | "POST" | "PUT";
+  method?: "DELETE" | "GET" | "POST" | "PUT";
   body?: unknown;
   headers?: HeadersInit;
 };
@@ -58,10 +58,11 @@ export async function requestJSON<T>(path: string, options: RequestJSONOptions =
     return { ok: true, data: undefined as T };
   }
 
-  return { ok: true, data: (await response.json()) as T };
+  return parseJSONResponse<T>(response);
 }
 
 const httpNoContent = 204;
+const invalidJSONMessage = "Response body must be valid JSON.";
 
 async function errorMessage(response: Response): Promise<string> {
   try {
@@ -73,4 +74,15 @@ async function errorMessage(response: Response): Promise<string> {
     // Fall through to the HTTP status line.
   }
   return response.statusText || `HTTP ${response.status}`;
+}
+
+async function parseJSONResponse<T>(response: Response): Promise<ApiResult<T>> {
+  try {
+    return { ok: true, data: (await response.json()) as T };
+  } catch {
+    return {
+      ok: false,
+      error: { message: invalidJSONMessage, status: 502 }
+    };
+  }
 }

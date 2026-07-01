@@ -30,6 +30,20 @@ func (_c *ReportNotificationDeliveryCreate) SetFinalReportID(v int) *ReportNotif
 	return _c
 }
 
+// SetReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field.
+func (_c *ReportNotificationDeliveryCreate) SetReportNotificationChannelProfileID(v int) *ReportNotificationDeliveryCreate {
+	_c.mutation.SetReportNotificationChannelProfileID(v)
+	return _c
+}
+
+// SetNillableReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field if the given value is not nil.
+func (_c *ReportNotificationDeliveryCreate) SetNillableReportNotificationChannelProfileID(v *int) *ReportNotificationDeliveryCreate {
+	if v != nil {
+		_c.SetReportNotificationChannelProfileID(*v)
+	}
+	return _c
+}
+
 // SetIdempotencyKey sets the "idempotency_key" field.
 func (_c *ReportNotificationDeliveryCreate) SetIdempotencyKey(v string) *ReportNotificationDeliveryCreate {
 	_c.mutation.SetIdempotencyKey(v)
@@ -269,6 +283,10 @@ func (_c *ReportNotificationDeliveryCreate) createSpec() (*ReportNotificationDel
 		_spec = sqlgraph.NewCreateSpec(reportnotificationdelivery.Table, sqlgraph.NewFieldSpec(reportnotificationdelivery.FieldID, field.TypeInt))
 	)
 	_spec.OnConflict = _c.conflict
+	if value, ok := _c.mutation.ReportNotificationChannelProfileID(); ok {
+		_spec.SetField(reportnotificationdelivery.FieldReportNotificationChannelProfileID, field.TypeInt, value)
+		_node.ReportNotificationChannelProfileID = &value
+	}
 	if value, ok := _c.mutation.IdempotencyKey(); ok {
 		_spec.SetField(reportnotificationdelivery.FieldIdempotencyKey, field.TypeString, value)
 		_node.IdempotencyKey = value
@@ -373,6 +391,30 @@ type (
 		*sql.UpdateSet
 	}
 )
+
+// SetReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field.
+func (u *ReportNotificationDeliveryUpsert) SetReportNotificationChannelProfileID(v int) *ReportNotificationDeliveryUpsert {
+	u.Set(reportnotificationdelivery.FieldReportNotificationChannelProfileID, v)
+	return u
+}
+
+// UpdateReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field to the value that was provided on create.
+func (u *ReportNotificationDeliveryUpsert) UpdateReportNotificationChannelProfileID() *ReportNotificationDeliveryUpsert {
+	u.SetExcluded(reportnotificationdelivery.FieldReportNotificationChannelProfileID)
+	return u
+}
+
+// AddReportNotificationChannelProfileID adds v to the "report_notification_channel_profile_id" field.
+func (u *ReportNotificationDeliveryUpsert) AddReportNotificationChannelProfileID(v int) *ReportNotificationDeliveryUpsert {
+	u.Add(reportnotificationdelivery.FieldReportNotificationChannelProfileID, v)
+	return u
+}
+
+// ClearReportNotificationChannelProfileID clears the value of the "report_notification_channel_profile_id" field.
+func (u *ReportNotificationDeliveryUpsert) ClearReportNotificationChannelProfileID() *ReportNotificationDeliveryUpsert {
+	u.SetNull(reportnotificationdelivery.FieldReportNotificationChannelProfileID)
+	return u
+}
 
 // SetProviderMessageID sets the "provider_message_id" field.
 func (u *ReportNotificationDeliveryUpsert) SetProviderMessageID(v string) *ReportNotificationDeliveryUpsert {
@@ -531,6 +573,34 @@ func (u *ReportNotificationDeliveryUpsertOne) Update(set func(*ReportNotificatio
 		set(&ReportNotificationDeliveryUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field.
+func (u *ReportNotificationDeliveryUpsertOne) SetReportNotificationChannelProfileID(v int) *ReportNotificationDeliveryUpsertOne {
+	return u.Update(func(s *ReportNotificationDeliveryUpsert) {
+		s.SetReportNotificationChannelProfileID(v)
+	})
+}
+
+// AddReportNotificationChannelProfileID adds v to the "report_notification_channel_profile_id" field.
+func (u *ReportNotificationDeliveryUpsertOne) AddReportNotificationChannelProfileID(v int) *ReportNotificationDeliveryUpsertOne {
+	return u.Update(func(s *ReportNotificationDeliveryUpsert) {
+		s.AddReportNotificationChannelProfileID(v)
+	})
+}
+
+// UpdateReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field to the value that was provided on create.
+func (u *ReportNotificationDeliveryUpsertOne) UpdateReportNotificationChannelProfileID() *ReportNotificationDeliveryUpsertOne {
+	return u.Update(func(s *ReportNotificationDeliveryUpsert) {
+		s.UpdateReportNotificationChannelProfileID()
+	})
+}
+
+// ClearReportNotificationChannelProfileID clears the value of the "report_notification_channel_profile_id" field.
+func (u *ReportNotificationDeliveryUpsertOne) ClearReportNotificationChannelProfileID() *ReportNotificationDeliveryUpsertOne {
+	return u.Update(func(s *ReportNotificationDeliveryUpsert) {
+		s.ClearReportNotificationChannelProfileID()
+	})
 }
 
 // SetProviderMessageID sets the "provider_message_id" field.
@@ -874,6 +944,34 @@ func (u *ReportNotificationDeliveryUpsertBulk) Update(set func(*ReportNotificati
 		set(&ReportNotificationDeliveryUpsert{UpdateSet: update})
 	}))
 	return u
+}
+
+// SetReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field.
+func (u *ReportNotificationDeliveryUpsertBulk) SetReportNotificationChannelProfileID(v int) *ReportNotificationDeliveryUpsertBulk {
+	return u.Update(func(s *ReportNotificationDeliveryUpsert) {
+		s.SetReportNotificationChannelProfileID(v)
+	})
+}
+
+// AddReportNotificationChannelProfileID adds v to the "report_notification_channel_profile_id" field.
+func (u *ReportNotificationDeliveryUpsertBulk) AddReportNotificationChannelProfileID(v int) *ReportNotificationDeliveryUpsertBulk {
+	return u.Update(func(s *ReportNotificationDeliveryUpsert) {
+		s.AddReportNotificationChannelProfileID(v)
+	})
+}
+
+// UpdateReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field to the value that was provided on create.
+func (u *ReportNotificationDeliveryUpsertBulk) UpdateReportNotificationChannelProfileID() *ReportNotificationDeliveryUpsertBulk {
+	return u.Update(func(s *ReportNotificationDeliveryUpsert) {
+		s.UpdateReportNotificationChannelProfileID()
+	})
+}
+
+// ClearReportNotificationChannelProfileID clears the value of the "report_notification_channel_profile_id" field.
+func (u *ReportNotificationDeliveryUpsertBulk) ClearReportNotificationChannelProfileID() *ReportNotificationDeliveryUpsertBulk {
+	return u.Update(func(s *ReportNotificationDeliveryUpsert) {
+		s.ClearReportNotificationChannelProfileID()
+	})
 }
 
 // SetProviderMessageID sets the "provider_message_id" field.

@@ -114,6 +114,63 @@ func TestServiceCollectReportsAmbiguousTemplateWithoutTemplateID(t *testing.T) {
 	}
 }
 
+func TestServiceCollectResolvesTemplateByAlertSourceProfileID(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	repo := newFakeConfigRepo()
+	repo.templates[7] = activeAlertsTemplateForSource(7, 1, true)
+	repo.templates[8] = activeAlertsTemplateForSource(8, 2, true)
+	repo.alertSources[1] = alertSourceProfileWithID(1, domain.AlertSourceKindAlertmanager)
+	repo.alertSources[2] = alertSourceProfileWithID(2, domain.AlertSourceKindAlertmanager)
+	provider := &fakeMetricsProvider{}
+	svc := mustService(t, repo, provider, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		AlertSourceProfileID: 2,
+		Tool:                 domain.DiagnosisToolKindActiveAlerts,
+		Reason:               "Need active alerts from secondary Alertmanager.",
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusCollected ||
+		item.ReasonCode != ReasonOK ||
+		item.TemplateID != 8 ||
+		item.AlertSourceProfileID != 2 {
+		t.Fatalf("item = %+v", item)
+	}
+	if provider.calls != 1 {
+		t.Fatalf("provider calls = %d, want 1", provider.calls)
+	}
+}
+
+func TestServiceCollectReportsTemplateSourceMismatch(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	repo := newFakeConfigRepo()
+	repo.templates[7] = activeAlertsTemplateForSource(7, 1, true)
+	repo.alertSources[1] = alertSourceProfileWithID(1, domain.AlertSourceKindAlertmanager)
+	repo.alertSources[2] = alertSourceProfileWithID(2, domain.AlertSourceKindAlertmanager)
+	provider := &fakeMetricsProvider{}
+	svc := mustService(t, repo, provider, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		TemplateID:           7,
+		AlertSourceProfileID: 2,
+		Tool:                 domain.DiagnosisToolKindActiveAlerts,
+		Reason:               "Need active alerts from secondary Alertmanager.",
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusSkipped || item.ReasonCode != ReasonTemplateSourceMismatch {
+		t.Fatalf("item = %+v", item)
+	}
+	if provider.calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", provider.calls)
+	}
+}
+
 func TestServiceCollectReportsUnsupportedTools(t *testing.T) {
 	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
 	repo := newFakeConfigRepo()
@@ -184,17 +241,16 @@ func TestServiceCollectMetricQueryUsesTemplateQuery(t *testing.T) {
 
 func TestServiceCollectMetricQueryAllowsParameterizedTemplateQuery(t *testing.T) {
 	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
-	concreteQuery := `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="sapprd1",TABLESPACE="PSAPSR3USR"}`
 	repo := newFakeConfigRepo()
-	repo.templates[9] = metricQueryTemplate(
-		`db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`,
-	)
+	queryTemplate := `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`
+	concreteQuery := `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="sapprd1",TABLESPACE="PSAPSR3USR"}`
+	repo.templates[9] = metricQueryTemplate(queryTemplate)
 	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
 	provider := &fakeMetricsProvider{metricResult: ports.MetricQueryResult{
 		ResultType: "vector",
 		Series: []ports.MetricSeries{{
 			Metric: map[string]string{"ORACLE_SID": "sapprd1", "TABLESPACE": "PSAPSR3USR"},
-			Points: []ports.MetricPoint{{Timestamp: now, Value: "96.5"}},
+			Points: []ports.MetricPoint{{Timestamp: now, Value: "95.2"}},
 		}},
 	}}
 	svc := mustService(t, repo, provider, now)
@@ -202,14 +258,17 @@ func TestServiceCollectMetricQueryAllowsParameterizedTemplateQuery(t *testing.T)
 	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
 		TemplateID: 9,
 		Tool:       domain.DiagnosisToolKindMetricQuery,
-		Reason:     "Need concrete tablespace usage.",
+		Reason:     "Need current tablespace saturation.",
 		Query:      concreteQuery,
 	}}})
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
 	item := got.Items[0]
-	if item.Status != StatusCollected || item.ReasonCode != ReasonOK || item.Query != concreteQuery {
+	if item.Status != StatusCollected ||
+		item.ReasonCode != ReasonOK ||
+		item.Query != concreteQuery ||
+		item.ObservedMetricSeries != 1 {
 		t.Fatalf("item = %+v", item)
 	}
 	if provider.metricCalls != 1 || provider.lastMetricReq.Query != concreteQuery {
@@ -217,12 +276,10 @@ func TestServiceCollectMetricQueryAllowsParameterizedTemplateQuery(t *testing.T)
 	}
 }
 
-func TestServiceCollectMetricQueryRejectsParameterizedTemplateMismatch(t *testing.T) {
+func TestServiceCollectMetricQueryRejectsTemplateQueryMismatch(t *testing.T) {
 	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
 	repo := newFakeConfigRepo()
-	repo.templates[9] = metricQueryTemplate(
-		`db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`,
-	)
+	repo.templates[9] = metricQueryTemplate("up")
 	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
 	provider := &fakeMetricsProvider{}
 	svc := mustService(t, repo, provider, now)
@@ -230,7 +287,34 @@ func TestServiceCollectMetricQueryRejectsParameterizedTemplateMismatch(t *testin
 	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
 		TemplateID: 9,
 		Tool:       domain.DiagnosisToolKindMetricQuery,
-		Reason:     "Need concrete tablespace usage.",
+		Reason:     "Need current health.",
+		Query:      "process_start_time_seconds",
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusSkipped || item.ReasonCode != ReasonTemplateQueryMismatch {
+		t.Fatalf("item = %+v", item)
+	}
+	if provider.metricCalls != 0 {
+		t.Fatalf("metric calls = %d, want 0", provider.metricCalls)
+	}
+}
+
+func TestServiceCollectMetricQueryRejectsParameterizedTemplateMismatch(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	repo := newFakeConfigRepo()
+	queryTemplate := `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`
+	repo.templates[9] = metricQueryTemplate(queryTemplate)
+	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
+	provider := &fakeMetricsProvider{}
+	svc := mustService(t, repo, provider, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		TemplateID: 9,
+		Tool:       domain.DiagnosisToolKindMetricQuery,
+		Reason:     "Need current tablespace saturation.",
 		Query:      `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="sapprd1",TABLESPACE="PSAPSR3USR",pod="api-1"}`,
 	}}})
 	if err != nil {
@@ -256,7 +340,7 @@ func TestServiceCollectMetricQueryRejectsParameterizedTemplateWithoutQuery(t *te
 	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
 		TemplateID: 9,
 		Tool:       domain.DiagnosisToolKindMetricQuery,
-		Reason:     "Need current health.",
+		Reason:     "Need current target health.",
 	}}})
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
@@ -270,11 +354,15 @@ func TestServiceCollectMetricQueryRejectsParameterizedTemplateWithoutQuery(t *te
 	}
 }
 
-func TestServiceCollectMetricQueryRejectsTemplateQueryMismatch(t *testing.T) {
+func TestServiceCollectMetricQueryRejectsThanosRuleProfile(t *testing.T) {
 	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
 	repo := newFakeConfigRepo()
 	repo.templates[9] = metricQueryTemplate("up")
-	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
+	repo.alertSources[1] = alertSourceProfileWithLabels(
+		1,
+		domain.AlertSourceKindPrometheus,
+		map[string]string{"source": "thanos-rule"},
+	)
 	provider := &fakeMetricsProvider{}
 	svc := mustService(t, repo, provider, now)
 
@@ -282,13 +370,16 @@ func TestServiceCollectMetricQueryRejectsTemplateQueryMismatch(t *testing.T) {
 		TemplateID: 9,
 		Tool:       domain.DiagnosisToolKindMetricQuery,
 		Reason:     "Need current health.",
-		Query:      "process_start_time_seconds",
+		Query:      "up",
 	}}})
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
 	item := got.Items[0]
-	if item.Status != StatusSkipped || item.ReasonCode != ReasonTemplateQueryMismatch {
+	if item.Status != StatusSkipped ||
+		item.ReasonCode != ReasonSourceKindMismatch ||
+		item.AlertSourceKind != domain.AlertSourceKindPrometheus ||
+		item.Message != "Thanos Rule alert source supports active_alerts only; use a Thanos Query or Prometheus alert source profile for metric evidence." {
 		t.Fatalf("item = %+v", item)
 	}
 	if provider.metricCalls != 0 {
@@ -393,9 +484,17 @@ func activeAlertsTemplate(
 	id domain.DiagnosisToolTemplateID,
 	enabled bool,
 ) domain.DiagnosisToolTemplate {
+	return activeAlertsTemplateForSource(id, 1, enabled)
+}
+
+func activeAlertsTemplateForSource(
+	id domain.DiagnosisToolTemplateID,
+	sourceID domain.AlertSourceProfileID,
+	enabled bool,
+) domain.DiagnosisToolTemplate {
 	template, err := domain.NewDiagnosisToolTemplate(
 		"Active alerts",
-		1,
+		sourceID,
 		domain.DiagnosisToolKindActiveAlerts,
 		"",
 		5,
@@ -475,6 +574,21 @@ func metricPoints(start time.Time, count int) []ports.MetricPoint {
 func alertSourceProfile(
 	kind domain.AlertSourceKind,
 ) domain.AlertSourceProfile {
+	return alertSourceProfileWithID(1, kind)
+}
+
+func alertSourceProfileWithID(
+	id domain.AlertSourceProfileID,
+	kind domain.AlertSourceKind,
+) domain.AlertSourceProfile {
+	return alertSourceProfileWithLabels(id, kind, nil)
+}
+
+func alertSourceProfileWithLabels(
+	id domain.AlertSourceProfileID,
+	kind domain.AlertSourceKind,
+	labels map[string]string,
+) domain.AlertSourceProfile {
 	profile, err := domain.NewAlertSourceProfile(
 		"Primary alert source",
 		kind,
@@ -482,12 +596,12 @@ func alertSourceProfile(
 		domain.AlertSourceAuthModeNone,
 		"",
 		true,
-		nil,
+		labels,
 	)
 	if err != nil {
 		panic(err)
 	}
-	profile.ID = 1
+	profile.ID = id
 	return profile
 }
 

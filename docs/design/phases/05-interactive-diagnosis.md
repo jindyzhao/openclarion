@@ -269,9 +269,10 @@ that session, workflow, and run IDs are single-line, whitespace-free, and
 bounded, that the retained `evidence` summary is a bounded single-line
 statement mentioning `turn_result`, that the completed turn log number matches
 the assistant-turn count, and that transcript counts stay consistent with the
-user+assistant pair model. The
-harness has landed; live evidence from a real stack remains pending for final
-M5 acceptance.
+user+assistant pair model. A local retained proof has exercised this path against
+a real backend/worker stack. Target-deployment acceptance still requires a fresh
+retained proof when the backend, worker image, sandbox runtime, or routing
+changes from the proven local stack.
 
 ### Runtime Wiring
 
@@ -293,6 +294,10 @@ M5 acceptance.
   `OPENCLARION_SANDBOX_WORKSPACE_ROOT`,
   `OPENCLARION_SANDBOX_EGRESS_ALLOWED`, and
   `OPENCLARION_SANDBOX_EGRESS_NETWORK` customize the sandbox runtime boundary
+- optional `OPENCLARION_AUTO_DIAGNOSIS_MAX_ROOMS_PER_TRIGGER` bounds automatic
+  auto-room fan-out per alert intake or report-policy replay; it defaults to 3
+  and may be raised up to 100 only when the LLM and sandbox capacity can absorb
+  the extra concurrent first-turn workload
 
 The runtime uses the same Temporal client for the worker,
 `DiagnosisRoomClient`, and `DiagnosisRoomStarter`; the PostgreSQL-backed

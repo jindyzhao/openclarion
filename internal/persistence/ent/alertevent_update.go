@@ -185,6 +185,9 @@ func (_u *AlertEventUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 			}
 		}
 	}
+	if _u.mutation.AlertSourceProfileIDCleared() {
+		_spec.ClearField(alertevent.FieldAlertSourceProfileID, field.TypeInt)
+	}
 	if value, ok := _u.mutation.Labels(); ok {
 		_spec.SetField(alertevent.FieldLabels, field.TypeJSON, value)
 	}
@@ -459,6 +462,9 @@ func (_u *AlertEventUpdateOne) sqlSave(ctx context.Context) (_node *AlertEvent, 
 				ps[i](selector)
 			}
 		}
+	}
+	if _u.mutation.AlertSourceProfileIDCleared() {
+		_spec.ClearField(alertevent.FieldAlertSourceProfileID, field.TypeInt)
 	}
 	if value, ok := _u.mutation.Labels(); ok {
 		_spec.SetField(alertevent.FieldLabels, field.TypeJSON, value)

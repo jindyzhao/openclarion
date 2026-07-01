@@ -19,6 +19,9 @@ import (
 	"syscall"
 	"time"
 
+	enumspb "go.temporal.io/api/enums/v1"
+	workflowpb "go.temporal.io/api/workflow/v1"
+	workflowservicepb "go.temporal.io/api/workflowservice/v1"
 	temporalclient "go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/interceptor"
 	temporallog "go.temporal.io/sdk/log"
@@ -32,25 +35,35 @@ import (
 	observabilitytracing "github.com/openclarion/openclarion/internal/observability/tracing"
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
 	"github.com/openclarion/openclarion/internal/persistence/repository"
+	authldap "github.com/openclarion/openclarion/internal/providers/auth/ldap"
 	authoidc "github.com/openclarion/openclarion/internal/providers/auth/oidc"
+	authstatic "github.com/openclarion/openclarion/internal/providers/auth/static"
 	containerdocker "github.com/openclarion/openclarion/internal/providers/container/docker"
+	directoryiam "github.com/openclarion/openclarion/internal/providers/directory/iam"
 	imwebhook "github.com/openclarion/openclarion/internal/providers/im/webhook"
+	"github.com/openclarion/openclarion/internal/providers/im/wecomcallback"
 	openaillm "github.com/openclarion/openclarion/internal/providers/llm/openai"
 	metricsalertmanager "github.com/openclarion/openclarion/internal/providers/metrics/alertmanager"
 	metricsprometheus "github.com/openclarion/openclarion/internal/providers/metrics/prometheus"
 	secretenvmap "github.com/openclarion/openclarion/internal/providers/secrets/envmap"
 	"github.com/openclarion/openclarion/internal/strictjson"
 	transporthttp "github.com/openclarion/openclarion/internal/transport/http"
+	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertmanagerwebhook"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourceprovider"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisnotification"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomclose"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
+	"github.com/openclarion/openclarion/internal/usecases/directorysync"
 	"github.com/openclarion/openclarion/internal/usecases/notificationchannelcheck"
 	"github.com/openclarion/openclarion/internal/usecases/notificationchannelprovider"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+	rbacusecase "github.com/openclarion/openclarion/internal/usecases/rbac"
+	"github.com/openclarion/openclarion/internal/usecases/reportnotification"
 	"github.com/openclarion/openclarion/internal/usecases/reportpolicytrigger"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
@@ -60,20 +73,81 @@ type getenvFunc func(string) string
 
 const (
 	temporalTaskQueueEnv = "OPENCLARION_TEMPORAL_TASK_QUEUE"
+	publicBaseURLEnv     = "OPENCLARION_PUBLIC_BASE_URL"
 	// #nosec G101 -- environment variable name only; values are read at runtime.
 	alertSourceSecretRefsEnv = "OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON"
 	// #nosec G101 -- environment variable name only; values are read at runtime.
 	notificationChannelSecretRefsEnv   = "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON"
-	reportLLMHTTPTimeoutSecondsEnv     = "OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS"
-	reportReplayCLICommand             = "report-replay"
-	reportPolicyReplayCLICommand       = "report-policy-replay"
-	reportScheduleLiveSmokeCLICommand  = "report-schedule-live-smoke"
-	reportReplayCLICreatedByWorkflow   = "ReportReplayCLI"
-	defaultReportReplayCLILimit        = 10000
-	defaultReportReplayCLIWait         = 20 * time.Minute
-	defaultReportLLMHTTPTimeout        = 30 * time.Second
-	defaultReportScheduleLiveSmokeWait = 30 * time.Minute
-	defaultReportScheduleLiveSmokePoll = 5 * time.Second
+	autoDiagnosisMaxRoomsPerTriggerEnv = "OPENCLARION_AUTO_DIAGNOSIS_MAX_ROOMS_PER_TRIGGER"
+	diagnosisAuthModeEnv               = "OPENCLARION_DIAGNOSIS_AUTH_MODE"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	diagnosisStaticBearerTokenEnv = "OPENCLARION_DIAGNOSIS_STATIC_BEARER_TOKEN"
+	diagnosisStaticSubjectEnv     = "OPENCLARION_DIAGNOSIS_STATIC_SUBJECT"
+	diagnosisStaticRolesEnv       = "OPENCLARION_DIAGNOSIS_STATIC_ROLES"
+	diagnosisLDAPURLEnv           = "OPENCLARION_DIAGNOSIS_LDAP_URL"
+	diagnosisLDAPBaseDNEnv        = "OPENCLARION_DIAGNOSIS_LDAP_BASE_DN"
+	diagnosisLDAPBindDNEnv        = "OPENCLARION_DIAGNOSIS_LDAP_BIND_DN"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	diagnosisLDAPBindPasswordEnv     = "OPENCLARION_DIAGNOSIS_LDAP_BIND_PASSWORD"
+	diagnosisLDAPUserFilterEnv       = "OPENCLARION_DIAGNOSIS_LDAP_USER_FILTER"
+	diagnosisLDAPSubjectAttributeEnv = "OPENCLARION_DIAGNOSIS_LDAP_SUBJECT_ATTRIBUTE"
+	diagnosisLDAPRoleAttributeEnv    = "OPENCLARION_DIAGNOSIS_LDAP_ROLE_ATTRIBUTE"
+	diagnosisLDAPOwnerRoleValuesEnv  = "OPENCLARION_DIAGNOSIS_LDAP_OWNER_ROLE_VALUES"
+	diagnosisLDAPAdminRoleValuesEnv  = "OPENCLARION_DIAGNOSIS_LDAP_ADMIN_ROLE_VALUES"
+	diagnosisLDAPDefaultRolesEnv     = "OPENCLARION_DIAGNOSIS_LDAP_DEFAULT_ROLES"
+	diagnosisLDAPStartTLSEnv         = "OPENCLARION_DIAGNOSIS_LDAP_START_TLS"
+	diagnosisLDAPAllowPlaintextEnv   = "OPENCLARION_DIAGNOSIS_LDAP_ALLOW_INSECURE_PLAINTEXT"
+	diagnosisOIDCIssuerURLEnv        = "OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL"
+	diagnosisOIDCClientIDEnv         = "OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID"
+	diagnosisOIDCRoleClaimEnv        = "OPENCLARION_DIAGNOSIS_OIDC_ROLE_CLAIM"
+	diagnosisOIDCOwnerRolesEnv       = "OPENCLARION_DIAGNOSIS_OIDC_OWNER_ROLES"
+	diagnosisOIDCAdminRolesEnv       = "OPENCLARION_DIAGNOSIS_OIDC_ADMIN_ROLES"
+	diagnosisOIDCSigningAlgsEnv      = "OPENCLARION_DIAGNOSIS_OIDC_SIGNING_ALGS"
+	iamOIDCIssuerEnv                 = "OPENCLARION_IAM_OIDC_ISSUER"
+	iamOIDCClientIDEnv               = "OPENCLARION_IAM_OIDC_CLIENT_ID"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	iamOIDCClientSecretEnv  = "OPENCLARION_IAM_OIDC_CLIENT_SECRET"
+	standardOIDCIssuerEnv   = "OIDC_ISSUER"
+	standardOIDCClientIDEnv = "OIDC_CLIENT_ID"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	standardOIDCClientSecretEnv = "OIDC_CLIENT_SECRET"
+	iamDirectoryProviderNameEnv = "OPENCLARION_IAM_DIRECTORY_PROVIDER_NAME"
+	iamDirectoryIssuerEnv       = "OPENCLARION_IAM_DIRECTORY_ISSUER"
+	iamDirectoryBaseURLEnv      = "OPENCLARION_IAM_DIRECTORY_BASE_URL"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	iamDirectoryTokenURLEnv = "OPENCLARION_IAM_DIRECTORY_TOKEN_URL"
+	iamDirectoryClientIDEnv = "OPENCLARION_IAM_DIRECTORY_CLIENT_ID"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	iamDirectoryClientSecretEnv   = "OPENCLARION_IAM_DIRECTORY_CLIENT_SECRET"
+	iamDirectoryScopesEnv         = "OPENCLARION_IAM_DIRECTORY_SCOPES"
+	standardDirectoryScopesEnv    = "DIRECTORY_SCOPES"
+	iamDirectorySyncIntervalEnv   = "OPENCLARION_IAM_DIRECTORY_SYNC_INTERVAL_SECONDS"
+	rbacBootstrapAdminSubjectsEnv = "OPENCLARION_RBAC_BOOTSTRAP_ADMIN_SUBJECTS"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	diagnosisSessionSigningKeyEnv = "OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY"
+	diagnosisWeComCorpIDEnv       = "OPENCLARION_WECOM_CORP_ID"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	diagnosisWeComCallbackTokenEnv = "OPENCLARION_WECOM_CALLBACK_TOKEN"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	diagnosisWeComCallbackEncodingAESKeyEnv = "OPENCLARION_WECOM_CALLBACK_ENCODING_AES_KEY"
+	diagnosisWeComCallbackReceiveIDEnv      = "OPENCLARION_WECOM_CALLBACK_RECEIVE_ID"
+	reportLLMHTTPTimeoutSecondsEnv          = "OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS"
+	reportReplayCLICommand                  = "report-replay"
+	reportPolicyReplayCLICommand            = "report-policy-replay"
+	reportScheduleLiveSmokeCLICommand       = "report-schedule-live-smoke"
+	workflowBacklogCLICommand               = "workflow-backlog"
+	diagnosisRoomListCLICommand             = "diagnosis-room-list"
+	reportReplayCLICreatedByWorkflow        = "ReportReplayCLI"
+	defaultReportReplayCLILimit             = 10000
+	defaultWorkflowBacklogCLILimit          = 50
+	maxWorkflowBacklogCLILimit              = 500
+	defaultDiagnosisRoomListCLILimit        = 100
+	maxDiagnosisRoomListCLILimit            = 500
+	defaultReportReplayCLIWait              = 20 * time.Minute
+	defaultReportLLMHTTPTimeout             = 260 * time.Second
+	defaultReportScheduleLiveSmokeWait      = 30 * time.Minute
+	defaultReportScheduleLiveSmokePoll      = 5 * time.Second
+	minIAMDirectorySyncInterval             = time.Minute
 
 	diagnosisRoomCloseCLICommand    = "diagnosis-room-close"
 	defaultDiagnosisRoomCloseReason = "live_smoke_completed"
@@ -89,6 +163,26 @@ var reportReplayCLINowUTC = func() time.Time {
 
 var reportScheduleLiveSmokeCLINowUTC = func() time.Time {
 	return time.Now().UTC()
+}
+
+var workflowBacklogCLINowUTC = func() time.Time {
+	return time.Now().UTC()
+}
+
+var diagnosisAuthNowUTC = func() time.Time {
+	return time.Now().UTC()
+}
+
+var diagnosisNotificationRetryNowUTC = func() time.Time {
+	return time.Now().UTC()
+}
+
+var defaultWorkflowBacklogCLIWorkflowTypes = []string{
+	"ReportBatchWorkflow",
+	"ReportFanOutWorkflow",
+	"FinalReportWorkflow",
+	"ReportPolicyScheduleLauncherWorkflow",
+	"DiagnosisRoomWorkflow",
 }
 
 var diagnosisRoomCloseCLINowUTC = func() time.Time {
@@ -120,10 +214,14 @@ func dispatch(ctx context.Context, logger *slog.Logger, args []string, stdout io
 		return runReportPolicyReplayCLI(ctx, logger, os.Getenv, args[1:], stdout)
 	case reportScheduleLiveSmokeCLICommand:
 		return runReportScheduleLiveSmokeCLI(ctx, logger, os.Getenv, args[1:], stdout)
+	case workflowBacklogCLICommand:
+		return runWorkflowBacklogCLI(ctx, logger, os.Getenv, args[1:], stdout)
+	case diagnosisRoomListCLICommand:
+		return runDiagnosisRoomListCLI(ctx, logger, os.Getenv, args[1:], stdout)
 	case diagnosisRoomCloseCLICommand:
 		return runDiagnosisRoomCloseCLI(ctx, logger, os.Getenv, args[1:], stdout)
 	default:
-		return fmt.Errorf("unknown command %q (expected: serve, %s, %s, %s, or %s)", args[0], reportReplayCLICommand, reportPolicyReplayCLICommand, reportScheduleLiveSmokeCLICommand, diagnosisRoomCloseCLICommand)
+		return fmt.Errorf("unknown command %q (expected: serve, %s, %s, %s, %s, %s, or %s)", args[0], reportReplayCLICommand, reportPolicyReplayCLICommand, reportScheduleLiveSmokeCLICommand, workflowBacklogCLICommand, diagnosisRoomListCLICommand, diagnosisRoomCloseCLICommand)
 	}
 }
 
@@ -206,8 +304,12 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	diagnosisRoomStarter, err := temporalpkg.NewDiagnosisRoomStarter(tc, temporalpkg.WithDiagnosisRoomStarterTaskQueue(temporalTaskQueue))
+	if err != nil {
+		return err
+	}
 
-	activityOptions, err := reportActivityOptionsFromEnv(ctx, logger, os.Getenv, uowFactory, reportStarter, httpTracing)
+	activityOptions, err := reportActivityOptionsFromEnv(ctx, logger, os.Getenv, uowFactory, reportStarter, diagnosisRoomStarter, httpTracing)
 	if err != nil {
 		return err
 	}
@@ -241,10 +343,6 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	diagnosisRoomStarter, err := temporalpkg.NewDiagnosisRoomStarter(tc, temporalpkg.WithDiagnosisRoomStarterTaskQueue(temporalTaskQueue))
-	if err != nil {
-		return err
-	}
 	ticketStore, err := repository.NewDiagnosisAuthTicketStore(client)
 	if err != nil {
 		return fmt.Errorf("configure diagnosis WebSocket ticket store: %w", err)
@@ -252,6 +350,13 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	serverOptions, originPolicy, err := httpServerOptionsFromEnv(logger, os.Getenv, uowFactory, reportStarter, diagnosisRoomClient, diagnosisRoomStarter, ticketStore, scheduleRegistrar, httpTracing)
 	if err != nil {
 		return err
+	}
+	periodicDirectorySyncer, periodicDirectorySyncInterval, periodicDirectorySyncConfigured, err := periodicDirectorySyncerFromEnv(os.Getenv, uowFactory, httpTracing)
+	if err != nil {
+		return err
+	}
+	if periodicDirectorySyncConfigured {
+		logger.Info("configured periodic IAM directory sync", "interval", periodicDirectorySyncInterval.String(), "provider", directoryProviderNameFromEnv(os.Getenv))
 	}
 
 	addr := envOrDefault("LISTEN_ADDR", ":8080")
@@ -293,6 +398,11 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		}
 		return nil
 	})
+	if periodicDirectorySyncConfigured {
+		group.Go(func() error {
+			return runPeriodicDirectorySync(groupCtx, logger, periodicDirectorySyncer, periodicDirectorySyncInterval)
+		})
+	}
 	group.Go(func() error {
 		<-groupCtx.Done()
 		if ctx.Err() == nil {
@@ -337,6 +447,7 @@ func reportActivityOptionsFromEnv(
 	getenv getenvFunc,
 	uowFactory ports.UnitOfWorkFactory,
 	starter ports.ReportWorkflowStarter,
+	diagnosisStarter ports.DiagnosisRoomWorkflowStarter,
 	httpTracing *observabilitytracing.HTTPTracing,
 ) ([]temporalpkg.ActivityOption, error) {
 	var opts []temporalpkg.ActivityOption
@@ -368,31 +479,13 @@ func reportActivityOptionsFromEnv(
 		logger.Info("configured report LLM provider", "provider", "openai-compatible", "output_mode", provider.OutputMode())
 	}
 
-	imConfigured := anyEnv(getenv,
-		"OPENCLARION_IM_WEBHOOK_URL",
-		"OPENCLARION_IM_WEBHOOK_BEARER_TOKEN",
-		"OPENCLARION_IM_WEBHOOK_FORMAT",
-	)
+	imProvider, imFormat, imConfigured, err := reportIMProviderFromEnv(getenv, httpTracing)
 	if imConfigured {
-		url := strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_URL"))
-		if url == "" {
-			return nil, fmt.Errorf("OPENCLARION_IM_WEBHOOK_URL is required when configuring the report IM provider")
-		}
-		format := strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_FORMAT"))
-		provider, err := imwebhook.NewProvider(imwebhook.Config{
-			URL:         url,
-			BearerToken: strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_BEARER_TOKEN")),
-			Format:      format,
-			HTTPClient:  outboundHTTPClient(httpTracing, 10*time.Second),
-		})
 		if err != nil {
-			return nil, fmt.Errorf("configure report IM provider: %w", err)
+			return nil, err
 		}
-		opts = append(opts, temporalpkg.WithIMProvider(provider))
-		if format == "" {
-			format = "generic"
-		}
-		logger.Info("configured report IM provider", "provider", "webhook", "format", strings.ToLower(format))
+		opts = append(opts, temporalpkg.WithIMProvider(imProvider))
+		logger.Info("configured report IM provider", "provider", "webhook", "format", imFormat)
 	}
 
 	notificationChannelSecretResolver, err := notificationChannelSecretResolverFromEnv(getenv)
@@ -409,6 +502,7 @@ func reportActivityOptionsFromEnv(
 		) (ports.IMProvider, error) {
 			return imwebhook.NewProvider(imwebhook.Config{
 				URL:        credentials.URL,
+				Format:     credentials.Format,
 				HTTPClient: outboundHTTPClient(httpTracing, 10*time.Second),
 			})
 		}
@@ -450,7 +544,19 @@ func reportActivityOptionsFromEnv(
 		if err != nil {
 			return nil, fmt.Errorf("configure scheduled report policy provider builder: %w", err)
 		}
-		policyReplayer, err := reportpolicytrigger.NewService(uowFactory, starter, alertSourceProviders)
+		policyReplayerOptions := []reportpolicytrigger.Option{}
+		if diagnosisStarter != nil {
+			autoDiagnosisOptions, triggerErr := autoDiagnosisOptionsFromEnv(getenv)
+			if triggerErr != nil {
+				return nil, triggerErr
+			}
+			autoDiagnosisTrigger, triggerErr := alertdiagnosis.NewService(uowFactory, diagnosisStarter, autoDiagnosisOptions...)
+			if triggerErr != nil {
+				return nil, fmt.Errorf("configure scheduled report policy auto diagnosis trigger: %w", triggerErr)
+			}
+			policyReplayerOptions = append(policyReplayerOptions, reportpolicytrigger.WithAutoDiagnosisTrigger(autoDiagnosisTrigger))
+		}
+		policyReplayer, err := reportpolicytrigger.NewService(uowFactory, starter, alertSourceProviders, policyReplayerOptions...)
 		if err != nil {
 			return nil, fmt.Errorf("configure scheduled report policy replayer: %w", err)
 		}
@@ -460,12 +566,52 @@ func reportActivityOptionsFromEnv(
 	return opts, nil
 }
 
+func reportIMProviderFromEnv(
+	getenv getenvFunc,
+	httpTracing *observabilitytracing.HTTPTracing,
+) (ports.IMProvider, string, bool, error) {
+	imConfigured := anyEnv(getenv,
+		"OPENCLARION_IM_WEBHOOK_URL",
+		"OPENCLARION_IM_WEBHOOK_BEARER_TOKEN",
+		"OPENCLARION_IM_WEBHOOK_FORMAT",
+	)
+	if !imConfigured {
+		return nil, "", false, nil
+	}
+	url := strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_URL"))
+	if url == "" {
+		return nil, "", true, fmt.Errorf("OPENCLARION_IM_WEBHOOK_URL is required when configuring the report IM provider")
+	}
+	format := strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_FORMAT"))
+	provider, err := imwebhook.NewProvider(imwebhook.Config{
+		URL:         url,
+		BearerToken: strings.TrimSpace(getenv("OPENCLARION_IM_WEBHOOK_BEARER_TOKEN")),
+		Format:      format,
+		HTTPClient:  outboundHTTPClient(httpTracing, 10*time.Second),
+	})
+	if err != nil {
+		return nil, "", true, fmt.Errorf("configure report IM provider: %w", err)
+	}
+	if format == "" {
+		format = "generic"
+	}
+	return provider, strings.ToLower(format), true, nil
+}
+
 func diagnosisActivityOptionsFromEnv(
 	logger *slog.Logger,
 	getenv getenvFunc,
 	httpTracing *observabilitytracing.HTTPTracing,
 ) ([]temporalpkg.ActivityOption, error) {
 	var opts []temporalpkg.ActivityOption
+	publicBaseURL, err := publicBaseURLFromEnv(getenv)
+	if err != nil {
+		return nil, err
+	}
+	if publicBaseURL != nil {
+		opts = append(opts, temporalpkg.WithPublicBaseURL(publicBaseURL))
+		logger.Info("configured public base URL for operator links", "host", publicBaseURL.Host)
+	}
 	secretResolver, err := alertSourceSecretResolverFromEnv(getenv)
 	if err != nil {
 		return nil, err
@@ -553,6 +699,33 @@ func diagnosisActivityOptionsFromEnv(
 	return opts, nil
 }
 
+func publicBaseURLFromEnv(getenv getenvFunc) (*url.URL, error) {
+	if getenv == nil {
+		return nil, nil
+	}
+	raw := strings.TrimSpace(getenv(publicBaseURLEnv))
+	if raw == "" {
+		return nil, nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s must be a valid URL", publicBaseURLEnv)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("%s scheme must be http or https", publicBaseURLEnv)
+	}
+	if parsed.Host == "" {
+		return nil, fmt.Errorf("%s host must be non-empty", publicBaseURLEnv)
+	}
+	if parsed.User != nil {
+		return nil, fmt.Errorf("%s must not include userinfo", publicBaseURLEnv)
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return nil, fmt.Errorf("%s must not include query or fragment", publicBaseURLEnv)
+	}
+	return parsed, nil
+}
+
 func diagnosisContainerCredentialsFromEnv(getenv getenvFunc) ([]temporalpkg.ContainerCredentialTemplate, error) {
 	requiredKeys := []string{
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL",
@@ -610,6 +783,26 @@ func httpServerOptionsFromEnv(
 		return nil, nil, err
 	}
 
+	rbacAuthorizer, err := rbacusecase.NewService(uowFactory)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure local RBAC authorizer: %w", err)
+	}
+	opts = append(opts, transporthttp.WithRBACAuthorizer(rbacAuthorizer))
+	logger.Info("configured local RBAC authorizer")
+	if bootstrapSubjects := optionalCSVValues(getenv(rbacBootstrapAdminSubjectsEnv)); len(bootstrapSubjects) > 0 {
+		opts = append(opts, transporthttp.WithLocalRBACBootstrapAdminSubjects(bootstrapSubjects))
+		logger.Warn("configured local RBAC bootstrap admin subjects", "count", len(bootstrapSubjects))
+	}
+
+	directorySyncer, directoryConfigured, err := directorySyncerFromEnv(getenv, uowFactory, httpTracing)
+	if err != nil {
+		return nil, nil, err
+	}
+	if directoryConfigured {
+		opts = append(opts, transporthttp.WithDirectorySyncer(directorySyncer))
+		logger.Info("configured IAM directory syncer", "provider", directoryProviderNameFromEnv(getenv))
+	}
+
 	secretResolver, err := alertSourceSecretResolverFromEnv(getenv)
 	if err != nil {
 		return nil, nil, err
@@ -635,6 +828,19 @@ func httpServerOptionsFromEnv(
 	if secretResolver != nil {
 		webhookOptions = append(webhookOptions, alertmanagerwebhook.WithSecretResolver(secretResolver))
 	}
+	var autoDiagnosisTrigger *alertdiagnosis.Service
+	if diagnosisStarter != nil {
+		var triggerErr error
+		autoDiagnosisOptions, optionsErr := autoDiagnosisOptionsFromEnv(getenv)
+		if optionsErr != nil {
+			return nil, nil, optionsErr
+		}
+		autoDiagnosisTrigger, triggerErr = alertdiagnosis.NewService(uowFactory, diagnosisStarter, autoDiagnosisOptions...)
+		if triggerErr != nil {
+			return nil, nil, fmt.Errorf("configure alertmanager auto diagnosis trigger: %w", triggerErr)
+		}
+		webhookOptions = append(webhookOptions, alertmanagerwebhook.WithAutoDiagnosisTrigger(autoDiagnosisTrigger))
+	}
 	webhookIngestor, err := alertmanagerwebhook.NewService(uowFactory, webhookOptions...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure alertmanager webhook ingestor: %w", err)
@@ -652,6 +858,7 @@ func httpServerOptionsFromEnv(
 	) (ports.IMProvider, error) {
 		return imwebhook.NewProvider(imwebhook.Config{
 			URL:        credentials.URL,
+			Format:     credentials.Format,
 			HTTPClient: outboundHTTPClient(httpTracing, 10*time.Second),
 		})
 	}
@@ -669,6 +876,16 @@ func httpServerOptionsFromEnv(
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure notification channel provider builder: %w", err)
 	}
+	var notificationProviderResolver ports.NotificationChannelProviderResolver
+	if notificationChannelSecretResolver != nil {
+		if uowFactory == nil {
+			return nil, nil, fmt.Errorf("%s requires a unit of work factory", notificationChannelSecretRefsEnv)
+		}
+		notificationProviderResolver, err = notificationchannelprovider.NewResolver(uowFactory, notificationProviderBuilder)
+		if err != nil {
+			return nil, nil, fmt.Errorf("configure notification channel provider resolver: %w", err)
+		}
+	}
 	notificationChannelTester, err := notificationchannelcheck.NewService(
 		notificationProviderBuilder,
 		notificationchannelcheck.WithClock(func() time.Time { return time.Now().UTC() }),
@@ -677,6 +894,46 @@ func httpServerOptionsFromEnv(
 		return nil, nil, fmt.Errorf("configure notification channel tester: %w", err)
 	}
 	opts = append(opts, transporthttp.WithNotificationChannelTester(notificationChannelTester))
+
+	reportNotificationOptions := []reportnotification.Option{}
+	imProvider, imFormat, imConfigured, err := reportIMProviderFromEnv(getenv, httpTracing)
+	if imConfigured {
+		if err != nil {
+			return nil, nil, err
+		}
+		reportNotificationOptions = append(reportNotificationOptions, reportnotification.WithIMProvider(imProvider))
+		logger.Info("configured report notification retry IM provider", "provider", "webhook", "format", imFormat)
+	}
+	if notificationChannelSecretResolver != nil {
+		reportNotificationOptions = append(
+			reportNotificationOptions,
+			reportnotification.WithNotificationChannelProviderResolver(notificationProviderResolver),
+		)
+		logger.Info("configured report notification retry provider resolver", "provider", "webhook")
+	}
+	if len(reportNotificationOptions) > 0 {
+		reportNotifier, err := reportnotification.NewService(uowFactory, reportNotificationOptions...)
+		if err != nil {
+			return nil, nil, fmt.Errorf("configure report notification retry service: %w", err)
+		}
+		opts = append(opts, transporthttp.WithReportNotificationSender(reportNotifier))
+	} else {
+		logger.Warn("report notification retry is disabled; configure OPENCLARION_IM_WEBHOOK_* or OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON to enable manual final-report notification retries")
+	}
+	if notificationProviderResolver != nil {
+		diagnosisNotificationRetrier, err := diagnosisnotification.NewService(
+			uowFactory,
+			notificationProviderResolver,
+			diagnosisnotification.WithClock(diagnosisNotificationRetryNowUTC),
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("configure diagnosis notification retry service: %w", err)
+		}
+		opts = append(opts, transporthttp.WithDiagnosisRoomNotificationRetrier(diagnosisNotificationRetrier))
+		logger.Info("configured diagnosis notification retry provider resolver", "provider", "webhook")
+	} else {
+		logger.Warn("diagnosis notification retry is disabled; configure OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON to enable manual diagnosis-room notification retries")
+	}
 
 	providerBuilderOptions := []alertsourceprovider.Option{
 		alertsourceprovider.WithAlertmanagerFactory(alertmanagerProfileFactory),
@@ -688,7 +945,11 @@ func httpServerOptionsFromEnv(
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure alert source provider builder: %w", err)
 	}
-	policyTrigger, err := reportpolicytrigger.NewService(uowFactory, starter, alertSourceProviders)
+	policyTriggerOptions := []reportpolicytrigger.Option{}
+	if autoDiagnosisTrigger != nil {
+		policyTriggerOptions = append(policyTriggerOptions, reportpolicytrigger.WithAutoDiagnosisTrigger(autoDiagnosisTrigger))
+	}
+	policyTrigger, err := reportpolicytrigger.NewService(uowFactory, starter, alertSourceProviders, policyTriggerOptions...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure report workflow policy replay trigger: %w", err)
 	}
@@ -697,6 +958,20 @@ func httpServerOptionsFromEnv(
 	if scheduleSyncer != nil {
 		opts = append(opts, transporthttp.WithReportWorkflowScheduleSynchronizer(scheduleSyncer))
 		logger.Info("configured report workflow schedule synchronizer", "provider", "temporal")
+	}
+	weComAppCallback, err := diagnosisWeComAppCallbackFromEnv(getenv)
+	if err != nil {
+		return nil, nil, err
+	}
+	if weComAppCallback != nil {
+		opts = append(opts, transporthttp.WithDiagnosisWeComAppCallback(weComAppCallback))
+		logger.Info("configured Enterprise WeChat app callback verifier")
+		if diagnosisWorkflows != nil {
+			opts = append(opts, transporthttp.WithDiagnosisWeComAppCallbackWorkflowRouter(diagnosisWorkflows))
+			logger.Info("configured Enterprise WeChat app callback message router")
+		} else {
+			logger.Warn("Enterprise WeChat app callback message routing is disabled; diagnosis workflow client is not configured")
+		}
 	}
 
 	if !anyEnv(getenv, "OPENCLARION_PROMETHEUS_URL", "OPENCLARION_PROMETHEUS_BEARER_TOKEN") {
@@ -737,6 +1012,188 @@ func httpServerOptionsFromEnv(
 	}
 	opts = append(opts, diagnosisOpts...)
 	return opts, originPolicy, nil
+}
+
+func directorySyncerFromEnv(
+	getenv getenvFunc,
+	uowFactory ports.UnitOfWorkFactory,
+	httpTracing *observabilitytracing.HTTPTracing,
+) (configuredDirectorySyncer, bool, error) {
+	if !iamDirectorySyncConfigured(getenv) {
+		return nil, false, nil
+	}
+	if uowFactory == nil {
+		return nil, true, fmt.Errorf("IAM directory sync requires a unit of work factory")
+	}
+	issuerURL := firstNonEmptyEnv(getenv, iamDirectoryIssuerEnv, iamOIDCIssuerEnv, standardOIDCIssuerEnv)
+	if issuerURL == "" {
+		return nil, true, fmt.Errorf("%s, %s, or %s is required when IAM directory sync is configured", iamDirectoryIssuerEnv, iamOIDCIssuerEnv, standardOIDCIssuerEnv)
+	}
+	clientID := firstNonEmptyEnv(getenv, iamDirectoryClientIDEnv, iamOIDCClientIDEnv, standardOIDCClientIDEnv)
+	if clientID == "" {
+		return nil, true, fmt.Errorf("%s, %s, or %s is required when IAM directory sync is configured", iamDirectoryClientIDEnv, iamOIDCClientIDEnv, standardOIDCClientIDEnv)
+	}
+	clientSecret := firstNonEmptyEnv(getenv, iamDirectoryClientSecretEnv, iamOIDCClientSecretEnv, standardOIDCClientSecretEnv)
+	if clientSecret == "" {
+		return nil, true, fmt.Errorf("%s, %s, or %s is required when IAM directory sync is configured", iamDirectoryClientSecretEnv, iamOIDCClientSecretEnv, standardOIDCClientSecretEnv)
+	}
+
+	providerCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	provider, err := directoryiam.NewProvider(providerCtx, directoryiam.Config{
+		IssuerURL:        issuerURL,
+		DirectoryBaseURL: getenv(iamDirectoryBaseURLEnv),
+		TokenURL:         getenv(iamDirectoryTokenURLEnv),
+		ClientID:         clientID,
+		ClientSecret:     clientSecret,
+		Scopes: optionalCSVValues(firstNonEmptyEnv(
+			getenv,
+			iamDirectoryScopesEnv,
+			standardDirectoryScopesEnv,
+		)),
+		HTTPClient: outboundHTTPClient(httpTracing, 10*time.Second),
+	})
+	if err != nil {
+		return nil, true, fmt.Errorf("configure IAM directory provider: %w", err)
+	}
+	providerName := directoryProviderNameFromEnv(getenv)
+	syncer, err := directorysync.NewService(uowFactory, map[string]ports.DirectoryProvider{
+		providerName: provider,
+	})
+	if err != nil {
+		return nil, true, fmt.Errorf("configure IAM directory syncer: %w", err)
+	}
+	return defaultProviderDirectorySyncer{provider: providerName, syncer: syncer}, true, nil
+}
+
+func periodicDirectorySyncerFromEnv(
+	getenv getenvFunc,
+	uowFactory ports.UnitOfWorkFactory,
+	httpTracing *observabilitytracing.HTTPTracing,
+) (configuredDirectorySyncer, time.Duration, bool, error) {
+	interval, enabled, err := directorySyncIntervalFromEnv(getenv)
+	if err != nil {
+		return nil, 0, true, err
+	}
+	if !enabled {
+		return nil, 0, false, nil
+	}
+	syncer, configured, err := directorySyncerFromEnv(getenv, uowFactory, httpTracing)
+	if err != nil {
+		return nil, 0, true, err
+	}
+	if !configured {
+		return nil, 0, true, fmt.Errorf("%s requires IAM directory sync configuration", iamDirectorySyncIntervalEnv)
+	}
+	return syncer, interval, true, nil
+}
+
+func directorySyncIntervalFromEnv(getenv getenvFunc) (time.Duration, bool, error) {
+	if strings.TrimSpace(getenv(iamDirectorySyncIntervalEnv)) == "" {
+		return 0, false, nil
+	}
+	interval, err := positiveDurationSecondsFromEnv(getenv, iamDirectorySyncIntervalEnv, 0)
+	if err != nil {
+		return 0, true, err
+	}
+	if interval < minIAMDirectorySyncInterval {
+		return 0, true, fmt.Errorf("%s must be at least %s", iamDirectorySyncIntervalEnv, minIAMDirectorySyncInterval)
+	}
+	return interval, true, nil
+}
+
+func iamDirectorySyncConfigured(getenv getenvFunc) bool {
+	return anyEnv(getenv,
+		iamDirectoryProviderNameEnv,
+		iamDirectoryIssuerEnv,
+		iamDirectoryBaseURLEnv,
+		iamDirectoryTokenURLEnv,
+		iamDirectoryClientIDEnv,
+		iamDirectoryClientSecretEnv,
+		iamDirectoryScopesEnv,
+		standardDirectoryScopesEnv,
+	)
+}
+
+func directoryProviderNameFromEnv(getenv getenvFunc) string {
+	providerName := strings.TrimSpace(getenv(iamDirectoryProviderNameEnv))
+	if providerName == "" {
+		return "ops_iam"
+	}
+	return providerName
+}
+
+type configuredDirectorySyncer interface {
+	Sync(context.Context, directorysync.SyncRequest) (directorysync.Result, error)
+}
+
+type defaultProviderDirectorySyncer struct {
+	provider string
+	syncer   *directorysync.Service
+}
+
+func (s defaultProviderDirectorySyncer) Sync(ctx context.Context, req directorysync.SyncRequest) (directorysync.Result, error) {
+	if s.syncer == nil {
+		return directorysync.Result{}, fmt.Errorf("IAM directory sync requires a configured service")
+	}
+	if strings.TrimSpace(req.Provider) == "" {
+		req.Provider = s.provider
+	}
+	return s.syncer.Sync(ctx, req)
+}
+
+type periodicDirectorySyncer interface {
+	Sync(context.Context, directorysync.SyncRequest) (directorysync.Result, error)
+}
+
+func runPeriodicDirectorySync(
+	ctx context.Context,
+	logger *slog.Logger,
+	syncer periodicDirectorySyncer,
+	interval time.Duration,
+) error {
+	if syncer == nil {
+		return fmt.Errorf("periodic IAM directory sync requires a syncer")
+	}
+	if interval <= 0 {
+		return fmt.Errorf("periodic IAM directory sync requires a positive interval")
+	}
+	runOnce := func(trigger string) bool {
+		startedAt := time.Now()
+		result, err := syncer.Sync(ctx, directorysync.SyncRequest{})
+		if err != nil {
+			if ctx.Err() != nil {
+				return false
+			}
+			logger.Warn("periodic IAM directory sync failed", "trigger", trigger, "error", err)
+			return true
+		}
+		logger.Info(
+			"periodic IAM directory sync completed",
+			"trigger", trigger,
+			"department_pages", result.DepartmentPages,
+			"user_pages", result.UserPages,
+			"departments_upserted", result.DepartmentsUpserted,
+			"users_upserted", result.UsersUpserted,
+			"duration", time.Since(startedAt).String(),
+		)
+		return true
+	}
+	if !runOnce("startup") {
+		return nil
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+			if !runOnce("interval") {
+				return nil
+			}
+		}
+	}
 }
 
 func alertSourceMetricsProviderFactories(
@@ -838,20 +1295,23 @@ func diagnosisServerOptionsFromEnv(
 	originPolicy *browserOriginPolicy,
 	httpTracing *observabilitytracing.HTTPTracing,
 ) ([]transporthttp.ServerOption, error) {
-	diagnosisConfigured := anyEnv(getenv,
-		"OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL",
-		"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID",
-		"OPENCLARION_DIAGNOSIS_OIDC_ROLE_CLAIM",
-		"OPENCLARION_DIAGNOSIS_OIDC_OWNER_ROLES",
-		"OPENCLARION_DIAGNOSIS_OIDC_ADMIN_ROLES",
-		"OPENCLARION_DIAGNOSIS_OIDC_SIGNING_ALGS",
-		"OPENCLARION_IAM_OIDC_ISSUER",
-		"OPENCLARION_IAM_OIDC_CLIENT_ID",
-		"OIDC_ISSUER",
-		"OIDC_CLIENT_ID",
-	)
-	if !diagnosisConfigured {
-		logger.Warn("diagnosis WebSocket auth is disabled; set IAM OIDC issuer and client id to enable live diagnosis rooms")
+	authProvider, authProviderName, err := diagnosisAuthProviderFromEnv(getenv, httpTracing)
+	if err != nil {
+		return nil, err
+	}
+	authProviderNames := []string{}
+	if strings.TrimSpace(authProviderName) != "" {
+		authProviderNames = append(authProviderNames, authProviderName)
+	}
+	var sessionIssuer *diagnosisauth.SessionTokenService
+	if strings.TrimSpace(getenv(diagnosisSessionSigningKeyEnv)) != "" {
+		sessionIssuer, err = diagnosisSessionTokenServiceFromEnv(getenv)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if authProvider == nil {
+		logger.Warn("diagnosis WebSocket auth is disabled; configure IAM OIDC or set OPENCLARION_DIAGNOSIS_AUTH_MODE explicitly to static or ldap")
 		return nil, nil
 	}
 	if uowFactory == nil {
@@ -867,30 +1327,6 @@ func diagnosisServerOptionsFromEnv(
 		return nil, fmt.Errorf("diagnosis WebSocket auth requires a ticket store")
 	}
 
-	oidcCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	authProvider, err := authoidc.NewProvider(oidcCtx, authoidc.Config{
-		IssuerURL: firstNonEmptyEnv(
-			getenv,
-			"OPENCLARION_IAM_OIDC_ISSUER",
-			"OIDC_ISSUER",
-			"OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL",
-		),
-		ClientID: firstNonEmptyEnv(
-			getenv,
-			"OPENCLARION_IAM_OIDC_CLIENT_ID",
-			"OIDC_CLIENT_ID",
-			"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID",
-		),
-		RoleClaim:            strings.TrimSpace(getenv("OPENCLARION_DIAGNOSIS_OIDC_ROLE_CLAIM")),
-		OwnerRoleValues:      optionalCSVValues(getenv("OPENCLARION_DIAGNOSIS_OIDC_OWNER_ROLES")),
-		AdminRoleValues:      optionalCSVValues(getenv("OPENCLARION_DIAGNOSIS_OIDC_ADMIN_ROLES")),
-		SupportedSigningAlgs: optionalCSVValues(getenv("OPENCLARION_DIAGNOSIS_OIDC_SIGNING_ALGS")),
-		HTTPClient:           outboundHTTPClient(httpTracing, 10*time.Second),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("configure diagnosis OIDC auth provider: %w", err)
-	}
 	ticketService, err := diagnosisauth.NewService(tickets, diagnosisauth.DefaultTicketPolicy(), nil)
 	if err != nil {
 		return nil, fmt.Errorf("configure diagnosis WebSocket ticket service: %w", err)
@@ -900,27 +1336,195 @@ func diagnosisServerOptionsFromEnv(
 		return nil, fmt.Errorf("configure diagnosis room starter service: %w", err)
 	}
 	opts := []transporthttp.ServerOption{
-		transporthttp.WithDiagnosisAuth(authProvider, ticketService, diagnosisChatSessionResolver{uowFactory: uowFactory}, "oidc"),
+		transporthttp.WithDiagnosisAuth(authProvider, ticketService, diagnosisChatSessionResolver{uowFactory: uowFactory}, authProviderNames...),
 		transporthttp.WithDiagnosisRoomStarter(roomStartService),
 		transporthttp.WithDiagnosisRoomWorkflowClient(workflows),
 	}
-	if signingKey := strings.TrimSpace(getenv("OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY")); signingKey != "" {
-		sessionIssuer, err := diagnosisauth.NewSessionTokenService(
-			diagnosisauth.DefaultSessionTokenPolicy(getenv("OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY")),
-			func() time.Time { return time.Now().UTC() },
-		)
-		if err != nil {
-			return nil, fmt.Errorf("configure diagnosis browser session auth: %w", err)
-		}
+	if sessionIssuer != nil {
 		opts = append(opts, transporthttp.WithDiagnosisAuthSessionIssuer(sessionIssuer))
 	} else {
-		logger.Warn("diagnosis browser session issuance is disabled; set OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY to enable IAM browser sessions")
+		logger.Warn("diagnosis browser session issuance is disabled; set OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY to enable IAM OIDC or LDAP browser sessions")
+	}
+	if visibility, ok := workflows.(ports.DiagnosisRoomWorkflowVisibilityLookup); ok {
+		opts = append(opts, transporthttp.WithDiagnosisRoomWorkflowVisibilityLookup(visibility))
+		roomCloseService, err := diagnosisroomclose.NewService(uowFactory, visibility)
+		if err != nil {
+			return nil, fmt.Errorf("configure diagnosis room close service: %w", err)
+		}
+		opts = append(opts, transporthttp.WithDiagnosisRoomCloser(roomCloseService))
 	}
 	if originPolicy != nil {
 		opts = append(opts, transporthttp.WithDiagnosisWebSocketOriginCheck(originPolicy.CheckWebSocketOrigin))
 	}
-	logger.Info("configured diagnosis WebSocket auth and relay", "provider", "oidc")
+	logger.Info("configured diagnosis WebSocket auth and relay", "provider", authProviderName, "providers", strings.Join(authProviderNames, ","))
 	return opts, nil
+}
+
+func diagnosisAuthProviderFromEnv(
+	getenv getenvFunc,
+	httpTracing *observabilitytracing.HTTPTracing,
+) (ports.AuthProvider, string, error) {
+	mode := strings.ToLower(strings.TrimSpace(getenv(diagnosisAuthModeEnv)))
+	if mode == "" {
+		switch {
+		case diagnosisOIDCAuthConfigured(getenv):
+			mode = "oidc"
+		case diagnosisStaticAuthConfigured(getenv):
+			mode = "static"
+		default:
+			return nil, "", nil
+		}
+	}
+	switch mode {
+	case "ldap":
+		defaultRoles, err := diagnosisAuthRolesFromCSVEnv(getenv, diagnosisLDAPDefaultRolesEnv, false)
+		if err != nil {
+			return nil, "", err
+		}
+		startTLS, err := boolFromEnv(getenv, diagnosisLDAPStartTLSEnv)
+		if err != nil {
+			return nil, "", err
+		}
+		allowPlaintext, err := boolFromEnv(getenv, diagnosisLDAPAllowPlaintextEnv)
+		if err != nil {
+			return nil, "", err
+		}
+		authProvider, err := authldap.NewProvider(authldap.Config{
+			URL:                    getenv(diagnosisLDAPURLEnv),
+			BaseDN:                 getenv(diagnosisLDAPBaseDNEnv),
+			BindDN:                 getenv(diagnosisLDAPBindDNEnv),
+			BindPassword:           getenv(diagnosisLDAPBindPasswordEnv),
+			UserFilter:             getenv(diagnosisLDAPUserFilterEnv),
+			SubjectAttribute:       getenv(diagnosisLDAPSubjectAttributeEnv),
+			RoleAttribute:          getenv(diagnosisLDAPRoleAttributeEnv),
+			OwnerRoleValues:        optionalCSVValues(getenv(diagnosisLDAPOwnerRoleValuesEnv)),
+			AdminRoleValues:        optionalCSVValues(getenv(diagnosisLDAPAdminRoleValuesEnv)),
+			DefaultRoles:           defaultRoles,
+			StartTLS:               startTLS,
+			AllowInsecurePlaintext: allowPlaintext,
+		})
+		if err != nil {
+			return nil, "", fmt.Errorf("configure diagnosis LDAP auth provider: %w", err)
+		}
+		return authProvider, "ldap", nil
+	case "oidc":
+		oidcCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		authProvider, err := authoidc.NewProvider(oidcCtx, authoidc.Config{
+			IssuerURL:            firstNonEmptyEnv(getenv, iamOIDCIssuerEnv, standardOIDCIssuerEnv, diagnosisOIDCIssuerURLEnv),
+			ClientID:             firstNonEmptyEnv(getenv, iamOIDCClientIDEnv, standardOIDCClientIDEnv, diagnosisOIDCClientIDEnv),
+			RoleClaim:            strings.TrimSpace(getenv(diagnosisOIDCRoleClaimEnv)),
+			OwnerRoleValues:      optionalCSVValues(getenv(diagnosisOIDCOwnerRolesEnv)),
+			AdminRoleValues:      optionalCSVValues(getenv(diagnosisOIDCAdminRolesEnv)),
+			SupportedSigningAlgs: optionalCSVValues(getenv(diagnosisOIDCSigningAlgsEnv)),
+			HTTPClient:           outboundHTTPClient(httpTracing, 10*time.Second),
+		})
+		if err != nil {
+			return nil, "", fmt.Errorf("configure diagnosis OIDC auth provider: %w", err)
+		}
+		return authProvider, "oidc", nil
+	case "static":
+		roles, err := diagnosisAuthRolesFromCSVEnv(getenv, diagnosisStaticRolesEnv, true)
+		if err != nil {
+			return nil, "", err
+		}
+		authProvider, err := authstatic.NewProvider(authstatic.Config{
+			Token:   strings.TrimSpace(getenv(diagnosisStaticBearerTokenEnv)),
+			Subject: strings.TrimSpace(getenv(diagnosisStaticSubjectEnv)),
+			Roles:   roles,
+		})
+		if err != nil {
+			return nil, "", fmt.Errorf("configure diagnosis static auth provider: %w", err)
+		}
+		return authProvider, "static", nil
+	case "wecom":
+		return nil, "", fmt.Errorf("%s=wecom is not supported for browser login; use IAM OIDC and keep Enterprise WeChat callback settings only for application messages", diagnosisAuthModeEnv)
+	default:
+		return nil, "", fmt.Errorf("%s must be ldap, static, or oidc", diagnosisAuthModeEnv)
+	}
+}
+
+func diagnosisWeComAppCallbackFromEnv(getenv getenvFunc) (*wecomcallback.Verifier, error) {
+	token := strings.TrimSpace(getenv(diagnosisWeComCallbackTokenEnv))
+	encodingAESKey := strings.TrimSpace(getenv(diagnosisWeComCallbackEncodingAESKeyEnv))
+	receiveID := strings.TrimSpace(getenv(diagnosisWeComCallbackReceiveIDEnv))
+	if token == "" && encodingAESKey == "" {
+		return nil, nil
+	}
+	if token == "" || encodingAESKey == "" {
+		return nil, fmt.Errorf("%s and %s must be configured together", diagnosisWeComCallbackTokenEnv, diagnosisWeComCallbackEncodingAESKeyEnv)
+	}
+	if receiveID == "" {
+		receiveID = strings.TrimSpace(getenv(diagnosisWeComCorpIDEnv))
+	}
+	if receiveID == "" {
+		return nil, fmt.Errorf("%s or %s is required when Enterprise WeChat app callback is configured", diagnosisWeComCallbackReceiveIDEnv, diagnosisWeComCorpIDEnv)
+	}
+	verifier, err := wecomcallback.NewVerifier(wecomcallback.Config{
+		Token:          token,
+		EncodingAESKey: encodingAESKey,
+		ReceiveID:      receiveID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure Enterprise WeChat app callback verifier: %w", err)
+	}
+	return verifier, nil
+}
+
+func diagnosisSessionTokenServiceFromEnv(getenv getenvFunc) (*diagnosisauth.SessionTokenService, error) {
+	service, err := diagnosisauth.NewSessionTokenService(
+		diagnosisauth.DefaultSessionTokenPolicy(getenv(diagnosisSessionSigningKeyEnv)),
+		diagnosisAuthNowUTC,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("configure diagnosis session auth provider: %w", err)
+	}
+	return service, nil
+}
+
+func diagnosisOIDCAuthConfigured(getenv getenvFunc) bool {
+	return anyEnv(getenv,
+		diagnosisOIDCIssuerURLEnv,
+		diagnosisOIDCClientIDEnv,
+		diagnosisOIDCRoleClaimEnv,
+		diagnosisOIDCOwnerRolesEnv,
+		diagnosisOIDCAdminRolesEnv,
+		diagnosisOIDCSigningAlgsEnv,
+		iamOIDCIssuerEnv,
+		iamOIDCClientIDEnv,
+		standardOIDCIssuerEnv,
+		standardOIDCClientIDEnv,
+	)
+}
+
+func diagnosisStaticAuthConfigured(getenv getenvFunc) bool {
+	return anyEnv(getenv,
+		diagnosisStaticBearerTokenEnv,
+		diagnosisStaticSubjectEnv,
+		diagnosisStaticRolesEnv,
+	)
+}
+
+func diagnosisAuthRolesFromCSVEnv(getenv getenvFunc, key string, required bool) ([]ports.AuthRole, error) {
+	values := csvValues(getenv(key))
+	if len(values) == 0 {
+		if required {
+			return nil, fmt.Errorf("%s is required when diagnosis auth roles are enabled", key)
+		}
+		return nil, nil
+	}
+	roles := make([]ports.AuthRole, 0, len(values))
+	for _, value := range values {
+		switch strings.ToLower(value) {
+		case string(ports.AuthRoleOwner):
+			roles = append(roles, ports.AuthRoleOwner)
+		case string(ports.AuthRoleAdmin):
+			roles = append(roles, ports.AuthRoleAdmin)
+		default:
+			return nil, fmt.Errorf("%s contains unsupported role %q", key, value)
+		}
+	}
+	return roles, nil
 }
 
 func outboundHTTPClient(httpTracing *observabilitytracing.HTTPTracing, timeout time.Duration) *http.Client {
@@ -965,7 +1569,8 @@ func anyEnv(getenv getenvFunc, keys ...string) bool {
 
 func firstNonEmptyEnv(getenv getenvFunc, keys ...string) string {
 	for _, key := range keys {
-		if value := strings.TrimSpace(getenv(key)); value != "" {
+		value := strings.TrimSpace(getenv(key))
+		if value != "" {
 			return value
 		}
 	}
@@ -986,6 +1591,45 @@ func positiveDurationSecondsFromEnv(getenv getenvFunc, key string, fallback time
 		return 0, fmt.Errorf("%s exceeds maximum supported duration", key)
 	}
 	return time.Duration(seconds) * time.Second, nil
+}
+
+func positiveIntFromEnv(getenv getenvFunc, key string, fallback int) (int, error) {
+	raw := strings.TrimSpace(getenv(key))
+	if raw == "" {
+		return fallback, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", key)
+	}
+	return value, nil
+}
+
+func boolFromEnv(getenv getenvFunc, key string) (bool, error) {
+	raw := strings.TrimSpace(getenv(key))
+	if raw == "" {
+		return false, nil
+	}
+	value, err := strconv.ParseBool(raw)
+	if err != nil {
+		return false, fmt.Errorf("%s must be true or false", key)
+	}
+	return value, nil
+}
+
+func autoDiagnosisOptionsFromEnv(getenv getenvFunc) ([]alertdiagnosis.Option, error) {
+	maxRooms, err := positiveIntFromEnv(
+		getenv,
+		autoDiagnosisMaxRoomsPerTriggerEnv,
+		alertdiagnosis.DefaultMaxRoomsPerTrigger,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if maxRooms > alertdiagnosis.MaxRoomsPerTriggerLimit {
+		return nil, fmt.Errorf("%s must be between 1 and %d", autoDiagnosisMaxRoomsPerTriggerEnv, alertdiagnosis.MaxRoomsPerTriggerLimit)
+	}
+	return []alertdiagnosis.Option{alertdiagnosis.WithMaxRoomsPerTrigger(maxRooms)}, nil
 }
 
 type diagnosisChatSessionResolver struct {
@@ -1326,6 +1970,111 @@ type reportScheduleLiveSmokeWaitResult struct {
 	ReportWorkflowResult *reportReplayCLIWorkflowResult
 }
 
+type workflowBacklogCLIConfig struct {
+	Query         string
+	Limit         int
+	WorkflowTypes []string
+	Status        string
+}
+
+type workflowBacklogCLIOutput struct {
+	CheckedAt      string                    `json:"checked_at"`
+	Request        workflowBacklogCLIRequest `json:"request"`
+	Returned       int                       `json:"returned"`
+	Truncated      bool                      `json:"truncated"`
+	CountsByType   map[string]int            `json:"counts_by_type"`
+	CountsByStatus map[string]int            `json:"counts_by_status"`
+	Workflows      []workflowBacklogCLIItem  `json:"workflows"`
+}
+
+type workflowBacklogCLIRequest struct {
+	Query         string   `json:"query"`
+	Limit         int      `json:"limit"`
+	WorkflowTypes []string `json:"workflow_types,omitempty"`
+	Status        string   `json:"status,omitempty"`
+}
+
+type workflowBacklogCLIItem struct {
+	WorkflowID       string `json:"workflow_id"`
+	RunID            string `json:"run_id"`
+	WorkflowType     string `json:"workflow_type"`
+	Status           string `json:"status"`
+	TaskQueue        string `json:"task_queue,omitempty"`
+	StartTime        string `json:"start_time,omitempty"`
+	CloseTime        string `json:"close_time,omitempty"`
+	ExecutionTime    string `json:"execution_time,omitempty"`
+	AgeSeconds       int64  `json:"age_seconds,omitempty"`
+	HistoryLength    int64  `json:"history_length,omitempty"`
+	HistorySizeBytes int64  `json:"history_size_bytes,omitempty"`
+	ParentWorkflowID string `json:"parent_workflow_id,omitempty"`
+	ParentRunID      string `json:"parent_run_id,omitempty"`
+	RootWorkflowID   string `json:"root_workflow_id,omitempty"`
+	RootRunID        string `json:"root_run_id,omitempty"`
+}
+
+type diagnosisRoomListCLIConfig struct {
+	Limit int
+	Queue string
+}
+
+type diagnosisRoomListCLIOutput struct {
+	CheckedAt     string                          `json:"checked_at"`
+	Request       diagnosisRoomListCLIRequest     `json:"request"`
+	Returned      int                             `json:"returned"`
+	CountsByQueue map[string]int                  `json:"counts_by_queue"`
+	Rooms         []diagnosisRoomListCLIOutputRow `json:"rooms"`
+}
+
+type diagnosisRoomListCLIRequest struct {
+	Limit int    `json:"limit"`
+	Queue string `json:"queue"`
+}
+
+type diagnosisRoomListCLIOutputRow struct {
+	SessionID          string                            `json:"session_id"`
+	ChatSessionID      int64                             `json:"chat_session_id"`
+	DiagnosisTaskID    int64                             `json:"diagnosis_task_id"`
+	EvidenceSnapshotID int64                             `json:"evidence_snapshot_id"`
+	WorkflowID         string                            `json:"workflow_id"`
+	RunID              string                            `json:"run_id"`
+	TaskStatus         string                            `json:"task_status"`
+	RoomStatus         string                            `json:"room_status"`
+	TurnCount          int                               `json:"turn_count"`
+	StartedAt          string                            `json:"started_at"`
+	LastActivityAt     string                            `json:"last_activity_at"`
+	ClosedAt           string                            `json:"closed_at,omitempty"`
+	CloseReason        string                            `json:"close_reason,omitempty"`
+	LatestConclusion   *diagnosisRoomListCLIConclusion   `json:"latest_conclusion,omitempty"`
+	LatestNotification *diagnosisRoomListCLINotification `json:"latest_notification,omitempty"`
+	NextStep           diagnosisRoomListCLINextStep      `json:"next_step"`
+}
+
+type diagnosisRoomListCLIConclusion struct {
+	EventKind           string `json:"event_kind"`
+	Status              string `json:"status,omitempty"`
+	Confidence          string `json:"confidence,omitempty"`
+	RequiresHumanReview *bool  `json:"requires_human_review,omitempty"`
+	OccurredAt          string `json:"occurred_at"`
+}
+
+type diagnosisRoomListCLINotification struct {
+	EventKind      string `json:"event_kind"`
+	ProviderStatus string `json:"provider_status,omitempty"`
+	OccurredAt     string `json:"occurred_at"`
+}
+
+type diagnosisRoomListCLINextStep struct {
+	Queue  string `json:"queue"`
+	Label  string `json:"label"`
+	Detail string `json:"detail"`
+}
+
+type diagnosisRoomListRoom struct {
+	Room               domain.ChatSessionWithTask
+	LatestConclusion   *diagnosisRoomListCLIConclusion
+	LatestNotification *diagnosisRoomListCLINotification
+}
+
 type diagnosisRoomCloseCLIConfig struct {
 	SessionID   string
 	RunID       string
@@ -1397,35 +2146,38 @@ type diagnosisRoomCloseCLINotificationEvent struct {
 }
 
 type diagnosisRoomCloseNotificationPayload struct {
-	Kind               string          `json:"kind"`
-	Source             string          `json:"source"`
-	SessionID          string          `json:"session_id"`
-	DiagnosisTaskID    int64           `json:"diagnosis_task_id"`
-	ChatSessionID      int64           `json:"chat_session_id"`
-	EvidenceSnapshotID int64           `json:"evidence_snapshot_id,omitempty"`
-	AlertGroupID       int64           `json:"alert_group_id,omitempty"`
-	OwnerSubject       string          `json:"owner_subject"`
-	TurnCount          int             `json:"turn_count"`
-	CloseReason        string          `json:"close_reason"`
-	IdempotencyKey     string          `json:"idempotency_key"`
-	ProviderMessageID  string          `json:"provider_message_id"`
-	ProviderStatus     string          `json:"provider_status"`
-	ProviderRaw        json.RawMessage `json:"provider_raw,omitempty"`
+	Kind                         string                                   `json:"kind"`
+	Source                       string                                   `json:"source"`
+	SessionID                    string                                   `json:"session_id"`
+	DiagnosisTaskID              int64                                    `json:"diagnosis_task_id"`
+	ChatSessionID                int64                                    `json:"chat_session_id"`
+	EvidenceSnapshotID           int64                                    `json:"evidence_snapshot_id,omitempty"`
+	AlertGroupID                 int64                                    `json:"alert_group_id,omitempty"`
+	NotificationChannelProfileID int64                                    `json:"notification_channel_profile_id,omitempty"`
+	OwnerSubject                 string                                   `json:"owner_subject"`
+	TurnCount                    int                                      `json:"turn_count"`
+	CloseReason                  string                                   `json:"close_reason"`
+	FinalConclusion              temporalpkg.DiagnosisRoomFinalConclusion `json:"final_conclusion,omitempty"`
+	IdempotencyKey               string                                   `json:"idempotency_key"`
+	ProviderMessageID            string                                   `json:"provider_message_id"`
+	ProviderStatus               string                                   `json:"provider_status"`
+	ProviderRaw                  json.RawMessage                          `json:"provider_raw,omitempty"`
 }
 
 type diagnosisRoomCloseEventPayload struct {
-	Kind              string                                   `json:"kind"`
-	Source            string                                   `json:"source"`
-	SessionID         string                                   `json:"session_id"`
-	ChatSessionID     int64                                    `json:"chat_session_id"`
-	DiagnosisTaskID   int64                                    `json:"diagnosis_task_id"`
-	OwnerSubject      string                                   `json:"owner_subject"`
-	Status            string                                   `json:"status"`
-	TurnCount         int                                      `json:"turn_count"`
-	CloseReason       string                                   `json:"close_reason"`
-	ClosedAt          time.Time                                `json:"closed_at"`
-	FinalConclusion   temporalpkg.DiagnosisRoomFinalConclusion `json:"final_conclusion"`
-	ConclusionVersion string                                   `json:"conclusion_version"`
+	Kind               string                                   `json:"kind"`
+	Source             string                                   `json:"source"`
+	SessionID          string                                   `json:"session_id"`
+	ChatSessionID      int64                                    `json:"chat_session_id"`
+	DiagnosisTaskID    int64                                    `json:"diagnosis_task_id"`
+	EvidenceSnapshotID int64                                    `json:"evidence_snapshot_id,omitempty"`
+	OwnerSubject       string                                   `json:"owner_subject"`
+	Status             string                                   `json:"status"`
+	TurnCount          int                                      `json:"turn_count"`
+	CloseReason        string                                   `json:"close_reason"`
+	ClosedAt           time.Time                                `json:"closed_at"`
+	FinalConclusion    temporalpkg.DiagnosisRoomFinalConclusion `json:"final_conclusion"`
+	ConclusionVersion  string                                   `json:"conclusion_version"`
 }
 
 type diagnosisRoomCloseEvents struct {
@@ -1443,11 +2195,23 @@ type diagnosisRoomCloseEventsLoader interface {
 	LoadDiagnosisRoomCloseEvents(ctx context.Context, taskID domain.DiagnosisTaskID) (diagnosisRoomCloseEvents, error)
 }
 
+type workflowBacklogLister interface {
+	ListWorkflow(ctx context.Context, request *workflowservicepb.ListWorkflowExecutionsRequest) (*workflowservicepb.ListWorkflowExecutionsResponse, error)
+}
+
+type diagnosisRoomListLoader interface {
+	ListDiagnosisRooms(ctx context.Context, limit int) ([]diagnosisRoomListRoom, error)
+}
+
 type temporalDiagnosisRoomCloseWaiter struct {
 	client temporalclient.Client
 }
 
 type postgresDiagnosisRoomCloseEventsLoader struct {
+	factory ports.UnitOfWorkFactory
+}
+
+type postgresDiagnosisRoomListLoader struct {
 	factory ports.UnitOfWorkFactory
 }
 
@@ -1602,6 +2366,10 @@ func runReportPolicyReplayCLI(
 	if err != nil {
 		return err
 	}
+	diagnosisStarter, err := temporalpkg.NewDiagnosisRoomStarter(tc, temporalpkg.WithDiagnosisRoomStarterTaskQueue(temporalTaskQueue))
+	if err != nil {
+		return err
+	}
 
 	secretResolver, err := alertSourceSecretResolverFromEnv(getenv)
 	if err != nil {
@@ -1618,7 +2386,21 @@ func runReportPolicyReplayCLI(
 	if err != nil {
 		return fmt.Errorf("configure report policy CLI provider builder: %w", err)
 	}
-	service, err := reportpolicytrigger.NewService(repository.NewFactory(entClient), starter, alertSourceProviders)
+	uowFactory := repository.NewFactory(entClient)
+	autoDiagnosisOptions, err := autoDiagnosisOptionsFromEnv(getenv)
+	if err != nil {
+		return err
+	}
+	autoDiagnosisTrigger, err := alertdiagnosis.NewService(uowFactory, diagnosisStarter, autoDiagnosisOptions...)
+	if err != nil {
+		return fmt.Errorf("configure report policy CLI auto diagnosis trigger: %w", err)
+	}
+	service, err := reportpolicytrigger.NewService(
+		uowFactory,
+		starter,
+		alertSourceProviders,
+		reportpolicytrigger.WithAutoDiagnosisTrigger(autoDiagnosisTrigger),
+	)
 	if err != nil {
 		return fmt.Errorf("configure report policy CLI trigger service: %w", err)
 	}
@@ -2243,6 +3025,626 @@ func newestScheduleActionAtOrAfter(
 	return newest, found
 }
 
+func runWorkflowBacklogCLI(
+	ctx context.Context,
+	logger *slog.Logger,
+	getenv getenvFunc,
+	args []string,
+	stdout io.Writer,
+) error {
+	cfg, err := parseWorkflowBacklogCLIArgs(args)
+	if err != nil {
+		return err
+	}
+	traceConfig, err := observabilitytracing.ConfigFromEnv(getenv)
+	if err != nil {
+		return err
+	}
+	httpTracing, err := observabilitytracing.NewHTTPTracing(ctx, traceConfig)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := httpTracing.Shutdown(shutdownCtx); err != nil {
+			logger.Warn("shutdown OpenTelemetry tracing", "error", err)
+		}
+	}()
+	temporalInterceptors, err := temporalClientInterceptors(httpTracing)
+	if err != nil {
+		return err
+	}
+	tc, err := temporalclient.Dial(temporalclient.Options{
+		HostPort:     temporalHostPortFrom(getenv),
+		Logger:       temporallog.NewStructuredLogger(logger),
+		Interceptors: temporalInterceptors,
+	})
+	if err != nil {
+		return fmt.Errorf("dial temporal: %w", err)
+	}
+	defer tc.Close()
+
+	return runWorkflowBacklogCLIWithDependencies(ctx, tc, cfg, stdout)
+}
+
+func parseWorkflowBacklogCLIArgs(args []string) (workflowBacklogCLIConfig, error) {
+	cfg := workflowBacklogCLIConfig{
+		Limit:         defaultWorkflowBacklogCLILimit,
+		Status:        "running",
+		WorkflowTypes: append([]string(nil), defaultWorkflowBacklogCLIWorkflowTypes...),
+	}
+	rawTypes := strings.Join(defaultWorkflowBacklogCLIWorkflowTypes, ",")
+	allTypes := false
+	fs := flag.NewFlagSet(workflowBacklogCLICommand, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&cfg.Query, "query", "", "raw Temporal visibility query")
+	fs.IntVar(&cfg.Limit, "limit", defaultWorkflowBacklogCLILimit, "maximum workflows to return")
+	fs.StringVar(&rawTypes, "workflow-types", rawTypes, "comma-separated workflow type names")
+	fs.StringVar(&cfg.Status, "status", "running", "workflow status filter: running or all")
+	fs.BoolVar(&allTypes, "all-types", false, "do not filter by OpenClarion workflow type")
+	if err := fs.Parse(args); err != nil {
+		return workflowBacklogCLIConfig{}, fmt.Errorf("%w\n%s", err, workflowBacklogCLIUsage())
+	}
+	if fs.NArg() != 0 {
+		return workflowBacklogCLIConfig{}, fmt.Errorf("unexpected positional arguments: %s\n%s", strings.Join(fs.Args(), " "), workflowBacklogCLIUsage())
+	}
+	if cfg.Limit <= 0 || cfg.Limit > maxWorkflowBacklogCLILimit {
+		return workflowBacklogCLIConfig{}, fmt.Errorf("--limit must be between 1 and %d (got %d)\n%s", maxWorkflowBacklogCLILimit, cfg.Limit, workflowBacklogCLIUsage())
+	}
+	cfg.Query = strings.TrimSpace(cfg.Query)
+	if strings.ContainsAny(cfg.Query, "\r\n") {
+		return workflowBacklogCLIConfig{}, fmt.Errorf("--query must be a single-line Temporal visibility query\n%s", workflowBacklogCLIUsage())
+	}
+	if cfg.Query != "" {
+		cfg.Status = ""
+		cfg.WorkflowTypes = nil
+		return cfg, nil
+	}
+	cfg.Status = strings.ToLower(strings.TrimSpace(cfg.Status))
+	switch cfg.Status {
+	case "running", "all":
+	default:
+		return workflowBacklogCLIConfig{}, fmt.Errorf("--status must be running or all (got %q)\n%s", cfg.Status, workflowBacklogCLIUsage())
+	}
+	if allTypes {
+		cfg.WorkflowTypes = nil
+	} else {
+		types, err := parseWorkflowBacklogCLIWorkflowTypes(rawTypes)
+		if err != nil {
+			return workflowBacklogCLIConfig{}, fmt.Errorf("%w\n%s", err, workflowBacklogCLIUsage())
+		}
+		cfg.WorkflowTypes = types
+	}
+	if cfg.Status == "all" && len(cfg.WorkflowTypes) == 0 {
+		return workflowBacklogCLIConfig{}, fmt.Errorf("--status all with --all-types is too broad; use --query for explicit namespace-wide scans\n%s", workflowBacklogCLIUsage())
+	}
+	return cfg, nil
+}
+
+func parseWorkflowBacklogCLIWorkflowTypes(raw string) ([]string, error) {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value == "" {
+			continue
+		}
+		if !isWorkflowBacklogCLIWorkflowType(value) {
+			return nil, fmt.Errorf("--workflow-types contains unsupported workflow type %q", value)
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("--workflow-types must include at least one workflow type unless --all-types is set")
+	}
+	return out, nil
+}
+
+func isWorkflowBacklogCLIWorkflowType(value string) bool {
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case r >= 'A' && r <= 'Z':
+		case r >= '0' && r <= '9':
+		case r == '_' || r == '-' || r == '.' || r == ':':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func runWorkflowBacklogCLIWithDependencies(
+	ctx context.Context,
+	lister workflowBacklogLister,
+	cfg workflowBacklogCLIConfig,
+	stdout io.Writer,
+) error {
+	if lister == nil {
+		return fmt.Errorf("workflow backlog lister must be configured")
+	}
+	query := workflowBacklogCLIVisibilityQuery(cfg)
+	checkedAt := workflowBacklogCLINowUTC()
+	out := workflowBacklogCLIOutput{
+		CheckedAt: checkedAt.Format(time.RFC3339Nano),
+		Request: workflowBacklogCLIRequest{
+			Query:         query,
+			Limit:         cfg.Limit,
+			WorkflowTypes: append([]string(nil), cfg.WorkflowTypes...),
+			Status:        cfg.Status,
+		},
+		CountsByType:   make(map[string]int),
+		CountsByStatus: make(map[string]int),
+		Workflows:      make([]workflowBacklogCLIItem, 0, cfg.Limit),
+	}
+	var nextPageToken []byte
+	for len(out.Workflows) < cfg.Limit {
+		pageSize := cfg.Limit - len(out.Workflows)
+		if pageSize > 100 {
+			pageSize = 100
+		}
+		resp, err := lister.ListWorkflow(ctx, &workflowservicepb.ListWorkflowExecutionsRequest{
+			Query:         query,
+			PageSize:      int32(pageSize),
+			NextPageToken: nextPageToken,
+		})
+		if err != nil {
+			return fmt.Errorf("list temporal workflows: %w", err)
+		}
+		for _, info := range resp.GetExecutions() {
+			if len(out.Workflows) >= cfg.Limit {
+				out.Truncated = true
+				break
+			}
+			item := workflowBacklogCLIItemFromInfo(info, checkedAt)
+			out.Workflows = append(out.Workflows, item)
+			out.CountsByType[item.WorkflowType]++
+			out.CountsByStatus[item.Status]++
+		}
+		nextPageToken = resp.GetNextPageToken()
+		if len(nextPageToken) == 0 {
+			break
+		}
+		if len(out.Workflows) >= cfg.Limit {
+			out.Truncated = true
+			break
+		}
+	}
+	out.Returned = len(out.Workflows)
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		return fmt.Errorf("write workflow backlog output: %w", err)
+	}
+	return nil
+}
+
+func workflowBacklogCLIVisibilityQuery(cfg workflowBacklogCLIConfig) string {
+	if cfg.Query != "" {
+		return cfg.Query
+	}
+	clauses := make([]string, 0, 2)
+	if cfg.Status == "running" {
+		clauses = append(clauses, `ExecutionStatus = "Running"`)
+	}
+	if len(cfg.WorkflowTypes) > 0 {
+		typeClauses := make([]string, 0, len(cfg.WorkflowTypes))
+		for _, workflowType := range cfg.WorkflowTypes {
+			typeClauses = append(typeClauses, `WorkflowType = "`+workflowType+`"`)
+		}
+		if len(typeClauses) == 1 {
+			clauses = append(clauses, typeClauses[0])
+		} else {
+			clauses = append(clauses, "("+strings.Join(typeClauses, " OR ")+")")
+		}
+	}
+	return strings.Join(clauses, " AND ")
+}
+
+func workflowBacklogCLIItemFromInfo(info *workflowpb.WorkflowExecutionInfo, checkedAt time.Time) workflowBacklogCLIItem {
+	if info == nil {
+		return workflowBacklogCLIItem{Status: workflowExecutionStatusString(enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED)}
+	}
+	item := workflowBacklogCLIItem{
+		WorkflowID:       info.GetExecution().GetWorkflowId(),
+		RunID:            info.GetExecution().GetRunId(),
+		WorkflowType:     info.GetType().GetName(),
+		Status:           workflowExecutionStatusString(info.GetStatus()),
+		TaskQueue:        info.GetTaskQueue(),
+		HistoryLength:    info.GetHistoryLength(),
+		HistorySizeBytes: info.GetHistorySizeBytes(),
+	}
+	if ts := info.GetStartTime(); ts != nil {
+		startedAt := ts.AsTime().UTC()
+		item.StartTime = startedAt.Format(time.RFC3339Nano)
+		if age := checkedAt.Sub(startedAt); age > 0 {
+			item.AgeSeconds = int64(age / time.Second)
+		}
+	}
+	if ts := info.GetCloseTime(); ts != nil {
+		item.CloseTime = ts.AsTime().UTC().Format(time.RFC3339Nano)
+	}
+	if ts := info.GetExecutionTime(); ts != nil {
+		item.ExecutionTime = ts.AsTime().UTC().Format(time.RFC3339Nano)
+	}
+	if parent := info.GetParentExecution(); parent != nil {
+		item.ParentWorkflowID = parent.GetWorkflowId()
+		item.ParentRunID = parent.GetRunId()
+	}
+	if root := info.GetRootExecution(); root != nil {
+		item.RootWorkflowID = root.GetWorkflowId()
+		item.RootRunID = root.GetRunId()
+	}
+	return item
+}
+
+func workflowExecutionStatusString(status enumspb.WorkflowExecutionStatus) string {
+	switch status {
+	case enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING:
+		return "running"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED:
+		return "completed"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_FAILED:
+		return "failed"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED:
+		return "canceled"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED:
+		return "terminated"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW:
+		return "continued_as_new"
+	case enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
+		return "timed_out"
+	default:
+		return "unspecified"
+	}
+}
+
+func runDiagnosisRoomListCLI(
+	ctx context.Context,
+	logger *slog.Logger,
+	getenv getenvFunc,
+	args []string,
+	stdout io.Writer,
+) error {
+	cfg, err := parseDiagnosisRoomListCLIArgs(args)
+	if err != nil {
+		return err
+	}
+	dsn := strings.TrimSpace(getenv("DATABASE_URL"))
+	if dsn == "" {
+		return fmt.Errorf("DATABASE_URL is required")
+	}
+	entClient, err := repository.OpenPostgres(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("open postgres: %w", err)
+	}
+	defer func() {
+		if cerr := entClient.Close(); cerr != nil {
+			logger.Warn("close ent client", "error", cerr)
+		}
+	}()
+	return runDiagnosisRoomListCLIWithDependencies(
+		ctx,
+		postgresDiagnosisRoomListLoader{factory: repository.NewFactory(entClient)},
+		cfg,
+		stdout,
+	)
+}
+
+func parseDiagnosisRoomListCLIArgs(args []string) (diagnosisRoomListCLIConfig, error) {
+	cfg := diagnosisRoomListCLIConfig{
+		Limit: defaultDiagnosisRoomListCLILimit,
+		Queue: "all",
+	}
+	fs := flag.NewFlagSet(diagnosisRoomListCLICommand, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.IntVar(&cfg.Limit, "limit", defaultDiagnosisRoomListCLILimit, "maximum diagnosis rooms to return")
+	fs.StringVar(&cfg.Queue, "queue", "all", "queue filter: all, attention, ready, active, or closed")
+	if err := fs.Parse(args); err != nil {
+		return diagnosisRoomListCLIConfig{}, fmt.Errorf("%w\n%s", err, diagnosisRoomListCLIUsage())
+	}
+	if fs.NArg() != 0 {
+		return diagnosisRoomListCLIConfig{}, fmt.Errorf("unexpected positional arguments: %s\n%s", strings.Join(fs.Args(), " "), diagnosisRoomListCLIUsage())
+	}
+	if cfg.Limit <= 0 || cfg.Limit > maxDiagnosisRoomListCLILimit {
+		return diagnosisRoomListCLIConfig{}, fmt.Errorf("--limit must be between 1 and %d (got %d)\n%s", maxDiagnosisRoomListCLILimit, cfg.Limit, diagnosisRoomListCLIUsage())
+	}
+	cfg.Queue = strings.ToLower(strings.TrimSpace(cfg.Queue))
+	if !diagnosisRoomListQueueValid(cfg.Queue) {
+		return diagnosisRoomListCLIConfig{}, fmt.Errorf("--queue must be all, attention, ready, active, or closed (got %q)\n%s", cfg.Queue, diagnosisRoomListCLIUsage())
+	}
+	return cfg, nil
+}
+
+func runDiagnosisRoomListCLIWithDependencies(
+	ctx context.Context,
+	loader diagnosisRoomListLoader,
+	cfg diagnosisRoomListCLIConfig,
+	stdout io.Writer,
+) error {
+	if loader == nil {
+		return fmt.Errorf("diagnosis room list loader must be configured")
+	}
+	rooms, err := loader.ListDiagnosisRooms(ctx, cfg.Limit)
+	if err != nil {
+		return err
+	}
+	out := diagnosisRoomListCLIOutput{
+		CheckedAt:     time.Now().UTC().Format(time.RFC3339Nano),
+		Request:       diagnosisRoomListCLIRequest{Limit: cfg.Limit, Queue: cfg.Queue},
+		CountsByQueue: diagnosisRoomListQueueCounts(),
+		Rooms:         make([]diagnosisRoomListCLIOutputRow, 0, len(rooms)),
+	}
+	for _, room := range rooms {
+		row := diagnosisRoomListCLIOutputRowFromRoom(room)
+		out.CountsByQueue[row.NextStep.Queue]++
+		if cfg.Queue != "all" && row.NextStep.Queue != cfg.Queue {
+			continue
+		}
+		out.Rooms = append(out.Rooms, row)
+	}
+	out.Returned = len(out.Rooms)
+	enc := json.NewEncoder(stdout)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
+		return fmt.Errorf("write diagnosis room list output: %w", err)
+	}
+	return nil
+}
+
+func (l postgresDiagnosisRoomListLoader) ListDiagnosisRooms(ctx context.Context, limit int) ([]diagnosisRoomListRoom, error) {
+	if l.factory == nil {
+		return nil, fmt.Errorf("diagnosis room list loader: unit of work factory must be configured")
+	}
+	var out []diagnosisRoomListRoom
+	err := l.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		rooms, err := uow.Diagnosis().ListChatSessions(ctx, limit)
+		if err != nil {
+			return err
+		}
+		out = make([]diagnosisRoomListRoom, len(rooms))
+		for i, room := range rooms {
+			conclusion, err := latestDiagnosisRoomListConclusion(ctx, uow.Diagnosis(), room.Task.ID)
+			if err != nil {
+				return err
+			}
+			notification, err := latestDiagnosisRoomListNotification(ctx, uow.Diagnosis(), room.Task.ID)
+			if err != nil {
+				return err
+			}
+			out[i] = diagnosisRoomListRoom{
+				Room:               room,
+				LatestConclusion:   conclusion,
+				LatestNotification: notification,
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list diagnosis rooms: %w", err)
+	}
+	return out, nil
+}
+
+func latestDiagnosisRoomListConclusion(
+	ctx context.Context,
+	repo ports.DiagnosisRepository,
+	taskID domain.DiagnosisTaskID,
+) (*diagnosisRoomListCLIConclusion, error) {
+	events, err := repo.ListEventsByTaskAndKind(ctx, taskID, "diagnosis_room.final_conclusion_ready", 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(events) == 0 {
+		return nil, nil
+	}
+	conclusion, err := diagnosisRoomListConclusionFromEvent(events[0])
+	if err != nil {
+		return nil, err
+	}
+	return &conclusion, nil
+}
+
+func latestDiagnosisRoomListNotification(
+	ctx context.Context,
+	repo ports.DiagnosisRepository,
+	taskID domain.DiagnosisTaskID,
+) (*diagnosisRoomListCLINotification, error) {
+	kinds := []string{
+		"diagnosis_room.assistant_turn_notification_sent",
+		"diagnosis_room.final_ready_notification_sent",
+		"diagnosis_room.close_notification_sent",
+	}
+	var latest *domain.DiagnosisTaskEvent
+	for _, kind := range kinds {
+		events, err := repo.ListEventsByTaskAndKind(ctx, taskID, kind, 1)
+		if err != nil {
+			return nil, err
+		}
+		if len(events) == 0 {
+			continue
+		}
+		event := events[0]
+		if latest == nil ||
+			event.OccurredAt.After(latest.OccurredAt) ||
+			(event.OccurredAt.Equal(latest.OccurredAt) && event.ID > latest.ID) {
+			latest = &event
+		}
+	}
+	if latest == nil {
+		return nil, nil
+	}
+	notification, err := diagnosisRoomListNotificationFromEvent(*latest)
+	if err != nil {
+		return nil, err
+	}
+	return &notification, nil
+}
+
+func diagnosisRoomListCLIOutputRowFromRoom(room diagnosisRoomListRoom) diagnosisRoomListCLIOutputRow {
+	session := room.Room.Session
+	task := room.Room.Task
+	row := diagnosisRoomListCLIOutputRow{
+		SessionID:          session.SessionKey,
+		ChatSessionID:      int64(session.ID),
+		DiagnosisTaskID:    int64(task.ID),
+		EvidenceSnapshotID: int64(task.EvidenceSnapshotID),
+		WorkflowID:         task.WorkflowID,
+		RunID:              task.RunID,
+		TaskStatus:         string(task.Status),
+		RoomStatus:         string(session.Status),
+		TurnCount:          session.TurnCount,
+		StartedAt:          session.StartedAt.UTC().Format(time.RFC3339Nano),
+		LastActivityAt:     session.LastActivityAt.UTC().Format(time.RFC3339Nano),
+		CloseReason:        session.CloseReason,
+		LatestConclusion:   room.LatestConclusion,
+		LatestNotification: room.LatestNotification,
+	}
+	if session.ClosedAt != nil {
+		row.ClosedAt = session.ClosedAt.UTC().Format(time.RFC3339Nano)
+	}
+	row.NextStep = diagnosisRoomListNextStep(row)
+	return row
+}
+
+func diagnosisRoomListNextStep(room diagnosisRoomListCLIOutputRow) diagnosisRoomListCLINextStep {
+	if room.RoomStatus != string(domain.ChatSessionStatusClosed) &&
+		room.LatestNotification != nil &&
+		diagnosisRoomListNotificationFailed(room.LatestNotification.ProviderStatus) {
+		return diagnosisRoomListCLINextStep{
+			Queue:  "attention",
+			Label:  "Notification failed",
+			Detail: "Review the failed diagnosis-room notification before relying on downstream handoff.",
+		}
+	}
+	if room.TaskStatus == string(domain.DiagnosisStatusFailed) {
+		return diagnosisRoomListCLINextStep{
+			Queue:  "attention",
+			Label:  "Workflow failed",
+			Detail: "Inspect the workflow failure and decide whether to restart the diagnosis room.",
+		}
+	}
+	if room.RoomStatus == string(domain.ChatSessionStatusClosed) || room.TaskStatus == string(domain.DiagnosisStatusCancelled) {
+		detail := room.CloseReason
+		if detail == "" {
+			detail = "Diagnosis room is closed."
+		}
+		return diagnosisRoomListCLINextStep{Queue: "closed", Label: "Closed", Detail: detail}
+	}
+	if room.LatestConclusion == nil {
+		if room.TurnCount > 0 {
+			return diagnosisRoomListCLINextStep{
+				Queue:  "active",
+				Label:  "Continue AI review",
+				Detail: "Continue the AI conversation or collect the requested evidence.",
+			}
+		}
+		return diagnosisRoomListCLINextStep{
+			Queue:  "active",
+			Label:  "Start AI review",
+			Detail: "Send the first prompt so AI can produce a diagnosis report.",
+		}
+	}
+	if room.LatestConclusion.RequiresHumanReview != nil && *room.LatestConclusion.RequiresHumanReview {
+		return diagnosisRoomListCLINextStep{
+			Queue:  "attention",
+			Label:  "Human review",
+			Detail: "Review the AI conclusion and add verified operator evidence if confidence is not sufficient.",
+		}
+	}
+	switch strings.ToLower(room.LatestConclusion.Confidence) {
+	case "low", "medium":
+		return diagnosisRoomListCLINextStep{
+			Queue:  "attention",
+			Label:  "Improve confidence",
+			Detail: "Collect more evidence before final confirmation.",
+		}
+	default:
+		return diagnosisRoomListCLINextStep{
+			Queue:  "ready",
+			Label:  "Review conclusion",
+			Detail: "AI produced a conclusion. Review it before closing the room.",
+		}
+	}
+}
+
+func diagnosisRoomListConclusionFromEvent(event domain.DiagnosisTaskEvent) (diagnosisRoomListCLIConclusion, error) {
+	var payload struct {
+		Kind            string `json:"kind"`
+		FinalConclusion struct {
+			Status              string `json:"status"`
+			Confidence          string `json:"confidence"`
+			RequiresHumanReview *bool  `json:"requires_human_review"`
+		} `json:"final_conclusion"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return diagnosisRoomListCLIConclusion{}, fmt.Errorf("parse diagnosis conclusion event %d: %w", event.ID, err)
+	}
+	eventKind := strings.TrimSpace(payload.Kind)
+	if eventKind == "" {
+		eventKind = event.Kind
+	}
+	return diagnosisRoomListCLIConclusion{
+		EventKind:           eventKind,
+		Status:              strings.TrimSpace(payload.FinalConclusion.Status),
+		Confidence:          strings.TrimSpace(payload.FinalConclusion.Confidence),
+		RequiresHumanReview: payload.FinalConclusion.RequiresHumanReview,
+		OccurredAt:          event.OccurredAt.UTC().Format(time.RFC3339Nano),
+	}, nil
+}
+
+func diagnosisRoomListNotificationFromEvent(event domain.DiagnosisTaskEvent) (diagnosisRoomListCLINotification, error) {
+	var payload struct {
+		Kind           string `json:"kind"`
+		ProviderStatus string `json:"provider_status"`
+	}
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return diagnosisRoomListCLINotification{}, fmt.Errorf("parse diagnosis notification event %d: %w", event.ID, err)
+	}
+	eventKind := strings.TrimSpace(payload.Kind)
+	if eventKind == "" {
+		eventKind = event.Kind
+	}
+	return diagnosisRoomListCLINotification{
+		EventKind:      eventKind,
+		ProviderStatus: strings.TrimSpace(payload.ProviderStatus),
+		OccurredAt:     event.OccurredAt.UTC().Format(time.RFC3339Nano),
+	}, nil
+}
+
+func diagnosisRoomListQueueCounts() map[string]int {
+	return map[string]int{
+		"attention": 0,
+		"ready":     0,
+		"active":    0,
+		"closed":    0,
+	}
+}
+
+func diagnosisRoomListQueueValid(queue string) bool {
+	switch queue {
+	case "all", "attention", "ready", "active", "closed":
+		return true
+	default:
+		return false
+	}
+}
+
+func diagnosisRoomListNotificationFailed(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "error":
+		return true
+	default:
+		return false
+	}
+}
+
 func runDiagnosisRoomCloseCLI(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -2717,6 +4119,17 @@ func diagnosisRoomCloseCLIUsage() string {
 	return "usage: openclarion " + diagnosisRoomCloseCLICommand +
 		" --session-id " + strconv.Quote("diagnosis-session-...") +
 		" [--run-id run] [--reason live_smoke_completed] [--wait-timeout 2m]"
+}
+
+func workflowBacklogCLIUsage() string {
+	return "usage: openclarion " + workflowBacklogCLICommand +
+		" [--limit 50] [--status running|all] [--workflow-types ReportBatchWorkflow,DiagnosisRoomWorkflow] [--all-types] [--query " +
+		strconv.Quote(`ExecutionStatus = "Running"`) + "]"
+}
+
+func diagnosisRoomListCLIUsage() string {
+	return "usage: openclarion " + diagnosisRoomListCLICommand +
+		" [--limit 100] [--queue all|attention|ready|active|closed]"
 }
 
 func temporalHostPortFrom(getenv getenvFunc) string {

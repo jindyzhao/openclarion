@@ -38,6 +38,9 @@ func TestServiceDeliversSanitizedTestNotification(t *testing.T) {
 		provider.req.IdempotencyKey != "notification_channel:7/test" {
 		t.Fatalf("test notification = %+v", provider.req)
 	}
+	if result.ContentKind != "transport_sample" || result.ContentSHA256 == "" {
+		t.Fatalf("content proof = %q/%q, want transport sample proof", result.ContentKind, result.ContentSHA256)
+	}
 	if provider.req.Title == "" || provider.req.Body == "" || provider.req.Severity != "info" {
 		t.Fatalf("test notification content = %+v", provider.req)
 	}
@@ -69,6 +72,166 @@ func TestServiceAllowsDisabledProfileTests(t *testing.T) {
 	}
 	if result.Status != StatusSuccess || provider.called != 1 {
 		t.Fatalf("result=%+v provider calls=%d, want success despite disabled profile", result, provider.called)
+	}
+}
+
+func TestServiceReturnsWeComKindForWeComProfile(t *testing.T) {
+	now := time.Date(2026, 6, 5, 10, 7, 0, 0, time.UTC)
+	profile := testNotificationChannelProfile()
+	profile.Kind = domain.NotificationChannelKindWeCom
+	provider := &recordingIMProvider{}
+	service := mustService(t, fakeSecretResolver{values: map[string]string{
+		profile.SecretRef: fixtureWeComWebhookURL(),
+	}}, provider, now)
+
+	result, err := service.TestNotificationChannel(context.Background(), profile)
+	if err != nil {
+		t.Fatalf("TestNotificationChannel: %v", err)
+	}
+	if result.Status != StatusSuccess || result.Kind != domain.NotificationChannelKindWeCom {
+		t.Fatalf("result = %+v, want successful wecom kind", result)
+	}
+}
+
+func TestServiceUsesAIDiagnosisSampleForConsultationScopedChannelTest(t *testing.T) {
+	now := time.Date(2026, 6, 5, 10, 8, 0, 0, time.UTC)
+	profile := testNotificationChannelProfile()
+	profile.Kind = domain.NotificationChannelKindWeCom
+	profile.DeliveryScopes = []domain.NotificationDeliveryScope{
+		domain.NotificationDeliveryScopeReport,
+		domain.NotificationDeliveryScopeDiagnosisConsultation,
+		domain.NotificationDeliveryScopeDiagnosisClose,
+	}
+	provider := &recordingIMProvider{}
+	service := mustService(t, fakeSecretResolver{values: map[string]string{
+		profile.SecretRef: fixtureWeComWebhookURL(),
+	}}, provider, now)
+
+	result, err := service.TestNotificationChannel(context.Background(), profile)
+	if err != nil {
+		t.Fatalf("TestNotificationChannel: %v", err)
+	}
+	if result.Status != StatusSuccess {
+		t.Fatalf("result = %+v, want success", result)
+	}
+	if provider.req.Title != "OpenClarion AI diagnosis channel test" ||
+		!strings.Contains(provider.req.Body, "AI diagnosis updates, not raw Alertmanager alerts") ||
+		!strings.Contains(provider.req.Body, "Human review: required") ||
+		!strings.Contains(provider.req.Body, "Missing evidence:") ||
+		!strings.Contains(provider.req.Body, "[high] Owner rollout context - Confirm whether the service owner has already mitigated the rollout risk.") ||
+		!strings.Contains(provider.req.Body, "Evidence collection suggestions:") ||
+		!strings.Contains(provider.req.Body, "[medium] Current saturation trend - Collect a bounded CPU or JVM memory range query before raising confidence.") ||
+		!strings.Contains(provider.req.Body, "Executable evidence requests: 1") {
+		t.Fatalf("test notification = %+v", provider.req)
+	}
+	if result.ContentKind != "ai_diagnosis_sample" || result.ContentSHA256 == "" {
+		t.Fatalf("content proof = %q/%q, want ai diagnosis sample proof", result.ContentKind, result.ContentSHA256)
+	}
+}
+
+func TestServiceUsesCloseSampleForCloseOnlyChannelTest(t *testing.T) {
+	now := time.Date(2026, 6, 5, 10, 9, 0, 0, time.UTC)
+	profile := testNotificationChannelProfile()
+	profile.Kind = domain.NotificationChannelKindWeCom
+	profile.DeliveryScopes = []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeDiagnosisClose}
+	provider := &recordingIMProvider{}
+	service := mustService(t, fakeSecretResolver{values: map[string]string{
+		profile.SecretRef: fixtureWeComWebhookURL(),
+	}}, provider, now)
+
+	result, err := service.TestNotificationChannel(context.Background(), profile)
+	if err != nil {
+		t.Fatalf("TestNotificationChannel: %v", err)
+	}
+	if result.Status != StatusSuccess {
+		t.Fatalf("result = %+v, want success", result)
+	}
+	if provider.req.Title != "OpenClarion diagnosis close channel test" ||
+		!strings.Contains(provider.req.Body, "diagnosis room close notifications") ||
+		!strings.Contains(provider.req.Body, "AI conclusion:") {
+		t.Fatalf("test notification = %+v", provider.req)
+	}
+	if result.ContentKind != "diagnosis_close_sample" || result.ContentSHA256 == "" {
+		t.Fatalf("content proof = %q/%q, want diagnosis close sample proof", result.ContentKind, result.ContentSHA256)
+	}
+}
+
+func TestServiceBlocksGenericWebhookDiagnosisScopeTests(t *testing.T) {
+	now := time.Date(2026, 6, 5, 10, 9, 15, 0, time.UTC)
+	profile := testNotificationChannelProfile()
+	profile.Kind = domain.NotificationChannelKindWebhook
+	profile.DeliveryScopes = []domain.NotificationDeliveryScope{
+		domain.NotificationDeliveryScopeDiagnosisConsultation,
+		domain.NotificationDeliveryScopeDiagnosisClose,
+	}
+	provider := &recordingIMProvider{}
+	service := mustService(t, fakeSecretResolver{values: map[string]string{
+		profile.SecretRef: "https://example.invalid/hook",
+	}}, provider, now)
+
+	result, err := service.TestNotificationChannel(context.Background(), profile)
+	if err != nil {
+		t.Fatalf("TestNotificationChannel: %v", err)
+	}
+	if result.Status != StatusFailed ||
+		result.ReasonCode != ReasonInvalidProfile ||
+		result.Message != "Diagnosis notification channel tests require an Enterprise WeChat profile." {
+		t.Fatalf("result = %+v, want invalid profile failure", result)
+	}
+	if result.ContentKind != "" || result.ContentSHA256 != "" || provider.called != 0 {
+		t.Fatalf("unexpected delivery attempt result=%+v provider calls=%d", result, provider.called)
+	}
+}
+
+func TestServiceUsesRequestedCloseSampleForMultiScopeChannelTest(t *testing.T) {
+	now := time.Date(2026, 6, 5, 10, 9, 30, 0, time.UTC)
+	profile := testNotificationChannelProfile()
+	profile.Kind = domain.NotificationChannelKindWeCom
+	profile.DeliveryScopes = []domain.NotificationDeliveryScope{
+		domain.NotificationDeliveryScopeReport,
+		domain.NotificationDeliveryScopeDiagnosisConsultation,
+		domain.NotificationDeliveryScopeDiagnosisClose,
+	}
+	provider := &recordingIMProvider{}
+	service := mustService(t, fakeSecretResolver{values: map[string]string{
+		profile.SecretRef: fixtureWeComWebhookURL(),
+	}}, provider, now)
+
+	result, err := service.TestNotificationChannel(context.Background(), profile, Request{ContentKind: "diagnosis_close_sample"})
+	if err != nil {
+		t.Fatalf("TestNotificationChannel: %v", err)
+	}
+	if result.Status != StatusSuccess {
+		t.Fatalf("result = %+v, want success", result)
+	}
+	if provider.req.Title != "OpenClarion diagnosis close channel test" ||
+		!strings.Contains(provider.req.Body, "diagnosis room close notifications") ||
+		!strings.Contains(provider.req.Body, "AI conclusion:") {
+		t.Fatalf("test notification = %+v", provider.req)
+	}
+	if result.ContentKind != "diagnosis_close_sample" || result.ContentSHA256 == "" {
+		t.Fatalf("content proof = %q/%q, want diagnosis close sample proof", result.ContentKind, result.ContentSHA256)
+	}
+}
+
+func TestServiceRejectsRequestedContentKindOutsideProfileScopes(t *testing.T) {
+	now := time.Date(2026, 6, 5, 10, 9, 45, 0, time.UTC)
+	profile := testNotificationChannelProfile()
+	profile.DeliveryScopes = []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeReport}
+	provider := &recordingIMProvider{}
+	service := mustService(t, fakeSecretResolver{values: map[string]string{
+		profile.SecretRef: "https://example.invalid/hook",
+	}}, provider, now)
+
+	result, err := service.TestNotificationChannel(context.Background(), profile, Request{ContentKind: "diagnosis_close_sample"})
+	if err != nil {
+		t.Fatalf("TestNotificationChannel: %v", err)
+	}
+	if result.Status != StatusFailed || result.ReasonCode != ReasonInvalidProfile {
+		t.Fatalf("result = %+v, want invalid profile failure", result)
+	}
+	if result.ContentKind != "" || result.ContentSHA256 != "" || provider.called != 0 {
+		t.Fatalf("unexpected delivery attempt result=%+v provider calls=%d", result, provider.called)
 	}
 }
 
@@ -115,6 +278,9 @@ func TestServiceMapsCredentialFailuresWithoutLeakingDetails(t *testing.T) {
 				result.ReasonCode != ReasonCredentialsUnavailable ||
 				result.Message != tc.wantMsg {
 				t.Fatalf("result = %+v", result)
+			}
+			if result.ContentKind != "" || result.ContentSHA256 != "" {
+				t.Fatalf("blocked result has content proof without delivery attempt: %+v", result)
 			}
 			if strings.Contains(result.Message, rawSecretRef) ||
 				strings.Contains(result.Message, rawSecretValue) ||
@@ -284,6 +450,10 @@ func testNotificationChannelProfile() domain.NotificationChannelProfile {
 		DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeReport},
 		Enabled:        true,
 	}
+}
+
+func fixtureWeComWebhookURL() string {
+	return "https://" + "qyapi.weixin.qq.com" + "/cgi-bin/webhook/send?key=fixture-key"
 }
 
 type recordingIMProvider struct {

@@ -1,22 +1,36 @@
 import { describe, expect, it } from "vitest";
 
-import { parsePositiveIntegerRouteParam } from "./route";
+import { readRequestJSON } from "./route";
 
-describe("parsePositiveIntegerRouteParam", () => {
-  it("accepts decimal positive integer route params", () => {
-    expect(parsePositiveIntegerRouteParam("42", "Resource ID")).toEqual({ ok: true, data: 42 });
-    expect(parsePositiveIntegerRouteParam(" 7 ", "Resource ID")).toEqual({ ok: true, data: 7 });
+describe("route api helpers", () => {
+  it("returns a stable invalid JSON error without parser internals", async () => {
+    await expect(
+      readRequestJSON(
+        new Request("https://console.example.com/api/example", {
+          method: "POST",
+          body: "{",
+        }),
+      ),
+    ).resolves.toEqual({
+      ok: false,
+      error: {
+        message: "Request body must be valid JSON.",
+        status: 400,
+      },
+    });
   });
 
-  it("rejects partial, fractional, zero, and unsafe route params", () => {
-    const expected = {
-      ok: false,
-      error: { message: "Resource ID must be a positive integer.", status: 400 }
-    };
-
-    expect(parsePositiveIntegerRouteParam("12abc", "Resource ID")).toEqual(expected);
-    expect(parsePositiveIntegerRouteParam("1.5", "Resource ID")).toEqual(expected);
-    expect(parsePositiveIntegerRouteParam("0", "Resource ID")).toEqual(expected);
-    expect(parsePositiveIntegerRouteParam("9007199254740992", "Resource ID")).toEqual(expected);
+  it("parses valid JSON request bodies", async () => {
+    await expect(
+      readRequestJSON<{ value: string }>(
+        new Request("https://console.example.com/api/example", {
+          method: "POST",
+          body: JSON.stringify({ value: "ok" }),
+        }),
+      ),
+    ).resolves.toEqual({
+      ok: true,
+      data: { value: "ok" },
+    });
   });
 });

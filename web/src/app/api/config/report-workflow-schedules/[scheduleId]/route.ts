@@ -1,5 +1,6 @@
 import { replaceReportWorkflowSchedule } from "@/features/settings/report-workflow-schedules/api";
 import type { ReportWorkflowScheduleWriteRequest } from "@/features/settings/report-workflow-schedules/types";
+import { authorizedBackendResultResponse } from "@/lib/api/protected-route";
 import { apiResultResponse, parsePositiveIntegerRouteParam, readRequestJSON } from "@/lib/api/route";
 
 type RouteContext = {
@@ -19,5 +20,7 @@ export async function PUT(request: Request, context: RouteContext) {
   if (!body.ok) {
     return apiResultResponse(body);
   }
-  return apiResultResponse(await replaceReportWorkflowSchedule(parsedID.data, body.data));
+  return authorizedBackendResultResponse(request, (headers) =>
+    replaceReportWorkflowSchedule(parsedID.data, body.data, { headers }),
+  );
 }

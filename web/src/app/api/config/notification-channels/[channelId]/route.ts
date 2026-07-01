@@ -1,5 +1,6 @@
 import { replaceNotificationChannelProfile } from "@/features/settings/notification-channels/api";
 import type { NotificationChannelProfileWriteRequest } from "@/features/settings/notification-channels/types";
+import { authorizedBackendResultResponse } from "@/lib/api/protected-route";
 import { apiResultResponse, parsePositiveIntegerRouteParam, readRequestJSON } from "@/lib/api/route";
 
 export const dynamic = "force-dynamic";
@@ -19,5 +20,7 @@ export async function PUT(request: Request, context: RouteContext) {
   if (!body.ok) {
     return apiResultResponse(body);
   }
-  return apiResultResponse(await replaceNotificationChannelProfile(channelID.data, body.data));
+  return authorizedBackendResultResponse(request, (headers) =>
+    replaceNotificationChannelProfile(channelID.data, body.data, { headers }),
+  );
 }

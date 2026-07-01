@@ -34,6 +34,7 @@ func alertEventToDomain(e *ent.AlertEvent) domain.AlertEvent {
 	return domain.AlertEvent{
 		ID:                   domain.AlertEventID(e.ID),
 		Source:               e.Source,
+		AlertSourceProfileID: domain.AlertSourceProfileID(e.AlertSourceProfileID),
 		SourceFingerprint:    e.SourceFingerprint,
 		CanonicalFingerprint: e.CanonicalFingerprint,
 		Labels:               labels,
@@ -199,18 +200,23 @@ func finalReportToDomain(r *ent.FinalReport) domain.FinalReport {
 // reportNotificationDeliveryToDomain converts an Ent
 // ReportNotificationDelivery row to a domain entity.
 func reportNotificationDeliveryToDomain(r *ent.ReportNotificationDelivery) domain.ReportNotificationDelivery {
+	var reportNotificationChannelProfileID domain.NotificationChannelProfileID
+	if r.ReportNotificationChannelProfileID != nil {
+		reportNotificationChannelProfileID = domain.NotificationChannelProfileID(*r.ReportNotificationChannelProfileID)
+	}
 	return domain.ReportNotificationDelivery{
-		ID:                domain.ReportNotificationDeliveryID(r.ID),
-		FinalReportID:     domain.FinalReportID(r.FinalReportID),
-		IdempotencyKey:    r.IdempotencyKey,
-		ProviderMessageID: r.ProviderMessageID,
-		ProviderStatus:    r.ProviderStatus,
-		Status:            domain.ReportNotificationDeliveryStatus(r.Status),
-		Raw:               r.Raw,
-		FailureReason:     r.FailureReason,
-		DeliveredAt:       r.DeliveredAt,
-		CreatedAt:         r.CreatedAt,
-		UpdatedAt:         r.UpdatedAt,
+		ID:                                 domain.ReportNotificationDeliveryID(r.ID),
+		FinalReportID:                      domain.FinalReportID(r.FinalReportID),
+		ReportNotificationChannelProfileID: reportNotificationChannelProfileID,
+		IdempotencyKey:                     r.IdempotencyKey,
+		ProviderMessageID:                  r.ProviderMessageID,
+		ProviderStatus:                     r.ProviderStatus,
+		Status:                             domain.ReportNotificationDeliveryStatus(r.Status),
+		Raw:                                r.Raw,
+		FailureReason:                      r.FailureReason,
+		DeliveredAt:                        r.DeliveredAt,
+		CreatedAt:                          r.CreatedAt,
+		UpdatedAt:                          r.UpdatedAt,
 	}
 }
 
@@ -331,39 +337,41 @@ func notificationChannelProfileToDomain(p *ent.NotificationChannelProfile) domai
 	if labels == nil {
 		labels = map[string]string{}
 	}
+	testProofs := make([]domain.NotificationChannelTestProof, 0, len(p.Edges.TestProofs))
+	for _, proof := range p.Edges.TestProofs {
+		testProofs = append(testProofs, notificationChannelTestProofToDomain(proof))
+	}
 	return domain.NotificationChannelProfile{
-		ID:             domain.NotificationChannelProfileID(p.ID),
-		Name:           p.Name,
-		Kind:           domain.NotificationChannelKind(p.Kind),
-		SecretRef:      p.SecretRef,
-		DeliveryScopes: notificationDeliveryScopesToDomain(p.DeliveryScopes),
-		Enabled:        p.Enabled,
-		Labels:         labels,
-		CreatedAt:      p.CreatedAt,
-		UpdatedAt:      p.UpdatedAt,
+		ID:               domain.NotificationChannelProfileID(p.ID),
+		Name:             p.Name,
+		Kind:             domain.NotificationChannelKind(p.Kind),
+		SecretRef:        p.SecretRef,
+		DeliveryScopes:   notificationDeliveryScopesToDomain(p.DeliveryScopes),
+		Enabled:          p.Enabled,
+		Labels:           labels,
+		LatestTestProofs: testProofs,
+		CreatedAt:        p.CreatedAt,
+		UpdatedAt:        p.UpdatedAt,
 	}
 }
 
-func notificationDeliveryScopesToDomain(scopes []string) []domain.NotificationDeliveryScope {
-	if len(scopes) == 0 {
-		return []domain.NotificationDeliveryScope{}
+// notificationChannelTestProofToDomain converts an Ent
+// NotificationChannelTestProof row to a domain entity.
+func notificationChannelTestProofToDomain(p *ent.NotificationChannelTestProof) domain.NotificationChannelTestProof {
+	return domain.NotificationChannelTestProof{
+		ID:                           domain.NotificationChannelTestProofID(p.ID),
+		NotificationChannelProfileID: domain.NotificationChannelProfileID(p.NotificationChannelProfileID),
+		Kind:                         domain.NotificationChannelKind(p.Kind),
+		Status:                       domain.NotificationChannelTestStatus(p.Status),
+		ReasonCode:                   domain.NotificationChannelTestReasonCode(p.ReasonCode),
+		Message:                      p.Message,
+		ContentKind:                  domain.NotificationChannelTestContentKind(p.ContentKind),
+		ContentSHA256:                p.ContentSha256,
+		CheckedAt:                    p.CheckedAt,
+		ProviderMessageID:            p.ProviderMessageID,
+		ProviderStatus:               p.ProviderStatus,
+		CreatedAt:                    p.CreatedAt,
 	}
-	out := make([]domain.NotificationDeliveryScope, len(scopes))
-	for i, scope := range scopes {
-		out[i] = domain.NotificationDeliveryScope(scope)
-	}
-	return out
-}
-
-func notificationDeliveryScopesToStrings(scopes []domain.NotificationDeliveryScope) []string {
-	if len(scopes) == 0 {
-		return []string{}
-	}
-	out := make([]string, len(scopes))
-	for i, scope := range scopes {
-		out[i] = string(scope)
-	}
-	return out
 }
 
 // directoryDepartmentToDomain converts an Ent DirectoryDepartment row to a
@@ -422,21 +430,21 @@ func directoryUserToDomain(u *ent.DirectoryUser) domain.DirectoryUser {
 
 // directorySyncRunToDomain converts an Ent DirectorySyncRun row to a domain
 // entity.
-func directorySyncRunToDomain(r *ent.DirectorySyncRun) domain.DirectorySyncRun {
+func directorySyncRunToDomain(run *ent.DirectorySyncRun) domain.DirectorySyncRun {
 	return domain.DirectorySyncRun{
-		ID:                  domain.DirectorySyncRunID(r.ID),
-		Provider:            r.Provider,
-		PageSize:            r.PageSize,
-		UpdatedAfter:        r.UpdatedAfter,
-		Status:              domain.DirectorySyncRunStatus(r.Status),
-		FailureCode:         r.FailureCode,
-		FailureMessage:      r.FailureMessage,
-		DepartmentPages:     r.DepartmentPages,
-		UserPages:           r.UserPages,
-		DepartmentsUpserted: r.DepartmentsUpserted,
-		UsersUpserted:       r.UsersUpserted,
-		SyncedAt:            r.SyncedAt,
-		CreatedAt:           r.CreatedAt,
+		ID:                  domain.DirectorySyncRunID(run.ID),
+		Provider:            run.Provider,
+		PageSize:            run.PageSize,
+		UpdatedAfter:        run.UpdatedAfter,
+		Status:              domain.DirectorySyncRunStatus(run.Status),
+		FailureCode:         run.FailureCode,
+		FailureMessage:      run.FailureMessage,
+		DepartmentPages:     run.DepartmentPages,
+		UserPages:           run.UserPages,
+		DepartmentsUpserted: run.DepartmentsUpserted,
+		UsersUpserted:       run.UsersUpserted,
+		SyncedAt:            run.SyncedAt,
+		CreatedAt:           run.CreatedAt,
 	}
 }
 
@@ -455,6 +463,28 @@ func rbacAssignmentToDomain(a *ent.RBACAssignment) domain.RBACAssignment {
 		CreatedAt:   a.CreatedAt,
 		UpdatedAt:   a.UpdatedAt,
 	}
+}
+
+func notificationDeliveryScopesToDomain(scopes []string) []domain.NotificationDeliveryScope {
+	if len(scopes) == 0 {
+		return []domain.NotificationDeliveryScope{}
+	}
+	out := make([]domain.NotificationDeliveryScope, len(scopes))
+	for i, scope := range scopes {
+		out[i] = domain.NotificationDeliveryScope(scope)
+	}
+	return out
+}
+
+func notificationDeliveryScopesToStrings(scopes []domain.NotificationDeliveryScope) []string {
+	if len(scopes) == 0 {
+		return []string{}
+	}
+	out := make([]string, len(scopes))
+	for i, scope := range scopes {
+		out[i] = string(scope)
+	}
+	return out
 }
 
 // alertEventIDsToEnt converts a slice of domain.AlertEventID

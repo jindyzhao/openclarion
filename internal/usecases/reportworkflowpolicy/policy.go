@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
@@ -237,6 +238,14 @@ func requireBoundProfilesEnabled(ctx context.Context, uow ports.UnitOfWork, poli
 	if !source.Enabled {
 		return fmt.Errorf("report workflow policy: alert source profile must be enabled before workflow policy enablement: %w", domain.ErrInvariantViolation)
 	}
+	if policy.DiagnosisFollowUp == domain.DiagnosisFollowUpModeAutoRoom &&
+		source.Kind != domain.AlertSourceKindAlertmanager {
+		return fmt.Errorf("report workflow policy: auto-room workflow policy requires an alertmanager alert source before workflow policy enablement: %w", domain.ErrInvariantViolation)
+	}
+	if policy.DiagnosisFollowUp == domain.DiagnosisFollowUpModeAutoRoom &&
+		policy.ReportNotificationChannelProfileID == 0 {
+		return fmt.Errorf("report workflow policy: auto-room workflow policy requires a notification channel profile before workflow policy enablement: %w", domain.ErrInvariantViolation)
+	}
 	grouping, err := uow.Config().FindGroupingPolicyByID(ctx, policy.GroupingPolicyID)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
@@ -261,15 +270,47 @@ func requireBoundProfilesEnabled(ctx context.Context, uow ports.UnitOfWork, poli
 		if !notificationChannelSupportsReport(channel) {
 			return fmt.Errorf("report workflow policy: notification channel profile must include report delivery scope before workflow policy enablement: %w", domain.ErrInvariantViolation)
 		}
+		if policy.DiagnosisFollowUp == domain.DiagnosisFollowUpModeAutoRoom &&
+			channel.Kind != domain.NotificationChannelKindWeCom {
+			return fmt.Errorf("report workflow policy: notification channel profile must be an Enterprise WeChat channel before auto-room workflow policy enablement: %w", domain.ErrInvariantViolation)
+		}
+		if policy.DiagnosisFollowUp == domain.DiagnosisFollowUpModeAutoRoom &&
+			!notificationChannelSupportsScope(channel, domain.NotificationDeliveryScopeDiagnosisConsultation) {
+			return fmt.Errorf("report workflow policy: notification channel profile must include diagnosis_consultation delivery scope before auto-room workflow policy enablement: %w", domain.ErrInvariantViolation)
+		}
+		if policy.DiagnosisFollowUp == domain.DiagnosisFollowUpModeAutoRoom &&
+			!notificationChannelSupportsScope(channel, domain.NotificationDeliveryScopeDiagnosisClose) {
+			return fmt.Errorf("report workflow policy: notification channel profile must include diagnosis_close delivery scope before auto-room workflow policy enablement: %w", domain.ErrInvariantViolation)
+		}
+		if policy.DiagnosisFollowUp == domain.DiagnosisFollowUpModeAutoRoom {
+			if missingProofs := channel.MissingAIDiagnosisProofContentKinds(); len(missingProofs) > 0 {
+				return fmt.Errorf("report workflow policy: notification channel profile must have current AI delivery test proof for %s before auto-room workflow policy enablement: %w", notificationProofKindList(missingProofs), domain.ErrInvariantViolation)
+			}
+		}
 	}
 	return nil
 }
 
 func notificationChannelSupportsReport(channel domain.NotificationChannelProfile) bool {
+	return notificationChannelSupportsScope(channel, domain.NotificationDeliveryScopeReport)
+}
+
+func notificationChannelSupportsScope(channel domain.NotificationChannelProfile, want domain.NotificationDeliveryScope) bool {
 	for _, scope := range channel.DeliveryScopes {
-		if scope == domain.NotificationDeliveryScopeReport {
+		if scope == want {
 			return true
 		}
 	}
 	return false
+}
+
+func notificationProofKindList(kinds []domain.NotificationChannelTestContentKind) string {
+	if len(kinds) == 0 {
+		return ""
+	}
+	out := make([]string, len(kinds))
+	for i, kind := range kinds {
+		out[i] = string(kind)
+	}
+	return strings.Join(out, ",")
 }

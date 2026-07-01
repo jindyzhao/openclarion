@@ -70,11 +70,12 @@ func cloneAlerts(in []ports.ActiveAlert) []ports.ActiveAlert {
 	out := make([]ports.ActiveAlert, len(in))
 	for i, a := range in {
 		out[i] = ports.ActiveAlert{
-			Source:      a.Source,
-			Labels:      cloneStringMap(a.Labels),
-			Annotations: cloneStringMap(a.Annotations),
-			StartsAt:    a.StartsAt,
-			RawPayload:  cloneRawPayload(a.RawPayload),
+			Source:               a.Source,
+			AlertSourceProfileID: a.AlertSourceProfileID,
+			Labels:               cloneStringMap(a.Labels),
+			Annotations:          cloneStringMap(a.Annotations),
+			StartsAt:             a.StartsAt,
+			RawPayload:           cloneRawPayload(a.RawPayload),
 		}
 	}
 	return out

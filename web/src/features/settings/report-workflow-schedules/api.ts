@@ -1,4 +1,8 @@
-import { requestJSON, type ApiResult } from "@/lib/api/client";
+import {
+  requestJSON,
+  type ApiResult,
+  type RequestJSONOptions,
+} from "@/lib/api/client";
 
 import type {
   ReportWorkflowSchedule,
@@ -6,47 +10,65 @@ import type {
   ReportWorkflowScheduleWriteRequest
 } from "./types";
 
-export async function fetchReportWorkflowSchedules(): Promise<ApiResult<ReportWorkflowScheduleListResponse>> {
-  return requestJSON<ReportWorkflowScheduleListResponse>("/api/v1/config/report-workflow-schedules?limit=100");
+type BackendRequestOptions = Pick<RequestJSONOptions, "headers">;
+
+export async function fetchReportWorkflowSchedules(
+  options: BackendRequestOptions = {}
+): Promise<ApiResult<ReportWorkflowScheduleListResponse>> {
+  return requestJSON<ReportWorkflowScheduleListResponse>("/api/v1/config/report-workflow-schedules?limit=100", {
+    headers: options.headers
+  });
 }
 
 export async function createReportWorkflowSchedule(
-  body: ReportWorkflowScheduleWriteRequest
+  body: ReportWorkflowScheduleWriteRequest,
+  options: BackendRequestOptions = {}
 ): Promise<ApiResult<ReportWorkflowSchedule>> {
   return requestJSON<ReportWorkflowSchedule>("/api/v1/config/report-workflow-schedules", {
     method: "POST",
-    body
+    body,
+    headers: options.headers
   });
 }
 
 export async function replaceReportWorkflowSchedule(
   scheduleID: number,
-  body: ReportWorkflowScheduleWriteRequest
+  body: ReportWorkflowScheduleWriteRequest,
+  options: BackendRequestOptions = {}
 ): Promise<ApiResult<ReportWorkflowSchedule>> {
   if (!positiveScheduleID(scheduleID)) {
     return { ok: false, error: { message: "Report workflow schedule ID must be a positive integer.", status: 400 } };
   }
   return requestJSON<ReportWorkflowSchedule>(`/api/v1/config/report-workflow-schedules/${scheduleID}`, {
     method: "PUT",
-    body
+    body,
+    headers: options.headers
   });
 }
 
-export async function enableReportWorkflowSchedule(scheduleID: number): Promise<ApiResult<ReportWorkflowSchedule>> {
+export async function enableReportWorkflowSchedule(
+  scheduleID: number,
+  options: BackendRequestOptions = {}
+): Promise<ApiResult<ReportWorkflowSchedule>> {
   if (!positiveScheduleID(scheduleID)) {
     return { ok: false, error: { message: "Report workflow schedule ID must be a positive integer.", status: 400 } };
   }
   return requestJSON<ReportWorkflowSchedule>(`/api/v1/config/report-workflow-schedules/${scheduleID}/enable`, {
-    method: "POST"
+    method: "POST",
+    headers: options.headers
   });
 }
 
-export async function disableReportWorkflowSchedule(scheduleID: number): Promise<ApiResult<ReportWorkflowSchedule>> {
+export async function disableReportWorkflowSchedule(
+  scheduleID: number,
+  options: BackendRequestOptions = {}
+): Promise<ApiResult<ReportWorkflowSchedule>> {
   if (!positiveScheduleID(scheduleID)) {
     return { ok: false, error: { message: "Report workflow schedule ID must be a positive integer.", status: 400 } };
   }
   return requestJSON<ReportWorkflowSchedule>(`/api/v1/config/report-workflow-schedules/${scheduleID}/disable`, {
-    method: "POST"
+    method: "POST",
+    headers: options.headers
   });
 }
 

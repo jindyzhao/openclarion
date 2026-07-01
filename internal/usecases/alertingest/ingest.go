@@ -130,6 +130,10 @@ func ingestOne(ctx context.Context, factory ports.UnitOfWorkFactory, a ports.Act
 		if err != nil {
 			return fmt.Errorf("build alert event: %w", err)
 		}
+		evt, err = evt.WithAlertSourceProfile(a.AlertSourceProfileID)
+		if err != nil {
+			return fmt.Errorf("tag alert event source profile: %w", err)
+		}
 		if _, err := uow.Alerts().SaveEvent(ctx, evt); err != nil {
 			// Propagate verbatim so ErrAlreadyExists (or any
 			// other repository error) reaches the caller; the

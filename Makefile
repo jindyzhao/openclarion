@@ -49,6 +49,9 @@
 #   make osv-scan         # validate npm lockfiles with OSV-Scanner
 #   make operations-config-hygiene # validate alert-operations endpoint and browser-state hygiene
 #   make manual-evidence-readiness # manual readiness preflight for remaining live/evidence targets
+#   make diagnosis-auth-live-smoke # manual live diagnosis auth status/check proof through HTTP API
+#   make notification-channel-live-smoke # manual live notification channel test through HTTP API
+#   make alertmanager-auto-diagnosis-live-smoke # manual live Alertmanager webhook to auto_room AI notification proof
 #   make report-live-smoke # manual live M2 smoke against real services
 #   make report-policy-live-smoke # manual live M3.1 profile-driven smoke against real services
 #   make report-schedule-live-smoke # manual M3.1 scheduled-trigger proof against real services
@@ -72,6 +75,7 @@
 #   make sandbox-m4-evidence-packet-verify PACKET_DIR=... # verify retained M4 packet without rerunning helpers
 #   make diagnosis-dev-oidc-issuer # manual M5 local OIDC issuer/token helper
 #   make diagnosis-live-browser-smoke # manual M5 browser smoke against real backend/worker stack
+#   make diagnosis-live-convergence-smoke # manual M5 backend-only WebSocket convergence smoke
 #   make diagnosis-room-policy-test # M5 pure policy boundary tests
 #   make diagnosis-room-workflow-test # M5 Temporal room workflow/client and lifecycle activity tests
 #   make diagnosis-auth-test # M5 AuthProvider/OIDC/RBAC/WS ticket boundary + persistence + transport relay tests
@@ -396,7 +400,7 @@ osv-scan: ## Detect known vulnerabilities in npm package-lock files
 # Go gates (activated at M0 bootstrap)
 # ---------------------------------------------------------------------------
 
-.PHONY: generated-headers generate generate-fresh go-vet go-build openclarion-release-build openclarion-service-image-build openclarion-service-image-push go-test go-coverage temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-m4-baseline-audit sandbox-quality-compare-test sandbox-m4-subreport-generate sandbox-m4-quality-sample-export sandbox-m4-quality-manifest-prepare sandbox-m4-quality-compare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
+.PHONY: generated-headers generate generate-fresh go-vet go-build openclarion-release-build openclarion-service-image-build openclarion-service-image-push go-test go-coverage temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-image-audit sandbox-m4-baseline-audit sandbox-quality-compare-test sandbox-m4-subreport-generate sandbox-m4-quality-sample-export sandbox-m4-quality-manifest-prepare sandbox-m4-quality-compare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke diagnosis-live-convergence-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
 
 generated-headers: ## Validate generated files carry generator headers
 	@bash scripts/check_generated_headers.sh
@@ -445,7 +449,7 @@ temporal-workflow-tests: ## Run focused Temporal workflow integration and replay
 	@go test -race -count=1 -timeout=9m ./internal/orchestrator/temporal
 
 report-live-smoke-output-test: ## Run focused M2/M3.1 live report proof validator tests
-	@go test -race -count=1 ./scripts/report_live_smoke_output ./scripts/report_schedule_live_smoke_output
+	@go test -race -count=1 ./scripts/report_ai_review_proof ./scripts/report_live_smoke_output ./scripts/report_schedule_live_smoke_output
 
 sandbox-security: ## Run focused M4 sandbox contract and Docker security-spec tests
 	@go test -race -count=1 ./internal/usecases/ports ./internal/providers/container/...
@@ -456,6 +460,10 @@ agent-tool-scripts-test: ## Run focused M4 sandbox tool helper contract tests
 sandbox-baseline-audit: ## Run code-level M4/M5 sandbox baseline audit
 	@go test -race -count=1 ./scripts/sandbox_baseline_audit
 	@go run ./scripts/sandbox_baseline_audit
+
+sandbox-image-audit: ## Manual M5 audit: verify OPENCLARION_SANDBOX_IMAGE_REF is the diagnosis assistant runtime
+	@go test -race -count=1 ./scripts/sandbox_image_audit
+	@go run ./scripts/sandbox_image_audit
 
 sandbox-m4-baseline-audit: ## Manual M4 baseline audit retention: OUT=...
 	@if [[ -z "$(OUT)" ]]; then \
@@ -587,8 +595,8 @@ diagnosis-chat-persistence-test: ## Run focused M5 ChatSession/ChatTurn persiste
 	@go test -race -count=1 ./internal/domain -run 'TestNewChatSession|TestChatSession_RecordTurnAndClose|TestNewChatTurn'
 	@go test -race -count=1 ./internal/persistence/repository -run 'TestDiagnosisRepository_(SaveChatSessionAndQuery|SaveChatSession_DuplicateKeys|SaveChatTurnAndList|ChatInvariantGuards)'
 
-diagnosis-live-smoke-output-test: ## Run focused M5 live browser smoke proof validator tests
-	@go test -race -count=1 ./scripts/diagnosis_live_smoke_output
+diagnosis-live-smoke-output-test: ## Run focused M5 live smoke proof validator tests
+	@go test -race -count=1 ./scripts/diagnosis_live_smoke_output ./scripts/diagnosis_live_convergence_smoke_output
 
 go-checks: generate go-vet go-build go-test ## Combined Go validation gate
 
@@ -636,10 +644,13 @@ ci-frontend-build: frontend-install ## Build the Next.js frontend
 
 ci-frontend-smoke: ci-frontend-build ## Run Playwright route smoke with a mocked API
 	@cd web && $(PLAYWRIGHT_INSTALL)
-	@cd web && $(PLAYWRIGHT_SMOKE_ENV) $(NPM) run smoke
+	@cd web && $(PLAYWRIGHT_SMOKE_ENV) $(NPM) run smoke:built
 
 diagnosis-live-browser-smoke: ## Manual M5 smoke: browser diagnosis room against a real backend/worker stack
 	@bash scripts/run_diagnosis_live_browser_smoke.sh
+
+diagnosis-live-convergence-smoke: ## Manual M5 smoke: backend-only diagnosis convergence against a real backend/worker stack
+	@bash scripts/run_diagnosis_live_convergence_smoke.sh
 
 ci-frontend-deadcode: frontend-install ## Run frontend dead-code checks
 	@cd web && $(NPM) run deadcode
@@ -668,7 +679,7 @@ frontend-checks: frontend-install ci-frontend-typecheck ci-frontend-lint ci-fron
 # See ADR-0001 (PostgreSQL single source of truth) and
 # docs/design/database/migrations.md.
 
-.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke sandbox-m4-runtime-smoke-artifacts diagnosis-dev-oidc-issuer stage5-local-worker-check stage5-local-worker
+.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness alert-consultation-setup diagnosis-auth-live-smoke notification-channel-live-smoke alertmanager-auto-diagnosis-live-smoke report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke sandbox-m4-runtime-smoke-artifacts diagnosis-dev-oidc-issuer stage5-local-worker-check stage5-local-worker
 
 ent-generate: ## Regenerate ent client + entity code from schemas under internal/persistence/ent/schema
 	@go generate $(ENT_PKG)/...
@@ -704,6 +715,18 @@ manual-evidence-readiness: ## Manual readiness preflight for remaining M2/M3.1/M
 	@args=(); \
 	if [[ -n "$(MANUAL_EVIDENCE_TARGET)" ]]; then args+=(--target "$(MANUAL_EVIDENCE_TARGET)"); fi; \
 	go run ./scripts/manual_evidence_readiness "$${args[@]}"
+
+alert-consultation-setup: ## Manual live setup: Alertmanager source + WeCom channel + auto_room workflow policy
+	@bash scripts/run_alert_consultation_setup.sh
+
+diagnosis-auth-live-smoke: ## Manual live diagnosis auth proof: HTTP API status/check with LDAP or bearer credentials
+	@bash scripts/run_diagnosis_auth_live_smoke.sh
+
+notification-channel-live-smoke: ## Manual live notification channel test: HTTP API -> profile secret_ref resolver -> Webhook
+	@bash scripts/run_notification_channel_live_smoke.sh
+
+alertmanager-auto-diagnosis-live-smoke: ## Manual live Alertmanager webhook -> auto_room diagnosis -> AI notification proof
+	@bash scripts/run_alertmanager_auto_diagnosis_live_smoke.sh
 
 report-live-smoke: ## Manual M2 smoke: real Prometheus -> Temporal -> Webhook via report-replay --wait
 	@bash scripts/run_report_live_smoke.sh

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/openclarion/openclarion/internal/observability/correlation"
 	"github.com/openclarion/openclarion/internal/strictjson"
@@ -30,6 +31,9 @@ const (
 
 	formatGeneric = "generic"
 	formatWeCom   = "wecom"
+
+	maxWeComTextContentBytes = 2048
+	weComTruncationSuffix    = "\n[truncated]"
 )
 
 // Config holds Webhook provider configuration.
@@ -129,7 +133,7 @@ func (p *Provider) SendNotification(ctx context.Context, req ports.IMNotificatio
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
 		return ports.IMDelivery{}, &ports.IMError{
-			Message:   fmt.Sprintf("webhook im: post notification: %v", err),
+			Message:   "webhook im: post notification failed",
 			Retryable: true,
 		}
 	}
@@ -183,7 +187,7 @@ func (p *Provider) sendWeComNotification(ctx context.Context, req ports.IMNotifi
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
 		return ports.IMDelivery{}, &ports.IMError{
-			Message:   fmt.Sprintf("webhook im: post wecom notification: %v", err),
+			Message:   "webhook im: post wecom notification failed",
 			Retryable: true,
 		}
 	}
@@ -374,7 +378,28 @@ func weComTextContent(req ports.IMNotification) string {
 		lines = append(lines, "Correlation: "+correlationKey)
 	}
 	lines = append(lines, strings.TrimSpace(req.Body))
-	return strings.Join(lines, "\n")
+	return truncateUTF8Bytes(strings.Join(lines, "\n"), maxWeComTextContentBytes, weComTruncationSuffix)
+}
+
+func truncateUTF8Bytes(value string, maxBytes int, suffix string) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	if len(value) <= maxBytes {
+		return value
+	}
+	if len(suffix) >= maxBytes {
+		suffix = ""
+	}
+	limit := maxBytes - len(suffix)
+	for limit > 0 && !utf8.RuneStart(value[limit]) {
+		limit--
+	}
+	truncated := strings.TrimRight(value[:limit], " \t\r\n")
+	if truncated == "" {
+		return suffix
+	}
+	return truncated + suffix
 }
 
 func deliveryFromWeComResponse(raw []byte) (ports.IMDelivery, error) {

@@ -14,6 +14,9 @@ import (
 
 // ListGroupingPolicies implements api.ServerInterface.
 func (s *Server) ListGroupingPolicies(w http.ResponseWriter, r *http.Request, params api.ListGroupingPoliciesParams) {
+	if !s.authorizeLocalRBACRequest(w, r, domain.RBACPermissionGroupingPolicyRead) {
+		return
+	}
 	limit, err := parseListLimit(params.Limit)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -38,6 +41,9 @@ func (s *Server) ListGroupingPolicies(w http.ResponseWriter, r *http.Request, pa
 
 // CreateGroupingPolicy implements api.ServerInterface.
 func (s *Server) CreateGroupingPolicy(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeLocalRBACRequest(w, r, domain.RBACPermissionGroupingPolicyManage) {
+		return
+	}
 	body, err := decodeGroupingPolicyWriteRequest(w, r)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -64,6 +70,9 @@ func (s *Server) GetGroupingPolicy(w http.ResponseWriter, r *http.Request, polic
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "policy_id must be positive", nil)
 		return
 	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionGroupingPolicyRead, domain.RBACScopeKindGroupingPolicy, rbacResourceScopeKey(policyID)) {
+		return
+	}
 
 	var policy domain.GroupingPolicy
 	err := s.uowFactory.WithinTx(r.Context(), func(ctx context.Context, uow ports.UnitOfWork) error {
@@ -86,6 +95,9 @@ func (s *Server) GetGroupingPolicy(w http.ResponseWriter, r *http.Request, polic
 func (s *Server) ReplaceGroupingPolicy(w http.ResponseWriter, r *http.Request, policyID int64) {
 	if policyID <= 0 {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "policy_id must be positive", nil)
+		return
+	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionGroupingPolicyManage, domain.RBACScopeKindGroupingPolicy, rbacResourceScopeKey(policyID)) {
 		return
 	}
 	body, err := decodeGroupingPolicyWriteRequest(w, r)
@@ -118,6 +130,9 @@ func (s *Server) PreviewGroupingPolicy(
 ) {
 	if policyID <= 0 {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "policy_id must be positive", nil)
+		return
+	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionGroupingPolicyRead, domain.RBACScopeKindGroupingPolicy, rbacResourceScopeKey(policyID)) {
 		return
 	}
 	limit, err := parseListLimit(params.Limit)

@@ -66,12 +66,13 @@ import (
 // strictly between 0 and math.MaxInt to keep Limit+1 from
 // overflowing.
 type Request struct {
-	WindowStart       time.Time
-	WindowEnd         time.Time
-	Grouping          alertgrouping.Config
-	SourceFilter      []string
-	CreatedByWorkflow string
-	Limit             int
+	WindowStart              time.Time
+	WindowEnd                time.Time
+	Grouping                 alertgrouping.Config
+	SourceFilter             []string
+	AlertSourceProfileFilter []domain.AlertSourceProfileID
+	CreatedByWorkflow        string
+	Limit                    int
 }
 
 // Result is the replay output needed by downstream report dispatch.
@@ -218,7 +219,26 @@ func ReplayWindowForReport(
 		return result, fmt.Errorf("alertreplay: ingest: %w", err)
 	}
 
-	// Step 2: short read tx for the window.
+	persisted, err := ReplayPersistedWindowForReport(ctx, factory, req)
+	persisted.Stats.Ingested = ingested
+	return persisted, err
+}
+
+// ReplayPersistedWindowForReport runs the grouping and evidence-snapshot
+// stages over alerts that have already been persisted. Push-style intake paths
+// such as Alertmanager webhooks use this after ingesting their request body so
+// they do not need to construct a provider only to read back local rows.
+func ReplayPersistedWindowForReport(
+	ctx context.Context,
+	factory ports.UnitOfWorkFactory,
+	req Request,
+) (Result, error) {
+	var result Result
+	if err := validatePersistedWindowRequest(factory, req); err != nil {
+		return result, err
+	}
+
+	// Step 1 for persisted windows: short read tx for the window.
 	var events []domain.AlertEvent
 	nStart := domain.NormalizeUTCMicro(req.WindowStart)
 	nEnd := domain.NormalizeUTCMicro(req.WindowEnd)
@@ -240,9 +260,12 @@ func ReplayWindowForReport(
 		)
 	}
 
-	matchedEvents := filterEventsBySource(events, req.SourceFilter)
+	matchedEvents := filterEventsBySourceProfile(
+		filterEventsBySource(events, req.SourceFilter),
+		req.AlertSourceProfileFilter,
+	)
 
-	// Step 3: deterministic grouping.
+	// Step 2: deterministic grouping.
 	drafts, err := alertgrouping.GroupEvents(matchedEvents, req.Grouping)
 	if err != nil {
 		return result, fmt.Errorf("alertreplay: group events: %w", err)
@@ -252,13 +275,13 @@ func ReplayWindowForReport(
 		return result, nil
 	}
 
-	// Step 4: reconstruct per-draft events.
+	// Step 3: reconstruct per-draft events.
 	eventByID := make(map[domain.AlertEventID]domain.AlertEvent, len(matchedEvents))
 	for i := range matchedEvents {
 		eventByID[matchedEvents[i].ID] = matchedEvents[i]
 	}
 
-	// Step 5: per-group pipeline.
+	// Step 4: per-group pipeline.
 	var failures []error
 	for i := range drafts {
 		draft := drafts[i]
@@ -319,6 +342,31 @@ func filterEventsBySource(events []domain.AlertEvent, sourceFilter []string) []d
 	return out
 }
 
+func filterEventsBySourceProfile(
+	events []domain.AlertEvent,
+	profileFilter []domain.AlertSourceProfileID,
+) []domain.AlertEvent {
+	if len(profileFilter) == 0 {
+		return events
+	}
+	allowed := make(map[domain.AlertSourceProfileID]struct{}, len(profileFilter))
+	for _, id := range profileFilter {
+		if id > 0 {
+			allowed[id] = struct{}{}
+		}
+	}
+	if len(allowed) == 0 {
+		return events
+	}
+	out := make([]domain.AlertEvent, 0, len(events))
+	for _, event := range events {
+		if _, ok := allowed[event.AlertSourceProfileID]; ok {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
 // validateRequest enforces orchestration-level invariants. Each
 // branch wraps domain.ErrInvariantViolation so callers can pattern-
 // match without parsing the message. Range comparison happens after
@@ -328,6 +376,10 @@ func validateRequest(provider ports.MetricsProvider, factory ports.UnitOfWorkFac
 	if provider == nil {
 		return fmt.Errorf("alertreplay: provider must be non-nil: %w", domain.ErrInvariantViolation)
 	}
+	return validatePersistedWindowRequest(factory, req)
+}
+
+func validatePersistedWindowRequest(factory ports.UnitOfWorkFactory, req Request) error {
 	if factory == nil {
 		return fmt.Errorf("alertreplay: factory must be non-nil: %w", domain.ErrInvariantViolation)
 	}
@@ -352,6 +404,11 @@ func validateRequest(provider ports.MetricsProvider, factory ports.UnitOfWorkFac
 		// Limit+1 would overflow; the safety valve relies on a
 		// well-defined upper bound.
 		return fmt.Errorf("alertreplay: Limit %d must be < math.MaxInt: %w", req.Limit, domain.ErrInvariantViolation)
+	}
+	for _, id := range req.AlertSourceProfileFilter {
+		if id < 0 {
+			return fmt.Errorf("alertreplay: alert source profile filter contains negative id %d: %w", id, domain.ErrInvariantViolation)
+		}
 	}
 	return nil
 }

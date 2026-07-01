@@ -298,6 +298,46 @@ func TestReplayWindowForReport_ReturnsSnapshotRefsForSavedAndDuplicateSnapshots(
 	}
 }
 
+func TestReplayPersistedWindowForReport_BuildsSnapshotsWithoutProviderIngest(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	batch := seedAlerts("AlertA", 2, windowStart, 0, time.Minute, "warning")
+	ingested, err := alertingest.IngestAlerts(ctx, batch, integration.factory)
+	if err != nil {
+		t.Fatalf("IngestAlerts: %v", err)
+	}
+	if ingested != (alertingest.Stats{Total: 2, Saved: 2}) {
+		t.Fatalf("ingested = %+v, want total=2 saved=2", ingested)
+	}
+
+	result, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, defaultRequest(windowStart, windowEnd))
+	if err != nil {
+		t.Fatalf("ReplayPersistedWindowForReport: %v", err)
+	}
+
+	if result.Stats.Ingested != (alertingest.Stats{}) {
+		t.Fatalf("persisted replay Ingested = %+v, want zero", result.Stats.Ingested)
+	}
+	if result.Stats.EventsLoaded != 2 || result.Stats.GroupsBuilt != 1 || result.Stats.SnapshotsSaved != 1 {
+		t.Fatalf("persisted replay stats = %+v, want loaded=2 groups=1 snapshots=1", result.Stats)
+	}
+	if len(result.Snapshots) != 1 {
+		t.Fatalf("snapshots len = %d, want 1", len(result.Snapshots))
+	}
+	if result.Snapshots[0].ID == 0 || result.Snapshots[0].GroupIndex != 0 || result.Snapshots[0].EventCount != 2 {
+		t.Fatalf("snapshot ref = %+v, want id>0 group_index=0 event_count=2", result.Snapshots[0])
+	}
+	if got := countAlertEvents(ctx, t); got != 2 {
+		t.Fatalf("alert_event count = %d, want 2", got)
+	}
+	if got := countEvidenceSnapshots(ctx, t); got != 1 {
+		t.Fatalf("evidence_snapshot count = %d, want 1", got)
+	}
+}
+
 // TestReplayWindow_OutOfWindowEventsExcluded: IngestOnce persists
 // every alert the provider returns, including those before the
 // replay window. ReplayWindow's Step 2 must filter them out so
@@ -393,6 +433,40 @@ func TestReplayWindow_SourceFilterExcludesNonMatchingEventsFromGrouping(t *testi
 	}
 	if got := countEventGroupLinks(ctx, t); got != 1 {
 		t.Fatalf("alert_event_groups count = %d, want only matching source linked", got)
+	}
+}
+
+func TestReplayWindow_SourceProfileFilterExcludesNonMatchingEventsFromGrouping(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+
+	matching := seedAlerts("AlertA", 1, windowStart, 0, time.Minute, "warning")[0]
+	matching.AlertSourceProfileID = 7
+	other := seedAlerts("AlertB", 1, windowStart, 0, time.Minute, "critical")[0]
+	other.AlertSourceProfileID = 9
+	provider := fake.New([]ports.ActiveAlert{matching, other})
+	req := defaultRequest(windowStart, windowEnd)
+	req.AlertSourceProfileFilter = []domain.AlertSourceProfileID{7}
+
+	stats, err := alertreplay.ReplayWindow(ctx, provider, integration.factory, req)
+	if err != nil {
+		t.Fatalf("ReplayWindow: %v", err)
+	}
+
+	if stats.Ingested.Total != 2 || stats.Ingested.Saved != 2 {
+		t.Fatalf("Ingested = %+v, want Total=2 Saved=2", stats.Ingested)
+	}
+	if stats.EventsLoaded != 2 {
+		t.Fatalf("EventsLoaded = %d, want 2 scanned in-window events", stats.EventsLoaded)
+	}
+	if stats.GroupsBuilt != 1 || stats.GroupsSaved != 1 || stats.SnapshotsSaved != 1 {
+		t.Fatalf("group stats = %+v, want one matching source profile group", stats)
+	}
+	if got := countEventGroupLinks(ctx, t); got != 1 {
+		t.Fatalf("alert_event_groups count = %d, want only matching source profile linked", got)
 	}
 }
 
@@ -738,6 +812,12 @@ func TestReplayWindow_RequestValidationRejected(t *testing.T) {
 			factory:  integration.factory,
 			req:      withLimit(good, math.MaxInt),
 		},
+		{
+			name:     "negative_source_profile_filter",
+			provider: provider,
+			factory:  integration.factory,
+			req:      withSourceProfileFilter(good, []domain.AlertSourceProfileID{-1}),
+		},
 	}
 
 	for _, tc := range cases {
@@ -778,6 +858,14 @@ func withWindow(r alertreplay.Request, start, end time.Time) alertreplay.Request
 
 func withLimit(r alertreplay.Request, limit int) alertreplay.Request {
 	r.Limit = limit
+	return r
+}
+
+func withSourceProfileFilter(
+	r alertreplay.Request,
+	filter []domain.AlertSourceProfileID,
+) alertreplay.Request {
+	r.AlertSourceProfileFilter = filter
 	return r
 }
 

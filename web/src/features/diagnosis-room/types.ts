@@ -8,10 +8,11 @@ export type DiagnosisConnectionStatus =
 
 export type DiagnosisConversationTurn = {
   role: string;
+  actor_subject?: string;
   content: string;
 };
 
-type DiagnosisFinalConclusion = {
+export type DiagnosisFinalConclusion = {
   status: string;
   source: string;
   reason?: string;
@@ -27,12 +28,19 @@ type DiagnosisFinalConclusion = {
   content?: string;
   confidence?: string;
   requires_human_review?: boolean;
+  confidence_rationale?: string;
+  findings?: string[];
+  recommended_actions?: string[];
+  evidence_requests?: DiagnosisEvidenceRequest[];
+  missing_evidence_requests?: DiagnosisConsultationEvidenceRequest[];
+  evidence_collection_suggestions?: DiagnosisConsultationEvidenceRequest[];
 };
 
 export type DiagnosisConsultationEvidenceRequest = {
   label: string;
   detail: string;
   priority: string;
+  source_request?: DiagnosisEvidenceRequest;
 };
 
 export type DiagnosisConsultationInsight = {
@@ -42,8 +50,16 @@ export type DiagnosisConsultationInsight = {
   conclusion_status?: string;
 };
 
+type DiagnosisRoomLatestError = {
+  code: string;
+  message: string;
+  message_id?: string;
+  occurred_at: string;
+};
+
 export type DiagnosisEvidenceRequest = {
   template_id?: number;
+  alert_source_profile_id?: number;
   tool: string;
   reason: string;
   query?: string;
@@ -54,6 +70,7 @@ export type DiagnosisEvidenceRequest = {
 
 export type DiagnosisActiveAlert = {
   source: string;
+  alert_source_profile_id?: number;
   labels?: Record<string, string> | null;
   annotations?: Record<string, string> | null;
   starts_at: string;
@@ -97,6 +114,49 @@ export type DiagnosisEvidenceCollectionResult = {
   collected_at: string;
 };
 
+export type DiagnosisEvidenceTimelineEntry = {
+  turn_count: number;
+  message_id?: string;
+  assistant_message_id?: string;
+  actor_subject?: string;
+  trigger?: string;
+  evidence_requests?: DiagnosisEvidenceRequest[];
+  evidence_collection_results?: DiagnosisEvidenceCollectionResult[];
+};
+
+export type DiagnosisConfidenceTimelineEntry = {
+  turn_count: number;
+  message_id?: string;
+  assistant_message_id?: string;
+  assistant_turn_id?: number;
+  assistant_sequence?: number;
+  occurred_at: string;
+  trigger?: string;
+  confidence: string;
+  requires_human_review: boolean;
+  conclusion_status?: string;
+  confidence_rationale?: string;
+  evidence_requests?: DiagnosisEvidenceRequest[];
+  evidence_collection_results?: DiagnosisEvidenceCollectionResult[];
+  missing_evidence_requests?: DiagnosisConsultationEvidenceRequest[];
+  evidence_collection_suggestions?: DiagnosisConsultationEvidenceRequest[];
+};
+
+export type DiagnosisSupplementalEvidenceRecord = {
+  label: string;
+  detail: string;
+  priority: string;
+  evidence: string;
+  actor_subject?: string;
+  user_message_id: string;
+  assistant_message_id: string;
+  user_turn_id: number;
+  assistant_turn_id: number;
+  user_sequence: number;
+  assistant_sequence: number;
+  provided_at: string;
+};
+
 type DiagnosisReadyFrame = {
   type: "ready";
   session_id: string;
@@ -121,8 +181,11 @@ type DiagnosisTurnResultFrame = {
   confidence: string;
   evidence_requests?: DiagnosisEvidenceRequest[];
   evidence_collection_results?: DiagnosisEvidenceCollectionResult[];
+  evidence_timeline?: DiagnosisEvidenceTimelineEntry[];
+  confidence_timeline?: DiagnosisConfidenceTimelineEntry[];
   consultation_insight?: DiagnosisConsultationInsight;
   follow_up_turns?: DiagnosisFollowUpTurn[];
+  latest_error?: DiagnosisRoomLatestError;
 };
 
 type DiagnosisFollowUpTurn = {
@@ -159,7 +222,14 @@ export type DiagnosisStateFrame = {
   final_conclusion?: DiagnosisFinalConclusion;
   confidence?: string;
   requires_human_review?: boolean;
+  evidence_requests?: DiagnosisEvidenceRequest[];
+  evidence_collection_results?: DiagnosisEvidenceCollectionResult[];
+  evidence_timeline?: DiagnosisEvidenceTimelineEntry[];
+  confidence_timeline?: DiagnosisConfidenceTimelineEntry[];
+  supplemental_evidence?: DiagnosisSupplementalEvidenceRecord[];
   consultation_insight?: DiagnosisConsultationInsight;
+  follow_up_turns?: DiagnosisFollowUpTurn[];
+  latest_error?: DiagnosisRoomLatestError;
   in_flight: boolean;
   seen_message_ids: string[];
   conversation: DiagnosisConversationTurn[];
@@ -182,8 +252,16 @@ export type DiagnosisClientFrame =
   | { type: "confirm_conclusion"; reason?: string }
   | { type: "submit_turn"; message_id: string; message: string }
   | {
+      type: "collect_evidence";
+      message_id: string;
+      message: string;
+      evidence_requests: DiagnosisEvidenceRequest[];
+    }
+  | {
       type: "submit_supplemental_evidence";
       message_id: string;
       message: string;
-      supplemental_evidence: DiagnosisConsultationEvidenceRequest & { evidence: string };
+      supplemental_evidence: DiagnosisConsultationEvidenceRequest & {
+        evidence: string;
+      };
     };

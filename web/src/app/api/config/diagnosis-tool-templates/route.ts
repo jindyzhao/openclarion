@@ -3,12 +3,15 @@ import {
   fetchDiagnosisToolTemplates
 } from "@/features/settings/diagnosis-tool-templates/api";
 import type { DiagnosisToolTemplateWriteRequest } from "@/features/settings/diagnosis-tool-templates/types";
+import { authorizedBackendResultResponse } from "@/lib/api/protected-route";
 import { apiResultResponse, readRequestJSON } from "@/lib/api/route";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  return apiResultResponse(await fetchDiagnosisToolTemplates());
+export async function GET(request: Request) {
+  return authorizedBackendResultResponse(request, (headers) =>
+    fetchDiagnosisToolTemplates({ headers }),
+  );
 }
 
 export async function POST(request: Request) {
@@ -16,5 +19,9 @@ export async function POST(request: Request) {
   if (!body.ok) {
     return apiResultResponse(body);
   }
-  return apiResultResponse(await createDiagnosisToolTemplate(body.data), 201);
+  return authorizedBackendResultResponse(
+    request,
+    (headers) => createDiagnosisToolTemplate(body.data, { headers }),
+    201,
+  );
 }

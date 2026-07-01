@@ -1,0 +1,75 @@
+import { ReportShell } from "@/features/reports/report-shell";
+import { fetchAlertSourceProfiles } from "@/features/settings/alert-sources/api";
+import { fetchDiagnosisToolTemplates } from "@/features/settings/diagnosis-tool-templates/api";
+import {
+  fetchDirectoryDepartments,
+  fetchDirectorySyncRuns,
+  fetchDirectoryUsers,
+  fetchRBACAssignments,
+} from "@/features/settings/directory-rbac/api";
+import { DirectoryRBACSettingsManager } from "@/features/settings/directory-rbac/directory-rbac-settings-view";
+import { fetchGroupingPolicies } from "@/features/settings/grouping-policies/api";
+import { fetchNotificationChannelProfiles } from "@/features/settings/notification-channels/api";
+import { fetchReportWorkflowPolicies } from "@/features/settings/report-workflow-policies/api";
+import { fetchReportWorkflowSchedules } from "@/features/settings/report-workflow-schedules/api";
+import { diagnosisBackendRequestOptionsFromIncomingHeaders } from "@/lib/api/server-authorization";
+
+export const dynamic = "force-dynamic";
+
+export default async function DirectoryRBACSettingsPage() {
+  const backendRequestOptions =
+    await diagnosisBackendRequestOptionsFromIncomingHeaders();
+  const [
+    users,
+    departments,
+    syncRuns,
+    assignments,
+    alertSources,
+    groupingPolicies,
+    workflowPolicies,
+    workflowSchedules,
+    notificationChannels,
+    diagnosisToolTemplates,
+  ] = await Promise.all([
+    fetchDirectoryUsers({ limit: 100 }, backendRequestOptions),
+    fetchDirectoryDepartments({ limit: 100 }, backendRequestOptions),
+    fetchDirectorySyncRuns({ limit: 10 }, backendRequestOptions),
+    fetchRBACAssignments(100, backendRequestOptions),
+    fetchAlertSourceProfiles(backendRequestOptions),
+    fetchGroupingPolicies(backendRequestOptions),
+    fetchReportWorkflowPolicies(backendRequestOptions),
+    fetchReportWorkflowSchedules(backendRequestOptions),
+    fetchNotificationChannelProfiles(backendRequestOptions),
+    fetchDiagnosisToolTemplates(backendRequestOptions),
+  ]);
+  const userCount = users.ok ? users.data.items.length : 0;
+  const departmentCount = departments.ok ? departments.data.items.length : 0;
+  const assignmentCount = assignments.ok ? assignments.data.items.length : 0;
+
+  return (
+    <ReportShell current="directory-rbac">
+      <section className="page-heading">
+        <div>
+          <h1>Directory & RBAC</h1>
+          <p>Local IAM directory projection and OpenClarion access rules.</p>
+        </div>
+        <div className="status-line">
+          {userCount} users / {departmentCount} departments / {assignmentCount} rules
+        </div>
+      </section>
+
+      <DirectoryRBACSettingsManager
+        alertSourcesResult={alertSources}
+        assignmentsResult={assignments}
+        departmentsResult={departments}
+        diagnosisToolTemplatesResult={diagnosisToolTemplates}
+        groupingPoliciesResult={groupingPolicies}
+        notificationChannelsResult={notificationChannels}
+        syncRunsResult={syncRuns}
+        usersResult={users}
+        workflowPoliciesResult={workflowPolicies}
+        workflowSchedulesResult={workflowSchedules}
+      />
+    </ReportShell>
+  );
+}

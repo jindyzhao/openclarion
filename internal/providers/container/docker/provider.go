@@ -4,6 +4,9 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,9 +14,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
+	dockerstdcopy "github.com/moby/moby/api/pkg/stdcopy"
 	dockercontainer "github.com/moby/moby/api/types/container"
 	dockermount "github.com/moby/moby/api/types/mount"
 	dockernetwork "github.com/moby/moby/api/types/network"
@@ -25,6 +30,11 @@ const (
 	defaultStopTimeoutSeconds = 2
 	removeTimeout             = 10 * time.Second
 	outputCopyTimeout         = 10 * time.Second
+	failureLogTimeout         = 3 * time.Second
+	failureLogTailLines       = "80"
+	failureLogCaptureBytes    = 64 * 1024
+	failureLogEmitBytes       = 4096
+	dockerLogFrameHeaderBytes = 8
 	sandboxInputFileMode      = 0o644
 	sandboxOutputDirMode      = 0o777
 	labelComponent            = "openclarion.component"
@@ -43,6 +53,7 @@ type EngineClient interface {
 	ContainerKill(ctx context.Context, containerID string, options dockerclient.ContainerKillOptions) (dockerclient.ContainerKillResult, error)
 	ContainerRemove(ctx context.Context, containerID string, options dockerclient.ContainerRemoveOptions) (dockerclient.ContainerRemoveResult, error)
 	CopyFromContainer(ctx context.Context, containerID string, options dockerclient.CopyFromContainerOptions) (dockerclient.CopyFromContainerResult, error)
+	ContainerLogs(ctx context.Context, containerID string, options dockerclient.ContainerLogsOptions) (dockerclient.ContainerLogsResult, error)
 }
 
 // EgressEnforcer verifies that a provider-specific network mode enforces
@@ -196,7 +207,11 @@ func (p *Provider) Run(ctx context.Context, req ports.ContainerRunRequest) (resu
 		return result, fmt.Errorf("docker container %s wait error: %s", result.RuntimeID, waitResponse.Error.Message)
 	}
 	if result.ExitCode != 0 {
-		return result, fmt.Errorf("docker container %s exited with code %d", result.RuntimeID, result.ExitCode)
+		return result, &ports.ContainerExitError{
+			RuntimeID:  result.RuntimeID,
+			ExitCode:   result.ExitCode,
+			Diagnostic: p.failureLogDiagnostic(result.RuntimeID),
+		}
 	}
 
 	output, err := p.copyOutput(ctx, result.RuntimeID, spec.OutputPath, req.EffectiveOutputMax())
@@ -296,6 +311,196 @@ func (p *Provider) copyOutput(ctx context.Context, containerID, outputPath strin
 		return nil, fmt.Errorf("docker container output %s:%s: %w", containerID, outputPath, err)
 	}
 	return output, nil
+}
+
+func (p *Provider) failureLogDiagnostic(containerID string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), failureLogTimeout)
+	defer cancel()
+	logs, err := p.engine.ContainerLogs(ctx, containerID, dockerclient.ContainerLogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Tail:       failureLogTailLines,
+	})
+	if err != nil {
+		return fmt.Sprintf("logs_unavailable=%q", sanitizeFailureLogText(err.Error()))
+	}
+	if logs == nil {
+		return "logs_unavailable=\"empty log stream\""
+	}
+	defer logs.Close()
+
+	stdout := newFailureLogTail()
+	stderr := newFailureLogTail()
+	if err := copyDockerLogFrames(logs, stdout, stderr); err != nil {
+		return fmt.Sprintf("logs_unavailable=%q", sanitizeFailureLogText(err.Error()))
+	}
+	stdoutTail := sanitizeFailureLogText(stdout.safeString())
+	stderrTail := sanitizeFailureLogText(stderr.safeString())
+	fields := []string{
+		fmt.Sprintf("stdout_bytes=%d", stdout.total),
+		fmt.Sprintf("stderr_bytes=%d", stderr.total),
+		fmt.Sprintf("stdout_sha256=%s", failureLogSHA256([]byte(stdoutTail))),
+		fmt.Sprintf("stderr_sha256=%s", failureLogSHA256([]byte(stderrTail))),
+	}
+	if stdoutTail != "" {
+		fields = append(fields, fmt.Sprintf("stdout_tail=%q", stdoutTail))
+	}
+	if stderrTail != "" {
+		fields = append(fields, fmt.Sprintf("stderr_tail=%q", stderrTail))
+	}
+	return "logs " + strings.Join(fields, " ")
+}
+
+func copyDockerLogFrames(reader io.Reader, stdout io.Writer, stderr io.Writer) error {
+	header := make([]byte, dockerLogFrameHeaderBytes)
+	for {
+		if _, err := io.ReadFull(reader, header); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			if errors.Is(err, io.ErrUnexpectedEOF) {
+				return fmt.Errorf("docker log stream ended with a partial frame header")
+			}
+			return fmt.Errorf("read docker log frame header: %w", err)
+		}
+		size := int64(binary.BigEndian.Uint32(header[4:8]))
+		var target io.Writer
+		switch dockerstdcopy.StdType(header[0]) {
+		case dockerstdcopy.Stdin, dockerstdcopy.Stdout:
+			target = stdout
+		case dockerstdcopy.Stderr:
+			target = stderr
+		case dockerstdcopy.Systemerr:
+			systemErr := newFailureLogTail()
+			if err := copyDockerLogFramePayload(reader, systemErr, size); err != nil {
+				return err
+			}
+			return fmt.Errorf("docker log system stream: %s", sanitizeFailureLogText(systemErr.safeString()))
+		default:
+			if err := copyDockerLogFramePayload(reader, io.Discard, size); err != nil {
+				return err
+			}
+			return fmt.Errorf("docker log stream has unsupported stream type %d", header[0])
+		}
+		if err := copyDockerLogFramePayload(reader, target, size); err != nil {
+			return err
+		}
+	}
+}
+
+func copyDockerLogFramePayload(reader io.Reader, target io.Writer, size int64) error {
+	if size == 0 {
+		return nil
+	}
+	if _, err := io.CopyN(target, reader, size); err != nil {
+		return fmt.Errorf("read docker log frame payload: %w", err)
+	}
+	return nil
+}
+
+type failureLogTail struct {
+	buf       []byte
+	total     int64
+	truncated bool
+}
+
+func newFailureLogTail() *failureLogTail {
+	return &failureLogTail{buf: make([]byte, 0, failureLogCaptureBytes)}
+}
+
+func (b *failureLogTail) Write(p []byte) (int, error) {
+	written := len(p)
+	b.total += int64(written)
+	if written >= failureLogCaptureBytes {
+		b.buf = append(b.buf[:0], p[written-failureLogCaptureBytes:]...)
+		b.truncated = true
+		return written, nil
+	}
+	b.buf = append(b.buf, p...)
+	if overflow := len(b.buf) - failureLogCaptureBytes; overflow > 0 {
+		copy(b.buf, b.buf[overflow:])
+		b.buf = b.buf[:failureLogCaptureBytes]
+		b.truncated = true
+	}
+	return written, nil
+}
+
+func (b *failureLogTail) safeString() string {
+	raw := b.buf
+	if b.truncated {
+		newline := bytes.IndexByte(raw, '\n')
+		if newline < 0 || newline+1 >= len(raw) {
+			return ""
+		}
+		raw = raw[newline+1:]
+	}
+	return string(raw)
+}
+
+func failureLogSHA256(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
+
+var failureLogRedactors = []struct {
+	pattern     *regexp.Regexp
+	replacement string
+}{
+	{
+		pattern:     regexp.MustCompile(`(?i)(bearer[[:space:]]+)[A-Za-z0-9._~+/\-=]+`),
+		replacement: `${1}<redacted>`,
+	},
+	{
+		pattern:     regexp.MustCompile(`(?i)((?:api[_-]?key|access[_-]?token|token|secret|password|authorization|webhook(?:[_-]?url)?)[[:space:]]*[:=][[:space:]]*["']?)[^"',;[:space:]]+`),
+		replacement: `${1}<redacted>`,
+	},
+	{
+		pattern:     regexp.MustCompile(`(?i)((?:[A-Z0-9_]*(?:API_KEY|TOKEN|SECRET|PASSWORD|WEBHOOK_URL|BASE_URL|ENDPOINT|URL))=)[^[:space:]]+`),
+		replacement: `${1}<redacted>`,
+	},
+	{
+		pattern:     regexp.MustCompile(`(?i)([?&](?:key|token|access_token|api_key|apikey|secret)=)[^&[:space:]"']+`),
+		replacement: `${1}<redacted>`,
+	},
+	{
+		pattern:     regexp.MustCompile(`https?://[^[:space:]"']+`),
+		replacement: `<redacted-url>`,
+	},
+	{
+		pattern:     regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9._~+/\-]{31,}`),
+		replacement: `<redacted-token>`,
+	},
+}
+
+func sanitizeFailureLogText(raw string) string {
+	if raw == "" || failureLogEmitBytes <= 0 {
+		return ""
+	}
+	out := strings.ToValidUTF8(raw, "?")
+	out = strings.Map(func(r rune) rune {
+		switch r {
+		case '\n', '\t':
+			return r
+		case '\r':
+			return '\n'
+		}
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, out)
+	for _, redactor := range failureLogRedactors {
+		out = redactor.pattern.ReplaceAllString(out, redactor.replacement)
+	}
+	out = strings.TrimSpace(out)
+	if len(out) <= failureLogEmitBytes {
+		return out
+	}
+	out = out[len(out)-failureLogEmitBytes:]
+	if newline := strings.IndexByte(out, '\n'); newline >= 0 && newline+1 < len(out) {
+		out = out[newline+1:]
+	}
+	return strings.TrimSpace(out)
 }
 
 func (p *Provider) prepareWorkspace(req ports.ContainerRunRequest) (WorkspacePaths, func() error, error) {

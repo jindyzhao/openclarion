@@ -54,6 +54,9 @@ type GroupingPolicy func(*sql.Selector)
 // NotificationChannelProfile is the predicate function for notificationchannelprofile builders.
 type NotificationChannelProfile func(*sql.Selector)
 
+// NotificationChannelTestProof is the predicate function for notificationchanneltestproof builders.
+type NotificationChannelTestProof func(*sql.Selector)
+
 // RBACAssignment is the predicate function for rbacassignment builders.
 type RBACAssignment func(*sql.Selector)
 

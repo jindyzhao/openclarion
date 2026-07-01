@@ -73,8 +73,9 @@ type SessionState struct {
 // ConversationTurn is the bounded transcript shape mounted as
 // /workspace/conversation.json.
 type ConversationTurn struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role         string `json:"role"`
+	ActorSubject string `json:"actor_subject,omitempty"`
+	Content      string `json:"content"`
 }
 
 // SubmitTurnRequest is the pre-sandbox validation input for one user turn.

@@ -14,7 +14,7 @@ func TestNewReportWorkflowPolicyValidatesAndTrims(t *testing.T) {
 		NotificationChannelProfileID(3),
 		ReportWorkflowTriggerModeManualReplay,
 		ReportWorkflowScenarioCascade,
-		DiagnosisFollowUpModeSuggestRoom,
+		DiagnosisFollowUpModeAutoRoom,
 		false,
 		nil,
 		nil,
@@ -27,7 +27,7 @@ func TestNewReportWorkflowPolicyValidatesAndTrims(t *testing.T) {
 		policy.GroupingPolicyID != 2 ||
 		policy.ReportNotificationChannelProfileID != 3 ||
 		policy.ReportScenario != ReportWorkflowScenarioCascade ||
-		policy.DiagnosisFollowUp != DiagnosisFollowUpModeSuggestRoom ||
+		policy.DiagnosisFollowUp != DiagnosisFollowUpModeAutoRoom ||
 		policy.Enabled {
 		t.Fatalf("policy = %+v", policy)
 	}

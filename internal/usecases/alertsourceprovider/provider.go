@@ -112,7 +112,35 @@ func (b *Builder) Build(ctx context.Context, profile domain.AlertSourceProfile) 
 	if provider == nil {
 		return nil, fmt.Errorf("alert source provider: factory returned nil provider: %w", domain.ErrInvariantViolation)
 	}
-	return provider, nil
+	return sourceProfileProvider{
+		profileID: profile.ID,
+		inner:     provider,
+	}, nil
+}
+
+type sourceProfileProvider struct {
+	profileID domain.AlertSourceProfileID
+	inner     ports.MetricsProvider
+}
+
+func (p sourceProfileProvider) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, error) {
+	alerts, err := p.inner.ListActiveAlerts(ctx)
+	if err != nil || p.profileID == 0 || len(alerts) == 0 {
+		return alerts, err
+	}
+	out := append([]ports.ActiveAlert(nil), alerts...)
+	for i := range out {
+		out[i].AlertSourceProfileID = p.profileID
+	}
+	return out, nil
+}
+
+func (p sourceProfileProvider) QueryMetric(ctx context.Context, req ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	return p.inner.QueryMetric(ctx, req)
+}
+
+func (p sourceProfileProvider) QueryMetricRange(ctx context.Context, req ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	return p.inner.QueryMetricRange(ctx, req)
 }
 
 // ResolveCredentials resolves server-side credentials for a stored alert

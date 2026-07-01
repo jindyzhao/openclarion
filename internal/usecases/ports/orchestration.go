@@ -32,6 +32,14 @@ type WorkflowHandle struct {
 	RunID      string
 }
 
+// DiagnosisRoomInitialTurnRequest describes an automatic first turn that the
+// room workflow should run after creating its durable session boundary.
+type DiagnosisRoomInitialTurnRequest struct {
+	MessageID    string
+	ActorSubject string
+	Message      string
+}
+
 // ReportWorkflowStarter starts the report batch orchestration without
 // exposing a concrete workflow engine to usecases.
 type ReportWorkflowStarter interface {
@@ -41,10 +49,12 @@ type ReportWorkflowStarter interface {
 // DiagnosisRoomStartRequest describes an idempotent request to start one
 // short-conversation diagnosis room from a frozen EvidenceSnapshot.
 type DiagnosisRoomStartRequest struct {
-	SessionID          string
-	EvidenceSnapshotID domain.EvidenceSnapshotID
-	OwnerSubject       string
-	Evidence           json.RawMessage
+	SessionID                         string
+	EvidenceSnapshotID                domain.EvidenceSnapshotID
+	OwnerSubject                      string
+	Evidence                          json.RawMessage
+	CloseNotificationChannelProfileID domain.NotificationChannelProfileID
+	InitialTurn                       *DiagnosisRoomInitialTurnRequest
 }
 
 // DiagnosisRoomStartResult is returned once the room workflow has created its
@@ -74,6 +84,23 @@ type DiagnosisRoomSubmitTurnRequest struct {
 	SupplementalEvidence *DiagnosisRoomSupplementalEvidence
 }
 
+// DiagnosisRoomCollectEvidenceRequest asks the room workflow to execute one
+// operator-selected evidence plan and reassess the diagnosis with the results.
+type DiagnosisRoomCollectEvidenceRequest struct {
+	SessionID    string
+	MessageID    string
+	ActorSubject string
+	Message      string
+	Requests     []DiagnosisRoomEvidenceRequest
+}
+
+// DiagnosisRoomCollectEvidenceResult returns the updated room state plus any
+// automatic AI reassessment turns triggered by the just-collected evidence.
+type DiagnosisRoomCollectEvidenceResult struct {
+	State         DiagnosisRoomState
+	FollowUpTurns []DiagnosisRoomFollowUpTurnResult
+}
+
 // DiagnosisRoomSupplementalEvidence captures operator-provided evidence that
 // answers a specific missing-evidence request or collection suggestion.
 type DiagnosisRoomSupplementalEvidence struct {
@@ -81,6 +108,23 @@ type DiagnosisRoomSupplementalEvidence struct {
 	Detail   string
 	Priority string
 	Evidence string
+}
+
+// DiagnosisRoomSupplementalEvidenceRecord captures one accepted supplemental
+// evidence update plus the persisted conversation turn metadata that caused it.
+type DiagnosisRoomSupplementalEvidenceRecord struct {
+	Label              string
+	Detail             string
+	Priority           string
+	Evidence           string
+	ActorSubject       string
+	UserMessageID      string
+	AssistantMessageID string
+	UserTurnID         domain.ChatTurnID
+	AssistantTurnID    domain.ChatTurnID
+	UserSequence       int
+	AssistantSequence  int
+	ProvidedAt         time.Time
 }
 
 // DiagnosisRoomConfirmConclusionRequest describes one explicit operator
@@ -110,8 +154,11 @@ type DiagnosisRoomSubmitTurnResult struct {
 	Confidence          string
 	EvidenceRequests    []DiagnosisRoomEvidenceRequest
 	CollectionResults   []DiagnosisRoomEvidenceCollectionResult
+	EvidenceTimeline    []DiagnosisRoomEvidenceTimelineEntry
+	ConfidenceTimeline  []DiagnosisRoomConfidenceTimelineEntry
 	ConsultationInsight DiagnosisRoomConsultationInsight
 	FollowUpTurns       []DiagnosisRoomFollowUpTurnResult
+	LatestError         *DiagnosisRoomLatestError
 }
 
 // DiagnosisRoomFollowUpTurnResult describes one workflow-triggered turn that
@@ -135,23 +182,67 @@ type DiagnosisRoomFollowUpTurnResult struct {
 	Trigger             string
 }
 
+// DiagnosisRoomEvidenceTimelineEntry records one concrete evidence collection
+// cycle so reconnect/read flows do not have to infer evidence history from the
+// latest assistant turn.
+type DiagnosisRoomEvidenceTimelineEntry struct {
+	TurnCount          int
+	MessageID          string
+	AssistantMessageID string
+	ActorSubject       string
+	Trigger            string
+	EvidenceRequests   []DiagnosisRoomEvidenceRequest
+	CollectionResults  []DiagnosisRoomEvidenceCollectionResult
+}
+
+// DiagnosisRoomConfidenceTimelineEntry records one assistant confidence
+// checkpoint for reconnect/read flows.
+type DiagnosisRoomConfidenceTimelineEntry struct {
+	TurnCount                     int
+	MessageID                     string
+	AssistantMessageID            string
+	AssistantTurnID               domain.ChatTurnID
+	AssistantSequence             int
+	OccurredAt                    time.Time
+	Trigger                       string
+	Confidence                    string
+	RequiresHumanReview           bool
+	ConclusionStatus              string
+	ConfidenceRationale           string
+	EvidenceRequests              []DiagnosisRoomEvidenceRequest
+	CollectionResults             []DiagnosisRoomEvidenceCollectionResult
+	MissingEvidenceRequests       []DiagnosisRoomConsultationEvidenceRequest
+	EvidenceCollectionSuggestions []DiagnosisRoomConsultationEvidenceRequest
+}
+
+// DiagnosisRoomLatestError is the last operator-visible diagnosis-room
+// failure retained for reconnect/read flows.
+type DiagnosisRoomLatestError struct {
+	Code       string
+	Message    string
+	MessageID  string
+	OccurredAt time.Time
+}
+
 // DiagnosisRoomConversationTurn is the workflow-visible reconnect transcript
 // shape returned by DiagnosisRoomWorkflow queries.
 type DiagnosisRoomConversationTurn struct {
-	Role    string
-	Content string
+	Role         string
+	ActorSubject string
+	Content      string
 }
 
 // DiagnosisRoomEvidenceRequest captures one bounded, executable evidence
 // collection plan returned by a diagnosis-room turn.
 type DiagnosisRoomEvidenceRequest struct {
-	TemplateID    domain.DiagnosisToolTemplateID
-	Tool          domain.DiagnosisToolKind
-	Reason        string
-	Query         string
-	WindowSeconds int
-	StepSeconds   int
-	Limit         int
+	TemplateID           domain.DiagnosisToolTemplateID
+	AlertSourceProfileID domain.AlertSourceProfileID
+	Tool                 domain.DiagnosisToolKind
+	Reason               string
+	Query                string
+	WindowSeconds        int
+	StepSeconds          int
+	Limit                int
 }
 
 // DiagnosisRoomEvidenceCollectionResult captures the provider-backed outcome
@@ -179,10 +270,11 @@ type DiagnosisRoomEvidenceCollectionResult struct {
 // DiagnosisRoomActiveAlert is the operator-facing active alert projection
 // included in diagnosis evidence collection results.
 type DiagnosisRoomActiveAlert struct {
-	Source      string
-	Labels      map[string]string
-	Annotations map[string]string
-	StartsAt    time.Time
+	Source               string
+	AlertSourceProfileID domain.AlertSourceProfileID
+	Labels               map[string]string
+	Annotations          map[string]string
+	StartsAt             time.Time
 }
 
 // DiagnosisRoomMetricQueryResult is the operator-facing metric evidence
@@ -227,21 +319,27 @@ type DiagnosisRoomConsultationInsight struct {
 // DiagnosisRoomFinalConclusion is the close-time conclusion snapshot returned
 // for read/reconnect flows after the room has closed.
 type DiagnosisRoomFinalConclusion struct {
-	Status                  string
-	Source                  string
-	Reason                  string
-	EvidenceSnapshotID      domain.EvidenceSnapshotID
-	ConclusionVersion       string
-	RecordedAt              *time.Time
-	ConfirmedBy             string
-	SupplementalContextRefs []string
-	AssistantTurnID         domain.ChatTurnID
-	AssistantMessageID      string
-	AssistantSequence       int
-	AssistantOccurredAt     *time.Time
-	Content                 string
-	Confidence              string
-	RequiresHumanReview     *bool
+	Status                        string
+	Source                        string
+	Reason                        string
+	EvidenceSnapshotID            domain.EvidenceSnapshotID
+	ConclusionVersion             string
+	RecordedAt                    *time.Time
+	ConfirmedBy                   string
+	SupplementalContextRefs       []string
+	AssistantTurnID               domain.ChatTurnID
+	AssistantMessageID            string
+	AssistantSequence             int
+	AssistantOccurredAt           *time.Time
+	Content                       string
+	Confidence                    string
+	RequiresHumanReview           *bool
+	ConfidenceRationale           string
+	Findings                      []string
+	RecommendedActions            []string
+	EvidenceRequests              []DiagnosisRoomEvidenceRequest
+	MissingEvidenceRequests       []DiagnosisRoomConsultationEvidenceRequest
+	EvidenceCollectionSuggestions []DiagnosisRoomConsultationEvidenceRequest
 }
 
 // DiagnosisRoomState is the provider-neutral room state returned for
@@ -261,6 +359,12 @@ type DiagnosisRoomState struct {
 	LatestConsultationInsight *DiagnosisRoomConsultationInsight
 	LatestConfidence          string
 	LatestRequiresHumanReview *bool
+	LatestEvidenceRequests    []DiagnosisRoomEvidenceRequest
+	LatestCollectionResults   []DiagnosisRoomEvidenceCollectionResult
+	EvidenceTimeline          []DiagnosisRoomEvidenceTimelineEntry
+	ConfidenceTimeline        []DiagnosisRoomConfidenceTimelineEntry
+	SupplementalEvidence      []DiagnosisRoomSupplementalEvidenceRecord
+	LatestError               *DiagnosisRoomLatestError
 	InFlight                  bool
 	SeenMessageIDs            []string
 	Conversation              []DiagnosisRoomConversationTurn
@@ -270,6 +374,38 @@ type DiagnosisRoomState struct {
 // without exposing the concrete workflow engine to the transport layer.
 type DiagnosisRoomWorkflowClient interface {
 	SubmitDiagnosisTurn(ctx context.Context, req DiagnosisRoomSubmitTurnRequest) (DiagnosisRoomSubmitTurnResult, error)
+	CollectDiagnosisEvidence(ctx context.Context, req DiagnosisRoomCollectEvidenceRequest) (DiagnosisRoomCollectEvidenceResult, error)
 	ConfirmDiagnosisConclusion(ctx context.Context, req DiagnosisRoomConfirmConclusionRequest) (DiagnosisRoomState, error)
 	QueryDiagnosisRoom(ctx context.Context, sessionID string) (DiagnosisRoomState, error)
+}
+
+// DiagnosisRoomWorkflowVisibilityRequest identifies one room workflow execution
+// whose execution metadata should be surfaced to operators.
+type DiagnosisRoomWorkflowVisibilityRequest struct {
+	WorkflowID string
+	RunID      string
+}
+
+// DiagnosisRoomWorkflowVisibility is a sanitized execution-metadata snapshot.
+// It intentionally excludes workflow input, memo, search attributes, and
+// payload-bearing history data.
+type DiagnosisRoomWorkflowVisibility struct {
+	WorkflowID       string
+	RunID            string
+	Status           string
+	TaskQueue        string
+	StartTime        *time.Time
+	ExecutionTime    *time.Time
+	CloseTime        *time.Time
+	HistoryLength    int64
+	HistorySizeBytes int64
+}
+
+// DiagnosisRoomWorkflowVisibilityLookup reads sanitized workflow execution
+// metadata for diagnosis-room list surfaces.
+type DiagnosisRoomWorkflowVisibilityLookup interface {
+	ListDiagnosisRoomWorkflowVisibility(
+		ctx context.Context,
+		requests []DiagnosisRoomWorkflowVisibilityRequest,
+	) (map[DiagnosisRoomWorkflowVisibilityRequest]DiagnosisRoomWorkflowVisibility, error)
 }

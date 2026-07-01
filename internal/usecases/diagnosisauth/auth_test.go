@@ -146,6 +146,34 @@ func TestServiceIssuesAndConsumesSingleUseTicket(t *testing.T) {
 	}
 }
 
+func TestServiceIssuesAndConsumesAuthorizedTicket(t *testing.T) {
+	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	service := newTestService(t, bytes.NewReader(bytes.Repeat([]byte{0x62}, DefaultTokenBytes)))
+	principal := ports.AuthPrincipal{Subject: "responder-1"}
+
+	ticket, err := service.IssueAuthorizedTicket(context.Background(), principal, "session-1", now)
+	if err != nil {
+		t.Fatalf("IssueAuthorizedTicket: %v", err)
+	}
+	consumed, err := service.ConsumeAuthorizedTicket(context.Background(), ticket.Token, "session-1", now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("ConsumeAuthorizedTicket: %v", err)
+	}
+	if consumed.Token != "" || consumed.Subject != "responder-1" || consumed.SessionID != "session-1" {
+		t.Fatalf("consumed ticket = %+v", consumed)
+	}
+
+	otherService := newTestService(t, bytes.NewReader(bytes.Repeat([]byte{0x63}, DefaultTokenBytes)))
+	otherTicket, err := otherService.IssueAuthorizedTicket(context.Background(), principal, "session-1", now)
+	if err != nil {
+		t.Fatalf("IssueAuthorizedTicket wrong-session setup: %v", err)
+	}
+	_, err = otherService.ConsumeAuthorizedTicket(context.Background(), otherTicket.Token, "session-2", now.Add(time.Second))
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("ConsumeAuthorizedTicket wrong session err = %v, want ErrUnauthorized", err)
+	}
+}
+
 func TestServiceRejectsExpiredTicket(t *testing.T) {
 	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
 	service := newTestService(t, bytes.NewReader(bytes.Repeat([]byte{0x24}, DefaultTokenBytes)))

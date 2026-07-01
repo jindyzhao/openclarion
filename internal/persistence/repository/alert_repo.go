@@ -44,6 +44,9 @@ func (r *alertRepo) SaveEvent(ctx context.Context, e domain.AlertEvent) (domain.
 		SetAnnotations(e.Annotations).
 		SetRawPayload(e.RawPayload).
 		SetStartsAt(e.StartsAt)
+	if e.AlertSourceProfileID > 0 {
+		builder = builder.SetAlertSourceProfileID(int(e.AlertSourceProfileID))
+	}
 	if e.Status != "" {
 		builder = builder.SetStatus(string(e.Status))
 	}

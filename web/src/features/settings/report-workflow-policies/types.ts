@@ -15,7 +15,7 @@ export type ReportWorkflowPolicyFormState = {
   reportNotificationChannelProfileID: number | undefined;
   triggerMode: "manual_replay";
   reportScenario: "single_alert" | "cascade" | "alert_storm";
-  diagnosisFollowUp: "disabled" | "suggest_room";
+  diagnosisFollowUp: "disabled" | "suggest_room" | "auto_room";
 };
 
 export type ReportWorkflowPolicyReplayFormState = {

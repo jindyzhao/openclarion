@@ -2,13 +2,27 @@ import { ReportShell } from "@/features/reports/report-shell";
 import { fetchAlertSourceProfiles } from "@/features/settings/alert-sources/api";
 import { fetchDiagnosisToolTemplates } from "@/features/settings/diagnosis-tool-templates/api";
 import { DiagnosisToolTemplateSettingsManager } from "@/features/settings/diagnosis-tool-templates/diagnosis-tool-template-settings-view";
+import {
+  diagnosisToolTemplateLaunchIntentFromSearchParams,
+  diagnosisToolTemplateLaunchIntentKey
+} from "@/features/settings/diagnosis-tool-templates/format";
+import { diagnosisBackendRequestOptionsFromIncomingHeaders } from "@/lib/api/server-authorization";
 
 export const dynamic = "force-dynamic";
 
-export default async function DiagnosisToolTemplateSettingsPage() {
+type DiagnosisToolTemplateSettingsPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function DiagnosisToolTemplateSettingsPage({
+  searchParams
+}: DiagnosisToolTemplateSettingsPageProps) {
+  const launchIntent = diagnosisToolTemplateLaunchIntentFromSearchParams(await searchParams);
+  const backendRequestOptions =
+    await diagnosisBackendRequestOptionsFromIncomingHeaders();
   const [result, alertSourcesResult] = await Promise.all([
-    fetchDiagnosisToolTemplates(),
-    fetchAlertSourceProfiles()
+    fetchDiagnosisToolTemplates(backendRequestOptions),
+    fetchAlertSourceProfiles(backendRequestOptions)
   ]);
   const count = result.ok ? result.data.items.length : 0;
 
@@ -22,7 +36,12 @@ export default async function DiagnosisToolTemplateSettingsPage() {
         <div className="status-line">{count} templates</div>
       </section>
 
-      <DiagnosisToolTemplateSettingsManager alertSourcesResult={alertSourcesResult} result={result} />
+      <DiagnosisToolTemplateSettingsManager
+        alertSourcesResult={alertSourcesResult}
+        key={diagnosisToolTemplateLaunchIntentKey(launchIntent)}
+        launchIntent={launchIntent}
+        result={result}
+      />
     </ReportShell>
   );
 }

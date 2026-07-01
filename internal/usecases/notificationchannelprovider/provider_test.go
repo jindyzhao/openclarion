@@ -3,6 +3,7 @@ package notificationchannelprovider
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/openclarion/openclarion/internal/domain"
@@ -40,6 +41,176 @@ func TestResolverResolveReportNotificationProvider(t *testing.T) {
 		t.Fatal("provider is nil")
 	}
 	if gotProfile.ID != 3 || gotCredentials.URL != "https://example.invalid/report-hook" {
+		t.Fatalf("factory input profile=%+v credentials=%+v", gotProfile, gotCredentials)
+	}
+	if gotCredentials.Format != "" {
+		t.Fatalf("credentials.Format = %q, want empty generic default", gotCredentials.Format)
+	}
+}
+
+func TestBuilderInfersWeComWebhookFormatFromResolvedURL(t *testing.T) {
+	profile := domain.NotificationChannelProfile{
+		Kind:      domain.NotificationChannelKindWebhook,
+		SecretRef: "secret/openclarion/wecom-webhook-url",
+	}
+	var gotCredentials WebhookCredentials
+	builder := mustBuilder(t, fakeSecretResolver{values: map[string]string{
+		profile.SecretRef: fixtureWeComWebhookURL(),
+	}}, func(_ domain.NotificationChannelProfile, credentials WebhookCredentials) (ports.IMProvider, error) {
+		gotCredentials = credentials
+		return fakeIMProvider{}, nil
+	})
+
+	provider, err := builder.Build(context.Background(), profile)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if provider == nil {
+		t.Fatal("provider is nil")
+	}
+	if gotCredentials.Format != "wecom" {
+		t.Fatalf("credentials.Format = %q, want wecom", gotCredentials.Format)
+	}
+	if gotCredentials.URL != fixtureWeComWebhookURL() {
+		t.Fatalf("credentials.URL = %q", gotCredentials.URL)
+	}
+}
+
+func TestBuilderUsesWeComFormatForWeComChannelKind(t *testing.T) {
+	profile := domain.NotificationChannelProfile{
+		Kind:      domain.NotificationChannelKindWeCom,
+		SecretRef: "secret/openclarion/wecom-webhook-url",
+	}
+	var gotProfile domain.NotificationChannelProfile
+	var gotCredentials WebhookCredentials
+	builder := mustBuilder(t, fakeSecretResolver{values: map[string]string{
+		profile.SecretRef: fixtureWeComWebhookURL(),
+	}}, func(profile domain.NotificationChannelProfile, credentials WebhookCredentials) (ports.IMProvider, error) {
+		gotProfile = profile
+		gotCredentials = credentials
+		return fakeIMProvider{}, nil
+	})
+
+	provider, err := builder.Build(context.Background(), profile)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if provider == nil {
+		t.Fatal("provider is nil")
+	}
+	if gotProfile.Kind != domain.NotificationChannelKindWeCom {
+		t.Fatalf("profile.Kind = %q, want wecom", gotProfile.Kind)
+	}
+	if gotCredentials.Format != "wecom" {
+		t.Fatalf("credentials.Format = %q, want wecom", gotCredentials.Format)
+	}
+	if gotCredentials.URL != fixtureWeComWebhookURL() {
+		t.Fatalf("credentials.URL = %q", gotCredentials.URL)
+	}
+}
+
+func TestBuilderRejectsInvalidWeComWebhookEndpoint(t *testing.T) {
+	profile := domain.NotificationChannelProfile{
+		Kind:      domain.NotificationChannelKindWeCom,
+		SecretRef: "secret/openclarion/wecom-webhook-url",
+	}
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "generic endpoint", url: "https://example.invalid/wecom-compatible-hook"},
+		{name: "missing key", url: fixtureWeComWebhookURLWithoutQuery()},
+		{name: "http scheme", url: fixtureWeComWebhookURLWithScheme("http")},
+		{name: "userinfo", url: fixtureWeComWebhookURLWithAuthority("user@")},
+		{name: "fragment", url: fixtureWeComWebhookURL() + "#frag"},
+		{name: "wrong path", url: fixtureWeComWebhookURLWithPath("/cgi-bin/webhook/other")},
+		{name: "extra query", url: fixtureWeComWebhookURL() + "&debug=true"},
+		{name: "whitespace key", url: fixtureWeComWebhookURLWithKey("fixture+key")},
+		{name: "bad query", url: fixtureWeComWebhookURLWithoutQuery() + "?%"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			builder := mustBuilder(t, fakeSecretResolver{values: map[string]string{
+				profile.SecretRef: tc.url,
+			}}, func(domain.NotificationChannelProfile, WebhookCredentials) (ports.IMProvider, error) {
+				t.Fatal("factory should not be called for unusable WeCom endpoint")
+				return nil, nil
+			})
+
+			_, err := builder.Build(context.Background(), profile)
+			if !errors.Is(err, ErrCredentialUnusable) {
+				t.Fatalf("err = %v, want %v", err, ErrCredentialUnusable)
+			}
+		})
+	}
+}
+
+func TestResolverResolveDiagnosisCloseNotificationProvider(t *testing.T) {
+	profile := domain.NotificationChannelProfile{
+		ID:             4,
+		Name:           "Diagnosis close webhook",
+		Kind:           domain.NotificationChannelKindWeCom,
+		SecretRef:      "secret/openclarion/diagnosis-close-webhook-url",
+		DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeDiagnosisClose},
+		Enabled:        true,
+	}
+	repo := &fakeConfigRepo{notificationChannels: map[domain.NotificationChannelProfileID]domain.NotificationChannelProfile{
+		4: profile,
+	}}
+	var gotProfile domain.NotificationChannelProfile
+	var gotCredentials WebhookCredentials
+	builder := mustBuilder(t, fakeSecretResolver{values: map[string]string{
+		profile.SecretRef: fixtureWeComWebhookURL(),
+	}}, func(profile domain.NotificationChannelProfile, credentials WebhookCredentials) (ports.IMProvider, error) {
+		gotProfile = profile
+		gotCredentials = credentials
+		return fakeIMProvider{}, nil
+	})
+	resolver := mustResolver(t, repo, builder)
+
+	provider, err := resolver.ResolveDiagnosisCloseNotificationProvider(context.Background(), 4)
+	if err != nil {
+		t.Fatalf("ResolveDiagnosisCloseNotificationProvider: %v", err)
+	}
+	if provider == nil {
+		t.Fatal("provider is nil")
+	}
+	if gotProfile.ID != 4 || gotCredentials.URL != fixtureWeComWebhookURL() || gotCredentials.Format != "wecom" {
+		t.Fatalf("factory input profile=%+v credentials=%+v", gotProfile, gotCredentials)
+	}
+}
+
+func TestResolverResolveDiagnosisConsultationNotificationProvider(t *testing.T) {
+	profile := domain.NotificationChannelProfile{
+		ID:             5,
+		Name:           "Diagnosis consultation webhook",
+		Kind:           domain.NotificationChannelKindWeCom,
+		SecretRef:      "secret/openclarion/diagnosis-consultation-webhook-url",
+		DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeDiagnosisConsultation},
+		Enabled:        true,
+	}
+	repo := &fakeConfigRepo{notificationChannels: map[domain.NotificationChannelProfileID]domain.NotificationChannelProfile{
+		5: profile,
+	}}
+	var gotProfile domain.NotificationChannelProfile
+	var gotCredentials WebhookCredentials
+	builder := mustBuilder(t, fakeSecretResolver{values: map[string]string{
+		profile.SecretRef: fixtureWeComWebhookURL(),
+	}}, func(profile domain.NotificationChannelProfile, credentials WebhookCredentials) (ports.IMProvider, error) {
+		gotProfile = profile
+		gotCredentials = credentials
+		return fakeIMProvider{}, nil
+	})
+	resolver := mustResolver(t, repo, builder)
+
+	provider, err := resolver.ResolveDiagnosisConsultationNotificationProvider(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("ResolveDiagnosisConsultationNotificationProvider: %v", err)
+	}
+	if provider == nil {
+		t.Fatal("provider is nil")
+	}
+	if gotProfile.ID != 5 || gotCredentials.URL != fixtureWeComWebhookURL() || gotCredentials.Format != "wecom" {
 		t.Fatalf("factory input profile=%+v credentials=%+v", gotProfile, gotCredentials)
 	}
 }
@@ -80,6 +251,96 @@ func TestResolverResolveReportNotificationProviderValidatesProfileReadiness(t *t
 			_, err := resolver.ResolveReportNotificationProvider(context.Background(), 3)
 			if !errors.Is(err, domain.ErrInvariantViolation) {
 				t.Fatalf("err = %v, want ErrInvariantViolation", err)
+			}
+		})
+	}
+}
+
+func TestResolverResolveDiagnosisCloseNotificationProviderValidatesScope(t *testing.T) {
+	profile := domain.NotificationChannelProfile{
+		ID:             4,
+		Kind:           domain.NotificationChannelKindWeCom,
+		SecretRef:      "secret/openclarion/report-webhook-url",
+		DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeReport},
+		Enabled:        true,
+	}
+	repo := &fakeConfigRepo{notificationChannels: map[domain.NotificationChannelProfileID]domain.NotificationChannelProfile{
+		4: profile,
+	}}
+	resolver := mustResolver(t, repo, mustBuilder(t, fakeSecretResolver{}, nil))
+
+	_, err := resolver.ResolveDiagnosisCloseNotificationProvider(context.Background(), 4)
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("err = %v, want ErrInvariantViolation", err)
+	}
+}
+
+func TestResolverResolveDiagnosisConsultationNotificationProviderValidatesScope(t *testing.T) {
+	profile := domain.NotificationChannelProfile{
+		ID:             5,
+		Kind:           domain.NotificationChannelKindWeCom,
+		SecretRef:      "secret/openclarion/report-webhook-url",
+		DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeReport},
+		Enabled:        true,
+	}
+	repo := &fakeConfigRepo{notificationChannels: map[domain.NotificationChannelProfileID]domain.NotificationChannelProfile{
+		5: profile,
+	}}
+	resolver := mustResolver(t, repo, mustBuilder(t, fakeSecretResolver{}, nil))
+
+	_, err := resolver.ResolveDiagnosisConsultationNotificationProvider(context.Background(), 5)
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("err = %v, want ErrInvariantViolation", err)
+	}
+}
+
+func TestResolverRejectsGenericWebhookForDiagnosisDelivery(t *testing.T) {
+	tests := []struct {
+		name  string
+		scope domain.NotificationDeliveryScope
+		run   func(*Resolver) (ports.IMProvider, error)
+	}{
+		{
+			name:  "diagnosis_consultation",
+			scope: domain.NotificationDeliveryScopeDiagnosisConsultation,
+			run: func(resolver *Resolver) (ports.IMProvider, error) {
+				return resolver.ResolveDiagnosisConsultationNotificationProvider(context.Background(), 6)
+			},
+		},
+		{
+			name:  "diagnosis_close",
+			scope: domain.NotificationDeliveryScopeDiagnosisClose,
+			run: func(resolver *Resolver) (ports.IMProvider, error) {
+				return resolver.ResolveDiagnosisCloseNotificationProvider(context.Background(), 6)
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			profile := domain.NotificationChannelProfile{
+				ID:             6,
+				Kind:           domain.NotificationChannelKindWebhook,
+				SecretRef:      "secret/openclarion/diagnosis-webhook-url",
+				DeliveryScopes: []domain.NotificationDeliveryScope{tc.scope},
+				Enabled:        true,
+			}
+			repo := &fakeConfigRepo{notificationChannels: map[domain.NotificationChannelProfileID]domain.NotificationChannelProfile{
+				6: profile,
+			}}
+			builder := mustBuilder(t, fakeSecretResolver{values: map[string]string{
+				profile.SecretRef: "https://example.invalid/diagnosis-hook",
+			}}, func(domain.NotificationChannelProfile, WebhookCredentials) (ports.IMProvider, error) {
+				t.Fatal("factory should not be called for non-WeCom diagnosis delivery")
+				return nil, nil
+			})
+			resolver := mustResolver(t, repo, builder)
+
+			_, err := tc.run(resolver)
+			if !errors.Is(err, domain.ErrInvariantViolation) {
+				t.Fatalf("err = %v, want ErrInvariantViolation", err)
+			}
+			if !strings.Contains(err.Error(), "Enterprise WeChat") {
+				t.Fatalf("err = %q, want Enterprise WeChat guidance", err.Error())
 			}
 		})
 	}
@@ -271,6 +532,30 @@ type fakeIMProvider struct{}
 
 func (fakeIMProvider) SendNotification(context.Context, ports.IMNotification) (ports.IMDelivery, error) {
 	return ports.IMDelivery{}, nil
+}
+
+func fixtureWeComWebhookURL() string {
+	return fixtureWeComWebhookURLWithKey("fixture-key")
+}
+
+func fixtureWeComWebhookURLWithKey(key string) string {
+	return fixtureWeComWebhookURLWithoutQuery() + "?key=" + key
+}
+
+func fixtureWeComWebhookURLWithoutQuery() string {
+	return fixtureWeComWebhookURLWithScheme("https")
+}
+
+func fixtureWeComWebhookURLWithScheme(scheme string) string {
+	return scheme + "://" + weComWebhookHost + weComWebhookPath
+}
+
+func fixtureWeComWebhookURLWithAuthority(authorityPrefix string) string {
+	return "https://" + authorityPrefix + weComWebhookHost + weComWebhookPath + "?key=fixture-key"
+}
+
+func fixtureWeComWebhookURLWithPath(webhookPath string) string {
+	return "https://" + weComWebhookHost + webhookPath + "?key=fixture-key"
 }
 
 type fakeUOWFactory struct {

@@ -126,6 +126,34 @@ func TestProvider_GenerateJSON_PropagatesRequestID(t *testing.T) {
 	}
 }
 
+func TestProvider_GenerateJSON_RedactsHTTPClientURL(t *testing.T) {
+	p, err := NewProvider(Config{
+		BaseURL:    "https://secret.example.test/private/v1",
+		Model:      "gpt-test",
+		OutputMode: ports.LLMOutputModeJSONSchema,
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, &url.Error{
+				Op:  "Post",
+				URL: "https://secret.example.test/private/v1/chat/completions",
+				Err: context.DeadlineExceeded,
+			}
+		})},
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	_, err = p.GenerateJSON(context.Background(), validRequest())
+	if err == nil {
+		t.Fatal("GenerateJSON: want transport error")
+	}
+	if strings.Contains(err.Error(), "secret.example.test") || strings.Contains(err.Error(), "chat/completions") {
+		t.Fatalf("GenerateJSON error leaked endpoint: %v", err)
+	}
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("GenerateJSON error = %v, want context deadline cause", err)
+	}
+}
+
 func TestProvider_GenerateJSON_MapsRefusal(t *testing.T) {
 	refusal := "request refused"
 	srv := newChatServer(t, func(w http.ResponseWriter, _ *http.Request) {
@@ -432,6 +460,12 @@ func newChatServer(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }
 
 func validRequest() ports.LLMRequest {

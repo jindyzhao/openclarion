@@ -30,6 +30,20 @@ func (_c *AlertEventCreate) SetSource(v string) *AlertEventCreate {
 	return _c
 }
 
+// SetAlertSourceProfileID sets the "alert_source_profile_id" field.
+func (_c *AlertEventCreate) SetAlertSourceProfileID(v int) *AlertEventCreate {
+	_c.mutation.SetAlertSourceProfileID(v)
+	return _c
+}
+
+// SetNillableAlertSourceProfileID sets the "alert_source_profile_id" field if the given value is not nil.
+func (_c *AlertEventCreate) SetNillableAlertSourceProfileID(v *int) *AlertEventCreate {
+	if v != nil {
+		_c.SetAlertSourceProfileID(*v)
+	}
+	return _c
+}
+
 // SetSourceFingerprint sets the "source_fingerprint" field.
 func (_c *AlertEventCreate) SetSourceFingerprint(v string) *AlertEventCreate {
 	_c.mutation.SetSourceFingerprint(v)
@@ -245,6 +259,10 @@ func (_c *AlertEventCreate) createSpec() (*AlertEvent, *sqlgraph.CreateSpec) {
 		_spec.SetField(alertevent.FieldSource, field.TypeString, value)
 		_node.Source = value
 	}
+	if value, ok := _c.mutation.AlertSourceProfileID(); ok {
+		_spec.SetField(alertevent.FieldAlertSourceProfileID, field.TypeInt, value)
+		_node.AlertSourceProfileID = value
+	}
 	if value, ok := _c.mutation.SourceFingerprint(); ok {
 		_spec.SetField(alertevent.FieldSourceFingerprint, field.TypeString, value)
 		_node.SourceFingerprint = value
@@ -434,6 +452,9 @@ func (u *AlertEventUpsertOne) UpdateNewValues() *AlertEventUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		if _, exists := u.create.mutation.Source(); exists {
 			s.SetIgnore(alertevent.FieldSource)
+		}
+		if _, exists := u.create.mutation.AlertSourceProfileID(); exists {
+			s.SetIgnore(alertevent.FieldAlertSourceProfileID)
 		}
 		if _, exists := u.create.mutation.SourceFingerprint(); exists {
 			s.SetIgnore(alertevent.FieldSourceFingerprint)
@@ -740,6 +761,9 @@ func (u *AlertEventUpsertBulk) UpdateNewValues() *AlertEventUpsertBulk {
 		for _, b := range u.create.builders {
 			if _, exists := b.mutation.Source(); exists {
 				s.SetIgnore(alertevent.FieldSource)
+			}
+			if _, exists := b.mutation.AlertSourceProfileID(); exists {
+				s.SetIgnore(alertevent.FieldAlertSourceProfileID)
 			}
 			if _, exists := b.mutation.SourceFingerprint(); exists {
 				s.SetIgnore(alertevent.FieldSourceFingerprint)

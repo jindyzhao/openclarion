@@ -25,10 +25,12 @@ import (
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
 	"github.com/openclarion/openclarion/internal/persistence/ent"
 	"github.com/openclarion/openclarion/internal/persistence/repository"
+	authfake "github.com/openclarion/openclarion/internal/providers/auth/fake"
 	imwebhook "github.com/openclarion/openclarion/internal/providers/im/webhook"
 	openaillm "github.com/openclarion/openclarion/internal/providers/llm/openai"
 	metricsprometheus "github.com/openclarion/openclarion/internal/providers/metrics/prometheus"
 	transporthttp "github.com/openclarion/openclarion/internal/transport/http"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 	"github.com/openclarion/openclarion/internal/usecases/reportdraft"
 	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
@@ -131,6 +133,7 @@ func TestReportReplayHTTPTriggerEndToEnd(t *testing.T) {
 	}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/report-triggers/replay-window", strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer e2e-token")
 	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusAccepted {
@@ -167,9 +170,9 @@ func TestReportReplayHTTPTriggerEndToEnd(t *testing.T) {
 		t.Fatalf("webhook requests len = %d, want 1", len(requests))
 	}
 	if requests[0].FinalReportID != workflowResult.FinalReportID ||
-		requests[0].IdempotencyKey != fmt.Sprintf("final_report:%d/notification", workflowResult.FinalReportID) ||
+		requests[0].IdempotencyKey != fmt.Sprintf("final_report:%d/notification/handoff", workflowResult.FinalReportID) ||
 		requests[0].Title != "Payments degradation" ||
-		requests[0].Body == "" {
+		!strings.Contains(requests[0].Body, "Report handoff:") {
 		t.Fatalf("webhook request = %+v; workflow result = %+v", requests[0], workflowResult)
 	}
 
@@ -233,7 +236,21 @@ func startE2EDatabase(ctx context.Context, t *testing.T) (ports.UnitOfWorkFactor
 
 func e2eHTTPHandler(factory ports.UnitOfWorkFactory, trigger *reporttrigger.Service) http.Handler {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	server := transporthttp.NewServer(logger, factory, transporthttp.WithReportReplayTrigger(trigger))
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Bearer e2e-token": {{
+			Principal: ports.AuthPrincipal{
+				Subject: "e2e-operator",
+				Roles:   []ports.AuthRole{ports.AuthRoleAdmin},
+			},
+		}},
+	})
+	server := transporthttp.NewServer(
+		logger,
+		factory,
+		transporthttp.WithReportReplayTrigger(trigger),
+		transporthttp.WithDiagnosisAuth(authProvider, diagnosisauth.Service{}, nil, "static"),
+		transporthttp.WithLocalRBACBootstrapAdminSubjects([]string{"e2e-operator"}),
+	)
 	return api.HandlerWithOptions(server, api.StdHTTPServerOptions{
 		ErrorHandlerFunc: transporthttp.OpenAPIErrorHandler(logger),
 	})

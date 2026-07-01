@@ -21,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/api"
@@ -93,7 +94,8 @@ func WithRoundTripperDecorator(decorator func(http.RoundTripper) http.RoundTripp
 // timeouts MUST wrap the returned Provider rather than re-deriving http.Client
 // behaviour here.
 func NewProvider(addr string, opts ...Option) (*Provider, error) {
-	if err := rejectCredentialedAddress(addr); err != nil {
+	normalizedAddress, err := normalizeAddress(addr)
+	if err != nil {
 		return nil, err
 	}
 	cfg := providerConfig{}
@@ -116,7 +118,7 @@ func NewProvider(addr string, opts ...Option) (*Provider, error) {
 	}
 
 	apiCfg := api.Config{
-		Address:      addr,
+		Address:      normalizedAddress,
 		RoundTripper: roundTripper,
 	}
 
@@ -127,15 +129,62 @@ func NewProvider(addr string, opts ...Option) (*Provider, error) {
 	return &Provider{api: v1.NewAPI(client)}, nil
 }
 
-func rejectCredentialedAddress(addr string) error {
-	parsed, err := url.Parse(addr)
+func normalizeAddress(addr string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(addr))
 	if err != nil {
-		return fmt.Errorf("prometheus: address must be a valid URL")
+		return "", fmt.Errorf("prometheus: address must be a valid URL")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("prometheus: address scheme must be http or https")
+	}
+	if parsed.Host == "" {
+		return "", fmt.Errorf("prometheus: address host must be non-empty")
 	}
 	if parsed.User != nil {
-		return fmt.Errorf("prometheus: address must not include userinfo")
+		return "", fmt.Errorf("prometheus: address must not include userinfo")
 	}
-	return nil
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("prometheus: address must not include query or fragment")
+	}
+	parsed.Path = prometheusRoutePrefix(parsed.Path)
+	return parsed.String(), nil
+}
+
+func prometheusRoutePrefix(pathname string) string {
+	pathname = strings.TrimRight(pathname, "/")
+	const marker = "/api/v1"
+	index := strings.LastIndex(pathname, marker)
+	if index < 0 {
+		return stripKnownPrometheusTerminalPath(pathname)
+	}
+	after := pathname[index+len(marker):]
+	if after != "" && !strings.HasPrefix(after, "/") {
+		return pathname
+	}
+	return pathname[:index]
+}
+
+func stripKnownPrometheusTerminalPath(path string) string {
+	for _, terminal := range []string{
+		"/graph",
+		"/alerts",
+		"/rules",
+		"/targets",
+		"/service-discovery",
+		"/status",
+		"/flags",
+		"/config",
+		"/-/healthy",
+		"/-/ready",
+	} {
+		if path == terminal {
+			return ""
+		}
+		if strings.HasSuffix(path, terminal) {
+			return strings.TrimRight(strings.TrimSuffix(path, terminal), "/")
+		}
+	}
+	return path
 }
 
 type strictJSONResponseRoundTripper struct {
@@ -197,7 +246,7 @@ func readLimitedResponseBody(body io.Reader, limit int) ([]byte, error) {
 }
 
 func normalizeAlertsAPIEnvelope(path string, raw []byte) ([]byte, error) {
-	if path != alertsAPIPath {
+	if !isAlertsAPIPath(path) {
 		return raw, nil
 	}
 	var top map[string]json.RawMessage
@@ -231,6 +280,10 @@ func normalizeAlertsAPIEnvelope(path string, raw []byte) ([]byte, error) {
 		return nil, err
 	}
 	return normalized, nil
+}
+
+func isAlertsAPIPath(path string) bool {
+	return path == alertsAPIPath || strings.HasSuffix(path, alertsAPIPath)
 }
 
 func decodeJSON(raw []byte, out any) bool {

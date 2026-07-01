@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,14 +17,21 @@ import (
 	"github.com/openclarion/openclarion/internal/domain"
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
+	"github.com/openclarion/openclarion/internal/usecases/directorysync"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 	"github.com/openclarion/openclarion/internal/usecases/reportpolicytrigger"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
+	commonpb "go.temporal.io/api/common/v1"
+	enumspb "go.temporal.io/api/enums/v1"
+	workflowpb "go.temporal.io/api/workflow/v1"
+	workflowservicepb "go.temporal.io/api/workflowservice/v1"
 	temporalclient "go.temporal.io/sdk/client"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 func TestReportActivityOptionsFromEnv_ConfiguresProviders(t *testing.T) {
@@ -46,7 +54,7 @@ func TestReportActivityOptionsFromEnv_ConfiguresProviders(t *testing.T) {
 		"OPENCLARION_IM_WEBHOOK_URL":          "https://example.invalid/report-hook",
 		"OPENCLARION_IM_WEBHOOK_BEARER_TOKEN": "webhook-bearer-value",
 	}
-	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(env), nil, nil, nil)
+	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(env), nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
 	}
@@ -62,7 +70,7 @@ func TestReportActivityOptionsFromEnv_ConfiguresWeComWebhookProvider(t *testing.
 	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_IM_WEBHOOK_URL":    "https://example.invalid/report-hook",
 		"OPENCLARION_IM_WEBHOOK_FORMAT": "wecom",
-	}), nil, nil, nil)
+	}), nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
 	}
@@ -72,7 +80,7 @@ func TestReportActivityOptionsFromEnv_ConfiguresWeComWebhookProvider(t *testing.
 }
 
 func TestReportActivityOptionsFromEnv_AllowsUnconfiguredProviders(t *testing.T) {
-	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(nil), nil, nil, nil)
+	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(nil), nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
 	}
@@ -82,7 +90,7 @@ func TestReportActivityOptionsFromEnv_AllowsUnconfiguredProviders(t *testing.T) 
 }
 
 func TestReportActivityOptionsFromEnv_ConfiguresScheduledPolicyReplayer(t *testing.T) {
-	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(nil), emptyFactory{}, emptyStarter{}, nil)
+	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(nil), emptyFactory{}, emptyStarter{}, nil, nil)
 	if err != nil {
 		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
 	}
@@ -208,6 +216,16 @@ func TestPositiveDurationSecondsFromEnv(t *testing.T) {
 	}
 }
 
+func TestReportLLMDefaultHTTPTimeoutAllowsSlowGateway(t *testing.T) {
+	got, err := positiveDurationSecondsFromEnv(mapGetenv(nil), reportLLMHTTPTimeoutSecondsEnv, defaultReportLLMHTTPTimeout)
+	if err != nil {
+		t.Fatalf("positiveDurationSecondsFromEnv: %v", err)
+	}
+	if got != 260*time.Second {
+		t.Fatalf("default report LLM HTTP timeout = %s, want 260s", got)
+	}
+}
+
 func TestOutboundHTTPClientPreservesTimeoutWithoutTracing(t *testing.T) {
 	client := outboundHTTPClient(nil, 45*time.Second)
 	if client == nil {
@@ -215,6 +233,47 @@ func TestOutboundHTTPClientPreservesTimeoutWithoutTracing(t *testing.T) {
 	}
 	if client.Timeout != 45*time.Second {
 		t.Fatalf("Timeout = %s, want 45s", client.Timeout)
+	}
+}
+
+func TestPositiveIntFromEnv(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     map[string]string
+		want    int
+		wantErr bool
+	}{
+		{name: "default", want: 3},
+		{name: "configured", env: map[string]string{"OPENCLARION_TEST_INT": "7"}, want: 7},
+		{name: "zero", env: map[string]string{"OPENCLARION_TEST_INT": "0"}, wantErr: true},
+		{name: "negative", env: map[string]string{"OPENCLARION_TEST_INT": "-1"}, wantErr: true},
+		{name: "not_integer", env: map[string]string{"OPENCLARION_TEST_INT": "1.5"}, wantErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := positiveIntFromEnv(mapGetenv(tc.env), "OPENCLARION_TEST_INT", 3)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("positiveIntFromEnv error = nil, want error")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("positiveIntFromEnv: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("positiveIntFromEnv = %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAutoDiagnosisOptionsFromEnvRejectsOutOfRange(t *testing.T) {
+	_, err := autoDiagnosisOptionsFromEnv(mapGetenv(map[string]string{
+		autoDiagnosisMaxRoomsPerTriggerEnv: strconv.Itoa(alertdiagnosis.MaxRoomsPerTriggerLimit + 1),
+	}))
+	if err == nil || !strings.Contains(err.Error(), autoDiagnosisMaxRoomsPerTriggerEnv) {
+		t.Fatalf("autoDiagnosisOptionsFromEnv error = %v, want env name", err)
 	}
 }
 
@@ -268,7 +327,7 @@ func TestReportActivityOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(tc.env), nil, nil, nil)
+			_, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(tc.env), nil, nil, nil, nil)
 			if err == nil {
 				t.Fatalf("expected error containing %q, got nil", tc.wantSubstr)
 			}
@@ -283,7 +342,7 @@ func TestReportActivityOptionsFromEnv_ConfiguresNotificationChannelProviderResol
 	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
 	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(map[string]string{
 		notificationChannelSecretRefsEnv: `{"secret/openclarion/report-webhook-url":"https://example.invalid/report-hook"}`,
-	}), emptyFactory{}, nil, nil)
+	}), emptyFactory{}, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
 	}
@@ -296,7 +355,7 @@ func TestReportActivityOptionsFromEnv_RejectsInvalidNotificationChannelSecretRes
 	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
 	_, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(map[string]string{
 		notificationChannelSecretRefsEnv: `{"secret/openclarion/report-webhook-url":"bad webhook url"}`,
-	}), emptyFactory{}, nil, nil)
+	}), emptyFactory{}, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected notification channel secret resolver error, got nil")
 	}
@@ -312,7 +371,7 @@ func TestReportActivityOptionsFromEnv_RejectsNotificationResolverWithoutUnitOfWo
 	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
 	_, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(map[string]string{
 		notificationChannelSecretRefsEnv: `{"secret/openclarion/report-webhook-url":"https://example.invalid/report-hook"}`,
-	}), nil, nil, nil)
+	}), nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected notification channel unit of work error, got nil")
 	}
@@ -331,8 +390,8 @@ func TestHTTPServerOptionsFromEnv_ConfiguresReportTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 5 {
-		t.Fatalf("len(opts) = %d, want 5", len(opts))
+	if len(opts) != 6 {
+		t.Fatalf("len(opts) = %d, want 6", len(opts))
 	}
 }
 
@@ -341,8 +400,46 @@ func TestHTTPServerOptionsFromEnv_AllowsUnconfiguredTrigger(t *testing.T) {
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 4 {
-		t.Fatalf("len(opts) = %d, want 4", len(opts))
+	if len(opts) != 5 {
+		t.Fatalf("len(opts) = %d, want 5", len(opts))
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_ConfiguresRBACBootstrapAdmins(t *testing.T) {
+	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		rbacBootstrapAdminSubjectsEnv: "iam-admin-1, iam-admin-2",
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 6 {
+		t.Fatalf("len(opts) = %d, want 6", len(opts))
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_ConfiguresReportNotificationRetryWebhook(t *testing.T) {
+	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_IM_WEBHOOK_URL":    "https://example.invalid/report-hook",
+		"OPENCLARION_IM_WEBHOOK_FORMAT": "wecom",
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 6 {
+		t.Fatalf("len(opts) = %d, want 6", len(opts))
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_ConfiguresReportNotificationRetryResolver(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		notificationChannelSecretRefsEnv: `{"secret/openclarion/report-webhook-url":"https://example.invalid/report-hook"}`,
+	}), emptyFactory{}, emptyStarter{}, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 7 {
+		t.Fatalf("len(opts) = %d, want 7", len(opts))
 	}
 }
 
@@ -351,8 +448,8 @@ func TestHTTPServerOptionsFromEnv_ConfiguresScheduleSynchronizer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 5 {
-		t.Fatalf("len(opts) = %d, want 5", len(opts))
+	if len(opts) != 6 {
+		t.Fatalf("len(opts) = %d, want 6", len(opts))
 	}
 }
 
@@ -364,8 +461,185 @@ func TestHTTPServerOptionsFromEnv_ConfiguresAlertSourceSecretResolver(t *testing
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv: %v", err)
 	}
-	if len(opts) != 4 {
-		t.Fatalf("len(opts) = %d, want 4", len(opts))
+	if len(opts) != 5 {
+		t.Fatalf("len(opts) = %d, want 5", len(opts))
+	}
+}
+
+func TestDirectorySyncerFromEnv_ConfiguresFromIAMOIDCFallback(t *testing.T) {
+	oidcServer := newOIDCDiscoveryServer(t)
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	syncer, configured, err := directorySyncerFromEnv(mapGetenv(map[string]string{
+		iamDirectoryProviderNameEnv: "ops_iam",
+		iamOIDCIssuerEnv:            oidcServer.URL,
+		iamOIDCClientIDEnv:          "openclarion-directory",
+		iamOIDCClientSecretEnv:      "test-client-secret",
+	}), emptyFactory{}, nil)
+	if err != nil {
+		t.Fatalf("directorySyncerFromEnv: %v", err)
+	}
+	if !configured {
+		t.Fatal("configured = false, want true")
+	}
+	if syncer == nil {
+		t.Fatal("syncer = nil, want configured service")
+	}
+}
+
+func TestDirectorySyncerFromEnv_ConfiguresFromStandardOIDCAndDirectoryScopes(t *testing.T) {
+	oidcServer := newOIDCDiscoveryServer(t)
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	syncer, configured, err := directorySyncerFromEnv(mapGetenv(map[string]string{
+		standardOIDCIssuerEnv:       oidcServer.URL,
+		standardOIDCClientIDEnv:     "openclarion-console",
+		standardOIDCClientSecretEnv: "test-client-secret",
+		standardDirectoryScopesEnv:  "directory:read",
+	}), emptyFactory{}, nil)
+	if err != nil {
+		t.Fatalf("directorySyncerFromEnv: %v", err)
+	}
+	if !configured {
+		t.Fatal("configured = false, want true")
+	}
+	if syncer == nil {
+		t.Fatal("syncer = nil, want configured service")
+	}
+}
+
+func TestDirectorySyncerFromEnv_UnconfiguredByDefault(t *testing.T) {
+	syncer, configured, err := directorySyncerFromEnv(mapGetenv(nil), emptyFactory{}, nil)
+	if err != nil {
+		t.Fatalf("directorySyncerFromEnv: %v", err)
+	}
+	if configured {
+		t.Fatal("configured = true, want false")
+	}
+	if syncer != nil {
+		t.Fatalf("syncer = %#v, want nil", syncer)
+	}
+}
+
+func TestIAMDirectorySyncConfigured(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		env  map[string]string
+		want bool
+	}{
+		{
+			name: "empty",
+			env:  nil,
+			want: false,
+		},
+		{
+			name: "standard oidc alone does not enable directory sync",
+			env: map[string]string{
+				standardOIDCIssuerEnv:       "https://iam.example.test",
+				standardOIDCClientIDEnv:     "openclarion",
+				standardOIDCClientSecretEnv: "test-client-secret",
+			},
+			want: false,
+		},
+		{
+			name: "standard directory scopes enable directory sync",
+			env: map[string]string{
+				standardDirectoryScopesEnv: "directory:read",
+			},
+			want: true,
+		},
+		{
+			name: "directory-specific base url enables directory sync",
+			env: map[string]string{
+				iamDirectoryBaseURLEnv: "https://iam.example.test",
+			},
+			want: true,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := iamDirectorySyncConfigured(mapGetenv(tt.env)); got != tt.want {
+				t.Fatalf("iamDirectorySyncConfigured() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDirectorySyncIntervalFromEnv(t *testing.T) {
+	t.Run("disabled by default", func(t *testing.T) {
+		interval, enabled, err := directorySyncIntervalFromEnv(mapGetenv(nil))
+		if err != nil {
+			t.Fatalf("directorySyncIntervalFromEnv: %v", err)
+		}
+		if enabled || interval != 0 {
+			t.Fatalf("enabled=%t interval=%s, want disabled", enabled, interval)
+		}
+	})
+
+	t.Run("accepts production interval", func(t *testing.T) {
+		interval, enabled, err := directorySyncIntervalFromEnv(mapGetenv(map[string]string{
+			iamDirectorySyncIntervalEnv: "3600",
+		}))
+		if err != nil {
+			t.Fatalf("directorySyncIntervalFromEnv: %v", err)
+		}
+		if !enabled || interval != time.Hour {
+			t.Fatalf("enabled=%t interval=%s, want 1h", enabled, interval)
+		}
+	})
+
+	t.Run("rejects short interval", func(t *testing.T) {
+		_, _, err := directorySyncIntervalFromEnv(mapGetenv(map[string]string{
+			iamDirectorySyncIntervalEnv: "59",
+		}))
+		if err == nil || !strings.Contains(err.Error(), "at least 1m0s") {
+			t.Fatalf("error = %v, want minimum interval rejection", err)
+		}
+	})
+}
+
+func TestPeriodicDirectorySyncerFromEnvRequiresDirectoryConfig(t *testing.T) {
+	_, _, _, err := periodicDirectorySyncerFromEnv(mapGetenv(map[string]string{
+		iamDirectorySyncIntervalEnv: "3600",
+	}), emptyFactory{}, nil)
+	if err == nil || !strings.Contains(err.Error(), iamDirectorySyncIntervalEnv) {
+		t.Fatalf("error = %v, want interval requiring IAM directory config", err)
+	}
+}
+
+func TestRunPeriodicDirectorySyncRunsStartupAndStops(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	syncer := &recordingPeriodicDirectorySyncer{
+		requests: make(chan directorysync.SyncRequest, 1),
+		result: directorysync.Result{
+			Run: domain.DirectorySyncRun{
+				SyncedAt: time.Date(2026, 6, 28, 8, 0, 0, 0, time.UTC),
+			},
+			DepartmentPages:     1,
+			UserPages:           1,
+			DepartmentsUpserted: 2,
+			UsersUpserted:       3,
+		},
+	}
+	done := make(chan error, 1)
+	go func() {
+		done <- runPeriodicDirectorySync(ctx, discardLogger(), syncer, time.Hour)
+	}()
+
+	select {
+	case req := <-syncer.requests:
+		if req.PageSize != 0 || req.UpdatedAfter != nil {
+			t.Fatalf("startup request = %+v, want full default sync", req)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("periodic directory sync did not run startup sync")
+	}
+
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runPeriodicDirectorySync: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("periodic directory sync did not stop after cancellation")
 	}
 }
 
@@ -424,8 +698,8 @@ func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("httpServerOptionsFromEnv diagnosis: %v", err)
 	}
-	if len(opts) != 8 {
-		t.Fatalf("len(opts) = %d, want 8", len(opts))
+	if len(opts) != 9 {
+		t.Fatalf("len(opts) = %d, want 9", len(opts))
 	}
 	if originPolicy == nil {
 		t.Fatal("originPolicy is nil")
@@ -441,18 +715,505 @@ func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoom(t *testing.T) {
 	}
 }
 
-func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisBrowserSessionWithStandardOIDCEnv(t *testing.T) {
+func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoomFromStandardOIDCEnv(t *testing.T) {
 	oidcServer := newOIDCDiscoveryServer(t)
 	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
-		"OIDC_ISSUER":    oidcServer.URL,
-		"OIDC_CLIENT_ID": "openclarion-web",
-		"OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY": strings.Repeat("s", diagnosisauth.MinSessionSigningKeyBytes),
+		"OIDC_ISSUER":                           " " + oidcServer.URL + " ",
+		"OIDC_CLIENT_ID":                        "openclarion-web",
+		"OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS": "http://127.0.0.1:32101",
 	}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil, nil)
 	if err != nil {
-		t.Fatalf("httpServerOptionsFromEnv diagnosis browser session: %v", err)
+		t.Fatalf("httpServerOptionsFromEnv diagnosis: %v", err)
 	}
-	if len(opts) != 8 {
-		t.Fatalf("len(opts) = %d, want 8", len(opts))
+	if len(opts) != 9 {
+		t.Fatalf("len(opts) = %d, want 9", len(opts))
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_PrefersStandardOIDCOverLegacyDiagnosisOIDCEnv(t *testing.T) {
+	oidcServer := newOIDCDiscoveryServer(t)
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{
+			name: "iam aliases",
+			env: map[string]string{
+				iamOIDCIssuerEnv:   " " + oidcServer.URL + " ",
+				iamOIDCClientIDEnv: "openclarion-web",
+			},
+		},
+		{
+			name: "standard aliases",
+			env: map[string]string{
+				standardOIDCIssuerEnv:   " " + oidcServer.URL + " ",
+				standardOIDCClientIDEnv: "openclarion-web",
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			env := map[string]string{
+				diagnosisOIDCIssuerURLEnv:               "https://legacy-issuer.example.test",
+				diagnosisOIDCClientIDEnv:                "legacy-openclarion-web",
+				"OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS": "http://127.0.0.1:32101",
+			}
+			for key, value := range tc.env {
+				env[key] = value
+			}
+			opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(env), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil, nil)
+			if err != nil {
+				t.Fatalf("httpServerOptionsFromEnv diagnosis: %v", err)
+			}
+			if len(opts) != 9 {
+				t.Fatalf("len(opts) = %d, want 9", len(opts))
+			}
+		})
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoomWithLDAP(t *testing.T) {
+	opts, originPolicy, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		diagnosisAuthModeEnv:                    "ldap",
+		diagnosisLDAPURLEnv:                     "ldaps://ldap.example.test:636",
+		diagnosisLDAPBaseDNEnv:                  "dc=example,dc=test",
+		diagnosisLDAPSubjectAttributeEnv:        "mail",
+		diagnosisLDAPOwnerRoleValuesEnv:         "cn=openclarion-operators,ou=groups,dc=example,dc=test",
+		"OPENCLARION_DIAGNOSIS_ALLOWED_ORIGINS": "http://127.0.0.1:32101",
+	}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil, nil)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv diagnosis ldap: %v", err)
+	}
+	if len(opts) != 9 {
+		t.Fatalf("len(opts) = %d, want 9", len(opts))
+	}
+	if originPolicy == nil {
+		t.Fatal("originPolicy is nil")
+	}
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "http://127.0.0.1:8080/ws/diagnosis", nil)
+	req.Header.Set("Origin", "http://127.0.0.1:32101")
+	if !originPolicy.CheckWebSocketOrigin(req) {
+		t.Fatal("expected configured origin to be allowed")
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_RejectsDirectWeComBrowserLoginMode(t *testing.T) {
+	_, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		diagnosisAuthModeEnv:          "wecom",
+		diagnosisSessionSigningKeyEnv: "unit-test-state-signing-key-32-bytes",
+	}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil, nil)
+	if err == nil {
+		t.Fatal("httpServerOptionsFromEnv error = nil, want direct WeCom browser login rejection")
+	}
+	for _, want := range []string{
+		diagnosisAuthModeEnv,
+		"IAM OIDC",
+		"application messages",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want guidance for %s", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "0123456789abcdef") ||
+		strings.Contains(err.Error(), "owner") {
+		t.Fatalf("error leaked configured values: %v", err)
+	}
+}
+
+func TestDiagnosisAuthProviderFromEnv_ConfiguresStaticBearer(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	provider, name, err := diagnosisAuthProviderFromEnv(mapGetenv(map[string]string{
+		diagnosisAuthModeEnv:              "static",
+		diagnosisStaticBearerTokenEnv:     "test-diagnosis-token",
+		diagnosisStaticSubjectEnv:         "operator-1",
+		diagnosisStaticRolesEnv:           "admin,owner",
+		"OPENCLARION_DIAGNOSIS_OIDC_URL":  "ignored",
+		"OPENCLARION_DIAGNOSIS_OIDC_JWKS": "ignored",
+	}), nil)
+	if err != nil {
+		t.Fatalf("diagnosisAuthProviderFromEnv: %v", err)
+	}
+	if name != "static" {
+		t.Fatalf("provider name = %q, want static", name)
+	}
+	principal, err := provider.AuthenticateAuthorization(context.Background(), "Bearer test-diagnosis-token")
+	if err != nil {
+		t.Fatalf("AuthenticateAuthorization: %v", err)
+	}
+	if principal.Subject != "operator-1" || len(principal.Roles) != 2 {
+		t.Fatalf("principal = %+v", principal)
+	}
+	if strings.Contains(string(principal.Claims), "test-diagnosis-token") {
+		t.Fatalf("claims leaked bearer token: %s", string(principal.Claims))
+	}
+}
+
+func TestDiagnosisAuthProviderFromEnv_ConfiguresLDAP(t *testing.T) {
+	_, name, err := diagnosisAuthProviderFromEnv(mapGetenv(map[string]string{
+		diagnosisAuthModeEnv:             "ldap",
+		diagnosisLDAPURLEnv:              "ldaps://ldap.example.test:636",
+		diagnosisLDAPBaseDNEnv:           "dc=example,dc=test",
+		diagnosisLDAPUserFilterEnv:       "(uid={username})",
+		diagnosisLDAPSubjectAttributeEnv: "mail",
+		diagnosisLDAPOwnerRoleValuesEnv:  "cn=openclarion-operators,ou=groups,dc=example,dc=test",
+	}), nil)
+	if err != nil {
+		t.Fatalf("diagnosisAuthProviderFromEnv: %v", err)
+	}
+	if name != "ldap" {
+		t.Fatalf("provider name = %q, want ldap", name)
+	}
+}
+
+func TestDiagnosisWeComAppCallbackFromEnv_ConfiguresVerifier(t *testing.T) {
+	verifier, err := diagnosisWeComAppCallbackFromEnv(mapGetenv(map[string]string{
+		diagnosisWeComCorpIDEnv:                 "ww-openclarion",
+		diagnosisWeComCallbackTokenEnv:          "callback-token-1",
+		diagnosisWeComCallbackEncodingAESKeyEnv: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFG",
+	}))
+	if err != nil {
+		t.Fatalf("diagnosisWeComAppCallbackFromEnv: %v", err)
+	}
+	if verifier == nil {
+		t.Fatal("verifier = nil, want configured verifier")
+	}
+}
+
+func TestHTTPServerOptionsFromEnv_ConfiguresWeComAppCallbackMessageRouter(t *testing.T) {
+	env := map[string]string{
+		diagnosisWeComCorpIDEnv:                 "ww-openclarion",
+		diagnosisWeComCallbackTokenEnv:          "callback-token-1",
+		diagnosisWeComCallbackEncodingAESKeyEnv: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFG",
+	}
+	opts, _, err := httpServerOptionsFromEnv(
+		discardLogger(),
+		mapGetenv(env),
+		emptyFactory{},
+		emptyStarter{},
+		noopDiagnosisRoomWorkflowClient{},
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 7 {
+		t.Fatalf("len(opts) = %d, want 7", len(opts))
+	}
+
+	opts, _, err = httpServerOptionsFromEnv(
+		discardLogger(),
+		mapGetenv(env),
+		emptyFactory{},
+		emptyStarter{},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv without workflows: %v", err)
+	}
+	if len(opts) != 6 {
+		t.Fatalf("len(opts) without workflows = %d, want 6", len(opts))
+	}
+}
+
+func TestDiagnosisWeComAppCallbackFromEnv_RejectsPartialConfigWithoutLeakingValues(t *testing.T) {
+	_, err := diagnosisWeComAppCallbackFromEnv(mapGetenv(map[string]string{
+		diagnosisWeComCallbackTokenEnv: "callback-token-1",
+	}))
+	if err == nil {
+		t.Fatal("diagnosisWeComAppCallbackFromEnv error = nil, want partial config error")
+	}
+	for _, want := range []string{
+		diagnosisWeComCallbackTokenEnv,
+		diagnosisWeComCallbackEncodingAESKeyEnv,
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("error = %v, want guidance for %s", err, want)
+		}
+	}
+	if strings.Contains(err.Error(), "callback-token-1") {
+		t.Fatalf("error leaked configured token: %v", err)
+	}
+}
+
+func TestDiagnosisWeComAppCallbackFromEnv_RequiresReceiveID(t *testing.T) {
+	_, err := diagnosisWeComAppCallbackFromEnv(mapGetenv(map[string]string{
+		diagnosisWeComCallbackTokenEnv:          "callback-token-1",
+		diagnosisWeComCallbackEncodingAESKeyEnv: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFG",
+	}))
+	if err == nil {
+		t.Fatal("diagnosisWeComAppCallbackFromEnv error = nil, want receive id guidance")
+	}
+	if !strings.Contains(err.Error(), diagnosisWeComCallbackReceiveIDEnv) ||
+		!strings.Contains(err.Error(), diagnosisWeComCorpIDEnv) {
+		t.Fatalf("error = %v, want receive id guidance", err)
+	}
+}
+
+func TestDiagnosisAuthProviderFromEnv_IgnoresWeComCallbackWhenDetectingMode(t *testing.T) {
+	provider, name, err := diagnosisAuthProviderFromEnv(mapGetenv(map[string]string{
+		diagnosisWeComCorpIDEnv:                 "ww-openclarion",
+		diagnosisWeComCallbackTokenEnv:          "callback-token-1",
+		diagnosisWeComCallbackEncodingAESKeyEnv: "0123456789abcdefghijklmnopqrstuvwxyzABCDEFG",
+	}), nil)
+	if err != nil {
+		t.Fatalf("diagnosisAuthProviderFromEnv: %v", err)
+	}
+	if provider != nil || name != "" {
+		t.Fatalf("provider=%T name=%q, want no detected auth provider", provider, name)
+	}
+}
+
+func TestDiagnosisAuthProviderFromEnv_DoesNotDetectLDAPWithoutExplicitMode(t *testing.T) {
+	provider, name, err := diagnosisAuthProviderFromEnv(mapGetenv(map[string]string{
+		diagnosisLDAPURLEnv:          "ldaps://ldap.example.test:636",
+		diagnosisLDAPBaseDNEnv:       "dc=example,dc=test",
+		diagnosisLDAPDefaultRolesEnv: "owner",
+	}), nil)
+	if err != nil {
+		t.Fatalf("diagnosisAuthProviderFromEnv: %v", err)
+	}
+	if provider != nil || name != "" {
+		t.Fatalf("provider=%T name=%q, want no detected auth provider", provider, name)
+	}
+}
+
+func TestDiagnosisAuthProviderFromEnv_IgnoresLDAPOptionalEnvWhenDetectingMode(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	provider, name, err := diagnosisAuthProviderFromEnv(mapGetenv(map[string]string{
+		diagnosisLDAPUserFilterEnv:       "(uid={username})",
+		diagnosisLDAPSubjectAttributeEnv: "mail",
+		diagnosisLDAPRoleAttributeEnv:    "memberOf",
+		diagnosisLDAPStartTLSEnv:         "sometimes",
+		diagnosisLDAPAllowPlaintextEnv:   "sometimes",
+		diagnosisStaticBearerTokenEnv:    "test-diagnosis-token",
+		diagnosisStaticSubjectEnv:        "operator-1",
+		diagnosisStaticRolesEnv:          "admin",
+	}), nil)
+	if err != nil {
+		t.Fatalf("diagnosisAuthProviderFromEnv: %v", err)
+	}
+	if name != "static" {
+		t.Fatalf("provider name = %q, want static", name)
+	}
+	principal, err := provider.AuthenticateAuthorization(context.Background(), "Bearer test-diagnosis-token")
+	if err != nil {
+		t.Fatalf("AuthenticateAuthorization: %v", err)
+	}
+	if principal.Subject != "operator-1" {
+		t.Fatalf("principal.Subject = %q, want operator-1", principal.Subject)
+	}
+}
+
+func TestDiagnosisAuthProviderFromEnv_ConfiguresLDAPStartTLS(t *testing.T) {
+	_, name, err := diagnosisAuthProviderFromEnv(mapGetenv(map[string]string{
+		diagnosisAuthModeEnv:         "ldap",
+		diagnosisLDAPURLEnv:          "ldap://ldap.example.test:389",
+		diagnosisLDAPBaseDNEnv:       "dc=example,dc=test",
+		diagnosisLDAPDefaultRolesEnv: "owner",
+		diagnosisLDAPStartTLSEnv:     "true",
+	}), nil)
+	if err != nil {
+		t.Fatalf("diagnosisAuthProviderFromEnv: %v", err)
+	}
+	if name != "ldap" {
+		t.Fatalf("provider name = %q, want ldap", name)
+	}
+}
+
+func TestDiagnosisAuthProviderFromEnv_AllowsExplicitInsecureLDAP(t *testing.T) {
+	_, name, err := diagnosisAuthProviderFromEnv(mapGetenv(map[string]string{
+		diagnosisAuthModeEnv:           "ldap",
+		diagnosisLDAPURLEnv:            "ldap://ldap.example.test:389",
+		diagnosisLDAPBaseDNEnv:         "dc=example,dc=test",
+		diagnosisLDAPDefaultRolesEnv:   "owner",
+		diagnosisLDAPAllowPlaintextEnv: "true",
+	}), nil)
+	if err != nil {
+		t.Fatalf("diagnosisAuthProviderFromEnv: %v", err)
+	}
+	if name != "ldap" {
+		t.Fatalf("provider name = %q, want ldap", name)
+	}
+}
+
+func TestDiagnosisAuthProviderFromEnv_RejectsInsecureLDAPByDefault(t *testing.T) {
+	_, _, err := diagnosisAuthProviderFromEnv(mapGetenv(map[string]string{
+		diagnosisAuthModeEnv:         "ldap",
+		diagnosisLDAPURLEnv:          "ldap://ldap.example.test:389",
+		diagnosisLDAPBaseDNEnv:       "dc=example,dc=test",
+		diagnosisLDAPDefaultRolesEnv: "owner",
+	}), nil)
+	if err == nil {
+		t.Fatal("diagnosisAuthProviderFromEnv error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), diagnosisLDAPStartTLSEnv) &&
+		!strings.Contains(err.Error(), "start tls") {
+		t.Fatalf("error = %q, want start tls transport error", err.Error())
+	}
+	if strings.Contains(err.Error(), "ldap.example.test") {
+		t.Fatalf("error leaked ldap url: %v", err)
+	}
+}
+
+func TestDiagnosisAuthProviderFromEnv_DetectsStaticBearerWithoutExplicitMode(t *testing.T) {
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	_, name, err := diagnosisAuthProviderFromEnv(mapGetenv(map[string]string{
+		diagnosisStaticBearerTokenEnv: "test-diagnosis-token",
+		diagnosisStaticSubjectEnv:     "operator-1",
+		diagnosisStaticRolesEnv:       "admin",
+	}), nil)
+	if err != nil {
+		t.Fatalf("diagnosisAuthProviderFromEnv: %v", err)
+	}
+	if name != "static" {
+		t.Fatalf("provider name = %q, want static", name)
+	}
+}
+
+func TestDiagnosisAuthProviderFromEnv_RejectsInvalidStaticConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "missing roles",
+			// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+			env: map[string]string{
+				diagnosisAuthModeEnv:          "static",
+				diagnosisStaticBearerTokenEnv: "test-diagnosis-token",
+				diagnosisStaticSubjectEnv:     "operator-1",
+			},
+			want: diagnosisStaticRolesEnv,
+		},
+		{
+			name: "unsupported role",
+			// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+			env: map[string]string{
+				diagnosisAuthModeEnv:          "static",
+				diagnosisStaticBearerTokenEnv: "test-diagnosis-token",
+				diagnosisStaticSubjectEnv:     "operator-1",
+				diagnosisStaticRolesEnv:       "viewer",
+			},
+			want: "viewer",
+		},
+		{
+			name: "unsupported mode",
+			env: map[string]string{
+				diagnosisAuthModeEnv: "basic",
+			},
+			want: diagnosisAuthModeEnv,
+		},
+		{
+			name: "invalid ldap role",
+			env: map[string]string{
+				diagnosisAuthModeEnv:         "ldap",
+				diagnosisLDAPURLEnv:          "ldaps://ldap.example.test:636",
+				diagnosisLDAPBaseDNEnv:       "dc=example,dc=test",
+				diagnosisLDAPDefaultRolesEnv: "viewer",
+				diagnosisLDAPBindPasswordEnv: "fixture-password",
+			},
+			want: "viewer",
+		},
+		{
+			name: "invalid ldap bind pair",
+			env: map[string]string{
+				diagnosisAuthModeEnv:         "ldap",
+				diagnosisLDAPURLEnv:          "ldaps://ldap.example.test:636",
+				diagnosisLDAPBaseDNEnv:       "dc=example,dc=test",
+				diagnosisLDAPDefaultRolesEnv: "owner",
+				diagnosisLDAPBindDNEnv:       "cn=openclarion,dc=example,dc=test",
+			},
+			want: "bind",
+		},
+		{
+			name: "invalid ldap bind password newline",
+			env: map[string]string{
+				diagnosisAuthModeEnv:         "ldap",
+				diagnosisLDAPURLEnv:          "ldaps://ldap.example.test:636",
+				diagnosisLDAPBaseDNEnv:       "dc=example,dc=test",
+				diagnosisLDAPDefaultRolesEnv: "owner",
+				diagnosisLDAPBindDNEnv:       "cn=openclarion,dc=example,dc=test",
+				diagnosisLDAPBindPasswordEnv: "fixture-password\n",
+			},
+			want: "bind password",
+		},
+		{
+			name: "invalid ldap base dn whitespace",
+			env: map[string]string{
+				diagnosisAuthModeEnv:         "ldap",
+				diagnosisLDAPURLEnv:          "ldaps://ldap.example.test:636",
+				diagnosisLDAPBaseDNEnv:       " dc=example,dc=test ",
+				diagnosisLDAPDefaultRolesEnv: "owner",
+			},
+			want: "base dn",
+		},
+		{
+			name: "invalid ldap bind dn whitespace",
+			env: map[string]string{
+				diagnosisAuthModeEnv:         "ldap",
+				diagnosisLDAPURLEnv:          "ldaps://ldap.example.test:636",
+				diagnosisLDAPBaseDNEnv:       "dc=example,dc=test",
+				diagnosisLDAPDefaultRolesEnv: "owner",
+				diagnosisLDAPBindDNEnv:       " cn=openclarion,dc=example,dc=test ",
+				diagnosisLDAPBindPasswordEnv: "fixture-password",
+			},
+			want: "bind dn",
+		},
+		{
+			name: "invalid ldap subject attribute whitespace",
+			env: map[string]string{
+				diagnosisAuthModeEnv:             "ldap",
+				diagnosisLDAPURLEnv:              "ldaps://ldap.example.test:636",
+				diagnosisLDAPBaseDNEnv:           "dc=example,dc=test",
+				diagnosisLDAPDefaultRolesEnv:     "owner",
+				diagnosisLDAPSubjectAttributeEnv: " mail ",
+			},
+			want: "subject attribute",
+		},
+		{
+			name: "invalid ldap start tls bool",
+			env: map[string]string{
+				diagnosisAuthModeEnv:         "ldap",
+				diagnosisLDAPURLEnv:          "ldaps://ldap.example.test:636",
+				diagnosisLDAPBaseDNEnv:       "dc=example,dc=test",
+				diagnosisLDAPDefaultRolesEnv: "owner",
+				diagnosisLDAPStartTLSEnv:     "sometimes",
+			},
+			want: diagnosisLDAPStartTLSEnv,
+		},
+		{
+			name: "invalid ldap plaintext bool",
+			env: map[string]string{
+				diagnosisAuthModeEnv:           "ldap",
+				diagnosisLDAPURLEnv:            "ldaps://ldap.example.test:636",
+				diagnosisLDAPBaseDNEnv:         "dc=example,dc=test",
+				diagnosisLDAPDefaultRolesEnv:   "owner",
+				diagnosisLDAPAllowPlaintextEnv: "sometimes",
+			},
+			want: diagnosisLDAPAllowPlaintextEnv,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := diagnosisAuthProviderFromEnv(mapGetenv(tc.env), nil)
+			if err == nil {
+				t.Fatal("diagnosisAuthProviderFromEnv error = nil, want error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tc.want)
+			}
+			if strings.Contains(err.Error(), "test-diagnosis-token") {
+				t.Fatalf("error leaked bearer token: %v", err)
+			}
+		})
 	}
 }
 
@@ -518,6 +1279,47 @@ func TestDiagnosisActivityOptionsFromEnv_ConfiguresEvidenceProviderWithoutSandbo
 	}
 	if len(opts) != 1 {
 		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	}
+}
+
+func TestDiagnosisActivityOptionsFromEnv_ConfiguresPublicBaseURL(t *testing.T) {
+	opts, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		publicBaseURLEnv: "https://openclarion.example.test/ops",
+	}), nil)
+	if err != nil {
+		t.Fatalf("diagnosisActivityOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 2 {
+		t.Fatalf("len(opts) = %d, want 2", len(opts))
+	}
+}
+
+func TestDiagnosisActivityOptionsFromEnv_RejectsInvalidPublicBaseURL(t *testing.T) {
+	tests := []struct {
+		name       string
+		value      string
+		wantSubstr string
+	}{
+		{name: "relative", value: "openclarion.local/ops", wantSubstr: "scheme"},
+		// #nosec G101 -- test-only credential-bearing URL fixture verifies sanitization.
+		{name: "userinfo", value: "https://operator:secret@example.test", wantSubstr: "userinfo"},
+		{name: "query", value: "https://example.test/ops?token=secret", wantSubstr: "query or fragment"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+				publicBaseURLEnv: tc.value,
+			}), nil)
+			if err == nil {
+				t.Fatal("expected public base URL error, got nil")
+			}
+			if !strings.Contains(err.Error(), publicBaseURLEnv) || !strings.Contains(err.Error(), tc.wantSubstr) {
+				t.Fatalf("error = %q, want %s and %s", err.Error(), publicBaseURLEnv, tc.wantSubstr)
+			}
+			if strings.Contains(err.Error(), tc.value) || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("error leaked public base URL value: %q", err.Error())
+			}
+		})
 	}
 }
 
@@ -1265,6 +2067,278 @@ func TestRunReportScheduleLiveSmokeCLIWithDependenciesRejectsInvalidSchedule(t *
 	}
 }
 
+func TestParseWorkflowBacklogCLIArgsDefaultsToOpenClarionRunningWorkflows(t *testing.T) {
+	cfg, err := parseWorkflowBacklogCLIArgs(nil)
+	if err != nil {
+		t.Fatalf("parseWorkflowBacklogCLIArgs: %v", err)
+	}
+	if cfg.Limit != defaultWorkflowBacklogCLILimit || cfg.Status != "running" {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+	if !sameStrings(cfg.WorkflowTypes, defaultWorkflowBacklogCLIWorkflowTypes) {
+		t.Fatalf("workflow types = %#v, want %#v", cfg.WorkflowTypes, defaultWorkflowBacklogCLIWorkflowTypes)
+	}
+	gotQuery := workflowBacklogCLIVisibilityQuery(cfg)
+	wantQuery := `ExecutionStatus = "Running" AND (WorkflowType = "ReportBatchWorkflow" OR WorkflowType = "ReportFanOutWorkflow" OR WorkflowType = "FinalReportWorkflow" OR WorkflowType = "ReportPolicyScheduleLauncherWorkflow" OR WorkflowType = "DiagnosisRoomWorkflow")`
+	if gotQuery != wantQuery {
+		t.Fatalf("query = %q, want %q", gotQuery, wantQuery)
+	}
+}
+
+func TestParseWorkflowBacklogCLIArgsAllowsRawQuery(t *testing.T) {
+	rawQuery := `WorkflowId = "report-batch-1" AND ExecutionStatus = "Running"`
+	cfg, err := parseWorkflowBacklogCLIArgs([]string{"--query", rawQuery, "--limit", "5"})
+	if err != nil {
+		t.Fatalf("parseWorkflowBacklogCLIArgs: %v", err)
+	}
+	if cfg.Query != rawQuery || cfg.Limit != 5 || cfg.Status != "" || len(cfg.WorkflowTypes) != 0 {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+	if got := workflowBacklogCLIVisibilityQuery(cfg); got != rawQuery {
+		t.Fatalf("query = %q, want %q", got, rawQuery)
+	}
+}
+
+func TestParseWorkflowBacklogCLIArgsRejectsUnsafeInput(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "bad limit",
+			args: []string{"--limit", "0"},
+			want: "--limit",
+		},
+		{
+			name: "workflow type injection",
+			args: []string{"--workflow-types", `ReportBatchWorkflow" OR WorkflowType = "Other`},
+			want: "--workflow-types",
+		},
+		{
+			name: "raw query newline",
+			args: []string{"--query", "ExecutionStatus = \"Running\"\nWorkflowType = \"Other\""},
+			want: "--query must be a single-line",
+		},
+		{
+			name: "namespace wide all statuses",
+			args: []string{"--status", "all", "--all-types"},
+			want: "too broad",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseWorkflowBacklogCLIArgs(tc.args)
+			if err == nil {
+				t.Fatal("parseWorkflowBacklogCLIArgs: want error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %q, want substring %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestRunWorkflowBacklogCLIWithDependenciesWritesMetadataOnly(t *testing.T) {
+	checkedAt := time.Date(2026, 6, 20, 8, 0, 0, 0, time.UTC)
+	previousNow := workflowBacklogCLINowUTC
+	workflowBacklogCLINowUTC = func() time.Time { return checkedAt }
+	t.Cleanup(func() { workflowBacklogCLINowUTC = previousNow })
+
+	lister := &recordingWorkflowBacklogLister{
+		responses: []*workflowservicepb.ListWorkflowExecutionsResponse{
+			{
+				Executions: []*workflowpb.WorkflowExecutionInfo{
+					testWorkflowExecutionInfo("report-batch-1", "run-1", "ReportBatchWorkflow", enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING, checkedAt.Add(-10*time.Minute)),
+				},
+				NextPageToken: []byte("next"),
+			},
+			{
+				Executions: []*workflowpb.WorkflowExecutionInfo{
+					testWorkflowExecutionInfo("diagnosis-session-1", "run-2", "DiagnosisRoomWorkflow", enumspb.WORKFLOW_EXECUTION_STATUS_FAILED, checkedAt.Add(-time.Hour)),
+				},
+			},
+		},
+	}
+	var out bytes.Buffer
+	cfg := workflowBacklogCLIConfig{
+		Limit:         2,
+		Status:        "running",
+		WorkflowTypes: []string{"ReportBatchWorkflow", "DiagnosisRoomWorkflow"},
+	}
+	if err := runWorkflowBacklogCLIWithDependencies(context.Background(), lister, cfg, &out); err != nil {
+		t.Fatalf("runWorkflowBacklogCLIWithDependencies: %v", err)
+	}
+	if len(lister.requests) != 2 {
+		t.Fatalf("request count = %d, want 2", len(lister.requests))
+	}
+	wantQuery := `ExecutionStatus = "Running" AND (WorkflowType = "ReportBatchWorkflow" OR WorkflowType = "DiagnosisRoomWorkflow")`
+	if lister.requests[0].GetQuery() != wantQuery || lister.requests[1].GetQuery() != wantQuery {
+		t.Fatalf("queries = %q %q, want %q", lister.requests[0].GetQuery(), lister.requests[1].GetQuery(), wantQuery)
+	}
+	if lister.requests[0].GetPageSize() != 2 || lister.requests[1].GetPageSize() != 1 {
+		t.Fatalf("page sizes = %d %d, want 2 1", lister.requests[0].GetPageSize(), lister.requests[1].GetPageSize())
+	}
+	if string(lister.requests[1].GetNextPageToken()) != "next" {
+		t.Fatalf("next page token = %q, want next", string(lister.requests[1].GetNextPageToken()))
+	}
+	if strings.Contains(out.String(), "should-not-leak") {
+		t.Fatalf("workflow backlog output leaked memo payload: %s", out.String())
+	}
+	var got workflowBacklogCLIOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode output: %v; raw=%s", err, out.String())
+	}
+	if got.CheckedAt != checkedAt.Format(time.RFC3339Nano) ||
+		got.Returned != 2 ||
+		got.Truncated ||
+		got.CountsByType["ReportBatchWorkflow"] != 1 ||
+		got.CountsByStatus["running"] != 1 ||
+		got.CountsByStatus["failed"] != 1 {
+		t.Fatalf("output = %+v", got)
+	}
+	if len(got.Workflows) != 2 {
+		t.Fatalf("workflow count = %d, want 2", len(got.Workflows))
+	}
+	first := got.Workflows[0]
+	if first.WorkflowID != "report-batch-1" ||
+		first.RunID != "run-1" ||
+		first.WorkflowType != "ReportBatchWorkflow" ||
+		first.Status != "running" ||
+		first.TaskQueue != "openclarion" ||
+		first.AgeSeconds != int64(10*time.Minute/time.Second) ||
+		first.HistoryLength != 42 ||
+		first.HistorySizeBytes != 4096 ||
+		first.ParentWorkflowID != "parent-report-batch-1" ||
+		first.RootWorkflowID != "root-report-batch-1" {
+		t.Fatalf("first workflow = %+v", first)
+	}
+}
+
+func TestParseDiagnosisRoomListCLIArgs(t *testing.T) {
+	cfg, err := parseDiagnosisRoomListCLIArgs([]string{"--limit", "25", "--queue", "attention"})
+	if err != nil {
+		t.Fatalf("parseDiagnosisRoomListCLIArgs: %v", err)
+	}
+	if cfg.Limit != 25 || cfg.Queue != "attention" {
+		t.Fatalf("cfg = %+v", cfg)
+	}
+}
+
+func TestParseDiagnosisRoomListCLIArgsRejectsInvalidInput(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{name: "bad limit", args: []string{"--limit", "0"}, want: "--limit"},
+		{name: "bad queue", args: []string{"--queue", "stale"}, want: "--queue"},
+		{name: "positional", args: []string{"extra"}, want: "unexpected positional"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseDiagnosisRoomListCLIArgs(tc.args)
+			if err == nil {
+				t.Fatal("parseDiagnosisRoomListCLIArgs: want error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %q, want substring %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestRunDiagnosisRoomListCLIWithDependenciesFiltersAndWritesMetadataOnly(t *testing.T) {
+	occurredAt := time.Date(2026, 6, 20, 8, 1, 0, 0, time.UTC)
+	requiresHumanReview := true
+	conclusion, err := diagnosisRoomListConclusionFromEvent(domain.DiagnosisTaskEvent{
+		ID:         1,
+		Kind:       "diagnosis_room.final_conclusion_ready",
+		TaskID:     101,
+		OccurredAt: occurredAt,
+		Payload: json.RawMessage(`{
+			"kind":"diagnosis_room.final_conclusion_ready",
+			"final_conclusion":{
+				"status":"available",
+				"confidence":"high",
+				"requires_human_review":true,
+				"content":"should-not-leak"
+			}
+		}`),
+	})
+	if err != nil {
+		t.Fatalf("diagnosisRoomListConclusionFromEvent: %v", err)
+	}
+	conclusion.RequiresHumanReview = &requiresHumanReview
+	notification, err := diagnosisRoomListNotificationFromEvent(domain.DiagnosisTaskEvent{
+		ID:         2,
+		Kind:       "diagnosis_room.final_ready_notification_sent",
+		TaskID:     101,
+		OccurredAt: occurredAt.Add(time.Minute),
+		Payload: json.RawMessage(`{
+			"kind":"diagnosis_room.final_ready_notification_sent",
+			"provider_status":"failed",
+			"provider_raw":{"text":"should-not-leak"}
+		}`),
+	})
+	if err != nil {
+		t.Fatalf("diagnosisRoomListNotificationFromEvent: %v", err)
+	}
+
+	loader := &recordingDiagnosisRoomListLoader{
+		rooms: []diagnosisRoomListRoom{
+			testDiagnosisRoomListRoom("room-attention", domain.DiagnosisStatusRunning, domain.ChatSessionStatusOpen, 1, &conclusion, &notification),
+			testDiagnosisRoomListRoom("room-ready", domain.DiagnosisStatusRunning, domain.ChatSessionStatusOpen, 2, &diagnosisRoomListCLIConclusion{
+				EventKind:           "diagnosis_room.final_conclusion_ready",
+				Status:              "available",
+				Confidence:          "high",
+				RequiresHumanReview: boolPtr(false),
+				OccurredAt:          occurredAt.Format(time.RFC3339Nano),
+			}, nil),
+			testDiagnosisRoomListRoom("room-active", domain.DiagnosisStatusRunning, domain.ChatSessionStatusOpen, 1, nil, nil),
+			testDiagnosisRoomListRoom("room-closed", domain.DiagnosisStatusSucceeded, domain.ChatSessionStatusClosed, 3, nil, nil),
+		},
+	}
+	var out bytes.Buffer
+	err = runDiagnosisRoomListCLIWithDependencies(context.Background(), loader, diagnosisRoomListCLIConfig{
+		Limit: 10,
+		Queue: "attention",
+	}, &out)
+	if err != nil {
+		t.Fatalf("runDiagnosisRoomListCLIWithDependencies: %v", err)
+	}
+	if loader.limit != 10 {
+		t.Fatalf("loader limit = %d, want 10", loader.limit)
+	}
+	if strings.Contains(out.String(), "should-not-leak") {
+		t.Fatalf("diagnosis room list output leaked payload content: %s", out.String())
+	}
+	var got diagnosisRoomListCLIOutput
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("decode output: %v; raw=%s", err, out.String())
+	}
+	if got.Returned != 1 ||
+		got.CountsByQueue["attention"] != 1 ||
+		got.CountsByQueue["ready"] != 1 ||
+		got.CountsByQueue["active"] != 1 ||
+		got.CountsByQueue["closed"] != 1 {
+		t.Fatalf("output counts = returned %d counts %+v", got.Returned, got.CountsByQueue)
+	}
+	if len(got.Rooms) != 1 {
+		t.Fatalf("rooms len = %d, want 1", len(got.Rooms))
+	}
+	room := got.Rooms[0]
+	if room.SessionID != "room-attention" ||
+		room.NextStep.Queue != "attention" ||
+		room.NextStep.Label != "Notification failed" ||
+		room.LatestNotification == nil ||
+		room.LatestNotification.ProviderStatus != "failed" ||
+		room.LatestConclusion == nil ||
+		room.LatestConclusion.Confidence != "high" {
+		t.Fatalf("room = %+v", room)
+	}
+}
+
 func TestParseDiagnosisRoomCloseCLIArgs(t *testing.T) {
 	cfg, err := parseDiagnosisRoomCloseCLIArgs([]string{
 		"--session-id", "diagnosis-session-abc",
@@ -1501,6 +2575,7 @@ func TestDiagnosisRoomClosePayloadsDecodeLiveEventShape(t *testing.T) {
 		"close_reason": "local_rehearsal_completed",
 		"owner_subject": "operator-1",
 		"chat_session_id": 202,
+		"evidence_snapshot_id": 1,
 		"final_conclusion": {
 			"source": "latest_assistant_turn",
 			"status": "available",
@@ -1521,7 +2596,8 @@ func TestDiagnosisRoomClosePayloadsDecodeLiveEventShape(t *testing.T) {
 	}
 	if closeOut.Source != "DiagnosisRoomWorkflow" ||
 		closeOut.FinalConclusion.Source != "latest_assistant_turn" ||
-		closeOut.FinalConclusion.AssistantTurnID != 303 {
+		closeOut.FinalConclusion.AssistantTurnID != 303 ||
+		closeOut.EvidenceSnapshotID != 1 {
 		t.Fatalf("close payload = %+v", closeOut)
 	}
 
@@ -1532,14 +2608,27 @@ func TestDiagnosisRoomClosePayloadsDecodeLiveEventShape(t *testing.T) {
 		"turn_count": 1,
 		"close_reason": "local_rehearsal_completed",
 		"provider_raw": {"status": "accepted", "message_id": "m5-local-close-1"},
-		"owner_subject": "operator-1",
-		"alert_group_id": 1,
-		"chat_session_id": 202,
-		"idempotency_key": "diagnosis_room:101:close-notification",
-		"provider_status": "accepted",
-		"diagnosis_task_id": 101,
-		"provider_message_id": "m5-local-close-1",
-		"evidence_snapshot_id": 1
+			"owner_subject": "operator-1",
+			"alert_group_id": 1,
+			"chat_session_id": 202,
+			"notification_channel_profile_id": 9,
+			"idempotency_key": "diagnosis_room:101:close-notification",
+			"provider_status": "accepted",
+			"final_conclusion": {
+				"source": "latest_assistant_turn",
+				"status": "available",
+				"content": "Local diagnosis conclusion.",
+				"confidence": "medium",
+				"assistant_turn_id": 303,
+				"assistant_sequence": 2,
+				"assistant_message_id": "msg-1/assistant",
+				"assistant_occurred_at": "2026-06-05T07:45:18.961702+08:00",
+				"evidence_snapshot_id": 1,
+				"requires_human_review": true
+			},
+			"diagnosis_task_id": 101,
+			"provider_message_id": "m5-local-close-1",
+			"evidence_snapshot_id": 1
 	}`)
 	var notificationOut diagnosisRoomCloseNotificationPayload
 	if err := strictjson.Unmarshal(notificationPayload, &notificationOut); err != nil {
@@ -1548,6 +2637,8 @@ func TestDiagnosisRoomClosePayloadsDecodeLiveEventShape(t *testing.T) {
 	if notificationOut.Source != "DiagnosisRoomWorkflow" ||
 		notificationOut.ProviderStatus != "accepted" ||
 		notificationOut.ProviderMessageID != "m5-local-close-1" ||
+		notificationOut.NotificationChannelProfileID != 9 ||
+		notificationOut.FinalConclusion.AssistantTurnID != 303 ||
 		len(notificationOut.ProviderRaw) == 0 {
 		t.Fatalf("notification payload = %+v", notificationOut)
 	}
@@ -1708,10 +2799,28 @@ func (noopScheduleSyncer) SyncReportWorkflowSchedule(context.Context, domain.Rep
 	return nil
 }
 
+type recordingPeriodicDirectorySyncer struct {
+	requests chan directorysync.SyncRequest
+	result   directorysync.Result
+	err      error
+}
+
+func (s *recordingPeriodicDirectorySyncer) Sync(_ context.Context, req directorysync.SyncRequest) (directorysync.Result, error) {
+	s.requests <- req
+	if s.err != nil {
+		return directorysync.Result{}, s.err
+	}
+	return s.result, nil
+}
+
 type noopDiagnosisRoomWorkflowClient struct{}
 
 func (noopDiagnosisRoomWorkflowClient) SubmitDiagnosisTurn(context.Context, ports.DiagnosisRoomSubmitTurnRequest) (ports.DiagnosisRoomSubmitTurnResult, error) {
 	return ports.DiagnosisRoomSubmitTurnResult{}, nil
+}
+
+func (noopDiagnosisRoomWorkflowClient) CollectDiagnosisEvidence(context.Context, ports.DiagnosisRoomCollectEvidenceRequest) (ports.DiagnosisRoomCollectEvidenceResult, error) {
+	return ports.DiagnosisRoomCollectEvidenceResult{}, nil
 }
 
 func (noopDiagnosisRoomWorkflowClient) ConfirmDiagnosisConclusion(context.Context, ports.DiagnosisRoomConfirmConclusionRequest) (ports.DiagnosisRoomState, error) {
@@ -1772,6 +2881,129 @@ func (w *recordingReportScheduleLiveSmokeWaiter) WaitReportSchedule(
 	w.schedule = schedule
 	w.cfg = cfg
 	return w.result, nil
+}
+
+type recordingWorkflowBacklogLister struct {
+	requests  []*workflowservicepb.ListWorkflowExecutionsRequest
+	responses []*workflowservicepb.ListWorkflowExecutionsResponse
+	err       error
+}
+
+func (l *recordingWorkflowBacklogLister) ListWorkflow(
+	_ context.Context,
+	req *workflowservicepb.ListWorkflowExecutionsRequest,
+) (*workflowservicepb.ListWorkflowExecutionsResponse, error) {
+	l.requests = append(l.requests, req)
+	if l.err != nil {
+		return nil, l.err
+	}
+	if len(l.responses) == 0 {
+		return &workflowservicepb.ListWorkflowExecutionsResponse{}, nil
+	}
+	resp := l.responses[0]
+	l.responses = l.responses[1:]
+	return resp, nil
+}
+
+func testWorkflowExecutionInfo(
+	workflowID string,
+	runID string,
+	workflowType string,
+	status enumspb.WorkflowExecutionStatus,
+	startedAt time.Time,
+) *workflowpb.WorkflowExecutionInfo {
+	return &workflowpb.WorkflowExecutionInfo{
+		Execution: &commonpb.WorkflowExecution{
+			WorkflowId: workflowID,
+			RunId:      runID,
+		},
+		Type: &commonpb.WorkflowType{
+			Name: workflowType,
+		},
+		StartTime:        timestamppb.New(startedAt),
+		ExecutionTime:    timestamppb.New(startedAt.Add(2 * time.Second)),
+		Status:           status,
+		HistoryLength:    42,
+		HistorySizeBytes: 4096,
+		TaskQueue:        "openclarion",
+		ParentExecution: &commonpb.WorkflowExecution{
+			WorkflowId: "parent-" + workflowID,
+			RunId:      "parent-" + runID,
+		},
+		RootExecution: &commonpb.WorkflowExecution{
+			WorkflowId: "root-" + workflowID,
+			RunId:      "root-" + runID,
+		},
+		Memo: &commonpb.Memo{
+			Fields: map[string]*commonpb.Payload{
+				"secret": {Data: []byte("should-not-leak")},
+			},
+		},
+	}
+}
+
+type recordingDiagnosisRoomListLoader struct {
+	limit int
+	rooms []diagnosisRoomListRoom
+	err   error
+}
+
+func (l *recordingDiagnosisRoomListLoader) ListDiagnosisRooms(_ context.Context, limit int) ([]diagnosisRoomListRoom, error) {
+	l.limit = limit
+	if l.err != nil {
+		return nil, l.err
+	}
+	return l.rooms, nil
+}
+
+func testDiagnosisRoomListRoom(
+	sessionKey string,
+	taskStatus domain.DiagnosisStatus,
+	roomStatus domain.ChatSessionStatus,
+	turnCount int,
+	conclusion *diagnosisRoomListCLIConclusion,
+	notification *diagnosisRoomListCLINotification,
+) diagnosisRoomListRoom {
+	startedAt := time.Date(2026, 6, 20, 8, 0, 0, 0, time.UTC)
+	var closedAt *time.Time
+	closeReason := ""
+	if roomStatus == domain.ChatSessionStatusClosed {
+		closed := startedAt.Add(10 * time.Minute)
+		closedAt = &closed
+		closeReason = "operator confirmed"
+	}
+	return diagnosisRoomListRoom{
+		Room: domain.ChatSessionWithTask{
+			Session: domain.ChatSession{
+				ID:              domain.ChatSessionID(202),
+				DiagnosisTaskID: domain.DiagnosisTaskID(101),
+				SessionKey:      sessionKey,
+				Status:          roomStatus,
+				TurnCount:       turnCount,
+				StartedAt:       startedAt,
+				LastActivityAt:  startedAt.Add(time.Minute),
+				ClosedAt:        closedAt,
+				CloseReason:     closeReason,
+				CreatedAt:       startedAt,
+				UpdatedAt:       startedAt.Add(time.Minute),
+			},
+			Task: domain.DiagnosisTask{
+				ID:                 domain.DiagnosisTaskID(101),
+				EvidenceSnapshotID: domain.EvidenceSnapshotID(7),
+				WorkflowID:         "diagnosis-room-" + sessionKey,
+				RunID:              "run-" + sessionKey,
+				Status:             taskStatus,
+				CreatedAt:          startedAt,
+				UpdatedAt:          startedAt.Add(time.Minute),
+			},
+		},
+		LatestConclusion:   conclusion,
+		LatestNotification: notification,
+	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 type recordingDiagnosisRoomCloseWaiter struct {

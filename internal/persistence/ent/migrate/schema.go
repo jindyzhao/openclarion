@@ -13,6 +13,7 @@ var (
 	AlertEventsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "source", Type: field.TypeString, Size: 64},
+		{Name: "alert_source_profile_id", Type: field.TypeInt, Nullable: true},
 		{Name: "source_fingerprint", Type: field.TypeString, Size: 128},
 		{Name: "canonical_fingerprint", Type: field.TypeString, Size: 64},
 		{Name: "labels", Type: field.TypeJSON},
@@ -32,17 +33,22 @@ var (
 			{
 				Name:    "alertevent_source_canonical_fingerprint_starts_at",
 				Unique:  true,
-				Columns: []*schema.Column{AlertEventsColumns[1], AlertEventsColumns[3], AlertEventsColumns[8]},
+				Columns: []*schema.Column{AlertEventsColumns[1], AlertEventsColumns[4], AlertEventsColumns[9]},
 			},
 			{
 				Name:    "alertevent_source_status",
 				Unique:  false,
-				Columns: []*schema.Column{AlertEventsColumns[1], AlertEventsColumns[7]},
+				Columns: []*schema.Column{AlertEventsColumns[1], AlertEventsColumns[8]},
+			},
+			{
+				Name:    "alertevent_alert_source_profile_id_starts_at",
+				Unique:  false,
+				Columns: []*schema.Column{AlertEventsColumns[2], AlertEventsColumns[9]},
 			},
 			{
 				Name:    "alertevent_labels",
 				Unique:  false,
-				Columns: []*schema.Column{AlertEventsColumns[4]},
+				Columns: []*schema.Column{AlertEventsColumns[5]},
 				Annotation: &entsql.IndexAnnotation{
 					Types: map[string]string{
 						"postgres": "GIN",
@@ -662,6 +668,47 @@ var (
 			},
 		},
 	}
+	// NotificationChannelTestProofsColumns holds the columns for the "notification_channel_test_proofs" table.
+	NotificationChannelTestProofsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "kind", Type: field.TypeString, Size: 32},
+		{Name: "status", Type: field.TypeString, Size: 32},
+		{Name: "reason_code", Type: field.TypeString, Size: 64},
+		{Name: "message", Type: field.TypeString, Size: 240},
+		{Name: "content_kind", Type: field.TypeString, Nullable: true, Size: 64},
+		{Name: "content_sha256", Type: field.TypeString, Nullable: true, Size: 64},
+		{Name: "checked_at", Type: field.TypeTime},
+		{Name: "provider_message_id", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "provider_status", Type: field.TypeString, Nullable: true, Size: 64},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "notification_channel_profile_id", Type: field.TypeInt},
+	}
+	// NotificationChannelTestProofsTable holds the schema information for the "notification_channel_test_proofs" table.
+	NotificationChannelTestProofsTable = &schema.Table{
+		Name:       "notification_channel_test_proofs",
+		Columns:    NotificationChannelTestProofsColumns,
+		PrimaryKey: []*schema.Column{NotificationChannelTestProofsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "notification_channel_test_proofs_notification_channel_profiles_test_proofs",
+				Columns:    []*schema.Column{NotificationChannelTestProofsColumns[11]},
+				RefColumns: []*schema.Column{NotificationChannelProfilesColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "notificationchanneltestproof_notification_channel_profile_id_checked_at",
+				Unique:  false,
+				Columns: []*schema.Column{NotificationChannelTestProofsColumns[11], NotificationChannelTestProofsColumns[7]},
+			},
+			{
+				Name:    "notificationchanneltestproof_notification_channel_profile_id_content_kind_checked_at",
+				Unique:  false,
+				Columns: []*schema.Column{NotificationChannelTestProofsColumns[11], NotificationChannelTestProofsColumns[5], NotificationChannelTestProofsColumns[7]},
+			},
+		},
+	}
 	// RbacAssignmentsColumns holds the columns for the "rbac_assignments" table.
 	RbacAssignmentsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -702,6 +749,7 @@ var (
 	// ReportNotificationDeliveriesColumns holds the columns for the "report_notification_deliveries" table.
 	ReportNotificationDeliveriesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "report_notification_channel_profile_id", Type: field.TypeInt, Nullable: true},
 		{Name: "idempotency_key", Type: field.TypeString, Unique: true, Size: 256},
 		{Name: "provider_message_id", Type: field.TypeString, Nullable: true, Size: 256},
 		{Name: "provider_status", Type: field.TypeString, Nullable: true, Size: 64},
@@ -721,7 +769,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "report_notification_deliveries_final_reports_notification_deliveries",
-				Columns:    []*schema.Column{ReportNotificationDeliveriesColumns[10]},
+				Columns:    []*schema.Column{ReportNotificationDeliveriesColumns[11]},
 				RefColumns: []*schema.Column{FinalReportsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -730,12 +778,12 @@ var (
 			{
 				Name:    "reportnotificationdelivery_final_report_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{ReportNotificationDeliveriesColumns[10], ReportNotificationDeliveriesColumns[8]},
+				Columns: []*schema.Column{ReportNotificationDeliveriesColumns[11], ReportNotificationDeliveriesColumns[9]},
 			},
 			{
 				Name:    "reportnotificationdelivery_status_updated_at",
 				Unique:  false,
-				Columns: []*schema.Column{ReportNotificationDeliveriesColumns[4], ReportNotificationDeliveriesColumns[9]},
+				Columns: []*schema.Column{ReportNotificationDeliveriesColumns[5], ReportNotificationDeliveriesColumns[10]},
 			},
 		},
 	}
@@ -932,6 +980,7 @@ var (
 		FinalReportsTable,
 		GroupingPoliciesTable,
 		NotificationChannelProfilesTable,
+		NotificationChannelTestProofsTable,
 		RbacAssignmentsTable,
 		ReportNotificationDeliveriesTable,
 		ReportWorkflowPoliciesTable,
@@ -948,6 +997,7 @@ func init() {
 	DiagnosisTasksTable.ForeignKeys[0].RefTable = EvidenceSnapshotsTable
 	DiagnosisTaskEventsTable.ForeignKeys[0].RefTable = DiagnosisTasksTable
 	EvidenceSnapshotsTable.ForeignKeys[0].RefTable = AlertGroupsTable
+	NotificationChannelTestProofsTable.ForeignKeys[0].RefTable = NotificationChannelProfilesTable
 	ReportNotificationDeliveriesTable.ForeignKeys[0].RefTable = FinalReportsTable
 	SubReportsTable.ForeignKeys[0].RefTable = EvidenceSnapshotsTable
 	AlertEventGroupsTable.ForeignKeys[0].RefTable = AlertEventsTable

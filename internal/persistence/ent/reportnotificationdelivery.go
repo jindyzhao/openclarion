@@ -21,6 +21,8 @@ type ReportNotificationDelivery struct {
 	ID int `json:"id,omitempty"`
 	// FK to final_reports.id; the report this delivery belongs to
 	FinalReportID int `json:"final_report_id,omitempty"`
+	// optional notification channel profile used for this report notification attempt
+	ReportNotificationChannelProfileID *int `json:"report_notification_channel_profile_id,omitempty"`
 	// global notification idempotency key
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 	// stable provider message identifier, when supplied
@@ -72,7 +74,7 @@ func (*ReportNotificationDelivery) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case reportnotificationdelivery.FieldRaw:
 			values[i] = new([]byte)
-		case reportnotificationdelivery.FieldID, reportnotificationdelivery.FieldFinalReportID:
+		case reportnotificationdelivery.FieldID, reportnotificationdelivery.FieldFinalReportID, reportnotificationdelivery.FieldReportNotificationChannelProfileID:
 			values[i] = new(sql.NullInt64)
 		case reportnotificationdelivery.FieldIdempotencyKey, reportnotificationdelivery.FieldProviderMessageID, reportnotificationdelivery.FieldProviderStatus, reportnotificationdelivery.FieldStatus, reportnotificationdelivery.FieldFailureReason:
 			values[i] = new(sql.NullString)
@@ -104,6 +106,13 @@ func (_m *ReportNotificationDelivery) assignValues(columns []string, values []an
 				return fmt.Errorf("unexpected type %T for field final_report_id", values[i])
 			} else if value.Valid {
 				_m.FinalReportID = int(value.Int64)
+			}
+		case reportnotificationdelivery.FieldReportNotificationChannelProfileID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field report_notification_channel_profile_id", values[i])
+			} else if value.Valid {
+				_m.ReportNotificationChannelProfileID = new(int)
+				*_m.ReportNotificationChannelProfileID = int(value.Int64)
 			}
 		case reportnotificationdelivery.FieldIdempotencyKey:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -205,6 +214,11 @@ func (_m *ReportNotificationDelivery) String() string {
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
 	builder.WriteString("final_report_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.FinalReportID))
+	builder.WriteString(", ")
+	if v := _m.ReportNotificationChannelProfileID; v != nil {
+		builder.WriteString("report_notification_channel_profile_id=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
 	builder.WriteString(", ")
 	builder.WriteString("idempotency_key=")
 	builder.WriteString(_m.IdempotencyKey)

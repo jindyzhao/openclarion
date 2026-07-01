@@ -2,11 +2,15 @@ package http
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	stdhttp "net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -17,19 +21,781 @@ import (
 	"github.com/openclarion/openclarion/api"
 	"github.com/openclarion/openclarion/internal/domain"
 	authfake "github.com/openclarion/openclarion/internal/providers/auth/fake"
+	"github.com/openclarion/openclarion/internal/providers/im/wecomcallback"
+	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/alertmanagerwebhook"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisnotification"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomclose"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosiswecomcallback"
+	"github.com/openclarion/openclarion/internal/usecases/directorysync"
 	"github.com/openclarion/openclarion/internal/usecases/notificationchannelcheck"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+	rbacusecase "github.com/openclarion/openclarion/internal/usecases/rbac"
+	"github.com/openclarion/openclarion/internal/usecases/reportnotification"
 	"github.com/openclarion/openclarion/internal/usecases/reportpolicytrigger"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
 )
+
+func TestDiagnosisWebSocketRelayDefaultUpdateTimeoutCoversAutoEvidenceBudget(t *testing.T) {
+	relay := newDiagnosisWebSocketRelay(&fakeDiagnosisRoomWorkflowClient{})
+	want := diagnosisroom.HardMaxTurnTimeout * (diagnosisroom.HardMaxAutoEvidenceFollowUps + 1)
+	if relay.updateTimeout != want {
+		t.Fatalf("update timeout = %s, want %s", relay.updateTimeout, want)
+	}
+}
+
+func TestDiagnosisWSFramePermissionMapsActions(t *testing.T) {
+	tests := []struct {
+		frameType string
+		want      domain.RBACPermission
+		wantOK    bool
+	}{
+		{frameType: diagnosisWSClientQueryState, want: domain.RBACPermissionDiagnosisRoomRead, wantOK: true},
+		{frameType: diagnosisWSClientSubmitTurn, want: domain.RBACPermissionDiagnosisRoomParticipate, wantOK: true},
+		{frameType: diagnosisWSClientSubmitSupplementalEvidence, want: domain.RBACPermissionDiagnosisRoomParticipate, wantOK: true},
+		{frameType: diagnosisWSClientCollectEvidence, want: domain.RBACPermissionDiagnosisRoomParticipate, wantOK: true},
+		{frameType: diagnosisWSClientConfirm, want: domain.RBACPermissionDiagnosisRoomAdminister, wantOK: true},
+		{frameType: "unsupported", wantOK: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.frameType, func(t *testing.T) {
+			got, ok := diagnosisWSFramePermission(tc.frameType)
+			if ok != tc.wantOK || got != tc.want {
+				t.Fatalf("permission = %q ok=%t, want %q ok=%t", got, ok, tc.want, tc.wantOK)
+			}
+		})
+	}
+}
+
+func TestDiagnosisRoomSystemSubjectClassifiesOpenClarionServices(t *testing.T) {
+	tests := []struct {
+		subject string
+		want    bool
+	}{
+		{subject: "openclarion:auto-diagnosis", want: true},
+		{subject: "openclarion:alertmanager-webhook:1", want: true},
+		{subject: "openclarion.notification-worker", want: true},
+		{subject: "operator:alice", want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.subject, func(t *testing.T) {
+			if got := diagnosisRoomSystemSubject(tc.subject); got != tc.want {
+				t.Fatalf("diagnosisRoomSystemSubject(%q) = %v, want %v", tc.subject, got, tc.want)
+			}
+		})
+	}
+}
+
+func testDirectoryUser(id int64, subject, displayName string) domain.DirectoryUser {
+	now := time.Date(2026, 6, 26, 8, 0, 0, 0, time.UTC)
+	return domain.DirectoryUser{
+		ID:                    domain.DirectoryUserID(id),
+		Provider:              "ops_iam",
+		Subject:               subject,
+		ExternalID:            fmt.Sprintf("external-%d", id),
+		Username:              fmt.Sprintf("user-%d", id),
+		DisplayName:           displayName,
+		Email:                 fmt.Sprintf("user-%d@example.test", id),
+		JobTitle:              "SRE",
+		Department:            "Platform",
+		Section:               "SRE",
+		DepartmentPath:        "IT/Platform/SRE",
+		DepartmentExternalIDs: []string{"dep-platform"},
+		Active:                true,
+		SyncedAt:              now,
+		CreatedAt:             now,
+		UpdatedAt:             now,
+	}
+}
+
+func TestSyncDirectoryUsesConfiguredSyncer(t *testing.T) {
+	syncedAt := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	updatedAfter := time.Date(2026, 6, 26, 8, 0, 0, 0, time.UTC)
+	factory := &fakeUOWFactory{configRepo: &fakeConfigRepo{}}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: syncedAt},
+	}
+	syncer := &fakeDirectorySyncer{
+		result: directorysync.Result{
+			Run: domain.DirectorySyncRun{
+				SyncedAt: syncedAt,
+			},
+			DepartmentPages:     1,
+			UserPages:           2,
+			DepartmentsUpserted: 3,
+			UsersUpserted:       4,
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/config/directory/sync",
+		strings.NewReader(`{"page_size":2,"updated_after":"2026-06-26T08:00:00Z"}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	opts := testLocalRBACOptions(t, "iam-admin", authorizer)
+	opts = append(opts, WithDirectorySyncer(syncer))
+	testHandler(factory, opts...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 1 || authorizer.req.Permission != domain.RBACPermissionDirectoryManage {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+	if syncer.called != 1 || syncer.req.PageSize != 2 || syncer.req.UpdatedAfter == nil || !syncer.req.UpdatedAfter.Equal(updatedAfter) {
+		t.Fatalf("sync request = %+v called=%d", syncer.req, syncer.called)
+	}
+	var body api.DirectorySyncResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.DepartmentPages != 1 || body.UserPages != 2 || body.DepartmentsUpserted != 3 || body.UsersUpserted != 4 || body.UsersDeactivated != 0 || !body.SyncedAt.Equal(syncedAt) {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestListDirectoryProjectionEndpointsReturnLocalRows(t *testing.T) {
+	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	config := &fakeConfigRepo{
+		directoryDepartments: []domain.DirectoryDepartment{{
+			ID:               1,
+			Provider:         "ops_iam",
+			ExternalID:       "dep-1",
+			ParentExternalID: "",
+			Name:             "Platform",
+			DisplayName:      "Platform",
+			Path:             "IT/Platform",
+			ParentPath:       "IT",
+			Level:            2,
+			Source:           "iam",
+			MemberCount:      7,
+			SyncedAt:         now,
+			CreatedAt:        now,
+			UpdatedAt:        now,
+		}},
+		directoryUsers: []domain.DirectoryUser{{
+			ID:                    2,
+			Provider:              "ops_iam",
+			Subject:               "iam-user-1",
+			ExternalID:            "wecom-user-1",
+			Username:              "alice",
+			DisplayName:           "Alice",
+			Email:                 "alice@example.test",
+			DepartmentPath:        "IT/Platform",
+			DepartmentExternalIDs: []string{"dep-1"},
+			Active:                true,
+			SyncedAt:              now,
+			CreatedAt:             now,
+			UpdatedAt:             now,
+		}},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: now},
+	}
+	handler := testHandler(&fakeUOWFactory{configRepo: config}, testLocalRBACOptions(t, "iam-user-1", authorizer)...)
+
+	departmentRec := httptest.NewRecorder()
+	departmentReq := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/directory/departments?provider=ops_iam&limit=1", nil)
+	addTestLocalRBACAuthorization(departmentReq)
+	handler.ServeHTTP(departmentRec, departmentReq)
+	if departmentRec.Code != stdhttp.StatusOK {
+		t.Fatalf("departments status = %d, want 200; body=%s", departmentRec.Code, departmentRec.Body.String())
+	}
+	var departments api.DirectoryDepartmentListResponse
+	if err := json.NewDecoder(departmentRec.Body).Decode(&departments); err != nil {
+		t.Fatalf("decode departments: %v", err)
+	}
+	if len(departments.Items) != 1 || departments.Items[0].ExternalID != "dep-1" || config.lastDirectoryProvider != "ops_iam" || config.lastDirectoryLimit != 1 {
+		t.Fatalf("departments = %+v provider=%q limit=%d", departments.Items, config.lastDirectoryProvider, config.lastDirectoryLimit)
+	}
+
+	userRec := httptest.NewRecorder()
+	userReq := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/directory/users?provider=ops_iam&limit=1", nil)
+	addTestLocalRBACAuthorization(userReq)
+	handler.ServeHTTP(userRec, userReq)
+	if userRec.Code != stdhttp.StatusOK {
+		t.Fatalf("users status = %d, want 200; body=%s", userRec.Code, userRec.Body.String())
+	}
+	var users api.DirectoryUserListResponse
+	if err := json.NewDecoder(userRec.Body).Decode(&users); err != nil {
+		t.Fatalf("decode users: %v", err)
+	}
+	if len(users.Items) != 1 || users.Items[0].Subject != "iam-user-1" || !slices.Equal(users.Items[0].DepartmentExternalIds, []string{"dep-1"}) {
+		t.Fatalf("users = %+v", users.Items)
+	}
+	if authorizer.called != 2 ||
+		authorizer.requests[0].Permission != domain.RBACPermissionDirectoryRead ||
+		!slices.Equal(authorizer.requests[0].Principal.DepartmentKeys, []string{"dep-1"}) {
+		t.Fatalf("authorizer requests = %+v called=%d", authorizer.requests, authorizer.called)
+	}
+}
+
+func TestListDirectorySyncRunsReturnsLocalHistory(t *testing.T) {
+	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	updatedAfter := now.Add(-time.Hour)
+	config := &fakeConfigRepo{
+		directorySyncRuns: []domain.DirectorySyncRun{{
+			ID:                  1,
+			Provider:            "ops_iam",
+			PageSize:            100,
+			UpdatedAfter:        &updatedAfter,
+			Status:              domain.DirectorySyncRunStatusSucceeded,
+			DepartmentPages:     1,
+			UserPages:           2,
+			DepartmentsUpserted: 3,
+			UsersUpserted:       4,
+			SyncedAt:            now,
+			CreatedAt:           now,
+		}},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: now},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/directory/sync-runs?provider=ops_iam&limit=1", nil)
+	addTestLocalRBACAuthorization(req)
+	testHandler(&fakeUOWFactory{configRepo: config}, testLocalRBACOptions(t, "iam-user-1", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DirectorySyncRunListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 ||
+		body.Items[0].Status != string(domain.DirectorySyncRunStatusSucceeded) ||
+		body.Items[0].UsersUpserted != 4 ||
+		body.Items[0].UpdatedAfter == nil {
+		t.Fatalf("body = %+v", body)
+	}
+	if authorizer.called != 1 || authorizer.req.Permission != domain.RBACPermissionDirectoryRead {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+	if config.lastDirectoryProvider != "ops_iam" || config.lastDirectoryLimit != 1 {
+		t.Fatalf("provider=%q limit=%d", config.lastDirectoryProvider, config.lastDirectoryLimit)
+	}
+}
+
+func TestUpsertRBACAssignmentStoresLocalAssignment(t *testing.T) {
+	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	config := &fakeConfigRepo{
+		upsertRBACAssignmentResult: domain.RBACAssignment{
+			ID:          9,
+			SubjectKind: domain.RBACSubjectKindUser,
+			SubjectKey:  "iam-user-1",
+			Role:        domain.RBACRoleResponder,
+			ScopeKind:   domain.RBACScopeKindDiagnosisRoom,
+			ScopeKey:    "diagnosis-session-1",
+			Enabled:     true,
+			CreatedBy:   "iam-admin",
+			UpdatedBy:   "iam-admin",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: now},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/config/rbac/assignments",
+		strings.NewReader(`{"subject_kind":"user","subject_key":"iam-user-1","role":"responder","scope_kind":"diagnosis_room","scope_key":"diagnosis-session-1"}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	testHandler(&fakeUOWFactory{configRepo: config}, testLocalRBACOptions(t, "iam-admin", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 1 || authorizer.req.Permission != domain.RBACPermissionRBACManage {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+	if config.savedRBACAssignment.SubjectKey != "iam-user-1" ||
+		config.savedRBACAssignment.Role != domain.RBACRoleResponder ||
+		config.savedRBACAssignment.ScopeKey != "diagnosis-session-1" ||
+		config.savedRBACAssignment.CreatedBy != "iam-admin" ||
+		config.savedRBACAssignment.UpdatedBy != "iam-admin" ||
+		!config.savedRBACAssignment.Enabled {
+		t.Fatalf("saved assignment = %+v", config.savedRBACAssignment)
+	}
+	var body api.RBACAssignment
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.ID != 9 || body.ScopeKey != "diagnosis-session-1" || body.CreatedBy != "iam-admin" || body.UpdatedBy != "iam-admin" {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestListRBACAssignmentsReturnsLocalAssignments(t *testing.T) {
+	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	config := &fakeConfigRepo{
+		rbacAssignments: []domain.RBACAssignment{{
+			ID:          9,
+			SubjectKind: domain.RBACSubjectKindDepartment,
+			SubjectKey:  "dep-1",
+			Role:        domain.RBACRoleResponder,
+			ScopeKind:   domain.RBACScopeKindDiagnosisRoom,
+			ScopeKey:    "diagnosis-session-1",
+			Enabled:     true,
+			CreatedBy:   "iam-admin",
+			UpdatedBy:   "iam-admin",
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: now},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/rbac/assignments?limit=1", nil)
+	addTestLocalRBACAuthorization(req)
+	testHandler(&fakeUOWFactory{configRepo: config}, testLocalRBACOptions(t, "iam-admin", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 1 || authorizer.req.Permission != domain.RBACPermissionRBACManage {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+	if config.lastRBACAssignmentLimit != 1 {
+		t.Fatalf("last rbac assignment limit = %d, want 1", config.lastRBACAssignmentLimit)
+	}
+	var body api.RBACAssignmentListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 || body.Items[0].SubjectKey != "dep-1" || body.Items[0].Role != api.RBACRoleResponder {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestAuthorizeRBACUsesConfiguredAuthorizer(t *testing.T) {
+	checkedAt := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{
+			Allowed:   true,
+			CheckedAt: checkedAt,
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/config/rbac/authorize",
+		strings.NewReader(`{"subject":"iam-user-1","department_keys":["dep-1"],"permission":"diagnosis_room.participate","scope_kind":"diagnosis_room","scope_key":"diagnosis-session-1"}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	testHandler(&fakeUOWFactory{configRepo: &fakeConfigRepo{}}, testLocalRBACOptions(t, "iam-admin", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 2 ||
+		authorizer.requests[0].Permission != domain.RBACPermissionRBACManage ||
+		authorizer.req.Principal.Subject != "iam-user-1" ||
+		!slices.Equal(authorizer.req.Principal.DepartmentKeys, []string{"dep-1"}) ||
+		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomParticipate ||
+		authorizer.req.ScopeKey != "diagnosis-session-1" {
+		t.Fatalf("authorize request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+	var body api.RBACAuthorizeResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if !body.Allowed || !body.CheckedAt.Equal(checkedAt) {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestAuthorizeCurrentRBACUsesAuthenticatedPrincipal(t *testing.T) {
+	checkedAt := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{
+			Allowed:   true,
+			CheckedAt: checkedAt,
+		},
+	}
+	config := &fakeConfigRepo{
+		directoryUsers: []domain.DirectoryUser{
+			{
+				Subject:               "iam-user-1",
+				DisplayName:           "Alice",
+				DepartmentExternalIDs: []string{"dep-2", "dep-1", "dep-2", " "},
+				Active:                true,
+			},
+			{
+				Subject:               "other-user",
+				DepartmentExternalIDs: []string{"dep-other"},
+				Active:                true,
+			},
+			{
+				Subject:               "iam-user-1",
+				DisplayName:           "Alice Archived",
+				DepartmentExternalIDs: []string{"dep-inactive"},
+				Active:                false,
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/config/rbac/current-authorizations",
+		strings.NewReader(`{"requests":[{"permission":"directory.read","scope_kind":"global"},{"permission":"alert_source.manage","scope_kind":"alert_source","scope_key":"7"}]}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	testHandler(&fakeUOWFactory{configRepo: config}, testLocalRBACOptions(t, "iam-user-1", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 2 {
+		t.Fatalf("authorizer called = %d, want 2", authorizer.called)
+	}
+	if authorizer.requests[0].Permission == domain.RBACPermissionRBACManage ||
+		authorizer.requests[1].Permission == domain.RBACPermissionRBACManage {
+		t.Fatalf("current authorization unexpectedly required rbac.manage: %+v", authorizer.requests)
+	}
+	if authorizer.requests[0].Principal.Subject != "iam-user-1" ||
+		!slices.Equal(authorizer.requests[0].Principal.DepartmentKeys, []string{"dep-1", "dep-2"}) ||
+		authorizer.requests[0].Permission != domain.RBACPermissionDirectoryRead ||
+		authorizer.requests[0].ScopeKind != domain.RBACScopeKindGlobal ||
+		authorizer.requests[0].ScopeKey != "" ||
+		authorizer.requests[1].Permission != domain.RBACPermissionAlertSourceManage ||
+		authorizer.requests[1].ScopeKind != domain.RBACScopeKindAlertSource ||
+		authorizer.requests[1].ScopeKey != "7" {
+		t.Fatalf("authorizer requests = %+v", authorizer.requests)
+	}
+	var body api.RBACCurrentAuthorizationResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Subject != "iam-user-1" ||
+		!slices.Equal(body.DepartmentKeys, []string{"dep-1", "dep-2"}) ||
+		len(body.DirectoryUsers) != 2 ||
+		body.DirectoryUsers[0].DisplayName != "Alice" ||
+		body.DirectoryUsers[1].DisplayName != "Alice Archived" ||
+		len(body.Decisions) != 2 ||
+		!body.Decisions[0].Allowed ||
+		body.Decisions[0].ScopeKey != "" ||
+		body.Decisions[1].ScopeKey != "7" ||
+		!body.Decisions[1].CheckedAt.Equal(checkedAt) {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestAuthorizeCurrentRBACAllowsDiagnosisRoomOwner(t *testing.T) {
+	now := time.Date(2026, 6, 29, 5, 45, 0, 0, time.UTC)
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{
+			Allowed:   false,
+			CheckedAt: now,
+		},
+	}
+	repo := &fakeDiagnosisRepo{
+		chatSessions: []domain.ChatSessionWithTask{{
+			Session: domain.ChatSession{
+				ID:              911,
+				DiagnosisTaskID: 912,
+				SessionKey:      "diagnosis-session-owned",
+				OwnerSubject:    "iam-user-1",
+				Status:          domain.ChatSessionStatusOpen,
+				StartedAt:       now,
+				LastActivityAt:  now,
+				CreatedAt:       now,
+				UpdatedAt:       now,
+			},
+			Task: domain.DiagnosisTask{
+				ID:                 912,
+				EvidenceSnapshotID: 913,
+				WorkflowID:         "diagnosis-room-diagnosis-session-owned",
+				RunID:              "run-owned",
+				Status:             domain.DiagnosisStatusRunning,
+			},
+		}},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/config/rbac/current-authorizations",
+		strings.NewReader(`{"requests":[{"permission":"diagnosis_room.read","scope_kind":"diagnosis_room","scope_key":"diagnosis-session-owned"},{"permission":"diagnosis_room.participate","scope_kind":"diagnosis_room","scope_key":"diagnosis-session-owned"},{"permission":"diagnosis_room.administer","scope_kind":"diagnosis_room","scope_key":"diagnosis-session-owned"},{"permission":"alert_source.read","scope_kind":"alert_source","scope_key":"7"}]}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	testHandler(
+		&fakeUOWFactory{configRepo: &fakeConfigRepo{}, diagnosisRepo: repo},
+		testLocalRBACOptions(t, "iam-user-1", authorizer)...,
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 1 ||
+		authorizer.req.Permission != domain.RBACPermissionAlertSourceRead {
+		t.Fatalf("authorizer requests = %+v called=%d, want only non-owner fallback", authorizer.requests, authorizer.called)
+	}
+	var body api.RBACCurrentAuthorizationResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Decisions) != 4 {
+		t.Fatalf("decisions = %+v, want 4", body.Decisions)
+	}
+	for i := 0; i < 3; i++ {
+		if !body.Decisions[i].Allowed ||
+			body.Decisions[i].ScopeKey != "diagnosis-session-owned" ||
+			body.Decisions[i].CheckedAt.IsZero() {
+			t.Fatalf("owner decision %d = %+v, want allowed room decision", i, body.Decisions[i])
+		}
+	}
+	if body.Decisions[3].Allowed {
+		t.Fatalf("non-owner decision = %+v, want denied fallback", body.Decisions[3])
+	}
+}
+
+func TestAuthorizeCurrentRBACRejectsEmptyBatch(t *testing.T) {
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/config/rbac/current-authorizations",
+		strings.NewReader(`{"requests":[]}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	testHandler(&fakeUOWFactory{configRepo: &fakeConfigRepo{}}, testLocalRBACOptions(t, "iam-user-1", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 0 {
+		t.Fatalf("authorizer called = %d, want 0", authorizer.called)
+	}
+}
+
+func TestConfigLocalRBACGuardDeniesUnauthorizedPrincipal(t *testing.T) {
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: false, CheckedAt: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/directory/users", nil)
+	addTestLocalRBACAuthorization(req)
+	testHandler(&fakeUOWFactory{configRepo: &fakeConfigRepo{}}, testLocalRBACOptions(t, "iam-user-1", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 1 || authorizer.req.Permission != domain.RBACPermissionDirectoryRead {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+}
+
+func TestConfigLocalRBACGuardAllowsBootstrapAdminSubject(t *testing.T) {
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: false, CheckedAt: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/directory/users", nil)
+	addTestLocalRBACAuthorization(req)
+	opts := testLocalRBACOptions(t, "iam-bootstrap-admin", authorizer)
+	opts = append(opts, WithLocalRBACBootstrapAdminSubjects([]string{"iam-bootstrap-admin"}))
+	testHandler(&fakeUOWFactory{configRepo: &fakeConfigRepo{}}, opts...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 0 {
+		t.Fatalf("authorizer called = %d, want 0", authorizer.called)
+	}
+}
+
+func TestConfigLocalRBACGuardAcceptsBrowserSessionToken(t *testing.T) {
+	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	sessionIssuer := newHTTPTestDiagnosisSessionIssuer(t, now)
+	session, err := sessionIssuer.IssueToken(context.Background(), ports.AuthPrincipal{
+		Subject: "iam-user-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleAdmin},
+		Claims:  json.RawMessage(`{"auth_provider":"oidc"}`),
+	}, "oidc")
+	if err != nil {
+		t.Fatalf("IssueToken: %v", err)
+	}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: now},
+	}
+	config := &fakeConfigRepo{
+		directoryUsers: []domain.DirectoryUser{{
+			Subject:               "iam-user-1",
+			DepartmentExternalIDs: []string{"dep-2"},
+			Active:                true,
+		}},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/directory/users", nil)
+	req.Header.Set("Authorization", "Bearer "+session.Token)
+	testHandler(
+		&fakeUOWFactory{configRepo: config},
+		WithDiagnosisAuth(&neverAuthProvider{}, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("B", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "oidc"),
+		WithDiagnosisAuthSessionIssuer(sessionIssuer),
+		WithRBACAuthorizer(authorizer),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 1 ||
+		authorizer.req.Principal.Subject != "iam-user-1" ||
+		!slices.Equal(authorizer.req.Principal.DepartmentKeys, []string{"dep-2"}) {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+}
+
+func TestAuthorizeCurrentRBACAllowsBootstrapAdminSubject(t *testing.T) {
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: false, CheckedAt: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/config/rbac/current-authorizations",
+		strings.NewReader(`{"requests":[{"permission":"directory.manage","scope_kind":"global"},{"permission":"alert_source.manage","scope_kind":"alert_source","scope_key":"7"}]}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	opts := testLocalRBACOptions(t, "iam-bootstrap-admin", authorizer)
+	opts = append(opts, WithLocalRBACBootstrapAdminSubjects([]string{"iam-bootstrap-admin"}))
+	testHandler(&fakeUOWFactory{configRepo: &fakeConfigRepo{}}, opts...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 0 {
+		t.Fatalf("authorizer called = %d, want 0", authorizer.called)
+	}
+	var body api.RBACCurrentAuthorizationResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Subject != "iam-bootstrap-admin" || len(body.Decisions) != 2 || !body.Decisions[0].Allowed || !body.Decisions[1].Allowed {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestAuthorizeCurrentRBACBootstrapAdminStillValidatesRequests(t *testing.T) {
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: false, CheckedAt: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/config/rbac/current-authorizations",
+		strings.NewReader(`{"requests":[{"permission":"unknown.permission","scope_kind":"global"}]}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	opts := testLocalRBACOptions(t, "iam-bootstrap-admin", authorizer)
+	opts = append(opts, WithLocalRBACBootstrapAdminSubjects([]string{"iam-bootstrap-admin"}))
+	testHandler(&fakeUOWFactory{configRepo: &fakeConfigRepo{}}, opts...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 0 {
+		t.Fatalf("authorizer called = %d, want 0", authorizer.called)
+	}
+}
+
+func TestConfigLocalRBACGuardUsesResourceScope(t *testing.T) {
+	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: now},
+	}
+	config := &fakeConfigRepo{
+		alertSourceProfiles: []domain.AlertSourceProfile{{
+			ID:        7,
+			Name:      "Primary Prometheus",
+			Kind:      domain.AlertSourceKindPrometheus,
+			BaseURL:   "https://prometheus.example.test",
+			AuthMode:  domain.AlertSourceAuthModeNone,
+			Enabled:   true,
+			Labels:    map[string]string{},
+			CreatedAt: now,
+			UpdatedAt: now,
+		}},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/alert-sources/7", nil)
+	addTestLocalRBACAuthorization(req)
+	testHandler(&fakeUOWFactory{configRepo: config}, testLocalRBACOptions(t, "iam-admin", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 1 ||
+		authorizer.req.Permission != domain.RBACPermissionAlertSourceRead ||
+		authorizer.req.ScopeKind != domain.RBACScopeKindAlertSource ||
+		authorizer.req.ScopeKey != "7" {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+}
+
+func TestConfigLocalRBACGuardUsesReportWorkflowScheduleScope(t *testing.T) {
+	now := time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC)
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: now},
+	}
+	config := &fakeConfigRepo{
+		reportWorkflowSchedules: []domain.ReportWorkflowSchedule{{
+			ID:                     9,
+			Name:                   "Daily report window",
+			ReportWorkflowPolicyID: 7,
+			TemporalScheduleID:     "openclarion-report-policy-7-daily",
+			Interval:               24 * time.Hour,
+			Offset:                 6 * time.Hour,
+			ReplayWindow:           time.Hour,
+			ReplayDelay:            5 * time.Minute,
+			ReplayLimit:            10000,
+			CatchupWindow:          time.Hour,
+			CreatedAt:              now,
+			UpdatedAt:              now,
+		}},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/report-workflow-schedules/9", nil)
+	addTestLocalRBACAuthorization(req)
+	testHandler(&fakeUOWFactory{configRepo: config}, testLocalRBACOptions(t, "iam-admin", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 1 ||
+		authorizer.req.Permission != domain.RBACPermissionReportWorkflowRead ||
+		authorizer.req.ScopeKind != domain.RBACScopeKindReportWorkflowSchedule ||
+		authorizer.req.ScopeKey != "9" {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+}
 
 func TestListAlerts_ReturnsSummaries(t *testing.T) {
 	startsAt := time.Date(2026, 5, 27, 8, 0, 0, 0, time.UTC)
@@ -49,11 +815,13 @@ func TestListAlerts_ReturnsSummaries(t *testing.T) {
 				},
 			},
 		},
+		evidenceRepo:  &fakeEvidenceRepo{},
+		diagnosisRepo: &fakeDiagnosisRepo{},
 	}
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/alerts?limit=1", nil)
-	testHandler(factory).ServeHTTP(rec, req)
+	testOperationsReadHandler(t, factory).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -75,6 +843,424 @@ func TestListAlerts_ReturnsSummaries(t *testing.T) {
 	}
 	if !got.EndsAt.IsNull() {
 		t.Fatalf("ends_at should be explicit null for firing alerts")
+	}
+	if got.LinkedEvidenceSnapshots == nil || len(got.LinkedEvidenceSnapshots) != 0 {
+		t.Fatalf("linked_evidence_snapshots = %+v, want empty array", got.LinkedEvidenceSnapshots)
+	}
+	if factory.evidenceRepo.lastLimit != maxListLimit || factory.diagnosisRepo.lastChatSessionLimit != maxListLimit {
+		t.Fatalf("link lookup limits evidence=%d rooms=%d, want %d", factory.evidenceRepo.lastLimit, factory.diagnosisRepo.lastChatSessionLimit, maxListLimit)
+	}
+}
+
+func TestListAlerts_ReturnsEvidenceAndDiagnosisLinks(t *testing.T) {
+	startsAt := time.Date(2026, 6, 18, 2, 20, 28, 0, time.UTC)
+	updatedAt := startsAt.Add(3 * time.Second)
+	finalAt := startsAt.Add(4 * time.Second)
+	requiresReview := false
+	finalPayload, err := json.Marshal(diagnosisRoomConclusionEventPayload{
+		Kind:            diagnosisConclusionEventFinalReady,
+		SessionID:       "diagnosis-session-auto-p3-s247",
+		ChatSessionID:   353,
+		DiagnosisTaskID: 353,
+		FinalConclusion: diagnosisRoomConclusionPayload{
+			Status:              "available",
+			Source:              "assistant",
+			EvidenceSnapshotID:  247,
+			ConclusionVersion:   "diagnosis-session-auto-p3-s247:1",
+			Content:             "Checkout latency is correlated with downstream saturation.",
+			Confidence:          "high",
+			RequiresHumanReview: &requiresReview,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal final payload: %v", err)
+	}
+	factory := &fakeUOWFactory{
+		alertRepo: &fakeAlertRepo{
+			events: []domain.AlertEvent{
+				{
+					ID:                   42,
+					Source:               "alertmanager",
+					SourceFingerprint:    "source-fp",
+					CanonicalFingerprint: "canon-fp",
+					Labels:               map[string]string{"alertname": "CheckoutLatencyHigh"},
+					Annotations:          map[string]string{"summary": "Checkout p95 latency is high"},
+					Status:               domain.AlertStatusFiring,
+					StartsAt:             startsAt,
+					CreatedAt:            startsAt.Add(time.Second),
+				},
+			},
+		},
+		evidenceRepo: &fakeEvidenceRepo{
+			snapshots: []domain.EvidenceSnapshot{
+				{
+					ID:           247,
+					AlertGroupID: 31,
+					Digest:       "sha256:linked",
+					Payload: json.RawMessage(`{
+						"schema_version":"m1.evidence_snapshot.v1",
+						"events":[{"source_fingerprint":"source-fp","canonical_fingerprint":"canon-fp"}]
+					}`),
+					Provenance:        json.RawMessage(`{}`),
+					Status:            domain.SnapshotStatusComplete,
+					CreatedByWorkflow: "AlertmanagerWebhookAutoDiagnosis",
+					CreatedAt:         startsAt.Add(2 * time.Second),
+				},
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+				353: {
+					diagnosisConclusionEventFinalReady: {{
+						ID:         91,
+						TaskID:     353,
+						Kind:       diagnosisConclusionEventFinalReady,
+						Payload:    finalPayload,
+						OccurredAt: finalAt,
+						RecordedAt: finalAt.Add(time.Second),
+					}},
+				},
+			},
+			chatSessions: []domain.ChatSessionWithTask{
+				{
+					Session: domain.ChatSession{
+						ID:              353,
+						DiagnosisTaskID: 353,
+						SessionKey:      "diagnosis-session-auto-p3-s247",
+						Status:          domain.ChatSessionStatusOpen,
+						TurnCount:       1,
+						StartedAt:       startsAt,
+						LastActivityAt:  updatedAt,
+						CreatedAt:       startsAt,
+						UpdatedAt:       updatedAt,
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 353,
+						EvidenceSnapshotID: 247,
+						WorkflowID:         "diagnosis-room-diagnosis-session-auto-p3-s247",
+						RunID:              "run-247",
+						Status:             domain.DiagnosisStatusRunning,
+						CreatedAt:          startsAt,
+						UpdatedAt:          updatedAt,
+					},
+				},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/alerts?limit=1", nil)
+	testOperationsReadHandler(t, factory).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.AlertListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(body.Items))
+	}
+	links := body.Items[0].LinkedEvidenceSnapshots
+	if len(links) != 1 {
+		t.Fatalf("linked_evidence_snapshots = %+v, want 1 link", links)
+	}
+	link := links[0]
+	if link.ID != 247 ||
+		link.AlertGroupID != 31 ||
+		link.Digest != "sha256:linked" ||
+		link.Status != string(domain.SnapshotStatusComplete) ||
+		link.CreatedByWorkflow != "AlertmanagerWebhookAutoDiagnosis" {
+		t.Fatalf("unexpected link: %+v", link)
+	}
+	if len(link.DiagnosisRooms) != 1 {
+		t.Fatalf("diagnosis rooms = %+v, want 1", link.DiagnosisRooms)
+	}
+	room := link.DiagnosisRooms[0]
+	if room.SessionID != "diagnosis-session-auto-p3-s247" ||
+		room.EvidenceSnapshotID != 247 ||
+		room.RoomStatus != api.Open ||
+		room.TaskStatus != api.DiagnosisTaskStatusRunning {
+		t.Fatalf("unexpected room link: %+v", room)
+	}
+	if room.LatestConclusion == nil ||
+		room.LatestConclusion.Content != "Checkout latency is correlated with downstream saturation." ||
+		room.LatestConclusion.Confidence == nil ||
+		*room.LatestConclusion.Confidence != api.ReportConfidenceHigh ||
+		room.LatestConclusion.RequiresHumanReview == nil ||
+		*room.LatestConclusion.RequiresHumanReview {
+		t.Fatalf("unexpected room latest conclusion: %+v", room.LatestConclusion)
+	}
+}
+
+func TestListAlerts_FiltersDiagnosisLinksWithoutRoomRead(t *testing.T) {
+	startsAt := time.Date(2026, 6, 18, 2, 20, 28, 0, time.UTC)
+	factory := &fakeUOWFactory{
+		alertRepo: &fakeAlertRepo{
+			events: []domain.AlertEvent{
+				{
+					ID:                   42,
+					Source:               "alertmanager",
+					SourceFingerprint:    "source-fp",
+					CanonicalFingerprint: "canon-fp",
+					Status:               domain.AlertStatusFiring,
+					StartsAt:             startsAt,
+					CreatedAt:            startsAt.Add(time.Second),
+				},
+			},
+		},
+		evidenceRepo: &fakeEvidenceRepo{
+			snapshots: []domain.EvidenceSnapshot{
+				{
+					ID:           247,
+					AlertGroupID: 31,
+					Digest:       "sha256:linked",
+					Payload: json.RawMessage(`{
+						"schema_version":"m1.evidence_snapshot.v1",
+						"events":[{"source_fingerprint":"source-fp","canonical_fingerprint":"canon-fp"}]
+					}`),
+					Provenance:        json.RawMessage(`{}`),
+					Status:            domain.SnapshotStatusComplete,
+					CreatedByWorkflow: "AlertmanagerWebhookAutoDiagnosis",
+					CreatedAt:         startsAt.Add(2 * time.Second),
+				},
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			chatSessions: []domain.ChatSessionWithTask{
+				{
+					Session: domain.ChatSession{
+						ID:              353,
+						DiagnosisTaskID: 353,
+						SessionKey:      "diagnosis-session-auto-p3-s247",
+						Status:          domain.ChatSessionStatusOpen,
+						StartedAt:       startsAt,
+						LastActivityAt:  startsAt.Add(3 * time.Second),
+						CreatedAt:       startsAt,
+						UpdatedAt:       startsAt.Add(3 * time.Second),
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 353,
+						EvidenceSnapshotID: 247,
+						WorkflowID:         "diagnosis-room-diagnosis-session-auto-p3-s247",
+						RunID:              "run-247",
+						Status:             domain.DiagnosisStatusRunning,
+						CreatedAt:          startsAt,
+						UpdatedAt:          startsAt.Add(3 * time.Second),
+					},
+				},
+			},
+		},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			return rbacusecase.AuthorizeDecision{
+				Allowed:   req.Permission == domain.RBACPermissionOperationsRead,
+				CheckedAt: startsAt,
+			}, nil
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/alerts?limit=1", nil)
+	testOperationsReadHandlerWithAuthorizer(t, factory, authorizer).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.AlertListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 || len(body.Items[0].LinkedEvidenceSnapshots) != 1 {
+		t.Fatalf("linked evidence = %+v, want one alert with one evidence link", body.Items)
+	}
+	link := body.Items[0].LinkedEvidenceSnapshots[0]
+	if link.ID != 247 || link.Digest != "sha256:linked" {
+		t.Fatalf("unexpected evidence link: %+v", link)
+	}
+	if len(link.DiagnosisRooms) != 0 {
+		t.Fatalf("diagnosis rooms = %+v, want filtered empty array", link.DiagnosisRooms)
+	}
+	if len(authorizer.requests) != 3 {
+		t.Fatalf("authorizer requests = %+v, want operations, global room read, scoped room read", authorizer.requests)
+	}
+	if authorizer.requests[0].Permission != domain.RBACPermissionOperationsRead ||
+		authorizer.requests[0].ScopeKind != domain.RBACScopeKindGlobal {
+		t.Fatalf("operations read request = %+v", authorizer.requests[0])
+	}
+	if authorizer.requests[1].Permission != domain.RBACPermissionDiagnosisRoomRead ||
+		authorizer.requests[1].ScopeKind != domain.RBACScopeKindGlobal {
+		t.Fatalf("global room read request = %+v", authorizer.requests[1])
+	}
+	if authorizer.requests[2].Permission != domain.RBACPermissionDiagnosisRoomRead ||
+		authorizer.requests[2].ScopeKind != domain.RBACScopeKindDiagnosisRoom ||
+		authorizer.requests[2].ScopeKey != "diagnosis-session-auto-p3-s247" {
+		t.Fatalf("scoped room read request = %+v", authorizer.requests[2])
+	}
+}
+
+func TestListDiagnosisHandoffs_ReturnsPendingSnapshots(t *testing.T) {
+	startsAt := time.Date(2026, 6, 18, 2, 20, 0, 0, time.UTC)
+	createdAt := startsAt.Add(time.Minute)
+	factory := &fakeUOWFactory{
+		alertRepo: &fakeAlertRepo{
+			events: []domain.AlertEvent{
+				{
+					ID:                   42,
+					Source:               "alertmanager",
+					SourceFingerprint:    "source-a",
+					CanonicalFingerprint: "canon-a",
+					Labels:               map[string]string{"alertname": "CheckoutLatencyHigh", "severity": "warning"},
+					Annotations:          map[string]string{"summary": "Checkout p95 latency is high"},
+					Status:               domain.AlertStatusFiring,
+					StartsAt:             startsAt,
+					CreatedAt:            startsAt.Add(time.Second),
+				},
+				{
+					ID:                   43,
+					Source:               "alertmanager",
+					SourceFingerprint:    "source-b",
+					CanonicalFingerprint: "canon-b",
+					Labels:               map[string]string{"alertname": "PaymentErrorRateHigh", "severity": "warning"},
+					Annotations:          map[string]string{"summary": "Payment error rate is high"},
+					Status:               domain.AlertStatusFiring,
+					StartsAt:             startsAt.Add(2 * time.Second),
+					CreatedAt:            startsAt.Add(3 * time.Second),
+				},
+			},
+		},
+		evidenceRepo: &fakeEvidenceRepo{
+			snapshots: []domain.EvidenceSnapshot{
+				{
+					ID:           247,
+					AlertGroupID: 31,
+					Digest:       "sha256:has-room",
+					Payload: json.RawMessage(
+						`{"events":[{"source_fingerprint":"source-a","canonical_fingerprint":"canon-a"}]}`,
+					),
+					Status:            domain.SnapshotStatusComplete,
+					CreatedByWorkflow: "AlertmanagerWebhookAutoDiagnosis",
+					CreatedAt:         createdAt,
+				},
+				{
+					ID:           248,
+					AlertGroupID: 32,
+					Digest:       "sha256:needs-room-two-alerts",
+					Payload: json.RawMessage(
+						`{"events":[{"source_fingerprint":"source-a","canonical_fingerprint":"canon-a"},{"source_fingerprint":"source-b","canonical_fingerprint":"canon-b"}]}`,
+					),
+					Status:            domain.SnapshotStatusComplete,
+					CreatedByWorkflow: "AlertmanagerWebhookAutoDiagnosis",
+					CreatedAt:         createdAt.Add(time.Minute),
+				},
+				{
+					ID:           249,
+					AlertGroupID: 33,
+					Digest:       "sha256:needs-room-latest",
+					Payload: json.RawMessage(
+						`{"events":[{"source_fingerprint":"source-b","canonical_fingerprint":"canon-b"}]}`,
+					),
+					Status:            domain.SnapshotStatusComplete,
+					CreatedByWorkflow: "AlertmanagerWebhookAutoDiagnosis",
+					CreatedAt:         createdAt.Add(2 * time.Minute),
+				},
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			chatSessions: []domain.ChatSessionWithTask{
+				{
+					Session: domain.ChatSession{
+						ID:              353,
+						DiagnosisTaskID: 353,
+						SessionKey:      "diagnosis-session-auto-p3-s247",
+						Status:          domain.ChatSessionStatusOpen,
+						StartedAt:       createdAt,
+						LastActivityAt:  createdAt.Add(time.Second),
+						CreatedAt:       createdAt,
+						UpdatedAt:       createdAt.Add(time.Second),
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 353,
+						EvidenceSnapshotID: 247,
+						WorkflowID:         "diagnosis-room-diagnosis-session-auto-p3-s247",
+						RunID:              "run-247",
+						Status:             domain.DiagnosisStatusRunning,
+						CreatedAt:          createdAt,
+						UpdatedAt:          createdAt.Add(time.Second),
+					},
+				},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/handoffs?limit=2", nil)
+	testOperationsReadHandler(t, factory).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if factory.alertRepo.lastLimit != maxListLimit ||
+		factory.evidenceRepo.lastLimit != maxListLimit ||
+		factory.diagnosisRepo.lastChatSessionLimit != maxListLimit {
+		t.Fatalf(
+			"limits alert=%d evidence=%d rooms=%d, want %d",
+			factory.alertRepo.lastLimit,
+			factory.evidenceRepo.lastLimit,
+			factory.diagnosisRepo.lastChatSessionLimit,
+			maxListLimit,
+		)
+	}
+
+	var body api.DiagnosisHandoffListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 2 {
+		t.Fatalf("len(items) = %d, want 2: %+v", len(body.Items), body.Items)
+	}
+	if body.Items[0].EvidenceSnapshot.ID != 249 || body.Items[1].EvidenceSnapshot.ID != 248 {
+		t.Fatalf("snapshot order = [%d %d], want [249 248]", body.Items[0].EvidenceSnapshot.ID, body.Items[1].EvidenceSnapshot.ID)
+	}
+	if body.Items[0].Reason != api.MissingDiagnosisRoom || body.Items[1].Reason != api.MissingDiagnosisRoom {
+		t.Fatalf("reasons = [%s %s]", body.Items[0].Reason, body.Items[1].Reason)
+	}
+	if len(body.Items[0].EvidenceSnapshot.DiagnosisRooms) != 0 || len(body.Items[1].EvidenceSnapshot.DiagnosisRooms) != 0 {
+		t.Fatalf("pending handoffs should not include diagnosis rooms: %+v", body.Items)
+	}
+	if len(body.Items[0].Alerts) != 1 || body.Items[0].Alerts[0].ID != 43 {
+		t.Fatalf("latest snapshot alerts = %+v, want alert 43", body.Items[0].Alerts)
+	}
+	if len(body.Items[1].Alerts) != 2 || body.Items[1].Alerts[0].ID != 42 || body.Items[1].Alerts[1].ID != 43 {
+		t.Fatalf("grouped snapshot alerts = %+v, want alerts 42 and 43", body.Items[1].Alerts)
+	}
+}
+
+func TestListDiagnosisHandoffsRequiresRoomParticipation(t *testing.T) {
+	authorizer := &fakeRBACAuthorizer{
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			return rbacusecase.AuthorizeDecision{
+				Allowed:   req.Permission == domain.RBACPermissionOperationsRead,
+				CheckedAt: time.Date(2026, 6, 29, 9, 0, 0, 0, time.UTC),
+			}, nil
+		},
+	}
+	factory := &fakeUOWFactory{configRepo: &fakeConfigRepo{}}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/handoffs?limit=2", nil)
+	addTestLocalRBACAuthorization(req)
+
+	testHandler(factory, testLocalRBACOptions(t, "operations-viewer-1", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 2 ||
+		authorizer.requests[0].Permission != domain.RBACPermissionOperationsRead ||
+		authorizer.requests[1].Permission != domain.RBACPermissionDiagnosisRoomParticipate {
+		t.Fatalf("authorizer requests = %+v called=%d", authorizer.requests, authorizer.called)
 	}
 }
 
@@ -99,7 +1285,7 @@ func TestListEvidenceSnapshots_ReturnsSummaries(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/evidence-snapshots?limit=1", nil)
-	testHandler(factory).ServeHTTP(rec, req)
+	testOperationsReadHandler(t, factory).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -146,7 +1332,7 @@ func TestListReports_ReturnsSummaries(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/reports?limit=1", nil)
-	testHandler(factory).ServeHTTP(rec, req)
+	testOperationsReadHandler(t, factory).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -168,14 +1354,1028 @@ func TestListReports_ReturnsSummaries(t *testing.T) {
 	}
 }
 
+func TestOperationsReadRejectsUnauthenticatedPrincipal(t *testing.T) {
+	factory := &fakeUOWFactory{
+		configRepo: &fakeConfigRepo{},
+		reportRepo: &fakeReportRepo{},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/reports?limit=1", nil)
+	testHandler(factory, testLocalRBACOptions(t, "operations-viewer-1", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 0 {
+		t.Fatalf("authorizer calls = %d, want 0", authorizer.called)
+	}
+	if factory.reportRepo.lastListLimit != 0 {
+		t.Fatalf("report repo last limit = %d, want 0", factory.reportRepo.lastListLimit)
+	}
+}
+
+func TestListDiagnosisRooms_ReturnsSummaries(t *testing.T) {
+	startedAt := time.Date(2026, 6, 18, 2, 20, 28, 0, time.UTC)
+	closedAt := startedAt.Add(5 * time.Minute)
+	notificationAt := startedAt.Add(90 * time.Second)
+	progressAt := startedAt.Add(2 * time.Minute)
+	finalAt := startedAt.Add(3 * time.Minute)
+	requiresReview := true
+	finalPayload, err := json.Marshal(diagnosisRoomConclusionEventPayload{
+		Kind:            diagnosisConclusionEventFinalReady,
+		SessionID:       "diagnosis-session-auto-p3-s247",
+		ChatSessionID:   353,
+		DiagnosisTaskID: 353,
+		FinalConclusion: diagnosisRoomConclusionPayload{
+			Status:              "available",
+			Source:              "assistant",
+			EvidenceSnapshotID:  247,
+			ConclusionVersion:   "diagnosis-session-auto-p3-s247:2",
+			ConfirmedBy:         "operator:alice",
+			Content:             "Database storage saturation is the primary outage risk.",
+			Confidence:          "high",
+			RequiresHumanReview: &requiresReview,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal final payload: %v", err)
+	}
+	notificationPayload := json.RawMessage(`{
+		"kind":"diagnosis_room.assistant_turn_notification_sent",
+		"session_id":"diagnosis-session-auto-p3-s247",
+		"chat_session_id":353,
+		"diagnosis_task_id":353,
+		"owner_subject":"operator:alice",
+		"assistant_message_id":"msg-1/assistant",
+		"assistant_turn_id":354,
+		"assistant_sequence":2,
+		"turn_count":1,
+		"idempotency_key":"diagnosis_room:353:abc/assistant_turn_notification",
+		"notification_channel_profile_id":2,
+		"provider_message_id":"wecom-msg-1",
+		"provider_status":"delivered",
+		"provider_raw":{"errcode":0},
+		"assistant_message":"Internal diagnosis body should not be copied into list responses.",
+		"confidence":"low",
+		"requires_human_review":true
+	}`)
+	progressPayload := json.RawMessage(`{
+		"kind":"diagnosis_room.turn_persisted",
+		"session_id":"diagnosis-session-auto-p3-s247",
+		"chat_session_id":353,
+		"diagnosis_task_id":353,
+		"assistant_message_id":"msg-1/assistant",
+		"assistant_turn_id":354,
+		"assistant_sequence":2,
+		"turn_count":1,
+		"confidence":"low",
+		"requires_human_review":true,
+		"evidence_requests":[{"tool":"active_alerts","reason":"Check related active alerts.","limit":5}],
+		"consultation_insight":{
+			"conclusion_status":"needs_evidence",
+			"confidence_rationale":"Initial evidence needs bounded active-alert confirmation.",
+			"missing_evidence_requests":[{"label":"Owner action","detail":"Attach the current storage expansion status.","priority":"high"}],
+			"evidence_collection_suggestions":[{"label":"Recent active alerts","detail":"Collect active alerts for the same service before final confirmation.","priority":"medium"}]
+		}
+	}`)
+	evidenceCollectedPayload := json.RawMessage(`{
+		"kind":"diagnosis_room.evidence_collected",
+		"session_id":"diagnosis-session-auto-p3-s247",
+		"chat_session_id":353,
+		"diagnosis_task_id":353,
+		"actor_subject":"operator:carol",
+		"user_message_id":"msg-3",
+		"assistant_message_id":"msg-1/assistant",
+		"user_turn_id":357,
+		"assistant_turn_id":354,
+		"user_sequence":5,
+		"assistant_sequence":2,
+		"turn_count":1,
+		"evidence_collection_results":[{
+			"tool":"active_alerts",
+			"status":"collected",
+			"reason_code":"ok",
+			"message":"Collected active alerts.",
+			"observed_alerts":2,
+			"collected_at":"2026-06-18T02:22:45Z"
+		}]
+	}`)
+	supplementalPayload := json.RawMessage(`{
+		"kind":"diagnosis_room.supplemental_evidence_provided",
+		"session_id":"diagnosis-session-auto-p3-s247",
+		"chat_session_id":353,
+		"diagnosis_task_id":353,
+		"actor_subject":"operator:bob",
+		"user_message_id":"msg-2",
+		"assistant_message_id":"msg-2/assistant",
+		"user_turn_id":355,
+		"assistant_turn_id":356,
+		"user_sequence":3,
+		"assistant_sequence":4,
+		"supplemental_evidence":{
+			"label":"Storage owner update",
+			"detail":"Attach current storage expansion status.",
+			"priority":"high",
+			"evidence":"Expansion ticket is approved and scheduled."
+		}
+	}`)
+	factory := &fakeUOWFactory{
+		configRepo: &fakeConfigRepo{
+			directoryUsers: []domain.DirectoryUser{
+				testDirectoryUser(1, "operator:alice", "Alice Chen"),
+				testDirectoryUser(2, "operator:bob", "Bob Li"),
+				testDirectoryUser(3, "operator:carol", "Carol Wu"),
+				testDirectoryUser(4, "openclarion:auto-diagnosis", "Automation"),
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+				353: {
+					diagnosisConclusionEventTurnPersisted: {{
+						ID:         89,
+						TaskID:     353,
+						Kind:       diagnosisConclusionEventTurnPersisted,
+						Payload:    progressPayload,
+						OccurredAt: progressAt,
+						RecordedAt: progressAt.Add(time.Second),
+					}},
+					diagnosisConclusionEventEvidenceCollected: {{
+						ID:         88,
+						TaskID:     353,
+						Kind:       diagnosisConclusionEventEvidenceCollected,
+						Payload:    evidenceCollectedPayload,
+						OccurredAt: progressAt.Add(45 * time.Second),
+						RecordedAt: progressAt.Add(46 * time.Second),
+					}},
+					diagnosisConclusionEventAssistantTurnNotification: {{
+						ID:         90,
+						TaskID:     353,
+						Kind:       diagnosisConclusionEventAssistantTurnNotification,
+						Payload:    notificationPayload,
+						OccurredAt: notificationAt,
+						RecordedAt: notificationAt.Add(time.Second),
+					}},
+					diagnosisConclusionEventFinalReady: {{
+						ID:         91,
+						TaskID:     353,
+						Kind:       diagnosisConclusionEventFinalReady,
+						Payload:    finalPayload,
+						OccurredAt: finalAt,
+						RecordedAt: finalAt.Add(time.Second),
+					}},
+					diagnosisConclusionEventSupplementalEvidence: {{
+						ID:         92,
+						TaskID:     353,
+						Kind:       diagnosisConclusionEventSupplementalEvidence,
+						Payload:    supplementalPayload,
+						OccurredAt: progressAt.Add(30 * time.Second),
+						RecordedAt: progressAt.Add(31 * time.Second),
+					}},
+				},
+			},
+			chatTurnsBySession: map[domain.ChatSessionID][]domain.ChatTurn{
+				353: {
+					{SessionID: 353, MessageID: "msg-1", Sequence: 1, Role: domain.ChatRoleUser, ActorSubject: "operator:alice", Content: "Please investigate", OccurredAt: startedAt.Add(time.Minute)},
+					{SessionID: 353, MessageID: "msg-1/assistant", Sequence: 2, Role: domain.ChatRoleAssistant, ActorSubject: "openclarion:auto-diagnosis", Content: "Storage evidence is needed.", OccurredAt: progressAt},
+				},
+			},
+			chatSessions: []domain.ChatSessionWithTask{
+				{
+					Session: domain.ChatSession{
+						ID:              353,
+						DiagnosisTaskID: 353,
+						SessionKey:      "diagnosis-session-auto-p3-s247",
+						OwnerSubject:    "operator:alice",
+						Status:          domain.ChatSessionStatusClosed,
+						TurnCount:       2,
+						StartedAt:       startedAt,
+						LastActivityAt:  closedAt,
+						ClosedAt:        &closedAt,
+						CloseReason:     "human_confirmed",
+						CreatedAt:       startedAt,
+						UpdatedAt:       closedAt,
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 353,
+						EvidenceSnapshotID: 247,
+						WorkflowID:         "diagnosis-room-diagnosis-session-auto-p3-s247",
+						RunID:              "run-247",
+						Status:             domain.DiagnosisStatusRunning,
+					},
+				},
+			},
+		},
+	}
+	visibility := &fakeDiagnosisRoomWorkflowVisibilityLookup{
+		results: map[ports.DiagnosisRoomWorkflowVisibilityRequest]ports.DiagnosisRoomWorkflowVisibility{
+			{WorkflowID: "diagnosis-room-diagnosis-session-auto-p3-s247", RunID: "run-247"}: {
+				WorkflowID:       "diagnosis-room-diagnosis-session-auto-p3-s247",
+				RunID:            "run-247",
+				Status:           "running",
+				TaskQueue:        "openclarion",
+				StartTime:        &startedAt,
+				HistoryLength:    51,
+				HistorySizeBytes: 4096,
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/rooms?limit=1", nil)
+	testConfigHandler(t, factory, WithDiagnosisRoomWorkflowVisibilityLookup(visibility)).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	rawBody := rec.Body.String()
+	if factory.diagnosisRepo.lastChatSessionLimit != 1 {
+		t.Fatalf("repo limit = %d, want 1", factory.diagnosisRepo.lastChatSessionLimit)
+	}
+
+	var body api.DiagnosisRoomListResponse
+	if err := json.NewDecoder(strings.NewReader(rawBody)).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(body.Items))
+	}
+	got := body.Items[0]
+	if got.SessionID != "diagnosis-session-auto-p3-s247" ||
+		got.ChatSessionID != 353 ||
+		got.DiagnosisTaskID != 353 ||
+		got.EvidenceSnapshotID != 247 ||
+		got.WorkflowID != "diagnosis-room-diagnosis-session-auto-p3-s247" ||
+		got.RunID != "run-247" ||
+		got.TaskStatus != api.DiagnosisTaskStatusRunning ||
+		got.RoomStatus != api.Closed ||
+		got.TurnCount != 2 ||
+		got.CloseReason != "human_confirmed" {
+		t.Fatalf("unexpected diagnosis room summary: %+v", got)
+	}
+	if got.ClosedAt.IsNull() {
+		t.Fatalf("closed_at should be populated for closed rooms")
+	}
+	if visibility.called != 1 ||
+		len(visibility.requests) != 1 ||
+		visibility.requests[0].WorkflowID != "diagnosis-room-diagnosis-session-auto-p3-s247" ||
+		visibility.requests[0].RunID != "run-247" {
+		t.Fatalf("visibility requests = %+v called=%d", visibility.requests, visibility.called)
+	}
+	if got.WorkflowVisibility == nil ||
+		got.WorkflowVisibility.Status != "running" ||
+		got.WorkflowVisibility.TaskQueue == nil ||
+		*got.WorkflowVisibility.TaskQueue != "openclarion" ||
+		got.WorkflowVisibility.StartTime == nil ||
+		!got.WorkflowVisibility.StartTime.Equal(startedAt) ||
+		got.WorkflowVisibility.HistoryLength == nil ||
+		*got.WorkflowVisibility.HistoryLength != 51 ||
+		got.WorkflowVisibility.HistorySizeBytes == nil ||
+		*got.WorkflowVisibility.HistorySizeBytes != 4096 {
+		t.Fatalf("workflow_visibility = %+v", got.WorkflowVisibility)
+	}
+	if got.LatestConclusion == nil {
+		t.Fatalf("latest_conclusion = nil, want populated")
+	}
+	if got.LatestConclusion.EventKind != diagnosisConclusionEventFinalReady ||
+		got.LatestConclusion.Content != "Database storage saturation is the primary outage risk." ||
+		got.LatestConclusion.ConfirmedBy == nil ||
+		*got.LatestConclusion.ConfirmedBy != "operator:alice" ||
+		got.LatestConclusion.Confidence == nil ||
+		*got.LatestConclusion.Confidence != api.ReportConfidenceHigh ||
+		got.LatestConclusion.RequiresHumanReview == nil ||
+		!*got.LatestConclusion.RequiresHumanReview {
+		t.Fatalf("unexpected latest conclusion: %+v", got.LatestConclusion)
+	}
+	if len(got.NotificationTimeline) != 1 {
+		t.Fatalf("len(notification_timeline) = %d, want 1", len(got.NotificationTimeline))
+	}
+	if len(got.Participants) != 4 {
+		t.Fatalf("participants = %+v, want 4", got.Participants)
+	}
+	if got.Participants[0].Subject != "operator:alice" ||
+		got.Participants[0].MessageCount != 1 ||
+		!got.Participants[0].ConfirmedConclusion ||
+		!slices.Equal(got.Participants[0].Roles, []api.DiagnosisRoomParticipantSummaryRolesItem{
+			api.DiagnosisRoomParticipantSummaryRolesItemOwner,
+			api.DiagnosisRoomParticipantSummaryRolesItemMessage,
+			api.DiagnosisRoomParticipantSummaryRolesItemConfirmation,
+		}) {
+		t.Fatalf("owner participant = %+v", got.Participants[0])
+	}
+	if got.Participants[1].Subject != "operator:bob" ||
+		got.Participants[1].SupplementalEvidenceCount != 1 ||
+		!slices.Equal(got.Participants[1].Roles, []api.DiagnosisRoomParticipantSummaryRolesItem{
+			api.DiagnosisRoomParticipantSummaryRolesItemSupplementalEvidence,
+		}) {
+		t.Fatalf("supplemental participant = %+v", got.Participants[1])
+	}
+	if got.Participants[2].Subject != "operator:carol" ||
+		got.Participants[2].EvidenceCollectionCount != 1 ||
+		!slices.Equal(got.Participants[2].Roles, []api.DiagnosisRoomParticipantSummaryRolesItem{
+			api.DiagnosisRoomParticipantSummaryRolesItemEvidence,
+		}) {
+		t.Fatalf("evidence participant = %+v", got.Participants[2])
+	}
+	if got.Participants[3].Subject != "openclarion:auto-diagnosis" ||
+		!got.Participants[3].IsSystem ||
+		got.Participants[3].MessageCount != 1 ||
+		!slices.Equal(got.Participants[3].Roles, []api.DiagnosisRoomParticipantSummaryRolesItem{
+			api.DiagnosisRoomParticipantSummaryRolesItemAssistant,
+		}) {
+		t.Fatalf("assistant participant = %+v", got.Participants[3])
+	}
+	participantDirectorySubjects := make([]string, 0, len(got.ParticipantDirectoryUsers))
+	for _, user := range got.ParticipantDirectoryUsers {
+		participantDirectorySubjects = append(participantDirectorySubjects, user.Subject)
+	}
+	if !slices.Equal(participantDirectorySubjects, []string{"operator:alice", "operator:bob", "operator:carol"}) {
+		t.Fatalf("participant_directory_users subjects = %+v", participantDirectorySubjects)
+	}
+	if got.ParticipantDirectoryUsers[0].DisplayName != "Alice Chen" ||
+		got.ParticipantDirectoryUsers[0].DepartmentPath != "IT/Platform/SRE" {
+		t.Fatalf("participant directory user = %+v", got.ParticipantDirectoryUsers[0])
+	}
+	notification := got.NotificationTimeline[0]
+	if notification.EventKind != diagnosisConclusionEventAssistantTurnNotification ||
+		notification.NotificationChannelProfileID == nil ||
+		*notification.NotificationChannelProfileID != 2 ||
+		notification.ProviderStatus != "delivered" ||
+		notification.ProviderMessageID == nil ||
+		*notification.ProviderMessageID != "wecom-msg-1" ||
+		notification.AssistantMessageID == nil ||
+		*notification.AssistantMessageID != "msg-1/assistant" ||
+		notification.AssistantTurnID == nil ||
+		*notification.AssistantTurnID != 354 ||
+		notification.AssistantSequence == nil ||
+		*notification.AssistantSequence != 2 ||
+		notification.TurnCount == nil ||
+		*notification.TurnCount != 1 ||
+		notification.Confidence == nil ||
+		*notification.Confidence != api.ReportConfidenceLow ||
+		notification.RequiresHumanReview == nil ||
+		!*notification.RequiresHumanReview ||
+		notification.ContentKind == nil ||
+		*notification.ContentKind != "assistant_message" ||
+		notification.ContentSha256 == nil ||
+		*notification.ContentSha256 != testSHA256("Internal diagnosis body should not be copied into list responses.") ||
+		!notification.OccurredAt.Equal(notificationAt) {
+		t.Fatalf("unexpected notification timeline entry: %+v", notification)
+	}
+	for _, forbidden := range []string{"provider_raw", "idempotency_key", `"assistant_message":`, "memo", "search_attributes"} {
+		if strings.Contains(rawBody, forbidden) {
+			t.Fatalf("response leaked internal notification field %q: %s", forbidden, rawBody)
+		}
+	}
+}
+
+func TestListDiagnosisRooms_FiltersByScopedRBACWhenGlobalReadIsDenied(t *testing.T) {
+	startedAt := time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC)
+	factory := &fakeUOWFactory{
+		configRepo: &fakeConfigRepo{
+			directoryUsers: []domain.DirectoryUser{
+				testDirectoryUser(11, "operator:visible", "Visible Operator"),
+				testDirectoryUser(12, "operator:hidden", "Hidden Operator"),
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			chatSessions: []domain.ChatSessionWithTask{
+				{
+					Session: domain.ChatSession{
+						ID:              501,
+						DiagnosisTaskID: 601,
+						SessionKey:      "room-visible",
+						OwnerSubject:    "operator:visible",
+						Status:          domain.ChatSessionStatusOpen,
+						StartedAt:       startedAt,
+						LastActivityAt:  startedAt.Add(time.Minute),
+						CreatedAt:       startedAt,
+						UpdatedAt:       startedAt.Add(time.Minute),
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 601,
+						EvidenceSnapshotID: 701,
+						WorkflowID:         "diagnosis-room-room-visible",
+						RunID:              "run-visible",
+						Status:             domain.DiagnosisStatusRunning,
+					},
+				},
+				{
+					Session: domain.ChatSession{
+						ID:              502,
+						DiagnosisTaskID: 602,
+						SessionKey:      "room-hidden",
+						OwnerSubject:    "operator:hidden",
+						Status:          domain.ChatSessionStatusOpen,
+						StartedAt:       startedAt,
+						LastActivityAt:  startedAt.Add(2 * time.Minute),
+						CreatedAt:       startedAt,
+						UpdatedAt:       startedAt.Add(2 * time.Minute),
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 602,
+						EvidenceSnapshotID: 702,
+						WorkflowID:         "diagnosis-room-room-hidden",
+						RunID:              "run-hidden",
+						Status:             domain.DiagnosisStatusRunning,
+					},
+				},
+			},
+		},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			return rbacusecase.AuthorizeDecision{
+				Allowed: req.ScopeKind == domain.RBACScopeKindDiagnosisRoom &&
+					req.ScopeKey == "room-visible",
+				CheckedAt: startedAt,
+			}, nil
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/rooms?limit=10", nil)
+	addTestLocalRBACAuthorization(req)
+	testHandler(factory, testLocalRBACOptions(t, "responder-1", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DiagnosisRoomListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 || body.Items[0].SessionID != "room-visible" {
+		t.Fatalf("items = %+v, want only room-visible", body.Items)
+	}
+	if factory.configRepo.lastDirectorySubject != "operator:visible" {
+		t.Fatalf("directory subject = %q, want operator:visible", factory.configRepo.lastDirectorySubject)
+	}
+	if len(body.Items[0].ParticipantDirectoryUsers) != 1 ||
+		body.Items[0].ParticipantDirectoryUsers[0].Subject != "operator:visible" {
+		t.Fatalf("participant_directory_users = %+v, want only visible room user", body.Items[0].ParticipantDirectoryUsers)
+	}
+	if authorizer.called != 3 {
+		t.Fatalf("authorizer calls = %d, want global plus two scoped checks", authorizer.called)
+	}
+	if authorizer.requests[0].ScopeKind != domain.RBACScopeKindGlobal ||
+		authorizer.requests[0].Permission != domain.RBACPermissionDiagnosisRoomRead {
+		t.Fatalf("global auth request = %+v", authorizer.requests[0])
+	}
+	if authorizer.requests[1].ScopeKey != "room-visible" ||
+		authorizer.requests[2].ScopeKey != "room-hidden" {
+		t.Fatalf("scoped auth requests = %+v", authorizer.requests)
+	}
+}
+
+func TestGetDiagnosisRoom_ReturnsExactSummary(t *testing.T) {
+	startedAt := time.Date(2026, 6, 20, 3, 14, 25, 0, time.UTC)
+	notificationAt := startedAt.Add(95 * time.Second)
+	finalAt := startedAt.Add(2 * time.Minute)
+	requiresReview := true
+	finalPayload, err := json.Marshal(diagnosisRoomConclusionEventPayload{
+		Kind:            diagnosisConclusionEventFinalReady,
+		SessionID:       "diagnosis-session-exact",
+		ChatSessionID:   703,
+		DiagnosisTaskID: 703,
+		FinalConclusion: diagnosisRoomConclusionPayload{
+			Status:              "available",
+			Source:              "assistant",
+			EvidenceSnapshotID:  907,
+			ConclusionVersion:   "diagnosis-session-exact:2",
+			Content:             "Checkout latency is ready for operator confirmation.",
+			Confidence:          "high",
+			RequiresHumanReview: &requiresReview,
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal final payload: %v", err)
+	}
+	notificationPayload := json.RawMessage(`{
+		"kind":"diagnosis_room.final_ready_notification_sent",
+		"session_id":"diagnosis-session-exact",
+		"chat_session_id":703,
+		"diagnosis_task_id":703,
+		"assistant_message_id":"msg-exact/assistant",
+		"assistant_turn_id":704,
+		"assistant_sequence":2,
+		"turn_count":2,
+		"idempotency_key":"diagnosis_room:703:exact/final_ready",
+		"notification_channel_profile_id":2,
+		"provider_message_id":"wecom-msg-exact-final-ready",
+		"provider_status":"delivered",
+		"provider_raw":{"errcode":0},
+		"confidence":"high",
+		"requires_human_review":true,
+		"final_conclusion":{
+			"content":"Checkout latency is ready for operator confirmation.",
+			"confidence":"high",
+			"requires_human_review":true,
+			"recommended_actions":["Confirm the checkout deployment status."],
+			"evidence_requests":[{"tool":"active_alerts","reason":"Confirm current alert state."}]
+		}
+	}`)
+	repo := &fakeDiagnosisRepo{
+		eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+			703: {
+				diagnosisConclusionEventFinalReady: {{
+					ID:         171,
+					TaskID:     703,
+					Kind:       diagnosisConclusionEventFinalReady,
+					Payload:    finalPayload,
+					OccurredAt: finalAt,
+					RecordedAt: finalAt.Add(time.Second),
+				}},
+				diagnosisConclusionEventFinalReadyNotification: {{
+					ID:         172,
+					TaskID:     703,
+					Kind:       diagnosisConclusionEventFinalReadyNotification,
+					Payload:    notificationPayload,
+					OccurredAt: notificationAt,
+					RecordedAt: notificationAt.Add(time.Second),
+				}},
+			},
+		},
+		chatSessions: []domain.ChatSessionWithTask{
+			{
+				Session: domain.ChatSession{
+					ID:              702,
+					DiagnosisTaskID: 702,
+					SessionKey:      "diagnosis-session-other",
+					Status:          domain.ChatSessionStatusOpen,
+					TurnCount:       1,
+					StartedAt:       startedAt.Add(-time.Hour),
+					LastActivityAt:  startedAt.Add(-time.Hour),
+					CreatedAt:       startedAt.Add(-time.Hour),
+					UpdatedAt:       startedAt.Add(-time.Hour),
+				},
+				Task: domain.DiagnosisTask{
+					ID:                 702,
+					EvidenceSnapshotID: 906,
+					WorkflowID:         "diagnosis-room-diagnosis-session-other",
+					RunID:              "run-other",
+					Status:             domain.DiagnosisStatusRunning,
+				},
+			},
+			{
+				Session: domain.ChatSession{
+					ID:              703,
+					DiagnosisTaskID: 703,
+					SessionKey:      "diagnosis-session-exact",
+					OwnerSubject:    "operator:exact",
+					Status:          domain.ChatSessionStatusOpen,
+					TurnCount:       2,
+					StartedAt:       startedAt,
+					LastActivityAt:  finalAt,
+					CreatedAt:       startedAt,
+					UpdatedAt:       finalAt,
+				},
+				Task: domain.DiagnosisTask{
+					ID:                 703,
+					EvidenceSnapshotID: 907,
+					WorkflowID:         "diagnosis-room-diagnosis-session-exact",
+					RunID:              "run-exact",
+					Status:             domain.DiagnosisStatusRunning,
+				},
+			},
+		},
+	}
+	factory := &fakeUOWFactory{
+		configRepo: &fakeConfigRepo{
+			directoryUsers: []domain.DirectoryUser{
+				testDirectoryUser(21, "operator:exact", "Exact Operator"),
+				testDirectoryUser(22, "operator:other", "Other Operator"),
+			},
+		},
+		diagnosisRepo: repo,
+	}
+	visibility := &fakeDiagnosisRoomWorkflowVisibilityLookup{
+		results: map[ports.DiagnosisRoomWorkflowVisibilityRequest]ports.DiagnosisRoomWorkflowVisibility{
+			{WorkflowID: "diagnosis-room-diagnosis-session-exact", RunID: "run-exact"}: {
+				WorkflowID:    "diagnosis-room-diagnosis-session-exact",
+				RunID:         "run-exact",
+				Status:        "running",
+				HistoryLength: 44,
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/rooms/diagnosis-session-exact", nil)
+	testConfigHandler(t, factory, WithDiagnosisRoomWorkflowVisibilityLookup(visibility)).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	rawBody := rec.Body.String()
+	if repo.lastChatSessionKey != "diagnosis-session-exact" {
+		t.Fatalf("session key = %q, want diagnosis-session-exact", repo.lastChatSessionKey)
+	}
+	if repo.lastFindTaskID != 703 {
+		t.Fatalf("find task id = %d, want 703", repo.lastFindTaskID)
+	}
+	if visibility.called != 1 || len(visibility.requests) != 1 {
+		t.Fatalf("visibility requests = %+v called=%d", visibility.requests, visibility.called)
+	}
+
+	var body api.DiagnosisRoomSummary
+	if err := json.NewDecoder(strings.NewReader(rawBody)).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.SessionID != "diagnosis-session-exact" ||
+		body.ChatSessionID != 703 ||
+		body.DiagnosisTaskID != 703 ||
+		body.EvidenceSnapshotID != 907 ||
+		body.WorkflowID != "diagnosis-room-diagnosis-session-exact" ||
+		body.RunID != "run-exact" ||
+		body.TurnCount != 2 {
+		t.Fatalf("unexpected diagnosis room summary: %+v", body)
+	}
+	if body.LatestConclusion == nil ||
+		body.LatestConclusion.ConclusionVersion == nil ||
+		*body.LatestConclusion.ConclusionVersion != "diagnosis-session-exact:2" ||
+		body.LatestConclusion.Content != "Checkout latency is ready for operator confirmation." {
+		t.Fatalf("latest_conclusion = %+v", body.LatestConclusion)
+	}
+	if len(body.ParticipantDirectoryUsers) != 1 ||
+		body.ParticipantDirectoryUsers[0].Subject != "operator:exact" ||
+		body.ParticipantDirectoryUsers[0].DisplayName != "Exact Operator" {
+		t.Fatalf("participant_directory_users = %+v, want exact room owner projection", body.ParticipantDirectoryUsers)
+	}
+	if len(body.NotificationTimeline) != 1 ||
+		body.NotificationTimeline[0].ProviderMessageID == nil ||
+		*body.NotificationTimeline[0].ProviderMessageID != "wecom-msg-exact-final-ready" ||
+		body.NotificationTimeline[0].EventKind != diagnosisConclusionEventFinalReadyNotification ||
+		body.NotificationTimeline[0].ContentKind == nil ||
+		*body.NotificationTimeline[0].ContentKind != "final_conclusion" ||
+		body.NotificationTimeline[0].ContentSha256 == nil ||
+		*body.NotificationTimeline[0].ContentSha256 != testSHA256("Checkout latency is ready for operator confirmation.") ||
+		body.NotificationTimeline[0].RecommendedActionCount == nil ||
+		*body.NotificationTimeline[0].RecommendedActionCount != 1 ||
+		body.NotificationTimeline[0].EvidenceRequestCount == nil ||
+		*body.NotificationTimeline[0].EvidenceRequestCount != 1 {
+		t.Fatalf("notification_timeline = %+v", body.NotificationTimeline)
+	}
+	if body.WorkflowVisibility == nil ||
+		body.WorkflowVisibility.HistoryLength == nil ||
+		*body.WorkflowVisibility.HistoryLength != 44 {
+		t.Fatalf("workflow_visibility = %+v", body.WorkflowVisibility)
+	}
+	for _, forbidden := range []string{"provider_raw", "idempotency_key", `"assistant_message":`, "memo", "search_attributes"} {
+		if strings.Contains(rawBody, forbidden) {
+			t.Fatalf("response leaked internal notification field %q: %s", forbidden, rawBody)
+		}
+	}
+}
+
+func TestGetDiagnosisRoomAllowsOwnerWithoutScopedAssignment(t *testing.T) {
+	startedAt := time.Date(2026, 6, 29, 5, 30, 0, 0, time.UTC)
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Bearer owner-token": {
+			{Principal: ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}}},
+		},
+	})
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: false, CheckedAt: startedAt},
+	}
+	repo := &fakeDiagnosisRepo{
+		chatSessions: []domain.ChatSessionWithTask{{
+			Session: domain.ChatSession{
+				ID:              901,
+				DiagnosisTaskID: 902,
+				SessionKey:      "diagnosis-session-owned",
+				OwnerSubject:    "owner-1",
+				Status:          domain.ChatSessionStatusOpen,
+				TurnCount:       0,
+				StartedAt:       startedAt,
+				LastActivityAt:  startedAt,
+				CreatedAt:       startedAt,
+				UpdatedAt:       startedAt,
+			},
+			Task: domain.DiagnosisTask{
+				ID:                 902,
+				EvidenceSnapshotID: 903,
+				WorkflowID:         "diagnosis-room-diagnosis-session-owned",
+				RunID:              "run-owned",
+				Status:             domain.DiagnosisStatusRunning,
+			},
+		}},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/rooms/diagnosis-session-owned", nil)
+	req.Header.Set("Authorization", "Bearer owner-token")
+	testHandler(
+		&fakeUOWFactory{configRepo: &fakeConfigRepo{}, diagnosisRepo: repo},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("O", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}),
+		WithRBACAuthorizer(authorizer),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 0 {
+		t.Fatalf("authorizer calls = %d, want owner authorization before assignment lookup", authorizer.called)
+	}
+	var body api.DiagnosisRoomSummary
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.SessionID != "diagnosis-session-owned" || body.ChatSessionID != 901 {
+		t.Fatalf("body = %+v, want owned room summary", body)
+	}
+}
+
+func TestGetDiagnosisRoom_ReturnsNotificationTimelineInOccurrenceOrder(t *testing.T) {
+	startedAt := time.Date(2026, 6, 20, 4, 0, 0, 0, time.UTC)
+	notificationPayload := func(kind, providerMessageID, providerStatus string) json.RawMessage {
+		return json.RawMessage(fmt.Sprintf(`{
+			"kind":%q,
+			"session_id":"diagnosis-session-timeline",
+			"chat_session_id":804,
+			"diagnosis_task_id":804,
+			"assistant_message_id":"msg-timeline/assistant",
+			"assistant_turn_id":805,
+			"assistant_sequence":2,
+			"turn_count":2,
+			"notification_channel_profile_id":2,
+			"provider_message_id":%q,
+			"provider_status":%q,
+			"provider_raw":{"errcode":0}
+		}`, kind, providerMessageID, providerStatus))
+	}
+	repo := &fakeDiagnosisRepo{
+		eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+			804: {
+				diagnosisConclusionEventAssistantTurnNotification: {{
+					ID:         204,
+					TaskID:     804,
+					Kind:       diagnosisConclusionEventAssistantTurnNotification,
+					Payload:    notificationPayload(diagnosisConclusionEventAssistantTurnNotification, "wecom-assistant", "delivered"),
+					OccurredAt: startedAt.Add(2 * time.Minute),
+					RecordedAt: startedAt.Add(2*time.Minute + time.Second),
+				}},
+				diagnosisConclusionEventFinalReadyNotification: {
+					{
+						ID:         205,
+						TaskID:     804,
+						Kind:       diagnosisConclusionEventFinalReadyNotification,
+						Payload:    notificationPayload(diagnosisConclusionEventFinalReadyNotification, "wecom-final-new", "delivered"),
+						OccurredAt: startedAt.Add(4 * time.Minute),
+						RecordedAt: startedAt.Add(4*time.Minute + time.Second),
+					},
+					{
+						ID:         202,
+						TaskID:     804,
+						Kind:       diagnosisConclusionEventFinalReadyNotification,
+						Payload:    notificationPayload(diagnosisConclusionEventFinalReadyNotification, "wecom-final-old", "failed"),
+						OccurredAt: startedAt.Add(time.Minute),
+						RecordedAt: startedAt.Add(time.Minute + time.Second),
+					},
+				},
+				diagnosisConclusionEventCloseNotification: {{
+					ID:         203,
+					TaskID:     804,
+					Kind:       diagnosisConclusionEventCloseNotification,
+					Payload:    notificationPayload(diagnosisConclusionEventCloseNotification, "wecom-close", "delivered"),
+					OccurredAt: startedAt.Add(3 * time.Minute),
+					RecordedAt: startedAt.Add(3*time.Minute + time.Second),
+				}},
+			},
+		},
+		chatSessions: []domain.ChatSessionWithTask{{
+			Session: domain.ChatSession{
+				ID:              804,
+				DiagnosisTaskID: 804,
+				SessionKey:      "diagnosis-session-timeline",
+				Status:          domain.ChatSessionStatusOpen,
+				TurnCount:       2,
+				StartedAt:       startedAt,
+				LastActivityAt:  startedAt.Add(5 * time.Minute),
+				CreatedAt:       startedAt,
+				UpdatedAt:       startedAt.Add(5 * time.Minute),
+			},
+			Task: domain.DiagnosisTask{
+				ID:                 804,
+				EvidenceSnapshotID: 908,
+				WorkflowID:         "diagnosis-room-diagnosis-session-timeline",
+				RunID:              "run-timeline",
+				Status:             domain.DiagnosisStatusRunning,
+			},
+		}},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/rooms/diagnosis-session-timeline", nil)
+	testConfigHandler(t, &fakeUOWFactory{diagnosisRepo: repo}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	rawBody := rec.Body.String()
+	var body api.DiagnosisRoomSummary
+	if err := json.NewDecoder(strings.NewReader(rawBody)).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.NotificationTimeline) != 4 {
+		t.Fatalf("notification_timeline len = %d, want 4: %+v", len(body.NotificationTimeline), body.NotificationTimeline)
+	}
+	gotMessages := make([]string, 0, len(body.NotificationTimeline))
+	gotStatuses := make([]string, 0, len(body.NotificationTimeline))
+	for index, item := range body.NotificationTimeline {
+		if item.ProviderMessageID == nil {
+			t.Fatalf("notification_timeline[%d] provider message id = nil: %+v", index, item)
+		}
+		if index > 0 && item.OccurredAt.Before(body.NotificationTimeline[index-1].OccurredAt) {
+			t.Fatalf("notification_timeline not ordered by occurred_at: %+v", body.NotificationTimeline)
+		}
+		gotMessages = append(gotMessages, *item.ProviderMessageID)
+		gotStatuses = append(gotStatuses, item.ProviderStatus)
+	}
+	if !slices.Equal(gotMessages, []string{
+		"wecom-final-old",
+		"wecom-assistant",
+		"wecom-close",
+		"wecom-final-new",
+	}) {
+		t.Fatalf("provider message order = %+v", gotMessages)
+	}
+	if !slices.Equal(gotStatuses, []string{"failed", "delivered", "delivered", "delivered"}) {
+		t.Fatalf("provider statuses = %+v", gotStatuses)
+	}
+	for _, forbidden := range []string{"provider_raw", "idempotency_key"} {
+		if strings.Contains(rawBody, forbidden) {
+			t.Fatalf("response leaked internal notification field %q: %s", forbidden, rawBody)
+		}
+	}
+}
+
+func TestListDiagnosisRooms_ReturnsLatestProgressForOpenRoom(t *testing.T) {
+	startedAt := time.Date(2026, 6, 20, 2, 41, 24, 0, time.UTC)
+	progressAt := startedAt.Add(2 * time.Minute)
+	progressPayload := json.RawMessage(`{
+		"kind":"diagnosis_room.turn_persisted",
+		"session_id":"diagnosis-session-auto-p3-s320",
+		"chat_session_id":528,
+		"diagnosis_task_id":528,
+		"assistant_message_id":"diagnosis-auto-initial-p3-s320/assistant",
+		"assistant_turn_id":910,
+		"assistant_sequence":2,
+		"turn_count":1,
+		"confidence":"low",
+		"requires_human_review":true,
+		"evidence_requests":[{"tool":"active_alerts","reason":"Check related active alerts.","limit":5}],
+		"consultation_insight":{
+			"conclusion_status":"needs_evidence",
+			"confidence_rationale":"Initial evidence needs bounded active-alert confirmation.",
+			"missing_evidence_requests":[{"label":"Owner action","detail":"Attach the current remediation status.","priority":"high"}],
+			"evidence_collection_suggestions":[{"label":"Recent active alerts","detail":"Collect active alerts for this service.","priority":"medium"}]
+		}
+	}`)
+	factory := &fakeUOWFactory{
+		diagnosisRepo: &fakeDiagnosisRepo{
+			eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+				528: {
+					diagnosisConclusionEventTurnPersisted: {{
+						ID:         900,
+						TaskID:     528,
+						Kind:       diagnosisConclusionEventTurnPersisted,
+						Payload:    progressPayload,
+						OccurredAt: progressAt,
+						RecordedAt: progressAt.Add(time.Second),
+					}},
+				},
+			},
+			chatSessions: []domain.ChatSessionWithTask{
+				{
+					Session: domain.ChatSession{
+						ID:              528,
+						DiagnosisTaskID: 528,
+						SessionKey:      "diagnosis-session-auto-p3-s320",
+						Status:          domain.ChatSessionStatusOpen,
+						TurnCount:       1,
+						StartedAt:       startedAt,
+						LastActivityAt:  progressAt,
+						CreatedAt:       startedAt,
+						UpdatedAt:       progressAt,
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 528,
+						EvidenceSnapshotID: 320,
+						WorkflowID:         "diagnosis-room-diagnosis-session-auto-p3-s320",
+						RunID:              "run-320",
+						Status:             domain.DiagnosisStatusRunning,
+					},
+				},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/rooms?limit=1", nil)
+	testConfigHandler(t, factory).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DiagnosisRoomListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 {
+		t.Fatalf("len(items) = %d, want 1", len(body.Items))
+	}
+	got := body.Items[0]
+	if got.LatestConclusion != nil {
+		t.Fatalf("latest_conclusion = %+v, want nil", got.LatestConclusion)
+	}
+	if got.LatestProgress == nil {
+		t.Fatalf("latest_progress = nil, want populated")
+	}
+	if got.LatestProgress.EventKind != diagnosisConclusionEventTurnPersisted ||
+		got.LatestProgress.Status != string(api.DiagnosisRoomProgressSummaryStatusInProgress) ||
+		got.LatestProgress.ConclusionStatus == nil ||
+		*got.LatestProgress.ConclusionStatus != "needs_evidence" ||
+		got.LatestProgress.Confidence != api.ReportConfidenceLow ||
+		!got.LatestProgress.RequiresHumanReview ||
+		got.LatestProgress.EvidenceRequestCount != 1 ||
+		len(got.LatestProgress.MissingEvidenceRequests) != 1 ||
+		got.LatestProgress.MissingEvidenceRequests[0].Label != "Owner action" ||
+		len(got.LatestProgress.EvidenceCollectionSuggestions) != 1 ||
+		!got.LatestProgress.OccurredAt.Equal(progressAt) {
+		t.Fatalf("unexpected latest progress: %+v", got.LatestProgress)
+	}
+}
+
 func TestGetDashboard_ReturnsRecentCounters(t *testing.T) {
 	createdAt := time.Date(2026, 5, 28, 5, 0, 0, 0, time.UTC)
 	factory := &fakeUOWFactory{
 		alertRepo: &fakeAlertRepo{
 			events: []domain.AlertEvent{
-				{ID: 1, Status: domain.AlertStatusFiring},
+				{
+					ID:                   1,
+					SourceFingerprint:    "source:checkout",
+					CanonicalFingerprint: "canonical:checkout",
+					Status:               domain.AlertStatusFiring,
+				},
 				{ID: 2, Status: domain.AlertStatusResolved},
-				{ID: 3, Status: domain.AlertStatusFiring},
+				{
+					ID:                   3,
+					SourceFingerprint:    "source:payment",
+					CanonicalFingerprint: "canonical:payment",
+					Status:               domain.AlertStatusFiring,
+				},
+			},
+		},
+		evidenceRepo: &fakeEvidenceRepo{
+			snapshots: []domain.EvidenceSnapshot{
+				{
+					ID:           101,
+					AlertGroupID: 201,
+					Digest:       "sha256:checkout",
+					Payload: json.RawMessage(
+						`{"events":[{"source_fingerprint":"source:checkout","canonical_fingerprint":"canonical:checkout"}]}`,
+					),
+					Status:    domain.SnapshotStatusComplete,
+					CreatedAt: createdAt,
+				},
+				{
+					ID:           102,
+					AlertGroupID: 202,
+					Digest:       "sha256:payment",
+					Payload: json.RawMessage(
+						`{"events":[{"source_fingerprint":"source:payment","canonical_fingerprint":"canonical:payment"}]}`,
+					),
+					Status:    domain.SnapshotStatusComplete,
+					CreatedAt: createdAt,
+				},
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			chatSessions: []domain.ChatSessionWithTask{
+				{
+					Session: domain.ChatSession{
+						ID:              301,
+						DiagnosisTaskID: 401,
+						SessionKey:      "diagnosis-session-102",
+						Status:          domain.ChatSessionStatusOpen,
+						StartedAt:       createdAt,
+						LastActivityAt:  createdAt,
+						CreatedAt:       createdAt,
+						UpdatedAt:       createdAt,
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 401,
+						EvidenceSnapshotID: 102,
+						WorkflowID:         "diagnosis-room-102",
+						RunID:              "run-102",
+						Status:             domain.DiagnosisStatusRunning,
+						CreatedAt:          createdAt,
+						UpdatedAt:          createdAt,
+					},
+				},
 			},
 		},
 		reportRepo: &fakeReportRepo{
@@ -195,13 +2395,21 @@ func TestGetDashboard_ReturnsRecentCounters(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/dashboard", nil)
-	testHandler(factory).ServeHTTP(rec, req)
+	testOperationsReadHandler(t, factory).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	if factory.alertRepo.lastLimit != defaultListLimit || factory.reportRepo.lastListLimit != defaultListLimit {
 		t.Fatalf("limits alert=%d report=%d, want %d", factory.alertRepo.lastLimit, factory.reportRepo.lastListLimit, defaultListLimit)
+	}
+	if factory.evidenceRepo.lastLimit != maxListLimit || factory.diagnosisRepo.lastChatSessionLimit != maxListLimit {
+		t.Fatalf(
+			"diagnosis limits evidence=%d rooms=%d, want %d",
+			factory.evidenceRepo.lastLimit,
+			factory.diagnosisRepo.lastChatSessionLimit,
+			maxListLimit,
+		)
 	}
 	if factory.reportRepo.lastDeliveryLimit != 1 {
 		t.Fatalf("delivery limit = %d, want 1", factory.reportRepo.lastDeliveryLimit)
@@ -216,6 +2424,12 @@ func TestGetDashboard_ReturnsRecentCounters(t *testing.T) {
 	}
 	if body.Alerts.TotalRecent != 3 || body.Alerts.Firing != 2 || body.Alerts.Resolved != 1 {
 		t.Fatalf("alert stats = %+v", body.Alerts)
+	}
+	if body.Diagnosis.LinkedSnapshots != 2 ||
+		body.Diagnosis.RoomsStarted != 1 ||
+		body.Diagnosis.SnapshotsNeedingRoom != 1 ||
+		body.Diagnosis.AffectedAlertsNeedingRoom != 1 {
+		t.Fatalf("diagnosis stats = %+v", body.Diagnosis)
 	}
 	if body.Reports.TotalRecent != 4 ||
 		body.Reports.Delivered != 1 ||
@@ -233,6 +2447,104 @@ func TestGetDashboard_ReturnsRecentCounters(t *testing.T) {
 	}
 	if rate != 0.25 {
 		t.Fatalf("success_rate = %v, want 0.25", rate)
+	}
+}
+
+func TestGetDashboardFiltersDiagnosisStatsWithoutRoomRead(t *testing.T) {
+	createdAt := time.Date(2026, 6, 29, 7, 30, 0, 0, time.UTC)
+	factory := &fakeUOWFactory{
+		alertRepo: &fakeAlertRepo{
+			events: []domain.AlertEvent{
+				{
+					ID:                   11,
+					SourceFingerprint:    "source:checkout",
+					CanonicalFingerprint: "canonical:checkout",
+					Status:               domain.AlertStatusFiring,
+				},
+			},
+		},
+		evidenceRepo: &fakeEvidenceRepo{
+			snapshots: []domain.EvidenceSnapshot{
+				{
+					ID:           501,
+					AlertGroupID: 601,
+					Digest:       "sha256:checkout",
+					Payload: json.RawMessage(
+						`{"events":[{"source_fingerprint":"source:checkout","canonical_fingerprint":"canonical:checkout"}]}`,
+					),
+					Status:    domain.SnapshotStatusComplete,
+					CreatedAt: createdAt,
+				},
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			chatSessions: []domain.ChatSessionWithTask{
+				{
+					Session: domain.ChatSession{
+						ID:              701,
+						DiagnosisTaskID: 801,
+						SessionKey:      "diagnosis-session-501",
+						Status:          domain.ChatSessionStatusOpen,
+						StartedAt:       createdAt,
+						LastActivityAt:  createdAt,
+						CreatedAt:       createdAt,
+						UpdatedAt:       createdAt,
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 801,
+						EvidenceSnapshotID: 501,
+						WorkflowID:         "diagnosis-room-501",
+						RunID:              "run-501",
+						Status:             domain.DiagnosisStatusRunning,
+						CreatedAt:          createdAt,
+						UpdatedAt:          createdAt,
+					},
+				},
+			},
+		},
+		reportRepo: &fakeReportRepo{},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			return rbacusecase.AuthorizeDecision{
+				Allowed:   req.Permission == domain.RBACPermissionOperationsRead,
+				CheckedAt: createdAt,
+			}, nil
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/dashboard", nil)
+	testOperationsReadHandlerWithAuthorizer(t, factory, authorizer).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DashboardSummary
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Diagnosis.LinkedSnapshots != 1 ||
+		body.Diagnosis.RoomsStarted != 0 ||
+		body.Diagnosis.SnapshotsNeedingRoom != 1 ||
+		body.Diagnosis.AffectedAlertsNeedingRoom != 1 {
+		t.Fatalf("diagnosis stats = %+v, want hidden room filtered from started count", body.Diagnosis)
+	}
+	if len(authorizer.requests) != 3 {
+		t.Fatalf("authorizer requests = %+v, want operations, global room read, scoped room read", authorizer.requests)
+	}
+	if authorizer.requests[0].Permission != domain.RBACPermissionOperationsRead ||
+		authorizer.requests[0].ScopeKind != domain.RBACScopeKindGlobal {
+		t.Fatalf("operations read request = %+v", authorizer.requests[0])
+	}
+	if authorizer.requests[1].Permission != domain.RBACPermissionDiagnosisRoomRead ||
+		authorizer.requests[1].ScopeKind != domain.RBACScopeKindGlobal {
+		t.Fatalf("global room read request = %+v", authorizer.requests[1])
+	}
+	if authorizer.requests[2].Permission != domain.RBACPermissionDiagnosisRoomRead ||
+		authorizer.requests[2].ScopeKind != domain.RBACScopeKindDiagnosisRoom ||
+		authorizer.requests[2].ScopeKey != "diagnosis-session-501" {
+		t.Fatalf("scoped room read request = %+v", authorizer.requests[2])
 	}
 }
 
@@ -259,7 +2571,7 @@ func TestListAlertSourceProfilesReturnsProfiles(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/alert-sources?limit=1", nil)
-	testHandler(factory).ServeHTTP(rec, req)
+	testConfigHandler(t, factory).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -307,7 +2619,7 @@ func TestCreateAlertSourceProfileSavesSanitizedProfile(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/alert-sources", strings.NewReader(body))
-	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusCreated {
 		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
@@ -348,7 +2660,7 @@ func TestReplaceAlertSourceProfileDisablesSource(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPut, "/api/v1/config/alert-sources/7", strings.NewReader(body))
-	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -391,7 +2703,7 @@ func TestAlertSourceProfileConnectionTestReturnsSanitizedResult(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/alert-sources/1/test", nil)
-	testHandler(&fakeUOWFactory{configRepo: repo}, WithAlertSourceConnectionTester(tester)).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}, WithAlertSourceConnectionTester(tester)).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -445,7 +2757,7 @@ func TestAlertSourceProfileConnectionTestRejectsUnconfiguredAndMissingProfiles(t
 			}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, path, nil)
-			testHandler(&fakeUOWFactory{configRepo: tc.repo}, tc.opts...).ServeHTTP(rec, req)
+			testConfigHandler(t, &fakeUOWFactory{configRepo: tc.repo}, tc.opts...).ServeHTTP(rec, req)
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
 			}
@@ -505,7 +2817,7 @@ func TestAlertSourceProfileWriteRejectsInvalidInputs(t *testing.T) {
 			repo := &fakeConfigRepo{saveErr: tc.repoErr, updateErr: tc.repoErr}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, strings.NewReader(tc.body))
-			testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+			testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
 
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
@@ -535,7 +2847,7 @@ func TestListGroupingPoliciesReturnsPolicies(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/grouping-policies?limit=1", nil)
-	testHandler(factory).ServeHTTP(rec, req)
+	testConfigHandler(t, factory).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -575,7 +2887,7 @@ func TestCreateGroupingPolicySavesNormalizedPolicy(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/grouping-policies", strings.NewReader(body))
-	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusCreated {
 		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
@@ -617,7 +2929,7 @@ func TestReplaceGroupingPolicyDisablesPolicy(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPut, "/api/v1/config/grouping-policies/7", strings.NewReader(body))
-	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -668,7 +2980,7 @@ func TestPreviewGroupingPolicyReturnsBoundedGroups(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/grouping-policies/1/preview?limit=3", nil)
-	testHandler(&fakeUOWFactory{configRepo: repo, alertRepo: alerts}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo, alertRepo: alerts}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -757,7 +3069,7 @@ func TestGroupingPolicyWriteAndPreviewRejectInvalidInputs(t *testing.T) {
 				body = strings.NewReader(tc.body)
 			}
 			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, body)
-			testHandler(&fakeUOWFactory{configRepo: repo, alertRepo: &fakeAlertRepo{}}).ServeHTTP(rec, req)
+			testConfigHandler(t, &fakeUOWFactory{configRepo: repo, alertRepo: &fakeAlertRepo{}}).ServeHTTP(rec, req)
 
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
@@ -769,6 +3081,7 @@ func TestGroupingPolicyWriteAndPreviewRejectInvalidInputs(t *testing.T) {
 func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 	finalCreatedAt := time.Date(2026, 5, 27, 10, 5, 0, 0, time.UTC)
 	subCreatedAt := finalCreatedAt.Add(-time.Minute)
+	deliveredAt := finalCreatedAt.Add(10 * time.Second)
 	factory := &fakeUOWFactory{
 		reportRepo: &fakeReportRepo{
 			finalReports: []domain.FinalReport{
@@ -810,11 +3123,51 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 					},
 				},
 			},
+			deliveriesByReport: map[domain.FinalReportID][]domain.ReportNotificationDelivery{
+				11: {
+					{
+						ID:                31,
+						FinalReportID:     11,
+						IdempotencyKey:    "final_report:11/notification/handoff",
+						ProviderMessageID: "msg-31",
+						ProviderStatus:    "accepted",
+						Status:            domain.ReportNotificationDeliveryStatusDelivered,
+						Raw:               json.RawMessage(`{"provider":"webhook","secret":"redacted"}`),
+						DeliveredAt:       &deliveredAt,
+						CreatedAt:         finalCreatedAt,
+						UpdatedAt:         deliveredAt,
+					},
+				},
+			},
 		},
 		diagnosisRepo: &fakeDiagnosisRepo{
 			tasksBySnapshot: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{
 				7: {
 					{
+						ID:                 31,
+						EvidenceSnapshotID: 7,
+						WorkflowID:         "diagnosis-room-31",
+						RunID:              "run-31",
+						Status:             domain.DiagnosisStatusSucceeded,
+						CreatedAt:          finalCreatedAt.Add(2 * time.Minute),
+					},
+				},
+			},
+			chatSessions: []domain.ChatSessionWithTask{
+				{
+					Session: domain.ChatSession{
+						ID:              51,
+						DiagnosisTaskID: 31,
+						SessionKey:      "diagnosis-session-31",
+						OwnerSubject:    "owner-1",
+						Status:          domain.ChatSessionStatusOpen,
+						TurnCount:       2,
+						StartedAt:       finalCreatedAt.Add(time.Minute),
+						LastActivityAt:  finalCreatedAt.Add(3*time.Minute + time.Second),
+						CreatedAt:       finalCreatedAt.Add(time.Minute),
+						UpdatedAt:       finalCreatedAt.Add(3*time.Minute + time.Second),
+					},
+					Task: domain.DiagnosisTask{
 						ID:                 31,
 						EvidenceSnapshotID: 7,
 						WorkflowID:         "diagnosis-room-31",
@@ -876,6 +3229,7 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 									"tool":"metric_range_query",
 									"reason":"Need checkout deployment timing.",
 									"query":"histogram_quantile(0.95, rate(checkout_request_duration_seconds_bucket[5m]))",
+									"alert_source_profile_id":7,
 									"window_seconds":1800,
 									"step_seconds":60,
 									"limit":5
@@ -897,6 +3251,45 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 							}`),
 							OccurredAt: finalCreatedAt.Add(2 * time.Minute),
 							RecordedAt: finalCreatedAt.Add(2*time.Minute + time.Second),
+						},
+					},
+					diagnosisConclusionEventEvidenceCollected: {
+						{
+							ID:     45,
+							TaskID: 31,
+							Kind:   diagnosisConclusionEventEvidenceCollected,
+							Payload: json.RawMessage(`{
+									"kind":"diagnosis_room.evidence_collected",
+									"session_id":"diagnosis-session-31",
+									"chat_session_id":51,
+									"diagnosis_task_id":31,
+									"user_message_id":"msg-1/user",
+									"assistant_message_id":"msg-1/assistant",
+									"user_turn_id":60,
+									"assistant_turn_id":61,
+									"user_sequence":1,
+									"assistant_sequence":2,
+									"turn_count":1,
+									"context_refs":["chat_session:51/turn:60","chat_session:51/turn:61"],
+									"evidence_collection_results":[{
+										"tool":"metric_range_query",
+										"status":"collected",
+										"reason_code":"ok",
+										"message":"Metric range collection succeeded.",
+										"request_reason":"Need checkout deployment timing.",
+										"query":"histogram_quantile(0.95, rate(checkout_request_duration_seconds_bucket[5m]))",
+										"template_id":88,
+										"alert_source_profile_id":7,
+										"alert_source_kind":"prometheus",
+										"window_seconds":1800,
+										"step_seconds":60,
+										"limit":5,
+										"observed_metric_series":2,
+										"collected_at":"2026-05-27T10:08:30Z"
+									}]
+								}`),
+							OccurredAt: finalCreatedAt.Add(2*time.Minute + 30*time.Second),
+							RecordedAt: finalCreatedAt.Add(2*time.Minute + 31*time.Second),
 						},
 					},
 					diagnosisConclusionEventFinalReady: {
@@ -932,6 +3325,30 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 							RecordedAt: finalCreatedAt.Add(3*time.Minute + time.Second),
 						},
 					},
+					diagnosisConclusionEventFinalReadyNotification: {
+						{
+							ID:     46,
+							TaskID: 31,
+							Kind:   diagnosisConclusionEventFinalReadyNotification,
+							Payload: json.RawMessage(`{
+								"kind":"diagnosis_room.final_ready_notification_sent",
+								"session_id":"diagnosis-session-31",
+								"chat_session_id":51,
+								"diagnosis_task_id":31,
+								"assistant_message_id":"msg-1/assistant",
+								"assistant_turn_id":61,
+								"assistant_sequence":2,
+								"turn_count":2,
+								"notification_channel_profile_id":2,
+								"provider_message_id":"wecom-final-ready-31",
+								"provider_status":"delivered",
+								"confidence":"high",
+								"requires_human_review":true
+							}`),
+							OccurredAt: finalCreatedAt.Add(3*time.Minute + 2*time.Second),
+							RecordedAt: finalCreatedAt.Add(3*time.Minute + 3*time.Second),
+						},
+					},
 					diagnosisConclusionEventSupplementalEvidence: {
 						{
 							ID:     42,
@@ -946,6 +3363,8 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 								"assistant_message_id":"msg-1/assistant",
 								"user_turn_id":60,
 								"assistant_turn_id":61,
+								"user_sequence":1,
+								"assistant_sequence":2,
 								"context_refs":["chat_session:51/turn:60","chat_session:51/turn:61"],
 								"supplemental_evidence":{
 									"label":"Deployment window",
@@ -967,13 +3386,16 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/reports/11", nil)
-	testHandler(factory).ServeHTTP(rec, req)
+	testOperationsReadHandler(t, factory).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
 	if factory.reportRepo.lastSubReportsLimit != maxListLimit {
 		t.Fatalf("linked subreport limit = %d, want %d", factory.reportRepo.lastSubReportsLimit, maxListLimit)
+	}
+	if factory.reportRepo.lastDeliveryLimit != reportNotificationDeliveryLimit {
+		t.Fatalf("notification delivery limit = %d, want %d", factory.reportRepo.lastDeliveryLimit, reportNotificationDeliveryLimit)
 	}
 
 	var body api.FinalReportDetail
@@ -985,6 +3407,30 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 	}
 	if len(body.SubReports) != 1 || body.SubReports[0].Title != "Checkout API latency" {
 		t.Fatalf("unexpected embedded sub_reports: %+v", body.SubReports)
+	}
+	if len(body.NotificationDeliveries) != 1 {
+		t.Fatalf("len(notification_deliveries) = %d, want 1", len(body.NotificationDeliveries))
+	}
+	if body.FinalNotificationReadiness.Ready ||
+		body.FinalNotificationReadiness.NotificationPurpose != api.Handoff ||
+		body.FinalNotificationReadiness.Status != string(api.ReportFinalNotificationReadinessStatusBlocked) ||
+		!strings.Contains(body.FinalNotificationReadiness.Detail, "Checkout API latency has no operator-confirmed AI conclusion yet") {
+		t.Fatalf("final notification readiness = %+v, want blocked handoff readiness", body.FinalNotificationReadiness)
+	}
+	delivery := body.NotificationDeliveries[0]
+	if delivery.ID != 31 ||
+		delivery.IdempotencyKey != "final_report:11/notification/handoff" ||
+		delivery.NotificationPurpose != api.Handoff ||
+		delivery.Status != api.ReportNotificationDeliveryStatusDelivered ||
+		delivery.ProviderMessageID == nil ||
+		*delivery.ProviderMessageID != "msg-31" ||
+		delivery.ProviderStatus == nil ||
+		*delivery.ProviderStatus != "accepted" ||
+		delivery.DeliveredAt == nil ||
+		!delivery.DeliveredAt.Equal(deliveredAt) ||
+		!delivery.CreatedAt.Equal(finalCreatedAt) ||
+		!delivery.UpdatedAt.Equal(deliveredAt) {
+		t.Fatalf("unexpected notification delivery proof: %+v", delivery)
 	}
 	if len(body.LinkedSubReports) != 1 {
 		t.Fatalf("len(linked_sub_reports) = %d, want 1", len(body.LinkedSubReports))
@@ -1020,7 +3466,11 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 		len(conclusion.SupplementalEvidence[0].ContextRefs) != 2 ||
 		conclusion.SupplementalEvidence[0].ContextRefs[1] != "chat_session:51/turn:61" ||
 		conclusion.SupplementalEvidence[0].UserTurnID == nil ||
-		*conclusion.SupplementalEvidence[0].UserTurnID != 60 {
+		*conclusion.SupplementalEvidence[0].UserTurnID != 60 ||
+		conclusion.SupplementalEvidence[0].UserSequence == nil ||
+		*conclusion.SupplementalEvidence[0].UserSequence != 1 ||
+		conclusion.SupplementalEvidence[0].AssistantSequence == nil ||
+		*conclusion.SupplementalEvidence[0].AssistantSequence != 2 {
 		t.Fatalf("unexpected supplemental evidence: %+v", conclusion.SupplementalEvidence)
 	}
 	if len(conclusion.ConfidenceTimeline) != 2 ||
@@ -1032,6 +3482,8 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 		conclusion.ConfidenceTimeline[0].EvidenceRequests[0].Tool != "metric_range_query" ||
 		conclusion.ConfidenceTimeline[0].EvidenceRequests[0].Query == nil ||
 		*conclusion.ConfidenceTimeline[0].EvidenceRequests[0].Query != "histogram_quantile(0.95, rate(checkout_request_duration_seconds_bucket[5m]))" ||
+		conclusion.ConfidenceTimeline[0].EvidenceRequests[0].AlertSourceProfileID == nil ||
+		*conclusion.ConfidenceTimeline[0].EvidenceRequests[0].AlertSourceProfileID != 7 ||
 		conclusion.ConfidenceTimeline[0].EvidenceRequests[0].WindowSeconds == nil ||
 		*conclusion.ConfidenceTimeline[0].EvidenceRequests[0].WindowSeconds != 1800 ||
 		conclusion.ConfidenceTimeline[0].EvidenceRequests[0].StepSeconds == nil ||
@@ -1045,6 +3497,339 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 		*conclusion.ConfidenceTimeline[1].ConclusionStatus != "ready_for_review" ||
 		conclusion.ConfidenceTimeline[1].EvidenceRequestCount != 0 {
 		t.Fatalf("unexpected confidence timeline: %+v", conclusion.ConfidenceTimeline)
+	}
+	collectionResults := conclusion.ConfidenceTimeline[0].EvidenceCollectionResults
+	if len(collectionResults) != 1 ||
+		collectionResults[0].Tool != "metric_range_query" ||
+		collectionResults[0].Status != "collected" ||
+		collectionResults[0].ReasonCode == nil ||
+		*collectionResults[0].ReasonCode != "ok" ||
+		collectionResults[0].RequestReason == nil ||
+		*collectionResults[0].RequestReason != "Need checkout deployment timing." ||
+		collectionResults[0].ObservedMetricSeries == nil ||
+		*collectionResults[0].ObservedMetricSeries != 2 ||
+		collectionResults[0].AlertSourceKind == nil ||
+		*collectionResults[0].AlertSourceKind != "prometheus" {
+		t.Fatalf("unexpected evidence collection results: %+v", collectionResults)
+	}
+	progress := linked.DiagnosisProgress
+	if progress == nil {
+		t.Fatalf("diagnosis_progress is nil, want latest AI progress")
+	}
+	if progress.DiagnosisTaskID != 31 ||
+		progress.SessionID == nil ||
+		*progress.SessionID != "diagnosis-session-31" ||
+		progress.ChatSessionID == nil ||
+		*progress.ChatSessionID != 51 ||
+		progress.EventKind != diagnosisConclusionEventTurnPersisted ||
+		progress.Status != string(api.DiagnosisRoomProgressSummaryStatusInProgress) ||
+		progress.EvidenceSnapshotID != 7 ||
+		progress.Confidence != api.ReportConfidenceHigh ||
+		progress.RequiresHumanReview ||
+		progress.ConclusionStatus == nil ||
+		*progress.ConclusionStatus != "ready_for_review" ||
+		progress.ConfidenceRationale == nil ||
+		*progress.ConfidenceRationale != "Deployment evidence explains the latency onset." ||
+		progress.EvidenceRequestCount != 0 ||
+		len(progress.ConfidenceTimeline) != 2 ||
+		len(progress.SupplementalEvidence) != 1 {
+		t.Fatalf("unexpected diagnosis progress: %+v", progress)
+	}
+	if progress.SupplementalEvidence[0].AssistantSequence == nil ||
+		*progress.SupplementalEvidence[0].AssistantSequence != 2 {
+		t.Fatalf("progress supplemental evidence sequence = %+v, want assistant sequence 2", progress.SupplementalEvidence)
+	}
+	if len(progress.ConfidenceTimeline[0].EvidenceCollectionResults) != 1 ||
+		progress.ConfidenceTimeline[0].EvidenceCollectionResults[0].Tool != "metric_range_query" {
+		t.Fatalf("unexpected progress confidence timeline: %+v", progress.ConfidenceTimeline)
+	}
+	if len(progress.ConfidenceTimeline[0].EvidenceRequests) != 1 ||
+		progress.ConfidenceTimeline[0].EvidenceRequests[0].AlertSourceProfileID == nil ||
+		*progress.ConfidenceTimeline[0].EvidenceRequests[0].AlertSourceProfileID != 7 {
+		t.Fatalf("unexpected progress evidence requests: %+v", progress.ConfidenceTimeline[0].EvidenceRequests)
+	}
+	room := linked.DiagnosisRoom
+	if room == nil {
+		t.Fatalf("diagnosis_room is nil, want exact room proof")
+	}
+	if room.SessionID != "diagnosis-session-31" ||
+		room.ChatSessionID != 51 ||
+		room.DiagnosisTaskID != 31 ||
+		room.EvidenceSnapshotID != 7 ||
+		room.WorkflowID != "diagnosis-room-31" ||
+		room.RunID != "run-31" ||
+		room.TurnCount != 2 {
+		t.Fatalf("unexpected diagnosis room proof: %+v", room)
+	}
+	if len(room.NotificationTimeline) != 1 ||
+		room.NotificationTimeline[0].EventKind != diagnosisConclusionEventFinalReadyNotification ||
+		room.NotificationTimeline[0].ProviderMessageID == nil ||
+		*room.NotificationTimeline[0].ProviderMessageID != "wecom-final-ready-31" ||
+		room.NotificationTimeline[0].NotificationChannelProfileID == nil ||
+		*room.NotificationTimeline[0].NotificationChannelProfileID != 2 {
+		t.Fatalf("unexpected diagnosis room notification timeline: %+v", room.NotificationTimeline)
+	}
+	if factory.diagnosisRepo.lastChatSessionKey != "diagnosis-session-31" {
+		t.Fatalf("last chat session key = %q, want diagnosis-session-31", factory.diagnosisRepo.lastChatSessionKey)
+	}
+}
+
+func TestGetReport_LinksDiagnosisRoomForNewestDiagnosisState(t *testing.T) {
+	createdAt := time.Date(2026, 6, 21, 9, 0, 0, 0, time.UTC)
+	oldRoomStartedAt := createdAt.Add(time.Minute)
+	newRoomStartedAt := createdAt.Add(6 * time.Minute)
+	factory := &fakeUOWFactory{
+		reportRepo: &fakeReportRepo{
+			finalReports: []domain.FinalReport{
+				{
+					ID:                 13,
+					CorrelationKey:     "window:checkout-followup",
+					Title:              "Checkout follow-up",
+					ExecutiveSummary:   "Checkout diagnosis needs additional evidence.",
+					Severity:           domain.ReportSeverityWarning,
+					Confidence:         domain.ReportConfidenceMedium,
+					SubReports:         json.RawMessage(`[{"title":"Checkout follow-up","severity":"warning","summary":"The incident still needs evidence."}]`),
+					RecommendedActions: json.RawMessage(`[{"label":"Collect evidence","detail":"Collect the missing deployment data.","priority":"high"}]`),
+					NotificationText:   "Checkout follow-up needs evidence.",
+					Content:            json.RawMessage(`{"title":"Checkout follow-up"}`),
+					Model:              "gpt-4.1-mini",
+					OutputMode:         "json_schema",
+					CreatedByWorkflow:  "FinalReportWorkflow",
+					CreatedAt:          createdAt,
+				},
+			},
+			linkedSubReports: map[domain.FinalReportID][]domain.SubReport{
+				13: {
+					{
+						ID:                 23,
+						EvidenceSnapshotID: 9,
+						Scenario:           "single_alert",
+						Title:              "Checkout follow-up",
+						Summary:            "The incident still needs evidence.",
+						Severity:           domain.ReportSeverityWarning,
+						Confidence:         domain.ReportConfidenceMedium,
+						Findings:           json.RawMessage(`[{"label":"Latency warning","detail":"Latency remained above threshold.","evidence_id":"alert:checkout-followup"}]`),
+						RecommendedActions: json.RawMessage(`[{"label":"Collect evidence","detail":"Collect the missing deployment data.","priority":"high"}]`),
+						EvidenceRefs:       []string{"alert:checkout-followup"},
+						Content:            json.RawMessage(`{"title":"Checkout follow-up"}`),
+						Model:              "gpt-4.1-mini",
+						OutputMode:         "json_schema",
+						CreatedByWorkflow:  "ReportFanOutWorkflow",
+						CreatedAt:          createdAt.Add(-time.Minute),
+					},
+				},
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			tasksBySnapshot: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{
+				9: {
+					{
+						ID:                 41,
+						EvidenceSnapshotID: 9,
+						WorkflowID:         "diagnosis-room-old",
+						RunID:              "run-old",
+						Status:             domain.DiagnosisStatusSucceeded,
+						StartedAt:          &oldRoomStartedAt,
+						CreatedAt:          oldRoomStartedAt,
+						UpdatedAt:          createdAt.Add(3*time.Minute + time.Second),
+					},
+					{
+						ID:                 42,
+						EvidenceSnapshotID: 9,
+						WorkflowID:         "diagnosis-room-new",
+						RunID:              "run-new",
+						Status:             domain.DiagnosisStatusRunning,
+						StartedAt:          &newRoomStartedAt,
+						CreatedAt:          newRoomStartedAt,
+						UpdatedAt:          createdAt.Add(8*time.Minute + time.Second),
+					},
+				},
+			},
+			chatSessions: []domain.ChatSessionWithTask{
+				{
+					Session: domain.ChatSession{
+						ID:              61,
+						DiagnosisTaskID: 41,
+						SessionKey:      "diagnosis-session-old",
+						OwnerSubject:    "owner-1",
+						Status:          domain.ChatSessionStatusClosed,
+						TurnCount:       1,
+						StartedAt:       oldRoomStartedAt,
+						LastActivityAt:  createdAt.Add(3*time.Minute + time.Second),
+						CreatedAt:       oldRoomStartedAt,
+						UpdatedAt:       createdAt.Add(3*time.Minute + time.Second),
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 41,
+						EvidenceSnapshotID: 9,
+						WorkflowID:         "diagnosis-room-old",
+						RunID:              "run-old",
+						Status:             domain.DiagnosisStatusSucceeded,
+						StartedAt:          &oldRoomStartedAt,
+						CreatedAt:          oldRoomStartedAt,
+						UpdatedAt:          createdAt.Add(3*time.Minute + time.Second),
+					},
+				},
+				{
+					Session: domain.ChatSession{
+						ID:              62,
+						DiagnosisTaskID: 42,
+						SessionKey:      "diagnosis-session-new",
+						OwnerSubject:    "owner-1",
+						Status:          domain.ChatSessionStatusOpen,
+						TurnCount:       2,
+						StartedAt:       newRoomStartedAt,
+						LastActivityAt:  createdAt.Add(8*time.Minute + time.Second),
+						CreatedAt:       newRoomStartedAt,
+						UpdatedAt:       createdAt.Add(8*time.Minute + time.Second),
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 42,
+						EvidenceSnapshotID: 9,
+						WorkflowID:         "diagnosis-room-new",
+						RunID:              "run-new",
+						Status:             domain.DiagnosisStatusRunning,
+						StartedAt:          &newRoomStartedAt,
+						CreatedAt:          newRoomStartedAt,
+						UpdatedAt:          createdAt.Add(8*time.Minute + time.Second),
+					},
+				},
+			},
+			eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+				41: {
+					diagnosisConclusionEventFinalReady: {
+						{
+							ID:     51,
+							TaskID: 41,
+							Kind:   diagnosisConclusionEventFinalReady,
+							Payload: json.RawMessage(`{
+								"kind":"diagnosis_room.final_conclusion_ready",
+								"session_id":"diagnosis-session-old",
+								"chat_session_id":61,
+								"diagnosis_task_id":41,
+								"owner_subject":"owner-1",
+								"turn_count":1,
+								"final_conclusion":{
+									"status":"available",
+									"source":"latest_assistant_turn",
+									"reason":"assistant_marked_final",
+									"evidence_snapshot_id":9,
+									"conclusion_version":"diagnosis-room-old.v1",
+									"assistant_turn_id":71,
+									"assistant_message_id":"old-assistant-message",
+									"assistant_sequence":2,
+									"assistant_occurred_at":"2026-06-21T09:03:00Z",
+									"content":"Initial checkout diagnosis was ready before follow-up evidence was requested.",
+									"confidence":"medium",
+									"requires_human_review":false
+								},
+								"conclusion_version":"diagnosis-room-old.v1"
+							}`),
+							OccurredAt: createdAt.Add(3 * time.Minute),
+							RecordedAt: createdAt.Add(3*time.Minute + time.Second),
+						},
+					},
+				},
+				42: {
+					diagnosisConclusionEventTurnPersisted: {
+						{
+							ID:     52,
+							TaskID: 42,
+							Kind:   diagnosisConclusionEventTurnPersisted,
+							Payload: json.RawMessage(`{
+								"kind":"diagnosis_room.turn_persisted",
+								"session_id":"diagnosis-session-new",
+								"chat_session_id":62,
+								"diagnosis_task_id":42,
+								"assistant_message_id":"new-assistant-message",
+								"assistant_turn_id":73,
+								"assistant_sequence":4,
+								"turn_count":2,
+								"confidence":"high",
+								"requires_human_review":true,
+								"evidence_requests":[{
+									"tool":"metric_range_query",
+									"reason":"Need the deployment window for the follow-up diagnosis.",
+									"query":"sum(rate(checkout_requests_total[5m]))",
+									"alert_source_profile_id":7,
+									"window_seconds":1800,
+									"step_seconds":60,
+									"limit":5
+								}],
+								"consultation_insight":{
+									"confidence_rationale":"The follow-up turn supersedes the earlier final-ready event.",
+									"conclusion_status":"needs_evidence"
+								}
+							}`),
+							OccurredAt: createdAt.Add(8 * time.Minute),
+							RecordedAt: createdAt.Add(8*time.Minute + time.Second),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/reports/13", nil)
+	testOperationsReadHandler(t, factory).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body api.FinalReportDetail
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.LinkedSubReports) != 1 {
+		t.Fatalf("len(linked_sub_reports) = %d, want 1", len(body.LinkedSubReports))
+	}
+	linked := body.LinkedSubReports[0]
+	if linked.DiagnosisConclusion == nil || linked.DiagnosisConclusion.SessionID != "diagnosis-session-old" {
+		t.Fatalf("diagnosis_conclusion = %+v, want old conclusion", linked.DiagnosisConclusion)
+	}
+	progress := linked.DiagnosisProgress
+	if progress == nil {
+		t.Fatal("diagnosis_progress is nil, want newest progress")
+	}
+	if progress.DiagnosisTaskID != 42 ||
+		progress.SessionID == nil ||
+		*progress.SessionID != "diagnosis-session-new" ||
+		progress.ChatSessionID == nil ||
+		*progress.ChatSessionID != 62 ||
+		progress.EventKind != diagnosisConclusionEventTurnPersisted ||
+		progress.Status != string(api.DiagnosisRoomProgressSummaryStatusInProgress) ||
+		progress.Confidence != api.ReportConfidenceHigh ||
+		!progress.RequiresHumanReview ||
+		len(progress.EvidenceRequests) != 1 ||
+		progress.EvidenceRequests[0].AlertSourceProfileID == nil ||
+		*progress.EvidenceRequests[0].AlertSourceProfileID != 7 {
+		t.Fatalf("unexpected newest diagnosis progress: %+v", progress)
+	}
+	room := linked.DiagnosisRoom
+	if room == nil {
+		t.Fatal("diagnosis_room is nil, want newest state room")
+	}
+	if room.SessionID != "diagnosis-session-new" ||
+		room.ChatSessionID != 62 ||
+		room.DiagnosisTaskID != 42 ||
+		room.EvidenceSnapshotID != 9 ||
+		room.WorkflowID != "diagnosis-room-new" ||
+		room.RunID != "run-new" ||
+		room.TurnCount != 2 {
+		t.Fatalf("unexpected diagnosis room proof: %+v", room)
+	}
+	if room.LatestProgress == nil ||
+		room.LatestProgress.SessionID == nil ||
+		*room.LatestProgress.SessionID != "diagnosis-session-new" {
+		t.Fatalf("latest room progress = %+v, want new room progress", room.LatestProgress)
+	}
+	if room.LatestConclusion != nil {
+		t.Fatalf("latest room conclusion = %+v, want nil for new running room", room.LatestConclusion)
+	}
+	if factory.diagnosisRepo.lastChatSessionKey != "diagnosis-session-new" {
+		t.Fatalf("last chat session key = %q, want diagnosis-session-new", factory.diagnosisRepo.lastChatSessionKey)
 	}
 }
 
@@ -1078,7 +3863,29 @@ func TestDiagnosisConclusionFromEventProjectsProvenance(t *testing.T) {
 				"assistant_occurred_at":"2026-05-27T10:08:00Z",
 				"content":"Checkout latency remains correlated with the deployment.",
 				"confidence":"high",
-				"requires_human_review":true
+				"requires_human_review":true,
+				"confidence_rationale":"Deployment timing and active alerts point to checkout.",
+				"findings":["Deployment overlaps the alert onset."],
+				"recommended_actions":["Roll back the checkout deployment."],
+				"evidence_requests":[{
+					"tool":"metric_range_query",
+					"reason":"Confirm checkout p95 remained elevated.",
+					"query":"histogram_quantile(0.95, rate(checkout_request_duration_seconds_bucket[5m]))",
+					"alert_source_profile_id":7,
+					"window_seconds":1800,
+					"step_seconds":60,
+					"limit":5
+				}],
+				"missing_evidence_requests":[{
+					"label":"Owner sign-off",
+					"detail":"Confirm the rollback window with the service owner.",
+					"priority":"medium"
+				}],
+				"evidence_collection_suggestions":[{
+					"label":"Post-rollback latency",
+					"detail":"Collect p95 latency after rollback starts.",
+					"priority":"medium"
+				}]
 			},
 			"conclusion_version":"diagnosis-room-close.v1"
 		}`),
@@ -1100,8 +3907,350 @@ func TestDiagnosisConclusionFromEventProjectsProvenance(t *testing.T) {
 		len(conclusion.SupplementalContextRefs) != 2 ||
 		conclusion.SupplementalContextRefs[1] != "chat_session:51/turn:61" ||
 		conclusion.AssistantOccurredAt == nil ||
-		!conclusion.AssistantOccurredAt.Equal(occurredAt) {
+		!conclusion.AssistantOccurredAt.Equal(occurredAt) ||
+		conclusion.ConfidenceRationale == nil ||
+		*conclusion.ConfidenceRationale != "Deployment timing and active alerts point to checkout." ||
+		len(conclusion.Findings) != 1 ||
+		conclusion.Findings[0] != "Deployment overlaps the alert onset." ||
+		len(conclusion.RecommendedActions) != 1 ||
+		conclusion.RecommendedActions[0] != "Roll back the checkout deployment." ||
+		len(conclusion.EvidenceRequests) != 1 ||
+		conclusion.EvidenceRequests[0].Tool != "metric_range_query" ||
+		conclusion.EvidenceRequests[0].AlertSourceProfileID == nil ||
+		*conclusion.EvidenceRequests[0].AlertSourceProfileID != 7 ||
+		len(conclusion.MissingEvidenceRequests) != 1 ||
+		conclusion.MissingEvidenceRequests[0].Label != "Owner sign-off" ||
+		len(conclusion.EvidenceCollectionSuggestions) != 1 ||
+		conclusion.EvidenceCollectionSuggestions[0].Label != "Post-rollback latency" {
 		t.Fatalf("conclusion provenance = %+v", conclusion)
+	}
+}
+
+func TestEvidenceCollectionResultsFromDiagnosisEventIndexesManualCollectionByTurnCount(t *testing.T) {
+	occurredAt := time.Date(2026, 6, 21, 9, 12, 0, 0, time.UTC)
+	event := domain.DiagnosisTaskEvent{
+		ID:         domain.DiagnosisTaskEventID(71),
+		TaskID:     domain.DiagnosisTaskID(41),
+		Kind:       diagnosisConclusionEventEvidenceCollected,
+		OccurredAt: occurredAt,
+		RecordedAt: occurredAt.Add(time.Second),
+		Payload: json.RawMessage(`{
+			"kind":"diagnosis_room.evidence_collected",
+			"session_id":"diagnosis-session-41",
+			"chat_session_id":61,
+			"diagnosis_task_id":41,
+			"owner_subject":"owner-1",
+			"actor_subject":"owner-1",
+			"user_message_id":"collect-manual-1",
+			"turn_count":2,
+			"evidence_collection_results":[{
+				"tool":"metric_query",
+				"status":"collected",
+				"reason_code":"ok",
+				"message":"Metric query collection succeeded.",
+				"request_reason":"Need current API availability.",
+				"query":"up{job=\"api\"}",
+				"template_id":15,
+				"alert_source_profile_id":13,
+				"alert_source_kind":"prometheus",
+				"limit":3,
+				"observed_metric_series":1,
+				"collected_at":"2026-06-21T09:12:00Z"
+			}]
+		}`),
+	}
+
+	keys, results, ok, err := evidenceCollectionResultsFromDiagnosisEvent(event)
+	if err != nil {
+		t.Fatalf("evidenceCollectionResultsFromDiagnosisEvent: %v", err)
+	}
+	if !ok {
+		t.Fatal("evidenceCollectionResultsFromDiagnosisEvent ok = false, want true")
+	}
+	if len(keys) != 1 || keys[0] != "turn:2" {
+		t.Fatalf("keys = %+v, want turn:2 only", keys)
+	}
+	if len(results) != 1 ||
+		results[0].Tool != "metric_query" ||
+		results[0].Status != "collected" ||
+		results[0].ReasonCode == nil ||
+		*results[0].ReasonCode != "ok" ||
+		results[0].RequestReason == nil ||
+		*results[0].RequestReason != "Need current API availability." ||
+		results[0].Query == nil ||
+		*results[0].Query != `up{job="api"}` ||
+		results[0].TemplateID == nil ||
+		*results[0].TemplateID != 15 ||
+		results[0].AlertSourceProfileID == nil ||
+		*results[0].AlertSourceProfileID != 13 ||
+		results[0].AlertSourceKind == nil ||
+		*results[0].AlertSourceKind != "prometheus" ||
+		results[0].ObservedMetricSeries == nil ||
+		*results[0].ObservedMetricSeries != 1 ||
+		!results[0].CollectedAt.Equal(occurredAt) {
+		t.Fatalf("results = %+v", results)
+	}
+}
+
+func TestGetReport_ProjectsFailedDiagnosisProgress(t *testing.T) {
+	createdAt := time.Date(2026, 6, 19, 20, 2, 0, 0, time.UTC)
+	startedAt := createdAt.Add(time.Minute)
+	finishedAt := startedAt.Add(15 * time.Second)
+	failureReason := "initial turn failed: llm request timed out"
+	factory := &fakeUOWFactory{
+		reportRepo: &fakeReportRepo{
+			finalReports: []domain.FinalReport{
+				{
+					ID:                 12,
+					CorrelationKey:     "window:database-capacity",
+					Title:              "Database capacity warning",
+					ExecutiveSummary:   "Database capacity requires review.",
+					Severity:           domain.ReportSeverityWarning,
+					Confidence:         domain.ReportConfidenceMedium,
+					SubReports:         json.RawMessage(`[{"title":"Database capacity","severity":"warning","summary":"Capacity crossed warning threshold."}]`),
+					RecommendedActions: json.RawMessage(`[{"label":"Inspect capacity","detail":"Check current tablespace utilization.","priority":"high"}]`),
+					NotificationText:   "Database capacity warning requires review.",
+					Content:            json.RawMessage(`{"title":"Database capacity warning"}`),
+					Model:              "gpt-4.1-mini",
+					OutputMode:         "json_schema",
+					CreatedByWorkflow:  "FinalReportWorkflow",
+					CreatedAt:          createdAt,
+				},
+			},
+			linkedSubReports: map[domain.FinalReportID][]domain.SubReport{
+				12: {
+					{
+						ID:                 22,
+						EvidenceSnapshotID: 8,
+						Scenario:           "single_alert",
+						Title:              "Database capacity",
+						Summary:            "Capacity crossed warning threshold.",
+						Severity:           domain.ReportSeverityWarning,
+						Confidence:         domain.ReportConfidenceMedium,
+						Findings:           json.RawMessage(`[{"label":"High capacity","detail":"Capacity crossed warning threshold.","evidence_id":"alert:database-capacity"}]`),
+						RecommendedActions: json.RawMessage(`[{"label":"Inspect capacity","detail":"Check current tablespace utilization.","priority":"high"}]`),
+						EvidenceRefs:       []string{"alert:database-capacity"},
+						Content:            json.RawMessage(`{"title":"Database capacity"}`),
+						Model:              "gpt-4.1-mini",
+						OutputMode:         "json_schema",
+						CreatedByWorkflow:  "ReportFanOutWorkflow",
+						CreatedAt:          createdAt.Add(-time.Minute),
+					},
+				},
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			tasksBySnapshot: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{
+				8: {
+					{
+						ID:                 32,
+						EvidenceSnapshotID: 8,
+						WorkflowID:         "diagnosis-room-32",
+						RunID:              "run-32",
+						Status:             domain.DiagnosisStatusFailed,
+						FailureReason:      failureReason,
+						StartedAt:          &startedAt,
+						FinishedAt:         &finishedAt,
+						CreatedAt:          startedAt,
+						UpdatedAt:          finishedAt,
+					},
+				},
+			},
+			eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+				32: {
+					diagnosisConclusionEventFailed: {
+						{
+							ID:     45,
+							TaskID: 32,
+							Kind:   diagnosisConclusionEventFailed,
+							Payload: json.RawMessage(`{
+								"kind":"diagnosis_room.failed",
+								"session_id":"diagnosis-session-32",
+								"chat_session_id":52,
+								"diagnosis_task_id":32,
+								"evidence_snapshot_id":8,
+								"status":"failed",
+								"failure_reason":"initial turn failed: llm request timed out",
+								"close_reason":"initial_turn_failed",
+								"closed_at":"2026-06-19T20:03:15Z"
+							}`),
+							OccurredAt: finishedAt,
+							RecordedAt: finishedAt.Add(time.Second),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/reports/12", nil)
+	testOperationsReadHandler(t, factory).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+
+	var body api.FinalReportDetail
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.LinkedSubReports) != 1 {
+		t.Fatalf("len(linked_sub_reports) = %d, want 1", len(body.LinkedSubReports))
+	}
+	progress := body.LinkedSubReports[0].DiagnosisProgress
+	if progress == nil {
+		t.Fatal("diagnosis_progress is nil, want failed progress")
+	}
+	if progress.DiagnosisTaskID != 32 ||
+		progress.SessionID == nil ||
+		*progress.SessionID != "diagnosis-session-32" ||
+		progress.ChatSessionID == nil ||
+		*progress.ChatSessionID != 52 ||
+		progress.EventKind != diagnosisConclusionEventFailed ||
+		progress.Status != string(domain.DiagnosisStatusFailed) ||
+		progress.EvidenceSnapshotID != 8 ||
+		progress.Confidence != api.ReportConfidenceLow ||
+		!progress.RequiresHumanReview ||
+		progress.FailureReason == nil ||
+		*progress.FailureReason != failureReason ||
+		progress.EvidenceRequestCount != 0 ||
+		!progress.OccurredAt.Equal(finishedAt) ||
+		!progress.RecordedAt.Equal(finishedAt.Add(time.Second)) {
+		t.Fatalf("unexpected failed diagnosis progress: %+v", progress)
+	}
+}
+
+func TestGetReport_FiltersDiagnosisStateWithoutRoomRead(t *testing.T) {
+	createdAt := time.Date(2026, 6, 19, 20, 2, 0, 0, time.UTC)
+	startedAt := createdAt.Add(time.Minute)
+	finishedAt := startedAt.Add(15 * time.Second)
+	factory := &fakeUOWFactory{
+		reportRepo: &fakeReportRepo{
+			finalReports: []domain.FinalReport{
+				{
+					ID:                 14,
+					CorrelationKey:     "window:database-capacity",
+					Title:              "Database capacity warning",
+					ExecutiveSummary:   "Database capacity requires review.",
+					Severity:           domain.ReportSeverityWarning,
+					Confidence:         domain.ReportConfidenceMedium,
+					SubReports:         json.RawMessage(`[{"title":"Database capacity","severity":"warning","summary":"Capacity crossed warning threshold."}]`),
+					RecommendedActions: json.RawMessage(`[{"label":"Inspect capacity","detail":"Check current tablespace utilization.","priority":"high"}]`),
+					NotificationText:   "Database capacity warning requires review.",
+					Content:            json.RawMessage(`{"title":"Database capacity warning"}`),
+					Model:              "gpt-4.1-mini",
+					OutputMode:         "json_schema",
+					CreatedByWorkflow:  "FinalReportWorkflow",
+					CreatedAt:          createdAt,
+				},
+			},
+			linkedSubReports: map[domain.FinalReportID][]domain.SubReport{
+				14: {
+					{
+						ID:                 24,
+						EvidenceSnapshotID: 8,
+						Scenario:           "single_alert",
+						Title:              "Database capacity",
+						Summary:            "Capacity crossed warning threshold.",
+						Severity:           domain.ReportSeverityWarning,
+						Confidence:         domain.ReportConfidenceMedium,
+						Findings:           json.RawMessage(`[{"label":"High capacity","detail":"Capacity crossed warning threshold.","evidence_id":"alert:database-capacity"}]`),
+						RecommendedActions: json.RawMessage(`[{"label":"Inspect capacity","detail":"Check current tablespace utilization.","priority":"high"}]`),
+						EvidenceRefs:       []string{"alert:database-capacity"},
+						Content:            json.RawMessage(`{"title":"Database capacity"}`),
+						Model:              "gpt-4.1-mini",
+						OutputMode:         "json_schema",
+						CreatedByWorkflow:  "ReportFanOutWorkflow",
+						CreatedAt:          createdAt.Add(-time.Minute),
+					},
+				},
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			tasksBySnapshot: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{
+				8: {
+					{
+						ID:                 32,
+						EvidenceSnapshotID: 8,
+						WorkflowID:         "diagnosis-room-32",
+						RunID:              "run-32",
+						Status:             domain.DiagnosisStatusFailed,
+						StartedAt:          &startedAt,
+						FinishedAt:         &finishedAt,
+						CreatedAt:          startedAt,
+						UpdatedAt:          finishedAt,
+					},
+				},
+			},
+			eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+				32: {
+					diagnosisConclusionEventFailed: {
+						{
+							ID:     45,
+							TaskID: 32,
+							Kind:   diagnosisConclusionEventFailed,
+							Payload: json.RawMessage(`{
+								"kind":"diagnosis_room.failed",
+								"session_id":"diagnosis-session-32",
+								"chat_session_id":52,
+								"diagnosis_task_id":32,
+								"evidence_snapshot_id":8,
+								"status":"failed",
+								"failure_reason":"initial turn failed: llm request timed out",
+								"close_reason":"initial_turn_failed",
+								"closed_at":"2026-06-19T20:03:15Z"
+							}`),
+							OccurredAt: finishedAt,
+							RecordedAt: finishedAt.Add(time.Second),
+						},
+					},
+				},
+			},
+		},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			return rbacusecase.AuthorizeDecision{
+				Allowed:   req.Permission == domain.RBACPermissionOperationsRead,
+				CheckedAt: createdAt,
+			}, nil
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/reports/14", nil)
+	testOperationsReadHandlerWithAuthorizer(t, factory, authorizer).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.FinalReportDetail
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.ID != 14 || len(body.LinkedSubReports) != 1 {
+		t.Fatalf("report detail = %+v, want report with one linked subreport", body)
+	}
+	linked := body.LinkedSubReports[0]
+	if linked.DiagnosisConclusion != nil || linked.DiagnosisProgress != nil || linked.DiagnosisRoom != nil {
+		t.Fatalf("diagnosis state = conclusion=%+v progress=%+v room=%+v, want all filtered", linked.DiagnosisConclusion, linked.DiagnosisProgress, linked.DiagnosisRoom)
+	}
+	if len(authorizer.requests) != 3 {
+		t.Fatalf("authorizer requests = %+v, want operations, global room read, scoped room read", authorizer.requests)
+	}
+	if authorizer.requests[0].Permission != domain.RBACPermissionOperationsRead ||
+		authorizer.requests[0].ScopeKind != domain.RBACScopeKindGlobal {
+		t.Fatalf("operations read request = %+v", authorizer.requests[0])
+	}
+	if authorizer.requests[1].Permission != domain.RBACPermissionDiagnosisRoomRead ||
+		authorizer.requests[1].ScopeKind != domain.RBACScopeKindGlobal {
+		t.Fatalf("global room read request = %+v", authorizer.requests[1])
+	}
+	if authorizer.requests[2].Permission != domain.RBACPermissionDiagnosisRoomRead ||
+		authorizer.requests[2].ScopeKind != domain.RBACScopeKindDiagnosisRoom ||
+		authorizer.requests[2].ScopeKey != "diagnosis-session-32" {
+		t.Fatalf("scoped room read request = %+v", authorizer.requests[2])
 	}
 }
 
@@ -1112,7 +4261,7 @@ func TestGetReport_ReturnsNotFound(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/reports/999", nil)
-	testHandler(factory).ServeHTTP(rec, req)
+	testOperationsReadHandler(t, factory).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusNotFound {
 		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
@@ -1143,7 +4292,7 @@ func TestListReportWorkflowPoliciesReturnsPolicies(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/report-workflow-policies?limit=1", nil)
-	testHandler(factory).ServeHTTP(rec, req)
+	testConfigHandler(t, factory).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -1198,7 +4347,7 @@ func TestCreateReportWorkflowPolicyStoresDisabledDraft(t *testing.T) {
 	}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies", strings.NewReader(body))
-	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusCreated {
 		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
@@ -1241,7 +4390,7 @@ func TestEnableReportWorkflowPolicyRequiresReadyBindings(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/enable", nil)
-	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
@@ -1270,7 +4419,7 @@ func TestEnableAndDisableReportWorkflowPolicyToggleState(t *testing.T) {
 
 	enableRec := httptest.NewRecorder()
 	enableReq := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/enable", nil)
-	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(enableRec, enableReq)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(enableRec, enableReq)
 	if enableRec.Code != stdhttp.StatusOK {
 		t.Fatalf("enable status = %d, want 200; body=%s", enableRec.Code, enableRec.Body.String())
 	}
@@ -1284,7 +4433,7 @@ func TestEnableAndDisableReportWorkflowPolicyToggleState(t *testing.T) {
 
 	disableRec := httptest.NewRecorder()
 	disableReq := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/disable", nil)
-	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(disableRec, disableReq)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(disableRec, disableReq)
 	if disableRec.Code != stdhttp.StatusOK {
 		t.Fatalf("disable status = %d, want 200; body=%s", disableRec.Code, disableRec.Body.String())
 	}
@@ -1356,7 +4505,7 @@ func TestPreviewReportWorkflowPolicyImpactReturnsReadinessAndGroupingImpact(t *t
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/impact-preview?limit=2", nil)
-	testHandler(&fakeUOWFactory{configRepo: repo, alertRepo: alerts}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo, alertRepo: alerts}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -1380,7 +4529,9 @@ func TestPreviewReportWorkflowPolicyImpactReturnsReadinessAndGroupingImpact(t *t
 	}
 	if !body.ReportNotificationChannelBound ||
 		!body.ReportNotificationChannelEnabled ||
-		!body.ReportNotificationChannelHasReportScope {
+		!body.ReportNotificationChannelHasReportScope ||
+		body.ReportNotificationChannelHasDiagnosisConsultationScope ||
+		body.ReportNotificationChannelHasDiagnosisCloseScope {
 		t.Fatalf("channel readiness = %+v", body)
 	}
 	if body.EventsScanned != 2 || body.EventsMatched != 1 || body.GroupsEstimated != 1 || len(body.Groups) != 1 {
@@ -1388,6 +4539,279 @@ func TestPreviewReportWorkflowPolicyImpactReturnsReadinessAndGroupingImpact(t *t
 	}
 	if body.Groups[0].EventCount != 1 || body.Groups[0].Dimensions["alertname"] != "checkout" {
 		t.Fatalf("group = %+v", body.Groups[0])
+	}
+}
+
+func TestPreviewReportWorkflowPolicyDraftImpactReturnsReadinessWithoutPersisting(t *testing.T) {
+	base := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
+	repo := &fakeConfigRepo{
+		alertSourceProfiles: []domain.AlertSourceProfile{
+			{
+				ID:       1,
+				Kind:     domain.AlertSourceKindAlertmanager,
+				AuthMode: domain.AlertSourceAuthModeNone,
+				Enabled:  true,
+			},
+		},
+		groupingPolicies: []domain.GroupingPolicy{
+			{
+				ID:            2,
+				DimensionKeys: []string{"alertname"},
+				SeverityKey:   "severity",
+				SourceFilter:  []string{"alertmanager"},
+				Enabled:       true,
+			},
+		},
+		notificationChannelProfiles: []domain.NotificationChannelProfile{
+			{
+				ID:      3,
+				Kind:    domain.NotificationChannelKindWeCom,
+				Enabled: true,
+				DeliveryScopes: []domain.NotificationDeliveryScope{
+					domain.NotificationDeliveryScopeDiagnosisClose,
+					domain.NotificationDeliveryScopeDiagnosisConsultation,
+					domain.NotificationDeliveryScopeReport,
+				},
+				LatestTestProofs: impactPreviewNotificationProofs(3, domain.NotificationChannelKindWeCom, base),
+			},
+		},
+	}
+	alerts := &fakeAlertRepo{
+		events: []domain.AlertEvent{
+			{
+				ID:       101,
+				Source:   "alertmanager",
+				Labels:   map[string]string{"alertname": "checkout", "severity": "critical"},
+				StartsAt: base,
+			},
+			{
+				ID:       102,
+				Source:   "alertmanager",
+				Labels:   map[string]string{"alertname": "checkout", "severity": "warning"},
+				StartsAt: base.Add(time.Minute),
+			},
+		},
+	}
+	body := strings.NewReader(`{
+		"name": "Unsaved automatic diagnosis workflow",
+		"alert_source_profile_id": 1,
+		"grouping_policy_id": 2,
+		"report_notification_channel_profile_id": 3,
+		"trigger_mode": "manual_replay",
+		"report_scenario": "cascade",
+		"diagnosis_follow_up": "auto_room"
+	}`)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/impact-preview?limit=2", body)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo, alertRepo: alerts}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if alerts.lastLimit != 2 {
+		t.Fatalf("alert limit = %d, want 2", alerts.lastLimit)
+	}
+	if len(repo.reportWorkflowPolicies) != 0 || repo.savedReportWorkflowPolicy.Name != "" {
+		t.Fatalf("draft preview should not persist policy: policies=%d saved=%+v", len(repo.reportWorkflowPolicies), repo.savedReportWorkflowPolicy)
+	}
+	var got api.ReportWorkflowPolicyImpactPreviewResult
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if got.PolicyID != 0 ||
+		got.Status != api.ReportWorkflowPolicyImpactPreviewStatusReady ||
+		len(got.ReasonCodes) != 1 ||
+		got.ReasonCodes[0] != api.ReportWorkflowPolicyImpactPreviewReasonCodeOk {
+		t.Fatalf("readiness = %+v", got)
+	}
+	if got.ReportScenario != api.ReportWorkflowScenarioCascade ||
+		got.DiagnosisFollowUp != api.DiagnosisFollowUpModeAutoRoom {
+		t.Fatalf("scenario/followup = %s/%s", got.ReportScenario, got.DiagnosisFollowUp)
+	}
+	if got.EventsScanned != 2 || got.EventsMatched != 2 || got.GroupsEstimated != 1 || len(got.Groups) != 1 {
+		t.Fatalf("impact counts = %+v", got)
+	}
+	if !got.ReportNotificationChannelHasReportScope ||
+		!got.ReportNotificationChannelHasDiagnosisConsultationScope ||
+		!got.ReportNotificationChannelHasDiagnosisCloseScope {
+		t.Fatalf("notification scopes = %+v", got)
+	}
+}
+
+func TestPreviewReportWorkflowPolicyImpactRequiresDiagnosisCloseScopeForAutoRoom(t *testing.T) {
+	base := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
+	repo := &fakeConfigRepo{
+		alertSourceProfiles: []domain.AlertSourceProfile{
+			{ID: 1, Kind: domain.AlertSourceKindAlertmanager, AuthMode: domain.AlertSourceAuthModeBearer, Enabled: true},
+		},
+		groupingPolicies: []domain.GroupingPolicy{
+			{ID: 2, DimensionKeys: []string{"alertname"}, SeverityKey: "severity", SourceFilter: []string{"prometheus"}, Enabled: true},
+		},
+		notificationChannelProfiles: []domain.NotificationChannelProfile{
+			{
+				ID:             3,
+				Kind:           domain.NotificationChannelKindWeCom,
+				Enabled:        true,
+				DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeReport},
+			},
+		},
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{
+			{
+				ID:                                 7,
+				Name:                               "Auto-room report workflow",
+				AlertSourceProfileID:               1,
+				GroupingPolicyID:                   2,
+				ReportNotificationChannelProfileID: 3,
+				TriggerMode:                        domain.ReportWorkflowTriggerModeManualReplay,
+				ReportScenario:                     domain.ReportWorkflowScenarioSingleAlert,
+				DiagnosisFollowUp:                  domain.DiagnosisFollowUpModeAutoRoom,
+			},
+		},
+	}
+	alerts := &fakeAlertRepo{events: []domain.AlertEvent{
+		{
+			ID:       101,
+			Source:   "prometheus",
+			Labels:   map[string]string{"alertname": "checkout", "severity": "critical"},
+			StartsAt: base,
+		},
+	}}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/impact-preview", nil)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo, alertRepo: alerts}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.ReportWorkflowPolicyImpactPreviewResult
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Status != api.ReportWorkflowPolicyImpactPreviewStatusBlocked ||
+		len(body.ReasonCodes) != 2 ||
+		body.ReasonCodes[0] != api.ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissingDiagnosisConsultationScope ||
+		body.ReasonCodes[1] != api.ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissingDiagnosisCloseScope {
+		t.Fatalf("readiness = %+v", body)
+	}
+	if !body.ReportNotificationChannelHasReportScope ||
+		body.ReportNotificationChannelHasDiagnosisConsultationScope ||
+		body.ReportNotificationChannelHasDiagnosisCloseScope {
+		t.Fatalf("channel scopes = %+v", body)
+	}
+}
+
+func TestPreviewReportWorkflowPolicyImpactRequiresNotificationChannelForAutoRoom(t *testing.T) {
+	base := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
+	repo := &fakeConfigRepo{
+		alertSourceProfiles: []domain.AlertSourceProfile{
+			{ID: 1, Kind: domain.AlertSourceKindAlertmanager, AuthMode: domain.AlertSourceAuthModeBearer, Enabled: true},
+		},
+		groupingPolicies: []domain.GroupingPolicy{
+			{ID: 2, DimensionKeys: []string{"alertname"}, SeverityKey: "severity", SourceFilter: []string{"prometheus"}, Enabled: true},
+		},
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{
+			{
+				ID:                   7,
+				Name:                 "Auto-room report workflow",
+				AlertSourceProfileID: 1,
+				GroupingPolicyID:     2,
+				TriggerMode:          domain.ReportWorkflowTriggerModeManualReplay,
+				ReportScenario:       domain.ReportWorkflowScenarioSingleAlert,
+				DiagnosisFollowUp:    domain.DiagnosisFollowUpModeAutoRoom,
+			},
+		},
+	}
+	alerts := &fakeAlertRepo{events: []domain.AlertEvent{
+		{
+			ID:       101,
+			Source:   "prometheus",
+			Labels:   map[string]string{"alertname": "checkout", "severity": "critical"},
+			StartsAt: base,
+		},
+	}}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/impact-preview", nil)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo, alertRepo: alerts}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.ReportWorkflowPolicyImpactPreviewResult
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Status != api.ReportWorkflowPolicyImpactPreviewStatusBlocked ||
+		len(body.ReasonCodes) != 1 ||
+		body.ReasonCodes[0] != api.ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissing {
+		t.Fatalf("readiness = %+v", body)
+	}
+	if body.ReportNotificationChannelBound {
+		t.Fatalf("channel bound = true, want false")
+	}
+}
+
+func TestPreviewReportWorkflowPolicyImpactRequiresAlertmanagerSourceForAutoRoom(t *testing.T) {
+	base := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
+	repo := &fakeConfigRepo{
+		alertSourceProfiles: []domain.AlertSourceProfile{
+			{ID: 1, Kind: domain.AlertSourceKindPrometheus, AuthMode: domain.AlertSourceAuthModeBearer, Enabled: true},
+		},
+		groupingPolicies: []domain.GroupingPolicy{
+			{ID: 2, DimensionKeys: []string{"alertname"}, SeverityKey: "severity", SourceFilter: []string{"prometheus"}, Enabled: true},
+		},
+		notificationChannelProfiles: []domain.NotificationChannelProfile{
+			{
+				ID:      3,
+				Kind:    domain.NotificationChannelKindWeCom,
+				Enabled: true,
+				DeliveryScopes: []domain.NotificationDeliveryScope{
+					domain.NotificationDeliveryScopeDiagnosisClose,
+					domain.NotificationDeliveryScopeDiagnosisConsultation,
+					domain.NotificationDeliveryScopeReport,
+				},
+				LatestTestProofs: impactPreviewNotificationProofs(3, domain.NotificationChannelKindWeCom, base),
+			},
+		},
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{
+			{
+				ID:                                 7,
+				Name:                               "Auto-room report workflow",
+				AlertSourceProfileID:               1,
+				GroupingPolicyID:                   2,
+				ReportNotificationChannelProfileID: 3,
+				TriggerMode:                        domain.ReportWorkflowTriggerModeManualReplay,
+				ReportScenario:                     domain.ReportWorkflowScenarioSingleAlert,
+				DiagnosisFollowUp:                  domain.DiagnosisFollowUpModeAutoRoom,
+			},
+		},
+	}
+	alerts := &fakeAlertRepo{events: []domain.AlertEvent{
+		{
+			ID:       101,
+			Source:   "prometheus",
+			Labels:   map[string]string{"alertname": "checkout", "severity": "critical"},
+			StartsAt: base,
+		},
+	}}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/impact-preview", nil)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo, alertRepo: alerts}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.ReportWorkflowPolicyImpactPreviewResult
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Status != api.ReportWorkflowPolicyImpactPreviewStatusBlocked ||
+		len(body.ReasonCodes) != 1 ||
+		body.ReasonCodes[0] != api.ReportWorkflowPolicyImpactPreviewReasonCodeAutoRoomRequiresAlertmanager {
+		t.Fatalf("readiness = %+v", body)
 	}
 }
 
@@ -1414,7 +4838,7 @@ func TestPreviewReportWorkflowPolicyImpactReturnsBlockedReadiness(t *testing.T) 
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/impact-preview", nil)
-	testHandler(&fakeUOWFactory{configRepo: repo, alertRepo: &fakeAlertRepo{}}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo, alertRepo: &fakeAlertRepo{}}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -1431,6 +4855,37 @@ func TestPreviewReportWorkflowPolicyImpactReturnsBlockedReadiness(t *testing.T) 
 	}
 	if !body.ReportNotificationChannelProfileID.IsNull() || body.ReportNotificationChannelBound {
 		t.Fatalf("unbound channel fields = %+v", body)
+	}
+}
+
+func impactPreviewNotificationProofs(
+	profileID domain.NotificationChannelProfileID,
+	kind domain.NotificationChannelKind,
+	checkedAt time.Time,
+) []domain.NotificationChannelTestProof {
+	return []domain.NotificationChannelTestProof{
+		impactPreviewNotificationProof(profileID, kind, domain.NotificationChannelTestContentAIDiagnosisSample, checkedAt),
+		impactPreviewNotificationProof(profileID, kind, domain.NotificationChannelTestContentDiagnosisCloseSample, checkedAt),
+	}
+}
+
+func impactPreviewNotificationProof(
+	profileID domain.NotificationChannelProfileID,
+	kind domain.NotificationChannelKind,
+	contentKind domain.NotificationChannelTestContentKind,
+	checkedAt time.Time,
+) domain.NotificationChannelTestProof {
+	return domain.NotificationChannelTestProof{
+		NotificationChannelProfileID: profileID,
+		Kind:                         kind,
+		Status:                       domain.NotificationChannelTestStatusSuccess,
+		ReasonCode:                   domain.NotificationChannelTestReasonOK,
+		Message:                      "Notification channel test delivery succeeded.",
+		ContentKind:                  contentKind,
+		ContentSHA256:                strings.Repeat("c", 64),
+		CheckedAt:                    checkedAt,
+		ProviderMessageID:            "provider-message-1",
+		ProviderStatus:               "delivered",
 	}
 }
 
@@ -1497,7 +4952,7 @@ func TestReportWorkflowPolicyWriteRejectsInvalidInputs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, strings.NewReader(tc.body))
-			testHandler(&fakeUOWFactory{configRepo: tc.repo}).ServeHTTP(rec, req)
+			testConfigHandler(t, &fakeUOWFactory{configRepo: tc.repo}).ServeHTTP(rec, req)
 
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
@@ -1532,7 +4987,7 @@ func TestListReportWorkflowSchedulesReturnsSchedules(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/report-workflow-schedules?limit=1", nil)
-	testHandler(factory).ServeHTTP(rec, req)
+	testConfigHandler(t, factory).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -1573,7 +5028,7 @@ func TestCreateReportWorkflowScheduleStoresSecondsAsDurations(t *testing.T) {
 	}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-schedules", strings.NewReader(body))
-	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusCreated {
 		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
@@ -1614,7 +5069,7 @@ func TestReportWorkflowScheduleMutationSynchronizesSavedSchedule(t *testing.T) {
 	}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-schedules", strings.NewReader(body))
-	testHandler(
+	testConfigHandler(t,
 		&fakeUOWFactory{configRepo: repo},
 		WithReportWorkflowScheduleSynchronizer(syncer),
 	).ServeHTTP(rec, req)
@@ -1648,7 +5103,7 @@ func TestReportWorkflowScheduleSyncFailureReturnsServerError(t *testing.T) {
 	}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-schedules", strings.NewReader(body))
-	testHandler(
+	testConfigHandler(t,
 		&fakeUOWFactory{configRepo: repo},
 		WithReportWorkflowScheduleSynchronizer(syncer),
 	).ServeHTTP(rec, req)
@@ -1685,7 +5140,7 @@ func TestEnableReportWorkflowScheduleRequiresEnabledPolicy(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-schedules/9/enable", nil)
-	testHandler(
+	testConfigHandler(t,
 		&fakeUOWFactory{configRepo: repo},
 		WithReportWorkflowScheduleSynchronizer(syncer),
 	).ServeHTTP(rec, req)
@@ -1706,7 +5161,7 @@ func TestEnableReportWorkflowScheduleRequiresEnabledPolicy(t *testing.T) {
 	}
 	rec = httptest.NewRecorder()
 	req = httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-schedules/9/enable", nil)
-	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusBadRequest {
 		t.Fatalf("disabled policy status = %d, want 400; body=%s", rec.Code, rec.Body.String())
@@ -1763,6 +5218,14 @@ func TestReportWorkflowScheduleWriteRejectsInvalidInputs(t *testing.T) {
 			wantStatus: stdhttp.StatusBadRequest,
 		},
 		{
+			name:       "replay_window_exceeds_interval",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/report-workflow-schedules",
+			body:       `{"name":"Every minute","report_workflow_policy_id":7,"temporal_schedule_id":"schedule-1","interval_seconds":60,"offset_seconds":0,"replay_window_seconds":3600,"replay_delay_seconds":0,"replay_limit":10000,"catchup_window_seconds":300}`,
+			repo:       &fakeConfigRepo{reportWorkflowPolicies: []domain.ReportWorkflowPolicy{{ID: 7}}},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
 			name:       "missing_policy",
 			method:     stdhttp.MethodPost,
 			path:       "/api/v1/config/report-workflow-schedules",
@@ -1790,7 +5253,7 @@ func TestReportWorkflowScheduleWriteRejectsInvalidInputs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, strings.NewReader(tc.body))
-			testHandler(&fakeUOWFactory{configRepo: tc.repo}).ServeHTTP(rec, req)
+			testConfigHandler(t, &fakeUOWFactory{configRepo: tc.repo}).ServeHTTP(rec, req)
 
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
@@ -1821,7 +5284,7 @@ func TestListNotificationChannelProfilesReturnsProfiles(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/config/notification-channels?limit=1", nil)
-	testHandler(factory).ServeHTTP(rec, req)
+	testConfigHandler(t, factory).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
@@ -1845,9 +5308,9 @@ func TestCreateNotificationChannelProfileStoresSecretRefOnly(t *testing.T) {
 	repo := &fakeConfigRepo{
 		saveNotificationChannelResult: domain.NotificationChannelProfile{
 			ID:             7,
-			Name:           "Operations webhook",
-			Kind:           domain.NotificationChannelKindWebhook,
-			SecretRef:      "secret/openclarion/ops-webhook",
+			Name:           "Operations WeCom",
+			Kind:           domain.NotificationChannelKindWeCom,
+			SecretRef:      "secret/openclarion/ops-wecom",
 			DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeDiagnosisClose, domain.NotificationDeliveryScopeReport},
 			Enabled:        false,
 			Labels:         map[string]string{"owner": "sre"},
@@ -1857,21 +5320,21 @@ func TestCreateNotificationChannelProfileStoresSecretRefOnly(t *testing.T) {
 	}
 
 	body := `{
-		"name":"Operations webhook",
-		"kind":"webhook",
-		"secret_ref":"secret/openclarion/ops-webhook",
+		"name":"Operations WeCom",
+		"kind":"wecom",
+		"secret_ref":"secret/openclarion/ops-wecom",
 		"delivery_scopes":["diagnosis_close","report"],
 		"enabled":false,
 		"labels":{"owner":"sre"}
 	}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/notification-channels", strings.NewReader(body))
-	testHandler(&fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusCreated {
 		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
 	}
-	if repo.savedNotificationChannel.SecretRef != "secret/openclarion/ops-webhook" {
+	if repo.savedNotificationChannel.SecretRef != "secret/openclarion/ops-wecom" {
 		t.Fatalf("saved notification channel = %+v", repo.savedNotificationChannel)
 	}
 	if len(repo.savedNotificationChannel.DeliveryScopes) != 2 ||
@@ -1883,7 +5346,7 @@ func TestCreateNotificationChannelProfileStoresSecretRefOnly(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.ID != 7 || resp.Kind != api.Webhook || resp.Enabled {
+	if resp.ID != 7 || resp.Kind != api.Wecom || resp.Enabled {
 		t.Fatalf("response = %+v", resp)
 	}
 }
@@ -1922,6 +5385,14 @@ func TestNotificationChannelProfileWriteRejectsInvalidInputs(t *testing.T) {
 			wantStatus: stdhttp.StatusBadRequest,
 		},
 		{
+			name:       "webhook_diagnosis_scope",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/config/notification-channels",
+			body:       `{"name":"Operations webhook","kind":"webhook","secret_ref":"secret/ref","delivery_scopes":["report","diagnosis_close"]}`,
+			repo:       &fakeConfigRepo{},
+			wantStatus: stdhttp.StatusBadRequest,
+		},
+		{
 			name:       "invalid_id",
 			method:     stdhttp.MethodPut,
 			path:       "/api/v1/config/notification-channels/0",
@@ -1943,7 +5414,7 @@ func TestNotificationChannelProfileWriteRejectsInvalidInputs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, strings.NewReader(tc.body))
-			testHandler(&fakeUOWFactory{configRepo: tc.repo}).ServeHTTP(rec, req)
+			testConfigHandler(t, &fakeUOWFactory{configRepo: tc.repo}).ServeHTTP(rec, req)
 
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
@@ -1976,6 +5447,8 @@ func TestNotificationChannelProfileTestReturnsSanitizedResult(t *testing.T) {
 			Status:            notificationchannelcheck.StatusBlocked,
 			ReasonCode:        notificationchannelcheck.ReasonCredentialsUnavailable,
 			Message:           "Secret-backed notification channel tests require a server-side secret resolver.",
+			ContentKind:       "ai_diagnosis_sample",
+			ContentSHA256:     strings.Repeat("a", 64),
 			CheckedAt:         checkedAt,
 			ProviderMessageID: "",
 			ProviderStatus:    "",
@@ -1983,14 +5456,17 @@ func TestNotificationChannelProfileTestReturnsSanitizedResult(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/notification-channels/1/test", nil)
-	testHandler(&fakeUOWFactory{configRepo: repo}, WithNotificationChannelTester(tester)).ServeHTTP(rec, req)
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/notification-channels/1/test?content_kind=diagnosis_close_sample", nil)
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}, WithNotificationChannelTester(tester)).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	if tester.called != 1 || tester.profile.ID != 1 || tester.profile.SecretRef == "" {
-		t.Fatalf("tester called=%d profile=%+v", tester.called, tester.profile)
+	if tester.called != 1 ||
+		tester.profile.ID != 1 ||
+		tester.profile.SecretRef == "" ||
+		tester.request.ContentKind != "diagnosis_close_sample" {
+		t.Fatalf("tester called=%d profile=%+v request=%+v", tester.called, tester.profile, tester.request)
 	}
 	if body := rec.Body.String(); strings.Contains(body, "secret/openclarion") || strings.Contains(body, "ops-webhook") {
 		t.Fatalf("response leaked secret reference: %s", body)
@@ -2000,8 +5476,23 @@ func TestNotificationChannelProfileTestReturnsSanitizedResult(t *testing.T) {
 		t.Fatalf("decode body: %v", err)
 	}
 	if resp.Status != api.NotificationChannelTestStatusBlocked ||
-		resp.ReasonCode != api.NotificationChannelTestReasonCodeCredentialsUnavailable {
+		resp.ReasonCode != api.NotificationChannelTestReasonCodeCredentialsUnavailable ||
+		resp.ContentKind == nil ||
+		*resp.ContentKind != "ai_diagnosis_sample" ||
+		resp.ContentSha256 == nil ||
+		*resp.ContentSha256 != strings.Repeat("a", 64) {
 		t.Fatalf("response = %+v", resp)
+	}
+	if len(repo.savedNotificationChannelTestProofs) != 1 {
+		t.Fatalf("saved test proofs = %+v, want 1", repo.savedNotificationChannelTestProofs)
+	}
+	savedProof := repo.savedNotificationChannelTestProofs[0]
+	if savedProof.NotificationChannelProfileID != 1 ||
+		savedProof.Status != domain.NotificationChannelTestStatusBlocked ||
+		savedProof.ReasonCode != domain.NotificationChannelTestReasonCredentialsUnavailable ||
+		savedProof.ContentKind != domain.NotificationChannelTestContentAIDiagnosisSample ||
+		savedProof.ContentSHA256 != strings.Repeat("a", 64) {
+		t.Fatalf("saved proof = %+v", savedProof)
 	}
 }
 
@@ -2038,7 +5529,7 @@ func TestNotificationChannelProfileTestRejectsUnconfiguredAndMissingProfiles(t *
 			}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, path, nil)
-			testHandler(&fakeUOWFactory{configRepo: tc.repo}, tc.opts...).ServeHTTP(rec, req)
+			testConfigHandler(t, &fakeUOWFactory{configRepo: tc.repo}, tc.opts...).ServeHTTP(rec, req)
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
 			}
@@ -2051,6 +5542,7 @@ func TestTriggerReportReplay_StartsReportWorkflow(t *testing.T) {
 	windowEnd := windowStart.Add(time.Hour)
 	trigger := &fakeReportReplayTrigger{
 		result: reporttrigger.Result{
+			CorrelationKey: "incident-42",
 			Replay: alertreplay.Result{
 				Stats: alertreplay.Stats{
 					Ingested:           alertingest.Stats{Total: 2, Saved: 2},
@@ -2080,10 +5572,24 @@ func TestTriggerReportReplay_StartsReportWorkflow(t *testing.T) {
 	}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/report-triggers/replay-window", strings.NewReader(body))
-	testHandler(&fakeUOWFactory{}, WithReportReplayTrigger(trigger)).ServeHTTP(rec, req)
+	addTestLocalRBACAuthorization(req)
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{
+			Allowed:   true,
+			CheckedAt: time.Date(2026, 5, 27, 9, 0, 0, 0, time.UTC),
+		},
+	}
+	opts := testLocalRBACOptions(t, "report-manager-1", authorizer)
+	opts = append(opts, WithReportReplayTrigger(trigger))
+	testHandler(&fakeUOWFactory{configRepo: &fakeConfigRepo{}}, opts...).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusAccepted {
 		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 1 ||
+		authorizer.req.Permission != domain.RBACPermissionReportWorkflowManage ||
+		authorizer.req.ScopeKind != domain.RBACScopeKindGlobal {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
 	}
 	if trigger.called != 1 {
 		t.Fatalf("trigger calls = %d, want 1", trigger.called)
@@ -2105,7 +5611,7 @@ func TestTriggerReportReplay_StartsReportWorkflow(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !resp.Started || resp.WorkflowID != "report-batch-1" || resp.RunID != "run-1" {
+	if !resp.Started || resp.CorrelationKey != "incident-42" || resp.WorkflowID != "report-batch-1" || resp.RunID != "run-1" {
 		t.Fatalf("response workflow = %+v", resp)
 	}
 	if resp.Stats.Ingested.Total != 2 || resp.Stats.SnapshotsSaved != 1 {
@@ -2116,14 +5622,713 @@ func TestTriggerReportReplay_StartsReportWorkflow(t *testing.T) {
 	}
 }
 
+func TestRetryReportNotification_ReturnsDeliveryProof(t *testing.T) {
+	deliveredAt := time.Date(2026, 6, 21, 9, 30, 0, 0, time.UTC)
+	createdAt := deliveredAt.Add(-time.Minute)
+	updatedAt := deliveredAt
+	factory := reportNotificationRetryReadyFactory(
+		"owner-1",
+		deliveredAt.Add(-2*time.Minute),
+	)
+	sender := &fakeReportNotificationSender{
+		result: reportnotification.Result{
+			Delivery: domain.ReportNotificationDelivery{
+				ID:                                 31,
+				FinalReportID:                      11,
+				ReportNotificationChannelProfileID: 2,
+				IdempotencyKey:                     "final_report:11/notification/final",
+				ProviderMessageID:                  "msg-31",
+				ProviderStatus:                     "accepted",
+				Status:                             domain.ReportNotificationDeliveryStatusDelivered,
+				DeliveredAt:                        &deliveredAt,
+				CreatedAt:                          createdAt,
+				UpdatedAt:                          updatedAt,
+			},
+		},
+	}
+	authorizer := allowedReportNotificationRBACAuthorizer()
+	handler := testReportNotificationRetryHandler(t, factory, sender, authorizer)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/reports/11/notification/retry",
+		strings.NewReader(`{"report_notification_channel_profile_id":2,"notification_purpose":"final"}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 1 ||
+		authorizer.req.Permission != domain.RBACPermissionReportWorkflowManage ||
+		authorizer.req.ScopeKind != domain.RBACScopeKindGlobal {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+	if sender.called != 1 {
+		t.Fatalf("sender calls = %d, want 1", sender.called)
+	}
+	if sender.req.FinalReportID != 11 ||
+		sender.req.ReportNotificationChannelProfileID != 2 ||
+		sender.req.NotificationPurpose != reportnotification.NotificationPurposeFinal {
+		t.Fatalf("sender request = %+v", sender.req)
+	}
+
+	var resp api.ReportNotificationRetryResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Delivery.ID != 31 ||
+		resp.RetryState != api.ReportNotificationRetryStateSent ||
+		resp.Delivery.IdempotencyKey != "final_report:11/notification/final" ||
+		resp.Delivery.NotificationPurpose != api.Final ||
+		resp.Delivery.Status != api.ReportNotificationDeliveryStatusDelivered ||
+		resp.Delivery.ReportNotificationChannelProfileID.IsNull() ||
+		resp.Delivery.ProviderMessageID == nil ||
+		*resp.Delivery.ProviderMessageID != "msg-31" ||
+		resp.Delivery.ProviderStatus == nil ||
+		*resp.Delivery.ProviderStatus != "accepted" ||
+		resp.Delivery.DeliveredAt == nil ||
+		!resp.Delivery.DeliveredAt.Equal(deliveredAt) {
+		t.Fatalf("delivery proof = %+v", resp.Delivery)
+	}
+	profileID, err := resp.Delivery.ReportNotificationChannelProfileID.Get()
+	if err != nil || profileID != 2 {
+		t.Fatalf("delivery profile id = %d err=%v, want 2", profileID, err)
+	}
+}
+
+func TestRetryReportNotification_ReturnsPendingDeliveryProof(t *testing.T) {
+	createdAt := time.Date(2026, 6, 21, 9, 45, 0, 0, time.UTC)
+	factory := reportNotificationRetryReadyFactory(
+		"owner-1",
+		createdAt.Add(-2*time.Minute),
+	)
+	sender := &fakeReportNotificationSender{
+		result: reportnotification.Result{
+			RetryState: reportnotification.RetryStateAlreadyPending,
+			Delivery: domain.ReportNotificationDelivery{
+				ID:                                 32,
+				FinalReportID:                      11,
+				ReportNotificationChannelProfileID: 2,
+				IdempotencyKey:                     "final_report:11/notification/final",
+				Status:                             domain.ReportNotificationDeliveryStatusPending,
+				CreatedAt:                          createdAt,
+				UpdatedAt:                          createdAt,
+			},
+		},
+	}
+	handler := testReportNotificationRetryHandler(t, factory, sender, nil)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/reports/11/notification/retry",
+		strings.NewReader(`{"report_notification_channel_profile_id":2,"notification_purpose":"final"}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if sender.called != 1 ||
+		sender.req.NotificationPurpose != reportnotification.NotificationPurposeFinal {
+		t.Fatalf("sender called=%d request=%+v, want one final retry lookup", sender.called, sender.req)
+	}
+	var resp api.ReportNotificationRetryResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Delivery.ID != 32 ||
+		resp.RetryState != api.ReportNotificationRetryStateAlreadyPending ||
+		resp.Delivery.NotificationPurpose != api.Final ||
+		resp.Delivery.Status != api.ReportNotificationDeliveryStatusPending ||
+		resp.Delivery.ProviderMessageID != nil ||
+		resp.Delivery.ProviderStatus != nil ||
+		resp.Delivery.DeliveredAt != nil {
+		t.Fatalf("delivery proof = %+v, want pending final proof without provider result", resp.Delivery)
+	}
+}
+
+func TestReportDetailReadyStateAllowsFinalNotificationRetry(t *testing.T) {
+	deliveredAt := time.Date(2026, 6, 21, 10, 45, 0, 0, time.UTC)
+	reportID := domain.FinalReportID(11)
+	factory := reportNotificationRetryReadyFactory(
+		"owner-1",
+		deliveredAt.Add(-2*time.Minute),
+	)
+	sender := &fakeReportNotificationSender{
+		result: reportnotification.Result{
+			Delivery: domain.ReportNotificationDelivery{
+				ID:                                 41,
+				FinalReportID:                      reportID,
+				ReportNotificationChannelProfileID: 2,
+				IdempotencyKey:                     "final_report:11/notification/final",
+				ProviderMessageID:                  "msg-final-41",
+				ProviderStatus:                     "accepted",
+				Status:                             domain.ReportNotificationDeliveryStatusDelivered,
+				DeliveredAt:                        &deliveredAt,
+				CreatedAt:                          deliveredAt.Add(-time.Minute),
+				UpdatedAt:                          deliveredAt,
+			},
+		},
+	}
+	handler := testReportNotificationRetryHandler(t, factory, sender, nil)
+
+	getRec := httptest.NewRecorder()
+	getReq := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/reports/11", nil)
+	addTestLocalRBACAuthorization(getReq)
+	handler.ServeHTTP(getRec, getReq)
+
+	if getRec.Code != stdhttp.StatusOK {
+		t.Fatalf("GET status = %d, want 200; body=%s", getRec.Code, getRec.Body.String())
+	}
+	var detail api.FinalReportDetail
+	if err := json.NewDecoder(getRec.Body).Decode(&detail); err != nil {
+		t.Fatalf("decode report detail: %v", err)
+	}
+	if !detail.FinalNotificationReadiness.Ready ||
+		detail.FinalNotificationReadiness.NotificationPurpose != api.Final ||
+		detail.FinalNotificationReadiness.Status != string(api.ReportFinalNotificationReadinessStatusReady) {
+		t.Fatalf("final notification readiness = %+v, want ready final state", detail.FinalNotificationReadiness)
+	}
+
+	postRec := httptest.NewRecorder()
+	postReq := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/reports/11/notification/retry",
+		strings.NewReader(`{"report_notification_channel_profile_id":2,"notification_purpose":"final"}`),
+	)
+	addTestLocalRBACAuthorization(postReq)
+	handler.ServeHTTP(postRec, postReq)
+
+	if postRec.Code != stdhttp.StatusOK {
+		t.Fatalf("POST status = %d, want 200; body=%s", postRec.Code, postRec.Body.String())
+	}
+	if sender.called != 1 ||
+		sender.req.FinalReportID != reportID ||
+		sender.req.NotificationPurpose != reportnotification.NotificationPurposeFinal {
+		t.Fatalf("sender called=%d request=%+v, want one final retry", sender.called, sender.req)
+	}
+	var retry api.ReportNotificationRetryResponse
+	if err := json.NewDecoder(postRec.Body).Decode(&retry); err != nil {
+		t.Fatalf("decode retry response: %v", err)
+	}
+	if retry.Delivery.NotificationPurpose != api.Final ||
+		retry.RetryState != api.ReportNotificationRetryStateSent ||
+		retry.Delivery.ProviderMessageID == nil ||
+		*retry.Delivery.ProviderMessageID != "msg-final-41" {
+		t.Fatalf("retry delivery = %+v, want final provider proof", retry.Delivery)
+	}
+}
+
+func TestRetryReportNotification_RejectsFinalPurposeWithoutConfirmedConclusion(t *testing.T) {
+	readyAt := time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC)
+	factory := reportNotificationRetryReadyFactory(
+		"",
+		readyAt,
+	)
+	sender := &fakeReportNotificationSender{}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/reports/11/notification/retry",
+		strings.NewReader(`{"notification_purpose":"final"}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	testReportNotificationRetryHandler(t, factory, sender, nil).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if sender.called != 0 {
+		t.Fatalf("sender calls = %d, want 0", sender.called)
+	}
+}
+
+func TestRetryReportNotification_RejectsFinalPurposeWhenProgressIsNewer(t *testing.T) {
+	readyAt := time.Date(2026, 6, 21, 10, 15, 0, 0, time.UTC)
+	taskID := domain.DiagnosisTaskID(31)
+	factory := reportNotificationRetryReadyFactory("owner-1", readyAt)
+	factory.diagnosisRepo.eventsByTaskAndKind[taskID][diagnosisConclusionEventTurnPersisted] = []domain.DiagnosisTaskEvent{
+		reportNotificationRetryProgressEvent(taskID, readyAt.Add(time.Minute), readyAt.Add(time.Minute+time.Second)),
+	}
+	sender := &fakeReportNotificationSender{}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/reports/11/notification/retry",
+		strings.NewReader(`{"notification_purpose":"final"}`),
+	)
+	addTestLocalRBACAuthorization(req)
+	testReportNotificationRetryHandler(t, factory, sender, nil).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+	if sender.called != 0 {
+		t.Fatalf("sender calls = %d, want 0", sender.called)
+	}
+}
+
+func TestReportFinalNotificationReadiness(t *testing.T) {
+	confirmedBy := "owner-1"
+	confirmedAt := time.Date(2026, 6, 21, 10, 30, 0, 0, time.UTC)
+	subReport := domain.SubReport{
+		ID:                 21,
+		EvidenceSnapshotID: 7,
+		Title:              "Checkout API latency",
+	}
+	confirmedConclusion := api.DiagnosisRoomConclusionSummary{
+		ConfirmedBy: &confirmedBy,
+		RecordedAt:  confirmedAt,
+	}
+
+	tests := []struct {
+		name                string
+		subReports          []domain.SubReport
+		conclusions         diagnosisConclusionBySnapshot
+		progress            diagnosisProgressBySnapshot
+		wantReady           bool
+		wantPurpose         api.ReportNotificationPurpose
+		wantStatus          string
+		wantDetailSubstring string
+	}{
+		{
+			name:                "no linked subreports",
+			wantPurpose:         api.Handoff,
+			wantStatus:          string(api.ReportFinalNotificationReadinessStatusBlocked),
+			wantDetailSubstring: "no linked subreports",
+		},
+		{
+			name:       "unconfirmed conclusion",
+			subReports: []domain.SubReport{subReport},
+			conclusions: diagnosisConclusionBySnapshot{
+				7: {RecordedAt: confirmedAt},
+			},
+			wantPurpose:         api.Handoff,
+			wantStatus:          string(api.ReportFinalNotificationReadinessStatusBlocked),
+			wantDetailSubstring: "Checkout API latency has no operator-confirmed AI conclusion yet",
+		},
+		{
+			name:       "newer progress after confirmation",
+			subReports: []domain.SubReport{subReport},
+			conclusions: diagnosisConclusionBySnapshot{
+				7: confirmedConclusion,
+			},
+			progress: diagnosisProgressBySnapshot{
+				7: {
+					OccurredAt: confirmedAt.Add(time.Minute),
+					RecordedAt: confirmedAt.Add(time.Minute + time.Second),
+				},
+			},
+			wantPurpose:         api.Handoff,
+			wantStatus:          string(api.ReportFinalNotificationReadinessStatusBlocked),
+			wantDetailSubstring: "newer diagnosis progress after the confirmed conclusion",
+		},
+		{
+			name:       "ready",
+			subReports: []domain.SubReport{subReport},
+			conclusions: diagnosisConclusionBySnapshot{
+				7: confirmedConclusion,
+			},
+			wantReady:           true,
+			wantPurpose:         api.Final,
+			wantStatus:          string(api.ReportFinalNotificationReadinessStatusReady),
+			wantDetailSubstring: "final notification can be sent",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := reportFinalNotificationReadiness(
+				domain.FinalReportID(11),
+				tc.subReports,
+				tc.conclusions,
+				tc.progress,
+			)
+			if got.Ready != tc.wantReady ||
+				got.NotificationPurpose != tc.wantPurpose ||
+				got.Status != tc.wantStatus ||
+				!strings.Contains(got.Detail, tc.wantDetailSubstring) {
+				t.Fatalf("readiness = %+v", got)
+			}
+		})
+	}
+}
+
+func TestRetryReportNotification_AllowsEmptyBody(t *testing.T) {
+	now := time.Date(2026, 6, 21, 9, 45, 0, 0, time.UTC)
+	sender := &fakeReportNotificationSender{
+		result: reportnotification.Result{
+			Delivery: domain.ReportNotificationDelivery{
+				ID:             32,
+				FinalReportID:  12,
+				IdempotencyKey: "final_report:12/notification/handoff",
+				Status:         domain.ReportNotificationDeliveryStatusPending,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/reports/12/notification/retry", nil)
+	addTestLocalRBACAuthorization(req)
+	testReportNotificationRetryHandler(t, &fakeUOWFactory{}, sender, nil).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if sender.req.FinalReportID != 12 ||
+		sender.req.ReportNotificationChannelProfileID != 0 ||
+		sender.req.NotificationPurpose != "" {
+		t.Fatalf("sender request = %+v", sender.req)
+	}
+}
+
+func TestRetryReportNotification_ReturnsServiceUnavailableWhenUnconfigured(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/reports/11/notification/retry", nil)
+	testHandler(&fakeUOWFactory{}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRetryReportNotification_RejectsInvalidBody(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "unknown field", body: `{"unexpected":true}`},
+		{name: "invalid channel id", body: `{"report_notification_channel_profile_id":0}`},
+		{name: "invalid notification purpose", body: `{"notification_purpose":"closed"}`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(
+				context.Background(),
+				stdhttp.MethodPost,
+				"/api/v1/reports/11/notification/retry",
+				strings.NewReader(tc.body),
+			)
+			addTestLocalRBACAuthorization(req)
+			testReportNotificationRetryHandler(t, &fakeUOWFactory{}, &fakeReportNotificationSender{}, nil).ServeHTTP(rec, req)
+
+			if rec.Code != stdhttp.StatusBadRequest {
+				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestRetryReportNotification_MapsSenderInvariantToBadRequest(t *testing.T) {
+	sender := &fakeReportNotificationSender{
+		err: fmt.Errorf("report notification: im provider is not configured: %w", domain.ErrInvariantViolation),
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/reports/11/notification/retry", nil)
+	addTestLocalRBACAuthorization(req)
+	testReportNotificationRetryHandler(t, &fakeUOWFactory{}, sender, nil).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRetryReportNotification_RejectsUnauthenticatedPrincipal(t *testing.T) {
+	sender := &fakeReportNotificationSender{}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/reports/11/notification/retry", nil)
+	testReportNotificationRetryHandler(t, &fakeUOWFactory{}, sender, nil).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body=%s", rec.Code, rec.Body.String())
+	}
+	if sender.called != 0 {
+		t.Fatalf("sender calls = %d, want 0", sender.called)
+	}
+}
+
+func testReportNotificationRetryHandler(
+	t *testing.T,
+	factory *fakeUOWFactory,
+	sender *fakeReportNotificationSender,
+	authorizer *fakeRBACAuthorizer,
+) stdhttp.Handler {
+	t.Helper()
+	if factory.configRepo == nil {
+		factory.configRepo = &fakeConfigRepo{}
+	}
+	if authorizer == nil {
+		authorizer = allowedReportNotificationRBACAuthorizer()
+	}
+	opts := testLocalRBACOptions(t, "report-manager-1", authorizer)
+	opts = append(opts, WithReportNotificationSender(sender))
+	return testHandler(factory, opts...)
+}
+
+func allowedReportNotificationRBACAuthorizer() *fakeRBACAuthorizer {
+	return &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{
+			Allowed:   true,
+			CheckedAt: time.Date(2026, 6, 21, 9, 0, 0, 0, time.UTC),
+		},
+	}
+}
+
+func TestRetryDiagnosisRoomNotification_AuthenticatesAndReturnsNotificationProof(t *testing.T) {
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Bearer oidc-token": {
+			{Principal: ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}}},
+		},
+	})
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: time.Date(2026, 6, 21, 11, 29, 0, 0, time.UTC)},
+	}
+	now := time.Date(2026, 6, 21, 11, 30, 0, 0, time.UTC)
+	retrier := &fakeDiagnosisNotificationRetrier{
+		result: diagnosisnotification.Result{
+			RetryState: diagnosisnotification.RetryStateSent,
+			Event: domain.DiagnosisTaskEvent{
+				ID:     51,
+				TaskID: 31,
+				Kind:   diagnosisnotification.EventFinalReadyNotification,
+				Payload: json.RawMessage(`{
+					"kind":"diagnosis_room.final_ready_notification_sent",
+					"session_id":"session-1",
+					"diagnosis_task_id":31,
+					"notification_channel_profile_id":2,
+					"provider_status":"delivered",
+					"provider_message_id":"wecom-retry-1",
+					"assistant_message_id":"msg-1/assistant",
+					"assistant_turn_id":32,
+					"assistant_sequence":2,
+					"turn_count":1,
+					"final_conclusion":{
+						"content":"Hydrated final conclusion returned by retry.",
+						"confidence":"high",
+						"requires_human_review":true
+					}
+				}`),
+				OccurredAt: now,
+				RecordedAt: now.Add(time.Second),
+			},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/diagnosis/rooms/session-1/notifications/retry",
+		strings.NewReader(`{"event_kind":"diagnosis_room.final_ready_notification_sent"}`),
+	)
+	req.Header.Set("Authorization", "Bearer oidc-token")
+	testHandler(
+		&fakeUOWFactory{configRepo: &fakeConfigRepo{}},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("R", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}),
+		WithRBACAuthorizer(authorizer),
+		WithDiagnosisRoomNotificationRetrier(retrier),
+		withDiagnosisClock(func() time.Time { return now }),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authProvider.Calls("Bearer oidc-token") != 1 {
+		t.Fatalf("auth calls = %d, want 1", authProvider.Calls("Bearer oidc-token"))
+	}
+	if authorizer.called != 1 ||
+		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomAdminister ||
+		authorizer.req.ScopeKind != domain.RBACScopeKindDiagnosisRoom ||
+		authorizer.req.ScopeKey != "session-1" {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+	if retrier.called != 1 ||
+		retrier.req.SessionID != "session-1" ||
+		retrier.req.EventKind != diagnosisnotification.EventFinalReadyNotification ||
+		retrier.req.Principal.Subject != "owner-1" ||
+		!retrier.req.OccurredAt.Equal(now) {
+		t.Fatalf("retrier called=%d req=%+v", retrier.called, retrier.req)
+	}
+	var resp api.DiagnosisNotificationRetryResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.RetryState != api.DiagnosisNotificationRetryStateSent ||
+		resp.Notification.EventKind != diagnosisnotification.EventFinalReadyNotification ||
+		resp.Notification.NotificationChannelProfileID == nil ||
+		*resp.Notification.NotificationChannelProfileID != 2 ||
+		resp.Notification.ProviderStatus != "delivered" ||
+		resp.Notification.ProviderMessageID == nil ||
+		*resp.Notification.ProviderMessageID != "wecom-retry-1" ||
+		resp.Notification.Confidence == nil ||
+		*resp.Notification.Confidence != api.ReportConfidenceHigh ||
+		resp.Notification.RequiresHumanReview == nil ||
+		!*resp.Notification.RequiresHumanReview ||
+		resp.Notification.ContentKind == nil ||
+		*resp.Notification.ContentKind != "final_conclusion" ||
+		resp.Notification.ContentSha256 == nil ||
+		*resp.Notification.ContentSha256 != testSHA256("Hydrated final conclusion returned by retry.") ||
+		!resp.Notification.OccurredAt.Equal(now) {
+		t.Fatalf("retry response = %+v", resp)
+	}
+}
+
+func TestRetryDiagnosisRoomNotification_ReturnsServiceUnavailableWhenUnconfigured(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/diagnosis/rooms/session-1/notifications/retry",
+		strings.NewReader(`{"event_kind":"diagnosis_room.final_ready_notification_sent"}`),
+	)
+	testHandler(&fakeUOWFactory{}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestRetryDiagnosisRoomNotification_RejectsMissingAuthorization(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/diagnosis/rooms/session-1/notifications/retry",
+		strings.NewReader(`{"event_kind":"diagnosis_room.final_ready_notification_sent"}`),
+	)
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(&neverAuthProvider{}, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("S", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}),
+		WithDiagnosisRoomNotificationRetrier(&fakeDiagnosisNotificationRetrier{}),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func reportNotificationRetryReadyFactory(
+	confirmedBy string,
+	readyAt time.Time,
+) *fakeUOWFactory {
+	reportID := domain.FinalReportID(11)
+	snapshotID := domain.EvidenceSnapshotID(7)
+	taskID := domain.DiagnosisTaskID(31)
+	return &fakeUOWFactory{
+		reportRepo: &fakeReportRepo{
+			finalReports: []domain.FinalReport{
+				{ID: reportID},
+			},
+			linkedSubReports: map[domain.FinalReportID][]domain.SubReport{
+				reportID: {
+					{ID: 21, EvidenceSnapshotID: snapshotID},
+				},
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			tasksBySnapshot: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{
+				snapshotID: {
+					{ID: taskID, EvidenceSnapshotID: snapshotID},
+				},
+			},
+			eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+				taskID: {
+					diagnosisConclusionEventFinalReady: {
+						reportNotificationRetryConclusionEvent(taskID, snapshotID, confirmedBy, readyAt, readyAt.Add(time.Second)),
+					},
+				},
+			},
+		},
+	}
+}
+
+func reportNotificationRetryConclusionEvent(
+	taskID domain.DiagnosisTaskID,
+	snapshotID domain.EvidenceSnapshotID,
+	confirmedBy string,
+	occurredAt time.Time,
+	recordedAt time.Time,
+) domain.DiagnosisTaskEvent {
+	return domain.DiagnosisTaskEvent{
+		ID:         41,
+		TaskID:     taskID,
+		Kind:       diagnosisConclusionEventFinalReady,
+		OccurredAt: occurredAt,
+		RecordedAt: recordedAt,
+		Payload: json.RawMessage(fmt.Sprintf(`{
+			"kind":"diagnosis_room.final_conclusion_ready",
+			"session_id":"diagnosis-session-%d",
+			"chat_session_id":51,
+			"diagnosis_task_id":%d,
+			"final_conclusion":{
+				"status":"available",
+				"source":"latest_assistant_turn",
+				"evidence_snapshot_id":%d,
+				"confirmed_by":%q,
+				"content":"The incident conclusion has been confirmed by the operator."
+			}
+		}`, taskID, taskID, snapshotID, confirmedBy)),
+	}
+}
+
+func reportNotificationRetryProgressEvent(
+	taskID domain.DiagnosisTaskID,
+	occurredAt time.Time,
+	recordedAt time.Time,
+) domain.DiagnosisTaskEvent {
+	return domain.DiagnosisTaskEvent{
+		ID:         42,
+		TaskID:     taskID,
+		Kind:       diagnosisConclusionEventTurnPersisted,
+		OccurredAt: occurredAt,
+		RecordedAt: recordedAt,
+		Payload: json.RawMessage(fmt.Sprintf(`{
+			"kind":"diagnosis_room.turn_persisted",
+			"session_id":"diagnosis-session-%d",
+			"chat_session_id":51,
+			"diagnosis_task_id":%d,
+			"confidence":"medium"
+		}`, taskID, taskID)),
+	}
+}
+
 func TestIngestAlertmanagerWebhook_AcceptsPayload(t *testing.T) {
 	ingestor := &fakeAlertmanagerWebhookIngestor{
 		result: alertmanagerwebhook.Result{
-			ProfileID:       7,
-			Received:        2,
-			SkippedResolved: 1,
-			TruncatedAlerts: 0,
-			Ingested:        alertingest.Stats{Total: 1, Saved: 1},
+			ProfileID:         7,
+			Received:          2,
+			SkippedResolved:   1,
+			SkippedSuppressed: 2,
+			TruncatedAlerts:   0,
+			Ingested:          alertingest.Stats{Total: 1, Saved: 1},
+			AutoDiagnosis: &alertdiagnosis.Result{
+				PoliciesMatched: 1,
+				Snapshots:       []alertreplay.SnapshotRef{{ID: 17, GroupIndex: 0, EventCount: 1}},
+				Rooms: []alertdiagnosis.RoomStart{{
+					PolicyID:           3,
+					EvidenceSnapshotID: 17,
+					SessionID:          "diagnosis-session-auto-p3-s17",
+					InitialMessageID:   "diagnosis-auto-initial-p3-s17",
+					Workflow:           ports.WorkflowHandle{WorkflowID: "diagnosis-room-diagnosis-session-auto-p3-s17", RunID: "run-diagnosis-17"},
+				}},
+			},
 		},
 	}
 
@@ -2154,8 +6359,23 @@ func TestIngestAlertmanagerWebhook_AcceptsPayload(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body.SourceID != 7 || body.Received != 2 || body.SkippedResolved != 1 || body.Ingested.Saved != 1 {
+	if body.SourceID != 7 || body.Received != 2 || body.SkippedResolved != 1 || body.SkippedSuppressed != 2 || body.Ingested.Saved != 1 {
 		t.Fatalf("response = %+v", body)
+	}
+	if body.AutoDiagnosis == nil ||
+		body.AutoDiagnosis.PoliciesMatched != 1 ||
+		body.AutoDiagnosis.Snapshots != 1 ||
+		body.AutoDiagnosis.RoomsStarted != 1 {
+		t.Fatalf("auto diagnosis response = %+v", body.AutoDiagnosis)
+	}
+	if len(body.AutoDiagnosis.Rooms) != 1 ||
+		body.AutoDiagnosis.Rooms[0].PolicyID != 3 ||
+		body.AutoDiagnosis.Rooms[0].EvidenceSnapshotID != 17 ||
+		body.AutoDiagnosis.Rooms[0].SessionID != "diagnosis-session-auto-p3-s17" ||
+		body.AutoDiagnosis.Rooms[0].InitialMessageID != "diagnosis-auto-initial-p3-s17" ||
+		body.AutoDiagnosis.Rooms[0].WorkflowID != "diagnosis-room-diagnosis-session-auto-p3-s17" ||
+		body.AutoDiagnosis.Rooms[0].RunID != "run-diagnosis-17" {
+		t.Fatalf("auto diagnosis rooms = %+v", body.AutoDiagnosis.Rooms)
 	}
 }
 
@@ -2251,6 +6471,33 @@ func TestTriggerReportReplayRejectsUnconfiguredTrigger(t *testing.T) {
 	}
 }
 
+func TestTriggerReportReplayRejectsUnauthenticatedPrincipal(t *testing.T) {
+	trigger := &fakeReportReplayTrigger{}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/report-triggers/replay-window",
+		strings.NewReader(`{"window_start":"2026-05-27T09:00:00Z","window_end":"2026-05-27T10:00:00Z","limit":1}`),
+	)
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true},
+	}
+	opts := testLocalRBACOptions(t, "report-manager-1", authorizer)
+	opts = append(opts, WithReportReplayTrigger(trigger))
+	testHandler(&fakeUOWFactory{configRepo: &fakeConfigRepo{}}, opts...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 0 {
+		t.Fatalf("authorizer calls = %d, want 0", authorizer.called)
+	}
+	if trigger.called != 0 {
+		t.Fatalf("trigger calls = %d, want 0", trigger.called)
+	}
+}
+
 func TestTriggerReportReplayRejectsInvalidRequest(t *testing.T) {
 	tests := []struct {
 		name string
@@ -2279,7 +6526,13 @@ func TestTriggerReportReplayRejectsInvalidRequest(t *testing.T) {
 			trigger := &fakeReportReplayTrigger{}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/report-triggers/replay-window", strings.NewReader(tc.body))
-			testHandler(&fakeUOWFactory{}, WithReportReplayTrigger(trigger)).ServeHTTP(rec, req)
+			addTestLocalRBACAuthorization(req)
+			authorizer := &fakeRBACAuthorizer{
+				result: rbacusecase.AuthorizeDecision{Allowed: true},
+			}
+			opts := testLocalRBACOptions(t, "report-manager-1", authorizer)
+			opts = append(opts, WithReportReplayTrigger(trigger))
+			testHandler(&fakeUOWFactory{configRepo: &fakeConfigRepo{}}, opts...).ServeHTTP(rec, req)
 
 			if rec.Code != stdhttp.StatusBadRequest {
 				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
@@ -2296,6 +6549,7 @@ func TestTriggerReportWorkflowPolicyReplay_StartsReportWorkflow(t *testing.T) {
 	windowEnd := windowStart.Add(time.Hour)
 	trigger := &fakeReportWorkflowPolicyReplayTrigger{
 		result: reporttrigger.Result{
+			CorrelationKey: "policy-window-1",
 			Replay: alertreplay.Result{
 				Stats: alertreplay.Stats{
 					Ingested:       alertingest.Stats{Total: 1, Saved: 1},
@@ -2323,7 +6577,7 @@ func TestTriggerReportWorkflowPolicyReplay_StartsReportWorkflow(t *testing.T) {
 	}`
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/replay-window", strings.NewReader(body))
-	testHandler(&fakeUOWFactory{}, WithReportWorkflowPolicyReplayTrigger(trigger)).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{}, WithReportWorkflowPolicyReplayTrigger(trigger)).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusAccepted {
 		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
@@ -2344,7 +6598,7 @@ func TestTriggerReportWorkflowPolicyReplay_StartsReportWorkflow(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !resp.Started || resp.WorkflowID != "report-batch-policy-1" || resp.RunID != "run-policy-1" {
+	if !resp.Started || resp.CorrelationKey != "policy-window-1" || resp.WorkflowID != "report-batch-policy-1" || resp.RunID != "run-policy-1" {
 		t.Fatalf("response workflow = %+v", resp)
 	}
 	if len(resp.Snapshots) != 1 || resp.Snapshots[0].ID != 9 {
@@ -2352,10 +6606,81 @@ func TestTriggerReportWorkflowPolicyReplay_StartsReportWorkflow(t *testing.T) {
 	}
 }
 
+func TestTriggerReportWorkflowPolicyReplayIncludesAutoDiagnosisSummary(t *testing.T) {
+	trigger := &fakeDetailedReportWorkflowPolicyReplayTrigger{
+		result: reportpolicytrigger.Result{
+			Trigger: reporttrigger.Result{
+				CorrelationKey: "report-workflow-policy:7:manual-replay",
+				Replay: alertreplay.Result{
+					Stats: alertreplay.Stats{
+						Ingested:       alertingest.Stats{Total: 1, Saved: 1},
+						EventsLoaded:   1,
+						GroupsBuilt:    1,
+						GroupsSaved:    1,
+						SnapshotsSaved: 1,
+						GroupsClosed:   1,
+					},
+					Snapshots: []alertreplay.SnapshotRef{
+						{ID: 17, GroupIndex: 0, EventCount: 1},
+					},
+				},
+				Workflow: ports.WorkflowHandle{WorkflowID: "report-batch-policy-auto", RunID: "run-policy-auto"},
+				Started:  true,
+			},
+			AutoDiagnosis: &alertdiagnosis.Result{
+				PoliciesMatched: 1,
+				Snapshots:       []alertreplay.SnapshotRef{{ID: 17, GroupIndex: 0, EventCount: 1}},
+				Rooms: []alertdiagnosis.RoomStart{{
+					PolicyID:           7,
+					EvidenceSnapshotID: 17,
+					SessionID:          "diagnosis-session-auto-p7-s17",
+					InitialMessageID:   "diagnosis-auto-initial-p7-s17",
+					Workflow:           ports.WorkflowHandle{WorkflowID: "diagnosis-room-diagnosis-session-auto-p7-s17", RunID: "run-diagnosis-17"},
+				}},
+			},
+		},
+	}
+
+	body := `{
+		"window_start":"2026-06-05T08:00:00Z",
+		"window_end":"2026-06-05T09:00:00Z",
+		"limit":5
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/replay-window", strings.NewReader(body))
+	testConfigHandler(t, &fakeUOWFactory{}, WithReportWorkflowPolicyReplayTrigger(trigger)).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusAccepted {
+		t.Fatalf("status = %d, want 202; body=%s", rec.Code, rec.Body.String())
+	}
+	if trigger.detailedCalled != 1 || trigger.legacyCalled != 0 {
+		t.Fatalf("trigger calls detailed=%d legacy=%d, want detailed only", trigger.detailedCalled, trigger.legacyCalled)
+	}
+	var resp api.ReportReplayTriggerResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.AutoDiagnosis == nil ||
+		resp.AutoDiagnosis.PoliciesMatched != 1 ||
+		resp.AutoDiagnosis.Snapshots != 1 ||
+		resp.AutoDiagnosis.RoomsStarted != 1 {
+		t.Fatalf("auto diagnosis response = %+v", resp.AutoDiagnosis)
+	}
+	if len(resp.AutoDiagnosis.Rooms) != 1 ||
+		resp.AutoDiagnosis.Rooms[0].PolicyID != 7 ||
+		resp.AutoDiagnosis.Rooms[0].EvidenceSnapshotID != 17 ||
+		resp.AutoDiagnosis.Rooms[0].SessionID != "diagnosis-session-auto-p7-s17" ||
+		resp.AutoDiagnosis.Rooms[0].InitialMessageID != "diagnosis-auto-initial-p7-s17" ||
+		resp.AutoDiagnosis.Rooms[0].WorkflowID != "diagnosis-room-diagnosis-session-auto-p7-s17" ||
+		resp.AutoDiagnosis.Rooms[0].RunID != "run-diagnosis-17" {
+		t.Fatalf("auto diagnosis rooms = %+v", resp.AutoDiagnosis.Rooms)
+	}
+}
+
 func TestTriggerReportWorkflowPolicyReplayRejectsUnconfiguredTrigger(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-policies/7/replay-window", strings.NewReader(`{}`))
-	testHandler(&fakeUOWFactory{}).ServeHTTP(rec, req)
+	testConfigHandler(t, &fakeUOWFactory{}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
@@ -2395,7 +6720,7 @@ func TestTriggerReportWorkflowPolicyReplayRejectsInvalidRequest(t *testing.T) {
 			trigger := &fakeReportWorkflowPolicyReplayTrigger{}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, tc.path, strings.NewReader(tc.body))
-			testHandler(&fakeUOWFactory{}, WithReportWorkflowPolicyReplayTrigger(trigger)).ServeHTTP(rec, req)
+			testConfigHandler(t, &fakeUOWFactory{}, WithReportWorkflowPolicyReplayTrigger(trigger)).ServeHTTP(rec, req)
 
 			if rec.Code != stdhttp.StatusBadRequest {
 				t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
@@ -2429,10 +6754,921 @@ func TestTriggerReportWorkflowPolicyReplayMapsUsecaseErrors(t *testing.T) {
 				"/api/v1/config/report-workflow-policies/7/replay-window",
 				strings.NewReader(`{"window_start":"2026-06-05T08:00:00Z","window_end":"2026-06-05T09:00:00Z"}`),
 			)
-			testHandler(&fakeUOWFactory{}, WithReportWorkflowPolicyReplayTrigger(trigger)).ServeHTTP(rec, req)
+			testConfigHandler(t, &fakeUOWFactory{}, WithReportWorkflowPolicyReplayTrigger(trigger)).ServeHTTP(rec, req)
 
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestCheckDiagnosisAuthAuthenticatesAndReturnsSanitizedPrincipal(t *testing.T) {
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk": {
+			{Principal: ports.AuthPrincipal{
+				Subject: "operator-1",
+				Roles: []ports.AuthRole{
+					ports.AuthRoleOwner,
+					ports.AuthRoleAdmin,
+					ports.AuthRole("internal-provider-role"),
+				},
+				Claims: json.RawMessage(`{"email":"operator@example.com","token":"claim-secret"}`),
+			}},
+		},
+	})
+	now := time.Date(2026, 6, 21, 4, 0, 0, 0, time.UTC)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/check", nil)
+	req.Header.Set("Authorization", "Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk")
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("A", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "ldap"),
+		withDiagnosisClock(func() time.Time { return now }),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if calls := authProvider.Calls("Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk"); calls != 1 {
+		t.Fatalf("auth calls = %d, want 1", calls)
+	}
+	if strings.Contains(rec.Body.String(), "claim-secret") || strings.Contains(rec.Body.String(), "b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk") {
+		t.Fatalf("response leaked credentials or claims: %s", rec.Body.String())
+	}
+
+	var body api.DiagnosisAuthCheckResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Subject != "operator-1" {
+		t.Fatalf("subject = %q, want operator-1", body.Subject)
+	}
+	if !slices.Equal(body.Roles, []string{"owner", "admin"}) {
+		t.Fatalf("roles = %#v, want owner/admin", body.Roles)
+	}
+	if body.Mode != string(api.DiagnosisAuthCheckResponseModeLdap) {
+		t.Fatalf("mode = %q, want ldap", body.Mode)
+	}
+	if !body.CheckedAt.Equal(now) {
+		t.Fatalf("checked_at = %s, want %s", body.CheckedAt, now)
+	}
+	if !body.RoleAuthorized {
+		t.Fatalf("role_authorized = false, want true")
+	}
+}
+
+func TestCheckDiagnosisAuthIgnoresUnsupportedModeFromProviderClaims(t *testing.T) {
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Bearer session-token": {
+			{Principal: ports.AuthPrincipal{
+				Subject: "operator-1",
+				Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+				Claims:  json.RawMessage(`{"auth_provider":"wecom","userid":"operator-1"}`),
+			}},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/check", nil)
+	req.Header.Set("Authorization", "Bearer session-token")
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("A", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "ldap"),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DiagnosisAuthCheckResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Mode != string(api.DiagnosisAuthCheckResponseModeLdap) {
+		t.Fatalf("mode = %q, want ldap fallback", body.Mode)
+	}
+	if strings.Contains(rec.Body.String(), "session-token") || strings.Contains(rec.Body.String(), "userid") {
+		t.Fatalf("response leaked credentials or claims: %s", rec.Body.String())
+	}
+}
+
+func TestCheckDiagnosisAuthAcceptsBrowserSessionToken(t *testing.T) {
+	now := time.Date(2026, 6, 27, 9, 30, 0, 0, time.UTC)
+	sessionIssuer := newHTTPTestDiagnosisSessionIssuer(t, now)
+	sessionToken, err := sessionIssuer.IssueToken(context.Background(), ports.AuthPrincipal{
+		Subject: "operator-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleAdmin},
+		Claims:  json.RawMessage(`{"auth_provider":"oidc"}`),
+	}, "oidc")
+	if err != nil {
+		t.Fatalf("IssueToken: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/check", nil)
+	req.Header.Set("Authorization", "Bearer "+sessionToken.Token)
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuthSessionIssuer(sessionIssuer),
+		withDiagnosisClock(func() time.Time { return now }),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), sessionToken.Token) ||
+		strings.Contains(rec.Body.String(), "auth_provider") {
+		t.Fatalf("response leaked session token or claims: %s", rec.Body.String())
+	}
+	var body api.DiagnosisAuthCheckResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Subject != "operator-1" ||
+		body.Mode != string(api.DiagnosisAuthCheckResponseModeOidc) ||
+		!body.RoleAuthorized ||
+		!slices.Equal(body.Roles, []string{"admin"}) ||
+		!body.CheckedAt.Equal(now) {
+		t.Fatalf("check response = %+v", body)
+	}
+}
+
+func TestIssueDiagnosisAuthSessionExchangesLDAPCredentialsForSessionToken(t *testing.T) {
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk": {
+			{Principal: ports.AuthPrincipal{
+				Subject: "operator-1",
+				Roles: []ports.AuthRole{
+					ports.AuthRoleOwner,
+					ports.AuthRoleAdmin,
+					ports.AuthRole("internal-provider-role"),
+				},
+				Claims: json.RawMessage(`{"email":"operator@example.com","token":"claim-secret"}`),
+			}},
+		},
+	})
+	now := time.Date(2026, 6, 21, 5, 0, 0, 0, time.UTC)
+	sessionIssuer := newHTTPTestDiagnosisSessionIssuer(t, now)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/session", nil)
+	req.Header.Set("Authorization", "Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk")
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("A", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "ldap"),
+		WithDiagnosisAuthSessionIssuer(sessionIssuer),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if calls := authProvider.Calls("Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk"); calls != 1 {
+		t.Fatalf("auth calls = %d, want 1", calls)
+	}
+	if strings.Contains(rec.Body.String(), "claim-secret") ||
+		strings.Contains(rec.Body.String(), "b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk") ||
+		strings.Contains(rec.Body.String(), "ldap-password") {
+		t.Fatalf("response leaked credentials or claims: %s", rec.Body.String())
+	}
+
+	var body api.DiagnosisAuthSessionResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Token == "" ||
+		body.Subject != "operator-1" ||
+		body.Mode != string(api.DiagnosisAuthSessionResponseModeLdap) ||
+		!body.CheckedAt.Equal(now) ||
+		!body.ExpiresAt.Equal(now.Add(diagnosisauth.DefaultSessionTTL)) ||
+		!body.RoleAuthorized ||
+		!slices.Equal(body.Roles, []string{"owner", "admin"}) {
+		t.Fatalf("session response = %+v", body)
+	}
+	principal, err := sessionIssuer.AuthenticateAuthorization(context.Background(), "Bearer "+body.Token)
+	if err != nil {
+		t.Fatalf("session token authenticate: %v", err)
+	}
+	if principal.Subject != "operator-1" ||
+		!slices.Equal(principal.Roles, []ports.AuthRole{ports.AuthRoleOwner, ports.AuthRoleAdmin}) ||
+		!strings.Contains(string(principal.Claims), `"auth_provider":"ldap"`) ||
+		strings.Contains(string(principal.Claims), "claim-secret") {
+		t.Fatalf("session principal = %+v claims=%s", principal, string(principal.Claims))
+	}
+}
+
+func TestIssueDiagnosisAuthSessionPassesOIDCAccessTokenAuxiliaryCredential(t *testing.T) {
+	authProvider := &auxiliaryCredentialAuthProvider{
+		principal: ports.AuthPrincipal{
+			Subject: "operator-1",
+			Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+		},
+	}
+	now := time.Date(2026, 6, 21, 5, 0, 0, 0, time.UTC)
+	sessionIssuer := newHTTPTestDiagnosisSessionIssuer(t, now)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/session", nil)
+	req.Header.Set("Authorization", "Bearer id-token-1")
+	req.Header.Set("X-OpenClarion-OIDC-Access-Token", "access-token-1")
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("A", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "oidc"),
+		WithDiagnosisAuthSessionIssuer(sessionIssuer),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if authProvider.calls != 1 || authProvider.authorization != "Bearer id-token-1" ||
+		authProvider.credentials.OIDCAccessToken != "access-token-1" {
+		t.Fatalf("auth provider calls=%d authorization=%q credentials=%#v", authProvider.calls, authProvider.authorization, authProvider.credentials)
+	}
+	if strings.Contains(rec.Body.String(), "id-token-1") ||
+		strings.Contains(rec.Body.String(), "access-token-1") {
+		t.Fatalf("response leaked OIDC tokens: %s", rec.Body.String())
+	}
+}
+
+func TestIssueDiagnosisAuthSessionAllowsIdentityWithoutProviderRoleMapping(t *testing.T) {
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk": {
+			{Principal: ports.AuthPrincipal{
+				Subject: "operator-1",
+				Roles:   []ports.AuthRole{ports.AuthRole("viewer")},
+			}},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/session", nil)
+	req.Header.Set("Authorization", "Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk")
+	sessionIssuer := newHTTPTestDiagnosisSessionIssuer(t, time.Date(2026, 6, 21, 5, 0, 0, 0, time.UTC))
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("A", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "ldap"),
+		WithDiagnosisAuthSessionIssuer(sessionIssuer),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk") ||
+		strings.Contains(rec.Body.String(), "ldap-password") {
+		t.Fatalf("response leaked credentials: %s", rec.Body.String())
+	}
+	var body api.DiagnosisAuthSessionResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Token == "" || body.Subject != "operator-1" || body.RoleAuthorized || len(body.Roles) != 0 {
+		t.Fatalf("session response = %+v, want identity session without provider roles", body)
+	}
+	principal, err := sessionIssuer.AuthenticateAuthorization(context.Background(), "Bearer "+body.Token)
+	if err != nil {
+		t.Fatalf("session token authenticate: %v", err)
+	}
+	if principal.Subject != "operator-1" || len(principal.Roles) != 0 ||
+		!strings.Contains(string(principal.Claims), `"auth_provider":"ldap"`) {
+		t.Fatalf("session principal = %+v claims=%s", principal, string(principal.Claims))
+	}
+}
+
+func TestIssueDiagnosisAuthSessionRejectsUnconfiguredSessionIssuer(t *testing.T) {
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk": {
+			{Principal: ports.AuthPrincipal{
+				Subject: "operator-1",
+				Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+			}},
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/session", nil)
+	req.Header.Set("Authorization", "Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk")
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("A", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "ldap"),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", rec.Code, rec.Body.String())
+	}
+	if authProvider.Calls("Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk") != 0 {
+		t.Fatalf("auth provider was called before session issuer readiness check")
+	}
+}
+
+func TestGetDiagnosisAuthStatusReturnsNonSensitiveProviderMode(t *testing.T) {
+	tests := []struct {
+		name          string
+		providerName  string
+		configure     bool
+		wantMode      string
+		wantReady     bool
+		wantSupported []api.DiagnosisAuthStatusResponseSupportedModesItem
+	}{
+		{
+			name:          "not configured",
+			wantMode:      string(api.DiagnosisAuthStatusResponseModeNone),
+			wantReady:     false,
+			wantSupported: nil,
+		},
+		{
+			name:          "ldap",
+			providerName:  "ldap",
+			configure:     true,
+			wantMode:      string(api.DiagnosisAuthStatusResponseModeLdap),
+			wantReady:     true,
+			wantSupported: []api.DiagnosisAuthStatusResponseSupportedModesItem{api.DiagnosisAuthStatusResponseSupportedModesItemLdap},
+		},
+		{
+			name:          "static",
+			providerName:  "static",
+			configure:     true,
+			wantMode:      string(api.DiagnosisAuthStatusResponseModeStatic),
+			wantReady:     true,
+			wantSupported: []api.DiagnosisAuthStatusResponseSupportedModesItem{api.DiagnosisAuthStatusResponseSupportedModesItemStatic},
+		},
+		{
+			name:          "unknown",
+			providerName:  "custom-provider",
+			configure:     true,
+			wantMode:      string(api.DiagnosisAuthStatusResponseModeUnknown),
+			wantReady:     true,
+			wantSupported: []api.DiagnosisAuthStatusResponseSupportedModesItem{api.DiagnosisAuthStatusResponseSupportedModesItemUnknown},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			authProvider := authfake.New(map[string][]authfake.Result{
+				"Bearer secret-token": {
+					{Principal: ports.AuthPrincipal{Subject: "operator-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}}},
+				},
+			})
+			opts := []ServerOption{}
+			if tc.configure {
+				opts = append(opts, WithDiagnosisAuth(
+					authProvider,
+					newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("A", diagnosisauth.DefaultTokenBytes))),
+					&fakeDiagnosisSessionResolver{},
+					tc.providerName,
+				))
+			}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/auth/status", nil)
+
+			testHandler(&fakeUOWFactory{}, opts...).ServeHTTP(rec, req)
+
+			if rec.Code != stdhttp.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+			}
+			var body api.DiagnosisAuthStatusResponse
+			if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+				t.Fatalf("decode body: %v", err)
+			}
+			if body.Configured != tc.wantReady {
+				t.Fatalf("configured = %v, want %v", body.Configured, tc.wantReady)
+			}
+			if body.Mode != tc.wantMode {
+				t.Fatalf("mode = %q, want %q", body.Mode, tc.wantMode)
+			}
+			if !slices.Equal(body.SupportedModes, tc.wantSupported) {
+				t.Fatalf("supported_modes = %#v, want %#v", body.SupportedModes, tc.wantSupported)
+			}
+			if strings.Contains(rec.Body.String(), "secret-token") || strings.Contains(rec.Body.String(), "operator-1") {
+				t.Fatalf("response leaked auth material: %s", rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestGetDiagnosisAuthStatusIncludesRoleMappingAndTransportPolicy(t *testing.T) {
+	authProvider := roleMappingStatusAuthProvider{
+		status: ports.AuthRoleMappingStatus{
+			OwnerMappingCount: 1,
+			DefaultRoles:      []ports.AuthRole{ports.AuthRoleAdmin},
+		},
+		transportStatus: ports.AuthTransportPolicyStatus{
+			Security: ports.AuthTransportSecurityStartTLS,
+		},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/auth/status", nil)
+
+	testHandler(&fakeUOWFactory{},
+		WithDiagnosisAuth(
+			authProvider,
+			newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("N", diagnosisauth.DefaultTokenBytes))),
+			&fakeDiagnosisSessionResolver{},
+			"ldap",
+		),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DiagnosisAuthStatusResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Mode != string(api.DiagnosisAuthStatusResponseModeLdap) {
+		t.Fatalf("mode = %q, want ldap", body.Mode)
+	}
+	if !slices.Equal(body.SupportedModes, []api.DiagnosisAuthStatusResponseSupportedModesItem{
+		api.DiagnosisAuthStatusResponseSupportedModesItemLdap,
+	}) {
+		t.Fatalf("supported_modes = %#v", body.SupportedModes)
+	}
+	if body.RoleMapping == nil || !body.RoleMapping.Configured {
+		t.Fatalf("role_mapping = %+v, want configured summary", body.RoleMapping)
+	}
+	if body.RoleMapping.OwnerMappingCount != 1 || body.RoleMapping.AdminMappingCount != 0 {
+		t.Fatalf("role_mapping counts = %+v", body.RoleMapping)
+	}
+	if !slices.Equal(body.RoleMapping.DefaultRoles, []api.DiagnosisAuthRoleMappingStatusDefaultRolesItem{
+		api.DiagnosisAuthRoleMappingStatusDefaultRolesItemAdmin,
+	}) {
+		t.Fatalf("default_roles = %#v, want admin", body.RoleMapping.DefaultRoles)
+	}
+	if body.TransportPolicy == nil ||
+		body.TransportPolicy.Security != string(api.StartTLS) {
+		t.Fatalf("transport_policy = %+v, want start_tls", body.TransportPolicy)
+	}
+	for _, leaked := range []string{
+		"ldap.example.com",
+		"cn=openclarion",
+		"service-password",
+	} {
+		if strings.Contains(rec.Body.String(), leaked) {
+			t.Fatalf("response leaked transport material %q: %s", leaked, rec.Body.String())
+		}
+	}
+}
+
+func TestGetDiagnosisAuthStatusIncludesNonSensitiveRoleMapping(t *testing.T) {
+	authProvider := roleMappingStatusAuthProvider{
+		status: ports.AuthRoleMappingStatus{
+			OwnerMappingCount: 2,
+			AdminMappingCount: 1,
+			DefaultRoles:      []ports.AuthRole{ports.AuthRoleOwner},
+		},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/auth/status", nil)
+
+	testHandler(&fakeUOWFactory{}, WithDiagnosisAuth(
+		authProvider,
+		newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("M", diagnosisauth.DefaultTokenBytes))),
+		&fakeDiagnosisSessionResolver{},
+		"wecom",
+	)).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DiagnosisAuthStatusResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.RoleMapping == nil {
+		t.Fatalf("role_mapping = nil, want summary")
+	}
+	if !body.RoleMapping.Configured {
+		t.Fatalf("role_mapping.configured = false, want true")
+	}
+	if body.RoleMapping.OwnerMappingCount != 2 {
+		t.Fatalf("owner_mapping_count = %d, want 2", body.RoleMapping.OwnerMappingCount)
+	}
+	if body.RoleMapping.AdminMappingCount != 1 {
+		t.Fatalf("admin_mapping_count = %d, want 1", body.RoleMapping.AdminMappingCount)
+	}
+	if !slices.Equal(body.RoleMapping.DefaultRoles, []api.DiagnosisAuthRoleMappingStatusDefaultRolesItem{
+		api.DiagnosisAuthRoleMappingStatusDefaultRolesItemOwner,
+	}) {
+		t.Fatalf("default_roles = %#v, want owner", body.RoleMapping.DefaultRoles)
+	}
+	for _, leaked := range []string{
+		"cn=openclarion-owner",
+		"wecom-user-1",
+		"secret-token",
+	} {
+		if strings.Contains(rec.Body.String(), leaked) {
+			t.Fatalf("response leaked sensitive role mapping material %q: %s", leaked, rec.Body.String())
+		}
+	}
+}
+
+func TestVerifyDiagnosisWeComAppCallbackReturnsEcho(t *testing.T) {
+	verifier := &fakeDiagnosisWeComAppCallback{
+		echo: "callback-echo-token",
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodGet,
+		"/api/v1/diagnosis/wecom/app-callback?msg_signature=sig-1&timestamp=1700000000&nonce=nonce-1&echostr=encrypted-echo-1",
+		nil,
+	)
+
+	testHandler(&fakeUOWFactory{}, WithDiagnosisWeComAppCallback(verifier)).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if got := strings.TrimSpace(rec.Header().Get("Content-Type")); !strings.HasPrefix(got, "text/plain") {
+		t.Fatalf("Content-Type = %q, want text/plain", got)
+	}
+	if rec.Body.String() != "callback-echo-token" {
+		t.Fatalf("body = %q, want callback echo", rec.Body.String())
+	}
+	if verifier.echoSignature != "sig-1" ||
+		verifier.echoTimestamp != "1700000000" ||
+		verifier.echoNonce != "nonce-1" ||
+		verifier.echoEncrypted != "encrypted-echo-1" {
+		t.Fatalf("verifier echo inputs = %+v", verifier)
+	}
+}
+
+func TestAcceptDiagnosisWeComAppCallbackAcknowledgesMessage(t *testing.T) {
+	verifier := &fakeDiagnosisWeComAppCallback{
+		message: wecomcallback.Message{
+			FromUserName: "operator-1",
+			MsgType:      "text",
+			Content:      "sensitive message body",
+		},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/diagnosis/wecom/app-callback?msg_signature=sig-2&timestamp=1700000001&nonce=nonce-2",
+		strings.NewReader("<xml><Encrypt>encrypted-body-1</Encrypt></xml>"),
+	)
+
+	testHandler(&fakeUOWFactory{}, WithDiagnosisWeComAppCallback(verifier)).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "success" {
+		t.Fatalf("body = %q, want provider acknowledgement", rec.Body.String())
+	}
+	if verifier.messageSignature != "sig-2" ||
+		verifier.messageTimestamp != "1700000001" ||
+		verifier.messageNonce != "nonce-2" ||
+		string(verifier.messageRawXML) != "<xml><Encrypt>encrypted-body-1</Encrypt></xml>" {
+		t.Fatalf("verifier message inputs = %+v", verifier)
+	}
+	if strings.Contains(rec.Body.String(), "operator-1") ||
+		strings.Contains(rec.Body.String(), "sensitive message body") ||
+		strings.Contains(rec.Body.String(), "encrypted-body-1") {
+		t.Fatalf("response leaked callback material: %s", rec.Body.String())
+	}
+}
+
+func TestAcceptDiagnosisWeComAppCallbackRoutesMessage(t *testing.T) {
+	messageHandler := &fakeDiagnosisWeComAppCallbackMessageHandler{
+		result: diagnosiswecomcallback.Result{
+			Status:    diagnosiswecomcallback.StatusSubmitted,
+			SessionID: "diagnosis-session-1",
+			MessageID: "wecom-app:msg-1",
+		},
+	}
+	verifier := &fakeDiagnosisWeComAppCallback{
+		message: wecomcallback.Message{
+			FromUserName: "operator-1",
+			MsgID:        "wecom-msg-1",
+			MsgType:      "text",
+			Content:      "diagnosis-session-1 please continue",
+		},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/diagnosis/wecom/app-callback?msg_signature=sig-2&timestamp=1700000001&nonce=nonce-2",
+		strings.NewReader("<xml><Encrypt>encrypted-body-1</Encrypt></xml>"),
+	)
+
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisWeComAppCallback(verifier),
+		WithDiagnosisWeComAppCallbackMessageHandler(messageHandler),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != "success" {
+		t.Fatalf("body = %q, want provider acknowledgement", rec.Body.String())
+	}
+	if messageHandler.called != 1 ||
+		messageHandler.req.Message.FromUserName != "operator-1" ||
+		messageHandler.req.Message.Content != "diagnosis-session-1 please continue" {
+		t.Fatalf("message handler request = %+v called=%d", messageHandler.req, messageHandler.called)
+	}
+}
+
+func TestAcceptDiagnosisWeComAppCallbackWorkflowRouterAuthorizesSender(t *testing.T) {
+	workflow := &fakeDiagnosisRoomWorkflowClient{}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{
+			Allowed:   true,
+			CheckedAt: time.Date(2026, 6, 29, 8, 0, 0, 0, time.UTC),
+		},
+	}
+	configRepo := &fakeConfigRepo{
+		directoryUsers: []domain.DirectoryUser{{
+			Provider:              "ops_iam",
+			Subject:               "operator-1",
+			ExternalID:            "operator-1",
+			DisplayName:           "Operator One",
+			Active:                true,
+			DepartmentExternalIDs: []string{"dept-1"},
+		}},
+	}
+	diagnosisRepo := &fakeDiagnosisRepo{
+		chatSessions: []domain.ChatSessionWithTask{{
+			Session: domain.ChatSession{
+				SessionKey:   "diagnosis-session-1",
+				OwnerSubject: "owner-1",
+			},
+		}},
+	}
+	verifier := &fakeDiagnosisWeComAppCallback{
+		message: wecomcallback.Message{
+			FromUserName: "operator-1",
+			CreateTime:   1700000001,
+			MsgID:        "wecom-msg-1",
+			MsgType:      "text",
+			Content:      "diagnosis-session-1 please continue",
+		},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/diagnosis/wecom/app-callback?msg_signature=sig-2&timestamp=1700000001&nonce=nonce-2",
+		strings.NewReader("<xml><Encrypt>encrypted-body-1</Encrypt></xml>"),
+	)
+
+	testHandler(
+		&fakeUOWFactory{configRepo: configRepo, diagnosisRepo: diagnosisRepo},
+		WithRBACAuthorizer(authorizer),
+		WithDiagnosisWeComAppCallback(verifier),
+		WithDiagnosisWeComAppCallbackWorkflowRouter(workflow),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if authorizer.called != 1 ||
+		authorizer.req.Principal.Subject != "operator-1" ||
+		!slices.Contains(authorizer.req.Principal.DepartmentKeys, "dept-1") ||
+		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomParticipate ||
+		authorizer.req.ScopeKind != domain.RBACScopeKindDiagnosisRoom ||
+		authorizer.req.ScopeKey != "diagnosis-session-1" {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+	workflow.mu.Lock()
+	submitCalled := workflow.submitCalled
+	submitReq := workflow.submitReq
+	workflow.mu.Unlock()
+	if submitCalled != 1 ||
+		submitReq.SessionID != "diagnosis-session-1" ||
+		submitReq.ActorSubject != "operator-1" ||
+		submitReq.Message != "diagnosis-session-1 please continue" {
+		t.Fatalf("submit request = %+v called=%d", submitReq, submitCalled)
+	}
+}
+
+func TestAcceptDiagnosisWeComAppCallbackWorkflowRouterSkipsUnauthorizedSender(t *testing.T) {
+	workflow := &fakeDiagnosisRoomWorkflowClient{}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{
+			Allowed:   false,
+			CheckedAt: time.Date(2026, 6, 29, 8, 0, 0, 0, time.UTC),
+		},
+	}
+	verifier := &fakeDiagnosisWeComAppCallback{
+		message: wecomcallback.Message{
+			FromUserName: "operator-1",
+			CreateTime:   1700000001,
+			MsgID:        "wecom-msg-1",
+			MsgType:      "text",
+			Content:      "diagnosis-session-1 please continue",
+		},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/diagnosis/wecom/app-callback?msg_signature=sig-2&timestamp=1700000001&nonce=nonce-2",
+		strings.NewReader("<xml><Encrypt>encrypted-body-1</Encrypt></xml>"),
+	)
+
+	testHandler(
+		&fakeUOWFactory{configRepo: &fakeConfigRepo{}, diagnosisRepo: &fakeDiagnosisRepo{}},
+		WithRBACAuthorizer(authorizer),
+		WithDiagnosisWeComAppCallback(verifier),
+		WithDiagnosisWeComAppCallbackWorkflowRouter(workflow),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	workflow.mu.Lock()
+	submitCalled := workflow.submitCalled
+	workflow.mu.Unlock()
+	if submitCalled != 0 {
+		t.Fatalf("SubmitDiagnosisTurn calls = %d, want 0", submitCalled)
+	}
+}
+
+func TestDiagnosisWeComAppCallbackRejectsUnconfiguredAndInvalidInputs(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		method     string
+		path       string
+		body       string
+		verifier   *fakeDiagnosisWeComAppCallback
+		wantStatus int
+		wantBody   string
+	}{
+		{
+			name:       "verify unconfigured",
+			method:     stdhttp.MethodGet,
+			path:       "/api/v1/diagnosis/wecom/app-callback?msg_signature=sig-1&timestamp=1700000000&nonce=nonce-1&echostr=encrypted-echo-1",
+			wantStatus: stdhttp.StatusServiceUnavailable,
+			wantBody:   "Enterprise WeChat app callback is not configured",
+		},
+		{
+			name:       "accept unconfigured",
+			method:     stdhttp.MethodPost,
+			path:       "/api/v1/diagnosis/wecom/app-callback?msg_signature=sig-2&timestamp=1700000001&nonce=nonce-2",
+			body:       "<xml><Encrypt>encrypted-body-1</Encrypt></xml>",
+			wantStatus: stdhttp.StatusServiceUnavailable,
+			wantBody:   "Enterprise WeChat app callback is not configured",
+		},
+		{
+			name:   "verify rejected",
+			method: stdhttp.MethodGet,
+			path:   "/api/v1/diagnosis/wecom/app-callback?msg_signature=sig-1&timestamp=1700000000&nonce=nonce-1&echostr=encrypted-echo-1",
+			verifier: &fakeDiagnosisWeComAppCallback{
+				echoErr: fmt.Errorf("secret encrypted-echo-1 failed"),
+			},
+			wantStatus: stdhttp.StatusBadRequest,
+			wantBody:   "Enterprise WeChat app callback verification failed",
+		},
+		{
+			name:   "message rejected",
+			method: stdhttp.MethodPost,
+			path:   "/api/v1/diagnosis/wecom/app-callback?msg_signature=sig-2&timestamp=1700000001&nonce=nonce-2",
+			body:   "<xml><Encrypt>encrypted-body-1</Encrypt></xml>",
+			verifier: &fakeDiagnosisWeComAppCallback{
+				messageErr: fmt.Errorf("secret encrypted-body-1 failed"),
+			},
+			wantStatus: stdhttp.StatusBadRequest,
+			wantBody:   "Enterprise WeChat app callback message rejected",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), tc.method, tc.path, strings.NewReader(tc.body))
+			opts := []ServerOption{}
+			if tc.verifier != nil {
+				opts = append(opts, WithDiagnosisWeComAppCallback(tc.verifier))
+			}
+			testHandler(&fakeUOWFactory{}, opts...).ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			if !strings.Contains(rec.Body.String(), tc.wantBody) {
+				t.Fatalf("body = %q, want %q", rec.Body.String(), tc.wantBody)
+			}
+			for _, leaked := range []string{"encrypted-echo-1", "encrypted-body-1", "secret"} {
+				if strings.Contains(rec.Body.String(), leaked) {
+					t.Fatalf("response leaked callback material %q: %s", leaked, rec.Body.String())
+				}
+			}
+		})
+	}
+}
+
+func TestAcceptDiagnosisWeComAppCallbackPropagatesMessageHandlingFailure(t *testing.T) {
+	messageHandler := &fakeDiagnosisWeComAppCallbackMessageHandler{
+		err: fmt.Errorf("workflow failed for sensitive message body"),
+	}
+	verifier := &fakeDiagnosisWeComAppCallback{
+		message: wecomcallback.Message{
+			FromUserName: "operator-1",
+			MsgType:      "text",
+			Content:      "sensitive message body",
+		},
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/diagnosis/wecom/app-callback?msg_signature=sig-2&timestamp=1700000001&nonce=nonce-2",
+		strings.NewReader("<xml><Encrypt>encrypted-body-1</Encrypt></xml>"),
+	)
+
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisWeComAppCallback(verifier),
+		WithDiagnosisWeComAppCallbackMessageHandler(messageHandler),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body=%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Enterprise WeChat app callback message handling failed") {
+		t.Fatalf("body = %q, want handling failure", rec.Body.String())
+	}
+	for _, leaked := range []string{"operator-1", "sensitive message body", "encrypted-body-1"} {
+		if strings.Contains(rec.Body.String(), leaked) {
+			t.Fatalf("response leaked callback material %q: %s", leaked, rec.Body.String())
+		}
+	}
+}
+
+func TestCheckDiagnosisAuthRejectsBadInputs(t *testing.T) {
+	tests := []struct {
+		name          string
+		authHeader    string
+		principal     ports.AuthPrincipal
+		authErr       error
+		configureAuth bool
+		wantStatus    int
+		wantAuthCalls int
+	}{
+		{
+			name:       "auth not configured",
+			authHeader: "Bearer token-1",
+			wantStatus: stdhttp.StatusServiceUnavailable,
+		},
+		{
+			name:          "missing authorization",
+			configureAuth: true,
+			wantStatus:    stdhttp.StatusUnauthorized,
+		},
+		{
+			name:          "unsupported authorization scheme",
+			authHeader:    "Digest token-1",
+			configureAuth: true,
+			wantStatus:    stdhttp.StatusUnauthorized,
+		},
+		{
+			name:          "provider rejects credentials",
+			authHeader:    "Bearer token-1",
+			authErr:       diagnosisauth.ErrUnauthenticated,
+			configureAuth: true,
+			wantStatus:    stdhttp.StatusUnauthorized,
+			wantAuthCalls: 1,
+		},
+		{
+			name:          "provider returns blank subject",
+			authHeader:    "Bearer token-1",
+			principal:     ports.AuthPrincipal{Subject: " ", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
+			configureAuth: true,
+			wantStatus:    stdhttp.StatusUnauthorized,
+			wantAuthCalls: 1,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			authProvider := authfake.New(map[string][]authfake.Result{
+				"Bearer token-1": {
+					{Principal: tc.principal, Err: tc.authErr},
+				},
+			})
+			opts := []ServerOption{}
+			if tc.configureAuth {
+				opts = append(opts, WithDiagnosisAuth(
+					authProvider,
+					newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("A", diagnosisauth.DefaultTokenBytes))),
+					&fakeDiagnosisSessionResolver{},
+				))
+			}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/check", nil)
+			if tc.authHeader != "" {
+				req.Header.Set("Authorization", tc.authHeader)
+			}
+			testHandler(&fakeUOWFactory{}, opts...).ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
+			}
+			if strings.Contains(rec.Body.String(), "token-1") {
+				t.Fatalf("response leaked credentials: %s", rec.Body.String())
+			}
+			if calls := authProvider.Calls("Bearer token-1"); calls != tc.wantAuthCalls {
+				t.Fatalf("auth calls = %d, want %d", calls, tc.wantAuthCalls)
 			}
 		})
 	}
@@ -2443,9 +7679,13 @@ func TestIssueDiagnosisWSTicketAuthenticatesAndIssuesTicket(t *testing.T) {
 	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("B", diagnosisauth.DefaultTokenBytes)))
 	authProvider := authfake.New(map[string][]authfake.Result{
 		"Bearer oidc-token": {
-			{Principal: ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}}},
+			{Principal: ports.AuthPrincipal{Subject: "responder-1"}},
 		},
 	})
+	configRepo := &fakeConfigRepo{}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: now},
+	}
 	resolver := &fakeDiagnosisSessionResolver{
 		sessions: map[string]diagnosisauth.SessionRef{
 			"session-1": {SessionID: "session-1", OwnerSubject: "owner-1"},
@@ -2456,8 +7696,9 @@ func TestIssueDiagnosisWSTicketAuthenticatesAndIssuesTicket(t *testing.T) {
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/ws-ticket", strings.NewReader(`{"session_id":"session-1"}`))
 	req.Header.Set("Authorization", "Bearer oidc-token")
 	testHandler(
-		&fakeUOWFactory{},
+		&fakeUOWFactory{configRepo: configRepo},
 		WithDiagnosisAuth(authProvider, service, resolver),
+		WithRBACAuthorizer(authorizer),
 		withDiagnosisClock(func() time.Time { return now }),
 	).ServeHTTP(rec, req)
 
@@ -2469,6 +7710,16 @@ func TestIssueDiagnosisWSTicketAuthenticatesAndIssuesTicket(t *testing.T) {
 	}
 	if resolver.called != 1 || resolver.sessionID != "session-1" {
 		t.Fatalf("resolver called=%d session=%q", resolver.called, resolver.sessionID)
+	}
+	if authorizer.called != 1 ||
+		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomParticipate ||
+		authorizer.req.ScopeKind != domain.RBACScopeKindDiagnosisRoom ||
+		authorizer.req.ScopeKey != "session-1" ||
+		authorizer.req.Principal.Subject != "responder-1" {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+	if configRepo.lastDirectorySubject != "responder-1" {
+		t.Fatalf("directory subject = %q, want responder-1", configRepo.lastDirectorySubject)
 	}
 
 	var body api.DiagnosisWSTicketResponse
@@ -2482,135 +7733,34 @@ func TestIssueDiagnosisWSTicketAuthenticatesAndIssuesTicket(t *testing.T) {
 		t.Fatalf("response = %+v", body)
 	}
 
-	consumed, err := service.ConsumeTicket(context.Background(), body.Ticket, resolver.sessions["session-1"], now.Add(time.Second))
+	consumed, err := service.ConsumeAuthorizedTicket(context.Background(), body.Ticket, "session-1", now.Add(time.Second))
 	if err != nil {
 		t.Fatalf("issued ticket should be consumable: %v", err)
 	}
-	if consumed.Token != "" || consumed.Subject != "owner-1" {
-		t.Fatalf("consumed ticket = %+v, want redacted owner ticket", consumed)
-	}
-}
-
-func TestGetDiagnosisAuthStatusReturnsEmptySupportedModesWhenDisabled(t *testing.T) {
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/auth/status", nil)
-	testHandler(&fakeUOWFactory{}).ServeHTTP(rec, req)
-
-	if rec.Code != stdhttp.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	if body := rec.Body.String(); !strings.Contains(body, `"supported_modes":[]`) {
-		t.Fatalf("body = %s, want supported_modes JSON array", body)
-	}
-}
-
-func TestGetDiagnosisAuthStatusReportsSessionIssuerOnlyMode(t *testing.T) {
-	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/auth/status", nil)
-	testHandler(
-		&fakeUOWFactory{},
-		WithDiagnosisAuth(nil, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("G", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "oidc"),
-		WithDiagnosisAuthSessionIssuer(newHTTPTestSessionTokenService(t, now)),
-	).ServeHTTP(rec, req)
-
-	if rec.Code != stdhttp.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var body api.DiagnosisAuthStatusResponse
-	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if !body.Configured || body.Mode != string(api.DiagnosisAuthStatusResponseModeOidc) {
-		t.Fatalf("body = %+v, want configured oidc auth status", body)
-	}
-	if len(body.SupportedModes) != 1 || body.SupportedModes[0] != api.DiagnosisAuthStatusResponseSupportedModesItemOidc {
-		t.Fatalf("supported_modes = %+v, want [oidc]", body.SupportedModes)
-	}
-}
-
-func TestIssueDiagnosisAuthSessionIssuesBrowserToken(t *testing.T) {
-	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
-	authProvider := authfake.New(map[string][]authfake.Result{
-		"Bearer oidc-token": {
-			{Principal: ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}}},
-		},
-	})
-	sessionIssuer := newHTTPTestSessionTokenService(t, now)
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/session", nil)
-	req.Header.Set("Authorization", "Bearer oidc-token")
-	testHandler(
-		&fakeUOWFactory{},
-		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("S", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "oidc"),
-		WithDiagnosisAuthSessionIssuer(sessionIssuer),
-		withDiagnosisClock(func() time.Time { return now }),
-	).ServeHTTP(rec, req)
-
-	if rec.Code != stdhttp.StatusCreated {
-		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
-	}
-	var body api.DiagnosisAuthSessionResponse
-	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body.Subject != "owner-1" || body.Mode != string(api.DiagnosisAuthSessionResponseModeOidc) || !body.RoleAuthorized {
-		t.Fatalf("body = %+v", body)
-	}
-	principal, err := sessionIssuer.AuthenticateBearer(context.Background(), "Bearer "+body.Token)
-	if err != nil {
-		t.Fatalf("AuthenticateBearer issued session: %v", err)
-	}
-	if principal.Subject != "owner-1" {
-		t.Fatalf("principal = %+v", principal)
-	}
-}
-
-func TestCheckDiagnosisAuthAcceptsBrowserSessionToken(t *testing.T) {
-	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
-	sessionIssuer := newHTTPTestSessionTokenService(t, now)
-	session, err := sessionIssuer.IssueToken(context.Background(), ports.AuthPrincipal{
-		Subject: "owner-1",
-		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
-	}, "oidc")
-	if err != nil {
-		t.Fatalf("IssueToken: %v", err)
-	}
-
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/check", nil)
-	req.Header.Set("Authorization", "Bearer "+session.Token)
-	testHandler(
-		&fakeUOWFactory{},
-		WithDiagnosisAuth(&neverAuthProvider{}, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("T", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "oidc"),
-		WithDiagnosisAuthSessionIssuer(sessionIssuer),
-		withDiagnosisClock(func() time.Time { return now }),
-	).ServeHTTP(rec, req)
-
-	if rec.Code != stdhttp.StatusOK {
-		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-	var body api.DiagnosisAuthCheckResponse
-	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if body.Subject != "owner-1" || body.Mode != string(api.DiagnosisAuthCheckResponseModeOidc) || !body.RoleAuthorized {
-		t.Fatalf("body = %+v", body)
+	if consumed.Token != "" || consumed.Subject != "responder-1" {
+		t.Fatalf("consumed ticket = %+v, want redacted responder ticket", consumed)
 	}
 }
 
 func TestIssueDiagnosisWSTicketAcceptsBrowserSessionToken(t *testing.T) {
-	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
-	sessionIssuer := newHTTPTestSessionTokenService(t, now)
+	now := time.Date(2026, 6, 27, 9, 0, 0, 0, time.UTC)
+	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("Q", diagnosisauth.DefaultTokenBytes)))
+	sessionIssuer := newHTTPTestDiagnosisSessionIssuer(t, now)
 	sessionToken, err := sessionIssuer.IssueToken(context.Background(), ports.AuthPrincipal{
-		Subject: "owner-1",
+		Subject: "operator-1",
 		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
 	}, "oidc")
 	if err != nil {
 		t.Fatalf("IssueToken: %v", err)
 	}
-	ticketService := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("U", diagnosisauth.DefaultTokenBytes)))
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Bearer oidc-token": {
+			{Principal: ports.AuthPrincipal{Subject: "fallback-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}}},
+		},
+	})
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: now},
+	}
 	resolver := &fakeDiagnosisSessionResolver{
 		sessions: map[string]diagnosisauth.SessionRef{
 			"session-1": {SessionID: "session-1", OwnerSubject: "owner-1"},
@@ -2621,21 +7771,33 @@ func TestIssueDiagnosisWSTicketAcceptsBrowserSessionToken(t *testing.T) {
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/ws-ticket", strings.NewReader(`{"session_id":"session-1"}`))
 	req.Header.Set("Authorization", "Bearer "+sessionToken.Token)
 	testHandler(
-		&fakeUOWFactory{},
-		WithDiagnosisAuth(&neverAuthProvider{}, ticketService, resolver, "oidc"),
+		&fakeUOWFactory{configRepo: &fakeConfigRepo{}},
+		WithDiagnosisAuth(authProvider, service, resolver, "oidc"),
 		WithDiagnosisAuthSessionIssuer(sessionIssuer),
+		WithRBACAuthorizer(authorizer),
 		withDiagnosisClock(func() time.Time { return now }),
 	).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusCreated {
 		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
 	}
+	if authProvider.Calls("Bearer oidc-token") != 0 || authProvider.Calls("Bearer "+sessionToken.Token) != 0 {
+		t.Fatalf("auth provider should not be called; requests=%v", authProvider.Requests())
+	}
+	if authorizer.called != 1 || authorizer.req.Principal.Subject != "operator-1" {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+
 	var body api.DiagnosisWSTicketResponse
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if _, err := ticketService.ConsumeTicket(context.Background(), body.Ticket, resolver.sessions["session-1"], now.Add(time.Second)); err != nil {
+	consumed, err := service.ConsumeAuthorizedTicket(context.Background(), body.Ticket, "session-1", now.Add(time.Second))
+	if err != nil {
 		t.Fatalf("issued ticket should be consumable: %v", err)
+	}
+	if consumed.Subject != "operator-1" {
+		t.Fatalf("consumed subject = %q, want operator-1", consumed.Subject)
 	}
 }
 
@@ -2648,6 +7810,7 @@ func TestIssueDiagnosisWSTicketRejectsBadInputs(t *testing.T) {
 		principal     ports.AuthPrincipal
 		session       diagnosisauth.SessionRef
 		resolverErr   error
+		denyRBAC      bool
 		wantStatus    int
 		wantAuthCalls int
 	}{
@@ -2685,11 +7848,12 @@ func TestIssueDiagnosisWSTicketRejectsBadInputs(t *testing.T) {
 			wantAuthCalls: 0,
 		},
 		{
-			name:          "owner cannot issue for another subject",
+			name:          "local rbac denied",
 			authHeader:    "Bearer oidc-token",
 			body:          `{"session_id":"session-1"}`,
-			principal:     ports.AuthPrincipal{Subject: "owner-2", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
+			principal:     ports.AuthPrincipal{Subject: "responder-1"},
 			session:       diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"},
+			denyRBAC:      true,
 			wantStatus:    stdhttp.StatusForbidden,
 			wantAuthCalls: 1,
 		},
@@ -2717,14 +7881,21 @@ func TestIssueDiagnosisWSTicketRejectsBadInputs(t *testing.T) {
 				},
 				err: tc.resolverErr,
 			}
+			authorizer := &fakeRBACAuthorizer{
+				result: rbacusecase.AuthorizeDecision{
+					Allowed:   !tc.denyRBAC,
+					CheckedAt: now,
+				},
+			}
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/ws-ticket", strings.NewReader(tc.body))
 			if tc.authHeader != "" {
 				req.Header.Set("Authorization", tc.authHeader)
 			}
 			testHandler(
-				&fakeUOWFactory{},
+				&fakeUOWFactory{configRepo: &fakeConfigRepo{}},
 				WithDiagnosisAuth(authProvider, service, resolver),
+				WithRBACAuthorizer(authorizer),
 				withDiagnosisClock(func() time.Time { return now }),
 			).ServeHTTP(rec, req)
 
@@ -2744,6 +7915,9 @@ func TestCreateDiagnosisRoomAuthenticatesAndStartsRoom(t *testing.T) {
 			{Principal: ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}}},
 		},
 	})
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: time.Date(2026, 6, 20, 1, 0, 0, 0, time.UTC)},
+	}
 	starter := &fakeDiagnosisRoomStarter{
 		result: diagnosisroomstart.Result{
 			SessionID:          "diagnosis-session-1",
@@ -2755,11 +7929,12 @@ func TestCreateDiagnosisRoomAuthenticatesAndStartsRoom(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/rooms", strings.NewReader(`{"evidence_snapshot_id":42}`))
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/rooms", strings.NewReader(`{"evidence_snapshot_id":42,"close_notification_channel_profile_id":5}`))
 	req.Header.Set("Authorization", "Bearer oidc-token")
 	testHandler(
-		&fakeUOWFactory{},
+		&fakeUOWFactory{configRepo: &fakeConfigRepo{}},
 		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("D", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}),
+		WithRBACAuthorizer(authorizer),
 		WithDiagnosisRoomStarter(starter),
 	).ServeHTTP(rec, req)
 
@@ -2769,8 +7944,15 @@ func TestCreateDiagnosisRoomAuthenticatesAndStartsRoom(t *testing.T) {
 	if authProvider.Calls("Bearer oidc-token") != 1 {
 		t.Fatalf("auth calls = %d, want 1", authProvider.Calls("Bearer oidc-token"))
 	}
+	if authorizer.called != 1 ||
+		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomParticipate ||
+		authorizer.req.ScopeKind != domain.RBACScopeKindGlobal ||
+		authorizer.req.ScopeKey != "" {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
 	if starter.called != 1 ||
 		starter.req.EvidenceSnapshotID != 42 ||
+		starter.req.CloseNotificationChannelProfileID != 5 ||
 		starter.req.Principal.Subject != "owner-1" {
 		t.Fatalf("starter called=%d req=%+v", starter.called, starter.req)
 	}
@@ -2788,42 +7970,91 @@ func TestCreateDiagnosisRoomAuthenticatesAndStartsRoom(t *testing.T) {
 	}
 }
 
-func TestCreateDiagnosisRoomAcceptsBrowserSessionToken(t *testing.T) {
-	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
-	sessionIssuer := newHTTPTestSessionTokenService(t, now)
-	sessionToken, err := sessionIssuer.IssueToken(context.Background(), ports.AuthPrincipal{
-		Subject: "owner-1",
-		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
-	}, "oidc")
-	if err != nil {
-		t.Fatalf("IssueToken: %v", err)
+func TestCloseUnavailableDiagnosisRoomAuthenticatesAndClosesRoom(t *testing.T) {
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Bearer oidc-token": {
+			{Principal: ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}}},
+		},
+	})
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: time.Date(2026, 6, 20, 1, 4, 0, 0, time.UTC)},
 	}
-	starter := &fakeDiagnosisRoomStarter{
-		result: diagnosisroomstart.Result{
-			SessionID:          "diagnosis-session-1",
-			EvidenceSnapshotID: 42,
-			DiagnosisTaskID:    101,
-			ChatSessionID:      202,
-			Workflow:           ports.WorkflowHandle{WorkflowID: "diagnosis-room-diagnosis-session-1", RunID: "run-1"},
+	closedAt := time.Date(2026, 6, 20, 1, 5, 0, 0, time.UTC)
+	startedAt := closedAt.Add(-5 * time.Minute)
+	closer := &fakeDiagnosisRoomCloser{
+		result: diagnosisroomclose.Result{
+			Session: domain.ChatSession{
+				ID:              409,
+				DiagnosisTaskID: 309,
+				SessionKey:      "diagnosis-session-orphaned-workflow",
+				OwnerSubject:    "owner-1",
+				Status:          domain.ChatSessionStatusClosed,
+				TurnCount:       1,
+				StartedAt:       startedAt,
+				LastActivityAt:  closedAt,
+				ClosedAt:        &closedAt,
+				CloseReason:     diagnosisroomclose.DefaultUnavailableCloseReason,
+				CreatedAt:       startedAt,
+				UpdatedAt:       closedAt,
+			},
+			Task: domain.DiagnosisTask{
+				ID:                 309,
+				EvidenceSnapshotID: 9001,
+				WorkflowID:         "diagnosis-room-diagnosis-session-orphaned-workflow",
+				RunID:              "run-orphaned-9001",
+				Status:             domain.DiagnosisStatusCancelled,
+				StartedAt:          &startedAt,
+				FinishedAt:         &closedAt,
+				CreatedAt:          startedAt,
+				UpdatedAt:          closedAt,
+			},
 		},
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/rooms", strings.NewReader(`{"evidence_snapshot_id":42}`))
-	req.Header.Set("Authorization", "Bearer "+sessionToken.Token)
+	req := httptest.NewRequestWithContext(
+		context.Background(),
+		stdhttp.MethodPost,
+		"/api/v1/diagnosis/rooms/diagnosis-session-orphaned-workflow/close-unavailable",
+		strings.NewReader(`{"reason":"workflow_unavailable"}`),
+	)
+	req.Header.Set("Authorization", "Bearer oidc-token")
 	testHandler(
-		&fakeUOWFactory{},
-		WithDiagnosisAuth(nil, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("F", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "oidc"),
-		WithDiagnosisAuthSessionIssuer(sessionIssuer),
-		WithDiagnosisRoomStarter(starter),
-		withDiagnosisClock(func() time.Time { return now }),
+		&fakeUOWFactory{configRepo: &fakeConfigRepo{}},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("C", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}),
+		WithRBACAuthorizer(authorizer),
+		WithDiagnosisRoomCloser(closer),
+		withDiagnosisClock(func() time.Time { return closedAt }),
 	).ServeHTTP(rec, req)
 
-	if rec.Code != stdhttp.StatusCreated {
-		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
 	}
-	if starter.called != 1 || starter.req.Principal.Subject != "owner-1" {
-		t.Fatalf("starter called=%d req=%+v", starter.called, starter.req)
+	if authProvider.Calls("Bearer oidc-token") != 1 {
+		t.Fatalf("auth calls = %d, want 1", authProvider.Calls("Bearer oidc-token"))
+	}
+	if authorizer.called != 1 ||
+		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomAdminister ||
+		authorizer.req.ScopeKind != domain.RBACScopeKindDiagnosisRoom ||
+		authorizer.req.ScopeKey != "diagnosis-session-orphaned-workflow" {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+	if closer.called != 1 ||
+		closer.req.SessionID != "diagnosis-session-orphaned-workflow" ||
+		closer.req.Principal.Subject != "owner-1" ||
+		closer.req.Reason != diagnosisroomclose.DefaultUnavailableCloseReason ||
+		!closer.req.Now.Equal(closedAt) {
+		t.Fatalf("closer called=%d req=%+v", closer.called, closer.req)
+	}
+	var body api.DiagnosisRoomSummary
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.SessionID != "diagnosis-session-orphaned-workflow" ||
+		body.RoomStatus != api.Closed ||
+		body.TaskStatus != api.DiagnosisTaskStatusCancelled ||
+		body.CloseReason != diagnosisroomclose.DefaultUnavailableCloseReason {
+		t.Fatalf("response = %+v", body)
 	}
 }
 
@@ -2847,22 +8078,24 @@ func TestCreateDiagnosisRoomRejectsBadInputs(t *testing.T) {
 			wantStatus: stdhttp.StatusServiceUnavailable,
 		},
 		{
-			name:       "unknown field",
-			body:       `{"evidence_snapshot_id":42,"session_id":"manual"}`,
-			authHeader: "Bearer oidc-token",
-			starter:    &fakeDiagnosisRoomStarter{},
-			principal:  ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
-			withAuth:   true,
-			wantStatus: stdhttp.StatusBadRequest,
+			name:          "unknown field",
+			body:          `{"evidence_snapshot_id":42,"session_id":"manual"}`,
+			authHeader:    "Bearer oidc-token",
+			starter:       &fakeDiagnosisRoomStarter{},
+			principal:     ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
+			withAuth:      true,
+			wantStatus:    stdhttp.StatusBadRequest,
+			wantAuthCalls: 1,
 		},
 		{
-			name:       "duplicate evidence snapshot id",
-			body:       `{"evidence_snapshot_id":42,"evidence_snapshot_id":43}`,
-			authHeader: "Bearer oidc-token",
-			starter:    &fakeDiagnosisRoomStarter{},
-			principal:  ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
-			withAuth:   true,
-			wantStatus: stdhttp.StatusBadRequest,
+			name:          "duplicate evidence snapshot id",
+			body:          `{"evidence_snapshot_id":42,"evidence_snapshot_id":43}`,
+			authHeader:    "Bearer oidc-token",
+			starter:       &fakeDiagnosisRoomStarter{},
+			principal:     ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
+			withAuth:      true,
+			wantStatus:    stdhttp.StatusBadRequest,
+			wantAuthCalls: 1,
 		},
 		{
 			name:          "overlarge body",
@@ -2872,7 +8105,17 @@ func TestCreateDiagnosisRoomRejectsBadInputs(t *testing.T) {
 			principal:     ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
 			withAuth:      true,
 			wantStatus:    stdhttp.StatusBadRequest,
-			wantAuthCalls: 0,
+			wantAuthCalls: 1,
+		},
+		{
+			name:          "invalid notification channel profile",
+			body:          `{"evidence_snapshot_id":42,"close_notification_channel_profile_id":0}`,
+			authHeader:    "Bearer oidc-token",
+			starter:       &fakeDiagnosisRoomStarter{},
+			principal:     ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
+			withAuth:      true,
+			wantStatus:    stdhttp.StatusBadRequest,
+			wantAuthCalls: 1,
 		},
 		{
 			name:       "missing bearer",
@@ -2912,6 +8155,9 @@ func TestCreateDiagnosisRoomRejectsBadInputs(t *testing.T) {
 			var opts []ServerOption
 			if tc.withAuth {
 				opts = append(opts, WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("E", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}))
+				opts = append(opts, WithRBACAuthorizer(&fakeRBACAuthorizer{
+					result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: time.Date(2026, 6, 20, 1, 10, 0, 0, time.UTC)},
+				}))
 			}
 			if tc.starter != nil {
 				opts = append(opts, WithDiagnosisRoomStarter(tc.starter))
@@ -2921,7 +8167,7 @@ func TestCreateDiagnosisRoomRejectsBadInputs(t *testing.T) {
 			if tc.authHeader != "" {
 				req.Header.Set("Authorization", tc.authHeader)
 			}
-			testHandler(&fakeUOWFactory{}, opts...).ServeHTTP(rec, req)
+			testHandler(&fakeUOWFactory{configRepo: &fakeConfigRepo{}}, opts...).ServeHTTP(rec, req)
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("status = %d, want %d; body=%s", rec.Code, tc.wantStatus, rec.Body.String())
 			}
@@ -3179,6 +8425,48 @@ func TestHandleDiagnosisWebSocketRejectsMissingTicket(t *testing.T) {
 	}
 }
 
+func TestDiagnosisWSEvidenceTimelineFromTurnResultFallbackPreservesActorSubject(t *testing.T) {
+	result := ports.DiagnosisRoomSubmitTurnResult{
+		MessageID:          "msg-1",
+		AssistantMessageID: "msg-1/assistant",
+		TurnCount:          1,
+		EvidenceRequests: []ports.DiagnosisRoomEvidenceRequest{{
+			Tool:   domain.DiagnosisToolKindActiveAlerts,
+			Reason: "Collect current alerts.",
+			Limit:  5,
+		}},
+		CollectionResults: []ports.DiagnosisRoomEvidenceCollectionResult{{
+			Tool:   domain.DiagnosisToolKindActiveAlerts,
+			Status: "collected",
+		}},
+		FollowUpTurns: []ports.DiagnosisRoomFollowUpTurnResult{{
+			MessageID:          "msg-1/auto-evidence-1",
+			AssistantMessageID: "msg-1/auto-evidence-1/assistant",
+			TurnCount:          2,
+			CollectionResults: []ports.DiagnosisRoomEvidenceCollectionResult{{
+				Tool:   domain.DiagnosisToolKindMetricQuery,
+				Status: "collected",
+			}},
+			Trigger: "collected_evidence",
+		}},
+	}
+
+	timeline := diagnosisWSEvidenceTimelineFromTurnResult(result, "owner-1")
+	if len(timeline) != 2 {
+		t.Fatalf("timeline len = %d, want 2: %+v", len(timeline), timeline)
+	}
+	if timeline[0].ActorSubject != "owner-1" ||
+		timeline[0].Trigger != "operator_turn" ||
+		timeline[0].MessageID != "msg-1" {
+		t.Fatalf("operator timeline entry = %+v", timeline[0])
+	}
+	if timeline[1].ActorSubject != "owner-1" ||
+		timeline[1].Trigger != "collected_evidence" ||
+		timeline[1].MessageID != "msg-1/auto-evidence-1" {
+		t.Fatalf("follow-up timeline entry = %+v", timeline[1])
+	}
+}
+
 func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
 	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("H", diagnosisauth.DefaultTokenBytes)))
@@ -3214,11 +8502,75 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 		},
 		LatestConfidence:          "high",
 		LatestRequiresHumanReview: &latestRequiresHumanReview,
-		InFlight:                  false,
-		SeenMessageIDs:            []string{"msg-1"},
+		LatestEvidenceRequests: []ports.DiagnosisRoomEvidenceRequest{{
+			TemplateID:           domain.DiagnosisToolTemplateID(77),
+			AlertSourceProfileID: domain.AlertSourceProfileID(3),
+			Tool:                 domain.DiagnosisToolKindMetricQuery,
+			Reason:               "Read current CPU saturation.",
+			Query:                "up",
+		}},
+		LatestCollectionResults: []ports.DiagnosisRoomEvidenceCollectionResult{{
+			Request: ports.DiagnosisRoomEvidenceRequest{
+				TemplateID:           domain.DiagnosisToolTemplateID(77),
+				AlertSourceProfileID: domain.AlertSourceProfileID(3),
+				Tool:                 domain.DiagnosisToolKindMetricQuery,
+				Reason:               "Read current CPU saturation.",
+				Query:                "up",
+			},
+			TemplateID:           domain.DiagnosisToolTemplateID(77),
+			AlertSourceProfileID: domain.AlertSourceProfileID(3),
+			Tool:                 domain.DiagnosisToolKindMetricQuery,
+			Status:               "collected",
+			ReasonCode:           "ok",
+			Message:              "Metric query collection succeeded.",
+			Query:                "up",
+			ObservedMetricSeries: 1,
+			CollectedAt:          startedAt.Add(time.Second),
+		}},
+		EvidenceTimeline: []ports.DiagnosisRoomEvidenceTimelineEntry{{
+			TurnCount:          1,
+			MessageID:          "msg-1",
+			AssistantMessageID: "msg-1/assistant",
+			ActorSubject:       "owner-1",
+			Trigger:            "operator_turn",
+			EvidenceRequests: []ports.DiagnosisRoomEvidenceRequest{{
+				TemplateID:           domain.DiagnosisToolTemplateID(77),
+				AlertSourceProfileID: domain.AlertSourceProfileID(3),
+				Tool:                 domain.DiagnosisToolKindMetricQuery,
+				Reason:               "Read current CPU saturation.",
+				Query:                "up",
+			}},
+			CollectionResults: []ports.DiagnosisRoomEvidenceCollectionResult{{
+				TemplateID:           domain.DiagnosisToolTemplateID(77),
+				AlertSourceProfileID: domain.AlertSourceProfileID(3),
+				Tool:                 domain.DiagnosisToolKindMetricQuery,
+				Status:               "collected",
+				ReasonCode:           "ok",
+				Message:              "Metric query collection succeeded.",
+				Query:                "up",
+				ObservedMetricSeries: 1,
+				CollectedAt:          startedAt.Add(time.Second),
+			}},
+		}},
+		SupplementalEvidence: []ports.DiagnosisRoomSupplementalEvidenceRecord{{
+			Label:              "Restart cause",
+			Detail:             "Collect previous container logs.",
+			Priority:           "high",
+			Evidence:           "Previous logs show the pod restarted after OOMKilled.",
+			ActorSubject:       "reviewer-1",
+			UserMessageID:      "msg-2",
+			AssistantMessageID: "msg-2/assistant",
+			UserTurnID:         domain.ChatTurnID(33),
+			AssistantTurnID:    domain.ChatTurnID(34),
+			UserSequence:       3,
+			AssistantSequence:  4,
+			ProvidedAt:         startedAt.Add(time.Second),
+		}},
+		InFlight:       false,
+		SeenMessageIDs: []string{"msg-1"},
 		Conversation: []ports.DiagnosisRoomConversationTurn{
-			{Role: "user", Content: "Please investigate"},
-			{Role: "assistant", Content: "CPU alert is still firing."},
+			{Role: "user", ActorSubject: "reviewer-1", Content: "Please investigate"},
+			{Role: "assistant", ActorSubject: "openclarion:auto-diagnosis", Content: "CPU alert is still firing."},
 		},
 	}
 	confirmedState := readyState
@@ -3241,6 +8593,24 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 		Content:                 "CPU alert is still firing.",
 		Confidence:              "medium",
 		RequiresHumanReview:     &requiresHumanReview,
+		ConfidenceRationale:     "CPU and restart evidence are aligned.",
+		Findings:                []string{"api-1 CPU exceeded threshold"},
+		RecommendedActions:      []string{"Scale api-1"},
+		EvidenceRequests: []ports.DiagnosisRoomEvidenceRequest{{
+			Tool:   domain.DiagnosisToolKindActiveAlerts,
+			Reason: "Confirm sibling alerts.",
+			Limit:  5,
+		}},
+		MissingEvidenceRequests: []ports.DiagnosisRoomConsultationEvidenceRequest{{
+			Label:    "Restart cause",
+			Detail:   "Inspect previous container logs.",
+			Priority: "high",
+		}},
+		EvidenceCollectionSuggestions: []ports.DiagnosisRoomConsultationEvidenceRequest{{
+			Label:    "CPU trend",
+			Detail:   "Collect a bounded CPU range query.",
+			Priority: "medium",
+		}},
 	}
 	workflowClient := &fakeDiagnosisRoomWorkflowClient{
 		submitResult: ports.DiagnosisRoomSubmitTurnResult{
@@ -3259,9 +8629,10 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 			RequiresHumanReview: true,
 			Confidence:          "medium",
 			EvidenceRequests: []ports.DiagnosisRoomEvidenceRequest{{
-				Tool:   domain.DiagnosisToolKindActiveAlerts,
-				Reason: "Need current sibling alerts.",
-				Limit:  5,
+				AlertSourceProfileID: domain.AlertSourceProfileID(3),
+				Tool:                 domain.DiagnosisToolKindActiveAlerts,
+				Reason:               "Need current sibling alerts.",
+				Limit:                5,
 			}},
 			CollectionResults: []ports.DiagnosisRoomEvidenceCollectionResult{{
 				Tool:           domain.DiagnosisToolKindActiveAlerts,
@@ -3294,6 +8665,40 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 					Warnings: []string{"partial response"},
 				},
 				CollectedAt: now.Add(time.Second),
+			}},
+			EvidenceTimeline: []ports.DiagnosisRoomEvidenceTimelineEntry{{
+				TurnCount:          1,
+				MessageID:          "msg-1",
+				AssistantMessageID: "msg-1-assistant",
+				ActorSubject:       "owner-1",
+				Trigger:            "operator_turn",
+				EvidenceRequests: []ports.DiagnosisRoomEvidenceRequest{{
+					AlertSourceProfileID: domain.AlertSourceProfileID(3),
+					Tool:                 domain.DiagnosisToolKindActiveAlerts,
+					Reason:               "Need current sibling alerts.",
+					Limit:                5,
+				}},
+				CollectionResults: []ports.DiagnosisRoomEvidenceCollectionResult{{
+					Tool:           domain.DiagnosisToolKindActiveAlerts,
+					Status:         "collected",
+					ReasonCode:     "ok",
+					Message:        "Active alert collection succeeded.",
+					ObservedAlerts: 1,
+					CollectedAt:    now.Add(time.Second),
+				}},
+			}, {
+				TurnCount:          2,
+				MessageID:          "msg-1/auto-evidence-1",
+				AssistantMessageID: "msg-1/auto-evidence-1/assistant",
+				Trigger:            "collected_evidence",
+				CollectionResults: []ports.DiagnosisRoomEvidenceCollectionResult{{
+					Tool:           domain.DiagnosisToolKindActiveAlerts,
+					Status:         "collected",
+					ReasonCode:     "ok",
+					Message:        "Active alert collection succeeded.",
+					ObservedAlerts: 1,
+					CollectedAt:    now.Add(2 * time.Second),
+				}},
 			}},
 			ConsultationInsight: ports.DiagnosisRoomConsultationInsight{
 				ConfidenceRationale: "CPU evidence is present but restart evidence is missing.",
@@ -3330,6 +8735,12 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 				},
 				Trigger: "collected_evidence",
 			}},
+			LatestError: &ports.DiagnosisRoomLatestError{
+				Code:       "notification_failed",
+				Message:    "AI diagnosis was saved, but downstream diagnosis notification delivery failed; review notification channel configuration.",
+				MessageID:  "msg-1/assistant",
+				OccurredAt: now.Add(2 * time.Second),
+			},
 		},
 		queryState:   readyState,
 		confirmState: confirmedState,
@@ -3382,6 +8793,7 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 		t.Fatalf("turn consultation insight = %+v", turn.ConsultationInsight)
 	}
 	if len(turn.EvidenceRequests) != 1 ||
+		turn.EvidenceRequests[0].AlertSourceProfileID != 3 ||
 		turn.EvidenceRequests[0].Tool != "active_alerts" ||
 		turn.EvidenceRequests[0].Reason != "Need current sibling alerts." ||
 		turn.EvidenceRequests[0].Limit != 5 {
@@ -3404,6 +8816,16 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 		metricResult.MetricResult.Warnings[0] != "partial response" {
 		t.Fatalf("turn metric collection result = %+v", metricResult)
 	}
+	if len(turn.EvidenceTimeline) != 2 ||
+		turn.EvidenceTimeline[0].TurnCount != 1 ||
+		turn.EvidenceTimeline[0].ActorSubject != "owner-1" ||
+		turn.EvidenceTimeline[0].Trigger != "operator_turn" ||
+		len(turn.EvidenceTimeline[0].CollectionResults) != 1 ||
+		turn.EvidenceTimeline[1].TurnCount != 2 ||
+		turn.EvidenceTimeline[1].Trigger != "collected_evidence" ||
+		turn.EvidenceTimeline[1].CollectionResults[0].Status != "collected" {
+		t.Fatalf("turn evidence timeline = %+v", turn.EvidenceTimeline)
+	}
 	submitReq, submitCalled := workflowClient.submitSnapshot()
 	if submitCalled != 1 {
 		t.Fatalf("SubmitDiagnosisTurn calls = %d, want 1", submitCalled)
@@ -3420,6 +8842,11 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 		turn.FollowUpTurns[0].Trigger != "collected_evidence" {
 		t.Fatalf("turn follow-up results = %+v", turn.FollowUpTurns)
 	}
+	if turn.LatestError == nil ||
+		turn.LatestError.Code != "notification_failed" ||
+		turn.LatestError.MessageID != "msg-1/assistant" {
+		t.Fatalf("turn latest error = %+v", turn.LatestError)
+	}
 
 	if err := conn.WriteJSON(map[string]string{"type": diagnosisWSClientQueryState}); err != nil {
 		t.Fatalf("WriteJSON query: %v", err)
@@ -3430,6 +8857,10 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	}
 	if state.Type != diagnosisWSServerState || state.DiagnosisTaskID != 11 || len(state.Conversation) != 2 {
 		t.Fatalf("state = %+v", state)
+	}
+	if state.Conversation[0].ActorSubject != "reviewer-1" ||
+		state.Conversation[1].ActorSubject != "openclarion:auto-diagnosis" {
+		t.Fatalf("state conversation actor subjects = %+v", state.Conversation)
 	}
 	if state.Status != "open" || state.FinalConclusion != nil {
 		t.Fatalf("state status=%q final conclusion=%+v, want open/nil", state.Status, state.FinalConclusion)
@@ -3444,6 +8875,33 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 		*state.RequiresHumanReview {
 		t.Fatalf("state latest consultation = insight=%+v confidence=%q review=%v",
 			state.ConsultationInsight, state.Confidence, state.RequiresHumanReview)
+	}
+	if len(state.EvidenceRequests) != 1 ||
+		state.EvidenceRequests[0].TemplateID != 77 ||
+		state.EvidenceRequests[0].AlertSourceProfileID != 3 ||
+		len(state.CollectionResults) != 1 ||
+		state.CollectionResults[0].TemplateID != 77 ||
+		state.CollectionResults[0].AlertSourceProfileID != 3 ||
+		state.CollectionResults[0].ObservedMetricSeries != 1 ||
+		state.CollectionResults[0].Query != "up" {
+		t.Fatalf("state latest evidence = requests=%+v results=%+v",
+			state.EvidenceRequests, state.CollectionResults)
+	}
+	if len(state.EvidenceTimeline) != 1 ||
+		state.EvidenceTimeline[0].TurnCount != 1 ||
+		state.EvidenceTimeline[0].ActorSubject != "owner-1" ||
+		state.EvidenceTimeline[0].Trigger != "operator_turn" ||
+		state.EvidenceTimeline[0].EvidenceRequests[0].Tool != "metric_query" ||
+		state.EvidenceTimeline[0].CollectionResults[0].Query != "up" {
+		t.Fatalf("state evidence timeline = %+v", state.EvidenceTimeline)
+	}
+	if len(state.SupplementalEvidence) != 1 ||
+		state.SupplementalEvidence[0].Label != "Restart cause" ||
+		state.SupplementalEvidence[0].ActorSubject != "reviewer-1" ||
+		state.SupplementalEvidence[0].UserTurnID != 33 ||
+		state.SupplementalEvidence[0].AssistantTurnID != 34 ||
+		!state.SupplementalEvidence[0].ProvidedAt.Equal(startedAt.Add(time.Second)) {
+		t.Fatalf("state supplemental evidence = %+v", state.SupplementalEvidence)
 	}
 	if querySession, queryCalled := workflowClient.querySnapshot(); queryCalled != 1 || querySession != "session-1" {
 		t.Fatalf("QueryDiagnosisRoom calls=%d session=%q, want 1/session-1", queryCalled, querySession)
@@ -3472,6 +8930,17 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 		confirmed.FinalConclusion.SupplementalContextRefs[1] != "chat_session:21/turn:32" ||
 		confirmed.FinalConclusion.Content != "CPU alert is still firing." ||
 		confirmed.FinalConclusion.Confidence != "medium" ||
+		confirmed.FinalConclusion.ConfidenceRationale != "CPU and restart evidence are aligned." ||
+		len(confirmed.FinalConclusion.Findings) != 1 ||
+		confirmed.FinalConclusion.Findings[0] != "api-1 CPU exceeded threshold" ||
+		len(confirmed.FinalConclusion.RecommendedActions) != 1 ||
+		confirmed.FinalConclusion.RecommendedActions[0] != "Scale api-1" ||
+		len(confirmed.FinalConclusion.EvidenceRequests) != 1 ||
+		confirmed.FinalConclusion.EvidenceRequests[0].Tool != "active_alerts" ||
+		len(confirmed.FinalConclusion.MissingEvidenceRequests) != 1 ||
+		confirmed.FinalConclusion.MissingEvidenceRequests[0].Label != "Restart cause" ||
+		len(confirmed.FinalConclusion.EvidenceCollectionSuggestions) != 1 ||
+		confirmed.FinalConclusion.EvidenceCollectionSuggestions[0].Label != "CPU trend" ||
 		confirmed.FinalConclusion.RequiresHumanReview == nil ||
 		!*confirmed.FinalConclusion.RequiresHumanReview {
 		t.Fatalf("confirmed final conclusion = %+v", confirmed.FinalConclusion)
@@ -3482,6 +8951,35 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	}
 	if confirmReq.SessionID != "session-1" || confirmReq.ActorSubject != "owner-1" || confirmReq.Reason != "human_confirmed" {
 		t.Fatalf("confirm request = %+v", confirmReq)
+	}
+}
+
+func TestDiagnosisWSStateFrameIncludesLatestError(t *testing.T) {
+	now := time.Date(2026, 6, 19, 11, 30, 0, 0, time.UTC)
+	frame := diagnosisWSStateFrameFromState(ports.DiagnosisRoomState{
+		SessionID:       "session-1",
+		ChatSessionID:   domain.ChatSessionID(21),
+		DiagnosisTaskID: domain.DiagnosisTaskID(11),
+		OwnerSubject:    "owner-1",
+		Status:          "open",
+		StartedAt:       now,
+		LastActivityAt:  now,
+		LatestError: &ports.DiagnosisRoomLatestError{
+			Code:       "llm_timeout",
+			Message:    "Diagnosis turn failed before an assistant response; upstream LLM request timed out.",
+			MessageID:  "msg-1",
+			OccurredAt: now,
+		},
+		SeenMessageIDs: []string{"msg-1"},
+	})
+
+	if frame.LatestError == nil {
+		t.Fatalf("LatestError = nil, want frame error")
+	}
+	if frame.LatestError.Code != "llm_timeout" ||
+		frame.LatestError.MessageID != "msg-1" ||
+		!frame.LatestError.OccurredAt.Equal(now) {
+		t.Fatalf("LatestError = %+v", frame.LatestError)
 	}
 }
 
@@ -3535,6 +9033,212 @@ func TestDiagnosisWebSocketRelayRejectsAmbiguousFrame(t *testing.T) {
 	}
 }
 
+func TestDiagnosisWebSocketRelayReportsConfirmRejected(t *testing.T) {
+	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("L", diagnosisauth.DefaultTokenBytes)))
+	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
+	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, session, now)
+	if err != nil {
+		t.Fatalf("IssueTicket: %v", err)
+	}
+	workflowClient := &fakeDiagnosisRoomWorkflowClient{
+		confirmErr: fmt.Errorf(
+			"diagnosis-room client: get confirm conclusion result: diagnosis room confirm conclusion: resolve missing evidence requests before confirming: %w",
+			domain.ErrPreconditionFailed,
+		),
+	}
+	handler := testHandlerWithDiagnosisWS(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(&neverAuthProvider{}, service, &fakeDiagnosisSessionResolver{
+			sessions: map[string]diagnosisauth.SessionRef{"session-1": session},
+		}),
+		WithDiagnosisRoomWorkflowClient(workflowClient),
+		withDiagnosisClock(func() time.Time { return now.Add(time.Second) }),
+	)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/diagnosis?session_id=session-1&ticket=" + ticket.Token
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer closeWebSocketDialResponse(resp)
+	if err != nil {
+		t.Fatalf("Dial: %v; resp=%v", err, resp)
+	}
+	defer conn.Close()
+
+	var ready diagnosisWSReadyFrame
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("ReadJSON ready: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]string{"type": diagnosisWSClientConfirm}); err != nil {
+		t.Fatalf("WriteJSON confirm: %v", err)
+	}
+	var frame diagnosisWSErrorFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("ReadJSON error: %v", err)
+	}
+	if frame.Type != diagnosisWSServerError ||
+		frame.Code != "confirm_rejected" ||
+		!strings.Contains(frame.Message, "resolve missing evidence requests before confirming") {
+		t.Fatalf("error frame = %+v", frame)
+	}
+	confirmReq, confirmCalled := workflowClient.confirmSnapshot()
+	if confirmCalled != 1 || confirmReq.SessionID != "session-1" || confirmReq.ActorSubject != "owner-1" {
+		t.Fatalf("ConfirmDiagnosisConclusion calls=%d request=%+v", confirmCalled, confirmReq)
+	}
+}
+
+func TestDiagnosisWebSocketRelayRejectsUnauthorizedConfirmFrame(t *testing.T) {
+	now := time.Date(2026, 6, 28, 9, 0, 0, 0, time.UTC)
+	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("U", diagnosisauth.DefaultTokenBytes)))
+	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
+	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, session, now)
+	if err != nil {
+		t.Fatalf("IssueTicket: %v", err)
+	}
+	workflowClient := &fakeDiagnosisRoomWorkflowClient{
+		confirmState: ports.DiagnosisRoomState{SessionID: "session-1", Status: "closed"},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: false, CheckedAt: now},
+	}
+	configRepo := &fakeConfigRepo{}
+	factory := &fakeUOWFactory{configRepo: configRepo}
+	handler := testHandlerWithDiagnosisWS(
+		factory,
+		WithDiagnosisAuth(&neverAuthProvider{}, service, &fakeDiagnosisSessionResolver{
+			sessions: map[string]diagnosisauth.SessionRef{"session-1": session},
+		}),
+		WithRBACAuthorizer(authorizer),
+		WithDiagnosisRoomWorkflowClient(workflowClient),
+		withDiagnosisClock(func() time.Time { return now.Add(time.Second) }),
+	)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/diagnosis?session_id=session-1&ticket=" + ticket.Token
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer closeWebSocketDialResponse(resp)
+	if err != nil {
+		t.Fatalf("Dial: %v; resp=%v", err, resp)
+	}
+	defer conn.Close()
+
+	var ready diagnosisWSReadyFrame
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("ReadJSON ready: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]string{"type": diagnosisWSClientConfirm}); err != nil {
+		t.Fatalf("WriteJSON confirm: %v", err)
+	}
+	var frame diagnosisWSErrorFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("ReadJSON error: %v", err)
+	}
+	if frame.Type != diagnosisWSServerError || frame.Code != "unauthorized" || frame.Message != "unauthorized" {
+		t.Fatalf("error frame = %+v", frame)
+	}
+	if authorizer.called != 1 ||
+		authorizer.req.Principal.Subject != "owner-1" ||
+		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomAdminister ||
+		authorizer.req.ScopeKind != domain.RBACScopeKindDiagnosisRoom ||
+		authorizer.req.ScopeKey != "session-1" {
+		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	}
+	if configRepo.lastDirectorySubject != "owner-1" {
+		t.Fatalf("directory subject = %q, want owner-1", configRepo.lastDirectorySubject)
+	}
+	if confirmReq, confirmCalled := workflowClient.confirmSnapshot(); confirmCalled != 0 {
+		t.Fatalf("ConfirmDiagnosisConclusion calls=%d request=%+v, want 0", confirmCalled, confirmReq)
+	}
+}
+
+func TestDiagnosisWebSocketRelayAllowsOwnerConfirmWithoutScopedAssignment(t *testing.T) {
+	now := time.Date(2026, 6, 28, 9, 0, 0, 0, time.UTC)
+	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("O", diagnosisauth.DefaultTokenBytes)))
+	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
+	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, session, now)
+	if err != nil {
+		t.Fatalf("IssueTicket: %v", err)
+	}
+	workflowClient := &fakeDiagnosisRoomWorkflowClient{
+		confirmState: ports.DiagnosisRoomState{SessionID: "session-1", Status: "closed"},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: false, CheckedAt: now},
+	}
+	configRepo := &fakeConfigRepo{}
+	diagnosisRepo := &fakeDiagnosisRepo{
+		chatSessions: []domain.ChatSessionWithTask{{
+			Session: domain.ChatSession{
+				SessionKey:     "session-1",
+				OwnerSubject:   "owner-1",
+				Status:         domain.ChatSessionStatusOpen,
+				StartedAt:      now,
+				LastActivityAt: now,
+				CreatedAt:      now,
+				UpdatedAt:      now,
+			},
+		}},
+	}
+	handler := testHandlerWithDiagnosisWS(
+		&fakeUOWFactory{configRepo: configRepo, diagnosisRepo: diagnosisRepo},
+		WithDiagnosisAuth(&neverAuthProvider{}, service, &fakeDiagnosisSessionResolver{
+			sessions: map[string]diagnosisauth.SessionRef{"session-1": session},
+		}),
+		WithRBACAuthorizer(authorizer),
+		WithDiagnosisRoomWorkflowClient(workflowClient),
+		withDiagnosisClock(func() time.Time { return now.Add(time.Second) }),
+	)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/diagnosis?session_id=session-1&ticket=" + ticket.Token
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer closeWebSocketDialResponse(resp)
+	if err != nil {
+		t.Fatalf("Dial: %v; resp=%v", err, resp)
+	}
+	defer conn.Close()
+
+	var ready diagnosisWSReadyFrame
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("ReadJSON ready: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]string{"type": diagnosisWSClientConfirm}); err != nil {
+		t.Fatalf("WriteJSON confirm: %v", err)
+	}
+	var frame diagnosisWSStateFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("ReadJSON state: %v", err)
+	}
+	if frame.Type != diagnosisWSServerState || frame.SessionID != "session-1" || frame.Status != "closed" {
+		t.Fatalf("state frame = %+v", frame)
+	}
+	if authorizer.called != 0 {
+		t.Fatalf("authorizer called=%d request=%+v, want owner shortcut", authorizer.called, authorizer.req)
+	}
+	if diagnosisRepo.lastChatSessionKey != "session-1" {
+		t.Fatalf("owner lookup session key = %q, want session-1", diagnosisRepo.lastChatSessionKey)
+	}
+	if configRepo.lastDirectorySubject != "owner-1" {
+		t.Fatalf("directory subject = %q, want owner-1", configRepo.lastDirectorySubject)
+	}
+	confirmReq, confirmCalled := workflowClient.confirmSnapshot()
+	if confirmCalled != 1 || confirmReq.SessionID != "session-1" || confirmReq.ActorSubject != "owner-1" {
+		t.Fatalf("ConfirmDiagnosisConclusion calls=%d request=%+v", confirmCalled, confirmReq)
+	}
+}
+
 func TestDiagnosisWebSocketRelayDecodesSupplementalEvidenceFrame(t *testing.T) {
 	frame, err := decodeDiagnosisWSClientFrame([]byte(`{
 		"type":"submit_supplemental_evidence",
@@ -3563,6 +9267,293 @@ func TestDiagnosisWebSocketRelayDecodesSupplementalEvidenceFrame(t *testing.T) {
 		got.Priority != "high" ||
 		got.Evidence != "previous pod logs show OOMKilled" {
 		t.Fatalf("supplemental evidence port = %+v", got)
+	}
+}
+
+func TestDiagnosisWebSocketRelayRejectsInvalidSupplementalEvidenceFrames(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "label leading whitespace",
+			body: `{
+				"type":"submit_supplemental_evidence",
+				"message_id":"msg-2",
+				"message":"Supplemental evidence update",
+				"supplemental_evidence":{
+					"label":" Restart cause",
+					"detail":"Collect previous container logs.",
+					"priority":"high",
+					"evidence":"previous pod logs show OOMKilled"
+				}
+			}`,
+			want: "supplemental_evidence.label must not contain leading or trailing whitespace",
+		},
+		{
+			name: "detail multiline",
+			body: `{
+				"type":"submit_supplemental_evidence",
+				"message_id":"msg-2",
+				"message":"Supplemental evidence update",
+				"supplemental_evidence":{
+					"label":"Restart cause",
+					"detail":"Collect previous container logs.\nAttach restart timeline.",
+					"priority":"high",
+					"evidence":"previous pod logs show OOMKilled"
+				}
+			}`,
+			want: "supplemental_evidence.detail must be single-line",
+		},
+		{
+			name: "unsupported priority",
+			body: `{
+				"type":"submit_supplemental_evidence",
+				"message_id":"msg-2",
+				"message":"Supplemental evidence update",
+				"supplemental_evidence":{
+					"label":"Restart cause",
+					"detail":"Collect previous container logs.",
+					"priority":"urgent",
+					"evidence":"previous pod logs show OOMKilled"
+				}
+			}`,
+			want: "supplemental_evidence.priority is unsupported",
+		},
+		{
+			name: "evidence too large",
+			body: fmt.Sprintf(`{
+				"type":"submit_supplemental_evidence",
+				"message_id":"msg-2",
+				"message":"Supplemental evidence update",
+				"supplemental_evidence":{
+					"label":"Restart cause",
+					"detail":"Collect previous container logs.",
+					"priority":"high",
+					"evidence":%q
+				}
+			}`, strings.Repeat("x", diagnosisroom.HardMaxMessageBytes+1)),
+			want: fmt.Sprintf("supplemental_evidence.evidence exceeds %d bytes", diagnosisroom.HardMaxMessageBytes),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := decodeDiagnosisWSClientFrame([]byte(tc.body))
+			if err == nil {
+				t.Fatal("decodeDiagnosisWSClientFrame returned nil error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want substring %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestDiagnosisWebSocketRelayCollectsEvidencePlan(t *testing.T) {
+	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("M", diagnosisauth.DefaultTokenBytes)))
+	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
+	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, session, now)
+	if err != nil {
+		t.Fatalf("IssueTicket: %v", err)
+	}
+	requiresReview := true
+	evidenceRequest := ports.DiagnosisRoomEvidenceRequest{
+		AlertSourceProfileID: domain.AlertSourceProfileID(4),
+		Tool:                 domain.DiagnosisToolKindMetricRangeQuery,
+		Reason:               "CPU and memory saturation window",
+		Query:                "up",
+		WindowSeconds:        300,
+		StepSeconds:          60,
+		Limit:                10,
+	}
+	collectionResult := ports.DiagnosisRoomEvidenceCollectionResult{
+		Request:              evidenceRequest,
+		AlertSourceProfileID: domain.AlertSourceProfileID(4),
+		Tool:                 domain.DiagnosisToolKindMetricRangeQuery,
+		Status:               "skipped",
+		ReasonCode:           "template_query_mismatch",
+		Message:              "Diagnosis tool template query does not match the requested query.",
+		Query:                "up",
+		WindowSeconds:        300,
+		StepSeconds:          60,
+		CollectedAt:          now.Add(time.Second),
+	}
+	workflowClient := &fakeDiagnosisRoomWorkflowClient{
+		collectState: ports.DiagnosisRoomState{
+			SessionID:                 "session-1",
+			ChatSessionID:             21,
+			DiagnosisTaskID:           11,
+			OwnerSubject:              "owner-1",
+			Status:                    "open",
+			TurnCount:                 2,
+			StartedAt:                 now,
+			LastActivityAt:            now.Add(time.Second),
+			LatestConfidence:          "medium",
+			LatestRequiresHumanReview: &requiresReview,
+			LatestEvidenceRequests:    []ports.DiagnosisRoomEvidenceRequest{evidenceRequest},
+			LatestCollectionResults:   []ports.DiagnosisRoomEvidenceCollectionResult{collectionResult},
+			EvidenceTimeline: []ports.DiagnosisRoomEvidenceTimelineEntry{{
+				TurnCount:         2,
+				MessageID:         "collect-1",
+				ActorSubject:      "owner-1",
+				Trigger:           "manual_evidence_collection",
+				EvidenceRequests:  []ports.DiagnosisRoomEvidenceRequest{evidenceRequest},
+				CollectionResults: []ports.DiagnosisRoomEvidenceCollectionResult{collectionResult},
+			}},
+			ConfidenceTimeline: []ports.DiagnosisRoomConfidenceTimelineEntry{{
+				TurnCount:           2,
+				MessageID:           "collect-1",
+				OccurredAt:          now.Add(time.Second),
+				Trigger:             "manual_evidence_collection",
+				Confidence:          "medium",
+				RequiresHumanReview: true,
+				ConclusionStatus:    "needs_evidence",
+				ConfidenceRationale: "Metric evidence could not be collected as requested.",
+				EvidenceRequests:    []ports.DiagnosisRoomEvidenceRequest{evidenceRequest},
+				CollectionResults:   []ports.DiagnosisRoomEvidenceCollectionResult{collectionResult},
+				MissingEvidenceRequests: []ports.DiagnosisRoomConsultationEvidenceRequest{{
+					Label:    "Metric evidence recovery",
+					Detail:   "Provide verified alternative CPU and memory evidence.",
+					Priority: "high",
+				}},
+			}},
+			LatestConsultationInsight: &ports.DiagnosisRoomConsultationInsight{
+				ConfidenceRationale: "Metric evidence could not be collected as requested.",
+				MissingEvidenceRequests: []ports.DiagnosisRoomConsultationEvidenceRequest{{
+					Label:    "Metric evidence recovery",
+					Detail:   "Provide verified alternative CPU and memory evidence.",
+					Priority: "high",
+				}},
+				ConclusionStatus: "needs_evidence",
+			},
+			SeenMessageIDs: []string{"collect-1"},
+			Conversation: []ports.DiagnosisRoomConversationTurn{
+				{Role: "user", ActorSubject: "owner-1", Content: "Run planned evidence collection."},
+				{Role: "assistant", ActorSubject: "openclarion:auto-diagnosis", Content: "Metric evidence could not be collected as requested."},
+			},
+		},
+		collectFollowUpTurns: []ports.DiagnosisRoomFollowUpTurnResult{{
+			MessageID:           "collect-1/auto-evidence-1",
+			UserMessage:         "OpenClarion automatic evidence follow-up.",
+			AssistantMessageID:  "collect-1/auto-evidence-1/assistant",
+			UserTurnID:          domain.ChatTurnID(31),
+			AssistantTurnID:     domain.ChatTurnID(32),
+			UserSequence:        3,
+			AssistantSequence:   4,
+			TurnCount:           2,
+			ContextBytes:        256,
+			AssistantMessage:    "Collected operator-selected evidence has been reassessed.",
+			RequiresHumanReview: true,
+			Confidence:          "medium",
+			CollectionResults:   []ports.DiagnosisRoomEvidenceCollectionResult{collectionResult},
+			ConsultationInsight: ports.DiagnosisRoomConsultationInsight{
+				ConclusionStatus:    "needs_evidence",
+				ConfidenceRationale: "Metric evidence still needs operator review.",
+			},
+			Trigger: "collected_evidence",
+		}},
+	}
+	handler := testHandlerWithDiagnosisWS(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(&neverAuthProvider{}, service, &fakeDiagnosisSessionResolver{
+			sessions: map[string]diagnosisauth.SessionRef{"session-1": session},
+		}),
+		WithDiagnosisRoomWorkflowClient(workflowClient),
+		withDiagnosisClock(func() time.Time { return now.Add(time.Second) }),
+	)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/diagnosis?session_id=session-1&ticket=" + ticket.Token
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer closeWebSocketDialResponse(resp)
+	if err != nil {
+		t.Fatalf("Dial: %v; resp=%v", err, resp)
+	}
+	defer conn.Close()
+
+	var ready diagnosisWSReadyFrame
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("ReadJSON ready: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]any{
+		"type":       diagnosisWSClientCollectEvidence,
+		"message_id": "collect-1",
+		"message":    "Run planned evidence collection.",
+		"evidence_requests": []map[string]any{{
+			"alert_source_profile_id": 4,
+			"tool":                    "metric_range_query",
+			"reason":                  "CPU and memory saturation window",
+			"query":                   "up",
+			"window_seconds":          300,
+			"step_seconds":            60,
+			"limit":                   10,
+		}},
+	}); err != nil {
+		t.Fatalf("WriteJSON collect: %v", err)
+	}
+	var state diagnosisWSStateFrame
+	if err := conn.ReadJSON(&state); err != nil {
+		t.Fatalf("ReadJSON state: %v", err)
+	}
+	if state.Type != diagnosisWSServerState ||
+		state.ChatSessionID != 21 ||
+		state.DiagnosisTaskID != 11 ||
+		state.TurnCount != 2 ||
+		state.Confidence != "medium" ||
+		state.RequiresHumanReview == nil ||
+		!*state.RequiresHumanReview ||
+		len(state.EvidenceRequests) != 1 ||
+		len(state.CollectionResults) != 1 ||
+		state.CollectionResults[0].Status != "skipped" ||
+		state.CollectionResults[0].ReasonCode != "template_query_mismatch" ||
+		state.CollectionResults[0].Message != "Diagnosis tool template query does not match the requested query." ||
+		state.CollectionResults[0].Request.Reason != "CPU and memory saturation window" {
+		t.Fatalf("state = %+v", state)
+	}
+	if state.ConsultationInsight == nil ||
+		state.ConsultationInsight.ConclusionStatus != "needs_evidence" ||
+		state.ConsultationInsight.MissingEvidenceRequests[0].Label != "Metric evidence recovery" {
+		t.Fatalf("state consultation insight = %+v", state.ConsultationInsight)
+	}
+	if len(state.EvidenceTimeline) != 1 ||
+		state.EvidenceTimeline[0].MessageID != "collect-1" ||
+		state.EvidenceTimeline[0].ActorSubject != "owner-1" ||
+		state.EvidenceTimeline[0].Trigger != "manual_evidence_collection" ||
+		state.EvidenceTimeline[0].CollectionResults[0].Status != "skipped" {
+		t.Fatalf("state evidence timeline = %+v", state.EvidenceTimeline)
+	}
+	if len(state.ConfidenceTimeline) != 1 ||
+		state.ConfidenceTimeline[0].MessageID != "collect-1" ||
+		state.ConfidenceTimeline[0].CollectionResults[0].ReasonCode != "template_query_mismatch" ||
+		state.ConfidenceTimeline[0].MissingEvidenceRequests[0].Priority != "high" {
+		t.Fatalf("state confidence timeline = %+v", state.ConfidenceTimeline)
+	}
+	if len(state.FollowUpTurns) != 1 ||
+		state.FollowUpTurns[0].MessageID != "collect-1/auto-evidence-1" ||
+		state.FollowUpTurns[0].ConsultationInsight.ConclusionStatus != "needs_evidence" ||
+		state.FollowUpTurns[0].Trigger != "collected_evidence" {
+		t.Fatalf("state follow-up turns = %+v", state.FollowUpTurns)
+	}
+	if len(state.SeenMessageIDs) != 1 || state.SeenMessageIDs[0] != "collect-1" {
+		t.Fatalf("state seen message ids = %+v", state.SeenMessageIDs)
+	}
+	collectReq, collectCalled := workflowClient.collectSnapshot()
+	if collectCalled != 1 ||
+		collectReq.SessionID != "session-1" ||
+		collectReq.ActorSubject != "owner-1" ||
+		collectReq.MessageID != "collect-1" ||
+		collectReq.Message != "Run planned evidence collection." ||
+		len(collectReq.Requests) != 1 ||
+		collectReq.Requests[0].Tool != domain.DiagnosisToolKindMetricRangeQuery ||
+		collectReq.Requests[0].AlertSourceProfileID != domain.AlertSourceProfileID(4) {
+		t.Fatalf("CollectDiagnosisEvidence calls=%d request=%+v", collectCalled, collectReq)
 	}
 }
 
@@ -3698,7 +9689,7 @@ func TestDiagnosisWebSocketRelayDoesNotCancelUpdateOnDisconnect(t *testing.T) {
 func TestListEndpointRejectsOutOfRangeLimit(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/alerts?limit=0", nil)
-	testHandler(&fakeUOWFactory{alertRepo: &fakeAlertRepo{}}).ServeHTTP(rec, req)
+	testOperationsReadHandler(t, &fakeUOWFactory{alertRepo: &fakeAlertRepo{}}).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusBadRequest {
 		t.Fatalf("status = %d, want 400; body=%s", rec.Code, rec.Body.String())
@@ -3720,8 +9711,97 @@ func testHandler(factory *fakeUOWFactory, opts ...ServerOption) stdhttp.Handler 
 	})
 }
 
+func testConfigHandler(t *testing.T, factory *fakeUOWFactory, opts ...ServerOption) stdhttp.Handler {
+	t.Helper()
+	if factory.configRepo == nil {
+		factory.configRepo = &fakeConfigRepo{}
+	}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{
+			Allowed:   true,
+			CheckedAt: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC),
+		},
+	}
+	configOpts := testLocalRBACOptions(t, "iam-admin", authorizer)
+	configOpts = append(configOpts, opts...)
+	handler := testHandler(factory, configOpts...)
+	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Header.Get("Authorization") == "" {
+			addTestLocalRBACAuthorization(r)
+		}
+		handler.ServeHTTP(w, r)
+	})
+}
+
+func testOperationsReadHandler(t *testing.T, factory *fakeUOWFactory) stdhttp.Handler {
+	t.Helper()
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{
+			Allowed:   true,
+			CheckedAt: time.Date(2026, 6, 26, 9, 0, 0, 0, time.UTC),
+		},
+	}
+	return testOperationsReadHandlerWithAuthorizer(t, factory, authorizer)
+}
+
+func testOperationsReadHandlerWithAuthorizer(
+	t *testing.T,
+	factory *fakeUOWFactory,
+	authorizer *fakeRBACAuthorizer,
+) stdhttp.Handler {
+	t.Helper()
+	if factory.configRepo == nil {
+		factory.configRepo = &fakeConfigRepo{}
+	}
+	localOpts := testLocalRBACOptions(t, "operations-viewer-1", authorizer)
+	handler := testHandler(factory, localOpts...)
+	return stdhttp.HandlerFunc(func(w stdhttp.ResponseWriter, r *stdhttp.Request) {
+		if r.Header.Get("Authorization") == "" {
+			addTestLocalRBACAuthorization(r)
+		}
+		handler.ServeHTTP(w, r)
+	})
+}
+
+const testLocalRBACAuthorization = "Bearer local-rbac-test-token"
+
+func addTestLocalRBACAuthorization(req *stdhttp.Request) {
+	req.Header.Set("Authorization", testLocalRBACAuthorization)
+}
+
+func testLocalRBACOptions(t *testing.T, subject string, authorizer RBACAuthorizer) []ServerOption {
+	t.Helper()
+	authProvider := authfake.New(map[string][]authfake.Result{
+		testLocalRBACAuthorization: {{
+			Principal: ports.AuthPrincipal{
+				Subject: subject,
+				Roles:   []ports.AuthRole{ports.AuthRoleAdmin},
+			},
+		}},
+	})
+	return []ServerOption{
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("L", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}),
+		WithRBACAuthorizer(authorizer),
+	}
+}
+
+func testSHA256(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
 func testHandlerWithDiagnosisWS(factory *fakeUOWFactory, opts ...ServerOption) stdhttp.Handler {
 	logger := slog.New(slog.NewTextHandler(testingWriter{}, nil))
+	if factory.configRepo == nil {
+		factory.configRepo = &fakeConfigRepo{}
+	}
+	defaultAuthorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{
+			Allowed:   true,
+			CheckedAt: time.Date(2026, 6, 27, 9, 0, 0, 0, time.UTC),
+		},
+	}
+	opts = append([]ServerOption{WithRBACAuthorizer(defaultAuthorizer)}, opts...)
 	server := NewServer(logger, factory, opts...)
 	mux := stdhttp.NewServeMux()
 	server.RegisterDiagnosisWebSocketRoutes(mux)
@@ -3740,10 +9820,10 @@ func newHTTPTestDiagnosisAuthService(t *testing.T, random *strings.Reader) diagn
 	return service
 }
 
-func newHTTPTestSessionTokenService(t *testing.T, now time.Time) *diagnosisauth.SessionTokenService {
+func newHTTPTestDiagnosisSessionIssuer(t *testing.T, now time.Time) *diagnosisauth.SessionTokenService {
 	t.Helper()
 	service, err := diagnosisauth.NewSessionTokenService(
-		diagnosisauth.DefaultSessionTokenPolicy(strings.Repeat("s", diagnosisauth.MinSessionSigningKeyBytes)),
+		diagnosisauth.DefaultSessionTokenPolicy(strings.Repeat("S", diagnosisauth.MinSessionSigningKeyBytes)),
 		func() time.Time { return now },
 	)
 	if err != nil {
@@ -3756,6 +9836,59 @@ func closeWebSocketDialResponse(resp *stdhttp.Response) {
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}
+}
+
+type fakeDiagnosisWeComAppCallback struct {
+	echoSignature    string
+	echoTimestamp    string
+	echoNonce        string
+	echoEncrypted    string
+	echo             string
+	echoErr          error
+	messageSignature string
+	messageTimestamp string
+	messageNonce     string
+	messageRawXML    []byte
+	message          wecomcallback.Message
+	messageErr       error
+}
+
+func (v *fakeDiagnosisWeComAppCallback) VerifyEcho(msgSignature, timestamp, nonce, echo string) (string, error) {
+	v.echoSignature = msgSignature
+	v.echoTimestamp = timestamp
+	v.echoNonce = nonce
+	v.echoEncrypted = echo
+	if v.echoErr != nil {
+		return "", v.echoErr
+	}
+	return v.echo, nil
+}
+
+func (v *fakeDiagnosisWeComAppCallback) DecryptMessage(msgSignature, timestamp, nonce string, rawXML []byte) (wecomcallback.Message, error) {
+	v.messageSignature = msgSignature
+	v.messageTimestamp = timestamp
+	v.messageNonce = nonce
+	v.messageRawXML = append([]byte(nil), rawXML...)
+	if v.messageErr != nil {
+		return wecomcallback.Message{}, v.messageErr
+	}
+	return v.message, nil
+}
+
+type fakeDiagnosisWeComAppCallbackMessageHandler struct {
+	called int
+	req    diagnosiswecomcallback.Request
+	result diagnosiswecomcallback.Result
+	err    error
+}
+
+func (h *fakeDiagnosisWeComAppCallbackMessageHandler) HandleMessage(_ context.Context, req diagnosiswecomcallback.Request) (diagnosiswecomcallback.Result, error) {
+	h.called++
+	h.req = req
+	if h.err != nil {
+		return diagnosiswecomcallback.Result{}, h.err
+	}
+	return h.result, nil
 }
 
 type testingWriter struct{}
@@ -3813,6 +9946,11 @@ type fakeDiagnosisRoomWorkflowClient struct {
 	releaseSubmit               chan struct{}
 	submitDone                  chan struct{}
 	submitContextErr            error
+	collectCalled               int
+	collectReq                  ports.DiagnosisRoomCollectEvidenceRequest
+	collectState                ports.DiagnosisRoomState
+	collectFollowUpTurns        []ports.DiagnosisRoomFollowUpTurnResult
+	collectErr                  error
 	queryCalled                 int
 	querySessionID              string
 	queryState                  ports.DiagnosisRoomState
@@ -3821,6 +9959,29 @@ type fakeDiagnosisRoomWorkflowClient struct {
 	confirmReq                  ports.DiagnosisRoomConfirmConclusionRequest
 	confirmState                ports.DiagnosisRoomState
 	confirmErr                  error
+}
+
+type fakeDiagnosisRoomWorkflowVisibilityLookup struct {
+	called   int
+	requests []ports.DiagnosisRoomWorkflowVisibilityRequest
+	results  map[ports.DiagnosisRoomWorkflowVisibilityRequest]ports.DiagnosisRoomWorkflowVisibility
+	err      error
+}
+
+func (l *fakeDiagnosisRoomWorkflowVisibilityLookup) ListDiagnosisRoomWorkflowVisibility(
+	_ context.Context,
+	requests []ports.DiagnosisRoomWorkflowVisibilityRequest,
+) (map[ports.DiagnosisRoomWorkflowVisibilityRequest]ports.DiagnosisRoomWorkflowVisibility, error) {
+	l.called++
+	l.requests = append([]ports.DiagnosisRoomWorkflowVisibilityRequest(nil), requests...)
+	if l.err != nil {
+		return nil, l.err
+	}
+	out := make(map[ports.DiagnosisRoomWorkflowVisibilityRequest]ports.DiagnosisRoomWorkflowVisibility, len(l.results))
+	for key, value := range l.results {
+		out[key] = value
+	}
+	return out, nil
 }
 
 type fakeDiagnosisRoomStarter struct {
@@ -3837,6 +9998,22 @@ func (s *fakeDiagnosisRoomStarter) Start(_ context.Context, req diagnosisroomsta
 		return diagnosisroomstart.Result{}, s.err
 	}
 	return s.result, nil
+}
+
+type fakeDiagnosisRoomCloser struct {
+	called int
+	req    diagnosisroomclose.Request
+	result diagnosisroomclose.Result
+	err    error
+}
+
+func (c *fakeDiagnosisRoomCloser) CloseUnavailable(_ context.Context, req diagnosisroomclose.Request) (diagnosisroomclose.Result, error) {
+	c.called++
+	c.req = req
+	if c.err != nil {
+		return diagnosisroomclose.Result{}, c.err
+	}
+	return c.result, nil
 }
 
 func (c *fakeDiagnosisRoomWorkflowClient) SubmitDiagnosisTurn(ctx context.Context, req ports.DiagnosisRoomSubmitTurnRequest) (ports.DiagnosisRoomSubmitTurnResult, error) {
@@ -3889,6 +10066,20 @@ func (c *fakeDiagnosisRoomWorkflowClient) QueryDiagnosisRoom(_ context.Context, 
 	return c.queryState, nil
 }
 
+func (c *fakeDiagnosisRoomWorkflowClient) CollectDiagnosisEvidence(_ context.Context, req ports.DiagnosisRoomCollectEvidenceRequest) (ports.DiagnosisRoomCollectEvidenceResult, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.collectCalled++
+	c.collectReq = req
+	if c.collectErr != nil {
+		return ports.DiagnosisRoomCollectEvidenceResult{}, c.collectErr
+	}
+	return ports.DiagnosisRoomCollectEvidenceResult{
+		State:         c.collectState,
+		FollowUpTurns: append([]ports.DiagnosisRoomFollowUpTurnResult(nil), c.collectFollowUpTurns...),
+	}, nil
+}
+
 func (c *fakeDiagnosisRoomWorkflowClient) ConfirmDiagnosisConclusion(_ context.Context, req ports.DiagnosisRoomConfirmConclusionRequest) (ports.DiagnosisRoomState, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -3912,6 +10103,12 @@ func (c *fakeDiagnosisRoomWorkflowClient) querySnapshot() (string, int) {
 	return c.querySessionID, c.queryCalled
 }
 
+func (c *fakeDiagnosisRoomWorkflowClient) collectSnapshot() (ports.DiagnosisRoomCollectEvidenceRequest, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.collectReq, c.collectCalled
+}
+
 func (c *fakeDiagnosisRoomWorkflowClient) confirmSnapshot() (ports.DiagnosisRoomConfirmConclusionRequest, int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -3932,8 +10129,51 @@ func (c *fakeDiagnosisRoomWorkflowClient) submitContextErrSnapshot() error {
 
 type neverAuthProvider struct{}
 
-func (*neverAuthProvider) AuthenticateBearer(context.Context, string) (ports.AuthPrincipal, error) {
+func (*neverAuthProvider) AuthenticateAuthorization(context.Context, string) (ports.AuthPrincipal, error) {
 	return ports.AuthPrincipal{}, errors.New("unexpected auth provider call")
+}
+
+type auxiliaryCredentialAuthProvider struct {
+	calls         int
+	authorization string
+	credentials   ports.AuthAuxiliaryCredentials
+	principal     ports.AuthPrincipal
+	err           error
+}
+
+func (p *auxiliaryCredentialAuthProvider) AuthenticateAuthorization(context.Context, string) (ports.AuthPrincipal, error) {
+	return ports.AuthPrincipal{}, errors.New("unexpected plain auth provider call")
+}
+
+func (p *auxiliaryCredentialAuthProvider) AuthenticateAuthorizationWithAuxiliaryCredentials(_ context.Context, authorization string, credentials ports.AuthAuxiliaryCredentials) (ports.AuthPrincipal, error) {
+	p.calls++
+	p.authorization = authorization
+	p.credentials = credentials
+	if p.err != nil {
+		return ports.AuthPrincipal{}, p.err
+	}
+	return p.principal, nil
+}
+
+type roleMappingStatusAuthProvider struct {
+	status          ports.AuthRoleMappingStatus
+	transportStatus ports.AuthTransportPolicyStatus
+}
+
+func (p roleMappingStatusAuthProvider) AuthenticateAuthorization(context.Context, string) (ports.AuthPrincipal, error) {
+	return ports.AuthPrincipal{}, errors.New("unexpected auth provider call")
+}
+
+func (p roleMappingStatusAuthProvider) RoleMappingStatus() ports.AuthRoleMappingStatus {
+	return ports.AuthRoleMappingStatus{
+		OwnerMappingCount: p.status.OwnerMappingCount,
+		AdminMappingCount: p.status.AdminMappingCount,
+		DefaultRoles:      append([]ports.AuthRole(nil), p.status.DefaultRoles...),
+	}
+}
+
+func (p roleMappingStatusAuthProvider) TransportPolicyStatus() ports.AuthTransportPolicyStatus {
+	return p.transportStatus
 }
 
 type fakeUOWFactory struct {
@@ -3961,6 +10201,38 @@ func (t *fakeReportReplayTrigger) ReplayAndStart(_ context.Context, req reporttr
 	return t.result, nil
 }
 
+type fakeReportNotificationSender struct {
+	called int
+	req    reportnotification.Request
+	result reportnotification.Result
+	err    error
+}
+
+func (s *fakeReportNotificationSender) Send(_ context.Context, req reportnotification.Request) (reportnotification.Result, error) {
+	s.called++
+	s.req = req
+	if s.err != nil {
+		return reportnotification.Result{}, s.err
+	}
+	return s.result, nil
+}
+
+type fakeDiagnosisNotificationRetrier struct {
+	called int
+	req    diagnosisnotification.Request
+	result diagnosisnotification.Result
+	err    error
+}
+
+func (r *fakeDiagnosisNotificationRetrier) Retry(_ context.Context, req diagnosisnotification.Request) (diagnosisnotification.Result, error) {
+	r.called++
+	r.req = req
+	if r.err != nil {
+		return diagnosisnotification.Result{}, r.err
+	}
+	return r.result, nil
+}
+
 type fakeReportWorkflowPolicyReplayTrigger struct {
 	called int
 	req    reportpolicytrigger.Request
@@ -3973,6 +10245,29 @@ func (t *fakeReportWorkflowPolicyReplayTrigger) ReplayAndStart(_ context.Context
 	t.req = req
 	if t.err != nil {
 		return reporttrigger.Result{}, t.err
+	}
+	return t.result, nil
+}
+
+type fakeDetailedReportWorkflowPolicyReplayTrigger struct {
+	legacyCalled   int
+	detailedCalled int
+	req            reportpolicytrigger.Request
+	result         reportpolicytrigger.Result
+	err            error
+}
+
+func (t *fakeDetailedReportWorkflowPolicyReplayTrigger) ReplayAndStart(_ context.Context, req reportpolicytrigger.Request) (reporttrigger.Result, error) {
+	t.legacyCalled++
+	t.req = req
+	return reporttrigger.Result{}, errors.New("legacy policy replay should not be called")
+}
+
+func (t *fakeDetailedReportWorkflowPolicyReplayTrigger) ReplayAndStartDetailed(_ context.Context, req reportpolicytrigger.Request) (reportpolicytrigger.Result, error) {
+	t.detailedCalled++
+	t.req = req
+	if t.err != nil {
+		return reportpolicytrigger.Result{}, t.err
 	}
 	return t.result, nil
 }
@@ -4012,28 +10307,78 @@ func (t *fakeAlertSourceConnectionTester) TestAlertSourceConnection(_ context.Co
 type fakeNotificationChannelTester struct {
 	called  int
 	profile domain.NotificationChannelProfile
+	request notificationchannelcheck.Request
 	result  notificationchannelcheck.Result
 	err     error
 }
 
-func (t *fakeNotificationChannelTester) TestNotificationChannel(_ context.Context, profile domain.NotificationChannelProfile) (notificationchannelcheck.Result, error) {
+func (t *fakeNotificationChannelTester) TestNotificationChannel(_ context.Context, profile domain.NotificationChannelProfile, reqs ...notificationchannelcheck.Request) (notificationchannelcheck.Result, error) {
 	t.called++
 	t.profile = profile
+	if len(reqs) > 0 {
+		t.request = reqs[0]
+	}
 	if t.err != nil {
 		return notificationchannelcheck.Result{}, t.err
 	}
 	return t.result, nil
 }
 
+type fakeDirectorySyncer struct {
+	called int
+	req    directorysync.SyncRequest
+	result directorysync.Result
+	err    error
+}
+
+func (s *fakeDirectorySyncer) Sync(_ context.Context, req directorysync.SyncRequest) (directorysync.Result, error) {
+	s.called++
+	s.req = req
+	if s.err != nil {
+		return directorysync.Result{}, s.err
+	}
+	return s.result, nil
+}
+
+type fakeRBACAuthorizer struct {
+	called    int
+	req       rbacusecase.AuthorizeRequest
+	requests  []rbacusecase.AuthorizeRequest
+	result    rbacusecase.AuthorizeDecision
+	err       error
+	authorize func(rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error)
+}
+
+func (a *fakeRBACAuthorizer) Authorize(_ context.Context, req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+	a.called++
+	a.req = req
+	a.requests = append(a.requests, req)
+	if a.authorize != nil {
+		return a.authorize(req)
+	}
+	if a.err != nil {
+		return rbacusecase.AuthorizeDecision{}, a.err
+	}
+	return a.result, nil
+}
+
 func (f *fakeUOWFactory) Begin(context.Context) (ports.UnitOfWork, error) {
-	return &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, diagnosisRepo: f.diagnosisRepo, reportRepo: f.reportRepo, configRepo: f.configRepo}, f.err
+	return f.fakeUOW(), f.err
 }
 
 func (f *fakeUOWFactory) WithinTx(ctx context.Context, fn func(context.Context, ports.UnitOfWork) error) error {
 	if f.err != nil {
 		return f.err
 	}
-	return fn(ctx, &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, diagnosisRepo: f.diagnosisRepo, reportRepo: f.reportRepo, configRepo: f.configRepo})
+	return fn(ctx, f.fakeUOW())
+}
+
+func (f *fakeUOWFactory) fakeUOW() *fakeUOW {
+	var diagnosisRepo ports.DiagnosisRepository
+	if f.diagnosisRepo != nil {
+		diagnosisRepo = f.diagnosisRepo
+	}
+	return &fakeUOW{alertRepo: f.alertRepo, evidenceRepo: f.evidenceRepo, diagnosisRepo: diagnosisRepo, reportRepo: f.reportRepo, configRepo: f.configRepo}
 }
 
 type fakeUOW struct {
@@ -4103,13 +10448,20 @@ func (r *fakeEvidenceRepo) List(_ context.Context, limit int) ([]domain.Evidence
 
 type fakeDiagnosisRepo struct {
 	ports.DiagnosisRepository
-	tasksBySnapshot     map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
-	eventsByTaskAndKind map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
-	lastSnapshotID      domain.EvidenceSnapshotID
-	lastTaskLimit       int
-	lastTaskID          domain.DiagnosisTaskID
-	lastEventKind       string
-	lastEventLimit      int
+	tasksBySnapshot      map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
+	eventsByTaskAndKind  map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
+	chatTurnsBySession   map[domain.ChatSessionID][]domain.ChatTurn
+	chatSessions         []domain.ChatSessionWithTask
+	lastSnapshotID       domain.EvidenceSnapshotID
+	lastTaskLimit        int
+	lastTaskID           domain.DiagnosisTaskID
+	lastFindTaskID       domain.DiagnosisTaskID
+	lastEventKind        string
+	lastEventLimit       int
+	lastChatSessionLimit int
+	lastChatSessionKey   string
+	lastChatTurnSession  domain.ChatSessionID
+	lastChatTurnLimit    int
 }
 
 func (r *fakeDiagnosisRepo) ListTasksByEvidenceSnapshot(_ context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]domain.DiagnosisTask, error) {
@@ -4122,15 +10474,67 @@ func (r *fakeDiagnosisRepo) ListTasksByEvidenceSnapshot(_ context.Context, snaps
 	return tasks[:limit], nil
 }
 
+func (r *fakeDiagnosisRepo) FindTaskByID(_ context.Context, id domain.DiagnosisTaskID) (domain.DiagnosisTask, error) {
+	r.lastFindTaskID = id
+	for _, item := range r.chatSessions {
+		if item.Task.ID == id {
+			return item.Task, nil
+		}
+	}
+	for _, tasks := range r.tasksBySnapshot {
+		for _, task := range tasks {
+			if task.ID == id {
+				return task, nil
+			}
+		}
+	}
+	return domain.DiagnosisTask{}, fmt.Errorf("diagnosis task %d: %w", id, domain.ErrNotFound)
+}
+
 func (r *fakeDiagnosisRepo) ListEventsByTaskAndKind(_ context.Context, taskID domain.DiagnosisTaskID, kind string, limit int) ([]domain.DiagnosisTaskEvent, error) {
 	r.lastTaskID = taskID
 	r.lastEventKind = kind
 	r.lastEventLimit = limit
+	if r.eventsByTaskAndKind == nil {
+		return nil, nil
+	}
 	events := r.eventsByTaskAndKind[taskID][kind]
 	if limit > len(events) {
 		limit = len(events)
 	}
 	return events[:limit], nil
+}
+
+func (r *fakeDiagnosisRepo) ListChatSessions(_ context.Context, limit int) ([]domain.ChatSessionWithTask, error) {
+	r.lastChatSessionLimit = limit
+	sessions := r.chatSessions
+	if limit > len(sessions) {
+		limit = len(sessions)
+	}
+	return sessions[:limit], nil
+}
+
+func (r *fakeDiagnosisRepo) FindChatSessionByKey(_ context.Context, sessionKey string) (domain.ChatSession, error) {
+	r.lastChatSessionKey = sessionKey
+	for _, item := range r.chatSessions {
+		if item.Session.SessionKey == sessionKey {
+			return item.Session, nil
+		}
+	}
+	return domain.ChatSession{}, fmt.Errorf("chat session %q: %w", sessionKey, domain.ErrNotFound)
+}
+
+func (r *fakeDiagnosisRepo) ListChatTurnsBySession(_ context.Context, sessionID domain.ChatSessionID, limit int) ([]domain.ChatTurn, error) {
+	r.lastChatTurnSession = sessionID
+	r.lastChatTurnLimit = limit
+	if r.chatTurnsBySession == nil {
+		return nil, nil
+	}
+	turns := r.chatTurnsBySession[sessionID]
+	if limit > len(turns) {
+		limit = len(turns)
+	}
+	return turns[:limit], nil
 }
 
 type fakeReportRepo struct {
@@ -4170,9 +10574,20 @@ type fakeConfigRepo struct {
 	updateNotificationChannelResult    domain.NotificationChannelProfile
 	savedNotificationChannel           domain.NotificationChannelProfile
 	updatedNotificationChannel         domain.NotificationChannelProfile
+	savedNotificationChannelTestProofs []domain.NotificationChannelTestProof
+	directoryDepartments               []domain.DirectoryDepartment
+	directorySyncRuns                  []domain.DirectorySyncRun
+	directoryUsers                     []domain.DirectoryUser
+	rbacAssignments                    []domain.RBACAssignment
+	upsertRBACAssignmentResult         domain.RBACAssignment
+	savedRBACAssignment                domain.RBACAssignment
 	saveErr                            error
 	updateErr                          error
 	lastListLimit                      int
+	lastDirectoryProvider              string
+	lastDirectorySubject               string
+	lastDirectoryLimit                 int
+	lastRBACAssignmentLimit            int
 }
 
 type recordingReportWorkflowScheduleSyncer struct {
@@ -4398,6 +10813,160 @@ func (r *fakeConfigRepo) FindNotificationChannelProfileByID(_ context.Context, i
 		}
 	}
 	return domain.NotificationChannelProfile{}, domain.ErrNotFound
+}
+
+func (r *fakeConfigRepo) SaveNotificationChannelTestProof(_ context.Context, proof domain.NotificationChannelTestProof) (domain.NotificationChannelTestProof, error) {
+	if r.saveErr != nil {
+		return domain.NotificationChannelTestProof{}, r.saveErr
+	}
+	proof.ID = domain.NotificationChannelTestProofID(len(r.savedNotificationChannelTestProofs) + 1)
+	r.savedNotificationChannelTestProofs = append(r.savedNotificationChannelTestProofs, proof)
+	return proof, nil
+}
+
+func (r *fakeConfigRepo) ListLatestNotificationChannelTestProofs(_ context.Context, profileID domain.NotificationChannelProfileID, limit int) ([]domain.NotificationChannelTestProof, error) {
+	out := []domain.NotificationChannelTestProof{}
+	for _, proof := range r.savedNotificationChannelTestProofs {
+		if proof.NotificationChannelProfileID == profileID {
+			out = append(out, proof)
+		}
+	}
+	if limit > len(out) {
+		limit = len(out)
+	}
+	return out[:limit], nil
+}
+
+func (r *fakeConfigRepo) ListDirectoryDepartments(_ context.Context, provider string, limit int) ([]domain.DirectoryDepartment, error) {
+	r.lastDirectoryProvider = provider
+	r.lastDirectoryLimit = limit
+	out := make([]domain.DirectoryDepartment, 0, len(r.directoryDepartments))
+	for _, department := range r.directoryDepartments {
+		if provider == "" || department.Provider == provider {
+			out = append(out, department)
+		}
+	}
+	if limit > len(out) {
+		limit = len(out)
+	}
+	return out[:limit], nil
+}
+
+func (r *fakeConfigRepo) ListDirectoryUsers(_ context.Context, provider string, limit int) ([]domain.DirectoryUser, error) {
+	r.lastDirectoryProvider = provider
+	r.lastDirectoryLimit = limit
+	out := make([]domain.DirectoryUser, 0, len(r.directoryUsers))
+	for _, user := range r.directoryUsers {
+		if provider == "" || user.Provider == provider {
+			out = append(out, user)
+		}
+	}
+	if limit > len(out) {
+		limit = len(out)
+	}
+	return out[:limit], nil
+}
+
+func (r *fakeConfigRepo) SaveDirectorySyncRun(_ context.Context, run domain.DirectorySyncRun) (domain.DirectorySyncRun, error) {
+	run.ID = domain.DirectorySyncRunID(len(r.directorySyncRuns) + 1)
+	r.directorySyncRuns = append(r.directorySyncRuns, run)
+	return run, nil
+}
+
+func (r *fakeConfigRepo) ListDirectorySyncRuns(_ context.Context, provider string, limit int) ([]domain.DirectorySyncRun, error) {
+	r.lastDirectoryProvider = provider
+	r.lastDirectoryLimit = limit
+	out := make([]domain.DirectorySyncRun, 0, len(r.directorySyncRuns))
+	for _, run := range r.directorySyncRuns {
+		if provider == "" || run.Provider == provider {
+			out = append(out, run)
+		}
+	}
+	if limit > len(out) {
+		limit = len(out)
+	}
+	return out[:limit], nil
+}
+
+func (r *fakeConfigRepo) ListDirectoryUsersBySubject(_ context.Context, subject string, limit int) ([]domain.DirectoryUser, error) {
+	r.lastDirectorySubject = subject
+	r.lastDirectoryLimit = limit
+	out := make([]domain.DirectoryUser, 0, len(r.directoryUsers))
+	for _, user := range r.directoryUsers {
+		if user.Subject == subject {
+			out = append(out, user)
+		}
+	}
+	if limit > len(out) {
+		limit = len(out)
+	}
+	return out[:limit], nil
+}
+
+func (r *fakeConfigRepo) FindDirectoryDepartmentByProviderExternalID(_ context.Context, provider, externalID string) (domain.DirectoryDepartment, error) {
+	for _, department := range r.directoryDepartments {
+		if department.Provider == provider && department.ExternalID == externalID {
+			return department, nil
+		}
+	}
+	return domain.DirectoryDepartment{}, domain.ErrNotFound
+}
+
+func (r *fakeConfigRepo) FindDirectoryUserByProviderSubject(_ context.Context, provider, subject string) (domain.DirectoryUser, error) {
+	for _, user := range r.directoryUsers {
+		if user.Provider == provider && user.Subject == subject {
+			return user, nil
+		}
+	}
+	return domain.DirectoryUser{}, domain.ErrNotFound
+}
+
+func (r *fakeConfigRepo) UpsertRBACAssignment(_ context.Context, assignment domain.RBACAssignment) (domain.RBACAssignment, error) {
+	r.savedRBACAssignment = assignment
+	if r.saveErr != nil {
+		return domain.RBACAssignment{}, r.saveErr
+	}
+	if r.upsertRBACAssignmentResult.ID == 0 {
+		assignment.ID = domain.RBACAssignmentID(len(r.rbacAssignments) + 1)
+		now := time.Now().UTC()
+		assignment.CreatedAt = now
+		assignment.UpdatedAt = now
+		r.rbacAssignments = append(r.rbacAssignments, assignment)
+		return assignment, nil
+	}
+	r.rbacAssignments = append(r.rbacAssignments, r.upsertRBACAssignmentResult)
+	return r.upsertRBACAssignmentResult, nil
+}
+
+func (r *fakeConfigRepo) ListRBACAssignments(_ context.Context, limit int) ([]domain.RBACAssignment, error) {
+	r.lastRBACAssignmentLimit = limit
+	if limit > len(r.rbacAssignments) {
+		limit = len(r.rbacAssignments)
+	}
+	return r.rbacAssignments[:limit], nil
+}
+
+func (r *fakeConfigRepo) ListRBACAssignmentsForPrincipal(_ context.Context, subject string, departmentKeys []string, limit int) ([]domain.RBACAssignment, error) {
+	out := make([]domain.RBACAssignment, 0, len(r.rbacAssignments))
+	for _, assignment := range r.rbacAssignments {
+		if !assignment.Enabled {
+			continue
+		}
+		switch assignment.SubjectKind {
+		case domain.RBACSubjectKindUser:
+			if assignment.SubjectKey == subject {
+				out = append(out, assignment)
+			}
+		case domain.RBACSubjectKindDepartment:
+			if slices.Contains(departmentKeys, assignment.SubjectKey) {
+				out = append(out, assignment)
+			}
+		}
+	}
+	if limit > len(out) {
+		limit = len(out)
+	}
+	return out[:limit], nil
 }
 
 func (r *fakeReportRepo) ListFinalReports(_ context.Context, limit int) ([]domain.FinalReport, error) {

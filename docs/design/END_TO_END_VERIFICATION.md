@@ -575,8 +575,12 @@ All three chains are technically feasible:
   per-turn sandbox from env. `make diagnosis-dev-oidc-issuer` supplies a
   loopback-only local OIDC discovery/JWKS/token helper for manual live-smoke
   setup while preserving the same runtime verifier path. It is not acceptance
-  evidence by itself. C9 remains a documented byte-budget constraint. Full M5
-  acceptance still requires running the live gate and retaining its evidence.
+  evidence by itself. A 2026-06-19 local retained proof exercised the live gate
+  through planned evidence collection, assistant follow-up, conclusion
+  confirmation, and close notification on a real backend/worker stack. C9 remains
+  a documented byte-budget constraint. Target-deployment acceptance requires a
+  fresh retained live proof when the deployed backend, worker image, sandbox
+  runtime, or routing differs from the proven local stack.
 
 No link requires inventing a new protocol or depending on unproven technology.
 Constraints are documented and resolvable within existing tool ecosystems.
@@ -590,7 +594,7 @@ Constraints are documented and resolvable within existing tool ecosystems.
 | **M0/M1** | First code lands | `oapi-codegen-exp v0.1.0` pinned (M0); `docker-compose.yml` (PostgreSQL 18 + Temporal `auto-setup` 1.25.2) shipped (M0); Ent `v0.14.6` and Atlas `arigaio/atlas:1.2.0` pinned, 5 Ent schemas + first migration shipped (M1-PR1); Temporal Go SDK `>= 1.21` first-import pin and Update round-trip integration test planned for **M1-PR3** when the `DiagnosisWorkflow` shell lands (per ADR-0012 amendment and first-import rule) |
 | **M2** | LLM Activity ships | LLMProvider capability detection (strict vs json_object); JSON Schema subset validation; idempotency key design for LLM + Webhook Activities; confirm `finish_reason` / refusal handling |
 | **M4** | Sandbox ships | Egress allowlist scheme tested (iptables or egress proxy); image digest pin in CI; short-lived credential injection; Docker daemon privilege boundary documented; `/workspace/out/` output mount validated |
-| **M5** | Diagnosis room ships | Run `make diagnosis-live-browser-smoke` against a real backend/worker stack and retain the validator-checked JSON proof |
+| **M5** | Diagnosis room ships | Keep `make diagnosis-live-browser-smoke` proof current for the target backend/worker stack and retain the validator-checked JSON proof |
 
 Items not completed by their deadline are blockers for that milestone's
 acceptance. Items may be started earlier but must be proven (not just designed)

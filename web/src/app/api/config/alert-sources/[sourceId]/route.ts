@@ -1,5 +1,6 @@
 import { replaceAlertSourceProfile } from "@/features/settings/alert-sources/api";
 import type { AlertSourceProfileWriteRequest } from "@/features/settings/alert-sources/types";
+import { authorizedBackendResultResponse } from "@/lib/api/protected-route";
 import { apiResultResponse, parsePositiveIntegerRouteParam, readRequestJSON } from "@/lib/api/route";
 
 type RouteContext = {
@@ -19,5 +20,7 @@ export async function PUT(request: Request, context: RouteContext) {
   if (!body.ok) {
     return apiResultResponse(body);
   }
-  return apiResultResponse(await replaceAlertSourceProfile(parsedID.data, body.data));
+  return authorizedBackendResultResponse(request, (headers) =>
+    replaceAlertSourceProfile(parsedID.data, body.data, { headers }),
+  );
 }

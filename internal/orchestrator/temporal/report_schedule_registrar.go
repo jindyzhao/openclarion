@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultScheduleLauncherWorkflowExecutionTimeout = 15 * time.Minute
+	defaultScheduleLauncherWorkflowExecutionTimeout = 45 * time.Minute
 	defaultScheduleLauncherWorkflowTaskTimeout      = 10 * time.Second
 )
 
@@ -283,6 +283,9 @@ func (r *ReportWorkflowScheduleRegistrar) validate(schedule domain.ReportWorkflo
 	}
 	if schedule.Offset < 0 || schedule.Offset >= schedule.Interval {
 		return fmt.Errorf("report workflow schedule registrar: offset must be non-negative and less than interval: %w", domain.ErrInvariantViolation)
+	}
+	if schedule.Enabled && schedule.ReplayWindow > schedule.Interval {
+		return fmt.Errorf("report workflow schedule registrar: enabled schedule replay window must not exceed interval: %w", domain.ErrInvariantViolation)
 	}
 	if schedule.ReplayLimit <= 0 {
 		return fmt.Errorf("report workflow schedule registrar: replay limit must be positive: %w", domain.ErrInvariantViolation)

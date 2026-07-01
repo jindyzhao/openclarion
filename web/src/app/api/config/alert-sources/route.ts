@@ -3,12 +3,15 @@ import {
   fetchAlertSourceProfiles
 } from "@/features/settings/alert-sources/api";
 import type { AlertSourceProfileWriteRequest } from "@/features/settings/alert-sources/types";
+import { authorizedBackendResultResponse } from "@/lib/api/protected-route";
 import { apiResultResponse, readRequestJSON } from "@/lib/api/route";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  return apiResultResponse(await fetchAlertSourceProfiles());
+export async function GET(request: Request) {
+  return authorizedBackendResultResponse(request, (headers) =>
+    fetchAlertSourceProfiles({ headers }),
+  );
 }
 
 export async function POST(request: Request) {
@@ -16,5 +19,9 @@ export async function POST(request: Request) {
   if (!body.ok) {
     return apiResultResponse(body);
   }
-  return apiResultResponse(await createAlertSourceProfile(body.data), 201);
+  return authorizedBackendResultResponse(
+    request,
+    (headers) => createAlertSourceProfile(body.data, { headers }),
+    201,
+  );
 }

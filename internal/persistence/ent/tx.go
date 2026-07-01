@@ -44,6 +44,8 @@ type Tx struct {
 	GroupingPolicy *GroupingPolicyClient
 	// NotificationChannelProfile is the client for interacting with the NotificationChannelProfile builders.
 	NotificationChannelProfile *NotificationChannelProfileClient
+	// NotificationChannelTestProof is the client for interacting with the NotificationChannelTestProof builders.
+	NotificationChannelTestProof *NotificationChannelTestProofClient
 	// RBACAssignment is the client for interacting with the RBACAssignment builders.
 	RBACAssignment *RBACAssignmentClient
 	// ReportNotificationDelivery is the client for interacting with the ReportNotificationDelivery builders.
@@ -201,6 +203,7 @@ func (tx *Tx) init() {
 	tx.FinalReport = NewFinalReportClient(tx.config)
 	tx.GroupingPolicy = NewGroupingPolicyClient(tx.config)
 	tx.NotificationChannelProfile = NewNotificationChannelProfileClient(tx.config)
+	tx.NotificationChannelTestProof = NewNotificationChannelTestProofClient(tx.config)
 	tx.RBACAssignment = NewRBACAssignmentClient(tx.config)
 	tx.ReportNotificationDelivery = NewReportNotificationDeliveryClient(tx.config)
 	tx.ReportWorkflowPolicy = NewReportWorkflowPolicyClient(tx.config)

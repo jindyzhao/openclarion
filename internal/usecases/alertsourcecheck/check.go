@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
@@ -15,6 +16,8 @@ import (
 
 // DefaultTimeout bounds one alert source connection-test provider call.
 const DefaultTimeout = 5 * time.Second
+
+const prometheusMetricProbeQuery = "vector(1)"
 
 // Status is the coarse sanitized outcome category returned to operators.
 type Status string
@@ -156,7 +159,7 @@ func (s *Service) TestAlertSourceConnection(ctx context.Context, profile domain.
 		if !ok {
 			return credentialResult, nil
 		}
-		return s.testProvider(ctx, profile, result, s.prometheusFactory, credentials, "Prometheus"), nil
+		return s.testPrometheusProvider(ctx, profile, result, credentials), nil
 	case domain.AlertSourceKindAlertmanager:
 		if s.alertmanagerFactory == nil {
 			result.Status = StatusUnsupported
@@ -205,6 +208,67 @@ func (s *Service) resolveCredentials(
 	return ProviderCredentials{}, result, false
 }
 
+func (s *Service) testPrometheusProvider(
+	ctx context.Context,
+	profile domain.AlertSourceProfile,
+	result Result,
+	credentials ProviderCredentials,
+) Result {
+	displayName := prometheusConnectionDisplayName(profile)
+	provider, result, ok := s.buildProvider(profile, result, s.prometheusFactory, credentials, displayName)
+	if !ok {
+		return result
+	}
+	result = s.testActiveAlertListing(ctx, result, provider, displayName)
+	if result.Status != StatusSuccess {
+		return result
+	}
+	if !prometheusMetricProbeRequired(profile) {
+		result.Message = displayName + " alert listing succeeded."
+		return result
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, s.timeout)
+	defer cancel()
+	_, err := provider.QueryMetric(checkCtx, ports.MetricQueryRequest{
+		Query:   prometheusMetricProbeQuery,
+		Time:    result.CheckedAt,
+		Timeout: s.timeout,
+		Limit:   1,
+	})
+	if err != nil {
+		result.Status = StatusFailed
+		if checkCtx.Err() != nil {
+			result.ReasonCode = ReasonUpstreamUnreachable
+			result.Message = displayName + " metric query timed out."
+			return result
+		}
+		result.ReasonCode = ReasonUpstreamError
+		result.Message = displayName + " metric query failed."
+		return result
+	}
+	result.Message = displayName + " alert listing and metric query succeeded."
+	return result
+}
+
+func prometheusMetricProbeRequired(profile domain.AlertSourceProfile) bool {
+	return !prometheusProfileSourceLabelIs(profile, "thanos-rule")
+}
+
+func prometheusConnectionDisplayName(profile domain.AlertSourceProfile) string {
+	if prometheusProfileSourceLabelIs(profile, "thanos-rule") {
+		return "Thanos Rule"
+	}
+	return "Prometheus"
+}
+
+func prometheusProfileSourceLabelIs(profile domain.AlertSourceProfile, want string) bool {
+	if profile.Labels == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(profile.Labels["source"]), want)
+}
+
 func (s *Service) testProvider(
 	ctx context.Context,
 	profile domain.AlertSourceProfile,
@@ -213,20 +277,42 @@ func (s *Service) testProvider(
 	credentials ProviderCredentials,
 	displayName string,
 ) Result {
+	provider, result, ok := s.buildProvider(profile, result, factory, credentials, displayName)
+	if !ok {
+		return result
+	}
+	return s.testActiveAlertListing(ctx, result, provider, displayName)
+}
+
+func (s *Service) buildProvider(
+	profile domain.AlertSourceProfile,
+	result Result,
+	factory MetricsProviderFactory,
+	credentials ProviderCredentials,
+	displayName string,
+) (ports.MetricsProvider, Result, bool) {
 	provider, err := factory(profile, credentials)
 	if err != nil {
 		result.Status = StatusFailed
 		result.ReasonCode = ReasonInvalidProfile
 		result.Message = displayName + " provider could not be constructed from the stored profile."
-		return result
+		return nil, result, false
 	}
 	if provider == nil {
 		result.Status = StatusFailed
 		result.ReasonCode = ReasonInvalidProfile
 		result.Message = displayName + " provider is not configured."
-		return result
+		return nil, result, false
 	}
+	return provider, result, true
+}
 
+func (s *Service) testActiveAlertListing(
+	ctx context.Context,
+	result Result,
+	provider ports.MetricsProvider,
+	displayName string,
+) Result {
 	checkCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	alerts, err := provider.ListActiveAlerts(checkCtx)

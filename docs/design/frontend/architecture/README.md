@@ -121,10 +121,17 @@ The M5 route now lives at `/diagnosis-room`. The route page remains a thin App
 Router wrapper over `web/src/features/diagnosis-room/`, the rendered controls
 use the standardized Ant Design console layer, and ticket issuance goes through
 a same-origin Next.js route handler at `/api/diagnosis/ws-ticket`. The browser
-may hold an operator bearer token only in transient form/action state; it sends
-that token to the same-origin route, and the route forwards only the
-`Authorization` header plus generated-contract JSON body to the Go API. The
-non-OpenAPI WebSocket frame handling stays local to the diagnosis-room feature.
+may hold operator LDAP Basic credentials or a static bearer token only in
+transient form/action state. Standard browser authentication uses the same-origin
+IAM OIDC BFF callback to exchange the provider code and stores the resulting
+OpenClarion session token only in an HttpOnly cookie. Enterprise WeChat browser
+login is an upstream IAM concern; OpenClarion does not call Enterprise WeChat
+OAuth APIs for normal login. The React surface can check and clear the session,
+but it never reads the bearer value. For all modes, the browser
+sends only the derived same-origin request, and the route forwards only the
+required `Authorization` header plus generated-contract JSON body to the Go
+API. The non-OpenAPI WebSocket frame handling stays local to the
+diagnosis-room feature.
 Production deployments should route `/ws/diagnosis` through the same browser
 origin; local and manual smoke runs can provide an explicit browser WebSocket
 base URL. That explicit base URL must be an HTTP(S) or WS(S) base URL without
@@ -134,11 +141,13 @@ diagnosis-live-browser-smoke` gate uses `web/playwright.live.config.ts` for the
 same browser path against a real backend/worker stack; captured live evidence
 remains a separate M5 acceptance item.
 
-For local manual runs, `make diagnosis-dev-oidc-issuer` can provide the OIDC
-discovery, JWKS, and short-lived local operator ID token needed by the real
-`cmd/openclarion` OIDC verifier. It is only an identity helper: M5 acceptance
-still requires a real persisted `EvidenceSnapshot`, Temporal worker, sandbox
-provider, and retained `diagnosis-live-browser-smoke` proof.
+For local manual runs, IAM OIDC browser sessions are the standard operator auth
+path. Legacy LDAP and static bearer auth remain fallbacks for isolated
+private-network rehearsals, and `make
+diagnosis-dev-oidc-issuer` remains only a loopback development helper for
+OIDC-specific work. M5 acceptance still requires a real persisted
+`EvidenceSnapshot`, Temporal worker, sandbox provider, and retained
+`diagnosis-live-browser-smoke` proof.
 
 ## Alert Source Settings
 
@@ -162,6 +171,12 @@ and Alertmanager tests can report live alert-listing reachability through the
 backend adapters. Bearer-backed tests require the backend secret resolver to
 map the persisted `secret_ref` to a token; missing resolver entries remain a
 blocked backend result and are not handled in the browser.
+
+The Alertmanager webhook copy target is relative by default. Deployments that
+need a full external receiver URL may set
+`NEXT_PUBLIC_OPENCLARION_API_PUBLIC_BASE_URL` to the public OpenClarion API
+origin or route prefix; this value is browser-visible and must not contain
+credentials, query strings, fragments, or a private backend-only address.
 
 The feature mirrors the backend's configuration model: generated OpenAPI types
 are the DTO source, form parsing is local validation only, PostgreSQL-backed Go

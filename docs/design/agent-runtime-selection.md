@@ -168,11 +168,13 @@ OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR=artifacts/m4-runtime-smokes/custom-
 The artifacts directory must be absent or empty because the underlying
 `make sandbox-m4-runtime-smoke-artifacts` target owns the same mixing guard as
 manual candidate runs. The digest-ref file is optional and is written only when
-the path does not already exist. `make sandbox-m4-review-evidence-template` can
-consume that file through `RUNTIME_CANDIDATE_FILE=...`, avoiding manual digest
-copy/paste while preserving the same immutable image-reference validation.
-These options only retain lifecycle/security proofs for later review-evidence
-generation; they do not make the sample representative, accept the custom
+the path does not already exist. When either retained output path is inside the
+repository, the smoke helper requires it to be ignored by git and not overlap
+tracked files. `make sandbox-m4-review-evidence-template` can consume that file
+through `RUNTIME_CANDIDATE_FILE=...`, avoiding manual digest copy/paste while
+preserving the same immutable image-reference validation. These options only
+retain lifecycle/security proofs for later review-evidence generation; they do
+not make the sample representative, accept the custom
 runner as the runtime baseline, or replace direct-vs-sandbox report-quality
 comparison.
 

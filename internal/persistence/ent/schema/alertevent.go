@@ -53,6 +53,10 @@ func (AlertEvent) Fields() []ent.Field {
 			NotEmpty().
 			Immutable().
 			Comment(`upstream provider identifier, e.g. "alertmanager", "datadog"`),
+		field.Int("alert_source_profile_id").
+			Optional().
+			Immutable().
+			Comment("optional operator-managed alert source profile that produced the event"),
 		field.String("source_fingerprint").
 			MaxLen(128).
 			NotEmpty().
@@ -106,6 +110,8 @@ func (AlertEvent) Indexes() []ent.Index {
 			Unique(),
 		// Hot read path: list firing alerts for a given source.
 		index.Fields("source", "status"),
+		// Source-profile scoped diagnosis and replay lookups.
+		index.Fields("alert_source_profile_id", "starts_at"),
 		// Label-based queries (e.g. "all firing alerts where service=foo")
 		// are served by a GIN index over the labels jsonb column.
 		index.Fields("labels").
