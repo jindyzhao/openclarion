@@ -78,7 +78,8 @@ export function diagnosisOIDCConfigFromEnv(request: Request): DiagnosisOIDCConfi
   const usePKCE =
     (firstEnvValue(process.env.OPENCLARION_IAM_OIDC_USE_PKCE, process.env.OIDC_USE_PKCE) ?? "").trim().toLowerCase() !==
     "false";
-  if (clientAuthMethod === "none" && !usePKCE) {
+  const publicClient = clientSecret === null && (clientAuthMethod === null || clientAuthMethod === "none");
+  if ((clientAuthMethod === "none" || publicClient) && !usePKCE) {
     return null;
   }
   if (clientAuthMethod !== null && clientAuthMethod !== "none" && clientSecret === null) {
@@ -298,7 +299,9 @@ export function oidcTokenEndpointRequest({
   const method = selectedTokenAuthMethod(config, discovery);
   const headers = new Headers({ accept: "application/json", "content-type": "application/x-www-form-urlencoded" });
   if (method === "client_secret_basic") {
-    headers.set("authorization", `Basic ${Buffer.from(`${config.clientID}:${config.clientSecret ?? ""}`, "utf8").toString("base64")}`);
+    const username = formURLEncodeOAuthCredential(config.clientID);
+    const password = formURLEncodeOAuthCredential(config.clientSecret ?? "");
+    headers.set("authorization", `Basic ${Buffer.from(`${username}:${password}`, "utf8").toString("base64")}`);
   } else {
     body.set("client_id", config.clientID);
     if (method === "client_secret_post") {
@@ -425,6 +428,12 @@ function oidcClientAuthMethod(raw: unknown): ClientAuthMethod | null {
 
 function scopeSet(scopes: string): Set<string> {
   return new Set(scopes.split(/[ \t\r\n]+/).map((scope) => scope.trim()).filter(Boolean));
+}
+
+function formURLEncodeOAuthCredential(value: string): string {
+  const params = new URLSearchParams();
+  params.set("v", value);
+  return params.toString().slice("v=".length);
 }
 
 function base64url(buffer: Buffer): string {

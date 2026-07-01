@@ -17,9 +17,8 @@ type CookieResponse = {
 };
 
 export function diagnosisAuthorizationFromRequest(request: Request): string | null {
-  const explicit = normalizeForwardedAuthorization(request.headers.get("authorization") ?? "");
-  if (explicit !== null) {
-    return explicit;
+  if (request.headers.has("authorization")) {
+    return normalizeForwardedAuthorization(request.headers.get("authorization") ?? "");
   }
   const sessionToken = diagnosisSessionTokenFromCookieHeader(request.headers.get("cookie") ?? "");
   return sessionToken === null ? null : `Bearer ${sessionToken}`;
@@ -30,7 +29,7 @@ export function diagnosisRequestHasSessionCookie(request: Request): boolean {
 }
 
 function diagnosisRequestUsesSessionCookieAuthorization(request: Request): boolean {
-  return (request.headers.get("authorization") ?? "").trim() === "" && diagnosisRequestHasSessionCookie(request);
+  return !request.headers.has("authorization") && diagnosisRequestHasSessionCookie(request);
 }
 
 export function diagnosisRequestPublicOrigin(request: Request): string {
@@ -54,7 +53,7 @@ export function expireDiagnosisSessionCookie(response: CookieResponse, request: 
 }
 
 export function expireDiagnosisSessionCookieOnAuthFailure(response: CookieResponse, request: Request, status: number | undefined) {
-  if (diagnosisRequestUsesSessionCookieAuthorization(request) && (status === 401 || status === 403)) {
+  if (diagnosisRequestUsesSessionCookieAuthorization(request) && status === 401) {
     expireDiagnosisSessionCookie(response, request);
   }
 }

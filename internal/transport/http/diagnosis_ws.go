@@ -125,7 +125,7 @@ func (s *Server) RegisterDiagnosisWebSocketRoutes(mux *http.ServeMux, middleware
 // GetDiagnosisAuthStatus implements api.ServerInterface.
 func (s *Server) GetDiagnosisAuthStatus(w http.ResponseWriter, r *http.Request) {
 	mode := s.diagnosis.statusMode()
-	var supported []api.DiagnosisAuthStatusResponseSupportedModesItem
+	supported := make([]api.DiagnosisAuthStatusResponseSupportedModesItem, 0, 1)
 	if mode != api.DiagnosisAuthStatusResponseModeNone {
 		supported = append(supported, api.DiagnosisAuthStatusResponseSupportedModesItem(mode))
 	}

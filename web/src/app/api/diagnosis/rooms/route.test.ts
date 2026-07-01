@@ -83,6 +83,40 @@ describe("diagnosis rooms route", () => {
     expect(headers.get("authorization")).toBe("Bearer session.token.one");
   });
 
+  it("rejects malformed explicit authorization instead of using the session cookie", async () => {
+    const response = await POST(
+      new Request("https://console.example.com/api/diagnosis/rooms", {
+        method: "POST",
+        headers: {
+          authorization: "Basic not-a-diagnosis-bearer",
+          cookie: "openclarion_diagnosis_session=session.token.one"
+        },
+        body: JSON.stringify({ evidence_snapshot_id: 7 })
+      })
+    );
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toEqual({ error: "authorization is required" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the session cookie on backend authorization denials", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: "unauthorized" }, { status: 403 }));
+
+    const response = await POST(
+      new Request("https://console.example.com/api/diagnosis/rooms", {
+        method: "POST",
+        headers: {
+          cookie: "openclarion_diagnosis_session=session.token.one"
+        },
+        body: JSON.stringify({ evidence_snapshot_id: 7 })
+      })
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
   it("rejects missing bearer authorization before contacting the backend", async () => {
     const response = await POST(
       new Request("https://console.example.com/api/diagnosis/rooms", {

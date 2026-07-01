@@ -2491,6 +2491,19 @@ func TestIssueDiagnosisWSTicketAuthenticatesAndIssuesTicket(t *testing.T) {
 	}
 }
 
+func TestGetDiagnosisAuthStatusReturnsEmptySupportedModesWhenDisabled(t *testing.T) {
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/auth/status", nil)
+	testHandler(&fakeUOWFactory{}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"supported_modes":[]`) {
+		t.Fatalf("body = %s, want supported_modes JSON array", body)
+	}
+}
+
 func TestIssueDiagnosisAuthSessionIssuesBrowserToken(t *testing.T) {
 	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
 	authProvider := authfake.New(map[string][]authfake.Result{
