@@ -6,6 +6,7 @@ import {
   diagnosisOIDCConfigFromEnv,
   diagnosisOIDCLoginURL,
   diagnosisOIDCDiscoveryURL,
+  diagnosisOIDCStateSigningKey,
   normalizedDiagnosisOIDCReturnTo,
   oidcTokenEndpointRequest,
   sealDiagnosisOIDCStatePayload,
@@ -19,14 +20,17 @@ describe("diagnosis OIDC login helpers", () => {
   const originalEnv = {
     OPENCLARION_IAM_OIDC_CLIENT_ID: process.env.OPENCLARION_IAM_OIDC_CLIENT_ID,
     OPENCLARION_IAM_OIDC_ISSUER: process.env.OPENCLARION_IAM_OIDC_ISSUER,
+    OPENCLARION_IAM_OIDC_STATE_SIGNING_KEY: process.env.OPENCLARION_IAM_OIDC_STATE_SIGNING_KEY,
     OPENCLARION_IAM_OIDC_USE_PKCE: process.env.OPENCLARION_IAM_OIDC_USE_PKCE,
     OIDC_CLIENT_AUTH_METHOD: process.env.OIDC_CLIENT_AUTH_METHOD,
     OIDC_CLIENT_ID: process.env.OIDC_CLIENT_ID,
     OIDC_CLIENT_SECRET: process.env.OIDC_CLIENT_SECRET,
     OIDC_ISSUER: process.env.OIDC_ISSUER,
+    OIDC_STATE_SIGNING_KEY: process.env.OIDC_STATE_SIGNING_KEY,
     OIDC_USE_PKCE: process.env.OIDC_USE_PKCE,
     OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID: process.env.OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID,
-    OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL: process.env.OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL
+    OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL: process.env.OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL,
+    OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY: process.env.OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY
   };
 
   afterEach(() => {
@@ -121,6 +125,14 @@ describe("diagnosis OIDC login helpers", () => {
     process.env.OIDC_USE_PKCE = "false";
 
     expect(diagnosisOIDCConfigFromEnv(new Request("https://console.example.com/diagnosis-room"))).toBeNull();
+  });
+
+  it("skips blank state signing key aliases before using lower-priority fallbacks", () => {
+    process.env.OPENCLARION_IAM_OIDC_STATE_SIGNING_KEY = "";
+    process.env.OIDC_STATE_SIGNING_KEY = "   ";
+    process.env.OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY = "fallback-state-signing-key-32-bytes";
+
+    expect(diagnosisOIDCStateSigningKey()?.toString("utf8")).toBe("fallback-state-signing-key-32-bytes");
   });
 
   it("preserves issuer paths when building the discovery URL", () => {

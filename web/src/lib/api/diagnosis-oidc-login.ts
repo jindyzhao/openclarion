@@ -98,9 +98,11 @@ export function diagnosisOIDCConfigFromEnv(request: Request): DiagnosisOIDCConfi
 
 export function diagnosisOIDCStateSigningKey(): Buffer | null {
   const raw =
-    process.env.OPENCLARION_IAM_OIDC_STATE_SIGNING_KEY ??
-    process.env.OIDC_STATE_SIGNING_KEY ??
-    process.env.OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY ??
+    firstEnvValue(
+      process.env.OPENCLARION_IAM_OIDC_STATE_SIGNING_KEY,
+      process.env.OIDC_STATE_SIGNING_KEY,
+      process.env.OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY
+    ) ??
     "";
   const value = raw.trim();
   if (value === "" || value !== raw) {

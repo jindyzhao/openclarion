@@ -130,7 +130,7 @@ func (s *Server) GetDiagnosisAuthStatus(w http.ResponseWriter, r *http.Request) 
 		supported = append(supported, api.DiagnosisAuthStatusResponseSupportedModesItem(mode))
 	}
 	writeJSON(r.Context(), w, s.logger, http.StatusOK, api.DiagnosisAuthStatusResponse{
-		Configured:     s.diagnosis.authProvider != nil,
+		Configured:     s.diagnosis.authConfigured(),
 		Mode:           string(mode),
 		SupportedModes: supported,
 	})
@@ -295,6 +295,10 @@ func (c diagnosisConfig) webSocketConfigured() bool {
 	return c.ticketConfigured() && c.wsHandler != nil && c.checkOrigin != nil
 }
 
+func (c diagnosisConfig) authConfigured() bool {
+	return c.authProvider != nil || c.sessionIssuer != nil
+}
+
 func (s *Server) resolveDiagnosisSession(ctx context.Context, sessionID string) (diagnosisauth.SessionRef, error) {
 	session, err := s.diagnosis.sessions.ResolveDiagnosisSession(ctx, sessionID)
 	if err != nil {
@@ -356,7 +360,7 @@ func (c diagnosisConfig) providerMode() api.DiagnosisAuthCheckResponseMode {
 }
 
 func (c diagnosisConfig) statusMode() api.DiagnosisAuthStatusResponseMode {
-	if c.authProvider == nil {
+	if !c.authConfigured() {
 		return api.DiagnosisAuthStatusResponseModeNone
 	}
 	switch strings.TrimSpace(c.authProviderName) {

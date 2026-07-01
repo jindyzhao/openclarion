@@ -2504,6 +2504,31 @@ func TestGetDiagnosisAuthStatusReturnsEmptySupportedModesWhenDisabled(t *testing
 	}
 }
 
+func TestGetDiagnosisAuthStatusReportsSessionIssuerOnlyMode(t *testing.T) {
+	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/auth/status", nil)
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(nil, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("G", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "oidc"),
+		WithDiagnosisAuthSessionIssuer(newHTTPTestSessionTokenService(t, now)),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DiagnosisAuthStatusResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if !body.Configured || body.Mode != string(api.DiagnosisAuthStatusResponseModeOidc) {
+		t.Fatalf("body = %+v, want configured oidc auth status", body)
+	}
+	if len(body.SupportedModes) != 1 || body.SupportedModes[0] != api.DiagnosisAuthStatusResponseSupportedModesItemOidc {
+		t.Fatalf("supported_modes = %+v, want [oidc]", body.SupportedModes)
+	}
+}
+
 func TestIssueDiagnosisAuthSessionIssuesBrowserToken(t *testing.T) {
 	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
 	authProvider := authfake.New(map[string][]authfake.Result{
