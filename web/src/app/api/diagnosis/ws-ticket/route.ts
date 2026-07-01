@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { requestJSON } from "@/lib/api/client";
+import {
+  diagnosisAuthorizationFromRequest,
+  expireDiagnosisSessionCookieOnAuthFailure
+} from "@/lib/api/diagnosis-session";
 import type { components } from "@/lib/api/openapi";
 import { apiResultResponse, readRequestJSON } from "@/lib/api/route";
 
@@ -11,9 +15,11 @@ type ErrorResponse = components["schemas"]["ErrorResponse"];
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const authorization = request.headers.get("authorization")?.trim() ?? "";
-  if (!/^Bearer [^ \t\r\n]+$/.test(authorization)) {
-    return NextResponse.json<ErrorResponse>({ error: "bearer authorization is required" }, { status: 401 });
+  const authorization = diagnosisAuthorizationFromRequest(request);
+  if (authorization === null) {
+    const response = NextResponse.json<ErrorResponse>({ error: "authorization is required" }, { status: 401 });
+    expireDiagnosisSessionCookieOnAuthFailure(response, request, 401);
+    return response;
   }
 
   const body = await readRequestJSON<DiagnosisWSTicketRequest>(request);
@@ -27,7 +33,9 @@ export async function POST(request: Request) {
     body: body.data
   });
   if (!ticket.ok) {
-    return apiResultResponse(ticket);
+    const response = apiResultResponse(ticket);
+    expireDiagnosisSessionCookieOnAuthFailure(response, request, ticket.error.status);
+    return response;
   }
 
   let websocketURL: string;

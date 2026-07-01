@@ -652,6 +652,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/diagnosis/auth/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get diagnosis auth status
+         * @description Returns non-sensitive diagnosis auth wiring status. It never returns issuer URLs, tokens, claims, or signing keys.
+         */
+        get: operations["getDiagnosisAuthStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagnosis/auth/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Check diagnosis authorization
+         * @description Authenticates diagnosis Authorization credentials and returns a sanitized principal summary without issuing a WebSocket ticket.
+         */
+        post: operations["checkDiagnosisAuth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagnosis/auth/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue diagnosis browser session
+         * @description Authenticates an IAM OIDC bearer token and returns a short-lived OpenClarion session token for the trusted browser BFF to store in an HttpOnly cookie. The session token must not be exposed to page JavaScript.
+         */
+        post: operations["issueDiagnosisAuthSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/diagnosis/ws-ticket": {
         parameters: {
             query?: never;
@@ -663,7 +723,7 @@ export interface paths {
         put?: never;
         /**
          * Issue a diagnosis WebSocket ticket
-         * @description Authenticates an OIDC bearer token, checks diagnosis-room RBAC, and returns a short-lived single-use ticket for the WebSocket upgrade.
+         * @description Authenticates an OIDC bearer token or an OpenClarion browser-session bearer token, checks diagnosis-room RBAC, and returns a short-lived single-use ticket for the WebSocket upgrade.
          */
         post: operations["issueDiagnosisWSTicket"];
         delete?: never;
@@ -683,7 +743,7 @@ export interface paths {
         put?: never;
         /**
          * Create a diagnosis room
-         * @description Authenticates an OIDC bearer token, starts a short-conversation diagnosis room from a frozen EvidenceSnapshot, and returns the session identifier once the room is ready for WebSocket tickets.
+         * @description Authenticates an OIDC bearer token or an OpenClarion browser-session bearer token, starts a short-conversation diagnosis room from a frozen EvidenceSnapshot, and returns the session identifier once the room is ready for WebSocket tickets.
          */
         post: operations["createDiagnosisRoom"];
         delete?: never;
@@ -1959,6 +2019,102 @@ export interface components {
              *     ]
              */
             items: components["schemas"]["FinalReportSummary"][];
+        };
+        /** @description Sanitized diagnosis authentication principal summary. */
+        DiagnosisAuthCheckResponse: {
+            /**
+             * @description Stable authenticated subject used by diagnosis-room ownership checks.
+             * @example operator-1
+             */
+            subject: string;
+            /**
+             * @description OpenClarion diagnosis authorization roles mapped from IAM claims or browser session state.
+             * @example [
+             *       "owner"
+             *     ]
+             */
+            roles: string[];
+            /**
+             * @description Diagnosis auth provider mode that accepted the credentials.
+             * @example oidc
+             * @enum {string}
+             */
+            mode: "oidc" | "unknown";
+            /**
+             * Format: date-time
+             * @description Server-side timestamp when the credentials were checked.
+             * @example 2026-06-30T10:00:00Z
+             */
+            checked_at: string;
+            /**
+             * @description Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
+             * @example true
+             */
+            role_authorized: boolean;
+        };
+        /** @description Short-lived diagnosis browser session issued after accepted IAM OIDC Authorization credentials. */
+        DiagnosisAuthSessionResponse: {
+            /**
+             * @description OpenClarion diagnosis bearer session token. The BFF stores this value in an HttpOnly cookie and does not expose it to browser JavaScript.
+             * @example openclarion.session.token
+             */
+            token: string;
+            /**
+             * @description Stable authenticated subject used by diagnosis-room ownership checks.
+             * @example operator-1
+             */
+            subject: string;
+            /**
+             * @description OpenClarion diagnosis authorization roles mapped from IAM claims.
+             * @example [
+             *       "owner"
+             *     ]
+             */
+            roles: string[];
+            /**
+             * @description Diagnosis auth provider mode that accepted the credentials.
+             * @example oidc
+             * @enum {string}
+             */
+            mode: "oidc" | "unknown";
+            /**
+             * Format: date-time
+             * @description Server-side timestamp when the credentials were checked.
+             * @example 2026-06-30T10:00:00Z
+             */
+            checked_at: string;
+            /**
+             * Format: date-time
+             * @description Expiry time for the issued OpenClarion session token.
+             * @example 2026-06-30T18:00:00Z
+             */
+            expires_at: string;
+            /**
+             * @description Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
+             * @example true
+             */
+            role_authorized: boolean;
+        };
+        /** @description Non-sensitive diagnosis auth provider wiring status. */
+        DiagnosisAuthStatusResponse: {
+            /**
+             * @description Whether diagnosis auth is wired in the running backend.
+             * @example true
+             */
+            configured: boolean;
+            /**
+             * @description Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
+             * @example oidc
+             * @enum {string}
+             */
+            mode: "oidc" | "unknown" | "none";
+            /**
+             * @description Configured diagnosis auth modes accepted by the running backend.
+             * @example [
+             *       "oidc"
+             *     ]
+             */
+            supported_modes: ("oidc" | "unknown")[];
         };
         /** @description Request to create a short-conversation diagnosis room from a frozen EvidenceSnapshot. */
         DiagnosisRoomCreateRequest: {
@@ -4699,6 +4855,102 @@ export interface operations {
                 };
             };
             /** @description Report trigger provider wiring is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    getDiagnosisAuthStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Diagnosis auth status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisAuthStatusResponse"];
+                };
+            };
+        };
+    };
+    checkDiagnosisAuth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Diagnosis authorization accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisAuthCheckResponse"];
+                };
+            };
+            /** @description Authorization credentials are missing or invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis auth provider wiring is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    issueDiagnosisAuthSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Diagnosis browser session issued */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisAuthSessionResponse"];
+                };
+            };
+            /** @description Authorization credentials are missing or invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis auth provider or browser-session signer is not configured */
             503: {
                 headers: {
                     [name: string]: unknown;

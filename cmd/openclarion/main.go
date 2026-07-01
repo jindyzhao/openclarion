@@ -845,9 +845,13 @@ func diagnosisServerOptionsFromEnv(
 		"OPENCLARION_DIAGNOSIS_OIDC_OWNER_ROLES",
 		"OPENCLARION_DIAGNOSIS_OIDC_ADMIN_ROLES",
 		"OPENCLARION_DIAGNOSIS_OIDC_SIGNING_ALGS",
+		"OPENCLARION_IAM_OIDC_ISSUER",
+		"OPENCLARION_IAM_OIDC_CLIENT_ID",
+		"OIDC_ISSUER",
+		"OIDC_CLIENT_ID",
 	)
 	if !diagnosisConfigured {
-		logger.Warn("diagnosis WebSocket auth is disabled; set OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL and OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID to enable live diagnosis rooms")
+		logger.Warn("diagnosis WebSocket auth is disabled; set IAM OIDC issuer and client id to enable live diagnosis rooms")
 		return nil, nil
 	}
 	if uowFactory == nil {
@@ -866,8 +870,18 @@ func diagnosisServerOptionsFromEnv(
 	oidcCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	authProvider, err := authoidc.NewProvider(oidcCtx, authoidc.Config{
-		IssuerURL:            strings.TrimSpace(getenv("OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL")),
-		ClientID:             strings.TrimSpace(getenv("OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID")),
+		IssuerURL: firstNonEmptyEnv(
+			getenv,
+			"OPENCLARION_IAM_OIDC_ISSUER",
+			"OIDC_ISSUER",
+			"OPENCLARION_DIAGNOSIS_OIDC_ISSUER_URL",
+		),
+		ClientID: firstNonEmptyEnv(
+			getenv,
+			"OPENCLARION_IAM_OIDC_CLIENT_ID",
+			"OIDC_CLIENT_ID",
+			"OPENCLARION_DIAGNOSIS_OIDC_CLIENT_ID",
+		),
 		RoleClaim:            strings.TrimSpace(getenv("OPENCLARION_DIAGNOSIS_OIDC_ROLE_CLAIM")),
 		OwnerRoleValues:      optionalCSVValues(getenv("OPENCLARION_DIAGNOSIS_OIDC_OWNER_ROLES")),
 		AdminRoleValues:      optionalCSVValues(getenv("OPENCLARION_DIAGNOSIS_OIDC_ADMIN_ROLES")),
@@ -886,9 +900,21 @@ func diagnosisServerOptionsFromEnv(
 		return nil, fmt.Errorf("configure diagnosis room starter service: %w", err)
 	}
 	opts := []transporthttp.ServerOption{
-		transporthttp.WithDiagnosisAuth(authProvider, ticketService, diagnosisChatSessionResolver{uowFactory: uowFactory}),
+		transporthttp.WithDiagnosisAuth(authProvider, ticketService, diagnosisChatSessionResolver{uowFactory: uowFactory}, "oidc"),
 		transporthttp.WithDiagnosisRoomStarter(roomStartService),
 		transporthttp.WithDiagnosisRoomWorkflowClient(workflows),
+	}
+	if signingKey := strings.TrimSpace(getenv("OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY")); signingKey != "" {
+		sessionIssuer, err := diagnosisauth.NewSessionTokenService(
+			diagnosisauth.DefaultSessionTokenPolicy(getenv("OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY")),
+			func() time.Time { return time.Now().UTC() },
+		)
+		if err != nil {
+			return nil, fmt.Errorf("configure diagnosis browser session auth: %w", err)
+		}
+		opts = append(opts, transporthttp.WithDiagnosisAuthSessionIssuer(sessionIssuer))
+	} else {
+		logger.Warn("diagnosis browser session issuance is disabled; set OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY to enable IAM browser sessions")
 	}
 	if originPolicy != nil {
 		opts = append(opts, transporthttp.WithDiagnosisWebSocketOriginCheck(originPolicy.CheckWebSocketOrigin))
@@ -935,6 +961,15 @@ func anyEnv(getenv getenvFunc, keys ...string) bool {
 		}
 	}
 	return false
+}
+
+func firstNonEmptyEnv(getenv getenvFunc, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func positiveDurationSecondsFromEnv(getenv getenvFunc, key string, fallback time.Duration) (time.Duration, error) {

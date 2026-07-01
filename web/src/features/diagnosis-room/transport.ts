@@ -21,9 +21,7 @@ export async function createDiagnosisRoom(
   const body: DiagnosisRoomCreateRequest = { evidence_snapshot_id: evidenceSnapshotID };
   return requestSameOriginJSON<DiagnosisRoomCreateResponse>("/api/diagnosis/rooms", {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${bearerToken.trim()}`
-    },
+    headers: diagnosisAuthorizationHeaders(bearerToken),
     body
   });
 }
@@ -35,9 +33,7 @@ export async function issueDiagnosisWSTicket(
   const body: DiagnosisWSTicketRequest = { session_id: sessionID.trim() };
   return requestSameOriginJSON<DiagnosisWSTicketBundle>("/api/diagnosis/ws-ticket", {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${bearerToken.trim()}`
-    },
+    headers: diagnosisAuthorizationHeaders(bearerToken),
     body
   });
 }
@@ -67,4 +63,9 @@ export function nextDiagnosisMessageID(): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function diagnosisAuthorizationHeaders(bearerToken: string): HeadersInit | undefined {
+  const token = bearerToken.trim();
+  return token === "" ? undefined : { authorization: `Bearer ${token}` };
 }

@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { requestJSON } from "@/lib/api/client";
+import { normalizedDiagnosisAuthCheckResponse } from "@/lib/api/diagnosis-auth-response";
 import {
   diagnosisAuthorizationFromRequest,
   expireDiagnosisSessionCookieOnAuthFailure
 } from "@/lib/api/diagnosis-session";
 import type { components } from "@/lib/api/openapi";
-import { apiResultResponse, readRequestJSON } from "@/lib/api/route";
+import { apiResultResponse } from "@/lib/api/route";
 
-type DiagnosisRoomCreateRequest = components["schemas"]["DiagnosisRoomCreateRequest"];
-type DiagnosisRoomCreateResponse = components["schemas"]["DiagnosisRoomCreateResponse"];
 type ErrorResponse = components["schemas"]["ErrorResponse"];
 
 export const dynamic = "force-dynamic";
@@ -22,19 +21,18 @@ export async function POST(request: Request) {
     return response;
   }
 
-  const body = await readRequestJSON<DiagnosisRoomCreateRequest>(request);
-  if (!body.ok) {
-    return apiResultResponse(body);
-  }
-
-  const result = await requestJSON<DiagnosisRoomCreateResponse>("/api/v1/diagnosis/rooms", {
-      method: "POST",
-      headers: { authorization },
-      body: body.data
+  const result = await requestJSON<unknown>("/api/v1/diagnosis/auth/check", {
+    method: "POST",
+    headers: { authorization }
   });
-  const response = apiResultResponse(result, 201);
   if (!result.ok) {
+    const response = apiResultResponse(result);
     expireDiagnosisSessionCookieOnAuthFailure(response, request, result.error.status);
+    return response;
   }
-  return response;
+  const authCheck = normalizedDiagnosisAuthCheckResponse(result.data);
+  if (authCheck === null) {
+    return NextResponse.json<ErrorResponse>({ error: "diagnosis auth check response is invalid" }, { status: 502 });
+  }
+  return NextResponse.json(authCheck);
 }

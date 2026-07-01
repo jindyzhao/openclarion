@@ -60,12 +60,12 @@ import type {
 
 type ConnectionFormValues = {
   sessionID: string;
-  bearerToken: string;
+  bearerToken?: string;
 };
 
 type CreateRoomFormValues = {
   evidenceSnapshotID?: number | null;
-  authorizationToken: string;
+  authorizationToken?: string;
 };
 
 type ComposerValues = {
@@ -131,6 +131,7 @@ export function DiagnosisRoomView() {
   const [clearedURLFollowUpKey, setClearedURLFollowUpKey] = useState<string | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
   const pageContext = diagnosisPageContext(searchParams);
+  const iamLoginHref = diagnosisIAMLoginHref(searchParams);
   const supplementalFollowUpDetail = pageContext.supplementalFollowUp?.detail;
   const supplementalFollowUpLabel = pageContext.supplementalFollowUp?.label;
   const supplementalFollowUpPriority = pageContext.supplementalFollowUp?.priority;
@@ -145,7 +146,7 @@ export function DiagnosisRoomView() {
 
   const ticketMutation = useMutation<DiagnosisWSTicketBundle, DiagnosisActionError, ConnectionFormValues>({
     mutationFn: async (values) => {
-      const result = await issueDiagnosisWSTicket(values.bearerToken, values.sessionID);
+      const result = await issueDiagnosisWSTicket(values.bearerToken ?? "", values.sessionID);
       if (!result.ok) {
         throw new DiagnosisActionError(result.error.message, result.error.status);
       }
@@ -216,10 +217,10 @@ export function DiagnosisRoomView() {
   const canConfirmConclusion = confirmConclusionBlockReason === "";
 
   async function handleCreateRoom(values: CreateRoomFormValues) {
-    const trimmedBearer = values.authorizationToken.trim();
+    const trimmedBearer = (values.authorizationToken ?? "").trim();
     const evidenceSnapshotID = values.evidenceSnapshotID;
-    if (!isPositiveSafeInteger(evidenceSnapshotID) || trimmedBearer === "") {
-      pushLog("error", "Evidence snapshot and authorization token are required.");
+    if (!isPositiveSafeInteger(evidenceSnapshotID)) {
+      pushLog("error", "Evidence snapshot is required.");
       setStatus("error");
       return;
     }
@@ -249,9 +250,9 @@ export function DiagnosisRoomView() {
 
   async function handleConnect(values: ConnectionFormValues) {
     const trimmedSessionID = values.sessionID.trim();
-    const trimmedBearer = values.bearerToken.trim();
-    if (trimmedSessionID === "" || trimmedBearer === "") {
-      pushLog("error", "Session and bearer token are required.");
+    const trimmedBearer = (values.bearerToken ?? "").trim();
+    if (trimmedSessionID === "") {
+      pushLog("error", "Session is required.");
       setStatus("error");
       return;
     }
@@ -504,19 +505,21 @@ export function DiagnosisRoomView() {
             <Form.Item
               label="Authorization token"
               name="authorizationToken"
-              rules={[{ required: true, message: "Authorization token is required." }]}
             >
-              <Input.Password autoComplete="off" disabled={createBusy} />
+              <Input.Password autoComplete="off" disabled={createBusy} placeholder="Optional when signed in with IAM" />
             </Form.Item>
-            <Button
-              disabled={createBusy}
-              htmlType="submit"
-              icon={<PlusCircleOutlined />}
-              loading={createRoomMutation.isPending}
-              type="primary"
-            >
-              Create diagnosis room
-            </Button>
+            <Space wrap>
+              <Button
+                disabled={createBusy}
+                htmlType="submit"
+                icon={<PlusCircleOutlined />}
+                loading={createRoomMutation.isPending}
+                type="primary"
+              >
+                Create diagnosis room
+              </Button>
+              <Button href={iamLoginHref}>Sign in with IAM</Button>
+            </Space>
           </Form>
         </Card>
 
@@ -537,9 +540,8 @@ export function DiagnosisRoomView() {
             <Form.Item
               label="Bearer token"
               name="bearerToken"
-              rules={[{ required: true, message: "Bearer token is required." }]}
             >
-              <Input.Password autoComplete="off" disabled={busy} />
+              <Input.Password autoComplete="off" disabled={busy} placeholder="Optional when signed in with IAM" />
             </Form.Item>
             <Space wrap>
               <Button
@@ -1515,6 +1517,12 @@ function diagnosisActionErrorMessage(error: unknown): string {
     return error.message;
   }
   return "Request failed.";
+}
+
+function diagnosisIAMLoginHref(searchParams: { toString(): string }): string {
+  const query = searchParams.toString();
+  const returnTo = query === "" ? "/diagnosis-room" : `/diagnosis-room?${query}`;
+  return `/api/diagnosis/auth/oidc/login?return_to=${encodeURIComponent(returnTo)}`;
 }
 
 function diagnosisPageContext(searchParams: { get(name: string): string | null }): DiagnosisPageContext {

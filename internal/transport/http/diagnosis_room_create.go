@@ -19,7 +19,7 @@ func (s *Server) CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis room starter is not configured", nil)
 		return
 	}
-	if s.diagnosis.authProvider == nil {
+	if s.diagnosis.authProvider == nil && s.diagnosis.sessionIssuer == nil {
 		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis auth is not configured", nil)
 		return
 	}
@@ -28,12 +28,7 @@ func (s *Server) CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	bearer, err := authorizationBearerHeader(r.Header.Get("Authorization"))
-	if err != nil {
-		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
-		return
-	}
-	principal, err := s.diagnosis.authProvider.AuthenticateBearer(r.Context(), bearer)
+	principal, _, err := s.authenticateDiagnosisBearer(r.Context(), r.Header.Get("Authorization"))
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
 		return

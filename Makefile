@@ -581,7 +581,7 @@ diagnosis-auth-test: ## Run focused M5 AuthProvider/RBAC/WS ticket/relay tests
 	@go test -race -count=1 ./internal/usecases/diagnosisauth ./internal/usecases/ports
 	@go test -race -count=1 ./internal/providers/auth/...
 	@go test -race -count=1 ./internal/persistence/repository -run TestDiagnosisAuthTicketStore
-	@go test -race -count=1 ./internal/transport/http -run 'TestIssueDiagnosisWSTicket|TestHandleDiagnosisWebSocket|TestDiagnosisWebSocketRelay'
+	@go test -race -count=1 ./internal/transport/http -run 'Test(IssueDiagnosisAuthSession|CheckDiagnosisAuth|IssueDiagnosisWSTicket|HandleDiagnosisWebSocket|DiagnosisWebSocketRelay)'
 
 diagnosis-chat-persistence-test: ## Run focused M5 ChatSession/ChatTurn persistence tests
 	@go test -race -count=1 ./internal/domain -run 'TestNewChatSession|TestChatSession_RecordTurnAndClose|TestNewChatTurn'
