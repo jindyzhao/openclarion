@@ -2694,11 +2694,125 @@ paths:
                 server-error:
                   value:
                     error: trigger report replay failed
+  /api/v1/diagnosis/auth/status:
+    get:
+      operationId: getDiagnosisAuthStatus
+      summary: Get diagnosis auth status
+      description: Returns non-sensitive diagnosis auth wiring status. It never returns issuer URLs, tokens, claims, or signing keys.
+      tags:
+        - diagnosis
+      responses:
+        "200":
+          description: Diagnosis auth status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisAuthStatusResponse"
+              examples:
+                ready:
+                  value:
+                    configured: true
+                    mode: oidc
+                    supported_modes:
+                      - oidc
+                disabled:
+                  value:
+                    configured: false
+                    mode: none
+                    supported_modes: []
+  /api/v1/diagnosis/auth/check:
+    post:
+      operationId: checkDiagnosisAuth
+      summary: Check diagnosis authorization
+      description: Authenticates diagnosis Authorization credentials and returns a sanitized principal summary without issuing a WebSocket ticket.
+      tags:
+        - diagnosis
+      responses:
+        "200":
+          description: Diagnosis authorization accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisAuthCheckResponse"
+              examples:
+                accepted:
+                  value:
+                    subject: operator-1
+                    roles:
+                      - owner
+                    mode: oidc
+                    checked_at: "2026-06-30T10:00:00Z"
+                    role_authorized: true
+        "401":
+          description: Authorization credentials are missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthenticated:
+                  value:
+                    error: authentication failed
+        "503":
+          description: Diagnosis auth provider wiring is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: diagnosis auth is not configured
+  /api/v1/diagnosis/auth/session:
+    post:
+      operationId: issueDiagnosisAuthSession
+      summary: Issue diagnosis browser session
+      description: Authenticates an IAM OIDC bearer token and returns a short-lived OpenClarion session token for the trusted browser BFF to store in an HttpOnly cookie. The session token must not be exposed to page JavaScript.
+      tags:
+        - diagnosis
+      responses:
+        "201":
+          description: Diagnosis browser session issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DiagnosisAuthSessionResponse"
+              examples:
+                issued:
+                  value:
+                    token: openclarion.session.token
+                    subject: operator-1
+                    roles:
+                      - owner
+                    mode: oidc
+                    checked_at: "2026-06-30T10:00:00Z"
+                    expires_at: "2026-06-30T18:00:00Z"
+                    role_authorized: true
+        "401":
+          description: Authorization credentials are missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unauthenticated:
+                  value:
+                    error: authentication failed
+        "503":
+          description: Diagnosis auth provider or browser-session signer is not configured
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              examples:
+                unconfigured:
+                  value:
+                    error: diagnosis browser session auth is not configured
   /api/v1/diagnosis/ws-ticket:
     post:
       operationId: issueDiagnosisWSTicket
       summary: Issue a diagnosis WebSocket ticket
-      description: Authenticates an OIDC bearer token, checks diagnosis-room RBAC, and returns a short-lived single-use ticket for the WebSocket upgrade.
+      description: Authenticates an OIDC bearer token or an OpenClarion browser-session bearer token, checks diagnosis-room RBAC, and returns a short-lived single-use ticket for the WebSocket upgrade.
       tags:
         - diagnosis
       requestBody:
@@ -2789,7 +2903,7 @@ paths:
     post:
       operationId: createDiagnosisRoom
       summary: Create a diagnosis room
-      description: Authenticates an OIDC bearer token, starts a short-conversation diagnosis room from a frozen EvidenceSnapshot, and returns the session identifier once the room is ready for WebSocket tickets.
+      description: Authenticates an OIDC bearer token or an OpenClarion browser-session bearer token, starts a short-conversation diagnosis room from a frozen EvidenceSnapshot, and returns the session identifier once the room is ready for WebSocket tickets.
       tags:
         - diagnosis
       requestBody:
@@ -4879,6 +4993,136 @@ components:
             $ref: "#/components/schemas/FinalReportSummary"
       required:
         - items
+    DiagnosisAuthCheckResponse:
+      type: object
+      description: Sanitized diagnosis authentication principal summary.
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          description: Stable authenticated subject used by diagnosis-room ownership checks.
+          examples:
+            - operator-1
+        roles:
+          type: array
+          description: OpenClarion diagnosis authorization roles mapped from IAM claims or browser session state.
+          items:
+            type: string
+          examples:
+            - - owner
+        mode:
+          type: string
+          description: Diagnosis auth provider mode that accepted the credentials.
+          enum:
+            - oidc
+            - unknown
+          examples:
+            - oidc
+        checked_at:
+          type: string
+          format: date-time
+          description: Server-side timestamp when the credentials were checked.
+          examples:
+            - "2026-06-30T10:00:00Z"
+        role_authorized:
+          type: boolean
+          description: Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
+          examples:
+            - true
+      required:
+        - subject
+        - roles
+        - mode
+        - checked_at
+        - role_authorized
+    DiagnosisAuthSessionResponse:
+      type: object
+      description: Short-lived diagnosis browser session issued after accepted IAM OIDC Authorization credentials.
+      properties:
+        token:
+          type: string
+          minLength: 1
+          description: OpenClarion diagnosis bearer session token. The BFF stores this value in an HttpOnly cookie and does not expose it to browser JavaScript.
+          examples:
+            - openclarion.session.token
+        subject:
+          type: string
+          minLength: 1
+          description: Stable authenticated subject used by diagnosis-room ownership checks.
+          examples:
+            - operator-1
+        roles:
+          type: array
+          description: OpenClarion diagnosis authorization roles mapped from IAM claims.
+          items:
+            type: string
+          examples:
+            - - owner
+        mode:
+          type: string
+          description: Diagnosis auth provider mode that accepted the credentials.
+          enum:
+            - oidc
+            - unknown
+          examples:
+            - oidc
+        checked_at:
+          type: string
+          format: date-time
+          description: Server-side timestamp when the credentials were checked.
+          examples:
+            - "2026-06-30T10:00:00Z"
+        expires_at:
+          type: string
+          format: date-time
+          description: Expiry time for the issued OpenClarion session token.
+          examples:
+            - "2026-06-30T18:00:00Z"
+        role_authorized:
+          type: boolean
+          description: Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
+          examples:
+            - true
+      required:
+        - token
+        - subject
+        - roles
+        - mode
+        - checked_at
+        - expires_at
+        - role_authorized
+    DiagnosisAuthStatusResponse:
+      type: object
+      description: Non-sensitive diagnosis auth provider wiring status.
+      properties:
+        configured:
+          type: boolean
+          description: Whether diagnosis auth is wired in the running backend.
+          examples:
+            - true
+        mode:
+          type: string
+          description: Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
+          enum:
+            - oidc
+            - unknown
+            - none
+          examples:
+            - oidc
+        supported_modes:
+          type: array
+          description: Configured diagnosis auth modes accepted by the running backend.
+          items:
+            type: string
+            enum:
+              - oidc
+              - unknown
+          examples:
+            - - oidc
+      required:
+        - configured
+        - mode
+        - supported_modes
     DiagnosisRoomCreateRequest:
       type: object
       description: Request to create a short-conversation diagnosis room from a frozen EvidenceSnapshot.

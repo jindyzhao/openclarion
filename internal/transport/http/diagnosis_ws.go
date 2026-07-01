@@ -34,12 +34,14 @@ type DiagnosisWebSocketHandler interface {
 }
 
 type diagnosisConfig struct {
-	authProvider ports.AuthProvider
-	authService  *diagnosisauth.Service
-	sessions     DiagnosisSessionResolver
-	wsHandler    DiagnosisWebSocketHandler
-	now          func() time.Time
-	checkOrigin  func(*http.Request) bool
+	authProvider     ports.AuthProvider
+	authProviderName string
+	authService      *diagnosisauth.Service
+	sessionIssuer    *diagnosisauth.SessionTokenService
+	sessions         DiagnosisSessionResolver
+	wsHandler        DiagnosisWebSocketHandler
+	now              func() time.Time
+	checkOrigin      func(*http.Request) bool
 }
 
 func newDiagnosisConfig() diagnosisConfig {
@@ -51,11 +53,20 @@ func newDiagnosisConfig() diagnosisConfig {
 
 // WithDiagnosisAuth enables POST /api/v1/diagnosis/ws-ticket and the
 // authentication half of GET /ws/diagnosis.
-func WithDiagnosisAuth(authProvider ports.AuthProvider, service diagnosisauth.Service, sessions DiagnosisSessionResolver) ServerOption {
+func WithDiagnosisAuth(authProvider ports.AuthProvider, service diagnosisauth.Service, sessions DiagnosisSessionResolver, providerName ...string) ServerOption {
 	return func(s *Server) {
 		s.diagnosis.authProvider = authProvider
+		s.diagnosis.authProviderName = diagnosisAuthProviderName(providerName...)
 		s.diagnosis.authService = &service
 		s.diagnosis.sessions = sessions
+	}
+}
+
+// WithDiagnosisAuthSessionIssuer enables browser-session issuance after an
+// upstream diagnosis Authorization check.
+func WithDiagnosisAuthSessionIssuer(issuer *diagnosisauth.SessionTokenService) ServerOption {
+	return func(s *Server) {
+		s.diagnosis.sessionIssuer = issuer
 	}
 }
 
@@ -111,15 +122,85 @@ func (s *Server) RegisterDiagnosisWebSocketRoutes(mux *http.ServeMux, middleware
 	mux.Handle("GET "+diagnosisWebSocketPath, handler)
 }
 
-// IssueDiagnosisWSTicket implements api.ServerInterface.
-func (s *Server) IssueDiagnosisWSTicket(w http.ResponseWriter, r *http.Request) {
-	if !s.diagnosis.ticketConfigured() {
+// GetDiagnosisAuthStatus implements api.ServerInterface.
+func (s *Server) GetDiagnosisAuthStatus(w http.ResponseWriter, r *http.Request) {
+	mode := s.diagnosis.statusMode()
+	var supported []api.DiagnosisAuthStatusResponseSupportedModesItem
+	if mode != api.DiagnosisAuthStatusResponseModeNone {
+		supported = append(supported, api.DiagnosisAuthStatusResponseSupportedModesItem(mode))
+	}
+	writeJSON(r.Context(), w, s.logger, http.StatusOK, api.DiagnosisAuthStatusResponse{
+		Configured:     s.diagnosis.authProvider != nil,
+		Mode:           string(mode),
+		SupportedModes: supported,
+	})
+}
+
+// CheckDiagnosisAuth implements api.ServerInterface.
+func (s *Server) CheckDiagnosisAuth(w http.ResponseWriter, r *http.Request) {
+	if s.diagnosis.authProvider == nil && s.diagnosis.sessionIssuer == nil {
 		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis auth is not configured", nil)
+		return
+	}
+	principal, mode, err := s.authenticateDiagnosisBearer(r.Context(), r.Header.Get("Authorization"))
+	if err != nil {
+		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
+		return
+	}
+	writeJSON(r.Context(), w, s.logger, http.StatusOK, api.DiagnosisAuthCheckResponse{
+		Subject:        principal.Subject,
+		Roles:          diagnosisAuthResponseRoles(principal.Roles),
+		Mode:           string(mode),
+		CheckedAt:      s.diagnosis.now().UTC(),
+		RoleAuthorized: diagnosisAuthRoleAuthorized(principal.Roles),
+	})
+}
+
+// IssueDiagnosisAuthSession implements api.ServerInterface.
+func (s *Server) IssueDiagnosisAuthSession(w http.ResponseWriter, r *http.Request) {
+	if s.diagnosis.authProvider == nil {
+		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis auth is not configured", nil)
+		return
+	}
+	if s.diagnosis.sessionIssuer == nil {
+		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis browser session auth is not configured", nil)
 		return
 	}
 	bearer, err := authorizationBearerHeader(r.Header.Get("Authorization"))
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
+		return
+	}
+	principal, err := s.diagnosis.authProvider.AuthenticateBearer(r.Context(), bearer)
+	if err != nil {
+		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
+		return
+	}
+	if strings.TrimSpace(principal.Subject) == "" || principal.Subject != strings.TrimSpace(principal.Subject) {
+		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", diagnosisauth.ErrUnauthenticated)
+		return
+	}
+	mode := s.diagnosis.providerMode()
+	session, err := s.diagnosis.sessionIssuer.IssueToken(r.Context(), principal, string(mode))
+	if err != nil {
+		writeDiagnosisServiceError(r.Context(), w, s.logger, err, "issue diagnosis browser session failed", "authentication failed")
+		return
+	}
+	writeJSON(r.Context(), w, s.logger, http.StatusCreated, api.DiagnosisAuthSessionResponse{
+		Token:          session.Token,
+		Subject:        session.Subject,
+		Roles:          diagnosisAuthResponseRoles(session.Roles),
+		Mode:           string(mode),
+		CheckedAt:      session.IssuedAt,
+		ExpiresAt:      session.ExpiresAt,
+		RoleAuthorized: diagnosisAuthRoleAuthorized(session.Roles),
+	})
+}
+
+// IssueDiagnosisWSTicket implements api.ServerInterface.
+func (s *Server) IssueDiagnosisWSTicket(w http.ResponseWriter, r *http.Request) {
+	if !s.diagnosis.ticketConfigured() {
+		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis auth is not configured", nil)
 		return
 	}
 	body, err := decodeDiagnosisWSTicketRequest(w, r)
@@ -132,7 +213,7 @@ func (s *Server) IssueDiagnosisWSTicket(w http.ResponseWriter, r *http.Request) 
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	principal, err := s.diagnosis.authProvider.AuthenticateBearer(r.Context(), bearer)
+	principal, _, err := s.authenticateDiagnosisBearer(r.Context(), r.Header.Get("Authorization"))
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
 		return
@@ -207,7 +288,7 @@ func (s *Server) HandleDiagnosisWebSocket(w http.ResponseWriter, r *http.Request
 }
 
 func (c diagnosisConfig) ticketConfigured() bool {
-	return c.authProvider != nil && c.authService != nil && c.sessions != nil
+	return (c.authProvider != nil || c.sessionIssuer != nil) && c.authService != nil && c.sessions != nil
 }
 
 func (c diagnosisConfig) webSocketConfigured() bool {
@@ -242,6 +323,78 @@ func authorizationBearerHeader(header string) (string, error) {
 		return "", fmt.Errorf("authorization header must be Bearer <token>")
 	}
 	return "Bearer " + fields[1], nil
+}
+
+func (s *Server) authenticateDiagnosisBearer(ctx context.Context, header string) (ports.AuthPrincipal, api.DiagnosisAuthCheckResponseMode, error) {
+	bearer, err := authorizationBearerHeader(header)
+	if err != nil {
+		return ports.AuthPrincipal{}, "", err
+	}
+	if s.diagnosis.sessionIssuer != nil {
+		session, serr := s.diagnosis.sessionIssuer.AuthenticateSession(ctx, bearer)
+		if serr == nil {
+			return ports.AuthPrincipal{Subject: session.Subject, Roles: session.Roles}, api.DiagnosisAuthCheckResponseMode(session.Provider), nil
+		}
+	}
+	if s.diagnosis.authProvider == nil {
+		return ports.AuthPrincipal{}, "", fmt.Errorf("diagnosis auth provider is not configured: %w", diagnosisauth.ErrUnauthenticated)
+	}
+	principal, err := s.diagnosis.authProvider.AuthenticateBearer(ctx, bearer)
+	if err != nil {
+		return ports.AuthPrincipal{}, "", err
+	}
+	return principal, s.diagnosis.providerMode(), nil
+}
+
+func (c diagnosisConfig) providerMode() api.DiagnosisAuthCheckResponseMode {
+	switch strings.TrimSpace(c.authProviderName) {
+	case string(api.DiagnosisAuthCheckResponseModeOidc):
+		return api.DiagnosisAuthCheckResponseModeOidc
+	default:
+		return api.DiagnosisAuthCheckResponseModeUnknown
+	}
+}
+
+func (c diagnosisConfig) statusMode() api.DiagnosisAuthStatusResponseMode {
+	if c.authProvider == nil {
+		return api.DiagnosisAuthStatusResponseModeNone
+	}
+	switch strings.TrimSpace(c.authProviderName) {
+	case string(api.DiagnosisAuthStatusResponseModeOidc):
+		return api.DiagnosisAuthStatusResponseModeOidc
+	default:
+		return api.DiagnosisAuthStatusResponseModeUnknown
+	}
+}
+
+func diagnosisAuthProviderName(names ...string) string {
+	for _, name := range names {
+		name = strings.TrimSpace(strings.ToLower(name))
+		if name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+func diagnosisAuthResponseRoles(roles []ports.AuthRole) []string {
+	out := make([]string, 0, len(roles))
+	for _, role := range roles {
+		switch role {
+		case ports.AuthRoleOwner, ports.AuthRoleAdmin:
+			out = append(out, string(role))
+		}
+	}
+	return out
+}
+
+func diagnosisAuthRoleAuthorized(roles []ports.AuthRole) bool {
+	for _, role := range roles {
+		if role == ports.AuthRoleOwner || role == ports.AuthRoleAdmin {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeRequiredID(label, value string) (string, error) {

@@ -65,6 +65,24 @@ describe("diagnosis rooms route", () => {
     expect(headers.get("x-extra-secret")).toBeNull();
   });
 
+  it("uses the diagnosis session cookie when Authorization is absent", async () => {
+    const response = await POST(
+      new Request("https://console.example.com/api/diagnosis/rooms", {
+        method: "POST",
+        headers: {
+          cookie: "openclarion_diagnosis_session=session.token.one"
+        },
+        body: JSON.stringify({ evidence_snapshot_id: 7 })
+      })
+    );
+
+    expect(response.status).toBe(201);
+    const fetchMock = vi.mocked(fetch);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+    const headers = init.headers as Headers;
+    expect(headers.get("authorization")).toBe("Bearer session.token.one");
+  });
+
   it("rejects missing bearer authorization before contacting the backend", async () => {
     const response = await POST(
       new Request("https://console.example.com/api/diagnosis/rooms", {
@@ -74,7 +92,7 @@ describe("diagnosis rooms route", () => {
     );
 
     expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "bearer authorization is required" });
+    await expect(response.json()).resolves.toEqual({ error: "authorization is required" });
     expect(fetch).not.toHaveBeenCalled();
   });
 });

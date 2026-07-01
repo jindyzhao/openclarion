@@ -69,6 +69,24 @@ describe("diagnosis ws-ticket route", () => {
     expect(body.websocket_url).toBe("ws://ws.example.com/ws/diagnosis?session_id=session-1&ticket=ticket-1");
   });
 
+  it("uses the diagnosis session cookie when Authorization is absent", async () => {
+    const response = await POST(
+      new Request("https://console.example.com/api/diagnosis/ws-ticket", {
+        method: "POST",
+        headers: {
+          cookie: "openclarion_diagnosis_session=session.token.one"
+        },
+        body: JSON.stringify({ session_id: "session-1" })
+      })
+    );
+
+    expect(response.status).toBe(201);
+    const fetchMock = vi.mocked(fetch);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+    const headers = init.headers as Headers;
+    expect(headers.get("authorization")).toBe("Bearer session.token.one");
+  });
+
   it("rejects missing bearer authorization before contacting the backend", async () => {
     const response = await POST(
       new Request("https://console.example.com/api/diagnosis/ws-ticket", {
@@ -78,7 +96,7 @@ describe("diagnosis ws-ticket route", () => {
     );
 
     expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "bearer authorization is required" });
+    await expect(response.json()).resolves.toEqual({ error: "authorization is required" });
     expect(fetch).not.toHaveBeenCalled();
   });
 

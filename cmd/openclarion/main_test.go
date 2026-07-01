@@ -441,6 +441,21 @@ func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisRoom(t *testing.T) {
 	}
 }
 
+func TestHTTPServerOptionsFromEnv_ConfiguresDiagnosisBrowserSessionWithStandardOIDCEnv(t *testing.T) {
+	oidcServer := newOIDCDiscoveryServer(t)
+	opts, _, err := httpServerOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OIDC_ISSUER":    oidcServer.URL,
+		"OIDC_CLIENT_ID": "openclarion-web",
+		"OPENCLARION_DIAGNOSIS_SESSION_SIGNING_KEY": strings.Repeat("s", diagnosisauth.MinSessionSigningKeyBytes),
+	}), emptyFactory{}, emptyStarter{}, noopDiagnosisRoomWorkflowClient{}, noopDiagnosisRoomStarter{}, diagnosisauth.NewMemoryStore(), nil, nil)
+	if err != nil {
+		t.Fatalf("httpServerOptionsFromEnv diagnosis browser session: %v", err)
+	}
+	if len(opts) != 8 {
+		t.Fatalf("len(opts) = %d, want 8", len(opts))
+	}
+}
+
 func TestHTTPServerOptionsFromEnv_RejectsCredentialedDiagnosisAllowedOrigin(t *testing.T) {
 	oidcServer := newOIDCDiscoveryServer(t)
 	rawOriginMarker := "raw-marker"

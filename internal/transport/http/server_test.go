@@ -2491,6 +2491,116 @@ func TestIssueDiagnosisWSTicketAuthenticatesAndIssuesTicket(t *testing.T) {
 	}
 }
 
+func TestIssueDiagnosisAuthSessionIssuesBrowserToken(t *testing.T) {
+	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Bearer oidc-token": {
+			{Principal: ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}}},
+		},
+	})
+	sessionIssuer := newHTTPTestSessionTokenService(t, now)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/session", nil)
+	req.Header.Set("Authorization", "Bearer oidc-token")
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("S", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "oidc"),
+		WithDiagnosisAuthSessionIssuer(sessionIssuer),
+		withDiagnosisClock(func() time.Time { return now }),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DiagnosisAuthSessionResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Subject != "owner-1" || body.Mode != string(api.DiagnosisAuthSessionResponseModeOidc) || !body.RoleAuthorized {
+		t.Fatalf("body = %+v", body)
+	}
+	principal, err := sessionIssuer.AuthenticateBearer(context.Background(), "Bearer "+body.Token)
+	if err != nil {
+		t.Fatalf("AuthenticateBearer issued session: %v", err)
+	}
+	if principal.Subject != "owner-1" {
+		t.Fatalf("principal = %+v", principal)
+	}
+}
+
+func TestCheckDiagnosisAuthAcceptsBrowserSessionToken(t *testing.T) {
+	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
+	sessionIssuer := newHTTPTestSessionTokenService(t, now)
+	session, err := sessionIssuer.IssueToken(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, "oidc")
+	if err != nil {
+		t.Fatalf("IssueToken: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/auth/check", nil)
+	req.Header.Set("Authorization", "Bearer "+session.Token)
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(&neverAuthProvider{}, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("T", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "oidc"),
+		WithDiagnosisAuthSessionIssuer(sessionIssuer),
+		withDiagnosisClock(func() time.Time { return now }),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DiagnosisAuthCheckResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body.Subject != "owner-1" || body.Mode != string(api.DiagnosisAuthCheckResponseModeOidc) || !body.RoleAuthorized {
+		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestIssueDiagnosisWSTicketAcceptsBrowserSessionToken(t *testing.T) {
+	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
+	sessionIssuer := newHTTPTestSessionTokenService(t, now)
+	sessionToken, err := sessionIssuer.IssueToken(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, "oidc")
+	if err != nil {
+		t.Fatalf("IssueToken: %v", err)
+	}
+	ticketService := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("U", diagnosisauth.DefaultTokenBytes)))
+	resolver := &fakeDiagnosisSessionResolver{
+		sessions: map[string]diagnosisauth.SessionRef{
+			"session-1": {SessionID: "session-1", OwnerSubject: "owner-1"},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/ws-ticket", strings.NewReader(`{"session_id":"session-1"}`))
+	req.Header.Set("Authorization", "Bearer "+sessionToken.Token)
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(&neverAuthProvider{}, ticketService, resolver, "oidc"),
+		WithDiagnosisAuthSessionIssuer(sessionIssuer),
+		withDiagnosisClock(func() time.Time { return now }),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DiagnosisWSTicketResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if _, err := ticketService.ConsumeTicket(context.Background(), body.Ticket, resolver.sessions["session-1"], now.Add(time.Second)); err != nil {
+		t.Fatalf("issued ticket should be consumable: %v", err)
+	}
+}
+
 func TestIssueDiagnosisWSTicketRejectsBadInputs(t *testing.T) {
 	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -2637,6 +2747,45 @@ func TestCreateDiagnosisRoomAuthenticatesAndStartsRoom(t *testing.T) {
 		body.WorkflowID != "diagnosis-room-diagnosis-session-1" ||
 		body.RunID != "run-1" {
 		t.Fatalf("response = %+v", body)
+	}
+}
+
+func TestCreateDiagnosisRoomAcceptsBrowserSessionToken(t *testing.T) {
+	now := time.Date(2026, 6, 30, 10, 0, 0, 0, time.UTC)
+	sessionIssuer := newHTTPTestSessionTokenService(t, now)
+	sessionToken, err := sessionIssuer.IssueToken(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, "oidc")
+	if err != nil {
+		t.Fatalf("IssueToken: %v", err)
+	}
+	starter := &fakeDiagnosisRoomStarter{
+		result: diagnosisroomstart.Result{
+			SessionID:          "diagnosis-session-1",
+			EvidenceSnapshotID: 42,
+			DiagnosisTaskID:    101,
+			ChatSessionID:      202,
+			Workflow:           ports.WorkflowHandle{WorkflowID: "diagnosis-room-diagnosis-session-1", RunID: "run-1"},
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/rooms", strings.NewReader(`{"evidence_snapshot_id":42}`))
+	req.Header.Set("Authorization", "Bearer "+sessionToken.Token)
+	testHandler(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(nil, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("F", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}, "oidc"),
+		WithDiagnosisAuthSessionIssuer(sessionIssuer),
+		WithDiagnosisRoomStarter(starter),
+		withDiagnosisClock(func() time.Time { return now }),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if starter.called != 1 || starter.req.Principal.Subject != "owner-1" {
+		t.Fatalf("starter called=%d req=%+v", starter.called, starter.req)
 	}
 }
 
@@ -3549,6 +3698,18 @@ func newHTTPTestDiagnosisAuthService(t *testing.T, random *strings.Reader) diagn
 	service, err := diagnosisauth.NewService(diagnosisauth.NewMemoryStore(), diagnosisauth.DefaultTicketPolicy(), random)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
+	}
+	return service
+}
+
+func newHTTPTestSessionTokenService(t *testing.T, now time.Time) *diagnosisauth.SessionTokenService {
+	t.Helper()
+	service, err := diagnosisauth.NewSessionTokenService(
+		diagnosisauth.DefaultSessionTokenPolicy(strings.Repeat("s", diagnosisauth.MinSessionSigningKeyBytes)),
+		func() time.Time { return now },
+	)
+	if err != nil {
+		t.Fatalf("NewSessionTokenService: %v", err)
 	}
 	return service
 }
