@@ -27,6 +27,8 @@ const (
 	diagnosisEventFinalReady = "diagnosis_room.final_conclusion_ready"
 	diagnosisEventClosed     = "diagnosis_room.closed"
 	diagnosisEventProgress   = "diagnosis_room.turn_persisted"
+
+	pendingDeliveryInFlightTTL = 5 * time.Minute
 )
 
 // NotificationPurpose controls whether a report notification is phrased as a
@@ -167,7 +169,9 @@ func (s *Service) Send(ctx context.Context, req Request) (Result, error) {
 	if deliveryLog.Status == domain.ReportNotificationDeliveryStatusDelivered {
 		return resultFromDelivery(deliveryLog, RetryStateAlreadyDelivered), nil
 	}
-	if existingDelivery && deliveryLog.Status == domain.ReportNotificationDeliveryStatusPending {
+	if existingDelivery &&
+		deliveryLog.Status == domain.ReportNotificationDeliveryStatusPending &&
+		!s.pendingDeliveryIsStale(deliveryLog) {
 		return resultFromDelivery(deliveryLog, RetryStateAlreadyPending), nil
 	}
 	deliveryLog.ReportNotificationChannelProfileID = req.ReportNotificationChannelProfileID
@@ -201,6 +205,21 @@ func (s *Service) Send(ctx context.Context, req Request) (Result, error) {
 		return Result{}, err
 	}
 	return resultFromDelivery(saved, RetryStateSent), nil
+}
+
+func (s *Service) pendingDeliveryIsStale(delivery domain.ReportNotificationDelivery) bool {
+	reference := delivery.UpdatedAt
+	if reference.IsZero() {
+		reference = delivery.CreatedAt
+	}
+	if reference.IsZero() {
+		return true
+	}
+	now := s.clock()
+	if now.IsZero() {
+		return false
+	}
+	return !now.Before(reference.Add(pendingDeliveryInFlightTTL))
 }
 
 func (s *Service) reportNotificationProvider(ctx context.Context, channelProfileID domain.NotificationChannelProfileID) (ports.IMProvider, error) {

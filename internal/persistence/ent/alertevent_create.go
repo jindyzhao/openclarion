@@ -172,6 +172,10 @@ func (_c *AlertEventCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *AlertEventCreate) defaults() {
+	if _, ok := _c.mutation.AlertSourceProfileID(); !ok {
+		v := alertevent.DefaultAlertSourceProfileID
+		_c.mutation.SetAlertSourceProfileID(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := alertevent.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -190,6 +194,14 @@ func (_c *AlertEventCreate) check() error {
 	if v, ok := _c.mutation.Source(); ok {
 		if err := alertevent.SourceValidator(v); err != nil {
 			return &ValidationError{Name: "source", err: fmt.Errorf(`ent: validator failed for field "AlertEvent.source": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.AlertSourceProfileID(); !ok {
+		return &ValidationError{Name: "alert_source_profile_id", err: errors.New(`ent: missing required field "AlertEvent.alert_source_profile_id"`)}
+	}
+	if v, ok := _c.mutation.AlertSourceProfileID(); ok {
+		if err := alertevent.AlertSourceProfileIDValidator(v); err != nil {
+			return &ValidationError{Name: "alert_source_profile_id", err: fmt.Errorf(`ent: validator failed for field "AlertEvent.alert_source_profile_id": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.SourceFingerprint(); !ok {

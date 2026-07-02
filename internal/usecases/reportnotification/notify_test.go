@@ -126,7 +126,7 @@ func TestServiceSendSkipsAlreadyDeliveredNotification(t *testing.T) {
 	}
 }
 
-func TestServiceSendSkipsPendingNotification(t *testing.T) {
+func TestServiceSendSkipsFreshPendingNotification(t *testing.T) {
 	report := validFinalReport(111)
 	repo := newFakeReportRepo(report)
 	delivery, err := domain.NewReportNotificationDelivery(report.ID, "final_report:111/notification/handoff")
@@ -134,13 +134,19 @@ func TestServiceSendSkipsPendingNotification(t *testing.T) {
 		t.Fatalf("NewReportNotificationDelivery: %v", err)
 	}
 	delivery.ID = 1
+	delivery.CreatedAt = time.Date(2026, 6, 18, 8, 0, 0, 0, time.UTC)
+	delivery.UpdatedAt = delivery.CreatedAt
 	repo.deliveryByKey[delivery.IdempotencyKey] = delivery
 	provider := &recordingIMProvider{delivery: ports.IMDelivery{
 		ProviderMessageID: "duplicate-message",
 		Status:            "accepted",
 		Raw:               json.RawMessage(`{}`),
 	}}
-	svc, err := NewService(fakeUOWFactory{reports: repo}, WithIMProvider(provider))
+	svc, err := NewService(
+		fakeUOWFactory{reports: repo},
+		WithIMProvider(provider),
+		WithClock(func() time.Time { return delivery.CreatedAt.Add(time.Minute) }),
+	)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -160,6 +166,49 @@ func TestServiceSendSkipsPendingNotification(t *testing.T) {
 	}
 	if repo.deliveryByKey[delivery.IdempotencyKey].Status != domain.ReportNotificationDeliveryStatusPending {
 		t.Fatalf("delivery = %+v, want still pending", repo.deliveryByKey[delivery.IdempotencyKey])
+	}
+}
+
+func TestServiceSendRetriesStalePendingNotification(t *testing.T) {
+	report := validFinalReport(112)
+	repo := newFakeReportRepo(report)
+	delivery, err := domain.NewReportNotificationDelivery(report.ID, "final_report:112/notification/handoff")
+	if err != nil {
+		t.Fatalf("NewReportNotificationDelivery: %v", err)
+	}
+	delivery.ID = 1
+	delivery.CreatedAt = time.Date(2026, 6, 18, 8, 0, 0, 0, time.UTC)
+	delivery.UpdatedAt = delivery.CreatedAt
+	repo.deliveryByKey[delivery.IdempotencyKey] = delivery
+	provider := &recordingIMProvider{delivery: ports.IMDelivery{
+		ProviderMessageID: "retried-message",
+		Status:            "accepted",
+		Raw:               json.RawMessage(`{"message_id":"retried-message"}`),
+	}}
+	svc, err := NewService(
+		fakeUOWFactory{reports: repo},
+		WithIMProvider(provider),
+		WithClock(func() time.Time { return delivery.CreatedAt.Add(pendingDeliveryInFlightTTL + time.Second) }),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := svc.Send(context.Background(), Request{FinalReportID: report.ID})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	if result.ProviderMessageID != "retried-message" ||
+		result.RetryState != RetryStateSent ||
+		result.Status != "accepted" {
+		t.Fatalf("result = %+v, want retried delivery", result)
+	}
+	if got := len(provider.Requests()); got != 1 {
+		t.Fatalf("provider requests = %d, want 1", got)
+	}
+	if repo.deliveryByKey[delivery.IdempotencyKey].Status != domain.ReportNotificationDeliveryStatusDelivered {
+		t.Fatalf("delivery = %+v, want delivered", repo.deliveryByKey[delivery.IdempotencyKey])
 	}
 }
 

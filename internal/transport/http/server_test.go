@@ -1830,6 +1830,89 @@ func TestListDiagnosisRooms_FiltersByScopedRBACWhenGlobalReadIsDenied(t *testing
 	}
 }
 
+func TestListDiagnosisRooms_FiltersBeforeLimitForScopedRBAC(t *testing.T) {
+	startedAt := time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC)
+	factory := &fakeUOWFactory{
+		configRepo: &fakeConfigRepo{
+			directoryUsers: []domain.DirectoryUser{
+				testDirectoryUser(11, "operator:visible", "Visible Operator"),
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{
+			chatSessions: []domain.ChatSessionWithTask{
+				{
+					Session: domain.ChatSession{
+						ID:              502,
+						DiagnosisTaskID: 602,
+						SessionKey:      "room-hidden-newer",
+						OwnerSubject:    "operator:hidden",
+						Status:          domain.ChatSessionStatusOpen,
+						StartedAt:       startedAt.Add(2 * time.Minute),
+						LastActivityAt:  startedAt.Add(2 * time.Minute),
+						CreatedAt:       startedAt.Add(2 * time.Minute),
+						UpdatedAt:       startedAt.Add(2 * time.Minute),
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 602,
+						EvidenceSnapshotID: 702,
+						WorkflowID:         "diagnosis-room-room-hidden-newer",
+						RunID:              "run-hidden",
+						Status:             domain.DiagnosisStatusRunning,
+					},
+				},
+				{
+					Session: domain.ChatSession{
+						ID:              501,
+						DiagnosisTaskID: 601,
+						SessionKey:      "room-visible-older",
+						OwnerSubject:    "operator:visible",
+						Status:          domain.ChatSessionStatusOpen,
+						StartedAt:       startedAt,
+						LastActivityAt:  startedAt.Add(time.Minute),
+						CreatedAt:       startedAt,
+						UpdatedAt:       startedAt.Add(time.Minute),
+					},
+					Task: domain.DiagnosisTask{
+						ID:                 601,
+						EvidenceSnapshotID: 701,
+						WorkflowID:         "diagnosis-room-room-visible-older",
+						RunID:              "run-visible",
+						Status:             domain.DiagnosisStatusRunning,
+					},
+				},
+			},
+		},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			return rbacusecase.AuthorizeDecision{
+				Allowed: req.ScopeKind == domain.RBACScopeKindDiagnosisRoom &&
+					req.ScopeKey == "room-visible-older",
+				CheckedAt: startedAt,
+			}, nil
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/rooms?limit=1", nil)
+	addTestLocalRBACAuthorization(req)
+	testHandler(factory, testLocalRBACOptions(t, "responder-1", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if factory.diagnosisRepo.lastChatSessionLimit != maxListLimit {
+		t.Fatalf("repo limit = %d, want maxListLimit for scoped RBAC", factory.diagnosisRepo.lastChatSessionLimit)
+	}
+	var body api.DiagnosisRoomListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 || body.Items[0].SessionID != "room-visible-older" {
+		t.Fatalf("items = %+v, want visible older room after RBAC filtering", body.Items)
+	}
+}
+
 func TestGetDiagnosisRoom_ReturnsExactSummary(t *testing.T) {
 	startedAt := time.Date(2026, 6, 20, 3, 14, 25, 0, time.UTC)
 	notificationAt := startedAt.Add(95 * time.Second)
@@ -4489,16 +4572,18 @@ func TestPreviewReportWorkflowPolicyImpactReturnsReadinessAndGroupingImpact(t *t
 	alerts := &fakeAlertRepo{
 		events: []domain.AlertEvent{
 			{
-				ID:       101,
-				Source:   "prometheus",
-				Labels:   map[string]string{"alertname": "checkout", "severity": "critical"},
-				StartsAt: base,
+				ID:                   101,
+				Source:               "prometheus",
+				AlertSourceProfileID: 1,
+				Labels:               map[string]string{"alertname": "checkout", "severity": "critical"},
+				StartsAt:             base,
 			},
 			{
-				ID:       102,
-				Source:   "alertmanager",
-				Labels:   map[string]string{"alertname": "payments", "severity": "warning"},
-				StartsAt: base.Add(time.Minute),
+				ID:                   102,
+				Source:               "alertmanager",
+				AlertSourceProfileID: 1,
+				Labels:               map[string]string{"alertname": "payments", "severity": "warning"},
+				StartsAt:             base.Add(time.Minute),
 			},
 		},
 	}
@@ -4579,16 +4664,18 @@ func TestPreviewReportWorkflowPolicyDraftImpactReturnsReadinessWithoutPersisting
 	alerts := &fakeAlertRepo{
 		events: []domain.AlertEvent{
 			{
-				ID:       101,
-				Source:   "alertmanager",
-				Labels:   map[string]string{"alertname": "checkout", "severity": "critical"},
-				StartsAt: base,
+				ID:                   101,
+				Source:               "alertmanager",
+				AlertSourceProfileID: 1,
+				Labels:               map[string]string{"alertname": "checkout", "severity": "critical"},
+				StartsAt:             base,
 			},
 			{
-				ID:       102,
-				Source:   "alertmanager",
-				Labels:   map[string]string{"alertname": "checkout", "severity": "warning"},
-				StartsAt: base.Add(time.Minute),
+				ID:                   102,
+				Source:               "alertmanager",
+				AlertSourceProfileID: 1,
+				Labels:               map[string]string{"alertname": "checkout", "severity": "warning"},
+				StartsAt:             base.Add(time.Minute),
 			},
 		},
 	}
@@ -10430,6 +10517,29 @@ func (r *fakeAlertRepo) ListEvents(_ context.Context, limit int) ([]domain.Alert
 		limit = len(r.events)
 	}
 	return r.events[:limit], nil
+}
+
+func (r *fakeAlertRepo) ListEventsFiltered(_ context.Context, filter ports.AlertEventFilter, limit int) ([]domain.AlertEvent, error) {
+	r.lastLimit = limit
+	allowedProfiles := map[domain.AlertSourceProfileID]struct{}{}
+	for _, id := range filter.AlertSourceProfileIDs {
+		if id > 0 {
+			allowedProfiles[id] = struct{}{}
+		}
+	}
+	out := make([]domain.AlertEvent, 0, len(r.events))
+	for _, event := range r.events {
+		if len(allowedProfiles) > 0 {
+			if _, ok := allowedProfiles[event.AlertSourceProfileID]; !ok {
+				continue
+			}
+		}
+		out = append(out, event)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
 }
 
 type fakeEvidenceRepo struct {

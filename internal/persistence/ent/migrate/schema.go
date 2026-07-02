@@ -13,7 +13,7 @@ var (
 	AlertEventsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "source", Type: field.TypeString, Size: 64},
-		{Name: "alert_source_profile_id", Type: field.TypeInt, Nullable: true},
+		{Name: "alert_source_profile_id", Type: field.TypeInt, Default: 0},
 		{Name: "source_fingerprint", Type: field.TypeString, Size: 128},
 		{Name: "canonical_fingerprint", Type: field.TypeString, Size: 64},
 		{Name: "labels", Type: field.TypeJSON},
@@ -31,9 +31,9 @@ var (
 		PrimaryKey: []*schema.Column{AlertEventsColumns[0]},
 		Indexes: []*schema.Index{
 			{
-				Name:    "alertevent_source_canonical_fingerprint_starts_at",
+				Name:    "alertevent_alert_source_profile_id_source_canonical_fingerprint_starts_at",
 				Unique:  true,
-				Columns: []*schema.Column{AlertEventsColumns[1], AlertEventsColumns[4], AlertEventsColumns[9]},
+				Columns: []*schema.Column{AlertEventsColumns[2], AlertEventsColumns[1], AlertEventsColumns[4], AlertEventsColumns[9]},
 			},
 			{
 				Name:    "alertevent_source_status",

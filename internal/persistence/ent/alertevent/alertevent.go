@@ -82,6 +82,10 @@ func ValidColumn(column string) bool {
 var (
 	// SourceValidator is a validator for the "source" field. It is called by the builders before save.
 	SourceValidator func(string) error
+	// DefaultAlertSourceProfileID holds the default value on creation for the "alert_source_profile_id" field.
+	DefaultAlertSourceProfileID int
+	// AlertSourceProfileIDValidator is a validator for the "alert_source_profile_id" field. It is called by the builders before save.
+	AlertSourceProfileIDValidator func(int) error
 	// SourceFingerprintValidator is a validator for the "source_fingerprint" field. It is called by the builders before save.
 	SourceFingerprintValidator func(string) error
 	// CanonicalFingerprintValidator is a validator for the "canonical_fingerprint" field. It is called by the builders before save.

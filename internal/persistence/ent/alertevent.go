@@ -20,7 +20,7 @@ type AlertEvent struct {
 	ID int `json:"id,omitempty"`
 	// upstream provider identifier, e.g. "alertmanager", "datadog"
 	Source string `json:"source,omitempty"`
-	// optional operator-managed alert source profile that produced the event
+	// optional operator-managed alert source profile that produced the event; 0 means unbound
 	AlertSourceProfileID int `json:"alert_source_profile_id,omitempty"`
 	// fingerprint reported by the upstream provider, retained verbatim
 	SourceFingerprint string `json:"source_fingerprint,omitempty"`

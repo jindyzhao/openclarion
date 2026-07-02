@@ -36,7 +36,7 @@ import (
 //
 // Natural unique key:
 //
-//	(source, canonical_fingerprint, starts_at)
+//	(alert_source_profile_id, source, canonical_fingerprint, starts_at)
 //
 // Re-ingestion of an identical event is a no-op (Postgres unique-violation
 // is converted to "already-known" at the persistence layer); status
@@ -54,9 +54,10 @@ func (AlertEvent) Fields() []ent.Field {
 			Immutable().
 			Comment(`upstream provider identifier, e.g. "alertmanager", "datadog"`),
 		field.Int("alert_source_profile_id").
-			Optional().
+			Default(0).
+			NonNegative().
 			Immutable().
-			Comment("optional operator-managed alert source profile that produced the event"),
+			Comment("optional operator-managed alert source profile that produced the event; 0 means unbound"),
 		field.String("source_fingerprint").
 			MaxLen(128).
 			NotEmpty().
@@ -106,7 +107,7 @@ func (AlertEvent) Edges() []ent.Edge {
 func (AlertEvent) Indexes() []ent.Index {
 	return []ent.Index{
 		// Natural unique key: dedupe identical events on re-ingestion.
-		index.Fields("source", "canonical_fingerprint", "starts_at").
+		index.Fields("alert_source_profile_id", "source", "canonical_fingerprint", "starts_at").
 			Unique(),
 		// Hot read path: list firing alerts for a given source.
 		index.Fields("source", "status"),

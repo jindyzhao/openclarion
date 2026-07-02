@@ -54,6 +54,12 @@ func init() {
 			return nil
 		}
 	}()
+	// alerteventDescAlertSourceProfileID is the schema descriptor for alert_source_profile_id field.
+	alerteventDescAlertSourceProfileID := alerteventFields[1].Descriptor()
+	// alertevent.DefaultAlertSourceProfileID holds the default value on creation for the alert_source_profile_id field.
+	alertevent.DefaultAlertSourceProfileID = alerteventDescAlertSourceProfileID.Default.(int)
+	// alertevent.AlertSourceProfileIDValidator is a validator for the "alert_source_profile_id" field. It is called by the builders before save.
+	alertevent.AlertSourceProfileIDValidator = alerteventDescAlertSourceProfileID.Validators[0].(func(int) error)
 	// alerteventDescSourceFingerprint is the schema descriptor for source_fingerprint field.
 	alerteventDescSourceFingerprint := alerteventFields[2].Descriptor()
 	// alertevent.SourceFingerprintValidator is a validator for the "source_fingerprint" field. It is called by the builders before save.

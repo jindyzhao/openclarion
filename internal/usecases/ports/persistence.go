@@ -79,9 +79,9 @@ var ErrNestedTransaction = errors.New("ports: nested WithinTx is not supported")
 // queries needed by the grouping stage.
 type AlertRepository interface {
 	// SaveEvent inserts a new AlertEvent. A duplicate
-	// (source, canonical_fingerprint, starts_at) returns a wrapped
-	// domain.ErrAlreadyExists. The returned AlertEvent has its ID
-	// and CreatedAt populated.
+	// (alert_source_profile_id, source, canonical_fingerprint, starts_at)
+	// returns a wrapped domain.ErrAlreadyExists. The returned AlertEvent has
+	// its ID and CreatedAt populated.
 	SaveEvent(ctx context.Context, e domain.AlertEvent) (domain.AlertEvent, error)
 
 	// UpdateEventResolution persists an EndsAt + Status transition
@@ -94,11 +94,11 @@ type AlertRepository interface {
 	// domain.ErrNotFound.
 	FindEventByID(ctx context.Context, id domain.AlertEventID) (domain.AlertEvent, error)
 
-	// FindEventByNaturalKey returns the AlertEvent matching the
-	// natural unique key (source, canonical_fingerprint,
-	// starts_at). startsAt is normalised via
-	// domain.NormalizeUTCMicro before the lookup. Returns
-	// domain.ErrNotFound when no such row exists.
+	// FindEventByNaturalKey returns the unbound AlertEvent matching the
+	// legacy key (source, canonical_fingerprint, starts_at) with
+	// alert_source_profile_id == 0. startsAt is normalised via
+	// domain.NormalizeUTCMicro before the lookup. Returns domain.ErrNotFound
+	// when no such row exists.
 	FindEventByNaturalKey(ctx context.Context, source, canonicalFingerprint string, startsAt time.Time) (domain.AlertEvent, error)
 
 	// ListEventsByStartsAtRange returns AlertEvents whose StartsAt
@@ -119,9 +119,17 @@ type AlertRepository interface {
 	// with a wrapped domain.ErrInvariantViolation.
 	ListEventsByStartsAtRange(ctx context.Context, startInclusive, endExclusive time.Time, limit int) ([]domain.AlertEvent, error)
 
+	// ListEventsByStartsAtRangeFiltered is ListEventsByStartsAtRange with
+	// optional source/profile predicates applied before ordering and limiting.
+	ListEventsByStartsAtRangeFiltered(ctx context.Context, startInclusive, endExclusive time.Time, filter AlertEventFilter, limit int) ([]domain.AlertEvent, error)
+
 	// ListEvents returns the most recent AlertEvents, ordered by
 	// (starts_at DESC, id DESC), capped by limit. limit MUST be > 0.
 	ListEvents(ctx context.Context, limit int) ([]domain.AlertEvent, error)
+
+	// ListEventsFiltered is ListEvents with optional source/profile predicates
+	// applied before ordering and limiting.
+	ListEventsFiltered(ctx context.Context, filter AlertEventFilter, limit int) ([]domain.AlertEvent, error)
 
 	// SaveGroup inserts a new AlertGroup header (without the M2N
 	// link). A duplicate (group_key, first_seen_at) returns a
@@ -204,6 +212,14 @@ type EvidenceRepository interface {
 	// ordered by (created_at DESC, id DESC), capped by limit. limit
 	// MUST be > 0.
 	List(ctx context.Context, limit int) ([]domain.EvidenceSnapshot, error)
+}
+
+// AlertEventFilter captures optional AlertEvent query predicates. Empty slices
+// mean no predicate. Non-positive profile IDs are ignored by repository
+// implementations so callers can pass optional values without special casing.
+type AlertEventFilter struct {
+	Sources               []string
+	AlertSourceProfileIDs []domain.AlertSourceProfileID
 }
 
 // DiagnosisRepository covers DiagnosisTask plus append-only
@@ -592,6 +608,11 @@ type DirectoryRepository interface {
 	// ListUsers returns provider users ordered by (display_name ASC, id ASC),
 	// capped by limit. provider MUST be non-empty and limit MUST be > 0.
 	ListUsers(ctx context.Context, provider string, activeOnly bool, limit int) ([]domain.DirectoryUser, error)
+
+	// DeactivateStaleUsers marks active users for provider inactive when a
+	// full sync did not refresh them at syncedAt. Incremental sync callers
+	// MUST NOT use it.
+	DeactivateStaleUsers(ctx context.Context, provider string, syncedAt time.Time) (int, error)
 
 	// SaveSyncRun records one admitted directory sync result. The returned run
 	// has ID and CreatedAt populated.

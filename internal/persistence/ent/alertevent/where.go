@@ -200,16 +200,6 @@ func AlertSourceProfileIDLTE(v int) predicate.AlertEvent {
 	return predicate.AlertEvent(sql.FieldLTE(FieldAlertSourceProfileID, v))
 }
 
-// AlertSourceProfileIDIsNil applies the IsNil predicate on the "alert_source_profile_id" field.
-func AlertSourceProfileIDIsNil() predicate.AlertEvent {
-	return predicate.AlertEvent(sql.FieldIsNull(FieldAlertSourceProfileID))
-}
-
-// AlertSourceProfileIDNotNil applies the NotNil predicate on the "alert_source_profile_id" field.
-func AlertSourceProfileIDNotNil() predicate.AlertEvent {
-	return predicate.AlertEvent(sql.FieldNotNull(FieldAlertSourceProfileID))
-}
-
 // SourceFingerprintEQ applies the EQ predicate on the "source_fingerprint" field.
 func SourceFingerprintEQ(v string) predicate.AlertEvent {
 	return predicate.AlertEvent(sql.FieldEQ(FieldSourceFingerprint, v))

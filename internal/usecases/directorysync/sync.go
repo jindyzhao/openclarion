@@ -335,6 +335,11 @@ func (s *Service) persistSuccess(
 			}
 			result.UsersUpserted++
 		}
+		if req.updatedAfter == nil {
+			if _, err := uow.Directory().DeactivateStaleUsers(ctx, req.providerName, req.syncedAt); err != nil {
+				return fmt.Errorf("directory sync: deactivate stale users: %w", err)
+			}
+		}
 		run, err := domain.NewDirectorySyncSucceededRun(
 			req.providerName,
 			req.pageSize,

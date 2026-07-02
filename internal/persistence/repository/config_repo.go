@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -685,32 +686,58 @@ func (r *configRepo) ListLatestNotificationChannelTestProofs(ctx context.Context
 	if limit <= 0 {
 		return nil, fmt.Errorf("list notification channel test proofs: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
 	}
-	rows, err := r.tx.NotificationChannelTestProof.Query().
-		Where(notificationchanneltestproof.NotificationChannelProfileIDEQ(int(profileID))).
-		Order(notificationchanneltestproof.ByCheckedAt(entsql.OrderDesc()), notificationchanneltestproof.ByID(entsql.OrderDesc())).
-		Limit(32).
-		All(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list notification channel test proofs: %w", err)
+	contentKinds := []domain.NotificationChannelTestContentKind{
+		"",
+		domain.NotificationChannelTestContentTransportSample,
+		domain.NotificationChannelTestContentAIDiagnosisSample,
+		domain.NotificationChannelTestContentDiagnosisCloseSample,
 	}
-	out := make([]domain.NotificationChannelTestProof, 0, min(limit, len(rows)))
-	seen := map[string]struct{}{}
-	for _, row := range rows {
-		proof := notificationChannelTestProofToDomain(row)
-		key := string(proof.ContentKind)
-		if key == "" {
-			key = "without_content_kind"
+	out := make([]domain.NotificationChannelTestProof, 0, min(limit, len(contentKinds)))
+	for _, contentKind := range contentKinds {
+		row, ok, err := r.latestNotificationChannelTestProofForContentKind(ctx, profileID, contentKind)
+		if err != nil {
+			return nil, err
 		}
-		if _, ok := seen[key]; ok {
+		if !ok {
 			continue
 		}
-		seen[key] = struct{}{}
-		out = append(out, proof)
-		if len(out) >= limit {
-			break
+		out = append(out, notificationChannelTestProofToDomain(row))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].CheckedAt.Equal(out[j].CheckedAt) {
+			return out[i].CheckedAt.After(out[j].CheckedAt)
 		}
+		return out[i].ID > out[j].ID
+	})
+	if len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
+}
+
+func (r *configRepo) latestNotificationChannelTestProofForContentKind(
+	ctx context.Context,
+	profileID domain.NotificationChannelProfileID,
+	contentKind domain.NotificationChannelTestContentKind,
+) (*ent.NotificationChannelTestProof, bool, error) {
+	query := r.tx.NotificationChannelTestProof.Query().
+		Where(notificationchanneltestproof.NotificationChannelProfileIDEQ(int(profileID)))
+	if contentKind == "" {
+		query = query.Where(notificationchanneltestproof.ContentKindIsNil())
+	} else {
+		query = query.Where(notificationchanneltestproof.ContentKindEQ(string(contentKind)))
+	}
+	rows, err := query.
+		Order(notificationchanneltestproof.ByCheckedAt(entsql.OrderDesc()), notificationchanneltestproof.ByID(entsql.OrderDesc())).
+		Limit(1).
+		All(ctx)
+	if err != nil {
+		return nil, false, fmt.Errorf("list notification channel test proofs: %w", err)
+	}
+	if len(rows) == 0 {
+		return nil, false, nil
+	}
+	return rows[0], true, nil
 }
 
 // UpsertDirectoryDepartment inserts or replaces one local directory department

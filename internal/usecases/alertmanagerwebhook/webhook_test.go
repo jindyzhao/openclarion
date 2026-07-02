@@ -507,7 +507,15 @@ func (r *fakeWebhookAlertRepo) ListEventsByStartsAtRange(context.Context, time.T
 	return nil, nil
 }
 
+func (r *fakeWebhookAlertRepo) ListEventsByStartsAtRangeFiltered(context.Context, time.Time, time.Time, ports.AlertEventFilter, int) ([]domain.AlertEvent, error) {
+	return nil, nil
+}
+
 func (r *fakeWebhookAlertRepo) ListEvents(context.Context, int) ([]domain.AlertEvent, error) {
+	return append([]domain.AlertEvent(nil), r.saved...), nil
+}
+
+func (r *fakeWebhookAlertRepo) ListEventsFiltered(context.Context, ports.AlertEventFilter, int) ([]domain.AlertEvent, error) {
 	return append([]domain.AlertEvent(nil), r.saved...), nil
 }
 

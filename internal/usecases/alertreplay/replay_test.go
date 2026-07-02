@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -422,8 +423,8 @@ func TestReplayWindow_SourceFilterExcludesNonMatchingEventsFromGrouping(t *testi
 	if stats.Ingested.Total != 2 || stats.Ingested.Saved != 2 {
 		t.Fatalf("Ingested = %+v, want Total=2 Saved=2", stats.Ingested)
 	}
-	if stats.EventsLoaded != 2 {
-		t.Fatalf("EventsLoaded = %d, want 2 scanned in-window events", stats.EventsLoaded)
+	if stats.EventsLoaded != 1 {
+		t.Fatalf("EventsLoaded = %d, want 1 filtered in-window event", stats.EventsLoaded)
 	}
 	if stats.GroupsBuilt != 1 || stats.GroupsSaved != 1 || stats.SnapshotsSaved != 1 {
 		t.Fatalf("group stats = %+v, want one matching source group", stats)
@@ -459,14 +460,45 @@ func TestReplayWindow_SourceProfileFilterExcludesNonMatchingEventsFromGrouping(t
 	if stats.Ingested.Total != 2 || stats.Ingested.Saved != 2 {
 		t.Fatalf("Ingested = %+v, want Total=2 Saved=2", stats.Ingested)
 	}
-	if stats.EventsLoaded != 2 {
-		t.Fatalf("EventsLoaded = %d, want 2 scanned in-window events", stats.EventsLoaded)
+	if stats.EventsLoaded != 1 {
+		t.Fatalf("EventsLoaded = %d, want 1 filtered in-window event", stats.EventsLoaded)
 	}
 	if stats.GroupsBuilt != 1 || stats.GroupsSaved != 1 || stats.SnapshotsSaved != 1 {
 		t.Fatalf("group stats = %+v, want one matching source profile group", stats)
 	}
 	if got := countEventGroupLinks(ctx, t); got != 1 {
 		t.Fatalf("alert_event_groups count = %d, want only matching source profile linked", got)
+	}
+}
+
+func TestReplayWindow_SourceProfileFilterAppliedBeforeLimit(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	matching := seedAlerts("AlertA", 1, windowStart, 0, time.Minute, "warning")[0]
+	matching.AlertSourceProfileID = 7
+	alerts := []ports.ActiveAlert{matching}
+	for i := 0; i < 4; i++ {
+		other := seedAlerts(fmt.Sprintf("Other%d", i), 1, windowStart, time.Duration(i+1)*time.Minute, time.Minute, "critical")[0]
+		other.AlertSourceProfileID = 9
+		alerts = append(alerts, other)
+	}
+	provider := fake.New(alerts)
+	req := defaultRequest(windowStart, windowEnd)
+	req.AlertSourceProfileFilter = []domain.AlertSourceProfileID{7}
+	req.Limit = 1
+
+	stats, err := alertreplay.ReplayWindow(ctx, provider, integration.factory, req)
+	if err != nil {
+		t.Fatalf("ReplayWindow: %v", err)
+	}
+	if stats.EventsLoaded != 1 || stats.GroupsBuilt != 1 || stats.GroupsSaved != 1 {
+		t.Fatalf("stats = %+v, want one filtered event without unrelated-profile limit failure", stats)
+	}
+	if got := countAlertEvents(ctx, t); got != 5 {
+		t.Fatalf("alert_event count = %d, want all provider events persisted", got)
 	}
 }
 

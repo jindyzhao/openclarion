@@ -282,24 +282,10 @@ func (m *AlertEventMutation) AddedAlertSourceProfileID() (r int, exists bool) {
 	return *v, true
 }
 
-// ClearAlertSourceProfileID clears the value of the "alert_source_profile_id" field.
-func (m *AlertEventMutation) ClearAlertSourceProfileID() {
-	m.alert_source_profile_id = nil
-	m.addalert_source_profile_id = nil
-	m.clearedFields[alertevent.FieldAlertSourceProfileID] = struct{}{}
-}
-
-// AlertSourceProfileIDCleared returns if the "alert_source_profile_id" field was cleared in this mutation.
-func (m *AlertEventMutation) AlertSourceProfileIDCleared() bool {
-	_, ok := m.clearedFields[alertevent.FieldAlertSourceProfileID]
-	return ok
-}
-
 // ResetAlertSourceProfileID resets all changes to the "alert_source_profile_id" field.
 func (m *AlertEventMutation) ResetAlertSourceProfileID() {
 	m.alert_source_profile_id = nil
 	m.addalert_source_profile_id = nil
-	delete(m.clearedFields, alertevent.FieldAlertSourceProfileID)
 }
 
 // SetSourceFingerprint sets the "source_fingerprint" field.
@@ -982,9 +968,6 @@ func (m *AlertEventMutation) AddField(name string, value ent.Value) error {
 // mutation.
 func (m *AlertEventMutation) ClearedFields() []string {
 	var fields []string
-	if m.FieldCleared(alertevent.FieldAlertSourceProfileID) {
-		fields = append(fields, alertevent.FieldAlertSourceProfileID)
-	}
 	if m.FieldCleared(alertevent.FieldRawPayload) {
 		fields = append(fields, alertevent.FieldRawPayload)
 	}
@@ -1005,9 +988,6 @@ func (m *AlertEventMutation) FieldCleared(name string) bool {
 // error if the field is not defined in the schema.
 func (m *AlertEventMutation) ClearField(name string) error {
 	switch name {
-	case alertevent.FieldAlertSourceProfileID:
-		m.ClearAlertSourceProfileID()
-		return nil
 	case alertevent.FieldRawPayload:
 		m.ClearRawPayload()
 		return nil

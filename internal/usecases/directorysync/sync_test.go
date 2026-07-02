@@ -113,6 +113,79 @@ func TestServiceSyncUpsertsPagesAndRecordsSuccess(t *testing.T) {
 	}
 }
 
+func TestServiceSyncFullSyncDeactivatesStaleUsers(t *testing.T) {
+	now := fixedNow()
+	stale := domain.DirectoryUser{
+		ID:          1,
+		Provider:    "ops_iam",
+		Subject:     "stale-user",
+		ExternalID:  "stale-ext",
+		DisplayName: "Stale User",
+		Active:      true,
+		SyncedAt:    now.Add(-time.Hour),
+	}
+	current := domain.DirectoryUser{
+		ID:          2,
+		Provider:    "ops_iam",
+		Subject:     "current-user",
+		ExternalID:  "current-ext",
+		DisplayName: "Current User",
+		Active:      true,
+		SyncedAt:    now,
+	}
+	provider := &fakeDirectoryProvider{
+		userPages: []ports.DirectoryUserPage{
+			{Users: []ports.DirectoryUserProjection{{Subject: "current-user", ExternalID: "current-ext", Active: true}}},
+		},
+	}
+	repo := &fakeDirectoryRepo{users: []domain.DirectoryUser{stale, current}}
+	svc := mustService(t, repo, provider, now)
+
+	if _, err := svc.Sync(context.Background(), SyncRequest{Provider: "ops_iam"}); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	var staleFound, currentFound domain.DirectoryUser
+	for _, user := range repo.users {
+		switch user.Subject {
+		case "stale-user":
+			staleFound = user
+		case "current-user":
+			currentFound = user
+		}
+	}
+	if staleFound.Active || !staleFound.SyncedAt.Equal(domain.NormalizeUTCMicro(now)) {
+		t.Fatalf("stale user = %+v, want inactive at current sync", staleFound)
+	}
+	if !currentFound.Active {
+		t.Fatalf("current user = %+v, want active", currentFound)
+	}
+}
+
+func TestServiceSyncIncrementalDoesNotDeactivateStaleUsers(t *testing.T) {
+	now := fixedNow()
+	updatedAfter := now.Add(-30 * time.Minute)
+	stale := domain.DirectoryUser{
+		ID:          1,
+		Provider:    "ops_iam",
+		Subject:     "stale-user",
+		ExternalID:  "stale-ext",
+		DisplayName: "Stale User",
+		Active:      true,
+		SyncedAt:    now.Add(-time.Hour),
+	}
+	repo := &fakeDirectoryRepo{users: []domain.DirectoryUser{stale}}
+	svc := mustService(t, repo, &fakeDirectoryProvider{}, now)
+
+	if _, err := svc.Sync(context.Background(), SyncRequest{Provider: "ops_iam", UpdatedAfter: &updatedAfter}); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	if len(repo.users) != 1 || !repo.users[0].Active {
+		t.Fatalf("users = %+v, want stale user left active on incremental sync", repo.users)
+	}
+}
+
 func TestServiceSyncRecordsProviderFailureWithoutUpserts(t *testing.T) {
 	providerErr := errors.New("temporary upstream failure")
 	provider := &fakeDirectoryProvider{departmentErr: providerErr}
@@ -368,9 +441,28 @@ func (r *fakeDirectoryRepo) UpsertUser(_ context.Context, user domain.DirectoryU
 	if r.failUpsertUser != nil {
 		return domain.DirectoryUser{}, r.failUpsertUser
 	}
+	for i := range r.users {
+		if r.users[i].Provider == user.Provider && r.users[i].Subject == user.Subject {
+			user.ID = r.users[i].ID
+			r.users[i] = user
+			return user, nil
+		}
+	}
 	user.ID = domain.DirectoryUserID(len(r.users) + 1)
 	r.users = append(r.users, user)
 	return user, nil
+}
+
+func (r *fakeDirectoryRepo) DeactivateStaleUsers(_ context.Context, provider string, syncedAt time.Time) (int, error) {
+	updated := 0
+	for i := range r.users {
+		if r.users[i].Provider == provider && r.users[i].Active && r.users[i].SyncedAt.Before(syncedAt) {
+			r.users[i].Active = false
+			r.users[i].SyncedAt = syncedAt
+			updated++
+		}
+	}
+	return updated, nil
 }
 
 func (r *fakeDirectoryRepo) SaveSyncRun(_ context.Context, run domain.DirectorySyncRun) (domain.DirectorySyncRun, error) {

@@ -109,9 +109,9 @@ type Stats struct {
 	// the replay window.
 	Ingested alertingest.Stats
 
-	// EventsLoaded is len(events) returned by Step 2's window
-	// query. It is set BEFORE the safety valve check so a
-	// caller can see why ReplayWindow failed.
+	// EventsLoaded is len(events) returned by Step 2's filtered window query.
+	// It is set BEFORE the safety valve check so a caller can see why
+	// ReplayWindow failed.
 	EventsLoaded int
 
 	// GroupsBuilt is len(GroupEvents output) for this window.
@@ -170,8 +170,8 @@ type groupResult struct {
 //
 //  1. IngestOnce(provider, factory) so any newly-firing alerts are
 //     persisted before the window read.
-//  2. Short read tx: ListEventsByStartsAtRange(WindowStart,
-//     WindowEnd, Limit+1). EventsLoaded is set to len(events)
+//  2. Short read tx: ListEventsByStartsAtRangeFiltered(WindowStart,
+//     WindowEnd, filters, Limit+1). EventsLoaded is set to len(events)
 //     unconditionally so a tripped safety valve still leaves a
 //     diagnosable Stats.
 //  3. GroupEvents(events, Grouping). Empty events short-circuits
@@ -238,12 +238,21 @@ func ReplayPersistedWindowForReport(
 		return result, err
 	}
 
-	// Step 1 for persisted windows: short read tx for the window.
+	// Step 1 for persisted windows: short read tx for the filtered window.
 	var events []domain.AlertEvent
 	nStart := domain.NormalizeUTCMicro(req.WindowStart)
 	nEnd := domain.NormalizeUTCMicro(req.WindowEnd)
 	if err := factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
-		rows, lerr := uow.Alerts().ListEventsByStartsAtRange(ctx, nStart, nEnd, req.Limit+1)
+		rows, lerr := uow.Alerts().ListEventsByStartsAtRangeFiltered(
+			ctx,
+			nStart,
+			nEnd,
+			ports.AlertEventFilter{
+				Sources:               req.SourceFilter,
+				AlertSourceProfileIDs: req.AlertSourceProfileFilter,
+			},
+			req.Limit+1,
+		)
 		if lerr != nil {
 			return lerr
 		}
@@ -260,10 +269,7 @@ func ReplayPersistedWindowForReport(
 		)
 	}
 
-	matchedEvents := filterEventsBySourceProfile(
-		filterEventsBySource(events, req.SourceFilter),
-		req.AlertSourceProfileFilter,
-	)
+	matchedEvents := events
 
 	// Step 2: deterministic grouping.
 	drafts, err := alertgrouping.GroupEvents(matchedEvents, req.Grouping)
@@ -323,48 +329,6 @@ func ReplayPersistedWindowForReport(
 		return result, errors.Join(failures...)
 	}
 	return result, nil
-}
-
-func filterEventsBySource(events []domain.AlertEvent, sourceFilter []string) []domain.AlertEvent {
-	if len(sourceFilter) == 0 {
-		return events
-	}
-	allowed := make(map[string]struct{}, len(sourceFilter))
-	for _, source := range sourceFilter {
-		allowed[source] = struct{}{}
-	}
-	out := make([]domain.AlertEvent, 0, len(events))
-	for _, event := range events {
-		if _, ok := allowed[event.Source]; ok {
-			out = append(out, event)
-		}
-	}
-	return out
-}
-
-func filterEventsBySourceProfile(
-	events []domain.AlertEvent,
-	profileFilter []domain.AlertSourceProfileID,
-) []domain.AlertEvent {
-	if len(profileFilter) == 0 {
-		return events
-	}
-	allowed := make(map[domain.AlertSourceProfileID]struct{}, len(profileFilter))
-	for _, id := range profileFilter {
-		if id > 0 {
-			allowed[id] = struct{}{}
-		}
-	}
-	if len(allowed) == 0 {
-		return events
-	}
-	out := make([]domain.AlertEvent, 0, len(events))
-	for _, event := range events {
-		if _, ok := allowed[event.AlertSourceProfileID]; ok {
-			out = append(out, event)
-		}
-	}
-	return out
 }
 
 // validateRequest enforces orchestration-level invariants. Each

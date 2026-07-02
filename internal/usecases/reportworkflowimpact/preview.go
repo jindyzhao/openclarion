@@ -209,7 +209,9 @@ func (s *Service) previewPolicy(
 			}
 			channel = &resolved
 		}
-		events, err = uow.Alerts().ListEvents(ctx, limit)
+		events, err = uow.Alerts().ListEventsFiltered(ctx, ports.AlertEventFilter{
+			AlertSourceProfileIDs: []domain.AlertSourceProfileID{policy.AlertSourceProfileID},
+		}, limit)
 		return err
 	}); err != nil {
 		return Result{}, err

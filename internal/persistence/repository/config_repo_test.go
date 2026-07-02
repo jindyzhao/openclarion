@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -872,6 +873,51 @@ func TestConfigRepo_SaveAndListLatestNotificationChannelTestProofs(t *testing.T)
 		}
 		if len(profile.LatestTestProofs) != 2 {
 			t.Fatalf("profile latest proofs = %+v, want 2", profile.LatestTestProofs)
+		}
+	})
+}
+
+func TestConfigRepo_ListLatestNotificationChannelTestProofsDoesNotCapBeforeContentKind(t *testing.T) {
+	resetDB(t)
+	base := time.Date(2026, 6, 22, 10, 0, 0, 0, time.UTC)
+	var savedProfile domain.NotificationChannelProfile
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		var err error
+		savedProfile, err = uow.Config().SaveNotificationChannelProfile(ctx, mustNewNotificationChannelProfile(t, "Operations WeCom"))
+		if err != nil {
+			t.Fatalf("SaveNotificationChannelProfile: %v", err)
+		}
+		closeProof := mustNewNotificationChannelTestProof(t, savedProfile.ID, domain.NotificationChannelTestContentDiagnosisCloseSample, base, "close-current")
+		if _, err := uow.Config().SaveNotificationChannelTestProof(ctx, closeProof); err != nil {
+			t.Fatalf("Save close proof: %v", err)
+		}
+		for i := 0; i < 40; i++ {
+			proof := mustNewNotificationChannelTestProof(
+				t,
+				savedProfile.ID,
+				domain.NotificationChannelTestContentAIDiagnosisSample,
+				base.Add(time.Duration(i+1)*time.Minute),
+				fmt.Sprintf("ai-%02d", i),
+			)
+			if _, err := uow.Config().SaveNotificationChannelTestProof(ctx, proof); err != nil {
+				t.Fatalf("Save AI proof %d: %v", i, err)
+			}
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		proofs, err := uow.Config().ListLatestNotificationChannelTestProofs(ctx, savedProfile.ID, 4)
+		if err != nil {
+			t.Fatalf("ListLatestNotificationChannelTestProofs: %v", err)
+		}
+		gotByKind := map[domain.NotificationChannelTestContentKind]string{}
+		for _, proof := range proofs {
+			gotByKind[proof.ContentKind] = proof.ProviderMessageID
+		}
+		if gotByKind[domain.NotificationChannelTestContentAIDiagnosisSample] != "ai-39" ||
+			gotByKind[domain.NotificationChannelTestContentDiagnosisCloseSample] != "close-current" {
+			t.Fatalf("proofs = %+v, want latest AI and close proofs", proofs)
 		}
 	})
 }

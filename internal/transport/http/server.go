@@ -454,8 +454,12 @@ func (s *Server) ListDiagnosisRooms(w http.ResponseWriter, r *http.Request, para
 	}
 
 	var items []api.DiagnosisRoomSummary
+	queryLimit := limit
+	if !hasGlobalRead {
+		queryLimit = maxListLimit
+	}
 	err = s.uowFactory.WithinTx(r.Context(), func(ctx context.Context, uow ports.UnitOfWork) error {
-		rooms, lerr := uow.Diagnosis().ListChatSessions(ctx, limit)
+		rooms, lerr := uow.Diagnosis().ListChatSessions(ctx, queryLimit)
 		if lerr != nil {
 			return lerr
 		}
@@ -470,6 +474,9 @@ func (s *Server) ListDiagnosisRooms(w http.ResponseWriter, r *http.Request, para
 		items, ok = s.filterDiagnosisRoomSummariesByLocalRBAC(w, r, rbacPrincipal, items)
 		if !ok {
 			return
+		}
+		if len(items) > limit {
+			items = items[:limit]
 		}
 	}
 	items, err = s.withDiagnosisRoomParticipantDirectoryUsers(r.Context(), items)

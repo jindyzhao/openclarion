@@ -21,8 +21,9 @@ import (
 //   - Total     is the number of alerts the provider returned (i.e.
 //     the number of attempts made; not the number of successes).
 //   - Saved     counts newly inserted AlertEvent rows.
-//   - Duplicate counts pre-existing rows that collapsed via the
-//     unique (source, canonical_fingerprint, starts_at) constraint.
+//   - Duplicate counts pre-existing rows that collapsed via the unique
+//     (alert_source_profile_id, source, canonical_fingerprint, starts_at)
+//     constraint.
 //   - Failed    counts alerts that could not be processed for any
 //     other reason (invariant violations, repository errors, ...).
 //

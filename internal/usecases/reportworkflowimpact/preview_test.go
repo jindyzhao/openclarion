@@ -72,6 +72,32 @@ func TestPreviewReturnsReadyImpactFromPersistedBindings(t *testing.T) {
 	}
 }
 
+func TestPreviewScopesEventsToBoundAlertSourceProfile(t *testing.T) {
+	base := time.Date(2026, 6, 5, 10, 0, 0, 0, time.UTC)
+	otherProfileEvent := alertEvent(201, "prometheus", "payments", "critical", base)
+	otherProfileEvent.AlertSourceProfileID = 99
+	factory := readyFakeFactory(t, []domain.AlertEvent{
+		otherProfileEvent,
+		alertEvent(202, "prometheus", "checkout", "warning", base.Add(time.Minute)),
+	})
+	svc, err := NewService(factory, WithClock(func() time.Time { return base }))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := svc.Preview(context.Background(), Request{PolicyID: 13, Limit: 10})
+	if err != nil {
+		t.Fatalf("Preview: %v", err)
+	}
+	if !slices.Equal(factory.alerts.lastProfileFilter, []domain.AlertSourceProfileID{1}) {
+		t.Fatalf("profile filter = %+v, want [1]", factory.alerts.lastProfileFilter)
+	}
+	if result.EventsScanned != 1 || result.EventsMatched != 1 || len(result.Groups) != 1 ||
+		result.Groups[0].Dimensions["alertname"] != "checkout" {
+		t.Fatalf("result = %+v, want only bound profile checkout event", result)
+	}
+}
+
 func TestPreviewReturnsReviewWhenNoRecentEventsMatch(t *testing.T) {
 	base := time.Date(2026, 6, 5, 10, 0, 0, 0, time.UTC)
 	factory := readyFakeFactory(t, []domain.AlertEvent{
@@ -491,10 +517,11 @@ func mustGroupingPolicy(t *testing.T, id domain.GroupingPolicyID, enabled bool) 
 
 func alertEvent(id int64, source, alertName, severity string, startsAt time.Time) domain.AlertEvent {
 	return domain.AlertEvent{
-		ID:       domain.AlertEventID(id),
-		Source:   source,
-		Labels:   map[string]string{"alertname": alertName, "severity": severity},
-		StartsAt: startsAt,
+		ID:                   domain.AlertEventID(id),
+		Source:               source,
+		AlertSourceProfileID: 1,
+		Labels:               map[string]string{"alertname": alertName, "severity": severity},
+		StartsAt:             startsAt,
 	}
 }
 
@@ -616,8 +643,9 @@ func (c *fakeConfig) FindNotificationChannelProfileByID(_ context.Context, id do
 
 type fakeAlerts struct {
 	ports.AlertRepository
-	events    []domain.AlertEvent
-	lastLimit int
+	events            []domain.AlertEvent
+	lastLimit         int
+	lastProfileFilter []domain.AlertSourceProfileID
 }
 
 func (a *fakeAlerts) ListEvents(_ context.Context, limit int) ([]domain.AlertEvent, error) {
@@ -626,4 +654,28 @@ func (a *fakeAlerts) ListEvents(_ context.Context, limit int) ([]domain.AlertEve
 		limit = len(a.events)
 	}
 	return a.events[:limit], nil
+}
+
+func (a *fakeAlerts) ListEventsFiltered(_ context.Context, filter ports.AlertEventFilter, limit int) ([]domain.AlertEvent, error) {
+	a.lastLimit = limit
+	a.lastProfileFilter = append([]domain.AlertSourceProfileID(nil), filter.AlertSourceProfileIDs...)
+	allowed := map[domain.AlertSourceProfileID]struct{}{}
+	for _, id := range filter.AlertSourceProfileIDs {
+		if id > 0 {
+			allowed[id] = struct{}{}
+		}
+	}
+	out := make([]domain.AlertEvent, 0, len(a.events))
+	for _, event := range a.events {
+		if len(allowed) > 0 {
+			if _, ok := allowed[event.AlertSourceProfileID]; !ok {
+				continue
+			}
+		}
+		out = append(out, event)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
 }
