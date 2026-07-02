@@ -995,6 +995,108 @@ func TestListAlerts_ReturnsEvidenceAndDiagnosisLinks(t *testing.T) {
 	}
 }
 
+func TestAlertEvidenceLinksPrefersSnapshotEventIdentity(t *testing.T) {
+	startsAt := time.Date(2026, 6, 18, 2, 20, 28, 0, time.UTC)
+	events := []domain.AlertEvent{
+		{
+			ID:                   42,
+			AlertSourceProfileID: 7,
+			Source:               "alertmanager",
+			SourceFingerprint:    "source-fp",
+			CanonicalFingerprint: "canon-fp",
+			StartsAt:             startsAt,
+		},
+		{
+			ID:                   43,
+			AlertSourceProfileID: 9,
+			Source:               "alertmanager",
+			SourceFingerprint:    "source-fp",
+			CanonicalFingerprint: "canon-fp",
+			StartsAt:             startsAt.Add(time.Hour),
+		},
+	}
+	snapshots := []domain.EvidenceSnapshot{
+		{
+			ID:           247,
+			AlertGroupID: 31,
+			Digest:       "sha256:precise",
+			Payload: json.RawMessage(`{
+				"events":[{
+					"id":42,
+					"source":"alertmanager",
+					"alert_source_profile_id":7,
+					"source_fingerprint":"source-fp",
+					"canonical_fingerprint":"canon-fp",
+					"starts_at":"2026-06-18T02:20:28Z"
+				}]
+			}`),
+			Status:    domain.SnapshotStatusComplete,
+			CreatedAt: startsAt.Add(time.Minute),
+		},
+		{
+			ID:           248,
+			AlertGroupID: 32,
+			Digest:       "sha256:legacy",
+			Payload: json.RawMessage(`{
+				"events":[{"source_fingerprint":"source-fp","canonical_fingerprint":"canon-fp"}]
+			}`),
+			Status:    domain.SnapshotStatusComplete,
+			CreatedAt: startsAt.Add(2 * time.Minute),
+		},
+		{
+			ID:           249,
+			AlertGroupID: 33,
+			Digest:       "sha256:unknown-event-id",
+			Payload: json.RawMessage(`{
+				"events":[{
+					"id":999,
+					"source":"alertmanager",
+					"alert_source_profile_id":7,
+					"source_fingerprint":"source-fp",
+					"canonical_fingerprint":"canon-fp",
+					"starts_at":"2026-06-18T02:20:28Z"
+				}]
+			}`),
+			Status:    domain.SnapshotStatusComplete,
+			CreatedAt: startsAt.Add(3 * time.Minute),
+		},
+		{
+			ID:           250,
+			AlertGroupID: 34,
+			Digest:       "sha256:incomplete-modern-identity",
+			Payload: json.RawMessage(`{
+				"events":[{
+					"source":"alertmanager",
+					"alert_source_profile_id":7,
+					"source_fingerprint":"source-fp",
+					"canonical_fingerprint":"canon-fp"
+				}]
+			}`),
+			Status:    domain.SnapshotStatusComplete,
+			CreatedAt: startsAt.Add(4 * time.Minute),
+		},
+	}
+
+	links, err := alertEvidenceLinks(events, snapshots, nil)
+	if err != nil {
+		t.Fatalf("alertEvidenceLinks: %v", err)
+	}
+	if got := snapshotLinkIDs(links[42]); !slices.Equal(got, []int64{247, 248}) {
+		t.Fatalf("alert 42 links = %v, want [247 248]", got)
+	}
+	if got := snapshotLinkIDs(links[43]); !slices.Equal(got, []int64{248}) {
+		t.Fatalf("alert 43 links = %v, want legacy fallback only", got)
+	}
+}
+
+func snapshotLinkIDs(links []api.AlertEvidenceSnapshotLink) []int64 {
+	out := make([]int64, len(links))
+	for i, link := range links {
+		out[i] = link.ID
+	}
+	return out
+}
+
 func TestListAlerts_FiltersDiagnosisLinksWithoutRoomRead(t *testing.T) {
 	startsAt := time.Date(2026, 6, 18, 2, 20, 28, 0, time.UTC)
 	factory := &fakeUOWFactory{
@@ -5654,6 +5756,7 @@ func TestTriggerReportReplay_StartsReportWorkflow(t *testing.T) {
 		"window_start":"2026-05-27T09:00:00Z",
 		"window_end":"2026-05-27T10:00:00Z",
 		"limit":2,
+		"alert_event_id":42,
 		"correlation_key":"incident-42",
 		"workflow_id":"report-batch-1",
 		"scenario":"cascade"
@@ -5687,6 +5790,9 @@ func TestTriggerReportReplay_StartsReportWorkflow(t *testing.T) {
 	}
 	if trigger.req.Replay.Limit != 2 {
 		t.Fatalf("trigger limit = %d, want 2", trigger.req.Replay.Limit)
+	}
+	if len(trigger.req.Replay.AlertEventIDFilter) != 1 || trigger.req.Replay.AlertEventIDFilter[0] != 42 {
+		t.Fatalf("trigger alert event filter = %+v, want [42]", trigger.req.Replay.AlertEventIDFilter)
 	}
 	if trigger.req.Replay.Grouping.SeverityKey != alertgrouping.DefaultConfig().SeverityKey {
 		t.Fatalf("trigger grouping = %+v", trigger.req.Replay.Grouping)
@@ -6594,6 +6700,10 @@ func TestTriggerReportReplayRejectsInvalidRequest(t *testing.T) {
 		{
 			name: "limit_out_of_range",
 			body: `{"window_start":"2026-05-27T09:00:00Z","window_end":"2026-05-27T10:00:00Z","limit":0}`,
+		},
+		{
+			name: "alert_event_id_out_of_range",
+			body: `{"window_start":"2026-05-27T09:00:00Z","window_end":"2026-05-27T10:00:00Z","alert_event_id":0}`,
 		},
 		{
 			name: "unknown_field",

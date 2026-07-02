@@ -831,14 +831,22 @@ func reportReplayTriggerRequest(body api.ReportReplayTriggerRequest) (reporttrig
 	if body.Scenario != nil {
 		scenario = reportprompt.Scenario(*body.Scenario)
 	}
+	var alertEventIDFilter []domain.AlertEventID
+	if body.AlertEventID != nil {
+		if *body.AlertEventID <= 0 {
+			return reporttrigger.Request{}, fmt.Errorf("alert_event_id must be positive: %w", domain.ErrInvariantViolation)
+		}
+		alertEventIDFilter = []domain.AlertEventID{domain.AlertEventID(*body.AlertEventID)}
+	}
 
 	return reporttrigger.Request{
 		Replay: alertreplay.Request{
-			WindowStart:       body.WindowStart,
-			WindowEnd:         body.WindowEnd,
-			Grouping:          alertgrouping.DefaultConfig(),
-			CreatedByWorkflow: reportTriggerHTTPWorkflow,
-			Limit:             limit,
+			WindowStart:        body.WindowStart,
+			WindowEnd:          body.WindowEnd,
+			Grouping:           alertgrouping.DefaultConfig(),
+			AlertEventIDFilter: alertEventIDFilter,
+			CreatedByWorkflow:  reportTriggerHTTPWorkflow,
+			Limit:              limit,
 		},
 		CorrelationKey: correlationKey,
 		WorkflowID:     workflowID,
@@ -1073,8 +1081,12 @@ type snapshotLinkPayload struct {
 }
 
 type snapshotLinkEvent struct {
+	ID                   int64  `json:"id"`
+	Source               string `json:"source"`
+	AlertSourceProfileID int64  `json:"alert_source_profile_id"`
 	SourceFingerprint    string `json:"source_fingerprint"`
 	CanonicalFingerprint string `json:"canonical_fingerprint"`
+	StartsAt             string `json:"starts_at"`
 }
 
 func alertEvidenceLinks(
@@ -1082,8 +1094,14 @@ func alertEvidenceLinks(
 	snapshots []domain.EvidenceSnapshot,
 	rooms []api.DiagnosisRoomSummary,
 ) (map[domain.AlertEventID][]api.AlertEvidenceSnapshotLink, error) {
+	eventsByID := make(map[domain.AlertEventID]struct{})
+	eventsByNaturalKey := make(map[string]domain.AlertEventID)
 	eventsByFingerprint := make(map[string][]domain.AlertEventID)
 	for _, event := range events {
+		eventsByID[event.ID] = struct{}{}
+		if key := alertEventNaturalKey(event); key != "" {
+			eventsByNaturalKey[key] = event.ID
+		}
 		if event.CanonicalFingerprint != "" {
 			eventsByFingerprint[fingerprintKey("canonical", event.CanonicalFingerprint)] = append(
 				eventsByFingerprint[fingerprintKey("canonical", event.CanonicalFingerprint)],
@@ -1112,35 +1130,109 @@ func alertEvidenceLinks(
 			return nil, err
 		}
 		for _, payloadEvent := range payloadEvents {
-			for _, key := range []string{
-				fingerprintKey("canonical", payloadEvent.CanonicalFingerprint),
-				fingerprintKey("source", payloadEvent.SourceFingerprint),
-			} {
-				if key == "" {
+			for _, alertID := range snapshotMatchedAlertIDs(payloadEvent, eventsByID, eventsByNaturalKey, eventsByFingerprint) {
+				if seen[alertID] == nil {
+					seen[alertID] = make(map[domain.EvidenceSnapshotID]struct{})
+				}
+				if _, ok := seen[alertID][snapshot.ID]; ok {
 					continue
 				}
-				for _, alertID := range eventsByFingerprint[key] {
-					if seen[alertID] == nil {
-						seen[alertID] = make(map[domain.EvidenceSnapshotID]struct{})
-					}
-					if _, ok := seen[alertID][snapshot.ID]; ok {
-						continue
-					}
-					seen[alertID][snapshot.ID] = struct{}{}
-					links[alertID] = append(links[alertID], api.AlertEvidenceSnapshotLink{
-						ID:                int64(snapshot.ID),
-						AlertGroupID:      int64(snapshot.AlertGroupID),
-						Digest:            snapshot.Digest,
-						Status:            string(snapshot.Status),
-						CreatedByWorkflow: snapshot.CreatedByWorkflow,
-						CreatedAt:         snapshot.CreatedAt,
-						DiagnosisRooms:    nonNilDiagnosisRoomSummaries(roomsBySnapshot[snapshot.ID]),
-					})
-				}
+				seen[alertID][snapshot.ID] = struct{}{}
+				links[alertID] = append(links[alertID], api.AlertEvidenceSnapshotLink{
+					ID:                int64(snapshot.ID),
+					AlertGroupID:      int64(snapshot.AlertGroupID),
+					Digest:            snapshot.Digest,
+					Status:            string(snapshot.Status),
+					CreatedByWorkflow: snapshot.CreatedByWorkflow,
+					CreatedAt:         snapshot.CreatedAt,
+					DiagnosisRooms:    nonNilDiagnosisRoomSummaries(roomsBySnapshot[snapshot.ID]),
+				})
 			}
 		}
 	}
 	return links, nil
+}
+
+func snapshotMatchedAlertIDs(
+	payloadEvent snapshotLinkEvent,
+	eventsByID map[domain.AlertEventID]struct{},
+	eventsByNaturalKey map[string]domain.AlertEventID,
+	eventsByFingerprint map[string][]domain.AlertEventID,
+) []domain.AlertEventID {
+	if payloadEvent.ID != 0 {
+		id := domain.AlertEventID(payloadEvent.ID)
+		if payloadEvent.ID > 0 {
+			if _, ok := eventsByID[id]; ok {
+				return []domain.AlertEventID{id}
+			}
+		}
+		return nil
+	}
+	if key, ok := snapshotEventNaturalKey(payloadEvent); ok {
+		if id, found := eventsByNaturalKey[key]; found {
+			return []domain.AlertEventID{id}
+		}
+		return nil
+	}
+	ids := make([]domain.AlertEventID, 0)
+	seen := map[domain.AlertEventID]struct{}{}
+	for _, key := range []string{
+		fingerprintKey("canonical", payloadEvent.CanonicalFingerprint),
+		fingerprintKey("source", payloadEvent.SourceFingerprint),
+	} {
+		if key == "" {
+			continue
+		}
+		for _, id := range eventsByFingerprint[key] {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func alertEventNaturalKey(event domain.AlertEvent) string {
+	if event.Source == "" || event.CanonicalFingerprint == "" || event.StartsAt.IsZero() {
+		return ""
+	}
+	return alertEventNaturalKeyParts(
+		event.AlertSourceProfileID,
+		event.Source,
+		event.CanonicalFingerprint,
+		domain.NormalizeUTCMicro(event.StartsAt),
+	)
+}
+
+func snapshotEventNaturalKey(event snapshotLinkEvent) (string, bool) {
+	if event.Source == "" && event.AlertSourceProfileID == 0 && event.StartsAt == "" {
+		return "", false
+	}
+	if event.Source == "" || event.CanonicalFingerprint == "" || event.StartsAt == "" {
+		return "", true
+	}
+	startsAt, err := time.Parse(time.RFC3339Nano, event.StartsAt)
+	if err != nil {
+		return "", true
+	}
+	return alertEventNaturalKeyParts(
+		domain.AlertSourceProfileID(event.AlertSourceProfileID),
+		event.Source,
+		event.CanonicalFingerprint,
+		domain.NormalizeUTCMicro(startsAt),
+	), true
+}
+
+func alertEventNaturalKeyParts(profileID domain.AlertSourceProfileID, source, canonicalFingerprint string, startsAt time.Time) string {
+	return fmt.Sprintf(
+		"%d\x00%s\x00%s\x00%s",
+		profileID,
+		source,
+		canonicalFingerprint,
+		startsAt.Format(time.RFC3339Nano),
+	)
 }
 
 func snapshotLinkEvents(snapshot domain.EvidenceSnapshot) ([]snapshotLinkEvent, error) {

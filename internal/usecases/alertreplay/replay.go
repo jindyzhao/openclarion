@@ -69,6 +69,7 @@ type Request struct {
 	WindowStart              time.Time
 	WindowEnd                time.Time
 	Grouping                 alertgrouping.Config
+	AlertEventIDFilter       []domain.AlertEventID
 	SourceFilter             []string
 	AlertSourceProfileFilter []domain.AlertSourceProfileID
 	CreatedByWorkflow        string
@@ -248,6 +249,7 @@ func ReplayPersistedWindowForReport(
 			nStart,
 			nEnd,
 			ports.AlertEventFilter{
+				IDs:                   req.AlertEventIDFilter,
 				Sources:               req.SourceFilter,
 				AlertSourceProfileIDs: req.AlertSourceProfileFilter,
 			},
@@ -368,6 +370,11 @@ func validatePersistedWindowRequest(factory ports.UnitOfWorkFactory, req Request
 		// Limit+1 would overflow; the safety valve relies on a
 		// well-defined upper bound.
 		return fmt.Errorf("alertreplay: Limit %d must be < math.MaxInt: %w", req.Limit, domain.ErrInvariantViolation)
+	}
+	for _, id := range req.AlertEventIDFilter {
+		if id <= 0 {
+			return fmt.Errorf("alertreplay: alert event id filter contains non-positive id %d: %w", id, domain.ErrInvariantViolation)
+		}
 	}
 	for _, id := range req.AlertSourceProfileFilter {
 		if id < 0 {

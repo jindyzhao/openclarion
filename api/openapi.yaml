@@ -8105,6 +8105,13 @@ components:
           maximum: 100000
           default: 10000
           description: Maximum number of alert events to load from the window.
+        alert_event_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Optional persisted AlertEvent ID to constrain a row-level replay to the selected alert.
+          examples:
+            - 42
         correlation_key:
           type: string
           description: Optional final-report idempotency key. Defaults to the normalized replay window.

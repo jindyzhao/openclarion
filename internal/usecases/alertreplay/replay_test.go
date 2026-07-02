@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/providers/metrics/fake"
@@ -393,6 +394,46 @@ func TestReplayWindow_OutOfWindowEventsExcluded(t *testing.T) {
 	}
 	if got := countEventGroupLinks(ctx, t); got != 20 {
 		t.Errorf("alert_event_groups count = %d, want 20 (only in-window events linked)", got)
+	}
+}
+
+func TestReplayPersistedWindowForReport_AlertEventIDFilterAppliedBeforeLimit(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	batch := seedAlerts("Selected", 1, windowStart, 0, time.Minute, "warning")
+	batch = append(batch, seedAlerts("Other", 4, windowStart, time.Minute, time.Minute, "critical")...)
+	if _, err := alertingest.IngestAlerts(ctx, batch, integration.factory); err != nil {
+		t.Fatalf("IngestAlerts: %v", err)
+	}
+	events, err := integration.client.AlertEvent.Query().
+		Order(alertevent.ByID()).
+		All(ctx)
+	if err != nil {
+		t.Fatalf("list alert events: %v", err)
+	}
+	if len(events) != 5 {
+		t.Fatalf("events = %d, want 5", len(events))
+	}
+
+	req := defaultRequest(windowStart, windowEnd)
+	req.AlertEventIDFilter = []domain.AlertEventID{domain.AlertEventID(events[0].ID)}
+	req.Limit = 1
+	result, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, req)
+	if err != nil {
+		t.Fatalf("ReplayPersistedWindowForReport: %v", err)
+	}
+	if result.Stats.EventsLoaded != 1 ||
+		result.Stats.GroupsBuilt != 1 ||
+		result.Stats.SnapshotsSaved != 1 ||
+		len(result.Snapshots) != 1 ||
+		result.Snapshots[0].EventCount != 1 {
+		t.Fatalf("result = %+v, want one selected alert replayed before limit enforcement", result)
+	}
+	if got := countEventGroupLinks(ctx, t); got != 1 {
+		t.Fatalf("alert_event_groups count = %d, want only selected event linked", got)
 	}
 }
 
@@ -845,6 +886,18 @@ func TestReplayWindow_RequestValidationRejected(t *testing.T) {
 			req:      withLimit(good, math.MaxInt),
 		},
 		{
+			name:     "zero_alert_event_id_filter",
+			provider: provider,
+			factory:  integration.factory,
+			req:      withAlertEventIDFilter(good, []domain.AlertEventID{0}),
+		},
+		{
+			name:     "negative_alert_event_id_filter",
+			provider: provider,
+			factory:  integration.factory,
+			req:      withAlertEventIDFilter(good, []domain.AlertEventID{-1}),
+		},
+		{
 			name:     "negative_source_profile_filter",
 			provider: provider,
 			factory:  integration.factory,
@@ -890,6 +943,14 @@ func withWindow(r alertreplay.Request, start, end time.Time) alertreplay.Request
 
 func withLimit(r alertreplay.Request, limit int) alertreplay.Request {
 	r.Limit = limit
+	return r
+}
+
+func withAlertEventIDFilter(
+	r alertreplay.Request,
+	filter []domain.AlertEventID,
+) alertreplay.Request {
+	r.AlertEventIDFilter = filter
 	return r
 }
 

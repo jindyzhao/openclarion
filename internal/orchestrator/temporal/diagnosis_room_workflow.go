@@ -579,24 +579,26 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		}
 		state.chatSessionID = closeResult.ChatSessionID
 		state.finalConclusion = copyDiagnosisRoomFinalConclusion(closeResult.FinalConclusion)
-		var notificationResult SendDiagnosisRoomCloseNotificationResult
-		if err := workflow.ExecuteActivity(closeCtx, (*Activities).SendDiagnosisRoomCloseNotification, CloseDiagnosisChatSessionInput{
-			SessionID:                         state.input.SessionID,
-			DiagnosisTaskID:                   state.diagnosisTaskID,
-			OwnerSubject:                      state.input.OwnerSubject,
-			ConfirmedBy:                       state.closeActorSubject,
-			TurnCount:                         state.turnCount,
-			ClosedAt:                          closeResult.ClosedAt,
-			Reason:                            state.closeReason,
-			CloseNotificationChannelProfileID: state.input.CloseNotificationChannelProfileID,
-		}).Get(closeCtx, &notificationResult); err != nil {
-			state.latestError = diagnosisRoomLatestErrorFromNotificationFailure(workflow.Now(ctx), "close_notification", err)
-		} else if diagnosisRoomNotificationDeliveryFailed(notificationResult.NotificationStatus) {
-			state.latestError = diagnosisRoomLatestErrorFromNotificationFailure(
-				workflow.Now(ctx),
-				"close_notification",
-				fmt.Errorf("diagnosis room close notification delivery failed"),
-			)
+		if state.input.CloseNotificationChannelProfileID > 0 {
+			var notificationResult SendDiagnosisRoomCloseNotificationResult
+			if err := workflow.ExecuteActivity(closeCtx, (*Activities).SendDiagnosisRoomCloseNotification, CloseDiagnosisChatSessionInput{
+				SessionID:                         state.input.SessionID,
+				DiagnosisTaskID:                   state.diagnosisTaskID,
+				OwnerSubject:                      state.input.OwnerSubject,
+				ConfirmedBy:                       state.closeActorSubject,
+				TurnCount:                         state.turnCount,
+				ClosedAt:                          closeResult.ClosedAt,
+				Reason:                            state.closeReason,
+				CloseNotificationChannelProfileID: state.input.CloseNotificationChannelProfileID,
+			}).Get(closeCtx, &notificationResult); err != nil {
+				state.latestError = diagnosisRoomLatestErrorFromNotificationFailure(workflow.Now(ctx), "close_notification", err)
+			} else if diagnosisRoomNotificationDeliveryFailed(notificationResult.NotificationStatus) {
+				state.latestError = diagnosisRoomLatestErrorFromNotificationFailure(
+					workflow.Now(ctx),
+					"close_notification",
+					fmt.Errorf("diagnosis room close notification delivery failed"),
+				)
+			}
 		}
 	}
 

@@ -215,9 +215,11 @@ type EvidenceRepository interface {
 }
 
 // AlertEventFilter captures optional AlertEvent query predicates. Empty slices
-// mean no predicate. Non-positive profile IDs are ignored by repository
-// implementations so callers can pass optional values without special casing.
+// mean no predicate. IDs must be positive when provided. Non-positive profile
+// IDs are ignored by repository implementations so callers can pass optional
+// values without special casing.
 type AlertEventFilter struct {
+	IDs                   []domain.AlertEventID
 	Sources               []string
 	AlertSourceProfileIDs []domain.AlertSourceProfileID
 }

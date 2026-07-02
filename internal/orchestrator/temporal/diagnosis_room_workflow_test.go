@@ -2484,6 +2484,7 @@ func TestDiagnosisRoomWorkflow_InitialTurnFailureClosesRoomAndFailsTask(t *testi
 		activity.RegisterOptions{Name: "RunDiagnosisTurn"},
 	)
 	var closeInput temporalpkg.CloseDiagnosisChatSessionInput
+	closeNotificationCalled := false
 	env.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.CloseDiagnosisChatSessionInput) (temporalpkg.CloseDiagnosisChatSessionResult, error) {
 			closeInput = got
@@ -2505,6 +2506,7 @@ func TestDiagnosisRoomWorkflow_InitialTurnFailureClosesRoomAndFailsTask(t *testi
 	)
 	env.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.CloseDiagnosisChatSessionInput) (temporalpkg.SendDiagnosisRoomCloseNotificationResult, error) {
+			closeNotificationCalled = true
 			if got.Reason != "initial_turn_failed" {
 				t.Fatalf("close notification input = %+v", got)
 			}
@@ -2549,6 +2551,9 @@ func TestDiagnosisRoomWorkflow_InitialTurnFailureClosesRoomAndFailsTask(t *testi
 		closeInput.TurnCount != 0 ||
 		closeInput.Reason != "initial_turn_failed" {
 		t.Fatalf("close input = %+v", closeInput)
+	}
+	if closeNotificationCalled {
+		t.Fatal("close notification activity was called without a bound channel")
 	}
 }
 

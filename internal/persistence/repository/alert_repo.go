@@ -220,7 +220,16 @@ func (r *alertRepo) ListEventsFiltered(ctx context.Context, filter ports.AlertEv
 }
 
 func alertEventPredicates(filter ports.AlertEventFilter) ([]predicate.AlertEvent, error) {
-	predicates := make([]predicate.AlertEvent, 0, 2)
+	predicates := make([]predicate.AlertEvent, 0, 3)
+	for _, id := range filter.IDs {
+		if id <= 0 {
+			return nil, fmt.Errorf("alert event filter: alert event id %d must be positive: %w", id, domain.ErrInvariantViolation)
+		}
+	}
+	ids := positiveAlertEventIDs(filter.IDs)
+	if len(ids) > 0 {
+		predicates = append(predicates, alertevent.IDIn(ids...))
+	}
 	sources := nonEmptyStrings(filter.Sources)
 	if len(sources) > 0 {
 		predicates = append(predicates, alertevent.SourceIn(sources...))
@@ -235,6 +244,23 @@ func alertEventPredicates(filter ports.AlertEventFilter) ([]predicate.AlertEvent
 		}
 	}
 	return predicates, nil
+}
+
+func positiveAlertEventIDs(ids []domain.AlertEventID) []int {
+	out := make([]int, 0, len(ids))
+	seen := map[int]struct{}{}
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		value := int(id)
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func nonEmptyStrings(values []string) []string {

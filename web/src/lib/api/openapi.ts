@@ -3490,6 +3490,12 @@ export interface components {
              */
             limit: number;
             /**
+             * Format: int64
+             * @description Optional persisted AlertEvent ID to constrain a row-level replay to the selected alert.
+             * @example 42
+             */
+            alert_event_id?: number;
+            /**
              * @description Optional final-report idempotency key. Defaults to the normalized replay window.
              * @example incident-window-20260527T0900Z
              */

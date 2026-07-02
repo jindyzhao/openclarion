@@ -1057,6 +1057,7 @@ function alertReplayRequest(alert: AlertEventSummary): ReportReplayTriggerReques
     window_start: windowStart.toISOString(),
     window_end: windowEnd.toISOString(),
     limit: alertReplayLimit,
+    alert_event_id: alert.id,
     scenario: "single_alert",
     correlation_key: `alert-replay-${alert.id}`
   };
