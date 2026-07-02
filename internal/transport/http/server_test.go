@@ -132,6 +132,7 @@ func TestSyncDirectoryUsesConfiguredSyncer(t *testing.T) {
 			UserPages:           2,
 			DepartmentsUpserted: 3,
 			UsersUpserted:       4,
+			UsersDeactivated:    5,
 		},
 	}
 
@@ -160,7 +161,7 @@ func TestSyncDirectoryUsesConfiguredSyncer(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body.DepartmentPages != 1 || body.UserPages != 2 || body.DepartmentsUpserted != 3 || body.UsersUpserted != 4 || body.UsersDeactivated != 0 || !body.SyncedAt.Equal(syncedAt) {
+	if body.DepartmentPages != 1 || body.UserPages != 2 || body.DepartmentsUpserted != 3 || body.UsersUpserted != 4 || body.UsersDeactivated != 5 || !body.SyncedAt.Equal(syncedAt) {
 		t.Fatalf("body = %+v", body)
 	}
 }
@@ -7470,7 +7471,7 @@ func TestAcceptDiagnosisWeComAppCallbackWorkflowRouterAuthorizesSender(t *testin
 		directoryUsers: []domain.DirectoryUser{{
 			Provider:              "ops_iam",
 			Subject:               "operator-1",
-			ExternalID:            "operator-1",
+			ExternalID:            "wecom-operator-1",
 			DisplayName:           "Operator One",
 			Active:                true,
 			DepartmentExternalIDs: []string{"dept-1"},
@@ -7486,7 +7487,7 @@ func TestAcceptDiagnosisWeComAppCallbackWorkflowRouterAuthorizesSender(t *testin
 	}
 	verifier := &fakeDiagnosisWeComAppCallback{
 		message: wecomcallback.Message{
-			FromUserName: "operator-1",
+			FromUserName: "wecom-operator-1",
 			CreateTime:   1700000001,
 			MsgID:        "wecom-msg-1",
 			MsgType:      "text",
@@ -11004,6 +11005,21 @@ func (r *fakeConfigRepo) ListDirectoryUsersBySubject(_ context.Context, subject 
 	out := make([]domain.DirectoryUser, 0, len(r.directoryUsers))
 	for _, user := range r.directoryUsers {
 		if user.Subject == subject {
+			out = append(out, user)
+		}
+	}
+	if limit > len(out) {
+		limit = len(out)
+	}
+	return out[:limit], nil
+}
+
+func (r *fakeConfigRepo) ListDirectoryUsersByExternalID(_ context.Context, externalID string, limit int) ([]domain.DirectoryUser, error) {
+	r.lastDirectorySubject = externalID
+	r.lastDirectoryLimit = limit
+	out := make([]domain.DirectoryUser, 0, len(r.directoryUsers))
+	for _, user := range r.directoryUsers {
+		if user.ExternalID == externalID {
 			out = append(out, user)
 		}
 	}

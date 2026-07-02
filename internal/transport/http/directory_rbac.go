@@ -92,7 +92,7 @@ func (s *Server) SyncDirectory(w http.ResponseWriter, r *http.Request) {
 		UserPages:           result.UserPages,
 		DepartmentsUpserted: result.DepartmentsUpserted,
 		UsersUpserted:       result.UsersUpserted,
-		UsersDeactivated:    0,
+		UsersDeactivated:    result.UsersDeactivated,
 		SyncedAt:            result.Run.SyncedAt,
 	})
 }

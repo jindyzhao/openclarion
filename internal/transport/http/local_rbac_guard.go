@@ -266,6 +266,19 @@ func (s *Server) localRBACDirectoryUsersBySubject(ctx context.Context, subject s
 	return users, nil
 }
 
+func (s *Server) localRBACDirectoryUsersByExternalID(ctx context.Context, externalID string) ([]domain.DirectoryUser, error) {
+	var users []domain.DirectoryUser
+	err := s.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var lerr error
+		users, lerr = uow.Config().ListDirectoryUsersByExternalID(ctx, externalID, maxListLimit)
+		return lerr
+	})
+	if err != nil {
+		return nil, err
+	}
+	return users, nil
+}
+
 func directoryUserDepartmentKeys(users []domain.DirectoryUser) []string {
 	out := []string{}
 	for _, user := range users {

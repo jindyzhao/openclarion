@@ -39,6 +39,32 @@ describe("diagnosis session authorization", () => {
     expect(diagnosisRequestHasSessionCookie(request)).toBe(true);
   });
 
+  it("does not fall back to cookies when Authorization is malformed", () => {
+    for (const authorization of ["Basic", "Digest token-value"]) {
+      const request = new Request("https://console.example.com/api", {
+        headers: {
+          authorization,
+          cookie: `${diagnosisSessionCookieName}=session.token.one`,
+        },
+      });
+
+      expect(diagnosisAuthorizationFromRequest(request)).toBeNull();
+    }
+  });
+
+  it("still falls back to cookies when Authorization is blank", () => {
+    const request = new Request("https://console.example.com/api", {
+      headers: {
+        authorization: "   ",
+        cookie: `${diagnosisSessionCookieName}=session.token.one`,
+      },
+    });
+
+    expect(diagnosisAuthorizationFromRequest(request)).toBe(
+      "Bearer session.token.one",
+    );
+  });
+
   it("rejects malformed session cookie values", () => {
     const request = new Request("https://console.example.com/api", {
       headers: {

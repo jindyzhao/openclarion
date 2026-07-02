@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/openclarion/openclarion/api"
 	"github.com/openclarion/openclarion/internal/domain"
@@ -58,6 +59,7 @@ func WithDiagnosisWeComAppCallbackWorkflowRouter(workflows ports.DiagnosisRoomWo
 		handler, err := diagnosiswecomcallback.NewService(
 			workflows,
 			diagnosiswecomcallback.WithRoomAuthorizer(diagnosisWeComAppCallbackRoomAuthorizer{server: s}),
+			diagnosiswecomcallback.WithSenderResolver(diagnosisWeComAppCallbackSenderResolver{server: s}),
 		)
 		if err != nil {
 			return
@@ -123,6 +125,59 @@ func (a diagnosisWeComAppCallbackRoomAuthorizer) AuthorizeDiagnosisRoomParticipa
 		return false, fmt.Errorf("diagnosis wecom callback authorization: authorize room participation: %w", err)
 	}
 	return decision.Allowed, nil
+}
+
+type diagnosisWeComAppCallbackSenderResolver struct {
+	server *Server
+}
+
+func (r diagnosisWeComAppCallbackSenderResolver) ResolveWeComSenderSubject(
+	ctx context.Context,
+	wecomUserID string,
+) (string, error) {
+	if r.server == nil {
+		return "", fmt.Errorf("diagnosis wecom callback sender resolver: server is not configured: %w", domain.ErrInvariantViolation)
+	}
+	wecomUserID = strings.TrimSpace(wecomUserID)
+	if wecomUserID == "" {
+		return "", fmt.Errorf("diagnosis wecom callback sender resolver: wecom user id is required: %w", domain.ErrInvariantViolation)
+	}
+	users, err := r.server.localRBACDirectoryUsersByExternalID(ctx, wecomUserID)
+	if err != nil {
+		return "", fmt.Errorf("diagnosis wecom callback sender resolver: resolve directory user: %w", err)
+	}
+	subject, ok, err := diagnosisWeComActiveDirectorySubject(users)
+	if err != nil {
+		return "", fmt.Errorf("diagnosis wecom callback sender resolver: resolve active directory subject: %w", err)
+	}
+	if !ok {
+		return "", domain.ErrNotFound
+	}
+	return subject, nil
+}
+
+func diagnosisWeComActiveDirectorySubject(users []domain.DirectoryUser) (string, bool, error) {
+	subject := ""
+	for _, user := range users {
+		if !user.Active {
+			continue
+		}
+		current := strings.TrimSpace(user.Subject)
+		if current == "" {
+			continue
+		}
+		if subject == "" {
+			subject = current
+			continue
+		}
+		if subject != current {
+			return "", false, fmt.Errorf("multiple active directory subjects share the same external id: %w", domain.ErrInvariantViolation)
+		}
+	}
+	if subject == "" {
+		return "", false, nil
+	}
+	return subject, true, nil
 }
 
 // VerifyDiagnosisWeComAppCallback implements api.ServerInterface.

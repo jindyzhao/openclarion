@@ -30,11 +30,9 @@ export function diagnosisAuthorizationFromRequest(
 export function diagnosisAuthorizationFromHeaders(
   headers: DiagnosisAuthorizationHeaders,
 ): string | null {
-  const explicit = normalizeForwardedAuthorization(
-    headers.get("authorization") ?? "",
-  );
-  if (explicit !== null) {
-    return explicit;
+  const rawAuthorization = headers.get("authorization");
+  if (rawAuthorization !== null && rawAuthorization.trim() !== "") {
+    return normalizeForwardedAuthorization(rawAuthorization);
   }
   const sessionToken = diagnosisSessionTokenFromCookieHeader(
     headers.get("cookie") ?? "",

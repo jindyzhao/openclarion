@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/providers/im/wecomcallback"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -171,6 +172,85 @@ func TestHandleMessageSkipsUnauthorizedSender(t *testing.T) {
 	}
 }
 
+func TestHandleMessageResolvesWeComSenderBeforeAuthorization(t *testing.T) {
+	workflows := &recordingWorkflowClient{}
+	authorizer := &recordingRoomAuthorizer{allowed: true}
+	service, err := NewService(
+		workflows,
+		WithRoomAuthorizer(authorizer),
+		WithSenderResolver(recordingSenderResolver{
+			subjectsByWeComUserID: map[string]string{
+				"wecom-operator-1": "operator-1",
+			},
+		}),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.HandleMessage(context.Background(), Request{
+		Message: wecomcallback.Message{
+			FromUserName: "wecom-operator-1",
+			MsgType:      "text",
+			Content:      "diagnosis-session-1 please continue",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleMessage: %v", err)
+	}
+	if result.Status != StatusSubmitted ||
+		result.SessionID != "diagnosis-session-1" ||
+		result.ActorSubject != "operator-1" {
+		t.Fatalf("result = %+v, want resolved submitted actor", result)
+	}
+	if authorizer.called != 1 ||
+		authorizer.subject != "operator-1" ||
+		authorizer.sessionID != "diagnosis-session-1" {
+		t.Fatalf("authorizer subject=%q session=%q called=%d", authorizer.subject, authorizer.sessionID, authorizer.called)
+	}
+	got, called := workflows.submitSnapshot()
+	if called != 1 ||
+		got.ActorSubject != "operator-1" ||
+		got.SessionID != "diagnosis-session-1" {
+		t.Fatalf("submit request = %+v called=%d, want resolved actor", got, called)
+	}
+}
+
+func TestHandleMessageSkipsUnknownResolvedWeComSender(t *testing.T) {
+	workflows := &recordingWorkflowClient{}
+	authorizer := &recordingRoomAuthorizer{allowed: true}
+	service, err := NewService(
+		workflows,
+		WithRoomAuthorizer(authorizer),
+		WithSenderResolver(recordingSenderResolver{}),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.HandleMessage(context.Background(), Request{
+		Message: wecomcallback.Message{
+			FromUserName: "unknown-wecom-user",
+			MsgType:      "text",
+			Content:      "diagnosis-session-1 please continue",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleMessage: %v", err)
+	}
+	if result.Status != StatusSkippedUnauthorized ||
+		result.SessionID != "diagnosis-session-1" ||
+		result.ActorSubject != "unknown-wecom-user" {
+		t.Fatalf("result = %+v, want skipped unknown sender", result)
+	}
+	if authorizer.called != 0 {
+		t.Fatalf("authorizer calls = %d, want 0", authorizer.called)
+	}
+	if _, called := workflows.submitSnapshot(); called != 0 {
+		t.Fatalf("SubmitDiagnosisTurn calls = %d, want 0", called)
+	}
+}
+
 func TestHandleMessageRequiresRoomAuthorizerBeforeSubmitting(t *testing.T) {
 	workflows := &recordingWorkflowClient{}
 	service, err := NewService(workflows)
@@ -276,6 +356,22 @@ func (a *recordingRoomAuthorizer) AuthorizeDiagnosisRoomParticipation(_ context.
 		return false, a.err
 	}
 	return a.allowed, nil
+}
+
+type recordingSenderResolver struct {
+	subjectsByWeComUserID map[string]string
+	err                   error
+}
+
+func (r recordingSenderResolver) ResolveWeComSenderSubject(_ context.Context, wecomUserID string) (string, error) {
+	if r.err != nil {
+		return "", r.err
+	}
+	subject, ok := r.subjectsByWeComUserID[wecomUserID]
+	if !ok {
+		return "", domain.ErrNotFound
+	}
+	return subject, nil
 }
 
 type recordingWorkflowClient struct {

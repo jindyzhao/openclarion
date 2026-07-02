@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -59,11 +60,18 @@ type RoomAuthorizer interface {
 	AuthorizeDiagnosisRoomParticipation(ctx context.Context, subject, sessionID string) (bool, error)
 }
 
+// SenderResolver maps an Enterprise WeChat sender id to the OpenClarion IAM
+// subject used for RBAC and diagnosis-room transcript attribution.
+type SenderResolver interface {
+	ResolveWeComSenderSubject(ctx context.Context, wecomUserID string) (string, error)
+}
+
 // Service submits supported Enterprise WeChat app messages to diagnosis rooms.
 type Service struct {
-	workflows     ports.DiagnosisRoomWorkflowClient
-	authorizer    RoomAuthorizer
-	submitTimeout time.Duration
+	workflows      ports.DiagnosisRoomWorkflowClient
+	authorizer     RoomAuthorizer
+	senderResolver SenderResolver
+	submitTimeout  time.Duration
 }
 
 // Option customizes Service construction.
@@ -83,6 +91,14 @@ func WithSubmitTimeout(timeout time.Duration) Option {
 func WithRoomAuthorizer(authorizer RoomAuthorizer) Option {
 	return func(s *Service) {
 		s.authorizer = authorizer
+	}
+}
+
+// WithSenderResolver maps verified Enterprise WeChat sender ids to local IAM
+// subjects before authorization and workflow submission.
+func WithSenderResolver(resolver SenderResolver) Option {
+	return func(s *Service) {
+		s.senderResolver = resolver
 	}
 }
 
@@ -125,17 +141,36 @@ func (s *Service) HandleMessage(ctx context.Context, req Request) (Result, error
 	if sessionID == "" {
 		return Result{Status: StatusSkippedNoSession}, nil
 	}
-	actorSubject := strings.TrimSpace(message.FromUserName)
-	if actorSubject == "" {
+	wecomUserID := strings.TrimSpace(message.FromUserName)
+	if wecomUserID == "" {
 		return Result{Status: StatusSkippedInvalidMsg, SessionID: sessionID}, nil
 	}
-	if s.authorizer == nil {
-		return Result{
+	actorSubject := wecomUserID
+	if s.senderResolver != nil {
+		resolved, err := s.senderResolver.ResolveWeComSenderSubject(ctx, wecomUserID)
+		if errors.Is(err, domain.ErrNotFound) {
+			return Result{
 				Status:       StatusSkippedUnauthorized,
 				SessionID:    sessionID,
-				ActorSubject: actorSubject,
-			},
-			fmt.Errorf("diagnosis wecom callback: room authorizer is required: %w", domain.ErrInvariantViolation)
+				ActorSubject: wecomUserID,
+			}, nil
+		}
+		if err != nil {
+			return Result{}, fmt.Errorf("diagnosis wecom callback: resolve sender subject: %w", err)
+		}
+		actorSubject = strings.TrimSpace(resolved)
+		if actorSubject == "" {
+			return Result{}, fmt.Errorf("diagnosis wecom callback: sender resolver returned blank subject: %w", domain.ErrInvariantViolation)
+		}
+	}
+	if s.authorizer == nil {
+		result := Result{
+			Status:       StatusSkippedUnauthorized,
+			SessionID:    sessionID,
+			ActorSubject: actorSubject,
+		}
+		err := fmt.Errorf("diagnosis wecom callback: room authorizer is required: %w", domain.ErrInvariantViolation)
+		return result, err
 	}
 	allowed, err := s.authorizer.AuthorizeDiagnosisRoomParticipation(ctx, actorSubject, sessionID)
 	if err != nil {

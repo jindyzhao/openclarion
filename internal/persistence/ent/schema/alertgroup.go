@@ -23,7 +23,7 @@ import (
 // Determinism contract:
 //
 //	group_key MUST be derived from `canonical(dimensions)` so re-running
-//	grouping over the same window with the same configuration produces
+//	grouping over the same window, source scope, and configuration produces
 //	the same key. The natural unique key is (group_key, first_seen_at):
 //	the same group recurring in a later window is a NEW row, not an
 //	update, because each group instance feeds an independent
@@ -51,7 +51,7 @@ func (AlertGroup) Fields() []ent.Field {
 			Immutable().
 			Comment("sha256 hex (or equivalent) of canonical(dimensions); deterministic per (configuration, window)"),
 		field.JSON("dimensions", json.RawMessage{}).
-			Comment("jsonb snapshot of the label subset used to group events (e.g. {service:foo, severity:critical})"),
+			Comment("jsonb snapshot of the label subset and reserved source scope used to group events"),
 		field.String("severity").
 			MaxLen(32).
 			Default("unknown").

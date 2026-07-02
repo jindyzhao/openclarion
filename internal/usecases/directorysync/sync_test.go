@@ -141,8 +141,12 @@ func TestServiceSyncFullSyncDeactivatesStaleUsers(t *testing.T) {
 	repo := &fakeDirectoryRepo{users: []domain.DirectoryUser{stale, current}}
 	svc := mustService(t, repo, provider, now)
 
-	if _, err := svc.Sync(context.Background(), SyncRequest{Provider: "ops_iam"}); err != nil {
+	result, err := svc.Sync(context.Background(), SyncRequest{Provider: "ops_iam"})
+	if err != nil {
 		t.Fatalf("Sync: %v", err)
+	}
+	if result.UsersDeactivated != 1 {
+		t.Fatalf("UsersDeactivated = %d, want 1", result.UsersDeactivated)
 	}
 
 	var staleFound, currentFound domain.DirectoryUser

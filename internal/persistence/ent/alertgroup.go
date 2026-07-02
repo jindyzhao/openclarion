@@ -20,7 +20,7 @@ type AlertGroup struct {
 	ID int `json:"id,omitempty"`
 	// sha256 hex (or equivalent) of canonical(dimensions); deterministic per (configuration, window)
 	GroupKey string `json:"group_key,omitempty"`
-	// jsonb snapshot of the label subset used to group events (e.g. {service:foo, severity:critical})
+	// jsonb snapshot of the label subset and reserved source scope used to group events
 	Dimensions json.RawMessage `json:"dimensions,omitempty"`
 	// max severity observed within the group; "critical" | "warning" | "info" | "unknown"
 	Severity string `json:"severity,omitempty"`

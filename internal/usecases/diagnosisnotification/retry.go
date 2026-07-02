@@ -302,6 +302,11 @@ func latestRetryableNotificationEvent(
 ) (notificationAttempt, bool, int, error) {
 	completedKeys := map[string]struct{}{}
 	attemptsByKey := map[string]int{}
+	var (
+		selected    notificationAttempt
+		selectedKey string
+		found       bool
+	)
 	for _, event := range events {
 		payload, ok, err := notificationPayloadFromEvent(event, eventKind)
 		if err != nil {
@@ -313,7 +318,12 @@ func latestRetryableNotificationEvent(
 		attemptsByKey[payload.IdempotencyKey]++
 		if notificationDelivered(payload.ProviderStatus) {
 			if notificationAIContentProofMissing(payload, eventKind) {
-				return notificationAttempt{Event: event, Payload: payload}, true, attemptsByKey[payload.IdempotencyKey], nil
+				if !found {
+					selected = notificationAttempt{Event: event, Payload: payload}
+					selectedKey = payload.IdempotencyKey
+					found = true
+				}
+				continue
 			}
 			completedKeys[payload.IdempotencyKey] = struct{}{}
 			continue
@@ -324,7 +334,14 @@ func latestRetryableNotificationEvent(
 		if _, completed := completedKeys[payload.IdempotencyKey]; completed {
 			continue
 		}
-		return notificationAttempt{Event: event, Payload: payload}, true, attemptsByKey[payload.IdempotencyKey], nil
+		if !found {
+			selected = notificationAttempt{Event: event, Payload: payload}
+			selectedKey = payload.IdempotencyKey
+			found = true
+		}
+	}
+	if found {
+		return selected, true, attemptsByKey[selectedKey], nil
 	}
 	return notificationAttempt{}, false, 0, nil
 }

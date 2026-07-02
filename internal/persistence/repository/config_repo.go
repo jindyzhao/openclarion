@@ -964,6 +964,34 @@ func (r *configRepo) ListDirectoryUsersBySubject(ctx context.Context, subject st
 	return out, nil
 }
 
+// ListDirectoryUsersByExternalID returns local user projections for one
+// upstream external identifier across providers.
+func (r *configRepo) ListDirectoryUsersByExternalID(ctx context.Context, externalID string, limit int) ([]domain.DirectoryUser, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	externalID = strings.TrimSpace(externalID)
+	if externalID == "" {
+		return nil, fmt.Errorf("list directory users by external id: external_id must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list directory users by external id: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.DirectoryUser.Query().
+		Where(directoryuser.ExternalIDEQ(externalID)).
+		Order(directoryuser.ByProvider(), directoryuser.ByID()).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list directory users by external id: %w", err)
+	}
+	out := make([]domain.DirectoryUser, len(rows))
+	for i, row := range rows {
+		out[i] = directoryUserToDomain(row)
+	}
+	return out, nil
+}
+
 // ListDirectoryDepartments returns local department projections ordered for
 // stable operator display.
 func (r *configRepo) ListDirectoryDepartments(ctx context.Context, provider string, limit int) ([]domain.DirectoryDepartment, error) {

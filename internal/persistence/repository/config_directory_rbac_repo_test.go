@@ -100,6 +100,15 @@ func TestConfigRepo_UpsertAndListDirectoryProjection(t *testing.T) {
 			subjectUsers[0].DisplayName != "Alice Updated" {
 			t.Fatalf("subject users = %+v", subjectUsers)
 		}
+		externalUsers, err := uow.Config().ListDirectoryUsersByExternalID(ctx, "wecom-user-1", 10)
+		if err != nil {
+			t.Fatalf("ListDirectoryUsersByExternalID: %v", err)
+		}
+		if len(externalUsers) != 1 ||
+			externalUsers[0].Subject != "iam-user-1" ||
+			externalUsers[0].ExternalID != "wecom-user-1" {
+			t.Fatalf("external users = %+v", externalUsers)
+		}
 		users, err := uow.Config().ListDirectoryUsers(ctx, "ops_iam", 10)
 		if err != nil {
 			t.Fatalf("ListDirectoryUsers: %v", err)

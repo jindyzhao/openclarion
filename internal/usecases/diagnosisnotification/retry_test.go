@@ -62,6 +62,43 @@ func TestServiceRetriesLatestFailedFinalReadyNotification(t *testing.T) {
 	}
 }
 
+func TestServiceCountsEarlierAttemptsBeforeAppendingRetry(t *testing.T) {
+	now := time.Date(2026, 6, 21, 12, 2, 0, 0, time.UTC)
+	repo := notificationRetryRepoFixture(
+		t,
+		failedNotificationEvent(42, EventFinalReadyNotification, "failed", now.Add(-30*time.Second)),
+		failedNotificationEvent(41, EventFinalReadyNotification, "failed", now.Add(-time.Minute)),
+	)
+	provider := &recordingIMProvider{delivery: ports.IMDelivery{
+		ProviderMessageID: "wecom-retry-2",
+		Status:            "delivered",
+		Raw:               json.RawMessage(`{"errcode":0}`),
+	}}
+	service := mustRetryService(t, repo, &recordingResolver{consultationProvider: provider}, now)
+
+	result, err := service.Retry(context.Background(), Request{
+		SessionID: "session-1",
+		EventKind: EventFinalReadyNotification,
+		Principal: ports.AuthPrincipal{
+			Subject: "notification-admin-1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Retry: %v", err)
+	}
+	if result.RetryState != RetryStateSent || provider.called != 1 {
+		t.Fatalf("result=%+v provider called=%d", result, provider.called)
+	}
+	wantDedupeKey := notificationEventDedupeKey(
+		EventFinalReadyNotification,
+		"session-1",
+		notificationDedupeComponent("diagnosis_room:31:abc/final_ready_notification", 2),
+	)
+	if result.Event.DedupeKey == nil || *result.Event.DedupeKey != wantDedupeKey {
+		t.Fatalf("retry dedupe key = %v, want %q", result.Event.DedupeKey, wantDedupeKey)
+	}
+}
+
 func TestServiceDoesNotRetryWhenLaterDeliveryExists(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 10, 0, 0, time.UTC)
 	delivered := failedNotificationEvent(42, EventAssistantTurnNotification, "delivered", now)

@@ -535,6 +535,11 @@ type ConfigurationRepository interface {
 	// capped by limit. limit MUST be > 0.
 	ListDirectoryUsersBySubject(ctx context.Context, subject string, limit int) ([]domain.DirectoryUser, error)
 
+	// ListDirectoryUsersByExternalID returns projected users matching one
+	// upstream external identifier across directory providers, ordered by
+	// (provider ASC, id ASC), capped by limit. limit MUST be > 0.
+	ListDirectoryUsersByExternalID(ctx context.Context, externalID string, limit int) ([]domain.DirectoryUser, error)
+
 	// ListDirectoryDepartments returns projected departments ordered by
 	// (path ASC, id ASC), capped by limit. Provider is optional; when non-empty
 	// it filters to one upstream source.
