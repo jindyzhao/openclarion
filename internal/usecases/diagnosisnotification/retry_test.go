@@ -125,6 +125,76 @@ func TestServiceDoesNotRetryWhenLaterDeliveryExists(t *testing.T) {
 	}
 }
 
+func TestServiceDoesNotRetryOlderSparseDeliveryWhenProofExists(t *testing.T) {
+	now := time.Date(2026, 6, 21, 12, 11, 0, 0, time.UTC)
+	idempotencyKey := "diagnosis_room:31:abc/assistant_turn_notification"
+	deliveredWithProof := notificationEventFromPayload(
+		43,
+		EventAssistantTurnNotification,
+		map[string]any{
+			"source":                          "DiagnosisRoomWorkflow",
+			"kind":                            EventAssistantTurnNotification,
+			"session_id":                      "session-1",
+			"chat_session_id":                 21,
+			"diagnosis_task_id":               31,
+			"evidence_snapshot_id":            7,
+			"alert_group_id":                  3,
+			"owner_subject":                   "owner-1",
+			"assistant_message_id":            "msg-1/assistant",
+			"assistant_turn_id":               32,
+			"assistant_sequence":              2,
+			"turn_count":                      1,
+			"idempotency_key":                 idempotencyKey,
+			"notification_channel_profile_id": 9,
+			"provider_status":                 "delivered",
+			"assistant_message":               "Hydrated assistant diagnosis.",
+		},
+		now,
+	)
+	sparseDelivered := notificationEventFromPayload(
+		42,
+		EventAssistantTurnNotification,
+		map[string]any{
+			"source":                          "DiagnosisRoomWorkflow",
+			"kind":                            EventAssistantTurnNotification,
+			"session_id":                      "session-1",
+			"chat_session_id":                 21,
+			"diagnosis_task_id":               31,
+			"evidence_snapshot_id":            7,
+			"alert_group_id":                  3,
+			"owner_subject":                   "owner-1",
+			"assistant_message_id":            "msg-1/assistant",
+			"assistant_turn_id":               32,
+			"assistant_sequence":              2,
+			"turn_count":                      1,
+			"idempotency_key":                 idempotencyKey,
+			"notification_channel_profile_id": 9,
+			"provider_status":                 "delivered",
+		},
+		now.Add(-time.Minute),
+	)
+	repo := notificationRetryRepoFixture(t, deliveredWithProof, sparseDelivered)
+	provider := &recordingIMProvider{}
+	service := mustRetryService(t, repo, &recordingResolver{consultationProvider: provider}, now)
+
+	result, err := service.Retry(context.Background(), Request{
+		SessionID: "session-1",
+		EventKind: EventAssistantTurnNotification,
+		Principal: ports.AuthPrincipal{
+			Subject: "admin-1",
+			Roles:   []ports.AuthRole{ports.AuthRoleAdmin},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Retry: %v", err)
+	}
+	if result.RetryState != RetryStateAlreadyDelivered ||
+		result.Event.ID != deliveredWithProof.ID ||
+		provider.called != 0 {
+		t.Fatalf("result=%+v provider called=%d", result, provider.called)
+	}
+}
+
 func TestServiceRetriesDeliveredAssistantNotificationMissingContentProof(t *testing.T) {
 	now := time.Date(2026, 6, 21, 12, 12, 0, 0, time.UTC)
 	repo := notificationRetryRepoFixture(t, notificationEventFromPayload(

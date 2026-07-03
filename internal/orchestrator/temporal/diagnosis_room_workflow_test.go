@@ -2303,6 +2303,244 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRejectsRequestsOutsideAssist
 	assertCollectUpdateRejected(t, collect, "must match a pending assistant evidence request")
 }
 
+func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateAllowsRoomScopedOperatorRequest(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 11, 6, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+	registerDiagnosisTurnActivity(t, env)
+
+	var submit captureSubmitTurnUpdate
+	var collect captureCollectEvidenceUpdate
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-before-operator-collection",
+			submit.callbackOnSuccess(t, func() {
+				env.UpdateWorkflow(
+					temporalpkg.DiagnosisRoomCollectEvidenceUpdate,
+					"collect-room-scoped-operator-evidence",
+					collect.callbackOnTerminal(t, func() {
+						env.SignalWorkflow(
+							temporalpkg.DiagnosisRoomCloseSignal,
+							temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"},
+						)
+					}),
+					temporalpkg.CollectDiagnosisEvidenceRequest{
+						MessageID:    "collect-room-scoped-operator-evidence",
+						ActorSubject: "owner-1",
+						Message:      "Collect operator-selected source-scoped evidence.",
+						Requests: []diagnosisroom.EvidenceRequest{{
+							TemplateID:           5,
+							AlertSourceProfileID: 3,
+							Tool:                 "metric_query",
+							Reason:               "Operator requested a current CPU sample.",
+							Query:                "up",
+							Limit:                5,
+						}},
+					},
+				)
+			}),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "submit-operator-collection",
+				ActorSubject: "owner-1",
+				Message:      "Start diagnosis before operator evidence collection.",
+			},
+		)
+	}, time.Millisecond)
+
+	input := defaultRoomInput()
+	input.Evidence = json.RawMessage(`{"events":[{"alert_source_profile_id":3,"labels":{"alertname":"CPUHigh"}}]}`)
+	input.Policy = diagnosisroom.DefaultPolicy()
+	input.Policy.MaxAutoEvidenceFollowUps = 0
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+	if submit.rejected != nil || submit.completeErr != nil {
+		t.Fatalf("submit update rejected=%v completeErr=%v", submit.rejected, submit.completeErr)
+	}
+	if collect.rejected != nil || collect.completeErr != nil {
+		t.Fatalf("collect update rejected=%v completeErr=%v", collect.rejected, collect.completeErr)
+	}
+	if len(collect.result.State.LatestCollectionResults) != 1 ||
+		collect.result.State.LatestCollectionResults[0].Tool != "metric_query" {
+		t.Fatalf("latest collection results = %+v, want operator metric collection", collect.result.State.LatestCollectionResults)
+	}
+}
+
+func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRejectsOperatorRequestOutsideRoomScope(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 11, 7, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+	registerDiagnosisTurnActivity(t, env)
+
+	var submit captureSubmitTurnUpdate
+	var collect captureCollectEvidenceUpdate
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-before-cross-source-operator-collection",
+			submit.callbackOnSuccess(t, func() {
+				env.UpdateWorkflow(
+					temporalpkg.DiagnosisRoomCollectEvidenceUpdate,
+					"collect-cross-source-operator-evidence",
+					collect.callbackOnTerminal(t, func() {
+						env.SignalWorkflow(
+							temporalpkg.DiagnosisRoomCloseSignal,
+							temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"},
+						)
+					}),
+					temporalpkg.CollectDiagnosisEvidenceRequest{
+						MessageID:    "collect-cross-source-operator-evidence",
+						ActorSubject: "owner-1",
+						Message:      "Collect evidence from a different source.",
+						Requests: []diagnosisroom.EvidenceRequest{{
+							TemplateID:           9,
+							AlertSourceProfileID: 88,
+							Tool:                 "metric_query",
+							Reason:               "Operator requested an unrelated CPU sample.",
+							Query:                "up",
+							Limit:                5,
+						}},
+					},
+				)
+			}),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "submit-cross-source-operator-collection",
+				ActorSubject: "owner-1",
+				Message:      "Start diagnosis before operator evidence collection.",
+			},
+		)
+	}, time.Millisecond)
+
+	input := defaultRoomInput()
+	input.Evidence = json.RawMessage(`{"events":[{"alert_source_profile_id":3,"labels":{"alertname":"CPUHigh"}}]}`)
+	input.Policy = diagnosisroom.DefaultPolicy()
+	input.Policy.MaxAutoEvidenceFollowUps = 0
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+	if submit.rejected != nil || submit.completeErr != nil {
+		t.Fatalf("submit update rejected=%v completeErr=%v", submit.rejected, submit.completeErr)
+	}
+	assertCollectUpdateRejected(t, collect, "must match a pending assistant evidence request")
+}
+
+func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateAllowsRetryableCollectionResult(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 11, 8, 0, 0, time.UTC))
+	request := diagnosisroom.EvidenceRequest{
+		Tool:   "metric_query",
+		Reason: "Need current CPU sample.",
+		Query:  "up",
+		Limit:  5,
+	}
+	collectCalls := 0
+	registerDiagnosisRoomPersistenceActivitiesWithCollect(t, env,
+		func(_ context.Context, got temporalpkg.CollectDiagnosisEvidenceInput) (temporalpkg.CollectDiagnosisEvidenceResult, error) {
+			collectCalls++
+			if got.SessionID == "" || got.DiagnosisTaskID == 0 || len(got.Requests) != 1 {
+				t.Fatalf("collect evidence input = %+v", got)
+			}
+			item := diagnosisevidence.Item{
+				Request:              got.Requests[0],
+				TemplateID:           5,
+				AlertSourceProfileID: 3,
+				Tool:                 "metric_query",
+				Query:                "up",
+				Limit:                5,
+				CollectedAt:          time.Date(2026, 5, 28, 11, 8, collectCalls, 0, time.UTC),
+			}
+			if collectCalls == 1 {
+				item.Status = diagnosisevidence.StatusFailed
+				item.ReasonCode = diagnosisevidence.ReasonProviderFailed
+				item.Message = "Provider failed before returning a sample."
+			} else {
+				item.Status = diagnosisevidence.StatusCollected
+				item.ReasonCode = diagnosisevidence.ReasonOK
+				item.Message = "Metric collection succeeded."
+				item.ObservedMetricSeries = 1
+			}
+			return temporalpkg.CollectDiagnosisEvidenceResult{Items: []diagnosisevidence.Item{item}}, nil
+		},
+	)
+	registerFinalDiagnosisTurnActivityWithEvidenceRequests(t, env, "msg-final", []diagnosisroom.EvidenceRequest{request})
+
+	var submit captureSubmitTurnUpdate
+	var firstCollect captureCollectEvidenceUpdate
+	var retryCollect captureCollectEvidenceUpdate
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-before-retryable-collection",
+			submit.callbackOnSuccess(t, func() {
+				env.UpdateWorkflow(
+					temporalpkg.DiagnosisRoomCollectEvidenceUpdate,
+					"collect-provider-failure",
+					firstCollect.callbackOnSuccess(t, func() {
+						env.UpdateWorkflow(
+							temporalpkg.DiagnosisRoomCollectEvidenceUpdate,
+							"retry-provider-failure",
+							retryCollect.callbackOnTerminal(t, func() {
+								env.SignalWorkflow(
+									temporalpkg.DiagnosisRoomCloseSignal,
+									temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"},
+								)
+							}),
+							temporalpkg.CollectDiagnosisEvidenceRequest{
+								MessageID:    "retry-provider-failure",
+								ActorSubject: "owner-1",
+								Message:      "Retry the failed provider-backed evidence collection.",
+								Requests: []diagnosisroom.EvidenceRequest{{
+									TemplateID:           5,
+									AlertSourceProfileID: 3,
+									Tool:                 "metric_query",
+									Reason:               "Need current CPU sample.",
+									Query:                "up",
+									Limit:                5,
+								}},
+							},
+						)
+					}),
+					temporalpkg.CollectDiagnosisEvidenceRequest{
+						MessageID:    "collect-provider-failure",
+						ActorSubject: "owner-1",
+						Message:      "Collect planned metric evidence.",
+						Requests:     []diagnosisroom.EvidenceRequest{request},
+					},
+				)
+			}),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "msg-final",
+				ActorSubject: "owner-1",
+				Message:      "Start final diagnosis with metric evidence request.",
+			},
+		)
+	}, time.Millisecond)
+
+	input := defaultRoomInput()
+	input.Policy = diagnosisroom.DefaultPolicy()
+	input.Policy.MaxAutoEvidenceFollowUps = 0
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+	if submit.rejected != nil || submit.completeErr != nil {
+		t.Fatalf("submit update rejected=%v completeErr=%v", submit.rejected, submit.completeErr)
+	}
+	if firstCollect.rejected != nil || firstCollect.completeErr != nil {
+		t.Fatalf("first collect rejected=%v completeErr=%v", firstCollect.rejected, firstCollect.completeErr)
+	}
+	if retryCollect.rejected != nil || retryCollect.completeErr != nil {
+		t.Fatalf("retry collect rejected=%v completeErr=%v", retryCollect.rejected, retryCollect.completeErr)
+	}
+	if collectCalls != 2 {
+		t.Fatalf("collect calls = %d, want 2", collectCalls)
+	}
+	if len(retryCollect.result.State.LatestCollectionResults) != 1 ||
+		retryCollect.result.State.LatestCollectionResults[0].Status != diagnosisevidence.StatusCollected {
+		t.Fatalf("retry latest collection results = %+v, want collected", retryCollect.result.State.LatestCollectionResults)
+	}
+}
+
 func TestDiagnosisRoomWorkflow_AutoEvidenceFollowUpCanBeDisabled(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()

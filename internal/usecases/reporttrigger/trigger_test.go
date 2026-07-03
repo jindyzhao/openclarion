@@ -64,6 +64,63 @@ func TestBuildStartRequest_DefaultsAndMapsSnapshots(t *testing.T) {
 	}
 }
 
+func TestBuildStartRequest_DefaultIdentityIncludesAlertEventFilters(t *testing.T) {
+	windowStart := time.Date(2026, 5, 26, 12, 0, 0, 123456789, time.UTC)
+	windowEnd := windowStart.Add(time.Hour)
+	replay := alertreplay.Result{
+		Snapshots: []alertreplay.SnapshotRef{
+			{ID: 101, GroupIndex: 0, EventCount: 1},
+		},
+	}
+
+	startReq, ok, err := BuildStartRequest(replay, Request{
+		Replay: alertreplay.Request{
+			WindowStart:        windowStart,
+			WindowEnd:          windowEnd,
+			AlertEventIDFilter: []domain.AlertEventID{42},
+		},
+	})
+	if err != nil {
+		t.Fatalf("BuildStartRequest alert filter: %v", err)
+	}
+	if !ok {
+		t.Fatal("BuildStartRequest ok = false, want true")
+	}
+	wantCorrelation := "alert-replay:2026-05-26T12:00:00.123456Z:2026-05-26T13:00:00.123456Z:alert-events:42"
+	if startReq.CorrelationKey != wantCorrelation {
+		t.Fatalf("CorrelationKey = %q, want %q", startReq.CorrelationKey, wantCorrelation)
+	}
+
+	otherAlert, ok, err := BuildStartRequest(replay, Request{
+		Replay: alertreplay.Request{
+			WindowStart:        windowStart,
+			WindowEnd:          windowEnd,
+			AlertEventIDFilter: []domain.AlertEventID{43},
+		},
+	})
+	if err != nil || !ok {
+		t.Fatalf("BuildStartRequest other alert ok=%v err=%v", ok, err)
+	}
+	if otherAlert.WorkflowID == startReq.WorkflowID {
+		t.Fatalf("WorkflowID = %q for different alert filters, want distinct IDs", startReq.WorkflowID)
+	}
+
+	ordered, ok, err := BuildStartRequest(replay, Request{
+		Replay: alertreplay.Request{
+			WindowStart:        windowStart,
+			WindowEnd:          windowEnd,
+			AlertEventIDFilter: []domain.AlertEventID{43, 42},
+		},
+	})
+	if err != nil || !ok {
+		t.Fatalf("BuildStartRequest ordered alert filter ok=%v err=%v", ok, err)
+	}
+	wantOrderedCorrelation := "alert-replay:2026-05-26T12:00:00.123456Z:2026-05-26T13:00:00.123456Z:alert-events:42,43"
+	if ordered.CorrelationKey != wantOrderedCorrelation {
+		t.Fatalf("CorrelationKey = %q, want %q", ordered.CorrelationKey, wantOrderedCorrelation)
+	}
+}
+
 func TestBuildStartRequest_ExplicitValuesAndNoSnapshots(t *testing.T) {
 	replay := alertreplay.Result{
 		Snapshots: []alertreplay.SnapshotRef{

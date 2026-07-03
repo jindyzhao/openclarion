@@ -1344,27 +1344,80 @@ func (s *diagnosisRoomState) validateCollectEvidence(req CollectDiagnosisEvidenc
 }
 
 func (s *diagnosisRoomState) validateManualEvidenceRequestsApproved(requests []diagnosisroom.EvidenceRequest) error {
-	pending := make(map[string]struct{}, len(s.latestEvidenceRequests))
-	addPending := func(items []diagnosisroom.EvidenceRequest) {
+	approved := make(map[string]struct{}, len(s.latestEvidenceRequests)+len(s.latestCollectionResults))
+	addApproved := func(items []diagnosisroom.EvidenceRequest) {
 		for _, item := range items {
-			pending[diagnosisRoomEvidenceRequestIdentity(item)] = struct{}{}
+			approved[diagnosisRoomEvidenceRequestIdentity(item)] = struct{}{}
 		}
 	}
-	addPending(pendingDiagnosisRoomEvidenceRequests(s.latestEvidenceRequests, s.latestCollectionResults))
+	addRetryable := func(items []diagnosisevidence.Item) {
+		for _, item := range items {
+			if !diagnosisRoomEvidenceResultRetryable(item) {
+				continue
+			}
+			approved[diagnosisRoomEvidenceRequestIdentity(item.Request)] = struct{}{}
+			approved[diagnosisRoomEvidenceRequestIdentity(diagnosisRoomEvidenceRequestFromCollectionResult(item))] = struct{}{}
+		}
+	}
+	addApproved(pendingDiagnosisRoomEvidenceRequests(s.latestEvidenceRequests, s.latestCollectionResults))
+	addRetryable(s.latestCollectionResults)
 	if s.finalConclusion != nil {
-		addPending(pendingDiagnosisRoomEvidenceRequests(s.finalConclusion.EvidenceRequests, s.latestCollectionResults))
+		addApproved(pendingDiagnosisRoomEvidenceRequests(s.finalConclusion.EvidenceRequests, s.latestCollectionResults))
 	}
-	if len(pending) == 0 {
-		return fmt.Errorf("diagnosis room collect evidence: no pending assistant evidence requests are available")
-	}
+	sourceProfileIDs := s.manualEvidenceAllowedSourceProfileIDs()
+	seen := make(map[string]struct{}, len(requests))
 	for i, request := range requests {
 		key := diagnosisRoomEvidenceRequestIdentity(request)
-		if _, ok := pending[key]; !ok {
-			return fmt.Errorf("diagnosis room collect evidence: requests[%d] must match a pending assistant evidence request", i)
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("diagnosis room collect evidence: requests[%d] duplicates another request", i)
 		}
-		delete(pending, key)
+		seen[key] = struct{}{}
+		if _, ok := approved[key]; ok {
+			delete(approved, key)
+			continue
+		}
+		if diagnosisRoomManualEvidenceRequestMatchesRoomScope(request, sourceProfileIDs) {
+			continue
+		}
+		return fmt.Errorf("diagnosis room collect evidence: requests[%d] must match a pending assistant evidence request or room alert source profile", i)
 	}
 	return nil
+}
+
+func (s *diagnosisRoomState) manualEvidenceAllowedSourceProfileIDs() map[int64]struct{} {
+	ids := diagnosisRoomEvidenceSourceProfileIDs(s.input.Evidence)
+	addRequest := func(request diagnosisroom.EvidenceRequest) {
+		if request.AlertSourceProfileID > 0 {
+			ids[request.AlertSourceProfileID] = struct{}{}
+		}
+	}
+	addRequests := func(requests []diagnosisroom.EvidenceRequest) {
+		for _, request := range requests {
+			addRequest(request)
+		}
+	}
+	addRequests(s.latestEvidenceRequests)
+	for _, item := range s.latestCollectionResults {
+		addRequest(item.Request)
+		if item.AlertSourceProfileID > 0 {
+			ids[int64(item.AlertSourceProfileID)] = struct{}{}
+		}
+	}
+	if s.finalConclusion != nil {
+		addRequests(s.finalConclusion.EvidenceRequests)
+	}
+	return ids
+}
+
+func diagnosisRoomManualEvidenceRequestMatchesRoomScope(
+	request diagnosisroom.EvidenceRequest,
+	sourceProfileIDs map[int64]struct{},
+) bool {
+	if request.AlertSourceProfileID <= 0 {
+		return false
+	}
+	_, ok := sourceProfileIDs[request.AlertSourceProfileID]
+	return ok
 }
 
 func validateManualEvidenceRequest(index int, req diagnosisroom.EvidenceRequest) error {
@@ -1625,7 +1678,11 @@ func pendingDiagnosisRoomEvidenceRequests(
 	}
 	resultKeys := make(map[string]struct{}, len(results))
 	for _, result := range results {
+		if !diagnosisRoomEvidenceResultCompletesRequest(result) {
+			continue
+		}
 		resultKeys[diagnosisRoomEvidenceRequestIdentity(result.Request)] = struct{}{}
+		resultKeys[diagnosisRoomEvidenceRequestIdentity(diagnosisRoomEvidenceRequestFromCollectionResult(result))] = struct{}{}
 	}
 	pending := make([]diagnosisroom.EvidenceRequest, 0, len(requests))
 	for _, request := range requests {
@@ -1635,6 +1692,65 @@ func pendingDiagnosisRoomEvidenceRequests(
 		pending = append(pending, request)
 	}
 	return pending
+}
+
+func diagnosisRoomEvidenceResultCompletesRequest(result diagnosisevidence.Item) bool {
+	if diagnosisRoomEvidenceResultRetryable(result) {
+		return false
+	}
+	switch result.Status {
+	case diagnosisevidence.StatusCollected,
+		diagnosisevidence.StatusSkipped,
+		diagnosisevidence.StatusUnsupported:
+		return true
+	default:
+		return false
+	}
+}
+
+func diagnosisRoomEvidenceResultRetryable(result diagnosisevidence.Item) bool {
+	switch result.Status {
+	case diagnosisevidence.StatusFailed:
+		return true
+	case diagnosisevidence.StatusSkipped:
+		switch result.ReasonCode {
+		case diagnosisevidence.ReasonCollectionTimedOut,
+			diagnosisevidence.ReasonProviderFailed,
+			diagnosisevidence.ReasonProviderUnavailable,
+			diagnosisevidence.ReasonSourceUnavailable:
+			return true
+		default:
+			return false
+		}
+	default:
+		return false
+	}
+}
+
+func diagnosisRoomEvidenceRequestFromCollectionResult(item diagnosisevidence.Item) diagnosisroom.EvidenceRequest {
+	req := item.Request
+	if item.TemplateID > 0 {
+		req.TemplateID = int64(item.TemplateID)
+	}
+	if item.AlertSourceProfileID > 0 {
+		req.AlertSourceProfileID = int64(item.AlertSourceProfileID)
+	}
+	if item.Tool != "" {
+		req.Tool = item.Tool
+	}
+	if item.Query != "" {
+		req.Query = item.Query
+	}
+	if item.WindowSeconds > 0 {
+		req.WindowSeconds = item.WindowSeconds
+	}
+	if item.StepSeconds > 0 {
+		req.StepSeconds = item.StepSeconds
+	}
+	if item.Limit > 0 {
+		req.Limit = item.Limit
+	}
+	return req
 }
 
 func diagnosisRoomEvidenceRequestIdentity(request diagnosisroom.EvidenceRequest) string {
@@ -1648,6 +1764,28 @@ func diagnosisRoomEvidenceRequestIdentity(request diagnosisroom.EvidenceRequest)
 		fmt.Sprintf("%d", request.StepSeconds),
 		fmt.Sprintf("%d", request.Limit),
 	}, "\x00")
+}
+
+func diagnosisRoomEvidenceSourceProfileIDs(raw json.RawMessage) map[int64]struct{} {
+	ids := make(map[int64]struct{})
+	var snapshot struct {
+		AlertSourceProfileID int64 `json:"alert_source_profile_id"`
+		Events               []struct {
+			AlertSourceProfileID int64 `json:"alert_source_profile_id"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal(raw, &snapshot); err != nil {
+		return ids
+	}
+	if snapshot.AlertSourceProfileID > 0 {
+		ids[snapshot.AlertSourceProfileID] = struct{}{}
+	}
+	for _, event := range snapshot.Events {
+		if event.AlertSourceProfileID > 0 {
+			ids[event.AlertSourceProfileID] = struct{}{}
+		}
+	}
+	return ids
 }
 
 func (s *diagnosisRoomState) runAutoEvidenceFollowUps(

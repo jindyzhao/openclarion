@@ -318,6 +318,9 @@ func latestRetryableNotificationEvent(
 		attemptsByKey[payload.IdempotencyKey]++
 		if notificationDelivered(payload.ProviderStatus) {
 			if notificationAIContentProofMissing(payload, eventKind) {
+				if _, completed := completedKeys[payload.IdempotencyKey]; completed {
+					continue
+				}
 				if !found {
 					selected = notificationAttempt{Event: event, Payload: payload}
 					selectedKey = payload.IdempotencyKey
