@@ -762,7 +762,7 @@ func (s *diagnosisRoomState) collectDiagnosisEvidence(
 		}
 	}
 	s.lastActivityAt = workflow.Now(ctx)
-	s.recordLatestEvidenceCycle(actorSubject, requests, collectionResult.Items)
+	s.recordManualEvidenceCollection(requests, collectionResult.Items)
 	s.recordEvidenceTimelineEntry(diagnosisRoomEvidenceTimelineEntry{
 		turnCount:         s.turnCount,
 		messageID:         messageID,
@@ -1183,6 +1183,82 @@ func (s *diagnosisRoomState) recordLatestEvidenceCycle(
 	s.latestCollectionResults = diagnosisevidence.CloneItems(collectionResults)
 }
 
+func (s *diagnosisRoomState) recordManualEvidenceCollection(
+	evidenceRequests []diagnosisroom.EvidenceRequest,
+	collectionResults []diagnosisevidence.Item,
+) {
+	if len(s.latestEvidenceRequests) == 0 && len(s.latestCollectionResults) == 0 {
+		s.latestEvidenceRequests = cloneEvidenceRequests(evidenceRequests)
+		s.latestCollectionResults = diagnosisevidence.CloneItems(collectionResults)
+		return
+	}
+	s.latestEvidenceRequests = appendUniqueDiagnosisRoomEvidenceRequests(s.latestEvidenceRequests, evidenceRequests)
+	s.latestCollectionResults = mergeDiagnosisRoomCollectionResults(s.latestCollectionResults, collectionResults)
+}
+
+func appendUniqueDiagnosisRoomEvidenceRequests(
+	base []diagnosisroom.EvidenceRequest,
+	additions []diagnosisroom.EvidenceRequest,
+) []diagnosisroom.EvidenceRequest {
+	out := cloneEvidenceRequests(base)
+	seen := make(map[string]struct{}, len(out)+len(additions))
+	for _, item := range out {
+		seen[diagnosisRoomEvidenceRequestIdentity(item)] = struct{}{}
+	}
+	for _, item := range additions {
+		key := diagnosisRoomEvidenceRequestIdentity(item)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		out = append(out, item)
+		seen[key] = struct{}{}
+	}
+	return out
+}
+
+func mergeDiagnosisRoomCollectionResults(
+	existing []diagnosisevidence.Item,
+	updates []diagnosisevidence.Item,
+) []diagnosisevidence.Item {
+	if len(existing) == 0 {
+		return diagnosisevidence.CloneItems(updates)
+	}
+	if len(updates) == 0 {
+		return diagnosisevidence.CloneItems(existing)
+	}
+	updateKeys := make(map[string]struct{}, len(updates)*2)
+	for _, item := range updates {
+		for _, key := range diagnosisRoomEvidenceResultIdentities(item) {
+			updateKeys[key] = struct{}{}
+		}
+	}
+	out := make([]diagnosisevidence.Item, 0, len(existing)+len(updates))
+	for _, item := range existing {
+		replace := false
+		for _, key := range diagnosisRoomEvidenceResultIdentities(item) {
+			if _, ok := updateKeys[key]; ok {
+				replace = true
+				break
+			}
+		}
+		if replace {
+			continue
+		}
+		out = append(out, diagnosisevidence.CloneItems([]diagnosisevidence.Item{item})...)
+	}
+	out = append(out, diagnosisevidence.CloneItems(updates)...)
+	return out
+}
+
+func diagnosisRoomEvidenceResultIdentities(item diagnosisevidence.Item) []string {
+	requestKey := diagnosisRoomEvidenceRequestIdentity(item.Request)
+	resolvedKey := diagnosisRoomEvidenceRequestIdentity(diagnosisRoomEvidenceRequestFromCollectionResult(item))
+	if resolvedKey == requestKey {
+		return []string{requestKey}
+	}
+	return []string{requestKey, resolvedKey}
+}
+
 type diagnosisRoomEvidenceTimelineEntry struct {
 	turnCount          int
 	messageID          string
@@ -1385,28 +1461,7 @@ func (s *diagnosisRoomState) validateManualEvidenceRequestsApproved(requests []d
 }
 
 func (s *diagnosisRoomState) manualEvidenceAllowedSourceProfileIDs() map[int64]struct{} {
-	ids := diagnosisRoomEvidenceSourceProfileIDs(s.input.Evidence)
-	addRequest := func(request diagnosisroom.EvidenceRequest) {
-		if request.AlertSourceProfileID > 0 {
-			ids[request.AlertSourceProfileID] = struct{}{}
-		}
-	}
-	addRequests := func(requests []diagnosisroom.EvidenceRequest) {
-		for _, request := range requests {
-			addRequest(request)
-		}
-	}
-	addRequests(s.latestEvidenceRequests)
-	for _, item := range s.latestCollectionResults {
-		addRequest(item.Request)
-		if item.AlertSourceProfileID > 0 {
-			ids[int64(item.AlertSourceProfileID)] = struct{}{}
-		}
-	}
-	if s.finalConclusion != nil {
-		addRequests(s.finalConclusion.EvidenceRequests)
-	}
-	return ids
+	return diagnosisRoomEvidenceSourceProfileIDs(s.input.Evidence)
 }
 
 func diagnosisRoomManualEvidenceRequestMatchesRoomScope(

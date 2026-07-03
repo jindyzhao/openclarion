@@ -6341,6 +6341,21 @@ func TestRetryReportNotification_MapsSenderInvariantToBadRequest(t *testing.T) {
 	}
 }
 
+func TestRetryReportNotification_MapsSenderNotFoundToNotFound(t *testing.T) {
+	sender := &fakeReportNotificationSender{
+		err: fmt.Errorf("report notification: final report 11 not found: %w", domain.ErrNotFound),
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/reports/11/notification/retry", nil)
+	addTestLocalRBACAuthorization(req)
+	testReportNotificationRetryHandler(t, &fakeUOWFactory{}, sender, nil).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusNotFound {
+		t.Fatalf("status = %d, want 404; body=%s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestRetryReportNotification_RejectsUnauthenticatedPrincipal(t *testing.T) {
 	sender := &fakeReportNotificationSender{}
 	rec := httptest.NewRecorder()

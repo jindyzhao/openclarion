@@ -243,6 +243,8 @@ func reportNotificationRetryState(state reportnotification.RetryState) api.Repor
 
 func writeReportNotificationRetryError(ctx context.Context, w stdhttp.ResponseWriter, logger *slog.Logger, err error) {
 	switch {
+	case errors.Is(err, domain.ErrNotFound):
+		writeError(ctx, w, logger, stdhttp.StatusNotFound, "report not found", err)
 	case errors.Is(err, domain.ErrPreconditionFailed):
 		writeError(ctx, w, logger, stdhttp.StatusBadRequest, err.Error(), nil)
 	case errors.Is(err, domain.ErrInvariantViolation):

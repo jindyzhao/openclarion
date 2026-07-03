@@ -248,7 +248,7 @@ func (s *Service) loadFinalReport(ctx context.Context, id domain.FinalReportID) 
 		got, err := uow.Reports().FindFinalReportByID(ctx, id)
 		if err != nil {
 			if errors.Is(err, domain.ErrNotFound) {
-				return fmt.Errorf("report notification: final report %d not found: %w", id, domain.ErrInvariantViolation)
+				return fmt.Errorf("report notification: final report %d not found: %w", id, domain.ErrNotFound)
 			}
 			return err
 		}

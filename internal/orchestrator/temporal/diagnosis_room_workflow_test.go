@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
 
+	"github.com/openclarion/openclarion/internal/domain"
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosiscontext"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
@@ -896,7 +897,7 @@ func TestDiagnosisRoomWorkflow_ConfirmConclusionUpdateRejectsSkippedEvidence(t *
 			}, nil
 		},
 	)
-	registerFinalDiagnosisTurnActivityWithEvidenceRequests(t, env, "msg-final", []diagnosisroom.EvidenceRequest{skippedRequest})
+	registerFinalDiagnosisTurnActivityWithEvidenceRequests(t, env, []diagnosisroom.EvidenceRequest{skippedRequest})
 
 	var submit captureSubmitTurnUpdate
 	var collect captureCollectEvidenceUpdate
@@ -986,7 +987,7 @@ func TestDiagnosisRoomWorkflow_ConfirmConclusionUpdateAcceptsReviewedSkippedEvid
 			}, nil
 		},
 	)
-	registerFinalDiagnosisTurnActivityWithEvidenceRequests(t, env, "msg-final", []diagnosisroom.EvidenceRequest{skippedRequest})
+	registerFinalDiagnosisTurnActivityWithEvidenceRequests(t, env, []diagnosisroom.EvidenceRequest{skippedRequest})
 
 	var submit captureSubmitTurnUpdate
 	var collect captureCollectEvidenceUpdate
@@ -2425,6 +2426,71 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRejectsOperatorRequestOutsid
 	assertCollectUpdateRejected(t, collect, "must match a pending assistant evidence request")
 }
 
+func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRejectsSupplementalSourceFallback(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 11, 7, 30, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+	registerFinalDiagnosisTurnActivityWithEvidenceRequests(t, env, []diagnosisroom.EvidenceRequest{{
+		TemplateID:           8,
+		AlertSourceProfileID: 88,
+		Tool:                 "metric_query",
+		Reason:               "Assistant requested supplemental source CPU evidence.",
+		Query:                "up",
+		Limit:                5,
+	}})
+
+	var submit captureSubmitTurnUpdate
+	var collect captureCollectEvidenceUpdate
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-with-supplemental-source-request",
+			submit.callbackOnSuccess(t, func() {
+				env.UpdateWorkflow(
+					temporalpkg.DiagnosisRoomCollectEvidenceUpdate,
+					"collect-ad-hoc-supplemental-source",
+					collect.callbackOnTerminal(t, func() {
+						env.SignalWorkflow(
+							temporalpkg.DiagnosisRoomCloseSignal,
+							temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"},
+						)
+					}),
+					temporalpkg.CollectDiagnosisEvidenceRequest{
+						MessageID:    "collect-ad-hoc-supplemental-source",
+						ActorSubject: "owner-1",
+						Message:      "Collect a different request from the supplemental source.",
+						Requests: []diagnosisroom.EvidenceRequest{{
+							TemplateID:           9,
+							AlertSourceProfileID: 88,
+							Tool:                 "metric_query",
+							Reason:               "Operator requested unrelated supplemental source evidence.",
+							Query:                "process_cpu_seconds_total",
+							Limit:                5,
+						}},
+					},
+				)
+			}),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "msg-final",
+				ActorSubject: "owner-1",
+				Message:      "Start final diagnosis with supplemental source evidence request.",
+			},
+		)
+	}, time.Millisecond)
+
+	input := defaultRoomInput()
+	input.Evidence = json.RawMessage(`{"events":[{"alert_source_profile_id":3,"labels":{"alertname":"CPUHigh"}}]}`)
+	input.Policy = diagnosisroom.DefaultPolicy()
+	input.Policy.MaxAutoEvidenceFollowUps = 0
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+	if submit.rejected != nil || submit.completeErr != nil {
+		t.Fatalf("submit update rejected=%v completeErr=%v", submit.rejected, submit.completeErr)
+	}
+	assertCollectUpdateRejected(t, collect, "must match a pending assistant evidence request")
+}
+
 func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateAllowsRetryableCollectionResult(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
@@ -2464,7 +2530,7 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateAllowsRetryableCollectionRes
 			return temporalpkg.CollectDiagnosisEvidenceResult{Items: []diagnosisevidence.Item{item}}, nil
 		},
 	)
-	registerFinalDiagnosisTurnActivityWithEvidenceRequests(t, env, "msg-final", []diagnosisroom.EvidenceRequest{request})
+	registerFinalDiagnosisTurnActivityWithEvidenceRequests(t, env, []diagnosisroom.EvidenceRequest{request})
 
 	var submit captureSubmitTurnUpdate
 	var firstCollect captureCollectEvidenceUpdate
@@ -2538,6 +2604,120 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateAllowsRetryableCollectionRes
 	if len(retryCollect.result.State.LatestCollectionResults) != 1 ||
 		retryCollect.result.State.LatestCollectionResults[0].Status != diagnosisevidence.StatusCollected {
 		t.Fatalf("retry latest collection results = %+v, want collected", retryCollect.result.State.LatestCollectionResults)
+	}
+}
+
+func TestDiagnosisRoomWorkflow_CollectEvidenceUpdatePreservesUncollectedAssistantRequests(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 11, 8, 30, 0, time.UTC))
+	requests := []diagnosisroom.EvidenceRequest{
+		{
+			Tool:   "metric_query",
+			Reason: "Need current CPU sample.",
+			Query:  "up",
+			Limit:  5,
+		},
+		{
+			Tool:   "metric_query",
+			Reason: "Need current memory sample.",
+			Query:  "process_resident_memory_bytes",
+			Limit:  5,
+		},
+	}
+	collectCalls := 0
+	registerDiagnosisRoomPersistenceActivitiesWithCollect(t, env,
+		func(_ context.Context, got temporalpkg.CollectDiagnosisEvidenceInput) (temporalpkg.CollectDiagnosisEvidenceResult, error) {
+			collectCalls++
+			if got.SessionID == "" || got.DiagnosisTaskID == 0 || len(got.Requests) != 1 {
+				t.Fatalf("collect evidence input = %+v", got)
+			}
+			req := got.Requests[0]
+			return temporalpkg.CollectDiagnosisEvidenceResult{Items: []diagnosisevidence.Item{{
+				Request:              req,
+				TemplateID:           domain.DiagnosisToolTemplateID(collectCalls),
+				AlertSourceProfileID: 3,
+				Tool:                 req.Tool,
+				Query:                req.Query,
+				Limit:                req.Limit,
+				Status:               diagnosisevidence.StatusCollected,
+				ReasonCode:           diagnosisevidence.ReasonOK,
+				Message:              "Metric collection succeeded.",
+				CollectedAt:          time.Date(2026, 5, 28, 11, 8, 30+collectCalls, 0, time.UTC),
+			}}}, nil
+		},
+	)
+	registerFinalDiagnosisTurnActivityWithEvidenceRequests(t, env, requests)
+
+	var submit captureSubmitTurnUpdate
+	var firstCollect captureCollectEvidenceUpdate
+	var secondCollect captureCollectEvidenceUpdate
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-with-two-evidence-requests",
+			submit.callbackOnSuccess(t, func() {
+				env.UpdateWorkflow(
+					temporalpkg.DiagnosisRoomCollectEvidenceUpdate,
+					"collect-first-request",
+					firstCollect.callbackOnSuccess(t, func() {
+						env.UpdateWorkflow(
+							temporalpkg.DiagnosisRoomCollectEvidenceUpdate,
+							"collect-second-request",
+							secondCollect.callbackOnTerminal(t, func() {
+								env.SignalWorkflow(
+									temporalpkg.DiagnosisRoomCloseSignal,
+									temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"},
+								)
+							}),
+							temporalpkg.CollectDiagnosisEvidenceRequest{
+								MessageID:    "collect-second-request",
+								ActorSubject: "owner-1",
+								Message:      "Collect the remaining planned metric evidence.",
+								Requests:     []diagnosisroom.EvidenceRequest{requests[1]},
+							},
+						)
+					}),
+					temporalpkg.CollectDiagnosisEvidenceRequest{
+						MessageID:    "collect-first-request",
+						ActorSubject: "owner-1",
+						Message:      "Collect the first planned metric evidence.",
+						Requests:     []diagnosisroom.EvidenceRequest{requests[0]},
+					},
+				)
+			}),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "msg-final",
+				ActorSubject: "owner-1",
+				Message:      "Start final diagnosis with two evidence requests.",
+			},
+		)
+	}, time.Millisecond)
+
+	input := defaultRoomInput()
+	input.Policy = diagnosisroom.DefaultPolicy()
+	input.Policy.MaxAutoEvidenceFollowUps = 0
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+	if submit.rejected != nil || submit.completeErr != nil {
+		t.Fatalf("submit update rejected=%v completeErr=%v", submit.rejected, submit.completeErr)
+	}
+	if firstCollect.rejected != nil || firstCollect.completeErr != nil {
+		t.Fatalf("first collect rejected=%v completeErr=%v", firstCollect.rejected, firstCollect.completeErr)
+	}
+	if secondCollect.rejected != nil || secondCollect.completeErr != nil {
+		t.Fatalf("second collect rejected=%v completeErr=%v", secondCollect.rejected, secondCollect.completeErr)
+	}
+	if collectCalls != 2 {
+		t.Fatalf("collect calls = %d, want 2", collectCalls)
+	}
+	if len(secondCollect.result.State.LatestEvidenceRequests) != 2 ||
+		len(secondCollect.result.State.LatestCollectionResults) != 2 {
+		t.Fatalf(
+			"latest evidence requests=%+v results=%+v, want both planned requests and both results",
+			secondCollect.result.State.LatestEvidenceRequests,
+			secondCollect.result.State.LatestCollectionResults,
+		)
 	}
 }
 
@@ -3732,7 +3912,6 @@ func registerFinalDiagnosisTurnActivity(t *testing.T, env *testsuite.TestWorkflo
 func registerFinalDiagnosisTurnActivityWithEvidenceRequests(
 	t *testing.T,
 	env *testsuite.TestWorkflowEnvironment,
-	messageID string,
 	requests []diagnosisroom.EvidenceRequest,
 ) {
 	t.Helper()
@@ -3750,7 +3929,7 @@ func registerFinalDiagnosisTurnActivityWithEvidenceRequests(
 				ConfidenceRationale: "The evidence supports a final diagnosis pending operator review.",
 				ConclusionStatus:    "final",
 			}
-			if got.MessageID == messageID {
+			if got.MessageID == "msg-final" {
 				output.EvidenceRequests = append([]diagnosisroom.EvidenceRequest(nil), requests...)
 			}
 			return diagnosisTurnActivityResultForTest(t, got, output), nil

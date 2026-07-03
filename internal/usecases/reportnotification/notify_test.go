@@ -91,6 +91,29 @@ func TestServiceSendPersistsProviderResolutionFailure(t *testing.T) {
 	}
 }
 
+func TestServiceSendMissingReportPreservesNotFound(t *testing.T) {
+	repo := newFakeReportRepo(validFinalReport(102))
+	provider := &recordingIMProvider{}
+	svc, err := NewService(fakeUOWFactory{reports: repo}, WithIMProvider(provider))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	_, err = svc.Send(context.Background(), Request{FinalReportID: 404})
+	if err == nil || !errors.Is(err, domain.ErrNotFound) {
+		t.Fatalf("Send err = %v, want ErrNotFound", err)
+	}
+	if errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("Send err = %v, must not be ErrInvariantViolation", err)
+	}
+	if got := len(provider.Requests()); got != 0 {
+		t.Fatalf("provider requests = %d, want 0", got)
+	}
+	if len(repo.deliveryByKey) != 0 {
+		t.Fatalf("delivery rows = %+v, want none", repo.deliveryByKey)
+	}
+}
+
 func TestServiceSendSkipsAlreadyDeliveredNotification(t *testing.T) {
 	report := validFinalReport(103)
 	repo := newFakeReportRepo(report)
