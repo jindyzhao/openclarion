@@ -201,6 +201,11 @@ export function ReportWorkflowScheduleSettingsManager({
           : "Current user is not authorized to create report workflow schedules."
         : currentScheduleManagePermissionBlockReason ||
           schedulePolicyPermissionBlockReason;
+  const canEditCurrentScheduleForm =
+    authorizationChecking ||
+    (editingID === null
+      ? canCreateSchedule
+      : currentScheduleManagePermissionBlockReason === "");
   const canSaveCurrentSchedule = scheduleSavePermissionBlockReason === "";
   const formPermissionNotice = settingsManagePermissionNotice({
     canManage:
@@ -361,7 +366,7 @@ export function ReportWorkflowScheduleSettingsManager({
               <ReadOnlyModeAlert notice={formPermissionNotice} />
             ) : null}
             <Form<ReportWorkflowScheduleFormState>
-              disabled={busy || !canSaveCurrentSchedule}
+              disabled={busy || !canEditCurrentScheduleForm}
               form={form}
               initialValues={initialFormValues}
               layout="vertical"

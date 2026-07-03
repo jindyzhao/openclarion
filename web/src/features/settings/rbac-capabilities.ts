@@ -13,6 +13,8 @@ import type {
 } from "./directory-rbac/types";
 import type { SettingsNotice } from "./query-state";
 
+const currentRBACAuthorizationBatchLimit = 50;
+
 export type CurrentRBACAuthorizationCheck = {
   key: string;
   permission: RBACPermission;
@@ -57,13 +59,7 @@ export function useCurrentRBACAuthorizations(
       return;
     }
     let ignore = false;
-    void checkCurrentRBACAuthorizations({
-      requests: checks.map((check) => ({
-        permission: check.permission,
-        scope_key: check.scopeKey ?? "",
-        scope_kind: check.scopeKind ?? "global",
-      })),
-    }).then((result) => {
+    void checkCurrentRBACAuthorizationBatches(checks).then((result) => {
       if (ignore) {
         return;
       }
@@ -108,6 +104,61 @@ export function useCurrentRBACAuthorizations(
     });
     return { ...view, state: effectiveState };
   }, [active, current, effectiveState]);
+}
+
+async function checkCurrentRBACAuthorizationBatches(
+  checks: readonly CurrentRBACAuthorizationCheck[],
+) {
+  const batches = currentRBACAuthorizationCheckBatches(checks);
+  const responses = await Promise.all(
+    batches.map((batch) =>
+      checkCurrentRBACAuthorizations({
+        requests: batch.map((check) => ({
+          permission: check.permission,
+          scope_key: check.scopeKey ?? "",
+          scope_kind: check.scopeKind ?? "global",
+        })),
+      }),
+    ),
+  );
+  const failed = responses.find((response) => !response.ok);
+  if (failed !== undefined && !failed.ok) {
+    return failed;
+  }
+  const successful = responses.filter((response) => response.ok);
+  const [first] = successful;
+  if (first === undefined) {
+    return {
+      ok: true as const,
+      data: {
+        decisions: [],
+        department_keys: [],
+        directory_users: [],
+        subject: "",
+      },
+    };
+  }
+  return {
+    ok: true as const,
+    data: {
+      decisions: successful.flatMap((response) => response.data.decisions),
+      department_keys: first.data.department_keys,
+      directory_users: first.data.directory_users,
+      subject: first.data.subject,
+    },
+  };
+}
+
+export function currentRBACAuthorizationCheckBatches(
+  checks: readonly CurrentRBACAuthorizationCheck[],
+  batchLimit = currentRBACAuthorizationBatchLimit,
+): CurrentRBACAuthorizationCheck[][] {
+  const limit = Math.max(1, Math.floor(batchLimit));
+  const batches: CurrentRBACAuthorizationCheck[][] = [];
+  for (let index = 0; index < checks.length; index += limit) {
+    batches.push([...checks.slice(index, index + limit)]);
+  }
+  return batches;
 }
 
 export function currentRBACAuthorizationsFromState({

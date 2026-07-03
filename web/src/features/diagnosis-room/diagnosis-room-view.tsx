@@ -194,7 +194,6 @@ import {
 } from "./client-api";
 import {
   diagnosisNotificationChannelCreateBlockReason,
-  diagnosisDefaultNotificationChannelProfileID,
   diagnosisNotificationChannelOptions,
   diagnosisNotificationChannelProofSummary,
   diagnosisNotificationChannelSelectionError,
@@ -1433,10 +1432,6 @@ export function DiagnosisRoomView({
     () => diagnosisNotificationChannelOptions(notificationChannels),
     [notificationChannels],
   );
-  const defaultNotificationChannelProfileID = useMemo(
-    () => diagnosisDefaultNotificationChannelProfileID(notificationChannels),
-    [notificationChannels],
-  );
   const notificationChannelSetupAction = useMemo(
     () =>
       diagnosisNotificationChannelSetupAction({
@@ -1795,26 +1790,6 @@ export function DiagnosisRoomView({
     pageContext.evidenceSnapshotID,
     pageContext.sessionID,
     pageContext.suggestedPrompt,
-  ]);
-
-  useEffect(() => {
-    if (defaultNotificationChannelProfileID === undefined) {
-      return;
-    }
-    if (isPositiveSafeInteger(watchedCreateNotificationChannelID)) {
-      return;
-    }
-    if (createForm.isFieldTouched("closeNotificationChannelProfileID")) {
-      return;
-    }
-    createForm.setFieldValue(
-      "closeNotificationChannelProfileID",
-      defaultNotificationChannelProfileID,
-    );
-  }, [
-    createForm,
-    defaultNotificationChannelProfileID,
-    watchedCreateNotificationChannelID,
   ]);
 
   useEffect(() => {

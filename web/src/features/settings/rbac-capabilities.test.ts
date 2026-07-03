@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  currentRBACAuthorizationCheckBatches,
   currentRBACAuthorizationNeedsSignIn,
   currentRBACAuthorizationsFromState,
   currentRBACAuthorizationStateAfterActivationChange,
@@ -8,6 +9,19 @@ import {
 } from "./rbac-capabilities";
 
 describe("current RBAC authorization view", () => {
+  it("chunks current authorization checks below the backend request limit", () => {
+    const checks = Array.from({ length: 53 }, (_, index) => ({
+      key: `check-${index}`,
+      permission: "directory.read" as const,
+    }));
+
+    expect(
+      currentRBACAuthorizationCheckBatches(checks, 50).map(
+        (batch) => batch.length,
+      ),
+    ).toEqual([50, 3]);
+  });
+
   it("does not expose stale permissions when checks are inactive", () => {
     const state: CurrentRBACAuthorizationState = {
       allowed: { "diagnosisRoom.create": true },

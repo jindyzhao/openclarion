@@ -380,6 +380,11 @@ export function ReportWorkflowPolicySettingsManager({
         : "Current user is not authorized to create report workflow policies."
       : currentPolicyManagePermissionBlockReason ||
         policyBindingPermissionBlockReason;
+  const canEditCurrentPolicyForm =
+    authorizationChecking ||
+    (editingID === null
+      ? canCreatePolicy
+      : currentPolicyManagePermissionBlockReason === "");
   const canSaveCurrentPolicy = policySavePermissionBlockReason === "";
   const formPermissionNotice =
     settingsManagePermissionNotice({
@@ -1010,7 +1015,7 @@ export function ReportWorkflowPolicySettingsManager({
               <ReadOnlyModeAlert notice={formPermissionNotice} />
             ) : null}
             <Form<ReportWorkflowPolicyFormState>
-              disabled={busy || !canSaveCurrentPolicy}
+              disabled={busy || !canEditCurrentPolicyForm}
               form={form}
               initialValues={initialFormValues}
               layout="vertical"
