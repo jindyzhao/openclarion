@@ -245,7 +245,7 @@ func (s *Server) IssueDiagnosisWSTicket(w http.ResponseWriter, r *http.Request) 
 	principal, ok := s.authorizeLocalRBACPrincipalForScope(
 		w,
 		r,
-		domain.RBACPermissionDiagnosisRoomParticipate,
+		domain.RBACPermissionDiagnosisRoomRead,
 		domain.RBACScopeKindDiagnosisRoom,
 		sessionID,
 	)

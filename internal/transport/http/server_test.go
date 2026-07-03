@@ -206,7 +206,12 @@ func TestListDirectoryProjectionEndpointsReturnLocalRows(t *testing.T) {
 		}},
 	}
 	authorizer := &fakeRBACAuthorizer{
-		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: now},
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			return rbacusecase.AuthorizeDecision{
+				Allowed:   req.Permission == domain.RBACPermissionDirectoryRead,
+				CheckedAt: now,
+			}, nil
+		},
 	}
 	handler := testHandler(&fakeUOWFactory{configRepo: config}, testLocalRBACOptions(t, "iam-user-1", authorizer)...)
 
@@ -4654,6 +4659,119 @@ func TestCreateReportWorkflowPolicyStoresDisabledDraft(t *testing.T) {
 	}
 }
 
+func TestReplaceReportWorkflowPolicyAuthorizesBindingsBeforeSaving(t *testing.T) {
+	repo := &fakeConfigRepo{
+		alertSourceProfiles:         []domain.AlertSourceProfile{{ID: 1, Enabled: false}},
+		groupingPolicies:            []domain.GroupingPolicy{{ID: 2, Enabled: false}},
+		notificationChannelProfiles: []domain.NotificationChannelProfile{{ID: 3, Enabled: false}},
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{{
+			ID:                   7,
+			Name:                 "Existing report workflow",
+			AlertSourceProfileID: 1,
+			GroupingPolicyID:     2,
+			TriggerMode:          domain.ReportWorkflowTriggerModeManualReplay,
+			ReportScenario:       domain.ReportWorkflowScenarioSingleAlert,
+			DiagnosisFollowUp:    domain.DiagnosisFollowUpModeDisabled,
+		}},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: time.Date(2026, 6, 5, 8, 30, 0, 0, time.UTC)},
+	}
+	body := `{
+		"name":"Updated report workflow",
+		"alert_source_profile_id":1,
+		"grouping_policy_id":2,
+		"report_notification_channel_profile_id":3,
+		"trigger_mode":"manual_replay",
+		"report_scenario":"cascade",
+		"diagnosis_follow_up":"suggest_room"
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPut, "/api/v1/config/report-workflow-policies/7", strings.NewReader(body))
+	addTestLocalRBACAuthorization(req)
+	testHandler(&fakeUOWFactory{configRepo: repo}, testLocalRBACOptions(t, "policy-manager-1", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.updatedReportWorkflowPolicy.ID != 7 ||
+		repo.updatedReportWorkflowPolicy.Name != "Updated report workflow" ||
+		repo.updatedReportWorkflowPolicy.ReportNotificationChannelProfileID != 3 {
+		t.Fatalf("updated policy = %+v", repo.updatedReportWorkflowPolicy)
+	}
+	if len(authorizer.requests) != 4 {
+		t.Fatalf("authorizer requests = %+v, want policy manage plus three binding checks", authorizer.requests)
+	}
+	if authorizer.requests[0].Permission != domain.RBACPermissionReportWorkflowManage ||
+		authorizer.requests[0].ScopeKind != domain.RBACScopeKindReportWorkflow ||
+		authorizer.requests[0].ScopeKey != "7" {
+		t.Fatalf("policy manage request = %+v", authorizer.requests[0])
+	}
+	if authorizer.requests[1].Permission != domain.RBACPermissionAlertSourceRead ||
+		authorizer.requests[1].ScopeKind != domain.RBACScopeKindAlertSource ||
+		authorizer.requests[1].ScopeKey != "1" {
+		t.Fatalf("alert source request = %+v", authorizer.requests[1])
+	}
+	if authorizer.requests[2].Permission != domain.RBACPermissionGroupingPolicyRead ||
+		authorizer.requests[2].ScopeKind != domain.RBACScopeKindGroupingPolicy ||
+		authorizer.requests[2].ScopeKey != "2" {
+		t.Fatalf("grouping policy request = %+v", authorizer.requests[2])
+	}
+	if authorizer.requests[3].Permission != domain.RBACPermissionNotificationChannelTest ||
+		authorizer.requests[3].ScopeKind != domain.RBACScopeKindNotificationChannel ||
+		authorizer.requests[3].ScopeKey != "3" {
+		t.Fatalf("notification channel request = %+v", authorizer.requests[3])
+	}
+}
+
+func TestReplaceReportWorkflowPolicyRejectsUnauthorizedBindings(t *testing.T) {
+	repo := &fakeConfigRepo{
+		alertSourceProfiles:         []domain.AlertSourceProfile{{ID: 1, Enabled: false}},
+		groupingPolicies:            []domain.GroupingPolicy{{ID: 2, Enabled: false}},
+		notificationChannelProfiles: []domain.NotificationChannelProfile{{ID: 3, Enabled: false}},
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{{
+			ID:                   7,
+			Name:                 "Existing report workflow",
+			AlertSourceProfileID: 1,
+			GroupingPolicyID:     2,
+			TriggerMode:          domain.ReportWorkflowTriggerModeManualReplay,
+			ReportScenario:       domain.ReportWorkflowScenarioSingleAlert,
+			DiagnosisFollowUp:    domain.DiagnosisFollowUpModeDisabled,
+		}},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			allowed := req.Permission != domain.RBACPermissionNotificationChannelTest
+			return rbacusecase.AuthorizeDecision{Allowed: allowed}, nil
+		},
+	}
+	body := `{
+		"name":"Updated report workflow",
+		"alert_source_profile_id":1,
+		"grouping_policy_id":2,
+		"report_notification_channel_profile_id":3,
+		"trigger_mode":"manual_replay",
+		"report_scenario":"cascade",
+		"diagnosis_follow_up":"suggest_room"
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPut, "/api/v1/config/report-workflow-policies/7", strings.NewReader(body))
+	addTestLocalRBACAuthorization(req)
+	testHandler(&fakeUOWFactory{configRepo: repo}, testLocalRBACOptions(t, "policy-manager-1", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.updatedReportWorkflowPolicy.ID != 0 {
+		t.Fatalf("policy should not be updated: %+v", repo.updatedReportWorkflowPolicy)
+	}
+	if len(authorizer.requests) != 4 ||
+		authorizer.requests[3].Permission != domain.RBACPermissionNotificationChannelTest ||
+		authorizer.requests[3].ScopeKey != "3" {
+		t.Fatalf("authorizer requests = %+v", authorizer.requests)
+	}
+}
+
 func TestEnableReportWorkflowPolicyRequiresReadyBindings(t *testing.T) {
 	repo := &fakeConfigRepo{
 		alertSourceProfiles: []domain.AlertSourceProfile{{ID: 1, Enabled: false}},
@@ -5335,6 +5453,130 @@ func TestCreateReportWorkflowScheduleStoresSecondsAsDurations(t *testing.T) {
 	}
 	if response.TemporalScheduleID != "openclarion-report-policy-7-daily" || response.Enabled {
 		t.Fatalf("response = %+v", response)
+	}
+}
+
+func TestReplaceReportWorkflowScheduleAuthorizesBoundPolicyBeforeSaving(t *testing.T) {
+	repo := &fakeConfigRepo{
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{{ID: 7}},
+		reportWorkflowSchedules: []domain.ReportWorkflowSchedule{{
+			ID:                     9,
+			Name:                   "Existing daily report window",
+			ReportWorkflowPolicyID: 7,
+			TemporalScheduleID:     "openclarion-report-policy-7-existing",
+			Interval:               24 * time.Hour,
+			Offset:                 0,
+			ReplayWindow:           time.Hour,
+			ReplayDelay:            5 * time.Minute,
+			ReplayLimit:            10000,
+			CatchupWindow:          time.Hour,
+		}},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: time.Date(2026, 6, 6, 3, 0, 0, 0, time.UTC)},
+	}
+	syncer := &recordingReportWorkflowScheduleSyncer{}
+	body := `{
+		"name":"Updated daily report window",
+		"report_workflow_policy_id":7,
+		"temporal_schedule_id":"openclarion-report-policy-7-daily",
+		"interval_seconds":86400,
+		"offset_seconds":21600,
+		"replay_window_seconds":3600,
+		"replay_delay_seconds":300,
+		"replay_limit":10000,
+		"catchup_window_seconds":3600
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPut, "/api/v1/config/report-workflow-schedules/9", strings.NewReader(body))
+	addTestLocalRBACAuthorization(req)
+	testHandler(
+		&fakeUOWFactory{configRepo: repo},
+		append(testLocalRBACOptions(t, "schedule-manager-1", authorizer), WithReportWorkflowScheduleSynchronizer(syncer))...,
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.updatedReportWorkflowSchedule.ID != 9 ||
+		repo.updatedReportWorkflowSchedule.Name != "Updated daily report window" ||
+		repo.updatedReportWorkflowSchedule.ReportWorkflowPolicyID != 7 {
+		t.Fatalf("updated schedule = %+v", repo.updatedReportWorkflowSchedule)
+	}
+	if syncer.calls != 1 || syncer.schedule.ID != 9 {
+		t.Fatalf("syncer = %+v", syncer)
+	}
+	if len(authorizer.requests) != 2 {
+		t.Fatalf("authorizer requests = %+v, want schedule manage and policy manage", authorizer.requests)
+	}
+	if authorizer.requests[0].Permission != domain.RBACPermissionReportWorkflowManage ||
+		authorizer.requests[0].ScopeKind != domain.RBACScopeKindReportWorkflowSchedule ||
+		authorizer.requests[0].ScopeKey != "9" {
+		t.Fatalf("schedule manage request = %+v", authorizer.requests[0])
+	}
+	if authorizer.requests[1].Permission != domain.RBACPermissionReportWorkflowManage ||
+		authorizer.requests[1].ScopeKind != domain.RBACScopeKindReportWorkflow ||
+		authorizer.requests[1].ScopeKey != "7" {
+		t.Fatalf("policy manage request = %+v", authorizer.requests[1])
+	}
+}
+
+func TestReplaceReportWorkflowScheduleRejectsUnauthorizedPolicyBinding(t *testing.T) {
+	repo := &fakeConfigRepo{
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{{ID: 7}},
+		reportWorkflowSchedules: []domain.ReportWorkflowSchedule{{
+			ID:                     9,
+			Name:                   "Existing daily report window",
+			ReportWorkflowPolicyID: 7,
+			TemporalScheduleID:     "openclarion-report-policy-7-existing",
+			Interval:               24 * time.Hour,
+			Offset:                 0,
+			ReplayWindow:           time.Hour,
+			ReplayDelay:            5 * time.Minute,
+			ReplayLimit:            10000,
+			CatchupWindow:          time.Hour,
+		}},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			allowed := req.ScopeKind == domain.RBACScopeKindReportWorkflowSchedule && req.ScopeKey == "9"
+			return rbacusecase.AuthorizeDecision{Allowed: allowed}, nil
+		},
+	}
+	syncer := &recordingReportWorkflowScheduleSyncer{}
+	body := `{
+		"name":"Updated daily report window",
+		"report_workflow_policy_id":7,
+		"temporal_schedule_id":"openclarion-report-policy-7-daily",
+		"interval_seconds":86400,
+		"offset_seconds":21600,
+		"replay_window_seconds":3600,
+		"replay_delay_seconds":300,
+		"replay_limit":10000,
+		"catchup_window_seconds":3600
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPut, "/api/v1/config/report-workflow-schedules/9", strings.NewReader(body))
+	addTestLocalRBACAuthorization(req)
+	testHandler(
+		&fakeUOWFactory{configRepo: repo},
+		append(testLocalRBACOptions(t, "schedule-manager-1", authorizer), WithReportWorkflowScheduleSynchronizer(syncer))...,
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.updatedReportWorkflowSchedule.ID != 0 {
+		t.Fatalf("schedule should not be updated: %+v", repo.updatedReportWorkflowSchedule)
+	}
+	if syncer.calls != 0 {
+		t.Fatalf("sync calls = %d, want 0", syncer.calls)
+	}
+	if len(authorizer.requests) != 2 ||
+		authorizer.requests[1].Permission != domain.RBACPermissionReportWorkflowManage ||
+		authorizer.requests[1].ScopeKind != domain.RBACScopeKindReportWorkflow ||
+		authorizer.requests[1].ScopeKey != "7" {
+		t.Fatalf("authorizer requests = %+v", authorizer.requests)
 	}
 }
 
@@ -7994,7 +8236,12 @@ func TestIssueDiagnosisWSTicketAuthenticatesAndIssuesTicket(t *testing.T) {
 	})
 	configRepo := &fakeConfigRepo{}
 	authorizer := &fakeRBACAuthorizer{
-		result: rbacusecase.AuthorizeDecision{Allowed: true, CheckedAt: now},
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			return rbacusecase.AuthorizeDecision{
+				Allowed:   req.Permission == domain.RBACPermissionDiagnosisRoomRead,
+				CheckedAt: now,
+			}, nil
+		},
 	}
 	resolver := &fakeDiagnosisSessionResolver{
 		sessions: map[string]diagnosisauth.SessionRef{
@@ -8022,7 +8269,7 @@ func TestIssueDiagnosisWSTicketAuthenticatesAndIssuesTicket(t *testing.T) {
 		t.Fatalf("resolver called=%d session=%q", resolver.called, resolver.sessionID)
 	}
 	if authorizer.called != 1 ||
-		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomParticipate ||
+		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomRead ||
 		authorizer.req.ScopeKind != domain.RBACScopeKindDiagnosisRoom ||
 		authorizer.req.ScopeKey != "session-1" ||
 		authorizer.req.Principal.Subject != "responder-1" {
@@ -8254,11 +8501,23 @@ func TestCreateDiagnosisRoomAuthenticatesAndStartsRoom(t *testing.T) {
 	if authProvider.Calls("Bearer oidc-token") != 1 {
 		t.Fatalf("auth calls = %d, want 1", authProvider.Calls("Bearer oidc-token"))
 	}
-	if authorizer.called != 1 ||
-		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomParticipate ||
-		authorizer.req.ScopeKind != domain.RBACScopeKindGlobal ||
-		authorizer.req.ScopeKey != "" {
-		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
+	if len(authorizer.requests) != 3 {
+		t.Fatalf("authorizer requests = %+v, want participate, operations read, channel test", authorizer.requests)
+	}
+	if authorizer.requests[0].Permission != domain.RBACPermissionDiagnosisRoomParticipate ||
+		authorizer.requests[0].ScopeKind != domain.RBACScopeKindGlobal ||
+		authorizer.requests[0].ScopeKey != "" {
+		t.Fatalf("participate request = %+v", authorizer.requests[0])
+	}
+	if authorizer.requests[1].Permission != domain.RBACPermissionOperationsRead ||
+		authorizer.requests[1].ScopeKind != domain.RBACScopeKindGlobal ||
+		authorizer.requests[1].ScopeKey != "" {
+		t.Fatalf("operations read request = %+v", authorizer.requests[1])
+	}
+	if authorizer.requests[2].Permission != domain.RBACPermissionNotificationChannelTest ||
+		authorizer.requests[2].ScopeKind != domain.RBACScopeKindNotificationChannel ||
+		authorizer.requests[2].ScopeKey != "5" {
+		t.Fatalf("notification channel request = %+v", authorizer.requests[2])
 	}
 	if starter.called != 1 ||
 		starter.req.EvidenceSnapshotID != 42 ||
@@ -8277,6 +8536,83 @@ func TestCreateDiagnosisRoomAuthenticatesAndStartsRoom(t *testing.T) {
 		body.WorkflowID != "diagnosis-room-diagnosis-session-1" ||
 		body.RunID != "run-1" {
 		t.Fatalf("response = %+v", body)
+	}
+}
+
+func TestCreateDiagnosisRoomRequiresEvidenceReadAccess(t *testing.T) {
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Bearer oidc-token": {
+			{Principal: ports.AuthPrincipal{Subject: "responder-1"}},
+		},
+	})
+	authorizer := &fakeRBACAuthorizer{
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			return rbacusecase.AuthorizeDecision{
+				Allowed: req.Permission == domain.RBACPermissionDiagnosisRoomParticipate,
+			}, nil
+		},
+	}
+	starter := &fakeDiagnosisRoomStarter{}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/rooms", strings.NewReader(`{"evidence_snapshot_id":42}`))
+	req.Header.Set("Authorization", "Bearer oidc-token")
+	testHandler(
+		&fakeUOWFactory{configRepo: &fakeConfigRepo{}},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("D", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}),
+		WithRBACAuthorizer(authorizer),
+		WithDiagnosisRoomStarter(starter),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", rec.Code, rec.Body.String())
+	}
+	if starter.called != 0 {
+		t.Fatalf("starter called=%d, want 0", starter.called)
+	}
+	if len(authorizer.requests) != 2 ||
+		authorizer.requests[0].Permission != domain.RBACPermissionDiagnosisRoomParticipate ||
+		authorizer.requests[1].Permission != domain.RBACPermissionOperationsRead {
+		t.Fatalf("authorizer requests = %+v", authorizer.requests)
+	}
+}
+
+func TestCreateDiagnosisRoomRequiresNotificationChannelAccess(t *testing.T) {
+	authProvider := authfake.New(map[string][]authfake.Result{
+		"Bearer oidc-token": {
+			{Principal: ports.AuthPrincipal{Subject: "operator-1"}},
+		},
+	})
+	authorizer := &fakeRBACAuthorizer{
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			allowed := req.Permission == domain.RBACPermissionDiagnosisRoomParticipate ||
+				req.Permission == domain.RBACPermissionOperationsRead
+			return rbacusecase.AuthorizeDecision{Allowed: allowed}, nil
+		},
+	}
+	starter := &fakeDiagnosisRoomStarter{}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/rooms", strings.NewReader(`{"evidence_snapshot_id":42,"close_notification_channel_profile_id":5}`))
+	req.Header.Set("Authorization", "Bearer oidc-token")
+	testHandler(
+		&fakeUOWFactory{configRepo: &fakeConfigRepo{}},
+		WithDiagnosisAuth(authProvider, newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("D", diagnosisauth.DefaultTokenBytes))), &fakeDiagnosisSessionResolver{}),
+		WithRBACAuthorizer(authorizer),
+		WithDiagnosisRoomStarter(starter),
+	).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", rec.Code, rec.Body.String())
+	}
+	if starter.called != 0 {
+		t.Fatalf("starter called=%d, want 0", starter.called)
+	}
+	if len(authorizer.requests) != 3 ||
+		authorizer.requests[2].Permission != domain.RBACPermissionNotificationChannelTest ||
+		authorizer.requests[2].ScopeKind != domain.RBACScopeKindNotificationChannel ||
+		authorizer.requests[2].ScopeKey != "5" {
+		t.Fatalf("authorizer requests = %+v", authorizer.requests)
 	}
 }
 

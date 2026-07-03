@@ -19,13 +19,22 @@ func (s *Server) CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis room starter is not configured", nil)
 		return
 	}
-	principal, ok := s.authorizeLocalRBACPrincipal(w, r, domain.RBACPermissionDiagnosisRoomParticipate)
+	principal, rbacPrincipal, ok := s.authorizeLocalRBACPrincipalsForScope(
+		w,
+		r,
+		domain.RBACPermissionDiagnosisRoomParticipate,
+		domain.RBACScopeKindGlobal,
+		"",
+	)
 	if !ok {
 		return
 	}
 	body, err := decodeDiagnosisRoomCreateRequest(w, r)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if !s.authorizeDiagnosisRoomCreateBindings(w, r, rbacPrincipal, body) {
 		return
 	}
 	result, err := s.roomStarter.Start(r.Context(), diagnosisroomstart.Request{
@@ -62,6 +71,39 @@ func diagnosisRoomCreateNotificationChannelProfileID(body api.DiagnosisRoomCreat
 		return 0
 	}
 	return domain.NotificationChannelProfileID(*body.CloseNotificationChannelProfileID)
+}
+
+func (s *Server) authorizeDiagnosisRoomCreateBindings(
+	w http.ResponseWriter,
+	r *http.Request,
+	principal domain.RBACPrincipal,
+	body api.DiagnosisRoomCreateRequest,
+) bool {
+	if allowed, ok := s.authorizeResolvedLocalRBACPrincipalForScope(
+		w,
+		r,
+		principal,
+		domain.RBACPermissionOperationsRead,
+		domain.RBACScopeKindGlobal,
+		"",
+		true,
+	); !ok || !allowed {
+		return false
+	}
+	channelID := diagnosisRoomCreateNotificationChannelProfileID(body)
+	if channelID == 0 {
+		return true
+	}
+	allowed, ok := s.authorizeResolvedLocalRBACPrincipalForScope(
+		w,
+		r,
+		principal,
+		domain.RBACPermissionNotificationChannelTest,
+		domain.RBACScopeKindNotificationChannel,
+		rbacResourceScopeKey(int64(channelID)),
+		true,
+	)
+	return ok && allowed
 }
 
 func diagnosisRoomCreateResponse(result diagnosisroomstart.Result) api.DiagnosisRoomCreateResponse {

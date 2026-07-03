@@ -69,9 +69,20 @@ func (s *Server) authorizeLocalRBACPrincipalForScope(
 	scopeKind domain.RBACScopeKind,
 	scopeKey string,
 ) (ports.AuthPrincipal, bool) {
+	principal, _, ok := s.authorizeLocalRBACPrincipalsForScope(w, r, permission, scopeKind, scopeKey)
+	return principal, ok
+}
+
+func (s *Server) authorizeLocalRBACPrincipalsForScope(
+	w http.ResponseWriter,
+	r *http.Request,
+	permission domain.RBACPermission,
+	scopeKind domain.RBACScopeKind,
+	scopeKey string,
+) (ports.AuthPrincipal, domain.RBACPrincipal, bool) {
 	principal, rbacPrincipal, ok := s.resolveLocalRBACPrincipal(w, r)
 	if !ok {
-		return ports.AuthPrincipal{}, false
+		return ports.AuthPrincipal{}, domain.RBACPrincipal{}, false
 	}
 	allowed, ok := s.authorizeResolvedLocalRBACPrincipalForScope(
 		w,
@@ -83,9 +94,9 @@ func (s *Server) authorizeLocalRBACPrincipalForScope(
 		true,
 	)
 	if !ok || !allowed {
-		return ports.AuthPrincipal{}, false
+		return ports.AuthPrincipal{}, domain.RBACPrincipal{}, false
 	}
-	return principal, true
+	return principal, rbacPrincipal, true
 }
 
 func (s *Server) resolveLocalRBACPrincipal(

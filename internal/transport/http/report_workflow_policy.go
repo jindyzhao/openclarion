@@ -100,7 +100,14 @@ func (s *Server) ReplaceReportWorkflowPolicy(w http.ResponseWriter, r *http.Requ
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "policy_id must be positive", nil)
 		return
 	}
-	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionReportWorkflowManage, domain.RBACScopeKindReportWorkflow, rbacResourceScopeKey(policyID)) {
+	_, rbacPrincipal, ok := s.authorizeLocalRBACPrincipalsForScope(
+		w,
+		r,
+		domain.RBACPermissionReportWorkflowManage,
+		domain.RBACScopeKindReportWorkflow,
+		rbacResourceScopeKey(policyID),
+	)
+	if !ok {
 		return
 	}
 	body, err := decodeReportWorkflowPolicyWriteRequest(w, r)
@@ -117,6 +124,9 @@ func (s *Server) ReplaceReportWorkflowPolicy(w http.ResponseWriter, r *http.Requ
 	req, err := reportWorkflowPolicyWriteRequest(body)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if !s.authorizeReportWorkflowPolicyBindings(w, r, rbacPrincipal, req) {
 		return
 	}
 	saved, err := svc.Replace(r.Context(), domain.ReportWorkflowPolicyID(policyID), req)
@@ -353,6 +363,12 @@ func reportWorkflowPolicyWriteRequest(body api.ReportWorkflowPolicyWriteRequest)
 	if err != nil {
 		return reportworkflowpolicy.WriteRequest{}, err
 	}
+	if body.AlertSourceProfileID <= 0 {
+		return reportworkflowpolicy.WriteRequest{}, errors.New("alert_source_profile_id must be positive")
+	}
+	if body.GroupingPolicyID <= 0 {
+		return reportworkflowpolicy.WriteRequest{}, errors.New("grouping_policy_id must be positive")
+	}
 	return reportworkflowpolicy.WriteRequest{
 		Name:                               body.Name,
 		AlertSourceProfileID:               domain.AlertSourceProfileID(body.AlertSourceProfileID),
@@ -362,6 +378,56 @@ func reportWorkflowPolicyWriteRequest(body api.ReportWorkflowPolicyWriteRequest)
 		ReportScenario:                     domain.ReportWorkflowScenario(derefString(body.ReportScenario)),
 		DiagnosisFollowUp:                  domain.DiagnosisFollowUpMode(derefString(body.DiagnosisFollowUp)),
 	}, nil
+}
+
+func (s *Server) authorizeReportWorkflowPolicyBindings(
+	w http.ResponseWriter,
+	r *http.Request,
+	principal domain.RBACPrincipal,
+	req reportworkflowpolicy.WriteRequest,
+) bool {
+	checks := []struct {
+		permission domain.RBACPermission
+		scopeKind  domain.RBACScopeKind
+		scopeKey   string
+	}{
+		{
+			permission: domain.RBACPermissionAlertSourceRead,
+			scopeKind:  domain.RBACScopeKindAlertSource,
+			scopeKey:   rbacResourceScopeKey(int64(req.AlertSourceProfileID)),
+		},
+		{
+			permission: domain.RBACPermissionGroupingPolicyRead,
+			scopeKind:  domain.RBACScopeKindGroupingPolicy,
+			scopeKey:   rbacResourceScopeKey(int64(req.GroupingPolicyID)),
+		},
+	}
+	if req.ReportNotificationChannelProfileID > 0 {
+		checks = append(checks, struct {
+			permission domain.RBACPermission
+			scopeKind  domain.RBACScopeKind
+			scopeKey   string
+		}{
+			permission: domain.RBACPermissionNotificationChannelTest,
+			scopeKind:  domain.RBACScopeKindNotificationChannel,
+			scopeKey:   rbacResourceScopeKey(int64(req.ReportNotificationChannelProfileID)),
+		})
+	}
+	for _, check := range checks {
+		allowed, ok := s.authorizeResolvedLocalRBACPrincipalForScope(
+			w,
+			r,
+			principal,
+			check.permission,
+			check.scopeKind,
+			check.scopeKey,
+			true,
+		)
+		if !ok || !allowed {
+			return false
+		}
+	}
+	return true
 }
 
 func reportWorkflowImpactDraftRequest(body api.ReportWorkflowPolicyWriteRequest) (reportworkflowimpact.DraftRequest, error) {
