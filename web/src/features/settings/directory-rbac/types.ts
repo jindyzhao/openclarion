@@ -2,6 +2,7 @@ import type { components } from "@/lib/api/openapi";
 
 export type DirectorySyncRequest =
   components["schemas"]["DirectorySyncRequest"];
+export type DirectorySyncRequestBody = Partial<DirectorySyncRequest>;
 export type DirectorySyncResponse =
   components["schemas"]["DirectorySyncResponse"];
 export type DirectorySyncRun = components["schemas"]["DirectorySyncRun"];

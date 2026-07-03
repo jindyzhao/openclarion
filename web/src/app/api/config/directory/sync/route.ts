@@ -1,5 +1,5 @@
 import { syncDirectoryProjection } from "@/features/settings/directory-rbac/api";
-import type { DirectorySyncRequest } from "@/features/settings/directory-rbac/types";
+import type { DirectorySyncRequestBody } from "@/features/settings/directory-rbac/types";
 import {
   diagnosisAuthorizationHeaders,
   protectedApiResultResponse,
@@ -13,7 +13,10 @@ export async function POST(request: Request) {
   if (!headers.ok) {
     return apiResultResponse(headers);
   }
-  const body = await readOptionalRequestJSON<DirectorySyncRequest>(request, {});
+  const body = await readOptionalRequestJSON<DirectorySyncRequestBody>(
+    request,
+    {},
+  );
   if (!body.ok) {
     return apiResultResponse(body);
   }

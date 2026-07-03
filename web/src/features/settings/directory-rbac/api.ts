@@ -6,7 +6,7 @@ import {
 
 import type {
   DirectoryDepartmentListResponse,
-  DirectorySyncRequest,
+  DirectorySyncRequestBody,
   DirectorySyncResponse,
   DirectorySyncRunListResponse,
   DirectoryUserListResponse,
@@ -25,7 +25,7 @@ export type DirectoryListOptions = {
 };
 
 export async function syncDirectoryProjection(
-  body: DirectorySyncRequest,
+  body: DirectorySyncRequestBody,
   options: Pick<RequestJSONOptions, "headers"> = {},
 ): Promise<ApiResult<DirectorySyncResponse>> {
   return requestJSON<DirectorySyncResponse>("/api/v1/config/directory/sync", {
