@@ -155,11 +155,11 @@ export function diagnosisNotificationChannelCreateBlockReason({
   channels: NotificationChannelProfile[];
   failedToLoad?: boolean;
 }): string {
+  if (channelID === null || channelID === undefined) {
+    return "";
+  }
   if (failedToLoad) {
     return "Load notification channels before creating a diagnosis room with Enterprise WeChat delivery.";
-  }
-  if (channelID === null || channelID === undefined) {
-    return "Select a ready Enterprise WeChat notification channel before creating a diagnosis room.";
   }
   return diagnosisNotificationChannelSelectionError(channelID, channels);
 }

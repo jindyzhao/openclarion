@@ -152,7 +152,7 @@ describe("diagnosis notification channel options", () => {
     );
   });
 
-  it("requires a ready Enterprise WeChat channel before room creation", () => {
+  it("allows room creation without a notification channel and validates selected channels", () => {
     const ready = channel({
       delivery_scopes: ["diagnosis_consultation", "diagnosis_close"],
       enabled: true,
@@ -172,9 +172,7 @@ describe("diagnosis notification channel options", () => {
         channelID: undefined,
         channels: [ready],
       }),
-    ).toBe(
-      "Select a ready Enterprise WeChat notification channel before creating a diagnosis room.",
-    );
+    ).toBe("");
     expect(
       diagnosisNotificationChannelCreateBlockReason({
         channelID: 3,
@@ -187,6 +185,13 @@ describe("diagnosis notification channel options", () => {
         channels: [ready, disabled],
       }),
     ).toBe("Selected notification channel is not ready: disabled.");
+    expect(
+      diagnosisNotificationChannelCreateBlockReason({
+        channelID: undefined,
+        channels: [ready],
+        failedToLoad: true,
+      }),
+    ).toBe("");
     expect(
       diagnosisNotificationChannelCreateBlockReason({
         channelID: 3,

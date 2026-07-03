@@ -49,6 +49,11 @@ import {
   useCurrentRBACAuthorizations,
   type CurrentRBACAuthorizationCheck
 } from "../rbac-capabilities";
+import {
+  reportWorkflowScheduleManageKey,
+  reportWorkflowSchedulePolicyAuthorizationChecks,
+  reportWorkflowSchedulePolicyPermissionBlockReason
+} from "./rbac-gates";
 import type {
   ReportWorkflowPolicy,
   ReportWorkflowPolicyListResponse
@@ -154,9 +159,14 @@ export function ReportWorkflowScheduleSettingsManager({
         permission: "report_workflow.manage" as const,
         scopeKey: String(schedule.id),
         scopeKind: "report_workflow_schedule" as const
-      }))
+      })),
+      ...reportWorkflowSchedulePolicyAuthorizationChecks(
+        reportWorkflowPoliciesResult.ok
+          ? reportWorkflowPoliciesResult.data.items.map((policy) => policy.id)
+          : []
+      )
     ],
-    [schedules]
+    [reportWorkflowPoliciesResult, schedules]
   );
   const currentAuthorization = useCurrentRBACAuthorizations(authorizationChecks, clientReady);
   const busy =
@@ -167,20 +177,53 @@ export function ReportWorkflowScheduleSettingsManager({
     enablementAction.isPending;
   const canReadSchedules = currentAuthorization.can("reportWorkflowRead");
   const canCreateSchedule = currentAuthorization.can("reportWorkflowManage");
-  const canSaveCurrentSchedule =
-    editingID === null ? canCreateSchedule : currentAuthorization.can(reportWorkflowScheduleManageKey(editingID));
+  const selectedReportWorkflowPolicyID = Form.useWatch("reportWorkflowPolicyID", form) ?? null;
+  const authorizationChecking = !clientReady || currentAuthorization.isChecking;
+  const currentScheduleManagePermissionBlockReason = authorizationChecking
+    ? ""
+    : editingID === null || currentAuthorization.can(reportWorkflowScheduleManageKey(editingID))
+      ? ""
+      : `Current user is not authorized to manage report workflow schedule #${editingID}.`;
+  const schedulePolicyPermissionBlockReason =
+    authorizationChecking
+      ? ""
+      : reportWorkflowSchedulePolicyPermissionBlockReason({
+          can: currentAuthorization.can,
+          editingScheduleID: editingID,
+          reportWorkflowPolicyID: selectedReportWorkflowPolicyID
+        });
+  const scheduleSavePermissionBlockReason =
+    authorizationChecking
+      ? ""
+      : editingID === null
+        ? canCreateSchedule
+          ? ""
+          : "Current user is not authorized to create report workflow schedules."
+        : currentScheduleManagePermissionBlockReason ||
+          schedulePolicyPermissionBlockReason;
+  const canSaveCurrentSchedule = scheduleSavePermissionBlockReason === "";
   const formPermissionNotice = settingsManagePermissionNotice({
-    canManage: canSaveCurrentSchedule,
-    isChecking: !clientReady || currentAuthorization.isChecking,
+    canManage:
+      scheduleSavePermissionBlockReason ===
+      "Current user is not authorized to create report workflow schedules."
+        ? false
+        : currentScheduleManagePermissionBlockReason === "",
+    isChecking: authorizationChecking,
     resourceLabel:
       editingID === null
         ? "report workflow schedule creation"
         : `report workflow schedule #${editingID}`,
-  });
+  }) ??
+    (schedulePolicyPermissionBlockReason === ""
+      ? null
+      : {
+          kind: "warning" as const,
+          message: schedulePolicyPermissionBlockReason
+        });
   const readPermissionNotice = settingsReadPermissionNotice({
     canRead: canReadSchedules,
     errorStatus,
-    isChecking: !clientReady || currentAuthorization.isChecking,
+    isChecking: authorizationChecking,
     resourceLabel: "report workflow schedules",
   });
   const visibleNotice =
@@ -206,6 +249,15 @@ export function ReportWorkflowScheduleSettingsManager({
   }
 
   async function handleSubmit(values: ReportWorkflowScheduleFormState) {
+    if (!canSaveCurrentSchedule) {
+      setNotice({
+        kind: "warning",
+        message:
+          scheduleSavePermissionBlockReason ||
+          "You are not authorized to save this schedule."
+      });
+      return;
+    }
     const parsed = formStateToWriteRequest(values);
     if (!parsed.ok) {
       setNotice({ kind: "error", message: parsed.message });
@@ -681,10 +733,6 @@ function enabledLabel(enabled: boolean): string {
 
 function relationLabel(labels: Record<number, string>, id: number, fallback: string): string {
   return labels[id] ?? fallback;
-}
-
-function reportWorkflowScheduleManageKey(scheduleID: number): string {
-  return `reportWorkflowScheduleManage:${scheduleID}`;
 }
 
 type ReportWorkflowScheduleTableProps = {

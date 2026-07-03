@@ -54,6 +54,12 @@ import {
   useCurrentRBACAuthorizations,
   type CurrentRBACAuthorizationCheck,
 } from "../rbac-capabilities";
+import {
+  reportWorkflowPolicyBindingPermissionBlockReason,
+  reportWorkflowPolicyManageKey,
+  reportWorkflowPolicyReadKey,
+  reportWorkflowPolicyRelationAuthorizationChecks,
+} from "./rbac-gates";
 import type {
   AlertSourceKind,
   AlertSourceLabels,
@@ -275,8 +281,24 @@ export function ReportWorkflowPolicySettingsManager({
           scopeKind: "report_workflow" as const,
         },
       ]),
+      ...reportWorkflowPolicyRelationAuthorizationChecks({
+        alertSourceProfileIDs: alertSourcesResult.ok
+          ? alertSourcesResult.data.items.map((source) => source.id)
+          : [],
+        groupingPolicyIDs: groupingPoliciesResult.ok
+          ? groupingPoliciesResult.data.items.map((policy) => policy.id)
+          : [],
+        notificationChannelProfileIDs: notificationChannelsResult.ok
+          ? notificationChannelsResult.data.items.map((channel) => channel.id)
+          : [],
+      }),
     ],
-    [policies],
+    [
+      alertSourcesResult,
+      groupingPoliciesResult,
+      notificationChannelsResult,
+      policies,
+    ],
   );
   const currentAuthorization = useCurrentRBACAuthorizations(
     authorizationChecks,
@@ -293,27 +315,14 @@ export function ReportWorkflowPolicySettingsManager({
     impactingID !== null;
   const canReadPolicies = currentAuthorization.can("reportWorkflowRead");
   const canCreatePolicy = currentAuthorization.can("reportWorkflowManage");
-  const canSaveCurrentPolicy =
-    editingID === null
-      ? canCreatePolicy
-      : currentAuthorization.can(reportWorkflowPolicyManageKey(editingID));
   const canPreviewDraftImpact = currentAuthorization.can("reportWorkflowManage");
-  const formPermissionNotice = settingsManagePermissionNotice({
-    canManage: canSaveCurrentPolicy,
-    isChecking: !clientReady || currentAuthorization.isChecking,
-    resourceLabel:
-      editingID === null
-        ? "report workflow policy creation"
-        : `report workflow policy #${editingID}`,
-  });
+  const authorizationChecking = !clientReady || currentAuthorization.isChecking;
   const readPermissionNotice = settingsReadPermissionNotice({
     canRead: canReadPolicies,
     errorStatus,
-    isChecking: !clientReady || currentAuthorization.isChecking,
+    isChecking: authorizationChecking,
     resourceLabel: "report workflow policies",
   });
-  const visibleNotice =
-    currentAuthorization.notice ?? readPermissionNotice ?? notice;
   const relationOptions = useMemo(
     () =>
       buildRelationOptions(
@@ -345,6 +354,54 @@ export function ReportWorkflowPolicySettingsManager({
     "reportNotificationChannelProfileID",
     form,
   );
+  const currentPolicyManagePermissionBlockReason = authorizationChecking
+    ? ""
+    : editingID === null ||
+        currentAuthorization.can(reportWorkflowPolicyManageKey(editingID))
+      ? ""
+      : `Current user is not authorized to manage report workflow policy #${editingID}.`;
+  const policyBindingPermissionBlockReason =
+    authorizationChecking
+      ? ""
+      : reportWorkflowPolicyBindingPermissionBlockReason({
+          alertSourceProfileID: selectedAlertSourceID,
+          can: currentAuthorization.can,
+          editingPolicyID: editingID,
+          groupingPolicyID: selectedGroupingPolicyID,
+          reportNotificationChannelProfileID:
+            selectedReportNotificationChannelProfileID,
+        });
+  const policySavePermissionBlockReason =
+    authorizationChecking
+      ? ""
+      : editingID === null
+      ? canCreatePolicy
+        ? ""
+        : "Current user is not authorized to create report workflow policies."
+      : currentPolicyManagePermissionBlockReason ||
+        policyBindingPermissionBlockReason;
+  const canSaveCurrentPolicy = policySavePermissionBlockReason === "";
+  const formPermissionNotice =
+    settingsManagePermissionNotice({
+      canManage:
+        policySavePermissionBlockReason ===
+        "Current user is not authorized to create report workflow policies."
+          ? false
+          : currentPolicyManagePermissionBlockReason === "",
+      isChecking: authorizationChecking,
+      resourceLabel:
+        editingID === null
+          ? "report workflow policy creation"
+          : `report workflow policy #${editingID}`,
+    }) ??
+    (policyBindingPermissionBlockReason === ""
+      ? null
+      : {
+          kind: "warning" as const,
+          message: policyBindingPermissionBlockReason,
+        });
+  const visibleNotice =
+    currentAuthorization.notice ?? readPermissionNotice ?? notice;
   const alertSourceIngressReadiness = useMemo(
     () =>
       alertSourceIngressReadinessForSelection({
@@ -600,7 +657,12 @@ export function ReportWorkflowPolicySettingsManager({
 
   async function handleSubmit(values: ReportWorkflowPolicyFormState) {
     if (!canSaveCurrentPolicy) {
-      setNotice({ kind: "warning", message: "You are not authorized to save this policy." });
+      setNotice({
+        kind: "warning",
+        message:
+          policySavePermissionBlockReason ||
+          "You are not authorized to save this policy.",
+      });
       return;
     }
     const parsed = formStateToWriteRequest(values);
@@ -1506,14 +1568,6 @@ function relationLabel(
   fallback: string,
 ): string {
   return labels[id] ?? fallback;
-}
-
-function reportWorkflowPolicyReadKey(policyID: number): string {
-  return `reportWorkflowPolicyRead:${policyID}`;
-}
-
-function reportWorkflowPolicyManageKey(policyID: number): string {
-  return `reportWorkflowPolicyManage:${policyID}`;
 }
 
 function WorkflowReadinessPanel({

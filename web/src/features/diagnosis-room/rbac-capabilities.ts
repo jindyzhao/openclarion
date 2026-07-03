@@ -1,6 +1,8 @@
 import type { CurrentRBACAuthorizationCheck } from "@/features/settings/rbac-capabilities";
 
 export const diagnosisRoomCreateAuthorizationKey = "diagnosisRoom.create";
+export const diagnosisRoomCreateOperationsReadAuthorizationKey =
+  "diagnosisRoom.create.operationsRead";
 
 type DiagnosisRoomRBACAction =
   | "administer"
@@ -40,15 +42,40 @@ export function diagnosisRoomAdministerAuthorizationKey(
   return `diagnosisRoom.${sessionID}.administer`;
 }
 
+export function diagnosisRoomCreateNotificationChannelAuthorizationKey(
+  channelID: number,
+): string {
+  return `diagnosisRoom.create.notificationChannel:${channelID}`;
+}
+
 export function diagnosisRoomRBACAuthorizationChecks(
   sessionIDs: readonly string[],
+  options: {
+    closeNotificationChannelProfileID?: number | null;
+  } = {},
 ): CurrentRBACAuthorizationCheck[] {
   const checks: CurrentRBACAuthorizationCheck[] = [
     {
       key: diagnosisRoomCreateAuthorizationKey,
       permission: "diagnosis_room.participate",
     },
+    {
+      key: diagnosisRoomCreateOperationsReadAuthorizationKey,
+      permission: "operations.read",
+    },
   ];
+  const closeNotificationChannelProfileID =
+    positiveIntegerOrNull(options.closeNotificationChannelProfileID);
+  if (closeNotificationChannelProfileID !== null) {
+    checks.push({
+      key: diagnosisRoomCreateNotificationChannelAuthorizationKey(
+        closeNotificationChannelProfileID,
+      ),
+      permission: "notification_channel.test",
+      scopeKey: String(closeNotificationChannelProfileID),
+      scopeKind: "notification_channel",
+    });
+  }
   const seen = new Set<string>();
   for (const sessionID of sessionIDs) {
     const normalized = sessionID.trim();
@@ -81,11 +108,13 @@ export function diagnosisRoomRBACAuthorizationChecks(
 }
 
 export function diagnosisRoomRBACPermissionItems({
+  closeNotificationChannelProfileID,
   can,
   checking,
   enforced,
   sessionID,
 }: {
+  closeNotificationChannelProfileID?: number | null;
   can: (key: string) => boolean;
   checking: boolean;
   enforced: boolean;
@@ -108,12 +137,100 @@ export function diagnosisRoomRBACPermissionItems({
         selected: true,
       }),
     },
+    {
+      action: "create",
+      key: diagnosisRoomCreateOperationsReadAuthorizationKey,
+      label: "Read evidence snapshots",
+      permission: "operations.read" as CurrentRBACAuthorizationCheck["permission"],
+      scopeLabel: "Global",
+      status: diagnosisRoomRBACPermissionStatus({
+        can,
+        checking,
+        enforced,
+        key: diagnosisRoomCreateOperationsReadAuthorizationKey,
+        selected: true,
+      }),
+    },
+    ...diagnosisRoomCreateNotificationChannelPermissionItems({
+      can,
+      checking,
+      closeNotificationChannelProfileID,
+      enforced,
+    }),
     ...diagnosisRoomScopedPermissionItems({
       can,
       checking,
       enforced,
       sessionID: normalizedSessionID,
     }),
+  ];
+}
+
+export function canCreateDiagnosisRoomByRBAC({
+  can,
+  closeNotificationChannelProfileID,
+  enforced,
+}: {
+  can: (key: string) => boolean;
+  closeNotificationChannelProfileID?: number | null;
+  enforced: boolean;
+}): boolean {
+  if (!enforced) {
+    return true;
+  }
+  return diagnosisRoomCreateAuthorizationKeys({
+    closeNotificationChannelProfileID,
+  }).every((key) => can(key));
+}
+
+function diagnosisRoomCreateAuthorizationKeys({
+  closeNotificationChannelProfileID,
+}: {
+  closeNotificationChannelProfileID?: number | null;
+}): string[] {
+  const keys = [
+    diagnosisRoomCreateAuthorizationKey,
+    diagnosisRoomCreateOperationsReadAuthorizationKey,
+  ];
+  const channelID = positiveIntegerOrNull(closeNotificationChannelProfileID);
+  if (channelID !== null) {
+    keys.push(diagnosisRoomCreateNotificationChannelAuthorizationKey(channelID));
+  }
+  return keys;
+}
+
+function diagnosisRoomCreateNotificationChannelPermissionItems({
+  can,
+  checking,
+  closeNotificationChannelProfileID,
+  enforced,
+}: {
+  can: (key: string) => boolean;
+  checking: boolean;
+  closeNotificationChannelProfileID?: number | null;
+  enforced: boolean;
+}): DiagnosisRoomRBACPermissionItem[] {
+  const channelID = positiveIntegerOrNull(closeNotificationChannelProfileID);
+  if (channelID === null) {
+    return [];
+  }
+  const key = diagnosisRoomCreateNotificationChannelAuthorizationKey(channelID);
+  return [
+    {
+      action: "create",
+      key,
+      label: "Use close channel",
+      permission:
+        "notification_channel.test" as CurrentRBACAuthorizationCheck["permission"],
+      scopeLabel: `Notification channel #${channelID}`,
+      status: diagnosisRoomRBACPermissionStatus({
+        can,
+        checking,
+        enforced,
+        key,
+        selected: true,
+      }),
+    },
   ];
 }
 
@@ -195,6 +312,17 @@ function diagnosisRoomRBACPermissionStatus({
     return "checking";
   }
   return can(key) ? "allowed" : "denied";
+}
+
+function positiveIntegerOrNull(value: number | null | undefined): number | null {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value <= 0
+  ) {
+    return null;
+  }
+  return value;
 }
 
 export function diagnosisRoomRBACBlockReason({

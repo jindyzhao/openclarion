@@ -259,8 +259,8 @@ import {
 } from "./supplemental-evidence";
 import { diagnosisReportReturnHref } from "./report-return";
 import {
+  canCreateDiagnosisRoomByRBAC,
   diagnosisRoomAdministerAuthorizationKey,
-  diagnosisRoomCreateAuthorizationKey,
   diagnosisRoomParticipateAuthorizationKey,
   diagnosisRoomRBACAuthorizationChecks,
   diagnosisRoomRBACBlockReason,
@@ -1331,8 +1331,11 @@ export function DiagnosisRoomView({
     return [...sessionIDs];
   }, [recentRoomsQuery.data, selectedSessionID]);
   const diagnosisRoomAuthorizationChecks = useMemo(
-    () => diagnosisRoomRBACAuthorizationChecks(diagnosisRBACSessionIDs),
-    [diagnosisRBACSessionIDs],
+    () =>
+      diagnosisRoomRBACAuthorizationChecks(diagnosisRBACSessionIDs, {
+        closeNotificationChannelProfileID: watchedCreateNotificationChannelID,
+      }),
+    [diagnosisRBACSessionIDs, watchedCreateNotificationChannelID],
   );
   const diagnosisRoomAuthorization = useCurrentRBACAuthorizations(
     diagnosisRoomAuthorizationChecks,
@@ -1345,9 +1348,12 @@ export function DiagnosisRoomView({
     diagnosisBrowserSessionQuery.data.data.authenticated;
   const diagnosisRoomAuthorizationChecking =
     diagnosisRoomAuthorizationEnforced && diagnosisRoomAuthorization.isChecking;
-  const canCreateDiagnosisRoomByRBAC =
-    !diagnosisRoomAuthorizationEnforced ||
-    diagnosisRoomAuthorization.can(diagnosisRoomCreateAuthorizationKey);
+  const canCreateDiagnosisRoom =
+    canCreateDiagnosisRoomByRBAC({
+      can: diagnosisRoomAuthorization.can,
+      closeNotificationChannelProfileID: watchedCreateNotificationChannelID,
+      enforced: diagnosisRoomAuthorizationEnforced,
+    });
   const canReadSelectedRoomByRBAC =
     selectedSessionID.trim() !== "" &&
     (!diagnosisRoomAuthorizationEnforced ||
@@ -1368,7 +1374,7 @@ export function DiagnosisRoomView({
       ));
   const createRBACBlockReason = diagnosisRoomRBACBlockReason({
     action: "create",
-    allowed: canCreateDiagnosisRoomByRBAC,
+    allowed: canCreateDiagnosisRoom,
     checking: diagnosisRoomAuthorizationChecking,
     enforced: diagnosisRoomAuthorizationEnforced,
   });
@@ -3518,6 +3524,7 @@ export function DiagnosisRoomView({
   const roomPermissionItems = diagnosisRoomRBACPermissionItems({
     can: diagnosisRoomAuthorization.can,
     checking: diagnosisRoomAuthorizationChecking,
+    closeNotificationChannelProfileID: watchedCreateNotificationChannelID,
     enforced: diagnosisRoomAuthorizationEnforced,
     sessionID: selectedSessionID,
   });
