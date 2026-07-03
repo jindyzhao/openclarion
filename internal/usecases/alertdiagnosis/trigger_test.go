@@ -64,6 +64,7 @@ func TestTriggerStartsRoomsOnlyForAutoRoomPolicies(t *testing.T) {
 		AlertSourceProfileID: sourceID,
 		WindowStart:          windowStart,
 		WindowEnd:            windowStart.Add(time.Minute),
+		AlertEventIDs:        []domain.AlertEventID{101, 102},
 		Limit:                100,
 	})
 	if err != nil {
@@ -85,7 +86,10 @@ func TestTriggerStartsRoomsOnlyForAutoRoomPolicies(t *testing.T) {
 		len(gotReplay.SourceFilter) != 1 ||
 		gotReplay.SourceFilter[0] != "alertmanager" ||
 		len(gotReplay.AlertSourceProfileFilter) != 1 ||
-		gotReplay.AlertSourceProfileFilter[0] != sourceID {
+		gotReplay.AlertSourceProfileFilter[0] != sourceID ||
+		len(gotReplay.AlertEventIDFilter) != 2 ||
+		gotReplay.AlertEventIDFilter[0] != 101 ||
+		gotReplay.AlertEventIDFilter[1] != 102 {
 		t.Fatalf("replay request = %+v", gotReplay)
 	}
 	if len(starter.requests) != 1 {

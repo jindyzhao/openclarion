@@ -5,6 +5,7 @@ package diagnosisroom
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -44,6 +45,17 @@ const (
 	DefaultMaxMessageBytes = 8 * 1024
 	// DefaultMaxAutoEvidenceFollowUps is the default automatic follow-up cap.
 	DefaultMaxAutoEvidenceFollowUps = 1
+)
+
+var (
+	// ErrDuplicateMessageID classifies a submit-turn rejection caused by a
+	// previously accepted message_id. Delivery callbacks may acknowledge this as
+	// idempotent success.
+	ErrDuplicateMessageID = errors.New("diagnosis room: duplicate message id")
+	// ErrTurnInFlight classifies a submit-turn rejection caused by another turn
+	// already running. Callers must not acknowledge a different new message as a
+	// duplicate in this state.
+	ErrTurnInFlight = errors.New("diagnosis room: turn in flight")
 )
 
 // Policy is the M5 V1 blast-radius boundary for one diagnosis room.
@@ -159,9 +171,6 @@ func ValidateSubmitTurn(policy Policy, state SessionState, req SubmitTurnRequest
 	if err := ValidatePolicy(policy); err != nil {
 		return Decision{}, err
 	}
-	if err := validateState(policy, state, req.Now); err != nil {
-		return Decision{}, err
-	}
 	messageID := strings.TrimSpace(req.MessageID)
 	if messageID == "" {
 		return Decision{}, fmt.Errorf("diagnosis room turn: message_id must be non-empty: %w", domain.ErrInvariantViolation)
@@ -170,7 +179,10 @@ func ValidateSubmitTurn(policy Policy, state SessionState, req SubmitTurnRequest
 		return Decision{}, fmt.Errorf("diagnosis room turn: message_id must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
 	}
 	if _, exists := state.SeenMessageIDs[messageID]; exists {
-		return Decision{}, fmt.Errorf("diagnosis room turn: duplicate message_id %q: %w", messageID, domain.ErrAlreadyExists)
+		return Decision{}, fmt.Errorf("diagnosis room turn: duplicate message_id %q: %w: %w", messageID, ErrDuplicateMessageID, domain.ErrAlreadyExists)
+	}
+	if err := validateState(policy, state, req.Now); err != nil {
+		return Decision{}, err
 	}
 	if strings.TrimSpace(req.Message) == "" {
 		return Decision{}, fmt.Errorf("diagnosis room turn: message must be non-empty: %w", domain.ErrInvariantViolation)
@@ -220,7 +232,7 @@ func validateState(policy Policy, state SessionState, now time.Time) error {
 		return fmt.Errorf("diagnosis room state: max turns %d reached: %w", policy.MaxTurns, domain.ErrInvariantViolation)
 	}
 	if state.InFlight {
-		return fmt.Errorf("diagnosis room state: turn already in progress: %w", domain.ErrAlreadyExists)
+		return fmt.Errorf("diagnosis room state: turn already in progress: %w: %w", ErrTurnInFlight, domain.ErrAlreadyExists)
 	}
 	return nil
 }

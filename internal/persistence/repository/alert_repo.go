@@ -122,6 +122,55 @@ func (r *alertRepo) FindEventByNaturalKey(ctx context.Context, source, canonical
 	return alertEventToDomain(row), nil
 }
 
+// ListEventsByNaturalKeys returns AlertEvents matching exact scoped natural
+// keys. The OR-of-ANDs predicate keeps the full unique key in SQL before the
+// result cap is applied.
+func (r *alertRepo) ListEventsByNaturalKeys(ctx context.Context, keys []ports.AlertEventNaturalKey, limit int) ([]domain.AlertEvent, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list events by natural keys: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	predicates := make([]predicate.AlertEvent, 0, len(keys))
+	seen := make(map[ports.AlertEventNaturalKey]struct{}, len(keys))
+	for i, key := range keys {
+		normalised, err := normaliseAlertEventNaturalKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("list events by natural keys: key[%d]: %w", i, err)
+		}
+		if _, ok := seen[normalised]; ok {
+			continue
+		}
+		seen[normalised] = struct{}{}
+		predicates = append(predicates, alertevent.And(
+			alertevent.AlertSourceProfileIDEQ(int(normalised.AlertSourceProfileID)),
+			alertevent.SourceEQ(normalised.Source),
+			alertevent.CanonicalFingerprintEQ(normalised.CanonicalFingerprint),
+			alertevent.StartsAtEQ(normalised.StartsAt),
+		))
+	}
+	if len(predicates) == 0 {
+		return nil, nil
+	}
+	rows, err := r.tx.AlertEvent.Query().
+		Where(alertevent.Or(predicates...)).
+		Order(alertevent.ByStartsAt(), alertevent.ByID()).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list events by natural keys: %w", err)
+	}
+	out := make([]domain.AlertEvent, len(rows))
+	for i, row := range rows {
+		out[i] = alertEventToDomain(row)
+	}
+	return out, nil
+}
+
 // ListEventsByStartsAtRange returns AlertEvents whose StartsAt falls
 // in the half-open interval [startInclusive, endExclusive), ordered
 // by (starts_at ASC, id ASC), capped by limit.
@@ -244,6 +293,36 @@ func alertEventPredicates(filter ports.AlertEventFilter) ([]predicate.AlertEvent
 		}
 	}
 	return predicates, nil
+}
+
+func normaliseAlertEventNaturalKey(key ports.AlertEventNaturalKey) (ports.AlertEventNaturalKey, error) {
+	if key.AlertSourceProfileID < 0 {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("alert source profile id %d must be non-negative: %w", key.AlertSourceProfileID, domain.ErrInvariantViolation)
+	}
+	source := strings.TrimSpace(key.Source)
+	if source == "" {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("source must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if source != key.Source {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("source must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
+	}
+	canonical := strings.TrimSpace(key.CanonicalFingerprint)
+	if canonical == "" {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("canonical fingerprint must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if canonical != key.CanonicalFingerprint {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("canonical fingerprint must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
+	}
+	startsAt := domain.NormalizeUTCMicro(key.StartsAt)
+	if startsAt.IsZero() {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("starts_at must be set: %w", domain.ErrInvariantViolation)
+	}
+	return ports.AlertEventNaturalKey{
+		AlertSourceProfileID: key.AlertSourceProfileID,
+		Source:               source,
+		CanonicalFingerprint: canonical,
+		StartsAt:             startsAt,
+	}, nil
 }
 
 func positiveAlertEventIDs(ids []domain.AlertEventID) []int {

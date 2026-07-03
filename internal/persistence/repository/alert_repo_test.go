@@ -107,6 +107,66 @@ func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 	})
 }
 
+func TestAlertRepository_ListEventsByNaturalKeysMatchesFullScopedKey(t *testing.T) {
+	resetDB(t)
+	startsAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	events := []domain.AlertEvent{
+		mustNewAlertEvent(t, "prometheus", "fp-1", "canon-A", startsAt),
+		mustNewAlertEvent(t, "prometheus", "fp-2", "canon-B", startsAt),
+		mustNewAlertEvent(t, "prometheus", "fp-3", "canon-A", startsAt.Add(time.Microsecond)),
+	}
+	for i := range events {
+		var err error
+		events[i], err = events[i].WithAlertSourceProfile(7)
+		if err != nil {
+			t.Fatalf("WithAlertSourceProfile event[%d]: %v", i, err)
+		}
+	}
+	otherProfile := mustNewAlertEvent(t, "prometheus", "fp-4", "canon-A", startsAt)
+	otherProfile, err := otherProfile.WithAlertSourceProfile(8)
+	if err != nil {
+		t.Fatalf("WithAlertSourceProfile other profile: %v", err)
+	}
+	events = append(events, otherProfile)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for i := range events {
+			if _, err := uow.Alerts().SaveEvent(ctx, events[i]); err != nil {
+				t.Fatalf("SaveEvent[%d]: %v", i, err)
+			}
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		rows, err := uow.Alerts().ListEventsByNaturalKeys(ctx, []ports.AlertEventNaturalKey{
+			{
+				AlertSourceProfileID: 7,
+				Source:               "prometheus",
+				CanonicalFingerprint: "canon-A",
+				StartsAt:             startsAt,
+			},
+			{
+				AlertSourceProfileID: 7,
+				Source:               "prometheus",
+				CanonicalFingerprint: "canon-A",
+				StartsAt:             startsAt.Add(time.Microsecond),
+			},
+		}, 3)
+		if err != nil {
+			t.Fatalf("ListEventsByNaturalKeys: %v", err)
+		}
+		if len(rows) != 2 ||
+			rows[0].AlertSourceProfileID != 7 ||
+			rows[0].CanonicalFingerprint != "canon-A" ||
+			!rows[0].StartsAt.Equal(domain.NormalizeUTCMicro(startsAt)) ||
+			rows[1].AlertSourceProfileID != 7 ||
+			rows[1].CanonicalFingerprint != "canon-A" ||
+			!rows[1].StartsAt.Equal(domain.NormalizeUTCMicro(startsAt.Add(time.Microsecond))) {
+			t.Fatalf("rows = %+v, want only exact profile/fingerprint/start matches", rows)
+		}
+	})
+}
+
 func TestAlertRepository_SaveEvent_DuplicateNaturalKey(t *testing.T) {
 	resetDB(t)
 	startsAt := time.Date(2026, 5, 22, 11, 0, 0, 0, time.UTC)

@@ -15,6 +15,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/providers/im/wecomcallback"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -192,6 +193,14 @@ func (s *Service) HandleMessage(ctx context.Context, req Request) (Result, error
 		ActorSubject: actorSubject,
 		Message:      content,
 	}); err != nil {
+		if errors.Is(err, diagnosisroom.ErrDuplicateMessageID) {
+			return Result{
+				Status:       StatusSubmitted,
+				SessionID:    sessionID,
+				MessageID:    messageID,
+				ActorSubject: actorSubject,
+			}, nil
+		}
 		return Result{}, fmt.Errorf("diagnosis wecom callback: submit turn: %w", err)
 	}
 	return Result{

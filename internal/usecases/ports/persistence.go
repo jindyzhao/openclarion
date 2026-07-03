@@ -101,6 +101,13 @@ type AlertRepository interface {
 	// when no such row exists.
 	FindEventByNaturalKey(ctx context.Context, source, canonicalFingerprint string, startsAt time.Time) (domain.AlertEvent, error)
 
+	// ListEventsByNaturalKeys returns AlertEvents matching the exact natural keys
+	// after normalising starts_at to UTC microsecond precision. Empty keys return
+	// an empty result. Non-empty keys require limit > 0 and apply the full
+	// (alert_source_profile_id, source, canonical_fingerprint, starts_at)
+	// predicate before ordering and limiting.
+	ListEventsByNaturalKeys(ctx context.Context, keys []AlertEventNaturalKey, limit int) ([]domain.AlertEvent, error)
+
 	// ListEventsByStartsAtRange returns AlertEvents whose StartsAt
 	// falls in the half-open interval [startInclusive, endExclusive),
 	// ordered by (starts_at ASC, id ASC) for replay determinism, and
@@ -222,6 +229,16 @@ type AlertEventFilter struct {
 	IDs                   []domain.AlertEventID
 	Sources               []string
 	AlertSourceProfileIDs []domain.AlertSourceProfileID
+}
+
+// AlertEventNaturalKey is the scoped AlertEvent uniqueness key used by
+// webhook-style intake to resolve rows that were just persisted without scanning
+// unrelated events in the same timestamp window.
+type AlertEventNaturalKey struct {
+	AlertSourceProfileID domain.AlertSourceProfileID
+	Source               string
+	CanonicalFingerprint string
+	StartsAt             time.Time
 }
 
 // DiagnosisRepository covers DiagnosisTask plus append-only

@@ -146,10 +146,15 @@ func (s *Service) Ingest(ctx context.Context, req Request) (Result, error) {
 		return result, err
 	}
 	if s.autoDiagnosisTrigger != nil && !decoded.windowStart.IsZero() && !decoded.windowEnd.IsZero() {
+		alertEventIDs, rerr := s.resolveWebhookAlertEventIDs(ctx, decoded.alerts)
+		if rerr != nil {
+			return result, rerr
+		}
 		triggered, terr := s.autoDiagnosisTrigger.Trigger(ctx, alertdiagnosis.Request{
 			AlertSourceProfileID: req.ProfileID,
 			WindowStart:          decoded.windowStart,
 			WindowEnd:            decoded.windowEnd,
+			AlertEventIDs:        alertEventIDs,
 			Limit:                maxWebhookAlertEntries,
 		})
 		result.AutoDiagnosis = &triggered
@@ -158,6 +163,64 @@ func (s *Service) Ingest(ctx context.Context, req Request) (Result, error) {
 		}
 	}
 	return result, nil
+}
+
+func (s *Service) resolveWebhookAlertEventIDs(ctx context.Context, alerts []ports.ActiveAlert) ([]domain.AlertEventID, error) {
+	keys := make([]ports.AlertEventNaturalKey, 0, len(alerts))
+	seen := make(map[ports.AlertEventNaturalKey]struct{}, len(alerts))
+	for i, alert := range alerts {
+		_, canonical, err := alertingest.EventFingerprints(alert.Labels)
+		if err != nil {
+			return nil, fmt.Errorf("alertmanager webhook: build alert event key for alert[%d]: %w", i, err)
+		}
+		key := ports.AlertEventNaturalKey{
+			Source:               alert.Source,
+			AlertSourceProfileID: alert.AlertSourceProfileID,
+			CanonicalFingerprint: canonical,
+			StartsAt:             domain.NormalizeUTCMicro(alert.StartsAt),
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+
+	ids := make([]domain.AlertEventID, 0, len(keys))
+	err := s.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		rows, err := uow.Alerts().ListEventsByNaturalKeys(ctx, keys, len(keys)+1)
+		if err != nil {
+			return err
+		}
+		if len(rows) > len(keys) {
+			return fmt.Errorf("alertmanager webhook: natural-key lookup returned more rows than requested: %w", domain.ErrInvariantViolation)
+		}
+		byKey := make(map[ports.AlertEventNaturalKey]domain.AlertEventID, len(rows))
+		for _, row := range rows {
+			key := ports.AlertEventNaturalKey{
+				Source:               row.Source,
+				AlertSourceProfileID: row.AlertSourceProfileID,
+				CanonicalFingerprint: row.CanonicalFingerprint,
+				StartsAt:             domain.NormalizeUTCMicro(row.StartsAt),
+			}
+			byKey[key] = row.ID
+		}
+		for _, key := range keys {
+			id := byKey[key]
+			if id <= 0 {
+				return fmt.Errorf("alertmanager webhook: persisted alert event was not found after ingest: %w", domain.ErrInvariantViolation)
+			}
+			ids = append(ids, id)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("alertmanager webhook: resolve ingested alert events: %w", err)
+	}
+	return ids, nil
 }
 
 func (s *Service) loadProfile(ctx context.Context, id domain.AlertSourceProfileID) (domain.AlertSourceProfile, error) {

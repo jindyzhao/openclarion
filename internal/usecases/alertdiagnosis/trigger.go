@@ -36,6 +36,7 @@ type Request struct {
 	AlertSourceProfileID domain.AlertSourceProfileID
 	WindowStart          time.Time
 	WindowEnd            time.Time
+	AlertEventIDs        []domain.AlertEventID
 	Limit                int
 }
 
@@ -153,6 +154,7 @@ func (s *Service) Trigger(ctx context.Context, req Request) (Result, error) {
 			WindowStart:              req.WindowStart,
 			WindowEnd:                req.WindowEnd,
 			Grouping:                 groupingConfig(binding.grouping),
+			AlertEventIDFilter:       append([]domain.AlertEventID(nil), req.AlertEventIDs...),
 			SourceFilter:             append([]string(nil), binding.grouping.SourceFilter...),
 			AlertSourceProfileFilter: []domain.AlertSourceProfileID{req.AlertSourceProfileID},
 			CreatedByWorkflow:        CreatedByWorkflow,
@@ -383,6 +385,11 @@ func validateRequest(req Request) error {
 	}
 	if req.Limit <= 0 {
 		return fmt.Errorf("alert diagnosis: limit must be > 0: %w", domain.ErrInvariantViolation)
+	}
+	for _, id := range req.AlertEventIDs {
+		if id <= 0 {
+			return fmt.Errorf("alert diagnosis: alert_event_ids must contain positive ids: %w", domain.ErrInvariantViolation)
+		}
 	}
 	return nil
 }

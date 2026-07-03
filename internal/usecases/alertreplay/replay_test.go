@@ -437,6 +437,66 @@ func TestReplayPersistedWindowForReport_AlertEventIDFilterAppliedBeforeLimit(t *
 	}
 }
 
+func TestReplayPersistedWindowForReport_IDFilterDoesNotShrinkExistingGroup(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	batch := seedAlerts("Selected", 2, windowStart, 0, time.Minute, "warning")
+	if _, err := alertingest.IngestAlerts(ctx, batch, integration.factory); err != nil {
+		t.Fatalf("IngestAlerts: %v", err)
+	}
+	first, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, defaultRequest(windowStart, windowEnd))
+	if err != nil {
+		t.Fatalf("first ReplayPersistedWindowForReport: %v", err)
+	}
+	if first.Stats.GroupsSaved != 1 || first.Stats.SnapshotsSaved != 1 || len(first.Snapshots) != 1 || first.Snapshots[0].EventCount != 2 {
+		t.Fatalf("first result = %+v, want one two-event snapshot", first)
+	}
+	events, err := integration.client.AlertEvent.Query().
+		Order(alertevent.ByID()).
+		All(ctx)
+	if err != nil {
+		t.Fatalf("list alert events: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %d, want 2", len(events))
+	}
+
+	req := defaultRequest(windowStart, windowEnd)
+	req.AlertEventIDFilter = []domain.AlertEventID{domain.AlertEventID(events[0].ID)}
+	second, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, req)
+	if err != nil {
+		t.Fatalf("second ReplayPersistedWindowForReport: %v", err)
+	}
+	if second.Stats.EventsLoaded != 1 ||
+		second.Stats.GroupsBuilt != 1 ||
+		second.Stats.GroupsExisting != 1 ||
+		second.Stats.SnapshotsDuplicate != 1 ||
+		len(second.Snapshots) != 1 ||
+		second.Snapshots[0].EventCount != 2 {
+		t.Fatalf("second result = %+v, want duplicate snapshot over existing two-event group", second)
+	}
+	groups, err := integration.client.AlertGroup.Query().All(ctx)
+	if err != nil {
+		t.Fatalf("list alert groups: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("alert groups = %d, want 1", len(groups))
+	}
+	wantLastSeen := domain.NormalizeUTCMicro(batch[1].StartsAt)
+	if groups[0].EventCount != 2 || !groups[0].LastSeenAt.Equal(wantLastSeen) {
+		t.Fatalf("group = event_count:%d last_seen:%s, want event_count=2 last_seen=%s", groups[0].EventCount, groups[0].LastSeenAt, wantLastSeen)
+	}
+	if got := countEvidenceSnapshots(ctx, t); got != 1 {
+		t.Fatalf("evidence_snapshot count = %d, want duplicate replay to reuse existing snapshot", got)
+	}
+	if got := countEventGroupLinks(ctx, t); got != 2 {
+		t.Fatalf("alert_event_groups count = %d, want both original events still linked", got)
+	}
+}
+
 func TestReplayWindow_SourceFilterExcludesNonMatchingEventsFromGrouping(t *testing.T) {
 	resetDB(t)
 	ctx := context.Background()
