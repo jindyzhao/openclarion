@@ -248,6 +248,7 @@ import {
 import {
   operatorEvidenceTemplateHasParameterizedQuery,
   operatorEvidenceTemplateQuery,
+  operatorEvidenceTemplateSourceDisabledReason,
 } from "./operator-evidence";
 import {
   supplementalEvidencePriorityFromText,
@@ -10771,10 +10772,18 @@ function operatorEvidenceRecommendation(
     ...operatorEvidenceFormValuesFromTemplate(template),
     ...(queryResult.query !== undefined ? { query: queryResult.query } : {}),
   };
-  const disabledReason =
+  const sourceDisabledReason = operatorEvidenceTemplateSourceDisabledReason(
+    template,
+    alertSourceProfileID,
+  );
+  const disabledReason = [
     queryResult.missing.length > 0
       ? `Missing ${queryResult.missing.join(", ")} in the current alert context.`
-      : "";
+      : "",
+    sourceDisabledReason,
+  ]
+    .filter((reason) => reason !== "")
+    .join(" ");
   const ready = disabledReason === "";
   return {
     detail: operatorEvidenceRecommendationDetail(

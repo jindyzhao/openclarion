@@ -1167,7 +1167,9 @@ function pendingDiagnosisEvidenceRequests(
   requests: DiagnosisEvidenceRequest[],
   results: DiagnosisEvidenceCollectionResult[]
 ): DiagnosisEvidenceRequest[] {
-  const resultKeys = new Set(results.map((result) => evidenceRequestIdentity(collectionResultRequest(result))));
+  const resultKeys = new Set(
+    results.flatMap(collectionResultEvidenceRequestIdentities)
+  );
   const pending = new Map<string, DiagnosisEvidenceRequest>();
   for (const request of requests) {
     const key = evidenceRequestIdentity(request);
@@ -1177,6 +1179,15 @@ function pendingDiagnosisEvidenceRequests(
     pending.set(key, request);
   }
   return [...pending.values()];
+}
+
+function collectionResultEvidenceRequestIdentities(
+  result: DiagnosisEvidenceCollectionResult
+): string[] {
+  return [
+    evidenceRequestIdentity(result.request),
+    evidenceRequestIdentity(collectionResultRequest(result))
+  ];
 }
 
 function executableEvidenceQueueItem(

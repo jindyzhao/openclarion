@@ -501,6 +501,48 @@ describe("diagnosis review queue", () => {
     ]);
   });
 
+  it("matches planned evidence against original collection result requests", () => {
+    const originalRequest = {
+      alert_source_profile_id: 7,
+      query: "sum(rate(container_cpu_usage_seconds_total[5m]))",
+      reason: "Read namespace CPU saturation",
+      template_id: 42,
+      tool: "metric_range_query"
+    };
+    const input = {
+      canConfirmConclusion: true,
+      collectionResults: [
+        evidenceResult({
+          alert_source_profile_id: 7,
+          limit: 5,
+          request: originalRequest,
+          status: "collected",
+          step_seconds: 60,
+          template_id: 42,
+          tool: "metric_range_query",
+          window_seconds: 3600
+        })
+      ],
+      conclusionStatus: "ready_for_review",
+      evidenceCollectionSuggestions: [],
+      evidenceRequests: [originalRequest],
+      missingEvidenceRequests: [],
+      requiresHumanReview: true
+    };
+    const items = diagnosisReviewQueueItems(input);
+    const summary = diagnosisReviewQueueSummary(items, input);
+
+    expect(items.map((item) => item.kind)).toEqual([
+      "confirm",
+      "collection_result"
+    ]);
+    expect(summary).toMatchObject({
+      blockingReason: "",
+      canConfirm: true,
+      pending: 0
+    });
+  });
+
   it("adds a pending executable collection item when planned evidence is not collected", () => {
     const input = {
       canConfirmConclusion: false,

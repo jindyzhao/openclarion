@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   operatorEvidenceTemplateHasParameterizedQuery,
   operatorEvidenceTemplateQuery,
+  operatorEvidenceTemplateSourceDisabledReason,
   safeOperatorEvidencePlaceholderValue,
 } from "./operator-evidence";
 import type { DiagnosisToolKind, DiagnosisToolTemplate } from "@/features/settings/diagnosis-tool-templates/types";
@@ -81,17 +82,42 @@ describe("operator evidence template query", () => {
       ),
     ).toBe(false);
   });
+
+  it("disables templates outside the current alert source scope", () => {
+    expect(
+      operatorEvidenceTemplateSourceDisabledReason(
+        diagnosisToolTemplate({ query_template: "", sourceProfileID: 2 }),
+        7,
+      ),
+    ).toBe("Template source #2 is outside the current alert source #7.");
+
+    expect(
+      operatorEvidenceTemplateSourceDisabledReason(
+        diagnosisToolTemplate({ query_template: "", sourceProfileID: 7 }),
+        7,
+      ),
+    ).toBe("");
+
+    expect(
+      operatorEvidenceTemplateSourceDisabledReason(
+        diagnosisToolTemplate({ query_template: "", sourceProfileID: 2 }),
+        0,
+      ),
+    ).toBe("");
+  });
 });
 
 function diagnosisToolTemplate({
   query_template,
+  sourceProfileID = 2,
   tool = "metric_range_query",
 }: {
   query_template: string;
+  sourceProfileID?: number;
   tool?: DiagnosisToolKind;
 }): DiagnosisToolTemplate {
   return {
-    alert_source_profile_id: 2,
+    alert_source_profile_id: sourceProfileID,
     created_at: "2026-06-20T08:00:00Z",
     default_limit: 5,
     default_step_seconds: tool === "metric_range_query" ? 60 : 0,

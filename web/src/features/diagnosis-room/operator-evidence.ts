@@ -60,6 +60,19 @@ export function operatorEvidenceTemplateQuery(
   return { missing: uniqueOperatorEvidenceStrings(missing), query };
 }
 
+export function operatorEvidenceTemplateSourceDisabledReason(
+  template: Pick<DiagnosisToolTemplate, "alert_source_profile_id">,
+  alertSourceProfileID: number,
+): string {
+  if (alertSourceProfileID <= 0) {
+    return "";
+  }
+  if (template.alert_source_profile_id === alertSourceProfileID) {
+    return "";
+  }
+  return `Template source #${template.alert_source_profile_id} is outside the current alert source #${alertSourceProfileID}.`;
+}
+
 export function safeOperatorEvidencePlaceholderValue(value: string): boolean {
   if (new TextEncoder().encode(value).length > maxPlaceholderValueBytes) {
     return false;
