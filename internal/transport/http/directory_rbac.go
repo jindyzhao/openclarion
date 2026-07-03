@@ -31,9 +31,10 @@ type RBACAuthorizer interface {
 const maxRBACCurrentAuthorizationRequests = 50
 
 // WithDirectorySyncer enables local directory projection sync actions.
-func WithDirectorySyncer(syncer DirectorySyncer) ServerOption {
+func WithDirectorySyncer(syncer DirectorySyncer, provider ...string) ServerOption {
 	return func(s *Server) {
 		s.directorySyncer = syncer
+		s.directorySyncProvider = firstNonEmptyString(provider...)
 	}
 }
 
@@ -78,7 +79,7 @@ func (s *Server) SyncDirectory(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	result, err := s.directorySyncer.Sync(r.Context(), directorySyncRequest(body))
+	result, err := s.directorySyncer.Sync(r.Context(), directorySyncRequest(body, s.directorySyncProvider))
 	if errors.Is(err, domain.ErrInvariantViolation) {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
 		return
@@ -436,12 +437,24 @@ func decodeDirectorySyncRequest(w http.ResponseWriter, r *http.Request) (api.Dir
 	return body, nil
 }
 
-func directorySyncRequest(body api.DirectorySyncRequest) directorysync.SyncRequest {
-	req := directorysync.SyncRequest{UpdatedAfter: body.UpdatedAfter}
+func directorySyncRequest(body api.DirectorySyncRequest, provider string) directorysync.SyncRequest {
+	req := directorysync.SyncRequest{
+		Provider:     strings.TrimSpace(provider),
+		UpdatedAfter: body.UpdatedAfter,
+	}
 	if body.PageSize != nil {
 		req.PageSize = *body.PageSize
 	}
 	return req
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func decodeRBACAssignmentWriteRequest(w http.ResponseWriter, r *http.Request) (api.RBACAssignmentWriteRequest, error) {

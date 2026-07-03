@@ -81,6 +81,7 @@ type Server struct {
 	alertSourceTester          AlertSourceConnectionTester
 	channelTester              NotificationChannelTester
 	directorySyncer            DirectorySyncer
+	directorySyncProvider      string
 	rbacAuthorizer             RBACAuthorizer
 	rbacBootstrapAdminSubjects map[string]bool
 	roomVisibility             ports.DiagnosisRoomWorkflowVisibilityLookup

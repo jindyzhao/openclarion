@@ -104,6 +104,43 @@ describe("report notification retry route", () => {
     expect(headers.get("cookie")).toBeNull();
   });
 
+  it("accepts an empty retry body and forwards the default override object", async () => {
+    const response = await POST(
+      new Request("https://console.example.com/api/reports/11/notification/retry", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer token-1",
+        },
+      }),
+      { params: Promise.resolve({ reportId: "11" }) },
+    );
+
+    expect(response.status).toBe(200);
+    const fetchMock = vi.mocked(fetch);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+    expect(init.body).toBe("{}");
+  });
+
+  it("accepts a whitespace-only retry body and forwards the default override object", async () => {
+    const response = await POST(
+      new Request("https://console.example.com/api/reports/11/notification/retry", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer token-1",
+        },
+        body: "  \n",
+      }),
+      { params: Promise.resolve({ reportId: "11" }) },
+    );
+
+    expect(response.status).toBe(200);
+    const fetchMock = vi.mocked(fetch);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+    expect(init.body).toBe("{}");
+  });
+
   it("rejects invalid report IDs before contacting the backend", async () => {
     const response = await POST(
       new Request("https://console.example.com/api/reports/not-a-number/notification/retry", {

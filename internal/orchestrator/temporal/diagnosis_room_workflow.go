@@ -1359,6 +1359,9 @@ func validateManualEvidenceRequest(index int, req diagnosisroom.EvidenceRequest)
 	if req.Limit < 0 {
 		return fmt.Errorf("diagnosis room collect evidence: requests[%d].limit must be non-negative", index)
 	}
+	if err := validateManualEvidenceLimit(index, req); err != nil {
+		return err
+	}
 	switch req.Tool {
 	case "active_alerts":
 		if req.Query != "" || req.WindowSeconds != 0 || req.StepSeconds != 0 {
@@ -1378,8 +1381,41 @@ func validateManualEvidenceRequest(index int, req diagnosisroom.EvidenceRequest)
 		if req.TemplateID == 0 && (req.WindowSeconds <= 0 || req.StepSeconds <= 0) {
 			return fmt.Errorf("diagnosis room collect evidence: requests[%d] metric_range_query requires window_seconds and step_seconds without template_id", index)
 		}
+		if req.WindowSeconds != 0 || req.StepSeconds != 0 {
+			if err := validateManualEvidenceRange(index, req.WindowSeconds, req.StepSeconds); err != nil {
+				return err
+			}
+		}
 	default:
 		return fmt.Errorf("diagnosis room collect evidence: requests[%d].tool is unsupported", index)
+	}
+	return nil
+}
+
+func validateManualEvidenceLimit(index int, req diagnosisroom.EvidenceRequest) error {
+	if req.Limit == 0 {
+		return nil
+	}
+	maximum, ok := diagnosisroom.EvidenceRequestLimitMaximum(req.Tool)
+	if !ok {
+		return nil
+	}
+	if req.Limit > maximum {
+		return fmt.Errorf("diagnosis room collect evidence: requests[%d].limit must be between 1 and %d", index, maximum)
+	}
+	return nil
+}
+
+func validateManualEvidenceRange(index int, windowSeconds int, stepSeconds int) error {
+	minimum, maximum := diagnosisroom.EvidenceRequestRangeSecondsBounds()
+	if windowSeconds < minimum || windowSeconds > maximum {
+		return fmt.Errorf("diagnosis room collect evidence: requests[%d].window_seconds must be between %d and %d", index, minimum, maximum)
+	}
+	if stepSeconds < minimum || stepSeconds > maximum {
+		return fmt.Errorf("diagnosis room collect evidence: requests[%d].step_seconds must be between %d and %d", index, minimum, maximum)
+	}
+	if stepSeconds > windowSeconds {
+		return fmt.Errorf("diagnosis room collect evidence: requests[%d].step_seconds must not exceed window_seconds", index)
 	}
 	return nil
 }

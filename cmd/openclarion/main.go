@@ -799,8 +799,9 @@ func httpServerOptionsFromEnv(
 		return nil, nil, err
 	}
 	if directoryConfigured {
-		opts = append(opts, transporthttp.WithDirectorySyncer(directorySyncer))
-		logger.Info("configured IAM directory syncer", "provider", directoryProviderNameFromEnv(getenv))
+		providerName := directoryProviderNameFromEnv(getenv)
+		opts = append(opts, transporthttp.WithDirectorySyncer(directorySyncer, providerName))
+		logger.Info("configured IAM directory syncer", "provider", providerName)
 	}
 
 	secretResolver, err := alertSourceSecretResolverFromEnv(getenv)

@@ -7,7 +7,7 @@ import {
   expireDiagnosisSessionCookieOnAuthFailure,
 } from "@/lib/api/diagnosis-session";
 import type { components } from "@/lib/api/openapi";
-import { apiResultResponse, parsePositiveIntegerRouteParam, readRequestJSON } from "@/lib/api/route";
+import { apiResultResponse, parsePositiveIntegerRouteParam, readOptionalRequestJSON } from "@/lib/api/route";
 
 type RouteContext = {
   params: Promise<{ reportId: string }>;
@@ -34,7 +34,10 @@ export async function POST(request: Request, context: RouteContext) {
     return apiResultResponse(parsedID);
   }
 
-  const body = await readRequestJSON<ReportNotificationRetryRequest>(request);
+  const body = await readOptionalRequestJSON<ReportNotificationRetryRequest>(
+    request,
+    {},
+  );
   if (!body.ok) {
     return apiResultResponse(body);
   }

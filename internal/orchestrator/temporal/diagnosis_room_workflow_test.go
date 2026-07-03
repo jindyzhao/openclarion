@@ -2083,6 +2083,115 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRejectsBeforeFirstTurn(t *te
 	assertCollectUpdateRejected(t, collect, "at least one diagnosis turn")
 }
 
+func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRejectsManualRequestsOutsideAssistantBounds(t *testing.T) {
+	tests := []struct {
+		name      string
+		messageID string
+		request   diagnosisroom.EvidenceRequest
+		want      string
+	}{
+		{
+			name:      "active alerts over limit",
+			messageID: "collect-active-alerts-over-limit",
+			request: diagnosisroom.EvidenceRequest{
+				Tool:   "active_alerts",
+				Reason: "Need current sibling alerts.",
+				Limit:  11,
+			},
+			want: "limit must be between 1 and 10",
+		},
+		{
+			name:      "metric query over limit",
+			messageID: "collect-metric-query-over-limit",
+			request: diagnosisroom.EvidenceRequest{
+				Tool:   "metric_query",
+				Reason: "Need current metric value.",
+				Query:  "up",
+				Limit:  21,
+			},
+			want: "limit must be between 1 and 20",
+		},
+		{
+			name:      "metric range tiny window",
+			messageID: "collect-metric-range-tiny-window",
+			request: diagnosisroom.EvidenceRequest{
+				Tool:          "metric_range_query",
+				Reason:        "Need recent metric trend.",
+				Query:         "up",
+				WindowSeconds: 10,
+				StepSeconds:   10,
+				Limit:         5,
+			},
+			want: "window_seconds must be between 15 and 21600",
+		},
+		{
+			name:      "metric range step exceeds window",
+			messageID: "collect-metric-range-step-exceeds-window",
+			request: diagnosisroom.EvidenceRequest{
+				Tool:          "metric_range_query",
+				Reason:        "Need recent metric trend.",
+				Query:         "up",
+				WindowSeconds: 60,
+				StepSeconds:   120,
+				Limit:         5,
+			},
+			want: "step_seconds must not exceed window_seconds",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var suite testsuite.WorkflowTestSuite
+			env := suite.NewTestWorkflowEnvironment()
+			env.SetStartTime(time.Date(2026, 5, 28, 11, 4, 0, 0, time.UTC))
+			registerDiagnosisRoomPersistenceActivities(t, env)
+			registerDiagnosisTurnActivity(t, env)
+
+			var submit captureSubmitTurnUpdate
+			var collect captureCollectEvidenceUpdate
+			env.RegisterDelayedCallback(func() {
+				env.UpdateWorkflow(
+					temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+					"submit-before-"+tc.messageID,
+					submit.callbackOnSuccess(t, func() {
+						env.UpdateWorkflow(
+							temporalpkg.DiagnosisRoomCollectEvidenceUpdate,
+							tc.messageID,
+							collect.callbackOnTerminal(t, func() {
+								env.SignalWorkflow(
+									temporalpkg.DiagnosisRoomCloseSignal,
+									temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"},
+								)
+							}),
+							temporalpkg.CollectDiagnosisEvidenceRequest{
+								MessageID:    tc.messageID,
+								ActorSubject: "owner-1",
+								Message:      "Collect planned evidence.",
+								Requests:     []diagnosisroom.EvidenceRequest{tc.request},
+							},
+						)
+					}),
+					temporalpkg.SubmitDiagnosisTurnRequest{
+						MessageID:    "submit-" + tc.messageID,
+						ActorSubject: "owner-1",
+						Message:      "Start diagnosis before manual collection.",
+					},
+				)
+			}, time.Millisecond)
+
+			input := defaultRoomInput()
+			input.Policy = diagnosisroom.DefaultPolicy()
+			input.Policy.MaxAutoEvidenceFollowUps = 0
+			env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+			assertRoomWorkflowCompleted(t, env)
+			if submit.rejected != nil || submit.completeErr != nil {
+				t.Fatalf("submit update rejected=%v completeErr=%v", submit.rejected, submit.completeErr)
+			}
+			assertCollectUpdateRejected(t, collect, tc.want)
+		})
+	}
+}
+
 func TestDiagnosisRoomWorkflow_AutoEvidenceFollowUpCanBeDisabled(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()

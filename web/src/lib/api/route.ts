@@ -20,6 +20,24 @@ export async function readRequestJSON<T>(
   }
 }
 
+export async function readOptionalRequestJSON<T>(
+  request: Request,
+  emptyValue: T,
+): Promise<ApiResult<T>> {
+  try {
+    const raw = await request.text();
+    if (raw.trim() === "") {
+      return { ok: true, data: emptyValue };
+    }
+    return { ok: true, data: JSON.parse(raw) as T };
+  } catch {
+    return {
+      ok: false,
+      error: { message: invalidRequestJSONMessage, status: 400 },
+    };
+  }
+}
+
 export function apiResultResponse<T>(
   result: ApiResult<T>,
   successStatus = 200,

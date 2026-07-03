@@ -145,7 +145,7 @@ func TestSyncDirectoryUsesConfiguredSyncer(t *testing.T) {
 	)
 	addTestLocalRBACAuthorization(req)
 	opts := testLocalRBACOptions(t, "iam-admin", authorizer)
-	opts = append(opts, WithDirectorySyncer(syncer))
+	opts = append(opts, WithDirectorySyncer(syncer, "ops_iam"))
 	testHandler(factory, opts...).ServeHTTP(rec, req)
 
 	if rec.Code != stdhttp.StatusOK {
@@ -154,7 +154,11 @@ func TestSyncDirectoryUsesConfiguredSyncer(t *testing.T) {
 	if authorizer.called != 1 || authorizer.req.Permission != domain.RBACPermissionDirectoryManage {
 		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
 	}
-	if syncer.called != 1 || syncer.req.PageSize != 2 || syncer.req.UpdatedAfter == nil || !syncer.req.UpdatedAfter.Equal(updatedAfter) {
+	if syncer.called != 1 ||
+		syncer.req.Provider != "ops_iam" ||
+		syncer.req.PageSize != 2 ||
+		syncer.req.UpdatedAfter == nil ||
+		!syncer.req.UpdatedAfter.Equal(updatedAfter) {
 		t.Fatalf("sync request = %+v called=%d", syncer.req, syncer.called)
 	}
 	var body api.DirectorySyncResponse

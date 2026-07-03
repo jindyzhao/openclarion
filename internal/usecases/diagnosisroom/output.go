@@ -704,6 +704,25 @@ func validateEvidenceRequestLimit(index int, limit int, maximum int) error {
 	return nil
 }
 
+// EvidenceRequestLimitMaximum returns the parser-enforced positive limit cap
+// for one executable evidence request tool.
+func EvidenceRequestLimitMaximum(tool domain.DiagnosisToolKind) (int, bool) {
+	switch tool {
+	case domain.DiagnosisToolKindActiveAlerts:
+		return maxEvidenceRequestAlertLimit, true
+	case domain.DiagnosisToolKindMetricQuery, domain.DiagnosisToolKindMetricRangeQuery:
+		return maxEvidenceRequestMetricLimit, true
+	default:
+		return 0, false
+	}
+}
+
+// EvidenceRequestRangeSecondsBounds returns the parser-enforced range window
+// and step bounds for metric_range_query requests.
+func EvidenceRequestRangeSecondsBounds() (minSeconds int, maxSeconds int) {
+	return minEvidenceRequestRangeSeconds, maxEvidenceRequestRangeSeconds
+}
+
 func validateEvidenceRequestRange(index int, windowSeconds int, stepSeconds int) error {
 	if windowSeconds < minEvidenceRequestRangeSeconds || windowSeconds > maxEvidenceRequestRangeSeconds {
 		return fmt.Errorf("diagnosis turn output: evidence_requests[%d].window_seconds must be between %d and %d", index, minEvidenceRequestRangeSeconds, maxEvidenceRequestRangeSeconds)
