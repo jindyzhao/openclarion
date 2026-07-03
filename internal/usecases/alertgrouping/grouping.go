@@ -18,10 +18,13 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/openclarion/openclarion/internal/domain"
 )
+
+const alertSourceProfileDimensionKey = "openclarion_alert_source_profile_id"
 
 // Config holds the grouping configuration. DimensionKeys selects
 // which alert labels participate in the group key computation;
@@ -100,7 +103,9 @@ func validateConfig(cfg Config) (normalizedConfig, error) {
 //  2. Validates config via validateConfig.
 //  3. Validates each event: ID must be non-zero, StartsAt must be
 //     non-zero.
-//  4. Buckets events by canonical dimensions JSON (NOT sha256).
+//  4. Buckets events by canonical dimensions JSON (NOT sha256). Non-zero
+//     alert source profile IDs are included as a reserved dimension so
+//     independent sources cannot share a persisted AlertGroup.
 //  5. Builds an AlertGroup draft per bucket.
 //  6. Sorts output by (FirstSeenAt asc, GroupKey asc).
 //
@@ -144,6 +149,7 @@ func GroupEvents(events []domain.AlertEvent, cfg Config) ([]domain.AlertGroup, e
 
 	for i := range events {
 		dims := dimensionSubset(events[i].Labels, ncfg.dimensionKeys)
+		addAlertSourceProfileDimension(dims, events[i].AlertSourceProfileID)
 		dj, err := canonicalDimensionsJSON(dims)
 		if err != nil {
 			return nil, fmt.Errorf("alertgrouping: canonical dimensions json: %w", err)
@@ -235,6 +241,13 @@ func dimensionSubset(labels map[string]string, keys []string) map[string]string 
 		m[k] = labels[k] // missing key -> zero value ""
 	}
 	return m
+}
+
+func addAlertSourceProfileDimension(dims map[string]string, id domain.AlertSourceProfileID) {
+	if id <= 0 {
+		return
+	}
+	dims[alertSourceProfileDimensionKey] = strconv.FormatInt(int64(id), 10)
 }
 
 // canonicalDimensionsJSON serialises dims as the byte-stable input to

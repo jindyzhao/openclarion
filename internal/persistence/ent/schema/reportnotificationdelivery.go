@@ -35,6 +35,10 @@ func (ReportNotificationDelivery) Fields() []ent.Field {
 		field.Int("final_report_id").
 			Immutable().
 			Comment("FK to final_reports.id; the report this delivery belongs to"),
+		field.Int("report_notification_channel_profile_id").
+			Optional().
+			Nillable().
+			Comment("optional notification channel profile used for this report notification attempt"),
 		field.String("idempotency_key").
 			MaxLen(256).
 			NotEmpty().

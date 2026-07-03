@@ -40,6 +40,7 @@ func (s AlertStatus) Valid() bool {
 type AlertEvent struct {
 	ID                   AlertEventID
 	Source               string
+	AlertSourceProfileID AlertSourceProfileID
 	SourceFingerprint    string
 	CanonicalFingerprint string
 	Labels               map[string]string
@@ -102,6 +103,17 @@ func NewAlertEvent(
 		Status:               AlertStatusFiring,
 		StartsAt:             NormalizeUTCMicro(startsAt),
 	}, nil
+}
+
+// WithAlertSourceProfile returns a copy of the event tagged with the
+// operator-managed source profile that produced it. A zero profile id preserves
+// compatibility with legacy or provider-only ingestion paths.
+func (a AlertEvent) WithAlertSourceProfile(id AlertSourceProfileID) (AlertEvent, error) {
+	if id < 0 {
+		return AlertEvent{}, fmt.Errorf("alert event: alert_source_profile_id must be >= 0: %w", ErrInvariantViolation)
+	}
+	a.AlertSourceProfileID = id
+	return a, nil
 }
 
 // Resolve transitions the event to "resolved" with EndsAt = endsAt

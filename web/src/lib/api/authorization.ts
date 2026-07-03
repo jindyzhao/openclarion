@@ -1,13 +1,15 @@
 export function normalizeForwardedAuthorization(raw: string): string | null {
-  const value = raw.trim();
-  if (value === "") {
+  const fields = raw.trim().split(/[ \t\r\n]+/).filter(Boolean);
+  const scheme = fields[0];
+  const value = fields[1];
+  if (fields.length !== 2 || scheme === undefined || value === undefined || value === "") {
     return null;
   }
-  const parts = value.split(/[ \t\r\n]+/);
-  const scheme = parts[0] ?? "";
-  const token = parts[1] ?? "";
-  if (parts.length !== 2 || scheme.toLowerCase() !== "bearer" || token === "") {
-    return null;
+  if (/^Bearer$/i.test(scheme)) {
+    return `Bearer ${value}`;
   }
-  return `Bearer ${token}`;
+  if (/^Basic$/i.test(scheme)) {
+    return `Basic ${value}`;
+  }
+  return null;
 }

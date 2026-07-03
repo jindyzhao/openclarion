@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	dockerstdcopy "github.com/moby/moby/api/pkg/stdcopy"
 	dockercontainer "github.com/moby/moby/api/types/container"
 	dockerclient "github.com/moby/moby/client"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -180,6 +182,82 @@ func TestProviderRunRemovesContainerWhenOutputCopyFails(t *testing.T) {
 		t.Fatalf("Run err = %v, want copy failed", err)
 	}
 	engine.assertCalls(t, "create", "start", "wait", "copy", "remove")
+}
+
+func TestProviderRunAddsSanitizedFailureLogsOnNonZeroExit(t *testing.T) {
+	engine := newFakeEngine(nil)
+	engine.exitCode = 1
+	engine.logStream = dockerLogStream(t,
+		dockerLogFrame{
+			stream: dockerstdcopy.Stdout,
+			body:   "starting diagnosis runner with OPENCLARION_DIAGNOSIS_LLM_API_KEY=plain-secret\n",
+		},
+		dockerLogFrame{
+			stream: dockerstdcopy.Stderr,
+			body: "provider failed: Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456\n" +
+				"webhook_url=https://example.invalid/hook?key=secret-token api_key=another-secret\n" +
+				"module failed before output.json\n",
+		},
+	)
+	provider := newTestProvider(t, engine)
+
+	_, err := provider.Run(context.Background(), validRequest())
+	if err == nil {
+		t.Fatal("Run err = nil, want exit error")
+	}
+	var exitErr *ports.ContainerExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode != 1 || exitErr.RuntimeID != "container-1" {
+		t.Fatalf("Run err = %T/%v, want container exit error for container-1 code 1", err, err)
+	}
+	errText := err.Error()
+	for _, want := range []string{
+		"exited with code 1",
+		"stdout_bytes=",
+		"stderr_bytes=",
+		"stdout_sha256=",
+		"stderr_sha256=",
+		"module failed before output.json",
+		"<redacted>",
+	} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("Run err = %v, want containing %q", err, want)
+		}
+	}
+	for _, leaked := range []string{
+		"plain-secret",
+		"abcdefghijklmnopqrstuvwxyz123456",
+		"https://example.invalid",
+		"secret-token",
+		"another-secret",
+	} {
+		if strings.Contains(errText, leaked) {
+			t.Fatalf("Run error leaked %q: %v", leaked, err)
+		}
+	}
+	engine.assertCalls(t, "create", "start", "wait", "logs", "remove")
+}
+
+func TestProviderRunDoesNotMaskExitCodeWhenFailureLogsAreUnavailable(t *testing.T) {
+	engine := newFakeEngine(nil)
+	engine.exitCode = 2
+	engine.logErr = errors.New("daemon denied token=plain-secret")
+	provider := newTestProvider(t, engine)
+
+	_, err := provider.Run(context.Background(), validRequest())
+	if err == nil {
+		t.Fatal("Run err = nil, want exit error")
+	}
+	errText := err.Error()
+	if !strings.Contains(errText, "exited with code 2") {
+		t.Fatalf("Run err = %v, want exit code", err)
+	}
+	if !strings.Contains(errText, "logs_unavailable") {
+		t.Fatalf("Run err = %v, want logs_unavailable", err)
+	}
+	if strings.Contains(errText, "plain-secret") {
+		t.Fatalf("Run error leaked log failure secret: %v", err)
+	}
+	engine.assertCalls(t, "create", "start", "wait", "logs", "remove")
 }
 
 func TestProviderRunFailsClosedForAllowlistWithoutEgressEnforcer(t *testing.T) {
@@ -442,8 +520,11 @@ type fakeEngine struct {
 	t             *testing.T
 	outputArchive io.ReadCloser
 	blockWait     bool
+	exitCode      int64
 	stopErr       error
 	copyErr       error
+	logErr        error
+	logStream     io.ReadCloser
 	createOptions dockerclient.ContainerCreateOptions
 	waitOptions   dockerclient.ContainerWaitOptions
 	evidence      string
@@ -494,7 +575,7 @@ func (f *fakeEngine) ContainerWait(_ context.Context, _ string, options dockercl
 	result := make(chan dockercontainer.WaitResponse, 1)
 	errs := make(chan error, 1)
 	if !f.blockWait {
-		result <- dockercontainer.WaitResponse{StatusCode: 0}
+		result <- dockercontainer.WaitResponse{StatusCode: f.exitCode}
 		close(result)
 		close(errs)
 	}
@@ -519,6 +600,17 @@ func (f *fakeEngine) ContainerRemove(context.Context, string, dockerclient.Conta
 func (f *fakeEngine) CopyFromContainer(context.Context, string, dockerclient.CopyFromContainerOptions) (dockerclient.CopyFromContainerResult, error) {
 	f.calls = append(f.calls, "copy")
 	return dockerclient.CopyFromContainerResult{Content: f.outputArchive}, f.copyErr
+}
+
+func (f *fakeEngine) ContainerLogs(context.Context, string, dockerclient.ContainerLogsOptions) (dockerclient.ContainerLogsResult, error) {
+	f.calls = append(f.calls, "logs")
+	if f.logErr != nil {
+		return nil, f.logErr
+	}
+	if f.logStream == nil {
+		return io.NopCloser(bytes.NewReader(nil)), nil
+	}
+	return f.logStream, nil
 }
 
 func (f *fakeEngine) assertCalls(t *testing.T, want ...string) {
@@ -631,6 +723,33 @@ func tarArchiveEntries(t *testing.T, entries ...tarEntry) io.ReadCloser {
 	}
 	if err := tw.Close(); err != nil {
 		t.Fatalf("close tar: %v", err)
+	}
+	return io.NopCloser(bytes.NewReader(buf.Bytes()))
+}
+
+type dockerLogFrame struct {
+	stream dockerstdcopy.StdType
+	body   string
+}
+
+func dockerLogStream(t *testing.T, frames ...dockerLogFrame) io.ReadCloser {
+	t.Helper()
+	var buf bytes.Buffer
+	for _, frame := range frames {
+		header := make([]byte, dockerLogFrameHeaderBytes)
+		header[0] = byte(frame.stream)
+		bodySize := uint64(len(frame.body))
+		if bodySize > uint64(^uint32(0)) {
+			t.Fatalf("docker log body length %d exceeds uint32 frame limit", bodySize)
+		}
+		// #nosec G115 -- bodySize is checked against the uint32 Docker frame limit above.
+		binary.BigEndian.PutUint32(header[4:8], uint32(bodySize))
+		if _, err := buf.Write(header); err != nil {
+			t.Fatalf("write docker log header: %v", err)
+		}
+		if _, err := buf.WriteString(frame.body); err != nil {
+			t.Fatalf("write docker log body: %v", err)
+		}
 	}
 	return io.NopCloser(bytes.NewReader(buf.Bytes()))
 }

@@ -1,11 +1,25 @@
 import { ReportShell } from "@/features/reports/report-shell";
 import { fetchGroupingPolicies } from "@/features/settings/grouping-policies/api";
+import {
+  groupingPolicyLaunchIntentFromSearchParams,
+  groupingPolicyLaunchIntentKey
+} from "@/features/settings/grouping-policies/format";
 import { GroupingPolicySettingsManager } from "@/features/settings/grouping-policies/grouping-policy-settings-view";
+import { diagnosisBackendRequestOptionsFromIncomingHeaders } from "@/lib/api/server-authorization";
 
 export const dynamic = "force-dynamic";
 
-export default async function GroupingPolicySettingsPage() {
-  const result = await fetchGroupingPolicies();
+type GroupingPolicySettingsPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function GroupingPolicySettingsPage({
+  searchParams
+}: GroupingPolicySettingsPageProps) {
+  const backendRequestOptions =
+    await diagnosisBackendRequestOptionsFromIncomingHeaders();
+  const result = await fetchGroupingPolicies(backendRequestOptions);
+  const launchIntent = groupingPolicyLaunchIntentFromSearchParams(await searchParams);
   const count = result.ok ? result.data.items.length : 0;
 
   return (
@@ -18,7 +32,11 @@ export default async function GroupingPolicySettingsPage() {
         <div className="status-line">{count} policies</div>
       </section>
 
-      <GroupingPolicySettingsManager result={result} />
+      <GroupingPolicySettingsManager
+        key={groupingPolicyLaunchIntentKey(launchIntent)}
+        launchIntent={launchIntent}
+        result={result}
+      />
     </ReportShell>
   );
 }

@@ -253,12 +253,12 @@ runtime table:
 
 * `name` is globally UNIQUE so operators have one stable display handle per
   channel
-* `kind` currently stores `webhook`; new adapters add contract values before UI
-  exposure
+* `kind` stores `webhook` or `wecom`; both resolve deployment-managed endpoint
+  secrets at runtime
 * `secret_ref` stores only a deployment-managed secret reference, never an
   endpoint URL, bearer token, or credential value
-* `delivery_scopes` is JSONB for the report and diagnosis-close delivery
-  scopes the profile can be bound to by configuration
+* `delivery_scopes` is JSONB for report, diagnosis-consultation, and
+  diagnosis-close delivery scopes the profile can be bound to by configuration
 * `enabled` is explicit so saving profile metadata remains separate from
   runtime workflow delivery binding
 * `labels` is JSONB for bounded operator metadata and has a GIN index

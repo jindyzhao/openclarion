@@ -7,6 +7,7 @@ import (
 
 	"github.com/openclarion/openclarion/api"
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertmanagerwebhook"
 )
 
@@ -55,16 +56,43 @@ func (s *Server) IngestAlertmanagerWebhook(w http.ResponseWriter, r *http.Reques
 }
 
 func alertmanagerWebhookIngestResponse(result alertmanagerwebhook.Result) api.AlertmanagerWebhookIngestResponse {
-	return api.AlertmanagerWebhookIngestResponse{
-		SourceID:        int64(result.ProfileID),
-		Received:        int64(result.Received),
-		SkippedResolved: int64(result.SkippedResolved),
-		TruncatedAlerts: int64(result.TruncatedAlerts),
+	response := api.AlertmanagerWebhookIngestResponse{
+		SourceID:          int64(result.ProfileID),
+		Received:          int64(result.Received),
+		SkippedResolved:   int64(result.SkippedResolved),
+		SkippedSuppressed: int64(result.SkippedSuppressed),
+		TruncatedAlerts:   int64(result.TruncatedAlerts),
 		Ingested: api.AlertmanagerWebhookIngestResponseIngested{
 			Total:     int64(result.Ingested.Total),
 			Saved:     int64(result.Ingested.Saved),
 			Duplicate: int64(result.Ingested.Duplicate),
 			Failed:    int64(result.Ingested.Failed),
 		},
+	}
+	if result.AutoDiagnosis != nil {
+		autoDiagnosis := alertmanagerWebhookAutoDiagnosisSummary(*result.AutoDiagnosis)
+		response.AutoDiagnosis = &autoDiagnosis
+	}
+	return response
+}
+
+func alertmanagerWebhookAutoDiagnosisSummary(result alertdiagnosis.Result) api.AlertmanagerWebhookAutoDiagnosisSummary {
+	rooms := make([]api.AlertmanagerWebhookAutoDiagnosisRoom, 0, len(result.Rooms))
+	for _, room := range result.Rooms {
+		rooms = append(rooms, api.AlertmanagerWebhookAutoDiagnosisRoom{
+			PolicyID:           int64(room.PolicyID),
+			EvidenceSnapshotID: int64(room.EvidenceSnapshotID),
+			SessionID:          room.SessionID,
+			InitialMessageID:   room.InitialMessageID,
+			WorkflowID:         room.Workflow.WorkflowID,
+			RunID:              room.Workflow.RunID,
+		})
+	}
+	return api.AlertmanagerWebhookAutoDiagnosisSummary{
+		PoliciesMatched: int64(result.PoliciesMatched),
+		Snapshots:       int64(len(result.Snapshots)),
+		RoomsStarted:    int64(len(result.Rooms)),
+		RoomsSkipped:    int64(result.RoomsSkipped),
+		Rooms:           rooms,
 	}
 }

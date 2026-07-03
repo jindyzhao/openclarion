@@ -3,6 +3,7 @@
 import {
   AppstoreOutlined,
   ApiOutlined,
+  AuditOutlined,
   BellOutlined,
   BranchesOutlined,
   CalendarOutlined,
@@ -10,7 +11,8 @@ import {
   MessageOutlined,
   PartitionOutlined,
   SettingOutlined,
-  ToolOutlined
+  ToolOutlined,
+  WarningOutlined
 } from "@ant-design/icons";
 import { Layout, Menu, Typography } from "antd";
 import type { MenuProps } from "antd";
@@ -21,9 +23,11 @@ type ReportShellProps = {
   children: ReactNode;
   current:
     | "dashboard"
+    | "alerts"
     | "reports"
     | "diagnosis"
     | "settings"
+    | "directory-rbac"
     | "sources"
     | "grouping"
     | "tools"
@@ -39,6 +43,11 @@ const navItems: MenuProps["items"] = [
     label: <Link href="/dashboard">Dashboard</Link>
   },
   {
+    icon: <WarningOutlined aria-label="Alerts navigation icon" />,
+    key: "alerts",
+    label: <Link href="/alerts">Alerts</Link>
+  },
+  {
     icon: <FileTextOutlined aria-label="Reports navigation icon" />,
     key: "reports",
     label: <Link href="/reports">Reports</Link>
@@ -52,6 +61,11 @@ const navItems: MenuProps["items"] = [
     icon: <SettingOutlined aria-label="Settings navigation icon" />,
     key: "settings",
     label: <Link href="/settings">Settings</Link>
+  },
+  {
+    icon: <AuditOutlined aria-label="Directory and RBAC navigation icon" />,
+    key: "directory-rbac",
+    label: <Link href="/settings/directory-rbac">Access</Link>
   },
   {
     icon: <ApiOutlined aria-label="Alert sources navigation icon" />,

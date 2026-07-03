@@ -76,6 +76,571 @@ func TestRunAlertOperationsLiveInputsReadyWithoutValues(t *testing.T) {
 	}
 }
 
+func TestRunReportsReadyNotificationChannelLiveSmoke(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"NOTIFICATION_CHANNEL_PROFILE_ID=2",
+		"NOTIFICATION_CHANNEL_EXPECTED_KIND=wecom",
+		"NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND=ai_diagnosis_sample",
+		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+		"NOTIFICATION_CHANNEL_LIVE_SMOKE_TIMEOUT=10s",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "notification-channel-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"secret-token",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked notification channel value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunReportsReadyNotificationChannelLiveSmokeWithLiveAlias(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID=2",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_KIND=WeCom",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND=Diagnosis_Close_Sample",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "notification-channel-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	if strings.Contains(stdout.String(), "api.example.test") {
+		t.Fatalf("output leaked notification channel alias value: %s", stdout.String())
+	}
+}
+
+func TestRunReportsReadyNotificationChannelLiveSmokeWithContentKindSuite(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID=2",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS=AI_Diagnosis_Sample, Diagnosis_Close_Sample",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "notification-channel-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	if strings.Contains(stdout.String(), "api.example.test") {
+		t.Fatalf("output leaked notification channel suite value: %s", stdout.String())
+	}
+}
+
+func TestRunReportsReadyNotificationChannelLiveSmokeWithAIProofRequirement(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID=2",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_KIND=WeCom",
+		"NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF=true",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF=true",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "notification-channel-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	if strings.Contains(stdout.String(), "api.example.test") {
+		t.Fatalf("output leaked notification channel AI proof value: %s", stdout.String())
+	}
+}
+
+func TestRunReportsReadyDiagnosisAuthLiveSmokeWithLDAPCredentials(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-auth-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_AUTH_MODE=ldap",
+		"OPENCLARION_LIVE_LDAP_USERNAME=operator-1",
+		"OPENCLARION_LIVE_LDAP_PASSWORD=placeholder-ldap-password",
+		"OPENCLARION_LIVE_DIAGNOSIS_AUTH_EXPECTED_MODE=ldap",
+		"DIAGNOSIS_AUTH_LIVE_SMOKE_TIMEOUT=10s",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-auth-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+	}
+	if target.Milestone != "M5" || target.Sequence != 19 || target.Command != "make diagnosis-auth-live-smoke" {
+		t.Fatalf("target metadata = milestone %q sequence %d command %q, want M5/19/make target",
+			target.Milestone, target.Sequence, target.Command)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"operator-1",
+		"placeholder-ldap-password",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked diagnosis auth LDAP value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunReportsReadyDiagnosisAuthLiveSmokeWithLocalLDAPBackendConfig(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-auth-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_AUTH_MODE=ldap",
+		"OPENCLARION_LIVE_LDAP_USERNAME=operator-1",
+		"OPENCLARION_LIVE_LDAP_PASSWORD=placeholder-ldap-password",
+		"OPENCLARION_LIVE_DIAGNOSIS_AUTH_EXPECTED_MODE=ldap",
+		"OPENCLARION_DIAGNOSIS_AUTH_MODE=ldap",
+		"OPENCLARION_DIAGNOSIS_LDAP_URL=ldaps://ldap.example.test:636",
+		"OPENCLARION_DIAGNOSIS_LDAP_BASE_DN=dc=example,dc=test",
+		"OPENCLARION_DIAGNOSIS_LDAP_BIND_DN=cn=openclarion,dc=example,dc=test",
+		"OPENCLARION_DIAGNOSIS_LDAP_BIND_PASSWORD=placeholder-service-password",
+		"OPENCLARION_DIAGNOSIS_LDAP_USER_FILTER=(&(objectClass=person)(uid={username}))",
+		"OPENCLARION_DIAGNOSIS_LDAP_SUBJECT_ATTRIBUTE=mail",
+		"OPENCLARION_DIAGNOSIS_LDAP_ROLE_ATTRIBUTE=memberOf",
+		"OPENCLARION_DIAGNOSIS_LDAP_DEFAULT_ROLES=owner,admin",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-auth-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"ldap.example.test",
+		"dc=example,dc=test",
+		"operator-1",
+		"placeholder-ldap-password",
+		"placeholder-service-password",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked diagnosis LDAP backend value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunBlocksDiagnosisAuthLiveSmokeWithIncompleteLocalLDAPBackendConfig(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-auth-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_AUTH_MODE=ldap",
+		"OPENCLARION_LIVE_LDAP_USERNAME=operator-1",
+		"OPENCLARION_LIVE_LDAP_PASSWORD=placeholder-ldap-password",
+		"OPENCLARION_DIAGNOSIS_AUTH_MODE=ldap",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-auth-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked: %#v", target.Status, target)
+	}
+	for _, name := range []string{
+		"OPENCLARION_DIAGNOSIS_LDAP_URL",
+		"OPENCLARION_DIAGNOSIS_LDAP_BASE_DN",
+	} {
+		if !contains(target.MissingEnv, name) {
+			t.Fatalf("missing env = %#v, want %s", target.MissingEnv, name)
+		}
+	}
+	if len(target.UnsatisfiedAlternatives) != 1 ||
+		target.UnsatisfiedAlternatives[0].Description != "diagnosis LDAP role mapping" {
+		t.Fatalf("alternatives = %#v, want LDAP role mapping alternative", target.UnsatisfiedAlternatives)
+	}
+	for _, secret := range []string{"api.example.test", "operator-1", "placeholder-ldap-password"} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked incomplete LDAP value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsBadDiagnosisLDAPBackendConfigWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-auth-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_AUTH_MODE=ldap",
+		"OPENCLARION_LIVE_LDAP_USERNAME=operator-1",
+		"OPENCLARION_LIVE_LDAP_PASSWORD=placeholder-ldap-password",
+		"OPENCLARION_DIAGNOSIS_AUTH_MODE=ldap",
+		"OPENCLARION_DIAGNOSIS_LDAP_URL=ldap://user:secret@ldap.example.test:389?ignored=true",
+		"OPENCLARION_DIAGNOSIS_LDAP_BASE_DN= dc=example,dc=test ",
+		"OPENCLARION_DIAGNOSIS_LDAP_BIND_DN=cn=openclarion,dc=example,dc=test",
+		"OPENCLARION_DIAGNOSIS_LDAP_BIND_PASSWORD=placeholder\nservice-password",
+		"OPENCLARION_DIAGNOSIS_LDAP_USER_FILTER=(uid=*)",
+		"OPENCLARION_DIAGNOSIS_LDAP_SUBJECT_ATTRIBUTE=mail primary",
+		"OPENCLARION_DIAGNOSIS_LDAP_ROLE_ATTRIBUTE=memberOf",
+		"OPENCLARION_DIAGNOSIS_LDAP_DEFAULT_ROLES=leader",
+		"OPENCLARION_DIAGNOSIS_LDAP_START_TLS=sometimes",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-auth-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked: %#v", target.Status, target)
+	}
+	for _, name := range []string{
+		"OPENCLARION_DIAGNOSIS_LDAP_URL",
+		"OPENCLARION_DIAGNOSIS_LDAP_BASE_DN",
+		"OPENCLARION_DIAGNOSIS_LDAP_BIND_PASSWORD",
+		"OPENCLARION_DIAGNOSIS_LDAP_USER_FILTER",
+		"OPENCLARION_DIAGNOSIS_LDAP_SUBJECT_ATTRIBUTE",
+		"OPENCLARION_DIAGNOSIS_LDAP_DEFAULT_ROLES",
+		"OPENCLARION_DIAGNOSIS_LDAP_START_TLS",
+	} {
+		if !invalidEnvByName(target.InvalidEnv, name) {
+			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
+		}
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"user:secret",
+		"ldap.example.test",
+		"ignored=true",
+		"dc=example,dc=test",
+		"placeholder\nservice-password",
+		"operator-1",
+		"placeholder-ldap-password",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked bad LDAP backend value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunReportsReadyDiagnosisAuthLiveSmokeWithBearerToken(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-auth-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_AUTH_MODE=bearer",
+		"OPENCLARION_LIVE_DIAGNOSIS_AUTH_BEARER_TOKEN=Bearer secret-token",
+		"OPENCLARION_LIVE_DIAGNOSIS_AUTH_EXPECTED_MODE=static",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-auth-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{"api.example.test", "secret-token"} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked diagnosis auth bearer value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsBadNotificationChannelLiveSmokeInputsWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://operator:secret@api.example.test?token=value",
+		"NOTIFICATION_CHANNEL_PROFILE_ID=0",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID=bad-alias",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_KIND=pager",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND=pager",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS=ai_diagnosis_sample,ai_diagnosis_sample",
+		"NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF=sometimes",
+		"OPENCLARION_LIVE_BEARER_TOKEN=bad token",
+		"NOTIFICATION_CHANNEL_LIVE_SMOKE_TIMEOUT=0s",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "notification-channel-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	for _, name := range []string{
+		"OPENCLARION_LIVE_API_BASE_URL",
+		"NOTIFICATION_CHANNEL_PROFILE_ID",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_KIND",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS",
+		"NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF",
+		"OPENCLARION_LIVE_BEARER_TOKEN",
+		"NOTIFICATION_CHANNEL_LIVE_SMOKE_TIMEOUT",
+	} {
+		if !invalidEnvByName(target.InvalidEnv, name) {
+			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
+		}
+	}
+	for _, secret := range []string{
+		"operator:secret",
+		"api.example.test",
+		"token=value",
+		"bad token",
+		"bad-alias",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked bad notification channel value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsNotificationChannelAIProofConflictsWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"NOTIFICATION_CHANNEL_PROFILE_ID=2",
+		"NOTIFICATION_CHANNEL_EXPECTED_KIND=wecom",
+		"NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS=ai_diagnosis_sample,diagnosis_close_sample",
+		"NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF=true",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "notification-channel-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	if !invalidEnvByName(target.InvalidEnv, "NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF") {
+		t.Fatalf("invalid env = %#v, want NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF", target.InvalidEnv)
+	}
+	if strings.Contains(stdout.String(), "api.example.test") {
+		t.Fatalf("output leaked notification channel AI proof conflict value: %s", stdout.String())
+	}
+}
+
+func TestRunRejectsGenericWebhookForDiagnosisNotificationSmoke(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"NOTIFICATION_CHANNEL_PROFILE_ID=2",
+		"NOTIFICATION_CHANNEL_EXPECTED_KIND=webhook",
+		"NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND=ai_diagnosis_sample",
+		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "notification-channel-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	if !invalidEnvByName(target.InvalidEnv, "NOTIFICATION_CHANNEL_EXPECTED_KIND") {
+		t.Fatalf("invalid env = %#v, want NOTIFICATION_CHANNEL_EXPECTED_KIND", target.InvalidEnv)
+	}
+	for _, secret := range []string{"api.example.test", "secret-token"} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked diagnosis notification value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsBadDiagnosisAuthLiveSmokeInputsWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-auth-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://operator:secret@api.example.test?token=value",
+		"OPENCLARION_LIVE_AUTH_MODE=ldap",
+		"OPENCLARION_LIVE_LDAP_USERNAME=operator one",
+		"OPENCLARION_LIVE_LDAP_PASSWORD=placeholder\npassword",
+		"OPENCLARION_LIVE_DIAGNOSIS_AUTH_EXPECTED_MODE=legacy",
+		"DIAGNOSIS_AUTH_LIVE_SMOKE_TIMEOUT=0s",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-auth-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	for _, name := range []string{
+		"OPENCLARION_LIVE_API_BASE_URL",
+		"OPENCLARION_LIVE_LDAP_USERNAME",
+		"OPENCLARION_LIVE_LDAP_PASSWORD",
+		"OPENCLARION_LIVE_DIAGNOSIS_AUTH_EXPECTED_MODE",
+		"DIAGNOSIS_AUTH_LIVE_SMOKE_TIMEOUT",
+	} {
+		if !invalidEnvByName(target.InvalidEnv, name) {
+			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
+		}
+	}
+	for _, secret := range []string{
+		"operator:secret",
+		"api.example.test",
+		"token=value",
+		"operator one",
+		"placeholder\npassword",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked bad diagnosis auth value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunSupportsRepeatedTargetFlags(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{
+		"--target", "alert-operations-live-inputs",
+		"--target", "notification-channel-live-smoke",
+		"--target", "diagnosis-live-browser-smoke",
+	}, []string{
+		"OPENCLARION_PROMETHEUS_URL=https://thanos-query.example.test",
+		"OPENCLARION_LLM_MODEL=example-llm-model",
+		"OPENCLARION_IM_WEBHOOK_URL=https://wecom-webhook.example.test/cgi-bin/webhook/send?key=placeholder-webhook-key",
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID=2",
+		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	if len(out.Targets) != 3 {
+		t.Fatalf("targets = %v, want three selected targets", targetNames(out.Targets))
+	}
+	if got := targetByName(t, out, "alert-operations-live-inputs").Status; got != "ready" {
+		t.Fatalf("alert operations status = %q, want ready", got)
+	}
+	if got := targetByName(t, out, "notification-channel-live-smoke").Status; got != "ready" {
+		t.Fatalf("notification channel status = %q, want ready", got)
+	}
+	if got := targetByName(t, out, "diagnosis-live-browser-smoke").Status; got != "ready" {
+		t.Fatalf("diagnosis status = %q, want ready", got)
+	}
+	if hasTarget(out, "report-live-smoke") {
+		t.Fatalf("unexpected report-live-smoke target in repeated selection: %v", targetNames(out.Targets))
+	}
+	if strings.Contains(stdout.String(), "secret-token") || strings.Contains(stdout.String(), "wecom-webhook.example.test") {
+		t.Fatalf("output leaked selected target env values: %s", stdout.String())
+	}
+}
+
+func TestRunReportsReadyDiagnosisLiveSmokeWithStaticBearerFallback(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_DIAGNOSIS_AUTH_MODE=static",
+		"OPENCLARION_DIAGNOSIS_STATIC_BEARER_TOKEN=Bearer static-secret-token",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("diagnosis status = %q, want ready", target.Status)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{"api.example.test", "static-secret-token"} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked static bearer value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunSupportsCommaSeparatedTargets(t *testing.T) {
+	var stdout bytes.Buffer
+	windowStart, windowEnd := pastReportWindow()
+	err := run([]string{
+		"--target", "alert-operations-live-inputs,report-policy-live-smoke",
+	}, []string{
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		"OPENCLARION_PROMETHEUS_URL=https://thanos-query.example.test",
+		"OPENCLARION_LLM_MODEL=example-llm-model",
+		"OPENCLARION_IM_WEBHOOK_URL=https://wecom-webhook.example.test/cgi-bin/webhook/send?key=placeholder-webhook-key",
+		"REPORT_WORKFLOW_POLICY_ID=7",
+		"REPORT_WINDOW_START=" + windowStart,
+		"REPORT_WINDOW_END=" + windowEnd,
+		"REPORT_POLICY_LIVE_SMOKE_OUTPUT=" + filepath.Join(t.TempDir(), "proof.json"),
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	if len(out.Targets) != 2 {
+		t.Fatalf("targets = %v, want two selected targets", targetNames(out.Targets))
+	}
+	if got := targetByName(t, out, "alert-operations-live-inputs").Status; got != "ready" {
+		t.Fatalf("alert operations status = %q, want ready", got)
+	}
+	if got := targetByName(t, out, "report-policy-live-smoke").Status; got != "ready" {
+		t.Fatalf("report policy status = %q, want ready", got)
+	}
+}
+
+func TestRunRejectsAllMixedWithSpecificTargets(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "all", "--target", "diagnosis-live-browser-smoke"}, nil, &stdout)
+	if err == nil {
+		t.Fatal("run error = nil, want all/specific target rejection")
+	}
+	if !strings.Contains(err.Error(), `target "all" cannot be combined`) {
+		t.Fatalf("run error = %v, want all/specific rejection", err)
+	}
+}
+
 func TestRunRejectsBadAlertOperationsLiveInputsWithoutLeakingValues(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{"--target", "alert-operations-live-inputs"}, []string{
@@ -169,6 +734,429 @@ func TestRunReportsReadyLiveTargets(t *testing.T) {
 	}
 }
 
+func TestRunReportsReadyDiagnosisWithDevOIDCTokenURL(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL=http://127.0.0.1:32109/token?ttl=45m",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("diagnosis status = %q, want ready", target.Status)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"127.0.0.1:32109",
+		"ttl=45m",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked dev OIDC value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunReportsReadyDiagnosisConvergenceWithDevOIDCTokenURL(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-convergence-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL=http://127.0.0.1:32109/token?ttl=45m",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+		"OPENCLARION_LIVE_COLLECT_PLANNED_EVIDENCE=true",
+		"OPENCLARION_LIVE_SUBMIT_SUPPLEMENTAL_EVIDENCE=yes",
+		"OPENCLARION_LIVE_CONFIRM_CONCLUSION=1",
+		"OPENCLARION_LIVE_TURN_TIMEOUT_MS=360000",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID=7",
+		"OPENCLARION_LIVE_NOTIFICATION_PROOF_TIMEOUT_MS=60000",
+		"OPENCLARION_LIVE_NOTIFICATION_PROOF_POLL_MS=5000",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-convergence-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("diagnosis convergence status = %q, want ready", target.Status)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"127.0.0.1:32109",
+		"ttl=45m",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked convergence env value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsBadDiagnosisConvergenceNotificationInputsWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-convergence-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL=http://127.0.0.1:32109/token?ttl=45m",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID=bad-channel",
+		"OPENCLARION_LIVE_NOTIFICATION_PROOF_TIMEOUT_MS=soon",
+		"OPENCLARION_LIVE_NOTIFICATION_PROOF_POLL_MS=never",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-convergence-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("diagnosis convergence status = %q, want blocked", target.Status)
+	}
+	for _, name := range []string{
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID",
+		"OPENCLARION_LIVE_NOTIFICATION_PROOF_TIMEOUT_MS",
+		"OPENCLARION_LIVE_NOTIFICATION_PROOF_POLL_MS",
+	} {
+		if !invalidEnvByName(target.InvalidEnv, name) {
+			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
+		}
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"127.0.0.1:32109",
+		"ttl=45m",
+		"bad-channel",
+		"soon",
+		"never",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked convergence env value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsDiagnosisConvergenceProfileSecretWithoutWeComEndpoint(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-convergence-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL=http://127.0.0.1:32109/token?ttl=45m",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID=7",
+		`OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON={"secret/openclarion/ops-wecom":"https://webhook.example.test/openclarion/fixture"}`,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-convergence-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("diagnosis convergence status = %q, want blocked", target.Status)
+	}
+	if !invalidEnvByName(target.InvalidEnv, "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON") {
+		t.Fatalf("invalid env = %#v, want notification channel secret refs", target.InvalidEnv)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"127.0.0.1:32109",
+		"ttl=45m",
+		"webhook.example.test",
+		"fixture",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked invalid convergence secret ref value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunReportsReadyAlertmanagerAutoDiagnosisLiveSmoke(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "alertmanager-auto-diagnosis-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"ALERTMANAGER_WEBHOOK_SOURCE_PROFILE_ID=42",
+		"ALERTMANAGER_WEBHOOK_BEARER_TOKEN=Bearer secret-token",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_NOTIFICATION_CHANNEL_PROFILE_ID=5",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_CONTENT_KIND=assistant_message",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_REQUIRED_CONTENT_KINDS=assistant_message, Final_Conclusion",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_HTTP_TIMEOUT=10s",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_ROOM_TIMEOUT=2m",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_POLL_INTERVAL=1s",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_ALERT_NAME=OpenClarionAutoDiagnosisSmoke",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "alertmanager-auto-diagnosis-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"secret-token",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked alertmanager auto diagnosis value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunReportsReadyAlertmanagerAutoDiagnosisLiveSmokeWithLiveAlias(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "alertmanager-auto-diagnosis-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_ALERT_SOURCE_PROFILE_ID=42",
+		"OPENCLARION_ALERTMANAGER_WEBHOOK_BEARER_TOKEN=Bearer secret-token",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_CONTENT_KIND=Final_Conclusion",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "alertmanager-auto-diagnosis-live-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"secret-token",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked alertmanager auto diagnosis alias value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsAlertmanagerAutoDiagnosisProfileSecretWithoutWeComEndpoint(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "alertmanager-auto-diagnosis-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"ALERTMANAGER_WEBHOOK_SOURCE_PROFILE_ID=42",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_NOTIFICATION_CHANNEL_PROFILE_ID=5",
+		`OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON={"secret/openclarion/ops-wecom":"https://webhook.example.test/openclarion/fixture"}`,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "alertmanager-auto-diagnosis-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	if !invalidEnvByName(target.InvalidEnv, "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON") {
+		t.Fatalf("invalid env = %#v, want notification channel secret refs", target.InvalidEnv)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"webhook.example.test",
+		"fixture",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked invalid alertmanager auto diagnosis secret ref value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsBadAlertmanagerAutoDiagnosisLiveSmokeInputsWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "alertmanager-auto-diagnosis-live-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://operator:secret@api.example.test?token=value",
+		"ALERTMANAGER_WEBHOOK_SOURCE_PROFILE_ID=0",
+		"OPENCLARION_LIVE_ALERT_SOURCE_PROFILE_ID=bad-alias",
+		"ALERTMANAGER_WEBHOOK_BEARER_TOKEN=bad token",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_NOTIFICATION_CHANNEL_PROFILE_ID=0",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_CONTENT_KIND=raw_alert",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_REQUIRED_CONTENT_KINDS=assistant_message,assistant_message",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_HTTP_TIMEOUT=0s",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_ALERT_NAME=Bad Alert",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "alertmanager-auto-diagnosis-live-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("target status = %q, want blocked", target.Status)
+	}
+	for _, name := range []string{
+		"OPENCLARION_LIVE_API_BASE_URL",
+		"ALERTMANAGER_WEBHOOK_SOURCE_PROFILE_ID",
+		"OPENCLARION_LIVE_ALERT_SOURCE_PROFILE_ID",
+		"ALERTMANAGER_WEBHOOK_BEARER_TOKEN",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_NOTIFICATION_CHANNEL_PROFILE_ID",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_CONTENT_KIND",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_REQUIRED_CONTENT_KINDS",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_HTTP_TIMEOUT",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_ALERT_NAME",
+	} {
+		if !invalidEnvByName(target.InvalidEnv, name) {
+			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
+		}
+	}
+	for _, secret := range []string{
+		"operator:secret",
+		"api.example.test",
+		"token=value",
+		"bad token",
+		"bad-alias",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked bad alertmanager auto diagnosis value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunReportsReadyDiagnosisBrowserSmokeWithLDAPCredentials(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_AUTH_MODE=ldap",
+		"OPENCLARION_LIVE_LDAP_USERNAME=operator-1",
+		"OPENCLARION_LIVE_LDAP_PASSWORD=placeholder-ldap-password",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("diagnosis status = %q, want ready", target.Status)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"operator-1",
+		"placeholder-ldap-password",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked LDAP live value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunReportsReadyDiagnosisConvergenceWithLDAPCredentials(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-convergence-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_LDAP_USERNAME=operator-1",
+		"OPENCLARION_LIVE_LDAP_PASSWORD=placeholder-ldap-password",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+		"OPENCLARION_LIVE_COLLECT_PLANNED_EVIDENCE=true",
+		"OPENCLARION_LIVE_SUBMIT_SUPPLEMENTAL_EVIDENCE=yes",
+		"OPENCLARION_LIVE_CONFIRM_CONCLUSION=1",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-convergence-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("diagnosis convergence status = %q, want ready", target.Status)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"operator-1",
+		"placeholder-ldap-password",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked LDAP convergence value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsBadDiagnosisLDAPCredentialsWithoutLeakingValues(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_AUTH_MODE=ldap",
+		"OPENCLARION_LIVE_LDAP_USERNAME=operator one",
+		"OPENCLARION_LIVE_LDAP_PASSWORD=placeholder\npassword",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("diagnosis status = %q, want blocked", target.Status)
+	}
+	for _, name := range []string{
+		"OPENCLARION_LIVE_LDAP_USERNAME",
+		"OPENCLARION_LIVE_LDAP_PASSWORD",
+	} {
+		if !invalidEnvByName(target.InvalidEnv, name) {
+			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
+		}
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"operator one",
+		"placeholder\npassword",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked invalid LDAP value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsDiagnosisDevOIDCTokenURLWithoutLeakingValue(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL=https://issuer.example.test/token?ttl=45m",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("diagnosis status = %q, want blocked", target.Status)
+	}
+	if !invalidEnvByName(target.InvalidEnv, "OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL") {
+		t.Fatalf("invalid env = %#v, want OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL", target.InvalidEnv)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"issuer.example.test",
+		"ttl=45m",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked dev OIDC value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
 func TestRunReportsNextTargetUsesMilestoneSequence(t *testing.T) {
 	var stdout bytes.Buffer
 	windowStart, windowEnd := pastReportWindow()
@@ -180,6 +1168,8 @@ func TestRunReportsNextTargetUsesMilestoneSequence(t *testing.T) {
 		"REPORT_WINDOW_END=" + windowEnd,
 		"OPENCLARION_LLM_MODEL=gpt-example",
 		"OPENCLARION_IM_WEBHOOK_URL=https://webhook.example.test",
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID=2",
 	}, &stdout)
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -219,10 +1209,14 @@ func TestRunOrdersAllTargetsByMilestoneSequence(t *testing.T) {
 	out := decodeOutput(t, stdout.Bytes())
 	wantNames := []string{
 		"alert-operations-live-inputs",
+		"notification-channel-live-smoke",
 		"report-live-smoke",
 		"report-policy-live-smoke",
 		"report-schedule-live-smoke",
+		"diagnosis-auth-live-smoke",
 		"diagnosis-live-browser-smoke",
+		"diagnosis-live-convergence-smoke",
+		"alertmanager-auto-diagnosis-live-smoke",
 		"sandbox-m4-baseline-audit",
 		"sandbox-m4-runtime-smoke-artifacts",
 		"sandbox-m4-quality-sample-export",
@@ -608,6 +1602,84 @@ func TestRunReportsReadyDiagnosisCloseNotificationPrerequisites(t *testing.T) {
 	}
 }
 
+func TestRunReportsReadyDiagnosisCloseNotificationWithProfileSecrets(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_WEB_BASE_URL=https://web.example.test",
+		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+		"OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=1",
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		`OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON={"secret/openclarion/ops-wecom":"` + testReadinessWeComWebhookURL("placeholder-webhook-key") + `"}`,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("diagnosis status = %q, want ready", target.Status)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"web.example.test",
+		"secret-token",
+		"example.test/openclarion",
+		"127.0.0.1:7233",
+		"placeholder-webhook-key",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked profile-backed close notification value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunBlocksDiagnosisCloseNotificationProfileSecretWithoutWeComEndpoint(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_WEB_BASE_URL=https://web.example.test",
+		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+		"OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=1",
+		"DATABASE_URL=postgres://example.test/openclarion",
+		"TEMPORAL_HOST_PORT=127.0.0.1:7233",
+		`OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON={"secret/openclarion/ops-wecom":"https://webhook.example.test/openclarion/fixture"}`,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("diagnosis status = %q, want blocked", target.Status)
+	}
+	if len(target.InvalidEnv) != 1 ||
+		target.InvalidEnv[0].Name != "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON" {
+		t.Fatalf("invalid env = %#v, want notification channel secret refs", target.InvalidEnv)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"web.example.test",
+		"secret-token",
+		"example.test/openclarion",
+		"127.0.0.1:7233",
+		"webhook.example.test",
+		"fixture",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked invalid profile-backed close notification value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
 func TestRunBlocksDiagnosisCloseNotificationMissingPrerequisites(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
@@ -662,6 +1734,121 @@ func TestRunAcceptsDiagnosisCloseNotificationWorkerReadyAlternative(t *testing.T
 	}
 }
 
+func TestRunReportsReadyDiagnosisSupplementalEvidencePrerequisites(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_WEB_BASE_URL=https://web.example.test",
+		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+		"OPENCLARION_LIVE_SUBMIT_SUPPLEMENTAL_EVIDENCE=yes",
+		"OPENCLARION_LIVE_REQUIRE_SUPPLEMENTAL_EVIDENCE=true",
+		"OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEMPLATE=operator verified {label} with requested detail {detail}",
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("diagnosis status = %q, want ready", target.Status)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"web.example.test",
+		"secret-token",
+		"operator verified {label} with requested detail {detail}",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked supplemental live value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunReportsReadyDiagnosisToolRequestsPrerequisites(t *testing.T) {
+	toolRequests := `[` +
+		`{"tool":"active_alerts","reason":"Collect current active alerts.","limit":10},` +
+		`{"tool":"metric_query","reason":"Collect target availability.","template_id":1,"alert_source_profile_id":2,"limit":20},` +
+		`{"tool":"metric_range_query","reason":"Collect pod CPU trend.","query":"sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"prod\"}[5m]))","window_seconds":3600,"step_seconds":60,"limit":10}` +
+		`]`
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_WEB_BASE_URL=https://web.example.test",
+		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+		"OPENCLARION_LIVE_COLLECT_PLANNED_EVIDENCE=yes",
+		"OPENCLARION_LIVE_TOOL_REQUESTS_JSON=" + toolRequests,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "ready" {
+		t.Fatalf("diagnosis status = %q, want ready", target.Status)
+	}
+	if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+		t.Fatalf("target has unexpected blockers: %#v", target)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"web.example.test",
+		"secret-token",
+		"Collect current active alerts.",
+		"Collect target availability.",
+		"Collect pod CPU trend.",
+		"container_cpu_usage_seconds_total",
+		`namespace=\"prod\"`,
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked tool request value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsDiagnosisToolRequestTemplateWithoutProfileWithoutLeakingValues(t *testing.T) {
+	toolRequests := `[{"tool":"metric_query","reason":"Collect target availability secret.","template_id":1,"limit":20}]`
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+		"OPENCLARION_LIVE_TOOL_REQUESTS_JSON=" + toolRequests,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("diagnosis status = %q, want blocked", target.Status)
+	}
+	if len(target.InvalidEnv) != 1 || target.InvalidEnv[0].Name != "OPENCLARION_LIVE_TOOL_REQUESTS_JSON" {
+		t.Fatalf("invalid env = %#v, want tool requests rejection", target.InvalidEnv)
+	}
+	if !strings.Contains(target.InvalidEnv[0].Reason, "template_id requires alert_source_profile_id") {
+		t.Fatalf("invalid reason = %q, want template/profile rejection", target.InvalidEnv[0].Reason)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"secret-token",
+		"Collect target availability secret.",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked template request value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
 func TestRunRejectsBadDiagnosisLiveInputsWithoutLeakingValues(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
@@ -671,6 +1858,11 @@ func TestRunRejectsBadDiagnosisLiveInputsWithoutLeakingValues(t *testing.T) {
 		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer token with spaces",
 		"OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID=session-123",
 		"OPENCLARION_LIVE_REQUIRE_CLOSE_NOTIFICATION=1",
+		"OPENCLARION_LIVE_COLLECT_PLANNED_EVIDENCE=maybe",
+		"OPENCLARION_LIVE_SUBMIT_SUPPLEMENTAL_EVIDENCE=maybe",
+		"OPENCLARION_LIVE_REQUIRE_SUPPLEMENTAL_EVIDENCE=yes",
+		"OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEXT= supplemental evidence with leading whitespace",
+		"OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEMPLATE= template evidence with leading whitespace",
 		"OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT=soon",
 		"OPENCLARION_LIVE_CLOSE_REASON= live_smoke_completed",
 		"DATABASE_URL=postgres://example.test/openclarion",
@@ -694,6 +1886,11 @@ func TestRunRejectsBadDiagnosisLiveInputsWithoutLeakingValues(t *testing.T) {
 		"OPENCLARION_IM_WEBHOOK_URL",
 		"OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT",
 		"OPENCLARION_LIVE_CLOSE_REASON",
+		"OPENCLARION_LIVE_COLLECT_PLANNED_EVIDENCE",
+		"OPENCLARION_LIVE_SUBMIT_SUPPLEMENTAL_EVIDENCE",
+		"OPENCLARION_LIVE_REQUIRE_SUPPLEMENTAL_EVIDENCE",
+		"OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEXT",
+		"OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEMPLATE",
 	} {
 		if !invalidEnvByName(target.InvalidEnv, name) {
 			t.Fatalf("invalid env = %#v, want %s", target.InvalidEnv, name)
@@ -709,10 +1906,71 @@ func TestRunRejectsBadDiagnosisLiveInputsWithoutLeakingValues(t *testing.T) {
 		"webhook.example.test",
 		"soon",
 		"live_smoke_completed",
+		"maybe",
+		"supplemental evidence with leading whitespace",
+		"template evidence with leading whitespace",
 	} {
 		if strings.Contains(stdout.String(), secret) {
 			t.Fatalf("output leaked invalid environment value %q: %s", secret, stdout.String())
 		}
+	}
+}
+
+func TestRunRejectsBadDiagnosisToolRequestsWithoutLeakingValues(t *testing.T) {
+	toolRequests := `[{"tool":"metric_range_query","reason":"metric trend secret note","query":"up{job=\"secret-job\"}","window_seconds":60,"step_seconds":120,"limit":21}]`
+
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+		"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID=7",
+		"OPENCLARION_LIVE_TOOL_REQUESTS_JSON=" + toolRequests,
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("diagnosis status = %q, want blocked", target.Status)
+	}
+	if len(target.InvalidEnv) != 1 || target.InvalidEnv[0].Name != "OPENCLARION_LIVE_TOOL_REQUESTS_JSON" {
+		t.Fatalf("invalid env = %#v, want tool requests rejection", target.InvalidEnv)
+	}
+	for _, secret := range []string{
+		"api.example.test",
+		"secret-token",
+		"metric trend secret note",
+		"secret-job",
+		"up{job",
+	} {
+		if strings.Contains(stdout.String(), secret) {
+			t.Fatalf("output leaked invalid tool request value %q: %s", secret, stdout.String())
+		}
+	}
+}
+
+func TestRunRejectsOversizedDiagnosisSupplementalEvidenceText(t *testing.T) {
+	var stdout bytes.Buffer
+	err := run([]string{"--target", "diagnosis-live-browser-smoke"}, []string{
+		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+		"OPENCLARION_LIVE_BEARER_TOKEN=secret-token",
+		"OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID=session-123",
+		"OPENCLARION_LIVE_SUBMIT_SUPPLEMENTAL_EVIDENCE=1",
+		"OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEXT=" + strings.Repeat("a", maxReadinessSupplementalBytes+1),
+	}, &stdout)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	out := decodeOutput(t, stdout.Bytes())
+	target := targetByName(t, out, "diagnosis-live-browser-smoke")
+	if target.Status != "blocked" {
+		t.Fatalf("diagnosis status = %q, want blocked", target.Status)
+	}
+	if len(target.InvalidEnv) != 1 || target.InvalidEnv[0].Name != "OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEXT" {
+		t.Fatalf("invalid env = %#v, want supplemental evidence text rejection", target.InvalidEnv)
 	}
 }
 
@@ -1529,6 +2787,23 @@ func targetByName(t *testing.T, out readinessOutput, name string) targetReadines
 	return targetReadiness{}
 }
 
+func hasTarget(out readinessOutput, name string) bool {
+	for _, target := range out.Targets {
+		if target.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func targetNames(targets []targetReadiness) []string {
+	names := make([]string, 0, len(targets))
+	for _, target := range targets {
+		names = append(names, target.Name)
+	}
+	return names
+}
+
 func directoryCheckByEnv(t *testing.T, checks []directoryCheck, name string) directoryCheck {
 	t.Helper()
 	for _, check := range checks {
@@ -1678,6 +2953,10 @@ func lowerHexDigest(value string) bool {
 		}
 	}
 	return true
+}
+
+func testReadinessWeComWebhookURL(key string) string {
+	return "https://" + readinessWeComWebhookHost + readinessWeComWebhookPath + "?key=" + key
 }
 
 func withM4PacketVerifier(t *testing.T, verifier func(string) error) {

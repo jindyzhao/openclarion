@@ -9,7 +9,12 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "playwright-report/**",
+    "playwright-report-live/**",
+    "test-results/**",
+    "test-results-live/**",
     "next-env.d.ts",
+    "tsconfig.tsbuildinfo",
     "src/lib/api/openapi.ts"
   ])
 ]);

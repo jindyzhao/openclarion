@@ -19,9 +19,9 @@ func TestProviderReturnsScriptedPrincipalAndRecordsRequests(t *testing.T) {
 			}},
 		},
 	})
-	principal, err := provider.AuthenticateBearer(context.Background(), "token-1")
+	principal, err := provider.AuthenticateAuthorization(context.Background(), "token-1")
 	if err != nil {
-		t.Fatalf("AuthenticateBearer: %v", err)
+		t.Fatalf("AuthenticateAuthorization: %v", err)
 	}
 	if principal.Subject != "owner-1" || !slices.Contains(principal.Roles, ports.AuthRoleOwner) {
 		t.Fatalf("principal = %+v", principal)
@@ -29,9 +29,9 @@ func TestProviderReturnsScriptedPrincipalAndRecordsRequests(t *testing.T) {
 	principal.Roles[0] = ports.AuthRoleAdmin
 	principal.Claims[0] = '{'
 
-	again, err := provider.AuthenticateBearer(context.Background(), "token-1")
+	again, err := provider.AuthenticateAuthorization(context.Background(), "token-1")
 	if err != nil {
-		t.Fatalf("AuthenticateBearer again: %v", err)
+		t.Fatalf("AuthenticateAuthorization again: %v", err)
 	}
 	if again.Roles[0] != ports.AuthRoleOwner {
 		t.Fatalf("Roles[0] = %q, want owner", again.Roles[0])
@@ -50,10 +50,10 @@ func TestProviderReturnsScriptedErrorAndMissingScript(t *testing.T) {
 	provider := New(map[string][]Result{
 		"token-1": {{Err: wantErr}},
 	})
-	if _, err := provider.AuthenticateBearer(context.Background(), "token-1"); !errors.Is(err, wantErr) {
-		t.Fatalf("AuthenticateBearer scripted err = %v, want %v", err, wantErr)
+	if _, err := provider.AuthenticateAuthorization(context.Background(), "token-1"); !errors.Is(err, wantErr) {
+		t.Fatalf("AuthenticateAuthorization scripted err = %v, want %v", err, wantErr)
 	}
-	if _, err := provider.AuthenticateBearer(context.Background(), "unknown"); err == nil {
-		t.Fatalf("AuthenticateBearer missing script: want error")
+	if _, err := provider.AuthenticateAuthorization(context.Background(), "unknown"); err == nil {
+		t.Fatalf("AuthenticateAuthorization missing script: want error")
 	}
 }

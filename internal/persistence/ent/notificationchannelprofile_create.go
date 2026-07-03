@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
+	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchanneltestproof"
 )
 
 // NotificationChannelProfileCreate is the builder for creating a NotificationChannelProfile entity.
@@ -100,6 +101,21 @@ func (_c *NotificationChannelProfileCreate) SetNillableUpdatedAt(v *time.Time) *
 		_c.SetUpdatedAt(*v)
 	}
 	return _c
+}
+
+// AddTestProofIDs adds the "test_proofs" edge to the NotificationChannelTestProof entity by IDs.
+func (_c *NotificationChannelProfileCreate) AddTestProofIDs(ids ...int) *NotificationChannelProfileCreate {
+	_c.mutation.AddTestProofIDs(ids...)
+	return _c
+}
+
+// AddTestProofs adds the "test_proofs" edges to the NotificationChannelTestProof entity.
+func (_c *NotificationChannelProfileCreate) AddTestProofs(v ...*NotificationChannelTestProof) *NotificationChannelProfileCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddTestProofIDs(ids...)
 }
 
 // Mutation returns the NotificationChannelProfileMutation object of the builder.
@@ -254,6 +270,22 @@ func (_c *NotificationChannelProfileCreate) createSpec() (*NotificationChannelPr
 	if value, ok := _c.mutation.UpdatedAt(); ok {
 		_spec.SetField(notificationchannelprofile.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
+	}
+	if nodes := _c.mutation.TestProofsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   notificationchannelprofile.TestProofsTable,
+			Columns: []string{notificationchannelprofile.TestProofsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(notificationchanneltestproof.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
 	}
 	return _node, _spec
 }

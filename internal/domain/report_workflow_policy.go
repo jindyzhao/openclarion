@@ -53,7 +53,8 @@ func (s ReportWorkflowScenario) Valid() bool {
 }
 
 // DiagnosisFollowUpMode describes how report policies should prepare the
-// diagnosis-room handoff after a report is created. It does not start a room.
+// diagnosis-room handoff after a report is created or when an alert intake
+// trigger produces a matching evidence snapshot.
 type DiagnosisFollowUpMode string
 
 const (
@@ -62,12 +63,15 @@ const (
 	// DiagnosisFollowUpModeSuggestRoom asks the UI or later workflow binding
 	// to offer a diagnosis room handoff after report creation.
 	DiagnosisFollowUpModeSuggestRoom DiagnosisFollowUpMode = "suggest_room"
+	// DiagnosisFollowUpModeAutoRoom allows backend-owned alert intake paths to
+	// start a diagnosis room automatically after producing a matching snapshot.
+	DiagnosisFollowUpModeAutoRoom DiagnosisFollowUpMode = "auto_room"
 )
 
 // Valid reports whether m is a supported diagnosis follow-up mode.
 func (m DiagnosisFollowUpMode) Valid() bool {
 	switch m {
-	case DiagnosisFollowUpModeDisabled, DiagnosisFollowUpModeSuggestRoom:
+	case DiagnosisFollowUpModeDisabled, DiagnosisFollowUpModeSuggestRoom, DiagnosisFollowUpModeAutoRoom:
 		return true
 	}
 	return false

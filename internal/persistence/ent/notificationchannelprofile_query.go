@@ -4,6 +4,7 @@ package ent
 
 import (
 	"context"
+	"database/sql/driver"
 	"fmt"
 	"math"
 
@@ -12,16 +13,18 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
+	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchanneltestproof"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 )
 
 // NotificationChannelProfileQuery is the builder for querying NotificationChannelProfile entities.
 type NotificationChannelProfileQuery struct {
 	config
-	ctx        *QueryContext
-	order      []notificationchannelprofile.OrderOption
-	inters     []Interceptor
-	predicates []predicate.NotificationChannelProfile
+	ctx            *QueryContext
+	order          []notificationchannelprofile.OrderOption
+	inters         []Interceptor
+	predicates     []predicate.NotificationChannelProfile
+	withTestProofs *NotificationChannelTestProofQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -56,6 +59,28 @@ func (_q *NotificationChannelProfileQuery) Unique(unique bool) *NotificationChan
 func (_q *NotificationChannelProfileQuery) Order(o ...notificationchannelprofile.OrderOption) *NotificationChannelProfileQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryTestProofs chains the current query on the "test_proofs" edge.
+func (_q *NotificationChannelProfileQuery) QueryTestProofs() *NotificationChannelTestProofQuery {
+	query := (&NotificationChannelTestProofClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(notificationchannelprofile.Table, notificationchannelprofile.FieldID, selector),
+			sqlgraph.To(notificationchanneltestproof.Table, notificationchanneltestproof.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, notificationchannelprofile.TestProofsTable, notificationchannelprofile.TestProofsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // First returns the first NotificationChannelProfile entity from the query.
@@ -245,15 +270,27 @@ func (_q *NotificationChannelProfileQuery) Clone() *NotificationChannelProfileQu
 		return nil
 	}
 	return &NotificationChannelProfileQuery{
-		config:     _q.config,
-		ctx:        _q.ctx.Clone(),
-		order:      append([]notificationchannelprofile.OrderOption{}, _q.order...),
-		inters:     append([]Interceptor{}, _q.inters...),
-		predicates: append([]predicate.NotificationChannelProfile{}, _q.predicates...),
+		config:         _q.config,
+		ctx:            _q.ctx.Clone(),
+		order:          append([]notificationchannelprofile.OrderOption{}, _q.order...),
+		inters:         append([]Interceptor{}, _q.inters...),
+		predicates:     append([]predicate.NotificationChannelProfile{}, _q.predicates...),
+		withTestProofs: _q.withTestProofs.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithTestProofs tells the query-builder to eager-load the nodes that are connected to
+// the "test_proofs" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *NotificationChannelProfileQuery) WithTestProofs(opts ...func(*NotificationChannelTestProofQuery)) *NotificationChannelProfileQuery {
+	query := (&NotificationChannelTestProofClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTestProofs = query
+	return _q
 }
 
 // GroupBy is used to group vertices by one or more fields/columns.
@@ -332,8 +369,11 @@ func (_q *NotificationChannelProfileQuery) prepareQuery(ctx context.Context) err
 
 func (_q *NotificationChannelProfileQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*NotificationChannelProfile, error) {
 	var (
-		nodes = []*NotificationChannelProfile{}
-		_spec = _q.querySpec()
+		nodes       = []*NotificationChannelProfile{}
+		_spec       = _q.querySpec()
+		loadedTypes = [1]bool{
+			_q.withTestProofs != nil,
+		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
 		return (*NotificationChannelProfile).scanValues(nil, columns)
@@ -341,6 +381,7 @@ func (_q *NotificationChannelProfileQuery) sqlAll(ctx context.Context, hooks ...
 	_spec.Assign = func(columns []string, values []any) error {
 		node := &NotificationChannelProfile{config: _q.config}
 		nodes = append(nodes, node)
+		node.Edges.loadedTypes = loadedTypes
 		return node.assignValues(columns, values)
 	}
 	for i := range hooks {
@@ -352,7 +393,47 @@ func (_q *NotificationChannelProfileQuery) sqlAll(ctx context.Context, hooks ...
 	if len(nodes) == 0 {
 		return nodes, nil
 	}
+	if query := _q.withTestProofs; query != nil {
+		if err := _q.loadTestProofs(ctx, query, nodes,
+			func(n *NotificationChannelProfile) { n.Edges.TestProofs = []*NotificationChannelTestProof{} },
+			func(n *NotificationChannelProfile, e *NotificationChannelTestProof) {
+				n.Edges.TestProofs = append(n.Edges.TestProofs, e)
+			}); err != nil {
+			return nil, err
+		}
+	}
 	return nodes, nil
+}
+
+func (_q *NotificationChannelProfileQuery) loadTestProofs(ctx context.Context, query *NotificationChannelTestProofQuery, nodes []*NotificationChannelProfile, init func(*NotificationChannelProfile), assign func(*NotificationChannelProfile, *NotificationChannelTestProof)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*NotificationChannelProfile)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(notificationchanneltestproof.FieldNotificationChannelProfileID)
+	}
+	query.Where(predicate.NotificationChannelTestProof(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(notificationchannelprofile.TestProofsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.NotificationChannelProfileID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "notification_channel_profile_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
 }
 
 func (_q *NotificationChannelProfileQuery) sqlCount(ctx context.Context) (int, error) {

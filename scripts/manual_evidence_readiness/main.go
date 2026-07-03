@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -22,6 +23,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	gldap "github.com/go-ldap/ldap/v3"
 
 	"github.com/openclarion/openclarion/internal/providers/secrets/envmap"
 	"github.com/openclarion/openclarion/internal/strictjson"
@@ -33,10 +36,21 @@ const (
 	maxReadinessSampleBasisBytes   = 2048
 	maxReadinessQualityCaseIDBytes = 128
 	maxReadinessCloseReasonBytes   = 128
+	maxReadinessSupplementalBytes  = 4096
+	maxReadinessToolRequestsBytes  = 16 * 1024
+	maxReadinessToolRequestItems   = 5
+	maxReadinessToolReasonBytes    = 500
+	maxReadinessToolQueryBytes     = 500
+	minReadinessToolRangeSeconds   = 15
+	maxReadinessToolRangeSeconds   = 6 * 60 * 60
+	maxReadinessToolAlertLimit     = 10
+	maxReadinessToolMetricLimit    = 20
 	maxReadinessReportIDBytes      = 256
 	m4PacketVerificationTimeout    = 2 * time.Minute
 	directRole                     = "direct"
 	sandboxRole                    = "sandbox"
+	readinessWeComWebhookHost      = "qyapi.weixin.qq.com"
+	readinessWeComWebhookPath      = "/cgi-bin/webhook/send"
 )
 
 var requiredQualitySampleScenarios = []string{
@@ -171,6 +185,31 @@ type m4EvidenceArtifact struct {
 
 type envMap map[string]string
 
+type targetListFlag struct {
+	values []string
+}
+
+func (f *targetListFlag) Set(raw string) error {
+	for _, part := range strings.Split(raw, ",") {
+		f.values = append(f.values, strings.TrimSpace(part))
+	}
+	return nil
+}
+
+func (f *targetListFlag) String() string {
+	if f == nil || len(f.values) == 0 {
+		return "all"
+	}
+	return strings.Join(f.values, ",")
+}
+
+func (f *targetListFlag) Values() []string {
+	if f == nil || len(f.values) == 0 {
+		return []string{"all"}
+	}
+	return append([]string(nil), f.values...)
+}
+
 func main() {
 	if err := run(os.Args[1:], os.Environ(), os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "[manual-evidence-readiness] %v\n", err)
@@ -181,7 +220,8 @@ func main() {
 func run(args []string, environ []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet(toolName, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	target := fs.String("target", "all", "target to check: all, alert-operations-live-inputs, report-live-smoke, report-policy-live-smoke, report-schedule-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-sample-export, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, sandbox-m4-evidence-chain, diagnosis-live-browser-smoke")
+	var targetsFlag targetListFlag
+	fs.Var(&targetsFlag, "target", "target to check; may be repeated or comma-separated: all, alert-operations-live-inputs, notification-channel-live-smoke, report-live-smoke, report-policy-live-smoke, report-schedule-live-smoke, sandbox-m4-baseline-audit, sandbox-m4-quality-sample-export, sandbox-m4-quality-manifest-prepare, sandbox-m4-quality-compare, sandbox-m4-runtime-smoke-artifacts, sandbox-m4-review-evidence-template, sandbox-m4-decision, sandbox-m4-evidence-packet, sandbox-m4-evidence-chain, diagnosis-auth-live-smoke, diagnosis-live-browser-smoke, diagnosis-live-convergence-smoke, alertmanager-auto-diagnosis-live-smoke")
 	requireReady := fs.Bool("require-ready", false, "return a non-zero exit status when any selected target is blocked")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -193,6 +233,7 @@ func run(args []string, environ []string, stdout io.Writer) error {
 	env := environMap(environ)
 	targets := []targetReadiness{
 		alertOperationsLiveInputsReadiness(env),
+		notificationChannelLiveSmokeReadiness(env),
 		reportLiveSmokeReadiness(env),
 		reportPolicyLiveSmokeReadiness(env),
 		reportScheduleLiveSmokeReadiness(env),
@@ -205,9 +246,12 @@ func run(args []string, environ []string, stdout io.Writer) error {
 		sandboxM4DecisionReadiness(env),
 		sandboxM4EvidencePacketReadiness(env),
 		sandboxM4EvidenceChainReadiness(env),
+		diagnosisAuthLiveSmokeReadiness(env),
 		diagnosisLiveBrowserSmokeReadiness(env),
+		diagnosisLiveConvergenceSmokeReadiness(env),
+		alertmanagerAutoDiagnosisLiveSmokeReadiness(env),
 	}
-	selected, err := selectTargets(targets, strings.TrimSpace(*target))
+	selected, err := selectTargets(targets, targetsFlag.Values())
 	if err != nil {
 		return err
 	}
@@ -367,21 +411,48 @@ func sandboxM4QualityCompareReadiness(env envMap) targetReadiness {
 	return finalize(target)
 }
 
-func selectTargets(targets []targetReadiness, target string) ([]targetReadiness, error) {
-	if target == "" || target == "all" {
+func selectTargets(targets []targetReadiness, targetNames []string) ([]targetReadiness, error) {
+	if len(targetNames) == 0 {
 		return targets, nil
 	}
-	for _, candidate := range targets {
-		if candidate.Name == target {
-			return []targetReadiness{candidate}, nil
+	wantAll := false
+	requested := make(map[string]struct{}, len(targetNames))
+	for _, name := range targetNames {
+		name = strings.TrimSpace(name)
+		if name == "" || name == "all" {
+			wantAll = true
+			continue
 		}
+		requested[name] = struct{}{}
 	}
+	if wantAll {
+		if len(requested) > 0 {
+			return nil, fmt.Errorf("target %q cannot be combined with specific targets", "all")
+		}
+		return targets, nil
+	}
+	var selected []targetReadiness
+	for _, candidate := range targets {
+		if _, ok := requested[candidate.Name]; !ok {
+			continue
+		}
+		selected = append(selected, candidate)
+		delete(requested, candidate.Name)
+	}
+	if len(requested) == 0 {
+		return selected, nil
+	}
+	var unknown []string
+	for name := range requested {
+		unknown = append(unknown, name)
+	}
+	sort.Strings(unknown)
 	var names []string
 	for _, candidate := range targets {
 		names = append(names, candidate.Name)
 	}
 	sort.Strings(names)
-	return nil, fmt.Errorf("unknown target %q; expected all or one of: %s", target, strings.Join(names, ", "))
+	return nil, fmt.Errorf("unknown target %q; expected all or one of: %s", strings.Join(unknown, ","), strings.Join(names, ", "))
 }
 
 func alertOperationsLiveInputsReadiness(env envMap) targetReadiness {
@@ -440,6 +511,201 @@ func alertOperationsLiveInputsReadiness(env envMap) targetReadiness {
 			Name:   "OPENCLARION_IM_WEBHOOK_FORMAT",
 			Reason: "must be generic or wecom when set",
 		})
+	}
+	return finalize(target)
+}
+
+func notificationChannelLiveSmokeReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:         "notification-channel-live-smoke",
+		Milestone:    "M2-M5",
+		Sequence:     8,
+		EvidenceGoal: "Retain focused proof that one persisted notification channel profile resolves its secret and delivers through the configured IM provider.",
+		Command:      "make notification-channel-live-smoke",
+		Notes: []string{
+			"Preflight only checks local configuration; it does not call the API, resolve secret refs, or send notifications.",
+			"The running backend must already have server-side notification channel secret resolver wiring for the selected profile.",
+			"Use this smoke before workflow-level proof when validating a WeCom or other webhook delivery target.",
+		},
+	}
+	target.MissingEnv = missingEnv(env,
+		"OPENCLARION_LIVE_API_BASE_URL",
+	)
+	if !envPresent(env, "NOTIFICATION_CHANNEL_PROFILE_ID") && !envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID") {
+		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
+			Description: "notification channel profile ID",
+			Options: []string{
+				"NOTIFICATION_CHANNEL_PROFILE_ID",
+				"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID",
+			},
+		})
+	}
+	if envPresent(env, "OPENCLARION_LIVE_API_BASE_URL") {
+		if err := validateReadinessHTTPURL(env["OPENCLARION_LIVE_API_BASE_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_API_BASE_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+	for _, name := range []string{
+		"NOTIFICATION_CHANNEL_PROFILE_ID",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID",
+	} {
+		if envPresent(env, name) && !positiveInteger(env[name]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   name,
+				Reason: "must be a positive integer",
+			})
+		}
+	}
+	if envPresent(env, "NOTIFICATION_CHANNEL_PROFILE_ID") &&
+		envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID") &&
+		strings.TrimSpace(env["NOTIFICATION_CHANNEL_PROFILE_ID"]) != strings.TrimSpace(env["OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "NOTIFICATION_CHANNEL_PROFILE_ID",
+			Reason: "must match OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID when both are set",
+		})
+	}
+	for _, name := range []string{
+		"NOTIFICATION_CHANNEL_EXPECTED_KIND",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_KIND",
+	} {
+		if envPresent(env, name) && !validNotificationChannelKind(env[name]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   name,
+				Reason: "must be webhook or wecom when set",
+			})
+		}
+	}
+	if envPresent(env, "NOTIFICATION_CHANNEL_EXPECTED_KIND") &&
+		envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_KIND") &&
+		!strings.EqualFold(
+			strings.TrimSpace(env["NOTIFICATION_CHANNEL_EXPECTED_KIND"]),
+			strings.TrimSpace(env["OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_KIND"]),
+		) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "NOTIFICATION_CHANNEL_EXPECTED_KIND",
+			Reason: "must match OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_KIND when both are set",
+		})
+	}
+	for _, name := range []string{
+		"NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND",
+	} {
+		if envPresent(env, name) && !validNotificationChannelContentKind(env[name]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   name,
+				Reason: "must be transport_sample, ai_diagnosis_sample, or diagnosis_close_sample when set",
+			})
+		}
+	}
+	for _, name := range []string{
+		"NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS",
+	} {
+		if envPresent(env, name) && !validNotificationChannelContentKinds(env[name]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   name,
+				Reason: "must be comma-separated transport_sample, ai_diagnosis_sample, or diagnosis_close_sample values without duplicates",
+			})
+		}
+	}
+	for _, name := range []string{
+		"NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF",
+	} {
+		if envPresent(env, name) && !validReadinessBoolean(env[name]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   name,
+				Reason: "must be true or false when set",
+			})
+		}
+	}
+	if envPresent(env, "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND") &&
+		envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND") &&
+		!strings.EqualFold(
+			strings.TrimSpace(env["NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND"]),
+			strings.TrimSpace(env["OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND"]),
+		) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND",
+			Reason: "must match OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND when both are set",
+		})
+	}
+	if envPresent(env, "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS") &&
+		envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS") &&
+		!strings.EqualFold(
+			strings.TrimSpace(env["NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS"]),
+			strings.TrimSpace(env["OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS"]),
+		) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS",
+			Reason: "must match OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS when both are set",
+		})
+	}
+	if envPresent(env, "NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF") &&
+		envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF") &&
+		!strings.EqualFold(
+			strings.TrimSpace(env["NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF"]),
+			strings.TrimSpace(env["OPENCLARION_LIVE_NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF"]),
+		) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF",
+			Reason: "must match OPENCLARION_LIVE_NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF when both are set",
+		})
+	}
+	if (envPresent(env, "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND") || envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND")) &&
+		(envPresent(env, "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS") || envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS")) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND",
+			Reason: "must not be set with NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS",
+		})
+	}
+	if notificationChannelAIProofRequired(env) &&
+		(envPresent(env, "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND") ||
+			envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND") ||
+			envPresent(env, "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS") ||
+			envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS")) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF",
+			Reason: "must not be set with explicit notification channel expected content kinds",
+		})
+	}
+	expectedKind := notificationChannelExpectedValue(env, "NOTIFICATION_CHANNEL_EXPECTED_KIND", "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_KIND")
+	expectedContentKind := notificationChannelExpectedValue(env, "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND", "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND")
+	expectedContentKinds := notificationChannelExpectedValues(env, "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS", "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS")
+	if diagnosisNotificationTestContentKind(expectedContentKind) && expectedKind == "webhook" {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "NOTIFICATION_CHANNEL_EXPECTED_KIND",
+			Reason: "must be wecom when diagnosis notification content is expected",
+		})
+	}
+	if anyDiagnosisNotificationTestContentKind(expectedContentKinds) && expectedKind == "webhook" {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "NOTIFICATION_CHANNEL_EXPECTED_KIND",
+			Reason: "must be wecom when diagnosis notification content is expected",
+		})
+	}
+	if notificationChannelAIProofRequired(env) && expectedKind == "webhook" {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "NOTIFICATION_CHANNEL_EXPECTED_KIND",
+			Reason: "must be wecom when AI proof is required",
+		})
+	}
+	if envPresent(env, "OPENCLARION_LIVE_BEARER_TOKEN") && !validReadinessBearerToken(env["OPENCLARION_LIVE_BEARER_TOKEN"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_LIVE_BEARER_TOKEN",
+			Reason: "must be a single bearer token or Bearer header without embedded whitespace",
+		})
+	}
+	if envPresent(env, "NOTIFICATION_CHANNEL_LIVE_SMOKE_TIMEOUT") {
+		if err := validateReadinessPositiveDuration(env["NOTIFICATION_CHANNEL_LIVE_SMOKE_TIMEOUT"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "NOTIFICATION_CHANNEL_LIVE_SMOKE_TIMEOUT",
+				Reason: err.Error(),
+			})
+		}
 	}
 	return finalize(target)
 }
@@ -903,6 +1169,102 @@ func sandboxM4EvidenceChainReadiness(env envMap) targetReadiness {
 	return finalize(target)
 }
 
+func diagnosisAuthLiveSmokeReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:         "diagnosis-auth-live-smoke",
+		Milestone:    "M5",
+		Sequence:     19,
+		EvidenceGoal: "Retain proof that the running backend diagnosis auth status and credential check path accepts LDAP or bearer credentials without storing secrets.",
+		Command:      "make diagnosis-auth-live-smoke",
+		Notes: []string{
+			"Preflight only checks local configuration; it does not authenticate or contact the live backend.",
+			"LDAP credentials are passed to the live smoke through environment-variable references, not command-line argv.",
+			"Bearer mode accepts OPENCLARION_LIVE_DIAGNOSIS_AUTH_BEARER_TOKEN, OPENCLARION_DIAGNOSIS_STATIC_BEARER_TOKEN, or OPENCLARION_LIVE_BEARER_TOKEN.",
+		},
+	}
+	target.MissingEnv = missingEnv(env,
+		"OPENCLARION_LIVE_API_BASE_URL",
+	)
+	if envPresent(env, "OPENCLARION_LIVE_API_BASE_URL") {
+		if err := validateReadinessHTTPURL(env["OPENCLARION_LIVE_API_BASE_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_API_BASE_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+	mode := diagnosisAuthLiveSmokeAuthMode(env)
+	switch mode {
+	case "":
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_LIVE_AUTH_MODE",
+			Reason: "must be ldap or bearer when set",
+		})
+	case "ldap":
+		target.MissingEnv = append(target.MissingEnv, missingEnv(env,
+			"OPENCLARION_LIVE_LDAP_USERNAME",
+			"OPENCLARION_LIVE_LDAP_PASSWORD",
+		)...)
+		if envPresent(env, "OPENCLARION_LIVE_LDAP_USERNAME") && !validReadinessLDAPUsername(env["OPENCLARION_LIVE_LDAP_USERNAME"]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_LDAP_USERNAME",
+				Reason: "must be non-empty without leading/trailing whitespace or embedded whitespace",
+			})
+		}
+		if envPresent(env, "OPENCLARION_LIVE_LDAP_PASSWORD") && !validReadinessLDAPPassword(env["OPENCLARION_LIVE_LDAP_PASSWORD"]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_LDAP_PASSWORD",
+				Reason: "must be non-empty and must not contain CR or LF",
+			})
+		}
+	case "bearer":
+		if !envPresent(env, "OPENCLARION_LIVE_DIAGNOSIS_AUTH_BEARER_TOKEN") &&
+			!envPresent(env, "OPENCLARION_DIAGNOSIS_STATIC_BEARER_TOKEN") &&
+			!envPresent(env, "OPENCLARION_LIVE_BEARER_TOKEN") {
+			target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
+				Description: "diagnosis auth check credentials",
+				Options: []string{
+					"OPENCLARION_LIVE_DIAGNOSIS_AUTH_BEARER_TOKEN",
+					"OPENCLARION_DIAGNOSIS_STATIC_BEARER_TOKEN",
+					"OPENCLARION_LIVE_BEARER_TOKEN",
+					"OPENCLARION_LIVE_LDAP_USERNAME + OPENCLARION_LIVE_LDAP_PASSWORD",
+				},
+			})
+		}
+		for _, name := range []string{
+			"OPENCLARION_LIVE_DIAGNOSIS_AUTH_BEARER_TOKEN",
+			"OPENCLARION_DIAGNOSIS_STATIC_BEARER_TOKEN",
+			"OPENCLARION_LIVE_BEARER_TOKEN",
+		} {
+			if envPresent(env, name) && !validReadinessBearerToken(env[name]) {
+				target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+					Name:   name,
+					Reason: "must be a single bearer token or Bearer header without embedded whitespace",
+				})
+			}
+		}
+	}
+	if envPresent(env, "OPENCLARION_LIVE_DIAGNOSIS_AUTH_EXPECTED_MODE") &&
+		!validDiagnosisAuthBackendMode(env["OPENCLARION_LIVE_DIAGNOSIS_AUTH_EXPECTED_MODE"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_LIVE_DIAGNOSIS_AUTH_EXPECTED_MODE",
+			Reason: "must be ldap, static, oidc, unknown, or none",
+		})
+	}
+	if envPresent(env, "DIAGNOSIS_AUTH_LIVE_SMOKE_TIMEOUT") {
+		if err := validateReadinessPositiveDuration(env["DIAGNOSIS_AUTH_LIVE_SMOKE_TIMEOUT"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "DIAGNOSIS_AUTH_LIVE_SMOKE_TIMEOUT",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if diagnosisLDAPBackendReadinessRequired(env) {
+		applyDiagnosisLDAPBackendReadiness(&target, env)
+	}
+	return finalize(target)
+}
+
 func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 	target := targetReadiness{
 		Name:         "diagnosis-live-browser-smoke",
@@ -913,12 +1275,16 @@ func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 		Notes: []string{
 			"Preflight only checks local configuration; it does not authenticate, create a room, install browsers, or contact the live backend.",
 			"When close-notification proof is required, the local close CLI still signals Temporal and loads PostgreSQL lifecycle events while the running worker must be configured to send the IM notification.",
+			"When planned evidence collection proof is requested, the browser smoke must be able to find and execute a Use collection plan action after the first assistant turn.",
+			"When supplemental evidence proof is requested, the browser smoke must be able to find a Use follow-up action after the first assistant turn.",
+			"OPENCLARION_LIVE_LDAP_USERNAME and OPENCLARION_LIVE_LDAP_PASSWORD may replace bearer auth for LDAP-backed live diagnosis-room authentication.",
+			"OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL may replace OPENCLARION_LIVE_BEARER_TOKEN only for a loopback dev OIDC token endpoint; the smoke harness fetches the token later and the readiness check does not contact the endpoint.",
 		},
 	}
 	target.MissingEnv = missingEnv(env,
 		"OPENCLARION_LIVE_API_BASE_URL",
-		"OPENCLARION_LIVE_BEARER_TOKEN",
 	)
+	applyDiagnosisLiveAuthReadiness(&target, env)
 	if envPresent(env, "OPENCLARION_LIVE_API_BASE_URL") {
 		if err := validateReadinessHTTPURL(env["OPENCLARION_LIVE_API_BASE_URL"]); err != nil {
 			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
@@ -943,12 +1309,6 @@ func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 			})
 		}
 	}
-	if envPresent(env, "OPENCLARION_LIVE_BEARER_TOKEN") && !validReadinessBearerToken(env["OPENCLARION_LIVE_BEARER_TOKEN"]) {
-		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
-			Name:   "OPENCLARION_LIVE_BEARER_TOKEN",
-			Reason: "must be a single bearer token or Bearer header without embedded whitespace",
-		})
-	}
 	if !envPresent(env, "OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID") && !envPresent(env, "OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID") {
 		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
 			Description: "diagnosis room input",
@@ -964,16 +1324,62 @@ func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 			Reason: "must be a positive integer when set",
 		})
 	}
+	for _, name := range []string{
+		"OPENCLARION_LIVE_COLLECT_PLANNED_EVIDENCE",
+		"OPENCLARION_LIVE_SUBMIT_SUPPLEMENTAL_EVIDENCE",
+		"OPENCLARION_LIVE_REQUIRE_SUPPLEMENTAL_EVIDENCE",
+	} {
+		if envPresent(env, name) {
+			if err := validateReadinessBooleanFlag(env[name]); err != nil {
+				target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+					Name:   name,
+					Reason: err.Error(),
+				})
+			}
+		}
+	}
+	if supplementalEvidenceRequired(env) && !supplementalEvidenceSubmitRequested(env) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_LIVE_REQUIRE_SUPPLEMENTAL_EVIDENCE",
+			Reason: "requires OPENCLARION_LIVE_SUBMIT_SUPPLEMENTAL_EVIDENCE to be enabled",
+		})
+	}
+	if envPresent(env, "OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEXT") {
+		if err := validateReadinessSupplementalEvidenceText(env["OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEXT"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEXT",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEMPLATE") {
+		if err := validateReadinessSupplementalEvidenceText(env["OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEMPLATE"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEMPLATE",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_LIVE_TOOL_REQUESTS_JSON") {
+		if err := validateReadinessLiveToolRequestsJSON(env["OPENCLARION_LIVE_TOOL_REQUESTS_JSON"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_TOOL_REQUESTS_JSON",
+				Reason: err.Error(),
+			})
+		}
+	}
 	if closeNotificationProofRequired(env) {
 		target.MissingEnv = append(target.MissingEnv, missingEnv(env,
 			"DATABASE_URL",
 			"TEMPORAL_HOST_PORT",
 		)...)
-		if !envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") && !envFlagEnabled(env, "DIAGNOSIS_LIVE_SMOKE_ASSUME_WORKER_READY") {
+		workerNotificationConfigured := envPresent(env, "OPENCLARION_IM_WEBHOOK_URL") ||
+			envPresent(env, "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON")
+		if !workerNotificationConfigured && !envFlagEnabled(env, "DIAGNOSIS_LIVE_SMOKE_ASSUME_WORKER_READY") {
 			target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
 				Description: "close-notification worker IM configuration",
 				Options: []string{
-					"OPENCLARION_IM_WEBHOOK_URL",
+					"OPENCLARION_IM_WEBHOOK_URL or OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON",
 					"DIAGNOSIS_LIVE_SMOKE_ASSUME_WORKER_READY=1",
 				},
 			})
@@ -985,6 +1391,9 @@ func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 					Reason: err.Error(),
 				})
 			}
+		}
+		if envPresent(env, "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON") {
+			appendWeComSecretRefsInvalidEnv(&target, env)
 		}
 		if envPresent(env, "OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT") {
 			if _, err := time.ParseDuration(strings.TrimSpace(env["OPENCLARION_LIVE_CLOSE_WAIT_TIMEOUT"])); err != nil {
@@ -1004,6 +1413,454 @@ func diagnosisLiveBrowserSmokeReadiness(env envMap) targetReadiness {
 		}
 	}
 	return finalize(target)
+}
+
+func diagnosisLiveConvergenceSmokeReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:         "diagnosis-live-convergence-smoke",
+		Milestone:    "M5",
+		Sequence:     21,
+		EvidenceGoal: "Retain the backend-only diagnosis-room convergence proof for AI turn, executable evidence collection, residual evidence boundary, ready_for_review, and confirmation.",
+		Command:      "make diagnosis-live-convergence-smoke",
+		Notes: []string{
+			"Preflight only checks local configuration; it does not authenticate, create a room, or contact the live backend.",
+			"The smoke talks directly to the diagnosis WebSocket and validates the multi-step AI diagnosis loop without launching a browser.",
+			"Set OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID to bind created rooms to a notification channel and require assistant update, final conclusion, and close notification AI content proof in the retained room timeline.",
+			"OPENCLARION_LIVE_LDAP_USERNAME and OPENCLARION_LIVE_LDAP_PASSWORD may replace bearer auth for LDAP-backed live diagnosis-room authentication.",
+			"OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL may replace OPENCLARION_LIVE_BEARER_TOKEN only for a loopback dev OIDC token endpoint; the smoke harness fetches the token later and the readiness check does not contact the endpoint.",
+		},
+	}
+	target.MissingEnv = missingEnv(env,
+		"OPENCLARION_LIVE_API_BASE_URL",
+	)
+	applyDiagnosisLiveAuthReadiness(&target, env)
+	if envPresent(env, "OPENCLARION_LIVE_API_BASE_URL") {
+		if err := validateReadinessHTTPURL(env["OPENCLARION_LIVE_API_BASE_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_API_BASE_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if !envPresent(env, "OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID") && !envPresent(env, "OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID") {
+		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
+			Description: "diagnosis room input",
+			Options: []string{
+				"OPENCLARION_LIVE_DIAGNOSIS_SESSION_ID",
+				"OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID",
+			},
+		})
+	}
+	if envPresent(env, "OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID") && !positiveInteger(env["OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_LIVE_EVIDENCE_SNAPSHOT_ID",
+			Reason: "must be a positive integer when set",
+		})
+	}
+	if envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID") && !positiveInteger(env["OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID",
+			Reason: "must be a positive integer when set",
+		})
+	}
+	for _, name := range []string{
+		"OPENCLARION_LIVE_COLLECT_PLANNED_EVIDENCE",
+		"OPENCLARION_LIVE_SUBMIT_SUPPLEMENTAL_EVIDENCE",
+		"OPENCLARION_LIVE_CONFIRM_CONCLUSION",
+	} {
+		if envPresent(env, name) {
+			if err := validateReadinessBooleanFlag(env[name]); err != nil {
+				target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+					Name:   name,
+					Reason: err.Error(),
+				})
+			}
+		}
+	}
+	for _, name := range []string{
+		"OPENCLARION_LIVE_DEFAULT_TURN_TIMEOUT_MS",
+		"OPENCLARION_LIVE_TURN_TIMEOUT_MS",
+		"OPENCLARION_LIVE_NOTIFICATION_PROOF_TIMEOUT_MS",
+		"OPENCLARION_LIVE_NOTIFICATION_PROOF_POLL_MS",
+	} {
+		if envPresent(env, name) && !positiveInteger(env[name]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   name,
+				Reason: "must be a positive integer when set",
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEXT") {
+		if err := validateReadinessSupplementalEvidenceText(env["OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEXT"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEXT",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEMPLATE") {
+		if err := validateReadinessSupplementalEvidenceText(env["OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEMPLATE"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_SUPPLEMENTAL_EVIDENCE_TEMPLATE",
+				Reason: err.Error(),
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID") &&
+		envPresent(env, "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON") {
+		appendWeComSecretRefsInvalidEnv(&target, env)
+	}
+	return finalize(target)
+}
+
+func alertmanagerAutoDiagnosisLiveSmokeReadiness(env envMap) targetReadiness {
+	target := targetReadiness{
+		Name:         "alertmanager-auto-diagnosis-live-smoke",
+		Milestone:    "M5",
+		Sequence:     22,
+		EvidenceGoal: "Retain proof that a live Alertmanager webhook starts an auto_room diagnosis and records interim assistant-message plus final-conclusion AI notification delivery in the room timeline.",
+		Command:      "make alertmanager-auto-diagnosis-live-smoke",
+		Notes: []string{
+			"Preflight only checks local configuration; it does not post a webhook, poll a room, authenticate to Alertmanager, or contact the live backend.",
+			"The running backend and worker must already be wired to Temporal, the LLM provider, the Alertmanager alert-source profile, and a notification channel profile that supports report, diagnosis_consultation, and diagnosis_close scopes.",
+			"The live smoke defaults to requiring the first assistant_message AI notification proof; set ALERTMANAGER_AUTO_DIAGNOSIS_REQUIRED_CONTENT_KINDS explicitly when validating later final_conclusion delivery.",
+			"The optional webhook bearer token is only used for POST /api/v1/alert-sources/{source_id}/webhooks/alertmanager; the retained proof does not include token values.",
+		},
+	}
+	target.MissingEnv = missingEnv(env,
+		"OPENCLARION_LIVE_API_BASE_URL",
+	)
+	if !envPresent(env, "ALERTMANAGER_WEBHOOK_SOURCE_PROFILE_ID") && !envPresent(env, "OPENCLARION_LIVE_ALERT_SOURCE_PROFILE_ID") {
+		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
+			Description: "Alertmanager webhook source profile ID",
+			Options: []string{
+				"ALERTMANAGER_WEBHOOK_SOURCE_PROFILE_ID",
+				"OPENCLARION_LIVE_ALERT_SOURCE_PROFILE_ID",
+			},
+		})
+	}
+	if envPresent(env, "OPENCLARION_LIVE_API_BASE_URL") {
+		if err := validateReadinessHTTPURL(env["OPENCLARION_LIVE_API_BASE_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_API_BASE_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+	for _, name := range []string{
+		"ALERTMANAGER_WEBHOOK_SOURCE_PROFILE_ID",
+		"OPENCLARION_LIVE_ALERT_SOURCE_PROFILE_ID",
+	} {
+		if envPresent(env, name) && !positiveInteger(env[name]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   name,
+				Reason: "must be a positive integer",
+			})
+		}
+	}
+	if envPresent(env, "ALERTMANAGER_WEBHOOK_SOURCE_PROFILE_ID") &&
+		envPresent(env, "OPENCLARION_LIVE_ALERT_SOURCE_PROFILE_ID") &&
+		strings.TrimSpace(env["ALERTMANAGER_WEBHOOK_SOURCE_PROFILE_ID"]) != strings.TrimSpace(env["OPENCLARION_LIVE_ALERT_SOURCE_PROFILE_ID"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "ALERTMANAGER_WEBHOOK_SOURCE_PROFILE_ID",
+			Reason: "must match OPENCLARION_LIVE_ALERT_SOURCE_PROFILE_ID when both are set",
+		})
+	}
+	for _, name := range []string{
+		"ALERTMANAGER_WEBHOOK_BEARER_TOKEN",
+		"OPENCLARION_ALERTMANAGER_WEBHOOK_BEARER_TOKEN",
+	} {
+		if envPresent(env, name) && !validReadinessBearerToken(env[name]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   name,
+				Reason: "must be a single bearer token or Bearer header without embedded whitespace",
+			})
+		}
+	}
+	if envPresent(env, "ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_NOTIFICATION_CHANNEL_PROFILE_ID") &&
+		!positiveInteger(env["ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_NOTIFICATION_CHANNEL_PROFILE_ID"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_NOTIFICATION_CHANNEL_PROFILE_ID",
+			Reason: "must be a positive integer",
+		})
+	}
+	if envPresent(env, "ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_CONTENT_KIND") &&
+		!validDiagnosisNotificationContentKind(env["ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_CONTENT_KIND"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_CONTENT_KIND",
+			Reason: "must be assistant_message or final_conclusion when set",
+		})
+	}
+	if envPresent(env, "ALERTMANAGER_AUTO_DIAGNOSIS_REQUIRED_CONTENT_KINDS") &&
+		!validDiagnosisNotificationContentKinds(env["ALERTMANAGER_AUTO_DIAGNOSIS_REQUIRED_CONTENT_KINDS"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "ALERTMANAGER_AUTO_DIAGNOSIS_REQUIRED_CONTENT_KINDS",
+			Reason: "must be comma-separated assistant_message or final_conclusion values without duplicates",
+		})
+	}
+	for _, name := range []string{
+		"ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_HTTP_TIMEOUT",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_ROOM_TIMEOUT",
+		"ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_POLL_INTERVAL",
+	} {
+		if envPresent(env, name) {
+			if err := validateReadinessPositiveDuration(env[name]); err != nil {
+				target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+					Name:   name,
+					Reason: err.Error(),
+				})
+			}
+		}
+	}
+	if envPresent(env, "ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_ALERT_NAME") &&
+		!validReadinessAutoDiagnosisAlertName(env["ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_ALERT_NAME"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "ALERTMANAGER_AUTO_DIAGNOSIS_LIVE_SMOKE_ALERT_NAME",
+			Reason: "must be 1-128 characters using only letters, digits, underscore, colon, or hyphen",
+		})
+	}
+	if envPresent(env, "ALERTMANAGER_AUTO_DIAGNOSIS_EXPECTED_NOTIFICATION_CHANNEL_PROFILE_ID") &&
+		envPresent(env, "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON") {
+		appendWeComSecretRefsInvalidEnv(&target, env)
+	}
+	return finalize(target)
+}
+
+func appendWeComSecretRefsInvalidEnv(target *targetReadiness, env envMap) {
+	secretRefs := env["OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON"]
+	if err := validateReadinessSecretRefsJSON(secretRefs); err != nil {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON",
+			Reason: err.Error(),
+		})
+	} else if err := validateReadinessWeComSecretRefsJSON(secretRefs); err != nil {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON",
+			Reason: err.Error(),
+		})
+	}
+}
+
+func applyDiagnosisLiveAuthReadiness(target *targetReadiness, env envMap) {
+	mode := diagnosisLiveAuthMode(env)
+	if mode == "" {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_LIVE_AUTH_MODE",
+			Reason: "must be ldap or bearer when set",
+		})
+		return
+	}
+	if diagnosisLDAPBackendReadinessRequired(env) {
+		applyDiagnosisLDAPBackendReadiness(target, env)
+	}
+	if mode == "ldap" {
+		target.MissingEnv = append(target.MissingEnv, missingEnv(env,
+			"OPENCLARION_LIVE_LDAP_USERNAME",
+			"OPENCLARION_LIVE_LDAP_PASSWORD",
+		)...)
+		if envPresent(env, "OPENCLARION_LIVE_LDAP_USERNAME") && !validReadinessLDAPUsername(env["OPENCLARION_LIVE_LDAP_USERNAME"]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_LDAP_USERNAME",
+				Reason: "must be non-empty without leading/trailing whitespace or embedded whitespace",
+			})
+		}
+		if envPresent(env, "OPENCLARION_LIVE_LDAP_PASSWORD") && !validReadinessLDAPPassword(env["OPENCLARION_LIVE_LDAP_PASSWORD"]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_LDAP_PASSWORD",
+				Reason: "must be non-empty and must not contain CR or LF",
+			})
+		}
+		return
+	}
+	if !envPresent(env, "OPENCLARION_LIVE_DIAGNOSIS_AUTH_BEARER_TOKEN") &&
+		!envPresent(env, "OPENCLARION_DIAGNOSIS_STATIC_BEARER_TOKEN") &&
+		!envPresent(env, "OPENCLARION_LIVE_BEARER_TOKEN") &&
+		!envPresent(env, "OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL") {
+		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
+			Description: "diagnosis room authorization credentials",
+			Options: []string{
+				"OPENCLARION_LIVE_DIAGNOSIS_AUTH_BEARER_TOKEN",
+				"OPENCLARION_DIAGNOSIS_STATIC_BEARER_TOKEN",
+				"OPENCLARION_LIVE_BEARER_TOKEN",
+				"OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL",
+				"OPENCLARION_LIVE_LDAP_USERNAME + OPENCLARION_LIVE_LDAP_PASSWORD",
+			},
+		})
+	}
+	for _, name := range []string{
+		"OPENCLARION_LIVE_DIAGNOSIS_AUTH_BEARER_TOKEN",
+		"OPENCLARION_DIAGNOSIS_STATIC_BEARER_TOKEN",
+		"OPENCLARION_LIVE_BEARER_TOKEN",
+	} {
+		if envPresent(env, name) && !validReadinessBearerToken(env[name]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   name,
+				Reason: "must be a single bearer token or Bearer header without embedded whitespace",
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL") {
+		if err := validateReadinessLoopbackHTTPURL(env["OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_LIVE_DEV_OIDC_TOKEN_URL",
+				Reason: err.Error(),
+			})
+		}
+	}
+}
+
+func applyDiagnosisLDAPBackendReadiness(target *targetReadiness, env envMap) {
+	target.Notes = append(target.Notes,
+		"When OPENCLARION_DIAGNOSIS_AUTH_MODE=ldap or LDAP backend env is present, this preflight also checks the local worker LDAP provider configuration shape without contacting LDAP.",
+	)
+	target.MissingEnv = append(target.MissingEnv, missingEnv(env,
+		"OPENCLARION_DIAGNOSIS_LDAP_URL",
+		"OPENCLARION_DIAGNOSIS_LDAP_BASE_DN",
+	)...)
+	if !envPresent(env, "OPENCLARION_DIAGNOSIS_LDAP_DEFAULT_ROLES") &&
+		!envPresent(env, "OPENCLARION_DIAGNOSIS_LDAP_OWNER_ROLE_VALUES") &&
+		!envPresent(env, "OPENCLARION_DIAGNOSIS_LDAP_ADMIN_ROLE_VALUES") {
+		target.UnsatisfiedAlternatives = append(target.UnsatisfiedAlternatives, envAlternative{
+			Description: "diagnosis LDAP role mapping",
+			Options: []string{
+				"OPENCLARION_DIAGNOSIS_LDAP_DEFAULT_ROLES",
+				"OPENCLARION_DIAGNOSIS_LDAP_OWNER_ROLE_VALUES",
+				"OPENCLARION_DIAGNOSIS_LDAP_ADMIN_ROLE_VALUES",
+			},
+		})
+	}
+	if envPresent(env, "OPENCLARION_DIAGNOSIS_LDAP_URL") {
+		if err := validateReadinessLDAPURL(env["OPENCLARION_DIAGNOSIS_LDAP_URL"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_DIAGNOSIS_LDAP_URL",
+				Reason: err.Error(),
+			})
+		}
+		if readinessLDAPURLUsesPlaintext(env["OPENCLARION_DIAGNOSIS_LDAP_URL"]) &&
+			!readinessBooleanTrue(env["OPENCLARION_DIAGNOSIS_LDAP_START_TLS"]) &&
+			!readinessBooleanTrue(env["OPENCLARION_DIAGNOSIS_LDAP_ALLOW_INSECURE_PLAINTEXT"]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_DIAGNOSIS_LDAP_URL",
+				Reason: "ldap:// requires OPENCLARION_DIAGNOSIS_LDAP_START_TLS=true or OPENCLARION_DIAGNOSIS_LDAP_ALLOW_INSECURE_PLAINTEXT=true",
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_DIAGNOSIS_LDAP_BASE_DN") && !validReadinessSingleLineTrimmed(env["OPENCLARION_DIAGNOSIS_LDAP_BASE_DN"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_DIAGNOSIS_LDAP_BASE_DN",
+			Reason: "must be non-empty without leading/trailing whitespace or line breaks",
+		})
+	}
+	bindDNSet := envPresent(env, "OPENCLARION_DIAGNOSIS_LDAP_BIND_DN")
+	bindPasswordSet := envPresent(env, "OPENCLARION_DIAGNOSIS_LDAP_BIND_PASSWORD")
+	if bindDNSet && !bindPasswordSet {
+		target.MissingEnv = append(target.MissingEnv, "OPENCLARION_DIAGNOSIS_LDAP_BIND_PASSWORD")
+	}
+	if bindPasswordSet && !bindDNSet {
+		target.MissingEnv = append(target.MissingEnv, "OPENCLARION_DIAGNOSIS_LDAP_BIND_DN")
+	}
+	if bindDNSet && !validReadinessSingleLineTrimmed(env["OPENCLARION_DIAGNOSIS_LDAP_BIND_DN"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_DIAGNOSIS_LDAP_BIND_DN",
+			Reason: "must be non-empty without leading/trailing whitespace or line breaks",
+		})
+	}
+	if bindPasswordSet && strings.ContainsAny(env["OPENCLARION_DIAGNOSIS_LDAP_BIND_PASSWORD"], "\x00\r\n") {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_DIAGNOSIS_LDAP_BIND_PASSWORD",
+			Reason: "must not contain NUL, CR, or LF",
+		})
+	}
+	for _, name := range []string{
+		"OPENCLARION_DIAGNOSIS_LDAP_START_TLS",
+		"OPENCLARION_DIAGNOSIS_LDAP_ALLOW_INSECURE_PLAINTEXT",
+	} {
+		if envPresent(env, name) && !validReadinessBoolean(env[name]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   name,
+				Reason: "must be true or false when set",
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_DIAGNOSIS_LDAP_USER_FILTER") {
+		if err := validateReadinessLDAPUserFilter(env["OPENCLARION_DIAGNOSIS_LDAP_USER_FILTER"]); err != nil {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   "OPENCLARION_DIAGNOSIS_LDAP_USER_FILTER",
+				Reason: err.Error(),
+			})
+		}
+	}
+	for _, name := range []string{
+		"OPENCLARION_DIAGNOSIS_LDAP_SUBJECT_ATTRIBUTE",
+		"OPENCLARION_DIAGNOSIS_LDAP_ROLE_ATTRIBUTE",
+	} {
+		if envPresent(env, name) && !validReadinessLDAPAttribute(env[name]) {
+			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+				Name:   name,
+				Reason: "must be a single LDAP attribute name without whitespace",
+			})
+		}
+	}
+	if envPresent(env, "OPENCLARION_DIAGNOSIS_LDAP_DEFAULT_ROLES") && !validReadinessAuthRoleCSV(env["OPENCLARION_DIAGNOSIS_LDAP_DEFAULT_ROLES"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_DIAGNOSIS_LDAP_DEFAULT_ROLES",
+			Reason: "must contain owner and/or admin values",
+		})
+	}
+}
+
+func diagnosisLDAPBackendReadinessRequired(env envMap) bool {
+	if strings.EqualFold(strings.TrimSpace(env["OPENCLARION_DIAGNOSIS_AUTH_MODE"]), "ldap") {
+		return true
+	}
+	for _, name := range []string{
+		"OPENCLARION_DIAGNOSIS_LDAP_URL",
+		"OPENCLARION_DIAGNOSIS_LDAP_BASE_DN",
+		"OPENCLARION_DIAGNOSIS_LDAP_BIND_DN",
+		"OPENCLARION_DIAGNOSIS_LDAP_BIND_PASSWORD",
+		"OPENCLARION_DIAGNOSIS_LDAP_OWNER_ROLE_VALUES",
+		"OPENCLARION_DIAGNOSIS_LDAP_ADMIN_ROLE_VALUES",
+		"OPENCLARION_DIAGNOSIS_LDAP_DEFAULT_ROLES",
+	} {
+		if envPresent(env, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func diagnosisLiveAuthMode(env envMap) string {
+	if envPresent(env, "OPENCLARION_LIVE_AUTH_MODE") {
+		mode := strings.ToLower(env["OPENCLARION_LIVE_AUTH_MODE"])
+		if mode == "ldap" || mode == "bearer" {
+			return mode
+		}
+		return ""
+	}
+	if envPresent(env, "OPENCLARION_LIVE_LDAP_USERNAME") || envPresent(env, "OPENCLARION_LIVE_LDAP_PASSWORD") {
+		return "ldap"
+	}
+	if strings.EqualFold(strings.TrimSpace(env["OPENCLARION_DIAGNOSIS_AUTH_MODE"]), "ldap") {
+		return "ldap"
+	}
+	return "bearer"
+}
+
+func diagnosisAuthLiveSmokeAuthMode(env envMap) string {
+	if envPresent(env, "OPENCLARION_LIVE_AUTH_MODE") {
+		mode := strings.ToLower(env["OPENCLARION_LIVE_AUTH_MODE"])
+		if mode == "ldap" || mode == "bearer" {
+			return mode
+		}
+		return ""
+	}
+	if envPresent(env, "OPENCLARION_LIVE_LDAP_USERNAME") || envPresent(env, "OPENCLARION_LIVE_LDAP_PASSWORD") {
+		return "ldap"
+	}
+	if strings.EqualFold(strings.TrimSpace(env["OPENCLARION_DIAGNOSIS_AUTH_MODE"]), "ldap") {
+		return "ldap"
+	}
+	return "bearer"
 }
 
 func finalize(target targetReadiness) targetReadiness {
@@ -1402,6 +2259,14 @@ func closeNotificationProofRequired(env envMap) bool {
 		envTruthy(env, "DIAGNOSIS_LIVE_REQUIRE_CLOSE_NOTIFICATION")
 }
 
+func supplementalEvidenceSubmitRequested(env envMap) bool {
+	return envTruthyLenient(env, "OPENCLARION_LIVE_SUBMIT_SUPPLEMENTAL_EVIDENCE")
+}
+
+func supplementalEvidenceRequired(env envMap) bool {
+	return envTruthyLenient(env, "OPENCLARION_LIVE_REQUIRE_SUPPLEMENTAL_EVIDENCE")
+}
+
 func envTruthy(env envMap, name string) bool {
 	if !envPresent(env, name) {
 		return false
@@ -1412,6 +2277,34 @@ func envTruthy(env envMap, name string) bool {
 	default:
 		return false
 	}
+}
+
+func envTruthyLenient(env envMap, name string) bool {
+	if !envPresent(env, name) {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(env[name])) {
+	case "1", "true", "yes":
+		return true
+	default:
+		return false
+	}
+}
+
+func validReadinessBoolean(raw string) bool {
+	return oneOf(strings.ToLower(strings.TrimSpace(raw)), "true", "false")
+}
+
+func notificationChannelAIProofRequired(env envMap) bool {
+	for _, name := range []string{
+		"NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF",
+		"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF",
+	} {
+		if envPresent(env, name) {
+			return strings.EqualFold(strings.TrimSpace(env[name]), "true")
+		}
+	}
+	return false
 }
 
 func positiveInteger(value string) bool {
@@ -1495,10 +2388,60 @@ func validateReadinessOptionalID(raw string) error {
 }
 
 func validateReadinessSecretRefsJSON(raw string) error {
-	if _, err := envmap.NewResolverFromJSON(raw); err != nil {
-		return errors.New("must be a strict JSON object with non-empty single-token string keys and values")
+	_, err := readinessSecretRefsFromJSON(raw)
+	return err
+}
+
+func validateReadinessWeComSecretRefsJSON(raw string) error {
+	secrets, err := readinessSecretRefsFromJSON(raw)
+	if err != nil {
+		return err
 	}
-	return nil
+	for _, value := range secrets {
+		if validReadinessWeComWebhookEndpoint(value) {
+			return nil
+		}
+	}
+	return errors.New("must include at least one Enterprise WeChat group robot webhook endpoint")
+}
+
+func readinessSecretRefsFromJSON(raw string) (map[string]string, error) {
+	if _, err := envmap.NewResolverFromJSON(raw); err != nil {
+		return nil, errors.New("must be a strict JSON object with non-empty single-token string keys and values")
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return map[string]string{}, nil
+	}
+	var secrets map[string]string
+	if err := strictjson.Unmarshal([]byte(raw), &secrets); err != nil {
+		return nil, errors.New("must be a strict JSON object with non-empty single-token string keys and values")
+	}
+	return secrets, nil
+}
+
+func validReadinessWeComWebhookEndpoint(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Fragment != "" {
+		return false
+	}
+	if !strings.EqualFold(parsed.Hostname(), readinessWeComWebhookHost) ||
+		!strings.EqualFold(parsed.EscapedPath(), readinessWeComWebhookPath) {
+		return false
+	}
+	values, err := url.ParseQuery(parsed.RawQuery)
+	if err != nil {
+		return false
+	}
+	keys, ok := values["key"]
+	if !ok || len(values) != 1 || len(keys) != 1 {
+		return false
+	}
+	key := keys[0]
+	return key != "" && !strings.ContainsAny(key, " \t\r\n\x00")
 }
 
 func validateReadinessReportWindow(rawStart, rawEnd string) error {
@@ -1574,6 +2517,159 @@ func validateReadinessCloseReason(raw string) error {
 	return nil
 }
 
+func validateReadinessBooleanFlag(raw string) error {
+	value := strings.TrimSpace(raw)
+	if value != raw {
+		return errors.New("must not contain leading or trailing whitespace")
+	}
+	switch strings.ToLower(value) {
+	case "1", "0", "true", "false", "yes", "no":
+		return nil
+	default:
+		return errors.New("must be one of 1, 0, true, false, yes, or no")
+	}
+}
+
+func validateReadinessSupplementalEvidenceText(raw string) error {
+	value := strings.TrimSpace(raw)
+	if value != raw {
+		return errors.New("must not contain leading or trailing whitespace")
+	}
+	if value == "" {
+		return errors.New("must be non-empty when set")
+	}
+	if len(raw) > maxReadinessSupplementalBytes {
+		return fmt.Errorf("exceeds %d bytes", maxReadinessSupplementalBytes)
+	}
+	return nil
+}
+
+type readinessLiveToolRequest struct {
+	TemplateID           int64  `json:"template_id,omitempty"`
+	AlertSourceProfileID int64  `json:"alert_source_profile_id,omitempty"`
+	Tool                 string `json:"tool"`
+	Reason               string `json:"reason"`
+	Query                string `json:"query,omitempty"`
+	WindowSeconds        int    `json:"window_seconds,omitempty"`
+	StepSeconds          int    `json:"step_seconds,omitempty"`
+	Limit                int    `json:"limit,omitempty"`
+}
+
+func validateReadinessLiveToolRequestsJSON(raw string) error {
+	value := strings.TrimSpace(raw)
+	if value != raw {
+		return errors.New("must not contain leading or trailing whitespace")
+	}
+	if value == "" {
+		return errors.New("must be a non-empty JSON array when set")
+	}
+	if len(raw) > maxReadinessToolRequestsBytes {
+		return fmt.Errorf("exceeds %d bytes", maxReadinessToolRequestsBytes)
+	}
+	if err := strictjson.RejectDuplicateObjectKeys([]byte(raw)); err != nil {
+		return errors.New("must be duplicate-key-free JSON")
+	}
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var requests []readinessLiveToolRequest
+	if err := decoder.Decode(&requests); err != nil {
+		return errors.New("must be a strict JSON array of supported evidence requests")
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return errors.New("must contain exactly one JSON value")
+	}
+	if len(requests) == 0 {
+		return errors.New("must contain at least one evidence request")
+	}
+	if len(requests) > maxReadinessToolRequestItems {
+		return fmt.Errorf("must contain no more than %d evidence requests", maxReadinessToolRequestItems)
+	}
+	for i, req := range requests {
+		if err := validateReadinessLiveToolRequest(i, req); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateReadinessLiveToolRequest(index int, req readinessLiveToolRequest) error {
+	if req.TemplateID < 0 || req.AlertSourceProfileID < 0 {
+		return fmt.Errorf("request %d identifiers must be positive when set", index)
+	}
+	if req.TemplateID > 0 && req.AlertSourceProfileID == 0 {
+		return fmt.Errorf("request %d template_id requires alert_source_profile_id", index)
+	}
+	if strings.TrimSpace(req.Reason) == "" {
+		return fmt.Errorf("request %d reason must be non-empty", index)
+	}
+	if len([]byte(req.Reason)) > maxReadinessToolReasonBytes {
+		return fmt.Errorf("request %d reason exceeds %d bytes", index, maxReadinessToolReasonBytes)
+	}
+	if strings.TrimSpace(req.Reason) != req.Reason || strings.ContainsAny(req.Reason, "\r\n\t") {
+		return fmt.Errorf("request %d reason must be a single trimmed line", index)
+	}
+	if len([]byte(req.Query)) > maxReadinessToolQueryBytes {
+		return fmt.Errorf("request %d query exceeds %d bytes", index, maxReadinessToolQueryBytes)
+	}
+	if strings.TrimSpace(req.Query) != req.Query || strings.ContainsAny(req.Query, "\r\n\t") {
+		return fmt.Errorf("request %d query must be a single trimmed line", index)
+	}
+	switch req.Tool {
+	case "active_alerts":
+		if req.Query != "" || req.WindowSeconds != 0 || req.StepSeconds != 0 {
+			return fmt.Errorf("request %d active_alerts must not include query, window_seconds, or step_seconds", index)
+		}
+		if !readinessToolLimitValid(req.Limit, maxReadinessToolAlertLimit) {
+			return fmt.Errorf("request %d active_alerts limit must be between 1 and %d when set", index, maxReadinessToolAlertLimit)
+		}
+	case "metric_query":
+		if req.TemplateID == 0 && req.Query == "" {
+			return fmt.Errorf("request %d metric_query requires query or template_id", index)
+		}
+		if req.WindowSeconds != 0 || req.StepSeconds != 0 {
+			return fmt.Errorf("request %d metric_query must not include window_seconds or step_seconds", index)
+		}
+		if !readinessToolLimitValid(req.Limit, maxReadinessToolMetricLimit) {
+			return fmt.Errorf("request %d metric_query limit must be between 1 and %d when set", index, maxReadinessToolMetricLimit)
+		}
+	case "metric_range_query":
+		if req.TemplateID == 0 && req.Query == "" {
+			return fmt.Errorf("request %d metric_range_query requires query or template_id", index)
+		}
+		if req.TemplateID == 0 && (req.WindowSeconds == 0 || req.StepSeconds == 0) {
+			return fmt.Errorf("request %d metric_range_query requires window_seconds and step_seconds without template_id", index)
+		}
+		if req.WindowSeconds != 0 || req.StepSeconds != 0 {
+			if err := validateReadinessToolRange(index, req.WindowSeconds, req.StepSeconds); err != nil {
+				return err
+			}
+		}
+		if !readinessToolLimitValid(req.Limit, maxReadinessToolMetricLimit) {
+			return fmt.Errorf("request %d metric_range_query limit must be between 1 and %d when set", index, maxReadinessToolMetricLimit)
+		}
+	default:
+		return fmt.Errorf("request %d tool is unsupported", index)
+	}
+	return nil
+}
+
+func readinessToolLimitValid(limit int, maxLimit int) bool {
+	return limit == 0 || (limit >= 1 && limit <= maxLimit)
+}
+
+func validateReadinessToolRange(index int, windowSeconds int, stepSeconds int) error {
+	if windowSeconds < minReadinessToolRangeSeconds || windowSeconds > maxReadinessToolRangeSeconds {
+		return fmt.Errorf("request %d window_seconds must be between %d and %d", index, minReadinessToolRangeSeconds, maxReadinessToolRangeSeconds)
+	}
+	if stepSeconds < minReadinessToolRangeSeconds || stepSeconds > maxReadinessToolRangeSeconds {
+		return fmt.Errorf("request %d step_seconds must be between %d and %d", index, minReadinessToolRangeSeconds, maxReadinessToolRangeSeconds)
+	}
+	if stepSeconds > windowSeconds {
+		return fmt.Errorf("request %d step_seconds must not exceed window_seconds", index)
+	}
+	return nil
+}
+
 func validateReadinessHTTPURL(raw string) error {
 	parsed, err := parseReadinessURL(raw)
 	if err != nil {
@@ -1586,6 +2682,25 @@ func validateReadinessHTTPURL(raw string) error {
 		return errors.New("must not include a fragment")
 	}
 	return nil
+}
+
+func validateReadinessLoopbackHTTPURL(raw string) error {
+	parsed, err := parseReadinessURL(raw)
+	if err != nil {
+		return err
+	}
+	if parsed.Fragment != "" {
+		return errors.New("must not include a fragment")
+	}
+	host := strings.Trim(parsed.Hostname(), "[]")
+	if strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip != nil && ip.IsLoopback() {
+		return nil
+	}
+	return errors.New("must use a loopback host")
 }
 
 func validateReadinessWebhookURL(raw string) error {
@@ -1643,6 +2758,32 @@ func parseReadinessURLWithSchemes(raw string, allowedSchemes map[string]struct{}
 	return parsed, nil
 }
 
+func validateReadinessLDAPURL(raw string) error {
+	parsed, err := parseReadinessURLWithSchemes(raw, map[string]struct{}{
+		"ldap":  {},
+		"ldaps": {},
+	})
+	if err != nil {
+		return err
+	}
+	if parsed.RawQuery != "" {
+		return errors.New("must not include a query string")
+	}
+	if parsed.Fragment != "" {
+		return errors.New("must not include a fragment")
+	}
+	return nil
+}
+
+func readinessLDAPURLUsesPlaintext(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && strings.EqualFold(parsed.Scheme, "ldap")
+}
+
+func readinessBooleanTrue(raw string) bool {
+	return strings.EqualFold(strings.TrimSpace(raw), "true")
+}
+
 func validReadinessBearerToken(raw string) bool {
 	value := strings.TrimSpace(raw)
 	if value == "" {
@@ -1653,6 +2794,198 @@ func validReadinessBearerToken(raw string) bool {
 		value = strings.TrimSpace(value[len("bearer "):])
 	}
 	return value != "" && !strings.ContainsAny(value, " \r\n\t")
+}
+
+func validNotificationChannelKind(raw string) bool {
+	return oneOf(strings.ToLower(strings.TrimSpace(raw)), "webhook", "wecom")
+}
+
+func validNotificationChannelContentKind(raw string) bool {
+	return oneOf(
+		strings.ToLower(strings.TrimSpace(raw)),
+		"transport_sample",
+		"ai_diagnosis_sample",
+		"diagnosis_close_sample",
+	)
+}
+
+func validNotificationChannelContentKinds(raw string) bool {
+	values := notificationChannelContentKindValues(raw)
+	if len(values) == 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, value := range values {
+		if !validNotificationChannelContentKind(value) || seen[value] {
+			return false
+		}
+		seen[value] = true
+	}
+	return true
+}
+
+func notificationChannelExpectedValue(env envMap, names ...string) string {
+	for _, name := range names {
+		if envPresent(env, name) {
+			return strings.ToLower(strings.TrimSpace(env[name]))
+		}
+	}
+	return ""
+}
+
+func notificationChannelExpectedValues(env envMap, names ...string) []string {
+	for _, name := range names {
+		if envPresent(env, name) {
+			return notificationChannelContentKindValues(env[name])
+		}
+	}
+	return nil
+}
+
+func notificationChannelContentKindValues(raw string) []string {
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.ToLower(strings.TrimSpace(part))
+		if value == "" {
+			return nil
+		}
+		values = append(values, value)
+	}
+	return values
+}
+
+func diagnosisNotificationTestContentKind(raw string) bool {
+	return oneOf(strings.ToLower(strings.TrimSpace(raw)), "ai_diagnosis_sample", "diagnosis_close_sample")
+}
+
+func anyDiagnosisNotificationTestContentKind(values []string) bool {
+	for _, value := range values {
+		if diagnosisNotificationTestContentKind(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func validDiagnosisNotificationContentKind(raw string) bool {
+	return oneOf(strings.ToLower(strings.TrimSpace(raw)), "assistant_message", "final_conclusion")
+}
+
+func validDiagnosisNotificationContentKinds(raw string) bool {
+	values := diagnosisNotificationContentKindValues(raw)
+	if len(values) == 0 {
+		return false
+	}
+	seen := map[string]bool{}
+	for _, value := range values {
+		if !validDiagnosisNotificationContentKind(value) || seen[value] {
+			return false
+		}
+		seen[value] = true
+	}
+	return true
+}
+
+func diagnosisNotificationContentKindValues(raw string) []string {
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.ToLower(strings.TrimSpace(part))
+		if value == "" {
+			return nil
+		}
+		values = append(values, value)
+	}
+	return values
+}
+
+func validDiagnosisAuthBackendMode(raw string) bool {
+	return oneOf(strings.ToLower(strings.TrimSpace(raw)), "ldap", "static", "oidc", "unknown", "none")
+}
+
+func validReadinessAutoDiagnosisAlertName(raw string) bool {
+	value := strings.TrimSpace(raw)
+	if value == "" || value != raw || len(value) > 128 {
+		return false
+	}
+	for _, r := range value {
+		if r >= 'A' && r <= 'Z' {
+			continue
+		}
+		if r >= 'a' && r <= 'z' {
+			continue
+		}
+		if r >= '0' && r <= '9' {
+			continue
+		}
+		switch r {
+		case '_', ':', '-':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func validReadinessLDAPUsername(raw string) bool {
+	value := strings.TrimSpace(raw)
+	return value != "" && value == raw && !strings.ContainsAny(raw, " \r\n\t\x00")
+}
+
+func validReadinessLDAPPassword(raw string) bool {
+	return strings.TrimSpace(raw) != "" && !strings.ContainsAny(raw, "\r\n\x00")
+}
+
+func validReadinessSingleLineTrimmed(raw string) bool {
+	value := strings.TrimSpace(raw)
+	return value != "" && value == raw && !strings.ContainsAny(raw, "\r\n\x00")
+}
+
+func validateReadinessLDAPUserFilter(raw string) error {
+	filter := strings.TrimSpace(raw)
+	if filter == "" {
+		return errors.New("must be non-empty when set")
+	}
+	if !strings.Contains(filter, "{username}") {
+		return errors.New("must contain {username}")
+	}
+	compiled := strings.ReplaceAll(filter, "{username}", gldap.EscapeFilter("fixture"))
+	if _, err := gldap.CompileFilter(compiled); err != nil {
+		return errors.New("must be a valid LDAP filter after {username} substitution")
+	}
+	return nil
+}
+
+func validReadinessLDAPAttribute(raw string) bool {
+	value := strings.TrimSpace(raw)
+	return value != "" && value == raw && !strings.ContainsAny(raw, " \t\r\n\x00")
+}
+
+func validReadinessAuthRoleCSV(raw string) bool {
+	values := csvReadinessValues(raw)
+	if len(values) == 0 {
+		return false
+	}
+	for _, value := range values {
+		if !oneOf(strings.ToLower(value), "owner", "admin") {
+			return false
+		}
+	}
+	return true
+}
+
+func csvReadinessValues(raw string) []string {
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.TrimSpace(part)
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 func qualitySampleScenario(value string) bool {

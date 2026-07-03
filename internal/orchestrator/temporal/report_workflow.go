@@ -224,14 +224,15 @@ func FinalReportWorkflow(ctx workflow.Context, input FinalReportWorkflowInput) (
 func reportChildWorkflowOptions(taskQueue string) workflow.ChildWorkflowOptions {
 	return workflow.ChildWorkflowOptions{
 		TaskQueue:                strings.TrimSpace(taskQueue),
-		WorkflowExecutionTimeout: 15 * time.Minute,
+		WorkflowExecutionTimeout: reportChildWorkflowExecutionTimeout,
 		WorkflowTaskTimeout:      10 * time.Second,
 	}
 }
 
 func reportActivityOptions() workflow.ActivityOptions {
 	return workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
+		ScheduleToCloseTimeout: reportActivityScheduleToCloseTimeout,
+		StartToCloseTimeout:    reportActivityStartToCloseTimeout,
 		RetryPolicy: &temporalsdk.RetryPolicy{
 			InitialInterval:    time.Second,
 			BackoffCoefficient: 2.0,
@@ -244,3 +245,9 @@ func reportActivityOptions() workflow.ActivityOptions {
 		},
 	}
 }
+
+const (
+	reportActivityStartToCloseTimeout    = 10 * time.Minute
+	reportActivityScheduleToCloseTimeout = 35 * time.Minute
+	reportChildWorkflowExecutionTimeout  = 45 * time.Minute
+)

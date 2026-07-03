@@ -10,7 +10,7 @@ import {
   newDiagnosisOIDCStatePayload,
   normalizedDiagnosisOIDCDiscovery,
   normalizedDiagnosisOIDCReturnTo,
-  setDiagnosisOIDCStateCookie
+  setDiagnosisOIDCStateCookie,
 } from "@/lib/api/diagnosis-oidc-login";
 import { diagnosisRequestPublicOrigin } from "@/lib/api/diagnosis-session";
 import type { components } from "@/lib/api/openapi";
@@ -22,9 +22,14 @@ export const runtime = "nodejs";
 
 export async function GET(request: Request) {
   const requestURL = new URL(request.url);
-  const normalizedReturnTo = normalizedDiagnosisOIDCReturnTo(requestURL.searchParams.get("return_to"));
+  const normalizedReturnTo = normalizedDiagnosisOIDCReturnTo(
+    requestURL.searchParams.get("return_to"),
+  );
   if (normalizedReturnTo === null) {
-    return NextResponse.json<ErrorResponse>({ error: "OIDC return path is invalid" }, { status: 400 });
+    return NextResponse.json<ErrorResponse>(
+      { error: "OIDC return path is invalid" },
+      { status: 400 },
+    );
   }
   const returnTo = diagnosisOIDCReturnToWithSessionContext(normalizedReturnTo);
   const config = diagnosisOIDCConfigFromEnv(request);
@@ -37,7 +42,7 @@ export async function GET(request: Request) {
   try {
     discoveryResponse = await fetch(diagnosisOIDCDiscoveryURL(config.issuer), {
       cache: "no-store",
-      headers: { accept: "application/json" }
+      headers: { accept: "application/json" },
     });
   } catch {
     return oidcLoginFailureRedirect(request, returnTo, "oidc_login_failed");
@@ -45,13 +50,20 @@ export async function GET(request: Request) {
   if (!discoveryResponse.ok) {
     return oidcLoginFailureRedirect(request, returnTo, "oidc_login_failed");
   }
-  const discovery = normalizedDiagnosisOIDCDiscovery(await discoveryResponse.json().catch(() => null));
-  if (discovery === null || !diagnosisOIDCIssuerMatches(discovery.issuer, config.issuer)) {
+  const discovery = normalizedDiagnosisOIDCDiscovery(
+    await discoveryResponse.json().catch(() => null),
+  );
+  if (
+    discovery === null ||
+    !diagnosisOIDCIssuerMatches(discovery.issuer, config.issuer)
+  ) {
     return oidcLoginFailureRedirect(request, returnTo, "oidc_login_failed");
   }
 
   const payload = newDiagnosisOIDCStatePayload(returnTo, config.usePKCE);
-  const response = NextResponse.redirect(diagnosisOIDCLoginURL({ config, discovery, payload }));
+  const response = NextResponse.redirect(
+    diagnosisOIDCLoginURL({ config, discovery, payload }),
+  );
   setDiagnosisOIDCStateCookie(response, request, payload, stateSigningKey);
   return response;
 }
@@ -59,7 +71,7 @@ export async function GET(request: Request) {
 function oidcLoginFailureRedirect(
   request: Request,
   returnTo: string,
-  error: "oidc_login_failed" | "oidc_not_configured"
+  error: "oidc_login_failed" | "oidc_not_configured",
 ): NextResponse {
   const destination = new URL(returnTo, diagnosisRequestPublicOrigin(request));
   destination.searchParams.set("auth_mode", "session");

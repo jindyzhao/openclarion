@@ -30,6 +30,33 @@ func (_u *ReportNotificationDeliveryUpdate) Where(ps ...predicate.ReportNotifica
 	return _u
 }
 
+// SetReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field.
+func (_u *ReportNotificationDeliveryUpdate) SetReportNotificationChannelProfileID(v int) *ReportNotificationDeliveryUpdate {
+	_u.mutation.ResetReportNotificationChannelProfileID()
+	_u.mutation.SetReportNotificationChannelProfileID(v)
+	return _u
+}
+
+// SetNillableReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field if the given value is not nil.
+func (_u *ReportNotificationDeliveryUpdate) SetNillableReportNotificationChannelProfileID(v *int) *ReportNotificationDeliveryUpdate {
+	if v != nil {
+		_u.SetReportNotificationChannelProfileID(*v)
+	}
+	return _u
+}
+
+// AddReportNotificationChannelProfileID adds value to the "report_notification_channel_profile_id" field.
+func (_u *ReportNotificationDeliveryUpdate) AddReportNotificationChannelProfileID(v int) *ReportNotificationDeliveryUpdate {
+	_u.mutation.AddReportNotificationChannelProfileID(v)
+	return _u
+}
+
+// ClearReportNotificationChannelProfileID clears the value of the "report_notification_channel_profile_id" field.
+func (_u *ReportNotificationDeliveryUpdate) ClearReportNotificationChannelProfileID() *ReportNotificationDeliveryUpdate {
+	_u.mutation.ClearReportNotificationChannelProfileID()
+	return _u
+}
+
 // SetProviderMessageID sets the "provider_message_id" field.
 func (_u *ReportNotificationDeliveryUpdate) SetProviderMessageID(v string) *ReportNotificationDeliveryUpdate {
 	_u.mutation.SetProviderMessageID(v)
@@ -223,6 +250,15 @@ func (_u *ReportNotificationDeliveryUpdate) sqlSave(ctx context.Context) (_node 
 			}
 		}
 	}
+	if value, ok := _u.mutation.ReportNotificationChannelProfileID(); ok {
+		_spec.SetField(reportnotificationdelivery.FieldReportNotificationChannelProfileID, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedReportNotificationChannelProfileID(); ok {
+		_spec.AddField(reportnotificationdelivery.FieldReportNotificationChannelProfileID, field.TypeInt, value)
+	}
+	if _u.mutation.ReportNotificationChannelProfileIDCleared() {
+		_spec.ClearField(reportnotificationdelivery.FieldReportNotificationChannelProfileID, field.TypeInt)
+	}
 	if value, ok := _u.mutation.ProviderMessageID(); ok {
 		_spec.SetField(reportnotificationdelivery.FieldProviderMessageID, field.TypeString, value)
 	}
@@ -279,6 +315,33 @@ type ReportNotificationDeliveryUpdateOne struct {
 	fields   []string
 	hooks    []Hook
 	mutation *ReportNotificationDeliveryMutation
+}
+
+// SetReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field.
+func (_u *ReportNotificationDeliveryUpdateOne) SetReportNotificationChannelProfileID(v int) *ReportNotificationDeliveryUpdateOne {
+	_u.mutation.ResetReportNotificationChannelProfileID()
+	_u.mutation.SetReportNotificationChannelProfileID(v)
+	return _u
+}
+
+// SetNillableReportNotificationChannelProfileID sets the "report_notification_channel_profile_id" field if the given value is not nil.
+func (_u *ReportNotificationDeliveryUpdateOne) SetNillableReportNotificationChannelProfileID(v *int) *ReportNotificationDeliveryUpdateOne {
+	if v != nil {
+		_u.SetReportNotificationChannelProfileID(*v)
+	}
+	return _u
+}
+
+// AddReportNotificationChannelProfileID adds value to the "report_notification_channel_profile_id" field.
+func (_u *ReportNotificationDeliveryUpdateOne) AddReportNotificationChannelProfileID(v int) *ReportNotificationDeliveryUpdateOne {
+	_u.mutation.AddReportNotificationChannelProfileID(v)
+	return _u
+}
+
+// ClearReportNotificationChannelProfileID clears the value of the "report_notification_channel_profile_id" field.
+func (_u *ReportNotificationDeliveryUpdateOne) ClearReportNotificationChannelProfileID() *ReportNotificationDeliveryUpdateOne {
+	_u.mutation.ClearReportNotificationChannelProfileID()
+	return _u
 }
 
 // SetProviderMessageID sets the "provider_message_id" field.
@@ -503,6 +566,15 @@ func (_u *ReportNotificationDeliveryUpdateOne) sqlSave(ctx context.Context) (_no
 				ps[i](selector)
 			}
 		}
+	}
+	if value, ok := _u.mutation.ReportNotificationChannelProfileID(); ok {
+		_spec.SetField(reportnotificationdelivery.FieldReportNotificationChannelProfileID, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedReportNotificationChannelProfileID(); ok {
+		_spec.AddField(reportnotificationdelivery.FieldReportNotificationChannelProfileID, field.TypeInt, value)
+	}
+	if _u.mutation.ReportNotificationChannelProfileIDCleared() {
+		_spec.ClearField(reportnotificationdelivery.FieldReportNotificationChannelProfileID, field.TypeInt)
 	}
 	if value, ok := _u.mutation.ProviderMessageID(); ok {
 		_spec.SetField(reportnotificationdelivery.FieldProviderMessageID, field.TypeString, value)

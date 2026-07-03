@@ -16,9 +16,9 @@ type Result struct {
 	Err       error
 }
 
-// Provider is a deterministic, concurrency-safe AuthProvider. Each bearer token
-// owns an independent script; after a script is exhausted, the provider repeats
-// the last result to keep retry tests stable.
+// Provider is a deterministic, concurrency-safe AuthProvider. Each
+// Authorization value owns an independent script; after a script is exhausted,
+// the provider repeats the last result to keep retry tests stable.
 type Provider struct {
 	mu       sync.Mutex
 	scripts  map[string][]Result
@@ -28,7 +28,7 @@ type Provider struct {
 
 var _ ports.AuthProvider = (*Provider)(nil)
 
-// New constructs a Provider from scripts keyed by bearer token.
+// New constructs a Provider from scripts keyed by Authorization value.
 func New(scripts map[string][]Result) *Provider {
 	return &Provider{
 		scripts: cloneScripts(scripts),
@@ -36,20 +36,21 @@ func New(scripts map[string][]Result) *Provider {
 	}
 }
 
-// AuthenticateBearer records bearerToken and returns the next scripted Result.
-func (p *Provider) AuthenticateBearer(ctx context.Context, bearerToken string) (ports.AuthPrincipal, error) {
+// AuthenticateAuthorization records authorization and returns the next scripted
+// Result.
+func (p *Provider) AuthenticateAuthorization(ctx context.Context, authorization string) (ports.AuthPrincipal, error) {
 	if err := ctx.Err(); err != nil {
 		return ports.AuthPrincipal{}, err
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	script, ok := p.scripts[bearerToken]
+	script, ok := p.scripts[authorization]
 	if !ok || len(script) == 0 {
-		return ports.AuthPrincipal{}, fmt.Errorf("fake auth: no script for bearer token")
+		return ports.AuthPrincipal{}, fmt.Errorf("fake auth: no script for authorization")
 	}
-	p.requests = append(p.requests, bearerToken)
-	call := p.calls[bearerToken]
-	p.calls[bearerToken] = call + 1
+	p.requests = append(p.requests, authorization)
+	call := p.calls[authorization]
+	p.calls[authorization] = call + 1
 	if call >= len(script) {
 		call = len(script) - 1
 	}
@@ -60,14 +61,15 @@ func (p *Provider) AuthenticateBearer(ctx context.Context, bearerToken string) (
 	return clonePrincipal(result.Principal), nil
 }
 
-// Calls returns how many AuthenticateBearer calls were made for bearerToken.
-func (p *Provider) Calls(bearerToken string) int {
+// Calls returns how many AuthenticateAuthorization calls were made for
+// authorization.
+func (p *Provider) Calls(authorization string) int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.calls[bearerToken]
+	return p.calls[authorization]
 }
 
-// Requests returns the recorded bearer tokens in call order.
+// Requests returns the recorded Authorization values in call order.
 func (p *Provider) Requests() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()

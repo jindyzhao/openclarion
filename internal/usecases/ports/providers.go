@@ -21,6 +21,9 @@ import (
 //     ingestion library forwards this value verbatim into
 //     domain.AlertEvent.Source where it participates in the
 //     (source, canonical_fingerprint, starts_at) natural unique key.
+//   - AlertSourceProfileID: optional operator-managed source profile identity.
+//     Push-style handlers set it when the inbound route is bound to a profile;
+//     provider-only tests and legacy rows may leave it zero.
 //   - Labels / Annotations: free-form key/value metadata. Both MAY be
 //     nil or empty; the ingestion library normalises nil to an empty
 //     map before fingerprinting and before constructing the domain
@@ -33,11 +36,12 @@ import (
 //     alert. MAY be nil; the persistence layer treats the column as
 //     optional JSONB.
 type ActiveAlert struct {
-	Source      string
-	Labels      map[string]string
-	Annotations map[string]string
-	StartsAt    time.Time
-	RawPayload  json.RawMessage
+	Source               string
+	AlertSourceProfileID domain.AlertSourceProfileID
+	Labels               map[string]string
+	Annotations          map[string]string
+	StartsAt             time.Time
+	RawPayload           json.RawMessage
 }
 
 // MetricPoint is one timestamped Prometheus sample value rendered as a string.
@@ -184,6 +188,12 @@ type DirectoryProvider interface {
 // resolver boundary. The error intentionally does not include the secret value.
 var ErrSecretNotFound = errors.New("secret not found")
 
+// ErrAuthUnauthenticated is returned by concrete auth providers when inbound
+// credentials or provider callback material do not establish a usable
+// OpenClarion identity. The error intentionally carries no upstream secret,
+// token, code, ticket, or user identifier.
+var ErrAuthUnauthenticated = errors.New("auth provider: unauthenticated")
+
 // Secret is the provider-neutral resolved secret value. It is intentionally
 // small until OpenClarion needs credential shapes beyond bearer tokens.
 type Secret struct {
@@ -219,11 +229,70 @@ type AuthPrincipal struct {
 	Claims  json.RawMessage
 }
 
-// AuthProvider authenticates an inbound bearer token and maps upstream claims
-// into OpenClarion's V1 role vocabulary. It does not authorize access to a
-// specific diagnosis session; usecase code owns RBAC.
+// AuthProvider authenticates inbound HTTP Authorization credentials and maps
+// upstream claims into OpenClarion's V1 role vocabulary. It does not authorize
+// access to a specific diagnosis session; usecase code owns RBAC.
 type AuthProvider interface {
-	AuthenticateBearer(ctx context.Context, bearerToken string) (AuthPrincipal, error)
+	AuthenticateAuthorization(ctx context.Context, authorization string) (AuthPrincipal, error)
+}
+
+// AuthAuxiliaryCredentials carries provider-specific material that should not
+// be encoded into the public Authorization header. It is only used when the
+// concrete provider explicitly supports the extra credential.
+type AuthAuxiliaryCredentials struct {
+	OIDCAccessToken string
+}
+
+// AuthProviderWithAuxiliaryCredentials is optionally implemented by
+// AuthProvider implementations that need verified side-channel credentials,
+// such as an OIDC access token for UserInfo claim enrichment.
+type AuthProviderWithAuxiliaryCredentials interface {
+	AuthenticateAuthorizationWithAuxiliaryCredentials(ctx context.Context, authorization string, credentials AuthAuxiliaryCredentials) (AuthPrincipal, error)
+}
+
+// AuthRoleMappingStatus is the non-sensitive role mapping summary that
+// concrete auth providers may expose for operator readiness checks. It must not
+// include upstream role values, user IDs, DNs, claims, endpoints, or secrets.
+type AuthRoleMappingStatus struct {
+	OwnerMappingCount int
+	AdminMappingCount int
+	DefaultRoles      []AuthRole
+}
+
+// AuthRoleMappingReporter is optionally implemented by AuthProvider
+// implementations that can summarize configured owner/admin role paths without
+// leaking the matched upstream values.
+type AuthRoleMappingReporter interface {
+	RoleMappingStatus() AuthRoleMappingStatus
+}
+
+// AuthTransportSecurity is a provider-neutral transport policy summary. It
+// must not include endpoints, DNs, usernames, or other upstream configuration.
+type AuthTransportSecurity string
+
+const (
+	// AuthTransportSecurityTLS means credentials travel over an already
+	// encrypted transport, for example LDAPS.
+	AuthTransportSecurityTLS AuthTransportSecurity = "tls"
+	// AuthTransportSecurityStartTLS means credentials travel after an explicit
+	// StartTLS upgrade on an LDAP connection.
+	AuthTransportSecurityStartTLS AuthTransportSecurity = "start_tls"
+	// AuthTransportSecurityInsecurePlaintext means plaintext LDAP transport was
+	// explicitly allowed. This should remain development-only.
+	AuthTransportSecurityInsecurePlaintext AuthTransportSecurity = "insecure_plaintext"
+)
+
+// AuthTransportPolicyStatus is the non-sensitive transport summary that auth
+// providers may expose for readiness checks.
+type AuthTransportPolicyStatus struct {
+	Security AuthTransportSecurity
+}
+
+// AuthTransportPolicyReporter is optionally implemented by AuthProvider
+// implementations that can summarize credential transport safety without
+// leaking upstream endpoints or secrets.
+type AuthTransportPolicyReporter interface {
+	TransportPolicyStatus() AuthTransportPolicyStatus
 }
 
 // LLMMessageRole is the small role vocabulary accepted by the
@@ -370,4 +439,6 @@ type IMProvider interface {
 // callers must invoke it from Activities or other non-workflow boundaries.
 type NotificationChannelProviderResolver interface {
 	ResolveReportNotificationProvider(ctx context.Context, channelProfileID domain.NotificationChannelProfileID) (IMProvider, error)
+	ResolveDiagnosisConsultationNotificationProvider(ctx context.Context, channelProfileID domain.NotificationChannelProfileID) (IMProvider, error)
+	ResolveDiagnosisCloseNotificationProvider(ctx context.Context, channelProfileID domain.NotificationChannelProfileID) (IMProvider, error)
 }

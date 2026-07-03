@@ -12,9 +12,10 @@ const (
 	maxReportWorkflowScheduleTemporalIDLen = 200
 )
 
-// ReportWorkflowSchedule is operator-managed schedule configuration for a
-// report workflow policy. It is persisted configuration only; saving or
-// replacing it does not register or trigger a Temporal Schedule.
+// ReportWorkflowSchedule is persisted schedule configuration for a report
+// workflow policy. Domain construction and repository saves do not talk to
+// Temporal; runtime synchronization happens at transport or startup boundaries
+// when configured.
 type ReportWorkflowSchedule struct {
 	ID                     ReportWorkflowScheduleID
 	Name                   string
@@ -74,6 +75,9 @@ func NewReportWorkflowSchedule(
 	if replayWindow <= 0 {
 		return ReportWorkflowSchedule{}, fmt.Errorf("report workflow schedule: replay_window must be positive: %w", ErrInvariantViolation)
 	}
+	if err := validateReportWorkflowScheduleReplayCadence(interval, replayWindow); err != nil {
+		return ReportWorkflowSchedule{}, err
+	}
 	if replayDelay < 0 {
 		return ReportWorkflowSchedule{}, fmt.Errorf("report workflow schedule: replay_delay must be non-negative: %w", ErrInvariantViolation)
 	}
@@ -115,6 +119,11 @@ func WithReportWorkflowScheduleEnabled(schedule ReportWorkflowSchedule, enabled 
 	if at.IsZero() {
 		return ReportWorkflowSchedule{}, fmt.Errorf("report workflow schedule: enablement time must be non-zero: %w", ErrInvariantViolation)
 	}
+	if enabled {
+		if err := validateReportWorkflowScheduleReplayCadence(schedule.Interval, schedule.ReplayWindow); err != nil {
+			return ReportWorkflowSchedule{}, err
+		}
+	}
 	schedule.Enabled = enabled
 	if enabled {
 		schedule.EnabledAt = &at
@@ -137,6 +146,13 @@ func validateTemporalScheduleID(id string) error {
 		if unicode.IsControl(r) || unicode.IsSpace(r) {
 			return fmt.Errorf("report workflow schedule: temporal_schedule_id must not contain whitespace or control characters: %w", ErrInvariantViolation)
 		}
+	}
+	return nil
+}
+
+func validateReportWorkflowScheduleReplayCadence(interval, replayWindow time.Duration) error {
+	if replayWindow > interval {
+		return fmt.Errorf("report workflow schedule: replay_window must not exceed interval: %w", ErrInvariantViolation)
 	}
 	return nil
 }

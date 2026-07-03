@@ -17,10 +17,23 @@ const (
 )
 
 type diagnosisRoomEvidenceContextBatch struct {
-	TurnCount          int                                `json:"turn_count"`
-	AssistantMessageID string                             `json:"assistant_message_id,omitempty"`
-	CollectedAt        time.Time                          `json:"collected_at,omitempty"`
-	Items              []diagnosisRoomEvidenceContextItem `json:"items"`
+	TurnCount          int                                 `json:"turn_count"`
+	AssistantMessageID string                              `json:"assistant_message_id,omitempty"`
+	CollectedAt        time.Time                           `json:"collected_at,omitempty"`
+	Summary            diagnosisRoomEvidenceContextSummary `json:"summary"`
+	Items              []diagnosisRoomEvidenceContextItem  `json:"items"`
+}
+
+type diagnosisRoomEvidenceContextSummary struct {
+	TotalRequests        int    `json:"total_requests"`
+	CollectedRequests    int    `json:"collected_requests"`
+	UnresolvedRequests   int    `json:"unresolved_requests"`
+	FailedRequests       int    `json:"failed_requests"`
+	SkippedRequests      int    `json:"skipped_requests"`
+	UnsupportedRequests  int    `json:"unsupported_requests"`
+	ObservedAlerts       int    `json:"observed_alerts"`
+	ObservedMetricSeries int    `json:"observed_metric_series"`
+	AgentInstruction     string `json:"agent_instruction"`
 }
 
 type diagnosisRoomEvidenceContextItem struct {
@@ -44,20 +57,22 @@ type diagnosisRoomEvidenceContextItem struct {
 }
 
 type diagnosisRoomEvidenceContextRequest struct {
-	TemplateID    int64  `json:"template_id,omitempty"`
-	Tool          string `json:"tool"`
-	Reason        string `json:"reason,omitempty"`
-	Query         string `json:"query,omitempty"`
-	WindowSeconds int    `json:"window_seconds,omitempty"`
-	StepSeconds   int    `json:"step_seconds,omitempty"`
-	Limit         int    `json:"limit,omitempty"`
+	TemplateID           int64  `json:"template_id,omitempty"`
+	AlertSourceProfileID int64  `json:"alert_source_profile_id,omitempty"`
+	Tool                 string `json:"tool"`
+	Reason               string `json:"reason,omitempty"`
+	Query                string `json:"query,omitempty"`
+	WindowSeconds        int    `json:"window_seconds,omitempty"`
+	StepSeconds          int    `json:"step_seconds,omitempty"`
+	Limit                int    `json:"limit,omitempty"`
 }
 
 type diagnosisRoomEvidenceContextAlert struct {
-	Source      string            `json:"source,omitempty"`
-	Labels      map[string]string `json:"labels,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"`
-	StartsAt    time.Time         `json:"starts_at,omitempty"`
+	Source               string            `json:"source,omitempty"`
+	AlertSourceProfileID int64             `json:"alert_source_profile_id,omitempty"`
+	Labels               map[string]string `json:"labels,omitempty"`
+	Annotations          map[string]string `json:"annotations,omitempty"`
+	StartsAt             time.Time         `json:"starts_at,omitempty"`
 }
 
 type diagnosisRoomEvidenceContextMetricQuery struct {
@@ -119,6 +134,7 @@ func diagnosisRoomEvidenceContextBatchFromItems(
 	out := diagnosisRoomEvidenceContextBatch{
 		TurnCount:          turnCount,
 		AssistantMessageID: assistantMessageID,
+		Summary:            diagnosisRoomEvidenceContextSummaryFromItems(items),
 		Items:              make([]diagnosisRoomEvidenceContextItem, 0, len(items)),
 	}
 	for _, item := range items {
@@ -128,6 +144,33 @@ func diagnosisRoomEvidenceContextBatchFromItems(
 		out.Items = append(out.Items, diagnosisRoomEvidenceContextItemFromItem(item))
 	}
 	return out, true
+}
+
+func diagnosisRoomEvidenceContextSummaryFromItems(items []diagnosisevidence.Item) diagnosisRoomEvidenceContextSummary {
+	summary := diagnosisRoomEvidenceContextSummary{
+		TotalRequests:    len(items),
+		AgentInstruction: "Use collected items to reassess confidence. Treat skipped, failed, or unsupported items as remaining evidence gaps and keep confidence low unless other evidence resolves them.",
+	}
+	for _, item := range items {
+		switch item.Status {
+		case diagnosisevidence.StatusCollected:
+			summary.CollectedRequests++
+		case diagnosisevidence.StatusFailed:
+			summary.FailedRequests++
+			summary.UnresolvedRequests++
+		case diagnosisevidence.StatusSkipped:
+			summary.SkippedRequests++
+			summary.UnresolvedRequests++
+		case diagnosisevidence.StatusUnsupported:
+			summary.UnsupportedRequests++
+			summary.UnresolvedRequests++
+		default:
+			summary.UnresolvedRequests++
+		}
+		summary.ObservedAlerts += item.ObservedAlerts
+		summary.ObservedMetricSeries += item.ObservedMetricSeries
+	}
+	return summary
 }
 
 func diagnosisRoomEvidenceContextItemFromItem(item diagnosisevidence.Item) diagnosisRoomEvidenceContextItem {
@@ -154,13 +197,14 @@ func diagnosisRoomEvidenceContextItemFromItem(item diagnosisevidence.Item) diagn
 
 func diagnosisRoomEvidenceContextRequestFromItem(item diagnosisevidence.Item) diagnosisRoomEvidenceContextRequest {
 	return diagnosisRoomEvidenceContextRequest{
-		TemplateID:    item.Request.TemplateID,
-		Tool:          string(item.Request.Tool),
-		Reason:        item.Request.Reason,
-		Query:         item.Request.Query,
-		WindowSeconds: item.Request.WindowSeconds,
-		StepSeconds:   item.Request.StepSeconds,
-		Limit:         item.Request.Limit,
+		TemplateID:           item.Request.TemplateID,
+		AlertSourceProfileID: item.Request.AlertSourceProfileID,
+		Tool:                 string(item.Request.Tool),
+		Reason:               item.Request.Reason,
+		Query:                item.Request.Query,
+		WindowSeconds:        item.Request.WindowSeconds,
+		StepSeconds:          item.Request.StepSeconds,
+		Limit:                item.Request.Limit,
 	}
 }
 
@@ -171,10 +215,11 @@ func diagnosisRoomEvidenceContextAlerts(in []ports.ActiveAlert) []diagnosisRoomE
 	out := make([]diagnosisRoomEvidenceContextAlert, len(in))
 	for i, alert := range in {
 		out[i] = diagnosisRoomEvidenceContextAlert{
-			Source:      alert.Source,
-			Labels:      cloneStringMap(alert.Labels),
-			Annotations: cloneStringMap(alert.Annotations),
-			StartsAt:    alert.StartsAt,
+			Source:               alert.Source,
+			AlertSourceProfileID: int64(alert.AlertSourceProfileID),
+			Labels:               cloneStringMap(alert.Labels),
+			Annotations:          cloneStringMap(alert.Annotations),
+			StartsAt:             alert.StartsAt,
 		}
 	}
 	return out
@@ -264,10 +309,11 @@ func cloneEvidenceContextAlerts(in []diagnosisRoomEvidenceContextAlert) []diagno
 	out := make([]diagnosisRoomEvidenceContextAlert, len(in))
 	for i, alert := range in {
 		out[i] = diagnosisRoomEvidenceContextAlert{
-			Source:      alert.Source,
-			Labels:      cloneStringMap(alert.Labels),
-			Annotations: cloneStringMap(alert.Annotations),
-			StartsAt:    alert.StartsAt,
+			Source:               alert.Source,
+			AlertSourceProfileID: alert.AlertSourceProfileID,
+			Labels:               cloneStringMap(alert.Labels),
+			Annotations:          cloneStringMap(alert.Annotations),
+			StartsAt:             alert.StartsAt,
 		}
 	}
 	return out

@@ -60,6 +60,11 @@ func Source(v string) predicate.AlertEvent {
 	return predicate.AlertEvent(sql.FieldEQ(FieldSource, v))
 }
 
+// AlertSourceProfileID applies equality check predicate on the "alert_source_profile_id" field. It's identical to AlertSourceProfileIDEQ.
+func AlertSourceProfileID(v int) predicate.AlertEvent {
+	return predicate.AlertEvent(sql.FieldEQ(FieldAlertSourceProfileID, v))
+}
+
 // SourceFingerprint applies equality check predicate on the "source_fingerprint" field. It's identical to SourceFingerprintEQ.
 func SourceFingerprint(v string) predicate.AlertEvent {
 	return predicate.AlertEvent(sql.FieldEQ(FieldSourceFingerprint, v))
@@ -153,6 +158,46 @@ func SourceEqualFold(v string) predicate.AlertEvent {
 // SourceContainsFold applies the ContainsFold predicate on the "source" field.
 func SourceContainsFold(v string) predicate.AlertEvent {
 	return predicate.AlertEvent(sql.FieldContainsFold(FieldSource, v))
+}
+
+// AlertSourceProfileIDEQ applies the EQ predicate on the "alert_source_profile_id" field.
+func AlertSourceProfileIDEQ(v int) predicate.AlertEvent {
+	return predicate.AlertEvent(sql.FieldEQ(FieldAlertSourceProfileID, v))
+}
+
+// AlertSourceProfileIDNEQ applies the NEQ predicate on the "alert_source_profile_id" field.
+func AlertSourceProfileIDNEQ(v int) predicate.AlertEvent {
+	return predicate.AlertEvent(sql.FieldNEQ(FieldAlertSourceProfileID, v))
+}
+
+// AlertSourceProfileIDIn applies the In predicate on the "alert_source_profile_id" field.
+func AlertSourceProfileIDIn(vs ...int) predicate.AlertEvent {
+	return predicate.AlertEvent(sql.FieldIn(FieldAlertSourceProfileID, vs...))
+}
+
+// AlertSourceProfileIDNotIn applies the NotIn predicate on the "alert_source_profile_id" field.
+func AlertSourceProfileIDNotIn(vs ...int) predicate.AlertEvent {
+	return predicate.AlertEvent(sql.FieldNotIn(FieldAlertSourceProfileID, vs...))
+}
+
+// AlertSourceProfileIDGT applies the GT predicate on the "alert_source_profile_id" field.
+func AlertSourceProfileIDGT(v int) predicate.AlertEvent {
+	return predicate.AlertEvent(sql.FieldGT(FieldAlertSourceProfileID, v))
+}
+
+// AlertSourceProfileIDGTE applies the GTE predicate on the "alert_source_profile_id" field.
+func AlertSourceProfileIDGTE(v int) predicate.AlertEvent {
+	return predicate.AlertEvent(sql.FieldGTE(FieldAlertSourceProfileID, v))
+}
+
+// AlertSourceProfileIDLT applies the LT predicate on the "alert_source_profile_id" field.
+func AlertSourceProfileIDLT(v int) predicate.AlertEvent {
+	return predicate.AlertEvent(sql.FieldLT(FieldAlertSourceProfileID, v))
+}
+
+// AlertSourceProfileIDLTE applies the LTE predicate on the "alert_source_profile_id" field.
+func AlertSourceProfileIDLTE(v int) predicate.AlertEvent {
+	return predicate.AlertEvent(sql.FieldLTE(FieldAlertSourceProfileID, v))
 }
 
 // SourceFingerprintEQ applies the EQ predicate on the "source_fingerprint" field.

@@ -76,6 +76,27 @@ func TestReportWorkflowScheduleRegistrarBuildsCreateOptions(t *testing.T) {
 	}
 }
 
+func TestReportWorkflowScheduleRegistrarDefaultLauncherTimeoutAllowsReplayStart(t *testing.T) {
+	schedule := mustRegistrarSchedule(t, true)
+	registrar := newReportWorkflowScheduleRegistrar(&recordingScheduleCreator{})
+
+	options, err := registrar.BuildCreateOptions(schedule)
+	if err != nil {
+		t.Fatalf("BuildCreateOptions: %v", err)
+	}
+	action, ok := options.Action.(*client.ScheduleWorkflowAction)
+	if !ok {
+		t.Fatalf("Action type = %T, want *client.ScheduleWorkflowAction", options.Action)
+	}
+	if action.WorkflowExecutionTimeout != defaultScheduleLauncherWorkflowExecutionTimeout {
+		t.Fatalf(
+			"WorkflowExecutionTimeout = %s, want %s",
+			action.WorkflowExecutionTimeout,
+			defaultScheduleLauncherWorkflowExecutionTimeout,
+		)
+	}
+}
+
 func TestReportWorkflowScheduleRegistrarCreateCallsTemporal(t *testing.T) {
 	schedule := mustRegistrarSchedule(t, false)
 	creator := &recordingScheduleCreator{handle: &fakeScheduleHandle{id: "report-schedule-primary"}}
@@ -250,6 +271,25 @@ func TestReportWorkflowScheduleRegistrarRejectsInvalidSchedule(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "whole-second precision") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestReportWorkflowScheduleRegistrarRejectsEnabledOverlappingReplayWindow(t *testing.T) {
+	schedule := mustRegistrarSchedule(t, true)
+	schedule.Interval = time.Minute
+	schedule.Offset = 0
+	schedule.ReplayWindow = time.Hour
+	registrar := newReportWorkflowScheduleRegistrar(&recordingScheduleCreator{})
+
+	_, err := registrar.BuildCreateOptions(schedule)
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("enabled err = %v, want ErrInvariantViolation", err)
+	}
+
+	schedule.Enabled = false
+	_, err = registrar.BuildCreateOptions(schedule)
+	if err != nil {
+		t.Fatalf("disabled historical schedule should still build paused options: %v", err)
 	}
 }
 

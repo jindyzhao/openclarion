@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
 )
 
 const (
@@ -29,8 +30,17 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
+	// EdgeTestProofs holds the string denoting the test_proofs edge name in mutations.
+	EdgeTestProofs = "test_proofs"
 	// Table holds the table name of the notificationchannelprofile in the database.
 	Table = "notification_channel_profiles"
+	// TestProofsTable is the table that holds the test_proofs relation/edge.
+	TestProofsTable = "notification_channel_test_proofs"
+	// TestProofsInverseTable is the table name for the NotificationChannelTestProof entity.
+	// It exists in this package in order to avoid circular dependency with the "notificationchanneltestproof" package.
+	TestProofsInverseTable = "notification_channel_test_proofs"
+	// TestProofsColumn is the table column denoting the test_proofs relation/edge.
+	TestProofsColumn = "notification_channel_profile_id"
 )
 
 // Columns holds all SQL columns for notificationchannelprofile fields.
@@ -111,4 +121,25 @@ func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByUpdatedAt orders the results by the updated_at field.
 func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
+}
+
+// ByTestProofsCount orders the results by test_proofs count.
+func ByTestProofsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newTestProofsStep(), opts...)
+	}
+}
+
+// ByTestProofs orders the results by test_proofs terms.
+func ByTestProofs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTestProofsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+func newTestProofsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TestProofsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, TestProofsTable, TestProofsColumn),
+	)
 }

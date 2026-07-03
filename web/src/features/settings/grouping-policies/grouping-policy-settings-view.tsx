@@ -32,15 +32,26 @@ import type { ApiResult } from "@/lib/api/client";
 import { formatDateTime } from "../format";
 import {
   settingsErrorMessage,
+  settingsManagePermissionNotice,
+  settingsReadPermissionEmptyDescription,
+  settingsReadPermissionNotice,
   type SettingsNotice,
+  useClientReady,
   useSettingsList,
   useSettingsMutation
 } from "../query-state";
+import { ReadOnlyModeAlert } from "../permission-notice";
+import {
+  useCurrentRBACAuthorizations,
+  type CurrentRBACAuthorizationCheck
+} from "../rbac-capabilities";
 import { refreshGroupingPolicies, runGroupingPolicyPreview, submitGroupingPolicy } from "./client-api";
 import {
   emptyGroupingPolicyForm,
   formStateToWriteRequest,
-  policyToFormState
+  groupingPolicyLaunchInitialForm,
+  policyToFormState,
+  type GroupingPolicyLaunchIntent
 } from "./format";
 import type {
   GroupingPolicy,
@@ -52,6 +63,7 @@ import type {
 } from "./types";
 
 type GroupingPolicySettingsManagerProps = {
+  launchIntent?: GroupingPolicyLaunchIntent | null;
   result: ApiResult<GroupingPolicyListResponse>;
 };
 
@@ -62,13 +74,24 @@ type SavePolicyVariables = {
   policyID: number | null;
 };
 
-export function GroupingPolicySettingsManager({ result }: GroupingPolicySettingsManagerProps) {
+const groupingPolicyBaseAuthorizationChecks: CurrentRBACAuthorizationCheck[] = [
+  { key: "groupingPolicyRead", permission: "grouping_policy.read" },
+  { key: "groupingPolicyManage", permission: "grouping_policy.manage" }
+];
+
+export function GroupingPolicySettingsManager({
+  launchIntent = null,
+  result
+}: GroupingPolicySettingsManagerProps) {
   const [form] = Form.useForm<GroupingPolicyFormState>();
+  const clientReady = useClientReady();
   const [editingID, setEditingID] = useState<number | null>(null);
   const [previewingID, setPreviewingID] = useState<number | null>(null);
   const [previewResults, setPreviewResults] = useState<Record<number, GroupingPolicyPreviewResult>>({});
   const [selectedPreviewID, setSelectedPreviewID] = useState<number | null>(null);
+  const [launchNotice, setLaunchNotice] = useState<string | null>(launchIntent?.message ?? null);
   const {
+    errorStatus,
     items: policies,
     notice,
     query,
@@ -85,7 +108,58 @@ export function GroupingPolicySettingsManager({ result }: GroupingPolicySettings
     invalidateQueryKey: groupingPoliciesQueryKey,
     mutationFn: ({ policyID, body }) => submitGroupingPolicy(policyID, body)
   });
-  const busy = query.isFetching || savePolicy.isPending;
+  const authorizationChecks = useMemo(
+    () => [
+      ...groupingPolicyBaseAuthorizationChecks,
+      ...policies.flatMap((policy) => [
+        {
+          key: groupingPolicyReadKey(policy.id),
+          permission: "grouping_policy.read" as const,
+          scopeKey: String(policy.id),
+          scopeKind: "grouping_policy" as const
+        },
+        {
+          key: groupingPolicyManageKey(policy.id),
+          permission: "grouping_policy.manage" as const,
+          scopeKey: String(policy.id),
+          scopeKind: "grouping_policy" as const
+        }
+      ])
+    ],
+    [policies]
+  );
+  const currentAuthorization = useCurrentRBACAuthorizations(
+    authorizationChecks,
+    clientReady
+  );
+  const busy =
+    !clientReady ||
+    currentAuthorization.isChecking ||
+    query.isFetching ||
+    savePolicy.isPending;
+  const canReadGroupingPolicies = currentAuthorization.can("groupingPolicyRead");
+  const canCreateGroupingPolicy = currentAuthorization.can("groupingPolicyManage");
+  const canSaveCurrentGroupingPolicy =
+    editingID === null
+      ? canCreateGroupingPolicy
+      : currentAuthorization.can(groupingPolicyManageKey(editingID));
+  const formPermissionNotice = settingsManagePermissionNotice({
+    canManage: canSaveCurrentGroupingPolicy,
+    isChecking: !clientReady || currentAuthorization.isChecking,
+    resourceLabel:
+      editingID === null
+        ? "grouping policy creation"
+        : `grouping policy #${editingID}`,
+  });
+  const readPermissionNotice = settingsReadPermissionNotice({
+    canRead: canReadGroupingPolicies,
+    errorStatus,
+    isChecking: !clientReady || currentAuthorization.isChecking,
+    resourceLabel: "grouping policies",
+  });
+  const visibleNotice =
+    currentAuthorization.notice ?? readPermissionNotice ?? notice;
+  const initialFormValues = useMemo(() => groupingPolicyLaunchInitialForm(launchIntent), [launchIntent]);
 
   const summary = useMemo(() => {
     const enabled = policies.filter((policy) => policy.enabled).length;
@@ -114,6 +188,7 @@ export function GroupingPolicySettingsManager({ result }: GroupingPolicySettings
 
     form.setFieldsValue(emptyGroupingPolicyForm());
     setEditingID(null);
+    setLaunchNotice(null);
     setNotice({ kind: "info", message: "Policy saved." });
   }
 
@@ -137,12 +212,14 @@ export function GroupingPolicySettingsManager({ result }: GroupingPolicySettings
   function editPolicy(policy: GroupingPolicy) {
     setEditingID(policy.id);
     form.setFieldsValue(policyToFormState(policy));
+    setLaunchNotice(null);
     setNotice(null);
   }
 
   function resetForm() {
     setEditingID(null);
     form.setFieldsValue(emptyGroupingPolicyForm());
+    setLaunchNotice(null);
     setNotice(null);
   }
 
@@ -157,24 +234,37 @@ export function GroupingPolicySettingsManager({ result }: GroupingPolicySettings
         <MetricCard label="Max dimensions" value={summary.maxDimensions} />
       </Row>
 
-      {notice ? <Notice notice={notice} /> : null}
+      {visibleNotice ? <Notice notice={visibleNotice} /> : null}
+      {launchNotice ? (
+        <Alert
+          aria-label="Grouping policy launch preset"
+          description={launchNotice}
+          message="Grouping action loaded"
+          role="status"
+          showIcon
+          type="info"
+        />
+      ) : null}
 
       <Row align="top" className="settings-console-grid" gutter={[16, 16]}>
         <Col lg={8} md={24} xs={24}>
           <Card
             extra={
               editingID === null ? null : (
-                <Button disabled={busy} icon={<PlusOutlined />} onClick={resetForm} type="default">
+                <Button disabled={busy || !canCreateGroupingPolicy} icon={<PlusOutlined />} onClick={resetForm} type="default">
                   New
                 </Button>
               )
             }
             title={editingID === null ? "New Grouping Policy" : `Edit Policy #${editingID}`}
           >
+            {formPermissionNotice ? (
+              <ReadOnlyModeAlert notice={formPermissionNotice} />
+            ) : null}
             <Form<GroupingPolicyFormState>
-              disabled={busy}
+              disabled={busy || !canSaveCurrentGroupingPolicy}
               form={form}
-              initialValues={emptyGroupingPolicyForm()}
+              initialValues={initialFormValues}
               layout="vertical"
               onFinish={handleSubmit}
             >
@@ -217,7 +307,7 @@ export function GroupingPolicySettingsManager({ result }: GroupingPolicySettings
               </Form.Item>
 
               <Space wrap>
-                <Button htmlType="submit" icon={<SaveOutlined />} loading={busy} type="primary">
+                <Button disabled={busy || !canSaveCurrentGroupingPolicy} htmlType="submit" icon={<SaveOutlined />} loading={busy} type="primary">
                   Save Policy
                 </Button>
                 <Button disabled={busy} onClick={resetForm} type="default">
@@ -231,7 +321,7 @@ export function GroupingPolicySettingsManager({ result }: GroupingPolicySettings
         <Col lg={16} md={24} xs={24}>
           <Card
             extra={
-              <Button disabled={busy} icon={<ReloadOutlined />} loading={busy} onClick={handleRefresh} type="default">
+              <Button disabled={busy || !canReadGroupingPolicies} icon={<ReloadOutlined />} loading={busy} onClick={handleRefresh} type="default">
                 Refresh
               </Button>
             }
@@ -239,6 +329,9 @@ export function GroupingPolicySettingsManager({ result }: GroupingPolicySettings
           >
             <GroupingPolicyTable
               busy={busy}
+              canRead={canReadGroupingPolicies}
+              canEditPolicy={(policyID) => currentAuthorization.can(groupingPolicyManageKey(policyID))}
+              canPreviewPolicy={(policyID) => currentAuthorization.can(groupingPolicyReadKey(policyID))}
               onEdit={editPolicy}
               onPreview={handlePreview}
               policies={policies}
@@ -279,6 +372,9 @@ function Notice({ notice }: { notice: SettingsNotice }) {
 function GroupingPolicyTable({
   policies,
   busy,
+  canRead,
+  canEditPolicy,
+  canPreviewPolicy,
   onEdit,
   onPreview,
   previewResults,
@@ -286,6 +382,9 @@ function GroupingPolicyTable({
 }: {
   policies: GroupingPolicy[];
   busy: boolean;
+  canRead: boolean;
+  canEditPolicy: (policyID: number) => boolean;
+  canPreviewPolicy: (policyID: number) => boolean;
   onEdit: (policy: GroupingPolicy) => void;
   onPreview: (policy: GroupingPolicy) => void;
   previewResults: Record<number, GroupingPolicyPreviewResult>;
@@ -343,22 +442,35 @@ function GroupingPolicyTable({
     {
       key: "action",
       title: "Action",
-      render: (_value, policy) => (
-        <Space wrap>
-          <Button
-            disabled={busy || (previewingID !== null && previewingID !== policy.id)}
-            icon={<PlayCircleOutlined />}
-            loading={previewingID === policy.id}
-            onClick={() => onPreview(policy)}
-            type="link"
-          >
-            Preview
-          </Button>
-          <Button disabled={busy || previewingID !== null} icon={<EditOutlined />} onClick={() => onEdit(policy)} type="link">
-            Edit
-          </Button>
-        </Space>
-      )
+      render: (_value, policy) => {
+        const canEdit = canEditPolicy(policy.id);
+        const canPreview = canPreviewPolicy(policy.id);
+        return (
+          <Space wrap>
+            <Button
+              disabled={
+                busy ||
+                !canPreview ||
+                (previewingID !== null && previewingID !== policy.id)
+              }
+              icon={<PlayCircleOutlined />}
+              loading={previewingID === policy.id}
+              onClick={() => onPreview(policy)}
+              type="link"
+            >
+              Preview
+            </Button>
+            <Button
+              disabled={busy || !canEdit || previewingID !== null}
+              icon={<EditOutlined />}
+              onClick={() => onEdit(policy)}
+              type="link"
+            >
+              Edit
+            </Button>
+          </Space>
+        );
+      }
     }
   ];
 
@@ -367,7 +479,17 @@ function GroupingPolicyTable({
       columns={columns}
       dataSource={policies}
       loading={busy}
-      locale={{ emptyText: <Empty description="No grouping policies configured." /> }}
+      locale={{
+        emptyText: (
+          <Empty
+            description={settingsReadPermissionEmptyDescription({
+              canRead,
+              emptyDescription: "No grouping policies configured.",
+              resourceLabel: "grouping policies",
+            })}
+          />
+        )
+      }}
       pagination={false}
       rowKey="id"
       scroll={{ x: 1120 }}
@@ -495,6 +617,14 @@ function normalizeFormValues(values: GroupingPolicyFormState): GroupingPolicyFor
     severityKey: values.severityKey ?? "",
     sourceFilterText: values.sourceFilterText ?? ""
   };
+}
+
+function groupingPolicyReadKey(policyID: number): string {
+  return `groupingPolicyRead:${policyID}`;
+}
+
+function groupingPolicyManageKey(policyID: number): string {
+  return `groupingPolicyManage:${policyID}`;
 }
 
 function severityColor(severity: GroupingPolicyPreviewGroup["severity"]) {

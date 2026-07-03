@@ -16,6 +16,9 @@ import (
 
 // ListReportWorkflowSchedules implements api.ServerInterface.
 func (s *Server) ListReportWorkflowSchedules(w http.ResponseWriter, r *http.Request, params api.ListReportWorkflowSchedulesParams) {
+	if !s.authorizeLocalRBACRequest(w, r, domain.RBACPermissionReportWorkflowRead) {
+		return
+	}
 	limit, err := parseListLimit(params.Limit)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -40,6 +43,9 @@ func (s *Server) ListReportWorkflowSchedules(w http.ResponseWriter, r *http.Requ
 
 // CreateReportWorkflowSchedule implements api.ServerInterface.
 func (s *Server) CreateReportWorkflowSchedule(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeLocalRBACRequest(w, r, domain.RBACPermissionReportWorkflowManage) {
+		return
+	}
 	body, err := decodeReportWorkflowScheduleWriteRequest(w, r)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -69,6 +75,9 @@ func (s *Server) GetReportWorkflowSchedule(w http.ResponseWriter, r *http.Reques
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "schedule_id must be positive", nil)
 		return
 	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionReportWorkflowRead, domain.RBACScopeKindReportWorkflowSchedule, rbacResourceScopeKey(scheduleID)) {
+		return
+	}
 
 	var schedule domain.ReportWorkflowSchedule
 	err := s.uowFactory.WithinTx(r.Context(), func(ctx context.Context, uow ports.UnitOfWork) error {
@@ -93,6 +102,16 @@ func (s *Server) ReplaceReportWorkflowSchedule(w http.ResponseWriter, r *http.Re
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "schedule_id must be positive", nil)
 		return
 	}
+	_, rbacPrincipal, ok := s.authorizeLocalRBACPrincipalsForScope(
+		w,
+		r,
+		domain.RBACPermissionReportWorkflowManage,
+		domain.RBACScopeKindReportWorkflowSchedule,
+		rbacResourceScopeKey(scheduleID),
+	)
+	if !ok {
+		return
+	}
 	body, err := decodeReportWorkflowScheduleWriteRequest(w, r)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -101,6 +120,9 @@ func (s *Server) ReplaceReportWorkflowSchedule(w http.ResponseWriter, r *http.Re
 	req, err := reportWorkflowScheduleWriteRequest(body)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if !s.authorizeReportWorkflowScheduleBinding(w, r, rbacPrincipal, req) {
 		return
 	}
 	svc, err := s.newReportWorkflowScheduleService()
@@ -129,6 +151,9 @@ func (s *Server) DisableReportWorkflowSchedule(w http.ResponseWriter, r *http.Re
 func (s *Server) runReportWorkflowScheduleAction(w http.ResponseWriter, r *http.Request, scheduleID int64, enabled bool) {
 	if scheduleID <= 0 {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "schedule_id must be positive", nil)
+		return
+	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionReportWorkflowManage, domain.RBACScopeKindReportWorkflowSchedule, rbacResourceScopeKey(scheduleID)) {
 		return
 	}
 	svc, err := s.newReportWorkflowScheduleService()
@@ -223,6 +248,24 @@ func reportWorkflowScheduleWriteRequest(body api.ReportWorkflowScheduleWriteRequ
 		ReplayLimit:            int(body.ReplayLimit),
 		CatchupWindow:          catchupWindow,
 	}, nil
+}
+
+func (s *Server) authorizeReportWorkflowScheduleBinding(
+	w http.ResponseWriter,
+	r *http.Request,
+	principal domain.RBACPrincipal,
+	req reportworkflowschedule.WriteRequest,
+) bool {
+	allowed, ok := s.authorizeResolvedLocalRBACPrincipalForScope(
+		w,
+		r,
+		principal,
+		domain.RBACPermissionReportWorkflowManage,
+		domain.RBACScopeKindReportWorkflow,
+		rbacResourceScopeKey(int64(req.ReportWorkflowPolicyID)),
+		true,
+	)
+	return ok && allowed
 }
 
 func durationSeconds(field string, seconds int64) (time.Duration, error) {

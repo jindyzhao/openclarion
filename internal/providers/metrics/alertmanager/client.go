@@ -78,7 +78,7 @@ func NewProvider(addr string, opts ...Option) (*Provider, error) {
 }
 
 func parseBaseURL(addr string) (*url.URL, error) {
-	parsed, err := url.Parse(addr)
+	parsed, err := url.Parse(strings.TrimSpace(addr))
 	if err != nil {
 		return nil, fmt.Errorf("alertmanager: address must be a valid URL")
 	}
@@ -99,7 +99,7 @@ func parseBaseURL(addr string) (*url.URL, error) {
 
 func alertListURL(base *url.URL) string {
 	u := *base
-	path := strings.TrimRight(u.Path, "/")
+	path := alertmanagerRoutePrefix(u.Path)
 	switch {
 	case path == "":
 		u.Path = "/api/v2/alerts"
@@ -117,6 +117,38 @@ func alertListURL(base *url.URL) string {
 	query.Set("unprocessed", "false")
 	u.RawQuery = query.Encode()
 	return u.String()
+}
+
+func alertmanagerRoutePrefix(pathname string) string {
+	path := strings.TrimRight(pathname, "/")
+	const marker = "/api/v2"
+	index := strings.LastIndex(path, marker)
+	if index < 0 {
+		return stripKnownAlertmanagerTerminalPath(path)
+	}
+	after := path[index+len(marker):]
+	if after != "" && !strings.HasPrefix(after, "/") {
+		return path
+	}
+	return path[:index]
+}
+
+func stripKnownAlertmanagerTerminalPath(path string) string {
+	for _, terminal := range []string{
+		"/alerts/groups",
+		"/alerts",
+		"/silences",
+		"/status",
+		"/receivers",
+	} {
+		if path == terminal {
+			return ""
+		}
+		if strings.HasSuffix(path, terminal) {
+			return strings.TrimRight(strings.TrimSuffix(path, terminal), "/")
+		}
+	}
+	return path
 }
 
 // ListActiveAlerts calls Alertmanager's /api/v2/alerts endpoint and returns
@@ -165,7 +197,7 @@ func (p *Provider) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, e
 		if err != nil {
 			return nil, err
 		}
-		if alert.Status.State != "active" {
+		if !isUnsuppressedActiveAlert(alert.Status) {
 			continue
 		}
 		if alert.StartsAt.IsZero() {
@@ -198,9 +230,14 @@ type gettableAlert struct {
 	Labels      map[string]string `json:"labels"`
 	Annotations map[string]string `json:"annotations"`
 	StartsAt    time.Time         `json:"startsAt"`
-	Status      struct {
-		State string `json:"state"`
-	} `json:"status"`
+	Status      alertStatus       `json:"status"`
+}
+
+type alertStatus struct {
+	State       string   `json:"state"`
+	SilencedBy  []string `json:"silencedBy"`
+	InhibitedBy []string `json:"inhibitedBy"`
+	MutedBy     []string `json:"mutedBy"`
 }
 
 func decodeAlert(raw json.RawMessage) (gettableAlert, error) {
@@ -209,6 +246,13 @@ func decodeAlert(raw json.RawMessage) (gettableAlert, error) {
 		return gettableAlert{}, fmt.Errorf("alertmanager: decode alert: %w", err)
 	}
 	return alert, nil
+}
+
+func isUnsuppressedActiveAlert(status alertStatus) bool {
+	return status.State == "active" &&
+		len(status.SilencedBy) == 0 &&
+		len(status.InhibitedBy) == 0 &&
+		len(status.MutedBy) == 0
 }
 
 func readLimitedResponseBody(body io.Reader, limit int) ([]byte, error) {

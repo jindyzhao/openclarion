@@ -18,6 +18,8 @@ const TaskQueue = "openclarion"
 const (
 	errTypeInvalidInput       = "InvalidInput"
 	errTypeInvariantViolation = "InvariantViolation"
+	errTypeRuntimeFailure     = "RuntimeFailure"
+	errTypeConfirmRejected    = "DiagnosisRoomConfirmRejected"
 )
 
 const (

@@ -1,5 +1,6 @@
 import { replaceDiagnosisToolTemplate } from "@/features/settings/diagnosis-tool-templates/api";
 import type { DiagnosisToolTemplateWriteRequest } from "@/features/settings/diagnosis-tool-templates/types";
+import { authorizedBackendResultResponse } from "@/lib/api/protected-route";
 import { apiResultResponse, parsePositiveIntegerRouteParam, readRequestJSON } from "@/lib/api/route";
 
 type RouteContext = {
@@ -19,5 +20,7 @@ export async function PUT(request: Request, context: RouteContext) {
   if (!body.ok) {
     return apiResultResponse(body);
   }
-  return apiResultResponse(await replaceDiagnosisToolTemplate(parsedID.data, body.data));
+  return authorizedBackendResultResponse(request, (headers) =>
+    replaceDiagnosisToolTemplate(parsedID.data, body.data, { headers }),
+  );
 }

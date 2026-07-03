@@ -6,12 +6,21 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 )
+
+const maxPlaceholderValueBytes = 200
 
 var (
 	placeholderPattern        = regexp.MustCompile(`\{\{\s*(label|annotation)\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}`)
 	labelMatcherPrefixPattern = regexp.MustCompile(`(?:^|[,{])\s*[A-Za-z_][A-Za-z0-9_]*\s*(=|!=|=~|!~)\s*$`)
 )
+
+// Values provides alert-derived values for safe query-template expansion.
+type Values struct {
+	Labels      map[string]string
+	Annotations map[string]string
+}
 
 type compiledTemplate struct {
 	re           *regexp.Regexp
@@ -28,6 +37,38 @@ func ValidateTemplate(queryTemplate string) error {
 		return fmt.Errorf("unsupported diagnosis query placeholder")
 	}
 	return nil
+}
+
+// ExpandTemplate replaces supported placeholders with alert-derived values.
+// It returns false when a required value is missing or unsafe for a PromQL
+// quoted label value.
+func ExpandTemplate(queryTemplate string, values Values) (string, bool) {
+	queryTemplate = strings.TrimSpace(queryTemplate)
+	if !containsTemplateDelimiter(queryTemplate) {
+		return queryTemplate, true
+	}
+	if _, ok := compileTemplate(queryTemplate); !ok {
+		return "", false
+	}
+	matches := placeholderPattern.FindAllStringSubmatchIndex(queryTemplate, -1)
+	if len(matches) == 0 {
+		return "", false
+	}
+	var out strings.Builder
+	last := 0
+	for _, match := range matches {
+		out.WriteString(queryTemplate[last:match[0]])
+		kind := queryTemplate[match[2]:match[3]]
+		key := queryTemplate[match[4]:match[5]]
+		value, ok := lookupValue(values, kind, key)
+		if !ok || !safePlaceholderValue(value) {
+			return "", false
+		}
+		out.WriteString(value)
+		last = match[1]
+	}
+	out.WriteString(queryTemplate[last:])
+	return out.String(), true
 }
 
 // MatchesTemplate reports whether query is permitted by queryTemplate.
@@ -125,4 +166,29 @@ func placeholderIsQuotedValue(queryTemplate string, start int, end int) bool {
 
 func containsTemplateDelimiter(value string) bool {
 	return strings.Contains(value, "{{") || strings.Contains(value, "}}")
+}
+
+func lookupValue(values Values, kind string, key string) (string, bool) {
+	switch kind {
+	case "label":
+		value, ok := values.Labels[key]
+		return value, ok
+	case "annotation":
+		value, ok := values.Annotations[key]
+		return value, ok
+	default:
+		return "", false
+	}
+}
+
+func safePlaceholderValue(value string) bool {
+	if len([]byte(value)) > maxPlaceholderValueBytes {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) || r == '"' || r == '\\' {
+			return false
+		}
+	}
+	return true
 }

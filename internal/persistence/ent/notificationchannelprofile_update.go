@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
+	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchanneltestproof"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 )
 
@@ -109,9 +110,45 @@ func (_u *NotificationChannelProfileUpdate) SetUpdatedAt(v time.Time) *Notificat
 	return _u
 }
 
+// AddTestProofIDs adds the "test_proofs" edge to the NotificationChannelTestProof entity by IDs.
+func (_u *NotificationChannelProfileUpdate) AddTestProofIDs(ids ...int) *NotificationChannelProfileUpdate {
+	_u.mutation.AddTestProofIDs(ids...)
+	return _u
+}
+
+// AddTestProofs adds the "test_proofs" edges to the NotificationChannelTestProof entity.
+func (_u *NotificationChannelProfileUpdate) AddTestProofs(v ...*NotificationChannelTestProof) *NotificationChannelProfileUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddTestProofIDs(ids...)
+}
+
 // Mutation returns the NotificationChannelProfileMutation object of the builder.
 func (_u *NotificationChannelProfileUpdate) Mutation() *NotificationChannelProfileMutation {
 	return _u.mutation
+}
+
+// ClearTestProofs clears all "test_proofs" edges to the NotificationChannelTestProof entity.
+func (_u *NotificationChannelProfileUpdate) ClearTestProofs() *NotificationChannelProfileUpdate {
+	_u.mutation.ClearTestProofs()
+	return _u
+}
+
+// RemoveTestProofIDs removes the "test_proofs" edge to NotificationChannelTestProof entities by IDs.
+func (_u *NotificationChannelProfileUpdate) RemoveTestProofIDs(ids ...int) *NotificationChannelProfileUpdate {
+	_u.mutation.RemoveTestProofIDs(ids...)
+	return _u
+}
+
+// RemoveTestProofs removes "test_proofs" edges to NotificationChannelTestProof entities.
+func (_u *NotificationChannelProfileUpdate) RemoveTestProofs(v ...*NotificationChannelTestProof) *NotificationChannelProfileUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveTestProofIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -207,6 +244,51 @@ func (_u *NotificationChannelProfileUpdate) sqlSave(ctx context.Context) (_node 
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(notificationchannelprofile.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if _u.mutation.TestProofsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   notificationchannelprofile.TestProofsTable,
+			Columns: []string{notificationchannelprofile.TestProofsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(notificationchanneltestproof.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedTestProofsIDs(); len(nodes) > 0 && !_u.mutation.TestProofsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   notificationchannelprofile.TestProofsTable,
+			Columns: []string{notificationchannelprofile.TestProofsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(notificationchanneltestproof.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TestProofsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   notificationchannelprofile.TestProofsTable,
+			Columns: []string{notificationchannelprofile.TestProofsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(notificationchanneltestproof.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
@@ -308,9 +390,45 @@ func (_u *NotificationChannelProfileUpdateOne) SetUpdatedAt(v time.Time) *Notifi
 	return _u
 }
 
+// AddTestProofIDs adds the "test_proofs" edge to the NotificationChannelTestProof entity by IDs.
+func (_u *NotificationChannelProfileUpdateOne) AddTestProofIDs(ids ...int) *NotificationChannelProfileUpdateOne {
+	_u.mutation.AddTestProofIDs(ids...)
+	return _u
+}
+
+// AddTestProofs adds the "test_proofs" edges to the NotificationChannelTestProof entity.
+func (_u *NotificationChannelProfileUpdateOne) AddTestProofs(v ...*NotificationChannelTestProof) *NotificationChannelProfileUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddTestProofIDs(ids...)
+}
+
 // Mutation returns the NotificationChannelProfileMutation object of the builder.
 func (_u *NotificationChannelProfileUpdateOne) Mutation() *NotificationChannelProfileMutation {
 	return _u.mutation
+}
+
+// ClearTestProofs clears all "test_proofs" edges to the NotificationChannelTestProof entity.
+func (_u *NotificationChannelProfileUpdateOne) ClearTestProofs() *NotificationChannelProfileUpdateOne {
+	_u.mutation.ClearTestProofs()
+	return _u
+}
+
+// RemoveTestProofIDs removes the "test_proofs" edge to NotificationChannelTestProof entities by IDs.
+func (_u *NotificationChannelProfileUpdateOne) RemoveTestProofIDs(ids ...int) *NotificationChannelProfileUpdateOne {
+	_u.mutation.RemoveTestProofIDs(ids...)
+	return _u
+}
+
+// RemoveTestProofs removes "test_proofs" edges to NotificationChannelTestProof entities.
+func (_u *NotificationChannelProfileUpdateOne) RemoveTestProofs(v ...*NotificationChannelTestProof) *NotificationChannelProfileUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveTestProofIDs(ids...)
 }
 
 // Where appends a list predicates to the NotificationChannelProfileUpdate builder.
@@ -436,6 +554,51 @@ func (_u *NotificationChannelProfileUpdateOne) sqlSave(ctx context.Context) (_no
 	}
 	if value, ok := _u.mutation.UpdatedAt(); ok {
 		_spec.SetField(notificationchannelprofile.FieldUpdatedAt, field.TypeTime, value)
+	}
+	if _u.mutation.TestProofsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   notificationchannelprofile.TestProofsTable,
+			Columns: []string{notificationchannelprofile.TestProofsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(notificationchanneltestproof.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedTestProofsIDs(); len(nodes) > 0 && !_u.mutation.TestProofsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   notificationchannelprofile.TestProofsTable,
+			Columns: []string{notificationchannelprofile.TestProofsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(notificationchanneltestproof.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.TestProofsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   notificationchannelprofile.TestProofsTable,
+			Columns: []string{notificationchannelprofile.TestProofsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(notificationchanneltestproof.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
 	_node = &NotificationChannelProfile{config: _u.config}
 	_spec.Assign = _node.assignValues

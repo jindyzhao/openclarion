@@ -1,5 +1,6 @@
 // Package reportworkflowschedule owns report workflow schedule persistence and
-// explicit enablement actions.
+// explicit enablement actions. Runtime adapters may synchronize saved state to
+// Temporal outside this usecase.
 package reportworkflowschedule
 
 import (
@@ -128,13 +129,14 @@ func (s *Service) Replace(ctx context.Context, scheduleID domain.ReportWorkflowS
 }
 
 // Enable explicitly enables a report workflow schedule after validating bound
-// policy readiness. It does not register or trigger a Temporal Schedule.
+// policy readiness. The usecase updates persisted state only; runtime adapters
+// may synchronize the saved state to Temporal.
 func (s *Service) Enable(ctx context.Context, req ActionRequest) (domain.ReportWorkflowSchedule, error) {
 	return s.setEnabled(ctx, req.ScheduleID, true)
 }
 
-// Disable explicitly disables a report workflow schedule. It does not cancel
-// already-started report workflows.
+// Disable explicitly disables a report workflow schedule. The usecase updates
+// persisted state only and does not cancel already-started report workflows.
 func (s *Service) Disable(ctx context.Context, req ActionRequest) (domain.ReportWorkflowSchedule, error) {
 	return s.setEnabled(ctx, req.ScheduleID, false)
 }

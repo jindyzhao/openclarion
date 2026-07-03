@@ -21,8 +21,9 @@ import (
 //   - Total     is the number of alerts the provider returned (i.e.
 //     the number of attempts made; not the number of successes).
 //   - Saved     counts newly inserted AlertEvent rows.
-//   - Duplicate counts pre-existing rows that collapsed via the
-//     unique (source, canonical_fingerprint, starts_at) constraint.
+//   - Duplicate counts pre-existing rows that collapsed via the unique
+//     (alert_source_profile_id, source, canonical_fingerprint, starts_at)
+//     constraint.
 //   - Failed    counts alerts that could not be processed for any
 //     other reason (invariant violations, repository errors, ...).
 //
@@ -129,6 +130,10 @@ func ingestOne(ctx context.Context, factory ports.UnitOfWorkFactory, a ports.Act
 		)
 		if err != nil {
 			return fmt.Errorf("build alert event: %w", err)
+		}
+		evt, err = evt.WithAlertSourceProfile(a.AlertSourceProfileID)
+		if err != nil {
+			return fmt.Errorf("tag alert event source profile: %w", err)
 		}
 		if _, err := uow.Alerts().SaveEvent(ctx, evt); err != nil {
 			// Propagate verbatim so ErrAlreadyExists (or any

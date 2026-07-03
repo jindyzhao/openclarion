@@ -28,6 +28,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
+	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchanneltestproof"
 	"github.com/openclarion/openclarion/internal/persistence/ent/rbacassignment"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
@@ -93,27 +94,28 @@ var (
 func checkColumn(t, c string) error {
 	initCheck.Do(func() {
 		columnCheck = sql.NewColumnCheck(map[string]func(string) bool{
-			alertevent.Table:                 alertevent.ValidColumn,
-			alertgroup.Table:                 alertgroup.ValidColumn,
-			alertsourceprofile.Table:         alertsourceprofile.ValidColumn,
-			chatsession.Table:                chatsession.ValidColumn,
-			chatturn.Table:                   chatturn.ValidColumn,
-			diagnosisauthticket.Table:        diagnosisauthticket.ValidColumn,
-			diagnosistask.Table:              diagnosistask.ValidColumn,
-			diagnosistaskevent.Table:         diagnosistaskevent.ValidColumn,
-			diagnosistooltemplate.Table:      diagnosistooltemplate.ValidColumn,
-			directorydepartment.Table:        directorydepartment.ValidColumn,
-			directorysyncrun.Table:           directorysyncrun.ValidColumn,
-			directoryuser.Table:              directoryuser.ValidColumn,
-			evidencesnapshot.Table:           evidencesnapshot.ValidColumn,
-			finalreport.Table:                finalreport.ValidColumn,
-			groupingpolicy.Table:             groupingpolicy.ValidColumn,
-			notificationchannelprofile.Table: notificationchannelprofile.ValidColumn,
-			rbacassignment.Table:             rbacassignment.ValidColumn,
-			reportnotificationdelivery.Table: reportnotificationdelivery.ValidColumn,
-			reportworkflowpolicy.Table:       reportworkflowpolicy.ValidColumn,
-			reportworkflowschedule.Table:     reportworkflowschedule.ValidColumn,
-			subreport.Table:                  subreport.ValidColumn,
+			alertevent.Table:                   alertevent.ValidColumn,
+			alertgroup.Table:                   alertgroup.ValidColumn,
+			alertsourceprofile.Table:           alertsourceprofile.ValidColumn,
+			chatsession.Table:                  chatsession.ValidColumn,
+			chatturn.Table:                     chatturn.ValidColumn,
+			diagnosisauthticket.Table:          diagnosisauthticket.ValidColumn,
+			diagnosistask.Table:                diagnosistask.ValidColumn,
+			diagnosistaskevent.Table:           diagnosistaskevent.ValidColumn,
+			diagnosistooltemplate.Table:        diagnosistooltemplate.ValidColumn,
+			directorydepartment.Table:          directorydepartment.ValidColumn,
+			directorysyncrun.Table:             directorysyncrun.ValidColumn,
+			directoryuser.Table:                directoryuser.ValidColumn,
+			evidencesnapshot.Table:             evidencesnapshot.ValidColumn,
+			finalreport.Table:                  finalreport.ValidColumn,
+			groupingpolicy.Table:               groupingpolicy.ValidColumn,
+			notificationchannelprofile.Table:   notificationchannelprofile.ValidColumn,
+			notificationchanneltestproof.Table: notificationchanneltestproof.ValidColumn,
+			rbacassignment.Table:               rbacassignment.ValidColumn,
+			reportnotificationdelivery.Table:   reportnotificationdelivery.ValidColumn,
+			reportworkflowpolicy.Table:         reportworkflowpolicy.ValidColumn,
+			reportworkflowschedule.Table:       reportworkflowschedule.ValidColumn,
+			subreport.Table:                    subreport.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

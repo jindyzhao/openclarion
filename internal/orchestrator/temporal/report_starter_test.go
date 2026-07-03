@@ -129,6 +129,31 @@ func TestReportStarter_StartReportBatchMapsRequestAndOptions(t *testing.T) {
 	}
 }
 
+func TestReportStarter_DefaultWorkflowExecutionTimeoutAllowsSlowReportLLM(t *testing.T) {
+	executor := &recordingWorkflowExecutor{
+		run: staticWorkflowRun{workflowID: "report-batch-1", runID: "run-1"},
+	}
+	starter := newReportStarter(executor)
+
+	_, err := starter.StartReportBatch(context.Background(), ports.ReportBatchStartRequest{
+		WorkflowID:     "report-batch-1",
+		CorrelationKey: "window-1",
+		Items: []ports.ReportBatchStartItem{
+			{EvidenceSnapshotID: domain.EvidenceSnapshotID(101), Scenario: "single_alert", GroupIndex: 0},
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartReportBatch: %v", err)
+	}
+	if executor.options.WorkflowExecutionTimeout != defaultReportStartWorkflowExecutionTimeout {
+		t.Fatalf(
+			"WorkflowExecutionTimeout = %s, want %s",
+			executor.options.WorkflowExecutionTimeout,
+			defaultReportStartWorkflowExecutionTimeout,
+		)
+	}
+}
+
 func TestReportStarter_StartReportBatchValidation(t *testing.T) {
 	good := ports.ReportBatchStartRequest{
 		WorkflowID:     "report-batch-1",

@@ -19,8 +19,14 @@ func (s *Server) CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis room starter is not configured", nil)
 		return
 	}
-	if s.diagnosis.authProvider == nil && s.diagnosis.sessionIssuer == nil {
-		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis auth is not configured", nil)
+	principal, rbacPrincipal, ok := s.authorizeLocalRBACPrincipalsForScope(
+		w,
+		r,
+		domain.RBACPermissionDiagnosisRoomParticipate,
+		domain.RBACScopeKindGlobal,
+		"",
+	)
+	if !ok {
 		return
 	}
 	body, err := decodeDiagnosisRoomCreateRequest(w, r)
@@ -28,14 +34,13 @@ func (s *Server) CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	principal, _, err := s.authenticateDiagnosisBearer(r.Context(), r.Header.Get("Authorization"))
-	if err != nil {
-		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
+	if !s.authorizeDiagnosisRoomCreateBindings(w, r, rbacPrincipal, body) {
 		return
 	}
 	result, err := s.roomStarter.Start(r.Context(), diagnosisroomstart.Request{
-		EvidenceSnapshotID: domain.EvidenceSnapshotID(body.EvidenceSnapshotID),
-		Principal:          principal,
+		EvidenceSnapshotID:                domain.EvidenceSnapshotID(body.EvidenceSnapshotID),
+		CloseNotificationChannelProfileID: diagnosisRoomCreateNotificationChannelProfileID(body),
+		Principal:                         principal,
 	})
 	if err != nil {
 		writeDiagnosisRoomCreateError(r.Context(), w, s.logger, err)
@@ -55,7 +60,50 @@ func decodeDiagnosisRoomCreateRequest(w http.ResponseWriter, r *http.Request) (a
 	if body.EvidenceSnapshotID <= 0 {
 		return body, fmt.Errorf("evidence_snapshot_id must be positive")
 	}
+	if body.CloseNotificationChannelProfileID != nil && *body.CloseNotificationChannelProfileID <= 0 {
+		return body, fmt.Errorf("close_notification_channel_profile_id must be positive when provided")
+	}
 	return body, nil
+}
+
+func diagnosisRoomCreateNotificationChannelProfileID(body api.DiagnosisRoomCreateRequest) domain.NotificationChannelProfileID {
+	if body.CloseNotificationChannelProfileID == nil {
+		return 0
+	}
+	return domain.NotificationChannelProfileID(*body.CloseNotificationChannelProfileID)
+}
+
+func (s *Server) authorizeDiagnosisRoomCreateBindings(
+	w http.ResponseWriter,
+	r *http.Request,
+	principal domain.RBACPrincipal,
+	body api.DiagnosisRoomCreateRequest,
+) bool {
+	if allowed, ok := s.authorizeResolvedLocalRBACPrincipalForScope(
+		w,
+		r,
+		principal,
+		domain.RBACPermissionOperationsRead,
+		domain.RBACScopeKindGlobal,
+		"",
+		true,
+	); !ok || !allowed {
+		return false
+	}
+	channelID := diagnosisRoomCreateNotificationChannelProfileID(body)
+	if channelID == 0 {
+		return true
+	}
+	allowed, ok := s.authorizeResolvedLocalRBACPrincipalForScope(
+		w,
+		r,
+		principal,
+		domain.RBACPermissionNotificationChannelTest,
+		domain.RBACScopeKindNotificationChannel,
+		rbacResourceScopeKey(int64(channelID)),
+		true,
+	)
+	return ok && allowed
 }
 
 func diagnosisRoomCreateResponse(result diagnosisroomstart.Result) api.DiagnosisRoomCreateResponse {

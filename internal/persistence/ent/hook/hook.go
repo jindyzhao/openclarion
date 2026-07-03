@@ -201,6 +201,18 @@ func (f NotificationChannelProfileFunc) Mutate(ctx context.Context, m ent.Mutati
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.NotificationChannelProfileMutation", m)
 }
 
+// The NotificationChannelTestProofFunc type is an adapter to allow the use of ordinary
+// function as NotificationChannelTestProof mutator.
+type NotificationChannelTestProofFunc func(context.Context, *ent.NotificationChannelTestProofMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f NotificationChannelTestProofFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.NotificationChannelTestProofMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.NotificationChannelTestProofMutation", m)
+}
+
 // The RBACAssignmentFunc type is an adapter to allow the use of ordinary
 // function as RBACAssignment mutator.
 type RBACAssignmentFunc func(context.Context, *ent.RBACAssignmentMutation) (ent.Value, error)

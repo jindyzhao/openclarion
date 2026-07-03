@@ -2,6 +2,55 @@ package diagnosisquery
 
 import "testing"
 
+func TestExpandTemplateUsesSafeAlertValues(t *testing.T) {
+	template := `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`
+	got, ok := ExpandTemplate(template, Values{
+		Labels: map[string]string{
+			"ORACLE_SID": "sapprd1",
+			"TABLESPACE": "PSAPSR3USR",
+		},
+	})
+	if !ok {
+		t.Fatal("ExpandTemplate returned false")
+	}
+	want := `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="sapprd1",TABLESPACE="PSAPSR3USR"}`
+	if got != want {
+		t.Fatalf("query = %q, want %q", got, want)
+	}
+}
+
+func TestExpandTemplateRejectsMissingOrUnsafeValues(t *testing.T) {
+	template := `up{job="{{label.job}}"}`
+	tests := []struct {
+		name   string
+		values Values
+	}{
+		{
+			name:   "missing",
+			values: Values{Labels: map[string]string{}},
+		},
+		{
+			name:   "quote",
+			values: Values{Labels: map[string]string{"job": `api" or up`}},
+		},
+		{
+			name:   "backslash",
+			values: Values{Labels: map[string]string{"job": `api\prod`}},
+		},
+		{
+			name:   "control",
+			values: Values{Labels: map[string]string{"job": "api\nprod"}},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got, ok := ExpandTemplate(template, tc.values); ok {
+				t.Fatalf("ExpandTemplate = %q, want rejected", got)
+			}
+		})
+	}
+}
+
 func TestMatchesTemplateAcceptsOnlyTemplateShape(t *testing.T) {
 	template := `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="{{label.ORACLE_SID}}",TABLESPACE="{{label.TABLESPACE}}"}`
 	if !MatchesTemplate(template, `db_tablespace_pctusd{job="oracle_exporter",ORACLE_SID="sapprd1",TABLESPACE="PSAPSR3USR"}`) {

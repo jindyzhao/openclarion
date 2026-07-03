@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
+	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -44,6 +46,9 @@ func (r *alertRepo) SaveEvent(ctx context.Context, e domain.AlertEvent) (domain.
 		SetAnnotations(e.Annotations).
 		SetRawPayload(e.RawPayload).
 		SetStartsAt(e.StartsAt)
+	if e.AlertSourceProfileID > 0 {
+		builder = builder.SetAlertSourceProfileID(int(e.AlertSourceProfileID))
+	}
 	if e.Status != "" {
 		builder = builder.SetStatus(string(e.Status))
 	}
@@ -95,9 +100,9 @@ func (r *alertRepo) FindEventByID(ctx context.Context, id domain.AlertEventID) (
 	return alertEventToDomain(row), nil
 }
 
-// FindEventByNaturalKey looks up by (source, canonical_fingerprint,
-// starts_at). startsAt is normalised before the lookup so callers do
-// not need to pre-truncate.
+// FindEventByNaturalKey looks up by the legacy unscoped key
+// (source, canonical_fingerprint, starts_at). startsAt is normalised before
+// the lookup so callers do not need to pre-truncate.
 func (r *alertRepo) FindEventByNaturalKey(ctx context.Context, source, canonicalFingerprint string, startsAt time.Time) (domain.AlertEvent, error) {
 	if err := checkOpen(r.closed); err != nil {
 		return domain.AlertEvent{}, err
@@ -105,6 +110,7 @@ func (r *alertRepo) FindEventByNaturalKey(ctx context.Context, source, canonical
 	normalised := domain.NormalizeUTCMicro(startsAt)
 	row, err := r.tx.AlertEvent.Query().
 		Where(
+			alertevent.AlertSourceProfileIDEQ(0),
 			alertevent.SourceEQ(source),
 			alertevent.CanonicalFingerprintEQ(canonicalFingerprint),
 			alertevent.StartsAtEQ(normalised),
@@ -129,6 +135,12 @@ func (r *alertRepo) FindEventByNaturalKey(ctx context.Context, source, canonical
 // the same constraints are validated by the usecase layer, but a
 // repository invariant violation is a bug regardless of who called us.
 func (r *alertRepo) ListEventsByStartsAtRange(ctx context.Context, startInclusive, endExclusive time.Time, limit int) ([]domain.AlertEvent, error) {
+	return r.ListEventsByStartsAtRangeFiltered(ctx, startInclusive, endExclusive, ports.AlertEventFilter{}, limit)
+}
+
+// ListEventsByStartsAtRangeFiltered returns AlertEvents whose StartsAt falls
+// in the half-open interval after applying source/profile predicates.
+func (r *alertRepo) ListEventsByStartsAtRangeFiltered(ctx context.Context, startInclusive, endExclusive time.Time, filter ports.AlertEventFilter, limit int) ([]domain.AlertEvent, error) {
 	if err := checkOpen(r.closed); err != nil {
 		return nil, err
 	}
@@ -150,11 +162,16 @@ func (r *alertRepo) ListEventsByStartsAtRange(ctx context.Context, startInclusiv
 	if !nEnd.After(nStart) {
 		return nil, fmt.Errorf("list events by starts_at range: end_exclusive %s must be strictly after start_inclusive %s (after normalisation): %w", nEnd, nStart, domain.ErrInvariantViolation)
 	}
+	predicates, err := alertEventPredicates(filter)
+	if err != nil {
+		return nil, err
+	}
+	predicates = append(predicates,
+		alertevent.StartsAtGTE(nStart),
+		alertevent.StartsAtLT(nEnd),
+	)
 	rows, err := r.tx.AlertEvent.Query().
-		Where(
-			alertevent.StartsAtGTE(nStart),
-			alertevent.StartsAtLT(nEnd),
-		).
+		Where(predicates...).
 		Order(alertevent.ByStartsAt(), alertevent.ByID()).
 		Limit(limit).
 		All(ctx)
@@ -171,13 +188,24 @@ func (r *alertRepo) ListEventsByStartsAtRange(ctx context.Context, startInclusiv
 // ListEvents returns the most recent events, ordered by starts_at
 // descending with id as the deterministic tie-breaker.
 func (r *alertRepo) ListEvents(ctx context.Context, limit int) ([]domain.AlertEvent, error) {
+	return r.ListEventsFiltered(ctx, ports.AlertEventFilter{}, limit)
+}
+
+// ListEventsFiltered returns recent events after applying source/profile
+// predicates before ordering and limiting.
+func (r *alertRepo) ListEventsFiltered(ctx context.Context, filter ports.AlertEventFilter, limit int) ([]domain.AlertEvent, error) {
 	if err := checkOpen(r.closed); err != nil {
 		return nil, err
 	}
 	if limit <= 0 {
 		return nil, fmt.Errorf("list events: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
 	}
+	predicates, err := alertEventPredicates(filter)
+	if err != nil {
+		return nil, err
+	}
 	rows, err := r.tx.AlertEvent.Query().
+		Where(predicates...).
 		Order(alertevent.ByStartsAt(entsql.OrderDesc()), alertevent.ByID(entsql.OrderDesc())).
 		Limit(limit).
 		All(ctx)
@@ -189,6 +217,84 @@ func (r *alertRepo) ListEvents(ctx context.Context, limit int) ([]domain.AlertEv
 		out[i] = alertEventToDomain(row)
 	}
 	return out, nil
+}
+
+func alertEventPredicates(filter ports.AlertEventFilter) ([]predicate.AlertEvent, error) {
+	predicates := make([]predicate.AlertEvent, 0, 3)
+	for _, id := range filter.IDs {
+		if id <= 0 {
+			return nil, fmt.Errorf("alert event filter: alert event id %d must be positive: %w", id, domain.ErrInvariantViolation)
+		}
+	}
+	ids := positiveAlertEventIDs(filter.IDs)
+	if len(ids) > 0 {
+		predicates = append(predicates, alertevent.IDIn(ids...))
+	}
+	sources := nonEmptyStrings(filter.Sources)
+	if len(sources) > 0 {
+		predicates = append(predicates, alertevent.SourceIn(sources...))
+	}
+	profileIDs := positiveAlertSourceProfileIDs(filter.AlertSourceProfileIDs)
+	if len(profileIDs) > 0 {
+		predicates = append(predicates, alertevent.AlertSourceProfileIDIn(profileIDs...))
+	}
+	for _, id := range filter.AlertSourceProfileIDs {
+		if id < 0 {
+			return nil, fmt.Errorf("alert event filter: alert source profile id %d must be non-negative: %w", id, domain.ErrInvariantViolation)
+		}
+	}
+	return predicates, nil
+}
+
+func positiveAlertEventIDs(ids []domain.AlertEventID) []int {
+	out := make([]int, 0, len(ids))
+	seen := map[int]struct{}{}
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		value := int(id)
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func nonEmptyStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func positiveAlertSourceProfileIDs(ids []domain.AlertSourceProfileID) []int {
+	out := make([]int, 0, len(ids))
+	seen := map[int]struct{}{}
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		intID := int(id)
+		if _, ok := seen[intID]; ok {
+			continue
+		}
+		seen[intID] = struct{}{}
+		out = append(out, intID)
+	}
+	return out
 }
 
 // SaveGroup inserts a new AlertGroup HEADER (no event link). Use

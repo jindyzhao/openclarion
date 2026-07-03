@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { POST } from "./route";
+import { diagnosisSessionCookieName } from "@/lib/api/diagnosis-session";
+
+import { GET, POST } from "./route";
 
 describe("diagnosis rooms route", () => {
   const originalAPIBaseURL = process.env.OPENCLARION_API_BASE_URL;
@@ -31,7 +33,7 @@ describe("diagnosis rooms route", () => {
     vi.restoreAllMocks();
   });
 
-  it("forwards only the bearer header and create body to the backend", async () => {
+  it("forwards only the authorization header and create body to the backend", async () => {
     const response = await POST(
       new Request("https://console.example.com/api/diagnosis/rooms", {
         method: "POST",
@@ -65,12 +67,12 @@ describe("diagnosis rooms route", () => {
     expect(headers.get("x-extra-secret")).toBeNull();
   });
 
-  it("uses the diagnosis session cookie when Authorization is absent", async () => {
+  it("forwards Basic authorization for LDAP diagnosis auth", async () => {
     const response = await POST(
       new Request("https://console.example.com/api/diagnosis/rooms", {
         method: "POST",
         headers: {
-          cookie: "openclarion_diagnosis_session=session.token.one"
+          authorization: "Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk",
         },
         body: JSON.stringify({ evidence_snapshot_id: 7 })
       })
@@ -80,17 +82,126 @@ describe("diagnosis rooms route", () => {
     const fetchMock = vi.mocked(fetch);
     const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
     const headers = init.headers as Headers;
-    expect(headers.get("authorization")).toBe("Bearer session.token.one");
+    expect(headers.get("authorization")).toBe(
+      "Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk",
+    );
   });
 
-  it("rejects malformed explicit authorization instead of using the session cookie", async () => {
+  it("clears the diagnosis session cookie when backend rejects browser-session create", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "invalid session" }, { status: 401 }),
+    );
+
     const response = await POST(
       new Request("https://console.example.com/api/diagnosis/rooms", {
         method: "POST",
         headers: {
-          authorization: "Basic not-a-diagnosis-bearer",
-          cookie: "openclarion_diagnosis_session=session.token.one"
+          cookie: `${diagnosisSessionCookieName}=expired.session.token`,
         },
+        body: JSON.stringify({ evidence_snapshot_id: 7 }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    const setCookie = response.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain(`${diagnosisSessionCookieName}=`);
+    expect(setCookie).toContain("Expires=Thu, 01 Jan 1970 00:00:00 GMT");
+    expect(setCookie).toContain("HttpOnly");
+  });
+
+  it("does not clear the diagnosis session cookie for explicit LDAP create failures", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "invalid ldap credentials" }, { status: 401 }),
+    );
+
+    const response = await POST(
+      new Request("https://console.example.com/api/diagnosis/rooms", {
+        method: "POST",
+        headers: {
+          authorization: "Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk",
+          cookie: `${diagnosisSessionCookieName}=session.token.one`,
+        },
+        body: JSON.stringify({ evidence_snapshot_id: 7 }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("proxies list requests with a bounded limit", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json(
+        {
+          items: [
+            {
+              session_id: "diagnosis-session-1",
+              chat_session_id: 202,
+              diagnosis_task_id: 101,
+              evidence_snapshot_id: 7,
+              workflow_id: "diagnosis-room-diagnosis-session-1",
+              run_id: "run-1",
+              room_status: "open",
+              task_status: "running",
+              turn_count: 1,
+              owner_subject: "operator-1",
+              created_at: "2026-06-20T00:00:00Z",
+              updated_at: "2026-06-20T00:01:00Z",
+              notification_timeline: [],
+            },
+          ],
+        },
+        { status: 200 },
+      ),
+    );
+
+    const response = await GET(
+      new Request("https://console.example.com/api/diagnosis/rooms?limit=25", {
+        headers: {
+          authorization: "Bearer token-1",
+          "x-extra-secret": "must-not-forward",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ session_id: "diagnosis-session-1" }],
+    });
+
+    const fetchMock = vi.mocked(fetch);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [
+      URL,
+      RequestInit,
+    ];
+    expect(url.toString()).toBe(
+      "https://api.example.com/api/v1/diagnosis/rooms?limit=25",
+    );
+    expect(init.method).toBe("GET");
+    const headers = init.headers as Headers;
+    expect(headers.get("authorization")).toBe("Bearer token-1");
+    expect(headers.get("x-extra-secret")).toBeNull();
+  });
+
+  it("rejects invalid list limits before contacting the backend", async () => {
+    const response = await GET(
+      new Request("https://console.example.com/api/diagnosis/rooms?limit=500", {
+        headers: { authorization: "Bearer token-1" },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "limit must be between 1 and 100.",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects missing authorization before contacting the backend", async () => {
+    const response = await POST(
+      new Request("https://console.example.com/api/diagnosis/rooms", {
+        method: "POST",
         body: JSON.stringify({ evidence_snapshot_id: 7 })
       })
     );
@@ -100,33 +211,15 @@ describe("diagnosis rooms route", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("keeps the session cookie on backend authorization denials", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: "unauthorized" }, { status: 403 }));
-
-    const response = await POST(
-      new Request("https://console.example.com/api/diagnosis/rooms", {
-        method: "POST",
-        headers: {
-          cookie: "openclarion_diagnosis_session=session.token.one"
-        },
-        body: JSON.stringify({ evidence_snapshot_id: 7 })
-      })
-    );
-
-    expect(response.status).toBe(403);
-    expect(response.headers.get("set-cookie")).toBeNull();
-  });
-
-  it("rejects missing bearer authorization before contacting the backend", async () => {
-    const response = await POST(
-      new Request("https://console.example.com/api/diagnosis/rooms", {
-        method: "POST",
-        body: JSON.stringify({ evidence_snapshot_id: 7 })
-      })
+  it("rejects missing list authorization before contacting the backend", async () => {
+    const response = await GET(
+      new Request("https://console.example.com/api/diagnosis/rooms?limit=25"),
     );
 
     expect(response.status).toBe(401);
-    await expect(response.json()).resolves.toEqual({ error: "authorization is required" });
+    await expect(response.json()).resolves.toEqual({
+      error: "authorization is required",
+    });
     expect(fetch).not.toHaveBeenCalled();
   });
 });

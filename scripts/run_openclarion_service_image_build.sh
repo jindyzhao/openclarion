@@ -12,19 +12,26 @@ cd "$ROOT_DIR"
 
 image_ref="${OPENCLARION_SERVICE_IMAGE_REF:-}"
 digest_ref_out="${OPENCLARION_SERVICE_IMAGE_DIGEST_REF_OUT:-}"
+proof_out="${OPENCLARION_SERVICE_IMAGE_PROOF_OUT:-}"
 goarch="${OPENCLARION_SERVICE_IMAGE_GOARCH:-}"
 push=""
 
 usage() {
   cat >&2 <<'EOF'
-usage: bash scripts/run_openclarion_service_image_build.sh --image-ref REF [--push] [--digest-ref-out PATH] [--goarch ARCH]
+usage: bash scripts/run_openclarion_service_image_build.sh --image-ref REF [--push] [--digest-ref-out PATH] [--proof-out PATH] [--goarch ARCH]
 
 REF must be an explicit, non-latest tag such as:
   harbor.example.test/openclarion/openclarion:20260618-abcdef0
 
+Use the registry host form, not a URL. For example, use
+harbor.example.test/openclarion/openclarion:20260618-abcdef0 instead of
+https://harbor.example.test/openclarion/openclarion:20260618-abcdef0.
+
 Use --push only after docker login has been performed outside this script.
 When --push is set, the script resolves and prints the immutable
 repository@sha256:<digest> reference accepted by deployment manifests.
+When --proof-out is set, the script also writes a strict, secret-free JSON proof
+that binds the tag, digest ref, local RepoDigest, and remote manifest metadata.
 EOF
 }
 
@@ -53,6 +60,14 @@ while (($# > 0)); do
         exit 2
       fi
       digest_ref_out="$2"
+      shift 2
+      ;;
+    --proof-out)
+      if (($# < 2)); then
+        usage
+        exit 2
+      fi
+      proof_out="$2"
       shift 2
       ;;
     --goarch)
@@ -91,6 +106,12 @@ validate_image_ref() {
   if [[ "$image_ref" =~ [[:space:]] ]]; then
     fail "OPENCLARION_SERVICE_IMAGE_REF must not contain whitespace"
   fi
+  if [[ "$image_ref" == *://* ]]; then
+    fail "OPENCLARION_SERVICE_IMAGE_REF must be an image reference, not a URL; omit schemes such as https://"
+  fi
+  if [[ "$image_ref" == /* || "$image_ref" == */ || "$image_ref" == *"//"* ]]; then
+    fail "OPENCLARION_SERVICE_IMAGE_REF must not start with '/', end with '/', or contain empty path components"
+  fi
   if [[ "$image_ref" == *@* ]]; then
     fail "OPENCLARION_SERVICE_IMAGE_REF must be a tag reference for build/push, not a digest reference"
   fi
@@ -101,6 +122,13 @@ validate_image_ref() {
   local tag="${last_component##*:}"
   if [[ -z "$tag" || "$tag" == "latest" ]]; then
     fail "OPENCLARION_SERVICE_IMAGE_REF tag must be explicit and must not be latest"
+  fi
+  if [[ ! "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+    fail "OPENCLARION_SERVICE_IMAGE_REF tag contains invalid characters"
+  fi
+  local repository="${image_ref%:*}"
+  if [[ "$repository" =~ [A-Z] || ! "$repository" =~ ^[a-z0-9._:/-]+$ ]]; then
+    fail "OPENCLARION_SERVICE_IMAGE_REF repository must use lowercase image-reference characters"
   fi
   if [[ -n "$push" ]]; then
     local registry="${image_ref%%/*}"
@@ -161,7 +189,7 @@ resolve_pushed_digest_ref() {
 write_digest_ref() {
   local path="$1"
   local value="$2"
-  validate_single_line "OPENCLARION_SERVICE_IMAGE_DIGEST_REF_OUT" "$path"
+  validate_private_output_path "OPENCLARION_SERVICE_IMAGE_DIGEST_REF_OUT" "$path"
   if [[ -e "$path" ]]; then
     fail "digest ref output path already exists"
   fi
@@ -169,13 +197,109 @@ write_digest_ref() {
   (umask 077 && set -o noclobber && printf '%s\n' "$value" >"$path")
 }
 
+json_string() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  value="${value//$'\t'/\\t}"
+  printf '"%s"' "$value"
+}
+
+write_push_proof() {
+  local path="$1"
+  local tag_ref="$2"
+  local digest_ref="$3"
+  local digest_file="$4"
+  local raw_manifest=""
+  local repo_digests=""
+  local checked_at=""
+
+  validate_private_output_path "OPENCLARION_SERVICE_IMAGE_PROOF_OUT" "$path"
+  if [[ -e "$path" ]]; then
+    fail "proof output path already exists"
+  fi
+
+  raw_manifest="$(docker buildx imagetools inspect --raw "$digest_ref" 2>/dev/null)" ||
+    fail "could not inspect pushed image manifest"
+  repo_digests="$(docker image inspect --format '{{json .RepoDigests}}' "$tag_ref" 2>/dev/null)" ||
+    fail "could not inspect local image repo digests"
+  checked_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+  mkdir -p "$(dirname "$path")"
+  (
+    umask 077
+    set -o noclobber
+    {
+      printf '{\n'
+      printf '  "proof_type": "openclarion_service_image_push",\n'
+      printf '  "status": "pass",\n'
+      printf '  "checked_at": %s,\n' "$(json_string "$checked_at")"
+      printf '  "image_tag": %s,\n' "$(json_string "$tag_ref")"
+      printf '  "digest_ref": %s,\n' "$(json_string "$digest_ref")"
+      if [[ -n "$digest_file" ]]; then
+        printf '  "digest_ref_file": %s,\n' "$(json_string "$digest_file")"
+      else
+        printf '  "digest_ref_file": null,\n'
+      fi
+      printf '  "git_revision": %s,\n' "$(json_string "$revision")"
+      printf '  "goos": "linux",\n'
+      printf '  "goarch": %s,\n' "$(json_string "$goarch")"
+      printf '  "remote_manifest": %s,\n' "$raw_manifest"
+      printf '  "local_repo_digests": %s,\n' "$repo_digests"
+      printf '  "secret_values_retained": false\n'
+      printf '}\n'
+    } >"$path"
+  )
+}
+
+validate_private_output_path() {
+  local label="$1"
+  local path="$2"
+  local path_abs=""
+  local rel=""
+
+  validate_single_line "$label" "$path"
+  if [[ "$path" == */ || "$(basename "$path")" == "." || "$(basename "$path")" == ".." ]]; then
+    fail "$label must name a file path"
+  fi
+  if ! path_abs="$(realpath -m -- "$path")"; then
+    fail "$label path must be resolvable"
+  fi
+
+  case "$path_abs" in
+    "$ROOT_DIR"/*|"$ROOT_DIR")
+      rel="${path_abs#"$ROOT_DIR"/}"
+      case "$rel" in
+        .openclarion-private/*)
+          ;;
+        *)
+          fail "$label must live outside the repository or under .openclarion-private/"
+          ;;
+      esac
+      if ! git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        fail "$label repo-local output requires git ignore verification"
+      fi
+      if git -C "$ROOT_DIR" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+        fail "$label repo-local output must not be tracked by git"
+      fi
+      if ! git -C "$ROOT_DIR" check-ignore -q -- "$rel"; then
+        fail "$label repo-local output must be ignored by git"
+      fi
+      ;;
+  esac
+}
+
 validate_image_ref
 require_tool docker
 require_tool go
+require_tool realpath
 validate_goarch
 
 if [[ -n "$digest_ref_out" && -z "$push" ]]; then
   fail "--digest-ref-out requires --push"
+fi
+if [[ -n "$proof_out" && -z "$push" ]]; then
+  fail "--proof-out requires --push"
 fi
 
 ca_cert_file="${OPENCLARION_SERVICE_IMAGE_CA_CERT_FILE:-/etc/ssl/certs/ca-certificates.crt}"
@@ -230,6 +354,9 @@ digest_ref="$(resolve_pushed_digest_ref "$image_ref" "$repository")"
 
 if [[ -n "$digest_ref_out" ]]; then
   write_digest_ref "$digest_ref_out" "$digest_ref"
+fi
+if [[ -n "$proof_out" ]]; then
+  write_push_proof "$proof_out" "$image_ref" "$digest_ref" "$digest_ref_out"
 fi
 
 echo "[openclarion-service-image] OK - pushed $digest_ref" >&2

@@ -210,6 +210,7 @@ type payloadGroup struct {
 type payloadEvent struct {
 	ID                   int64             `json:"id"`
 	Source               string            `json:"source"`
+	AlertSourceProfileID int64             `json:"alert_source_profile_id,omitempty"`
 	SourceFingerprint    string            `json:"source_fingerprint"`
 	CanonicalFingerprint string            `json:"canonical_fingerprint"`
 	Labels               map[string]string `json:"labels"`
@@ -278,6 +279,7 @@ func buildPayload(group domain.AlertGroup, events []domain.AlertEvent) ([]byte, 
 		pe = append(pe, payloadEvent{
 			ID:                   int64(ev.ID),
 			Source:               ev.Source,
+			AlertSourceProfileID: int64(ev.AlertSourceProfileID),
 			SourceFingerprint:    ev.SourceFingerprint,
 			CanonicalFingerprint: ev.CanonicalFingerprint,
 			Labels:               cloneStringMap(ev.Labels),

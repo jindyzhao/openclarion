@@ -1,5 +1,6 @@
 import { replaceReportWorkflowPolicy } from "@/features/settings/report-workflow-policies/api";
 import type { ReportWorkflowPolicyWriteRequest } from "@/features/settings/report-workflow-policies/types";
+import { authorizedBackendResultResponse } from "@/lib/api/protected-route";
 import { apiResultResponse, parsePositiveIntegerRouteParam, readRequestJSON } from "@/lib/api/route";
 
 type RouteContext = {
@@ -19,5 +20,7 @@ export async function PUT(request: Request, context: RouteContext) {
   if (!body.ok) {
     return apiResultResponse(body);
   }
-  return apiResultResponse(await replaceReportWorkflowPolicy(parsedID.data, body.data));
+  return authorizedBackendResultResponse(request, (headers) =>
+    replaceReportWorkflowPolicy(parsedID.data, body.data, { headers }),
+  );
 }

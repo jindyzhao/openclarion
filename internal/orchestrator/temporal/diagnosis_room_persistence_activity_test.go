@@ -3,13 +3,17 @@ package temporal_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/url"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -250,6 +254,249 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 	}
 }
 
+func TestDiagnosisRoomPersistenceActivities_RecordEvidenceCollectedIsIdempotent(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-evidence-collected")
+	activities := temporalpkg.NewActivities(env.factory)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 15, 40, 0, 0, time.UTC)
+	if _, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-evidence-collected",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	}); err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+	turnReq := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-evidence-collected", startedAt)
+	persisted, err := activities.PersistDiagnosisTurn(ctx, turnReq)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn: %v", err)
+	}
+	collectedAt := startedAt.Add(90 * time.Second)
+	recordReq := temporalpkg.RecordDiagnosisEvidenceCollectedInput{
+		SessionID:          turnReq.SessionID,
+		DiagnosisTaskID:    int64(seed.TaskID),
+		ChatSessionID:      persisted.ChatSessionID,
+		OwnerSubject:       turnReq.OwnerSubject,
+		ActorSubject:       turnReq.ActorSubject,
+		UserMessageID:      turnReq.UserMessageID,
+		AssistantMessageID: turnReq.AssistantMessageID,
+		UserTurnID:         persisted.UserTurnID,
+		AssistantTurnID:    persisted.AssistantTurnID,
+		UserSequence:       turnReq.UserSequence,
+		AssistantSequence:  turnReq.AssistantSequence,
+		TurnCount:          persisted.TurnCount,
+		Items: []diagnosisevidence.Item{{
+			Request: diagnosisroom.EvidenceRequest{
+				Tool:   domain.DiagnosisToolKindActiveAlerts,
+				Reason: "Need current active sibling alerts.",
+				Limit:  5,
+			},
+			TemplateID:           domain.DiagnosisToolTemplateID(12),
+			AlertSourceProfileID: domain.AlertSourceProfileID(13),
+			AlertSourceKind:      domain.AlertSourceKindPrometheus,
+			Tool:                 domain.DiagnosisToolKindActiveAlerts,
+			Status:               diagnosisevidence.StatusCollected,
+			ReasonCode:           diagnosisevidence.ReasonOK,
+			Message:              "Active alert collection succeeded.",
+			Limit:                5,
+			ObservedAlerts:       2,
+			CollectedAt:          collectedAt,
+		}},
+		OccurredAt: collectedAt,
+	}
+	first, err := activities.RecordDiagnosisEvidenceCollected(ctx, recordReq)
+	if err != nil {
+		t.Fatalf("RecordDiagnosisEvidenceCollected first: %v", err)
+	}
+	second, err := activities.RecordDiagnosisEvidenceCollected(ctx, recordReq)
+	if err != nil {
+		t.Fatalf("RecordDiagnosisEvidenceCollected second: %v", err)
+	}
+	if first.LifecycleEventID == 0 || second.LifecycleEventID != first.LifecycleEventID {
+		t.Fatalf("record results first=%+v second=%+v", first, second)
+	}
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
+		if err != nil {
+			return err
+		}
+		if len(events) != 3 ||
+			events[0].Kind != "diagnosis_room.opened" ||
+			events[1].Kind != "diagnosis_room.turn_persisted" ||
+			events[2].Kind != "diagnosis_room.evidence_collected" {
+			t.Fatalf("events = %+v, want opened + turn_persisted + evidence_collected", events)
+		}
+		var payload struct {
+			AssistantMessageID        string `json:"assistant_message_id"`
+			AssistantTurnID           int64  `json:"assistant_turn_id"`
+			TurnCount                 int    `json:"turn_count"`
+			EvidenceCollectionResults []struct {
+				TemplateID           int64      `json:"template_id"`
+				AlertSourceProfileID int64      `json:"alert_source_profile_id"`
+				AlertSourceKind      string     `json:"alert_source_kind"`
+				Tool                 string     `json:"tool"`
+				Status               string     `json:"status"`
+				ReasonCode           string     `json:"reason_code"`
+				RequestReason        string     `json:"request_reason"`
+				Limit                int        `json:"limit"`
+				ObservedAlerts       *int       `json:"observed_alerts"`
+				CollectedAt          *time.Time `json:"collected_at"`
+			} `json:"evidence_collection_results"`
+		}
+		if err := json.Unmarshal(events[2].Payload, &payload); err != nil {
+			t.Fatalf("evidence collected payload: %v", err)
+		}
+		if payload.AssistantMessageID != turnReq.AssistantMessageID ||
+			payload.AssistantTurnID != persisted.AssistantTurnID ||
+			payload.TurnCount != 1 ||
+			len(payload.EvidenceCollectionResults) != 1 ||
+			payload.EvidenceCollectionResults[0].TemplateID != 12 ||
+			payload.EvidenceCollectionResults[0].AlertSourceProfileID != 13 ||
+			payload.EvidenceCollectionResults[0].AlertSourceKind != string(domain.AlertSourceKindPrometheus) ||
+			payload.EvidenceCollectionResults[0].Tool != string(domain.DiagnosisToolKindActiveAlerts) ||
+			payload.EvidenceCollectionResults[0].Status != string(diagnosisevidence.StatusCollected) ||
+			payload.EvidenceCollectionResults[0].ReasonCode != string(diagnosisevidence.ReasonOK) ||
+			payload.EvidenceCollectionResults[0].RequestReason != "Need current active sibling alerts." ||
+			payload.EvidenceCollectionResults[0].Limit != 5 ||
+			payload.EvidenceCollectionResults[0].ObservedAlerts == nil ||
+			*payload.EvidenceCollectionResults[0].ObservedAlerts != 2 ||
+			payload.EvidenceCollectionResults[0].CollectedAt == nil ||
+			!payload.EvidenceCollectionResults[0].CollectedAt.Equal(domain.NormalizeUTCMicro(collectedAt)) {
+			t.Fatalf("evidence collected payload = %+v raw=%s", payload, events[2].Payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify evidence collected event: %v", err)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_RecordManualEvidenceCollectedIsIdempotent(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-manual-evidence-collected")
+	activities := temporalpkg.NewActivities(env.factory)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 15, 43, 0, 0, time.UTC)
+	if _, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-manual-evidence-collected",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	}); err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+	turnReq := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-manual-evidence-collected", startedAt)
+	persisted, err := activities.PersistDiagnosisTurn(ctx, turnReq)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn: %v", err)
+	}
+	collectedAt := startedAt.Add(2 * time.Minute)
+	recordReq := temporalpkg.RecordDiagnosisEvidenceCollectedInput{
+		SessionID:       turnReq.SessionID,
+		DiagnosisTaskID: int64(seed.TaskID),
+		ChatSessionID:   persisted.ChatSessionID,
+		OwnerSubject:    turnReq.OwnerSubject,
+		ActorSubject:    "owner-1",
+		UserMessageID:   "collect-manual-1",
+		TurnCount:       persisted.TurnCount,
+		Items: []diagnosisevidence.Item{{
+			Request: diagnosisroom.EvidenceRequest{
+				Tool:          domain.DiagnosisToolKindMetricQuery,
+				Reason:        "Need current API availability.",
+				Query:         `up{job="api"}`,
+				TemplateID:    15,
+				WindowSeconds: 0,
+				Limit:         3,
+			},
+			TemplateID:           domain.DiagnosisToolTemplateID(15),
+			AlertSourceProfileID: domain.AlertSourceProfileID(13),
+			AlertSourceKind:      domain.AlertSourceKindPrometheus,
+			Tool:                 domain.DiagnosisToolKindMetricQuery,
+			Status:               diagnosisevidence.StatusCollected,
+			ReasonCode:           diagnosisevidence.ReasonOK,
+			Message:              "Metric query collection succeeded.",
+			Query:                `up{job="api"}`,
+			Limit:                3,
+			ObservedMetricSeries: 1,
+			CollectedAt:          collectedAt,
+		}},
+		OccurredAt: collectedAt,
+	}
+	first, err := activities.RecordDiagnosisEvidenceCollected(ctx, recordReq)
+	if err != nil {
+		t.Fatalf("RecordDiagnosisEvidenceCollected first: %v", err)
+	}
+	second, err := activities.RecordDiagnosisEvidenceCollected(ctx, recordReq)
+	if err != nil {
+		t.Fatalf("RecordDiagnosisEvidenceCollected second: %v", err)
+	}
+	if first.LifecycleEventID == 0 || second.LifecycleEventID != first.LifecycleEventID {
+		t.Fatalf("record results first=%+v second=%+v", first, second)
+	}
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
+		if err != nil {
+			return err
+		}
+		if len(events) != 3 ||
+			events[0].Kind != "diagnosis_room.opened" ||
+			events[1].Kind != "diagnosis_room.turn_persisted" ||
+			events[2].Kind != "diagnosis_room.evidence_collected" {
+			t.Fatalf("events = %+v, want opened + turn_persisted + manual evidence_collected", events)
+		}
+		if strings.Contains(string(events[2].Payload), "assistant_message_id") ||
+			strings.Contains(string(events[2].Payload), "context_refs") {
+			t.Fatalf("manual evidence payload should not include assistant turn binding: %s", events[2].Payload)
+		}
+		var payload struct {
+			ActorSubject              string `json:"actor_subject"`
+			UserMessageID             string `json:"user_message_id"`
+			TurnCount                 int    `json:"turn_count"`
+			EvidenceCollectionResults []struct {
+				TemplateID           int64      `json:"template_id"`
+				AlertSourceProfileID int64      `json:"alert_source_profile_id"`
+				AlertSourceKind      string     `json:"alert_source_kind"`
+				Tool                 string     `json:"tool"`
+				Status               string     `json:"status"`
+				ReasonCode           string     `json:"reason_code"`
+				RequestReason        string     `json:"request_reason"`
+				Query                string     `json:"query"`
+				Limit                int        `json:"limit"`
+				ObservedMetricSeries *int       `json:"observed_metric_series"`
+				CollectedAt          *time.Time `json:"collected_at"`
+			} `json:"evidence_collection_results"`
+		}
+		if err := json.Unmarshal(events[2].Payload, &payload); err != nil {
+			t.Fatalf("manual evidence collected payload: %v", err)
+		}
+		if payload.ActorSubject != "owner-1" ||
+			payload.UserMessageID != "collect-manual-1" ||
+			payload.TurnCount != persisted.TurnCount ||
+			len(payload.EvidenceCollectionResults) != 1 ||
+			payload.EvidenceCollectionResults[0].TemplateID != 15 ||
+			payload.EvidenceCollectionResults[0].AlertSourceProfileID != 13 ||
+			payload.EvidenceCollectionResults[0].AlertSourceKind != string(domain.AlertSourceKindPrometheus) ||
+			payload.EvidenceCollectionResults[0].Tool != string(domain.DiagnosisToolKindMetricQuery) ||
+			payload.EvidenceCollectionResults[0].Status != string(diagnosisevidence.StatusCollected) ||
+			payload.EvidenceCollectionResults[0].ReasonCode != string(diagnosisevidence.ReasonOK) ||
+			payload.EvidenceCollectionResults[0].RequestReason != "Need current API availability." ||
+			payload.EvidenceCollectionResults[0].Query != `up{job="api"}` ||
+			payload.EvidenceCollectionResults[0].Limit != 3 ||
+			payload.EvidenceCollectionResults[0].ObservedMetricSeries == nil ||
+			*payload.EvidenceCollectionResults[0].ObservedMetricSeries != 1 ||
+			payload.EvidenceCollectionResults[0].CollectedAt == nil ||
+			!payload.EvidenceCollectionResults[0].CollectedAt.Equal(domain.NormalizeUTCMicro(collectedAt)) {
+			t.Fatalf("manual evidence collected payload = %+v raw=%s", payload, events[2].Payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify manual evidence collected event: %v", err)
+	}
+}
+
 func TestDiagnosisRoomPersistenceActivities_PersistTurnAuditsSupplementalEvidence(t *testing.T) {
 	seed := seedDiagnosisTask(t, "room-supplemental-evidence")
 	activities := temporalpkg.NewActivities(env.factory)
@@ -327,6 +574,33 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnAuditsSupplementalEvidenc
 	}
 }
 
+func TestDiagnosisRoomPersistenceActivities_PersistTurnRejectsUnsupportedSupplementalEvidencePriority(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-supplemental-evidence-bad-priority")
+	activities := temporalpkg.NewActivities(env.factory)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 15, 45, 0, 0, time.UTC)
+	if _, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-supplemental-bad-priority",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	}); err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+
+	req := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-supplemental-bad-priority", startedAt)
+	req.SupplementalEvidence = &temporalpkg.DiagnosisRoomSupplementalEvidence{
+		Label:    "Restart cause",
+		Detail:   "Inspect previous container logs.",
+		Priority: "urgent",
+		Evidence: "previous pod logs show OOMKilled",
+	}
+	if _, err := activities.PersistDiagnosisTurn(ctx, req); !errors.Is(err, domain.ErrInvariantViolation) ||
+		!strings.Contains(err.Error(), "supplemental evidence priority is unsupported") {
+		t.Fatalf("PersistDiagnosisTurn error = %v, want unsupported supplemental priority invariant", err)
+	}
+}
+
 func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *testing.T) {
 	seed := seedDiagnosisTask(t, "room-final-ready")
 	activities := temporalpkg.NewActivities(env.factory)
@@ -342,14 +616,41 @@ func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *tes
 		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
 	}
 
+	supplementalReq := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-final-ready", startedAt)
+	supplementalReq.UserMessageID = "msg-supplemental"
+	supplementalReq.AssistantMessageID = "msg-supplemental/assistant"
+	supplementalReq.SupplementalEvidence = &temporalpkg.DiagnosisRoomSupplementalEvidence{
+		Label:    "Restart cause",
+		Detail:   "Inspect previous container logs.",
+		Priority: "high",
+		Evidence: "previous pod logs show OOMKilled",
+	}
+	supplemental, err := activities.PersistDiagnosisTurn(ctx, supplementalReq)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn supplemental: %v", err)
+	}
+
 	req := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-final-ready", startedAt)
+	req.UserMessageID = "msg-final"
+	req.AssistantMessageID = "msg-final/assistant"
+	req.UserSequence = 3
+	req.AssistantSequence = 4
+	req.TurnCount = 2
+	req.UserOccurredAt = startedAt.Add(2 * time.Minute)
+	req.AssistantOccurredAt = startedAt.Add(2*time.Minute + 2*time.Second)
+	req.UserMessage = "Use the restart logs and finalize the diagnosis."
 	req.AssistantMessage = "CPU saturation has a final bounded diagnosis."
 	req.RawOutput = json.RawMessage(`{
 		"schema_version":"diagnosis_turn.v1",
 		"message":"CPU saturation has a final bounded diagnosis.",
+		"findings":["CPU saturation matches the deployment window"],
+		"recommended_actions":["Scale the API deployment before peak traffic"],
+		"evidence_requests":[{"tool":"active_alerts","reason":"Confirm sibling alerts are not firing.","limit":5}],
 		"confidence":"high",
 		"requires_human_review":true,
 		"confidence_rationale":"The diagnosis is bounded but still needs owner confirmation.",
+		"missing_evidence_requests":[{"label":"Owner sign-off","detail":"Confirm the rollout owner accepts the remediation.","priority":"medium"}],
+		"evidence_collection_suggestions":[{"label":"Post-scale CPU trend","detail":"Collect a short CPU trend after scaling.","priority":"low"}],
 		"conclusion_status":"final"
 	}`)
 	first, err := activities.PersistDiagnosisTurn(ctx, req)
@@ -376,11 +677,22 @@ func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *tes
 		!first.FinalConclusion.RecordedAt.Equal(domain.NormalizeUTCMicro(req.AssistantOccurredAt)) ||
 		first.FinalConclusion.ConfirmedBy != "" ||
 		!reflect.DeepEqual(first.FinalConclusion.SupplementalContextRefs, []string{
+			fmt.Sprintf("chat_session:%d/turn:%d", first.ChatSessionID, supplemental.UserTurnID),
+			fmt.Sprintf("chat_session:%d/turn:%d", first.ChatSessionID, supplemental.AssistantTurnID),
 			fmt.Sprintf("chat_session:%d/turn:%d", first.ChatSessionID, first.UserTurnID),
 			fmt.Sprintf("chat_session:%d/turn:%d", first.ChatSessionID, first.AssistantTurnID),
 		}) ||
 		first.FinalConclusion.Content != req.AssistantMessage ||
 		first.FinalConclusion.Confidence != "high" ||
+		first.FinalConclusion.ConfidenceRationale != "The diagnosis is bounded but still needs owner confirmation." ||
+		!reflect.DeepEqual(first.FinalConclusion.Findings, []string{"CPU saturation matches the deployment window"}) ||
+		!reflect.DeepEqual(first.FinalConclusion.RecommendedActions, []string{"Scale the API deployment before peak traffic"}) ||
+		len(first.FinalConclusion.EvidenceRequests) != 1 ||
+		first.FinalConclusion.EvidenceRequests[0].Tool != "active_alerts" ||
+		len(first.FinalConclusion.MissingEvidenceRequests) != 1 ||
+		first.FinalConclusion.MissingEvidenceRequests[0].Label != "Owner sign-off" ||
+		len(first.FinalConclusion.EvidenceCollectionSuggestions) != 1 ||
+		first.FinalConclusion.EvidenceCollectionSuggestions[0].Label != "Post-scale CPU trend" ||
 		first.FinalConclusion.RequiresHumanReview == nil ||
 		!*first.FinalConclusion.RequiresHumanReview ||
 		second.FinalConclusion.AssistantTurnID != first.FinalConclusion.AssistantTurnID {
@@ -392,11 +704,13 @@ func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *tes
 		if err != nil {
 			return err
 		}
-		if len(events) != 3 ||
+		if len(events) != 5 ||
 			events[0].Kind != "diagnosis_room.opened" ||
-			events[1].Kind != "diagnosis_room.turn_persisted" ||
-			events[2].Kind != "diagnosis_room.final_conclusion_ready" {
-			t.Fatalf("events = %+v, want opened + turn_persisted + final_conclusion_ready", events)
+			events[1].Kind != "diagnosis_room.supplemental_evidence_provided" ||
+			events[2].Kind != "diagnosis_room.turn_persisted" ||
+			events[3].Kind != "diagnosis_room.turn_persisted" ||
+			events[4].Kind != "diagnosis_room.final_conclusion_ready" {
+			t.Fatalf("events = %+v, want opened + supplemental + turn_persisted + turn_persisted + final_conclusion_ready", events)
 		}
 		var payload struct {
 			TurnCount         int    `json:"turn_count"`
@@ -416,13 +730,25 @@ func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *tes
 				AssistantOccurredAt *time.Time `json:"assistant_occurred_at"`
 				Content             string     `json:"content"`
 				Confidence          string     `json:"confidence"`
-				RequiresHumanReview *bool      `json:"requires_human_review"`
+				ConfidenceRationale string     `json:"confidence_rationale"`
+				Findings            []string   `json:"findings"`
+				RecommendedActions  []string   `json:"recommended_actions"`
+				EvidenceRequests    []struct {
+					Tool string `json:"tool"`
+				} `json:"evidence_requests"`
+				MissingEvidenceRequests []struct {
+					Label string `json:"label"`
+				} `json:"missing_evidence_requests"`
+				EvidenceCollectionSuggestions []struct {
+					Label string `json:"label"`
+				} `json:"evidence_collection_suggestions"`
+				RequiresHumanReview *bool `json:"requires_human_review"`
 			} `json:"final_conclusion"`
 		}
-		if err := json.Unmarshal(events[2].Payload, &payload); err != nil {
+		if err := json.Unmarshal(events[4].Payload, &payload); err != nil {
 			t.Fatalf("final event payload: %v", err)
 		}
-		if payload.TurnCount != 1 ||
+		if payload.TurnCount != 2 ||
 			payload.ConclusionVersion != "diagnosis-room-final-ready.v1" ||
 			payload.Conclusion.Status != "available" ||
 			payload.Conclusion.Source != "latest_assistant_turn" ||
@@ -440,6 +766,15 @@ func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *tes
 			!payload.Conclusion.AssistantOccurredAt.Equal(domain.NormalizeUTCMicro(req.AssistantOccurredAt)) ||
 			payload.Conclusion.Content != req.AssistantMessage ||
 			payload.Conclusion.Confidence != "high" ||
+			payload.Conclusion.ConfidenceRationale != "The diagnosis is bounded but still needs owner confirmation." ||
+			!reflect.DeepEqual(payload.Conclusion.Findings, []string{"CPU saturation matches the deployment window"}) ||
+			!reflect.DeepEqual(payload.Conclusion.RecommendedActions, []string{"Scale the API deployment before peak traffic"}) ||
+			len(payload.Conclusion.EvidenceRequests) != 1 ||
+			payload.Conclusion.EvidenceRequests[0].Tool != "active_alerts" ||
+			len(payload.Conclusion.MissingEvidenceRequests) != 1 ||
+			payload.Conclusion.MissingEvidenceRequests[0].Label != "Owner sign-off" ||
+			len(payload.Conclusion.EvidenceCollectionSuggestions) != 1 ||
+			payload.Conclusion.EvidenceCollectionSuggestions[0].Label != "Post-scale CPU trend" ||
 			payload.Conclusion.RequiresHumanReview == nil ||
 			!*payload.Conclusion.RequiresHumanReview {
 			t.Fatalf("final event payload = %+v raw=%s", payload, events[2].Payload)
@@ -448,6 +783,101 @@ func TestDiagnosisRoomPersistenceActivities_FinalConclusionReadyIsAudited(t *tes
 	})
 	if err != nil {
 		t.Fatalf("verify final-ready event: %v", err)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_ReadyForReviewConclusionIsAudited(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-ready-for-review")
+	activities := temporalpkg.NewActivities(env.factory)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 15, 50, 0, 0, time.UTC)
+	_, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-ready-for-review",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	})
+	if err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+
+	req := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-ready-for-review", startedAt)
+	req.UserMessageID = "msg-ready"
+	req.AssistantMessageID = "msg-ready/assistant"
+	req.UserMessage = "Use the supplemental evidence and prepare the bounded conclusion."
+	req.AssistantMessage = "The bounded diagnosis is ready for operator review."
+	req.RawOutput = json.RawMessage(`{
+		"schema_version":"diagnosis_turn.v1",
+		"message":"The bounded diagnosis is ready for operator review.",
+		"findings":["The latest restart evidence explains the alert window"],
+		"recommended_actions":["Have the service owner confirm the remediation record"],
+		"confidence":"medium",
+		"requires_human_review":true,
+		"confidence_rationale":"The causal chain is bounded, but the owner still needs to confirm the closeout.",
+		"conclusion_status":"ready_for_review"
+	}`)
+	first, err := activities.PersistDiagnosisTurn(ctx, req)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn first: %v", err)
+	}
+	second, err := activities.PersistDiagnosisTurn(ctx, req)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn second: %v", err)
+	}
+	if first.FinalConclusion == nil ||
+		second.FinalConclusion == nil ||
+		first.FinalConclusion.Status != "available" ||
+		first.FinalConclusion.Source != "latest_assistant_turn" ||
+		first.FinalConclusion.Reason != "assistant_marked_ready_for_review" ||
+		first.FinalConclusion.AssistantTurnID != first.AssistantTurnID ||
+		first.FinalConclusion.AssistantMessageID != req.AssistantMessageID ||
+		first.FinalConclusion.Content != req.AssistantMessage ||
+		first.FinalConclusion.Confidence != "medium" ||
+		first.FinalConclusion.ConfidenceRationale != "The causal chain is bounded, but the owner still needs to confirm the closeout." ||
+		first.FinalConclusion.RequiresHumanReview == nil ||
+		!*first.FinalConclusion.RequiresHumanReview ||
+		second.FinalConclusion.AssistantTurnID != first.FinalConclusion.AssistantTurnID {
+		t.Fatalf("ready final conclusions first=%+v second=%+v", first.FinalConclusion, second.FinalConclusion)
+	}
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
+		if err != nil {
+			return err
+		}
+		if len(events) != 3 ||
+			events[0].Kind != "diagnosis_room.opened" ||
+			events[1].Kind != "diagnosis_room.turn_persisted" ||
+			events[2].Kind != "diagnosis_room.final_conclusion_ready" {
+			t.Fatalf("events = %+v, want opened + turn_persisted + final_conclusion_ready", events)
+		}
+		var payload struct {
+			TurnCount  int `json:"turn_count"`
+			Conclusion struct {
+				Status             string `json:"status"`
+				Source             string `json:"source"`
+				Reason             string `json:"reason"`
+				AssistantMessageID string `json:"assistant_message_id"`
+				Content            string `json:"content"`
+				Confidence         string `json:"confidence"`
+			} `json:"final_conclusion"`
+		}
+		if err := json.Unmarshal(events[2].Payload, &payload); err != nil {
+			t.Fatalf("final event payload: %v", err)
+		}
+		if payload.TurnCount != 1 ||
+			payload.Conclusion.Status != "available" ||
+			payload.Conclusion.Source != "latest_assistant_turn" ||
+			payload.Conclusion.Reason != "assistant_marked_ready_for_review" ||
+			payload.Conclusion.AssistantMessageID != req.AssistantMessageID ||
+			payload.Conclusion.Content != req.AssistantMessage ||
+			payload.Conclusion.Confidence != "medium" {
+			t.Fatalf("ready final event payload = %+v raw=%s", payload, events[2].Payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify ready final event: %v", err)
 	}
 }
 
@@ -511,6 +941,16 @@ func TestDiagnosisRoomPersistenceActivities_CloseSessionIsIdempotentAndAudited(t
 			session.CloseReason != "idle_timeout" {
 			t.Fatalf("closed session = %+v", session)
 		}
+		task, err := uow.Diagnosis().FindTaskByID(ctx, seed.TaskID)
+		if err != nil {
+			return err
+		}
+		if task.Status != domain.DiagnosisStatusCancelled ||
+			task.FinishedAt == nil ||
+			!task.FinishedAt.Equal(domain.NormalizeUTCMicro(req.ClosedAt)) ||
+			task.FailureReason != "" {
+			t.Fatalf("closed task = %+v", task)
+		}
 		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
 		if err != nil {
 			return err
@@ -541,6 +981,83 @@ func TestDiagnosisRoomPersistenceActivities_CloseSessionIsIdempotentAndAudited(t
 	})
 	if err != nil {
 		t.Fatalf("verify close: %v", err)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_CloseSessionCanFailTask(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-close-failed-task")
+	activities := temporalpkg.NewActivities(env.factory)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 16, 15, 0, 0, time.UTC)
+	if _, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-close-failed",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	}); err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+
+	req := temporalpkg.CloseDiagnosisChatSessionInput{
+		SessionID:                  "session-room-close-failed",
+		DiagnosisTaskID:            int64(seed.TaskID),
+		OwnerSubject:               "owner-1",
+		TurnCount:                  0,
+		ClosedAt:                   startedAt.Add(2 * time.Minute),
+		Reason:                     "initial_turn_failed",
+		DiagnosisTaskStatus:        "failed",
+		DiagnosisTaskFailureReason: "Diagnosis turn failed before an assistant response; upstream LLM request timed out.",
+	}
+	first, err := activities.CloseDiagnosisChatSession(ctx, req)
+	if err != nil {
+		t.Fatalf("CloseDiagnosisChatSession first: %v", err)
+	}
+	second, err := activities.CloseDiagnosisChatSession(ctx, req)
+	if err != nil {
+		t.Fatalf("CloseDiagnosisChatSession second: %v", err)
+	}
+	if first.LifecycleEventID == 0 || second.LifecycleEventID != first.LifecycleEventID {
+		t.Fatalf("close lifecycle ids first=%d second=%d", first.LifecycleEventID, second.LifecycleEventID)
+	}
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		task, err := uow.Diagnosis().FindTaskByID(ctx, seed.TaskID)
+		if err != nil {
+			return err
+		}
+		if task.Status != domain.DiagnosisStatusFailed ||
+			task.FailureReason != req.DiagnosisTaskFailureReason ||
+			task.FinishedAt == nil ||
+			!task.FinishedAt.Equal(domain.NormalizeUTCMicro(req.ClosedAt)) {
+			t.Fatalf("failed task = %+v", task)
+		}
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
+		if err != nil {
+			return err
+		}
+		if len(events) != 3 ||
+			events[0].Kind != "diagnosis_room.opened" ||
+			events[1].Kind != "diagnosis_room.failed" ||
+			events[2].Kind != "diagnosis_room.closed" {
+			t.Fatalf("events = %+v, want opened + failed + closed", events)
+		}
+		var failedPayload struct {
+			Status        string `json:"status"`
+			FailureReason string `json:"failure_reason"`
+			CloseReason   string `json:"close_reason"`
+		}
+		if err := json.Unmarshal(events[1].Payload, &failedPayload); err != nil {
+			t.Fatalf("failed event payload: %v", err)
+		}
+		if failedPayload.Status != "failed" ||
+			failedPayload.FailureReason != req.DiagnosisTaskFailureReason ||
+			failedPayload.CloseReason != "initial_turn_failed" {
+			t.Fatalf("failed event payload = %+v raw=%s", failedPayload, events[1].Payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify failed close: %v", err)
 	}
 }
 
@@ -602,12 +1119,31 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 		}) ||
 		first.FinalConclusion.Content != turnReq.AssistantMessage ||
 		first.FinalConclusion.Confidence != "high" ||
+		first.FinalConclusion.ConfidenceRationale != "Confidence depends on sibling alert and restart evidence." ||
+		!reflect.DeepEqual(first.FinalConclusion.Findings, []string{"api-1 CPU exceeded threshold"}) ||
+		!reflect.DeepEqual(first.FinalConclusion.RecommendedActions, []string{"Inspect recent deployment"}) ||
+		len(first.FinalConclusion.EvidenceRequests) != 1 ||
+		first.FinalConclusion.EvidenceRequests[0].Reason != "Need current active sibling alerts." ||
+		len(first.FinalConclusion.MissingEvidenceRequests) != 1 ||
+		first.FinalConclusion.MissingEvidenceRequests[0].Label != "Restart cause" ||
+		len(first.FinalConclusion.EvidenceCollectionSuggestions) != 1 ||
+		first.FinalConclusion.EvidenceCollectionSuggestions[0].Label != "CPU trend" ||
 		first.FinalConclusion.RequiresHumanReview == nil ||
 		!*first.FinalConclusion.RequiresHumanReview {
 		t.Fatalf("close result final conclusion = %+v", first.FinalConclusion)
 	}
 
 	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		task, err := uow.Diagnosis().FindTaskByID(ctx, seed.TaskID)
+		if err != nil {
+			return err
+		}
+		if task.Status != domain.DiagnosisStatusSucceeded ||
+			task.FinishedAt == nil ||
+			!task.FinishedAt.Equal(domain.NormalizeUTCMicro(closeReq.ClosedAt)) ||
+			task.FailureReason != "" {
+			t.Fatalf("closed task = %+v", task)
+		}
 		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
 		if err != nil {
 			return err
@@ -640,7 +1176,19 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 				AssistantOccurredAt *time.Time `json:"assistant_occurred_at"`
 				Content             string     `json:"content"`
 				Confidence          string     `json:"confidence"`
-				RequiresHumanReview *bool      `json:"requires_human_review"`
+				ConfidenceRationale string     `json:"confidence_rationale"`
+				Findings            []string   `json:"findings"`
+				RecommendedActions  []string   `json:"recommended_actions"`
+				EvidenceRequests    []struct {
+					Reason string `json:"reason"`
+				} `json:"evidence_requests"`
+				MissingEvidenceRequests []struct {
+					Label string `json:"label"`
+				} `json:"missing_evidence_requests"`
+				EvidenceCollectionSuggestions []struct {
+					Label string `json:"label"`
+				} `json:"evidence_collection_suggestions"`
+				RequiresHumanReview *bool `json:"requires_human_review"`
 			} `json:"final_conclusion"`
 		}
 		if err := json.Unmarshal(closeEvent.Payload, &payload); err != nil {
@@ -664,6 +1212,15 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 			!payload.Conclusion.AssistantOccurredAt.Equal(domain.NormalizeUTCMicro(turnReq.AssistantOccurredAt)) ||
 			payload.Conclusion.Content != turnReq.AssistantMessage ||
 			payload.Conclusion.Confidence != "high" ||
+			payload.Conclusion.ConfidenceRationale != "Confidence depends on sibling alert and restart evidence." ||
+			!reflect.DeepEqual(payload.Conclusion.Findings, []string{"api-1 CPU exceeded threshold"}) ||
+			!reflect.DeepEqual(payload.Conclusion.RecommendedActions, []string{"Inspect recent deployment"}) ||
+			len(payload.Conclusion.EvidenceRequests) != 1 ||
+			payload.Conclusion.EvidenceRequests[0].Reason != "Need current active sibling alerts." ||
+			len(payload.Conclusion.MissingEvidenceRequests) != 1 ||
+			payload.Conclusion.MissingEvidenceRequests[0].Label != "Restart cause" ||
+			len(payload.Conclusion.EvidenceCollectionSuggestions) != 1 ||
+			payload.Conclusion.EvidenceCollectionSuggestions[0].Label != "CPU trend" ||
 			payload.Conclusion.RequiresHumanReview == nil ||
 			!*payload.Conclusion.RequiresHumanReview {
 			t.Fatalf("close event payload = %+v raw=%s", payload, closeEvent.Payload)
@@ -682,7 +1239,11 @@ func TestDiagnosisRoomPersistenceActivities_SendCloseNotificationIsIdempotentAnd
 		Status:            "delivered",
 		Raw:               json.RawMessage(`{"accepted":true}`),
 	}}
-	activities := temporalpkg.NewActivities(env.factory, temporalpkg.WithIMProvider(im))
+	activities := temporalpkg.NewActivities(
+		env.factory,
+		temporalpkg.WithIMProvider(im),
+		temporalpkg.WithPublicBaseURL(mustPublicBaseURL(t)),
+	)
 	ctx := context.Background()
 	startedAt := time.Date(2026, 5, 28, 17, 0, 0, 0, time.UTC)
 	_, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
@@ -730,7 +1291,8 @@ func TestDiagnosisRoomPersistenceActivities_SendCloseNotificationIsIdempotentAnd
 		requests[0].CorrelationKey == "" ||
 		requests[0].IdempotencyKey != first.IdempotencyKey ||
 		requests[0].Title == "" ||
-		requests[0].Body == "" {
+		!strings.Contains(requests[0].Body, "Review room: https://openclarion.example.test/ops/diagnosis-room?auth_mode=session&session_id=session-room-close-notify&wecom_auto_login=1&wecom_launch_context=app_conversation") ||
+		!strings.Contains(requests[0].Body, "AI conclusion: unavailable") {
 		t.Fatalf("notification request = %+v", requests[0])
 	}
 
@@ -750,6 +1312,7 @@ func TestDiagnosisRoomPersistenceActivities_SendCloseNotificationIsIdempotentAnd
 			}
 			var payload struct {
 				IdempotencyKey    string `json:"idempotency_key"`
+				RoomURL           string `json:"room_url"`
 				ProviderMessageID string `json:"provider_message_id"`
 				ProviderStatus    string `json:"provider_status"`
 			}
@@ -757,6 +1320,7 @@ func TestDiagnosisRoomPersistenceActivities_SendCloseNotificationIsIdempotentAnd
 				t.Fatalf("notification event payload: %v", err)
 			}
 			if payload.IdempotencyKey != first.IdempotencyKey ||
+				payload.RoomURL != "https://openclarion.example.test/ops/diagnosis-room?auth_mode=session&session_id=session-room-close-notify&wecom_auto_login=1&wecom_launch_context=app_conversation" ||
 				payload.ProviderMessageID != "msg-close" ||
 				payload.ProviderStatus != "delivered" {
 				t.Fatalf("notification event payload = %+v raw=%s", payload, event.Payload)
@@ -764,6 +1328,648 @@ func TestDiagnosisRoomPersistenceActivities_SendCloseNotificationIsIdempotentAnd
 		}
 		if !found {
 			t.Fatalf("events = %+v, want close notification event", events)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify notification event: %v", err)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_SendCloseNotificationUsesProfileResolver(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-close-notification-profile")
+	im := &recordingIMProvider{delivery: ports.IMDelivery{
+		ProviderMessageID: "msg-profile-close",
+		Status:            "delivered",
+		Raw:               json.RawMessage(`{"accepted":true}`),
+	}}
+	resolver := &recordingNotificationProviderResolver{provider: im}
+	activities := temporalpkg.NewActivities(
+		env.factory,
+		temporalpkg.WithNotificationChannelProviderResolver(resolver),
+		temporalpkg.WithPublicBaseURL(mustPublicBaseURL(t)),
+	)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 17, 30, 0, 0, time.UTC)
+	_, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-close-notify-profile",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	})
+	if err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+	req := temporalpkg.CloseDiagnosisChatSessionInput{
+		SessionID:                         "session-room-close-notify-profile",
+		DiagnosisTaskID:                   int64(seed.TaskID),
+		OwnerSubject:                      "owner-1",
+		TurnCount:                         0,
+		ClosedAt:                          startedAt.Add(5 * time.Minute),
+		Reason:                            "user_done",
+		CloseNotificationChannelProfileID: 5,
+	}
+	if _, err := activities.CloseDiagnosisChatSession(ctx, req); err != nil {
+		t.Fatalf("CloseDiagnosisChatSession: %v", err)
+	}
+
+	result, err := activities.SendDiagnosisRoomCloseNotification(ctx, req)
+	if err != nil {
+		t.Fatalf("SendDiagnosisRoomCloseNotification: %v", err)
+	}
+	calls, profileID := resolver.LastCall()
+	if calls != 1 || profileID != 5 {
+		t.Fatalf("resolver calls/profile = %d/%d, want 1/5", calls, profileID)
+	}
+	if scope := resolver.LastScope(); scope != domain.NotificationDeliveryScopeDiagnosisClose {
+		t.Fatalf("resolver scope = %s, want %s", scope, domain.NotificationDeliveryScopeDiagnosisClose)
+	}
+	requests := im.Requests()
+	if len(requests) != 1 ||
+		requests[0].NotificationChannelID != 5 ||
+		requests[0].DiagnosisTaskID != int64(seed.TaskID) ||
+		requests[0].IdempotencyKey != result.IdempotencyKey {
+		t.Fatalf("notification requests = %+v result=%+v", requests, result)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_SendFinalReadyNotificationIsIdempotentAndAudited(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-final-ready-notification")
+	im := &recordingIMProvider{delivery: ports.IMDelivery{
+		ProviderMessageID: "msg-final-ready",
+		Status:            "delivered",
+		Raw:               json.RawMessage(`{"accepted":true}`),
+	}}
+	resolver := &recordingNotificationProviderResolver{provider: im}
+	activities := temporalpkg.NewActivities(
+		env.factory,
+		temporalpkg.WithNotificationChannelProviderResolver(resolver),
+		temporalpkg.WithPublicBaseURL(mustPublicBaseURL(t)),
+	)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 17, 45, 0, 0, time.UTC)
+	_, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-final-ready-notify",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	})
+	if err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+	turnReq := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-final-ready-notify", startedAt)
+	turnReq.AssistantMessage = "CPU saturation is explained by the latest rollout and requires scaling before traffic peak."
+	turnReq.RawOutput = json.RawMessage(`{
+		"schema_version":"diagnosis_turn.v1",
+		"message":"CPU saturation is explained by the latest rollout and requires scaling before traffic peak.",
+		"findings":["api-1 CPU exceeded threshold"],
+		"recommended_actions":["Scale the affected deployment before traffic peak"],
+		"evidence_requests":[{"tool":"active_alerts","reason":"Confirm sibling alerts remain firing.","limit":5}],
+		"confidence":"high",
+		"requires_human_review":true,
+		"confidence_rationale":"Deployment timing and CPU evidence are aligned.",
+		"missing_evidence_requests":[{"label":"Restart cause","detail":"Inspect previous container logs before final remediation.","priority":"high"}],
+		"evidence_collection_suggestions":[{"label":"CPU trend","detail":"Collect a bounded CPU range query for the affected deployment.","priority":"medium"}],
+		"conclusion_status":"final"
+	}`)
+	persisted, err := activities.PersistDiagnosisTurn(ctx, turnReq)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn: %v", err)
+	}
+	if persisted.FinalConclusion == nil {
+		t.Fatal("PersistDiagnosisTurn final conclusion = nil, want available conclusion")
+	}
+	req := temporalpkg.SendDiagnosisRoomFinalReadyNotificationInput{
+		SessionID:                         "session-room-final-ready-notify",
+		DiagnosisTaskID:                   int64(seed.TaskID),
+		OwnerSubject:                      "owner-1",
+		AssistantTurnID:                   persisted.AssistantTurnID,
+		AssistantMessageID:                persisted.AssistantMessageID,
+		AssistantSequence:                 persisted.AssistantSequence,
+		TurnCount:                         persisted.TurnCount,
+		OccurredAt:                        persisted.AssistantOccurredAt,
+		CloseNotificationChannelProfileID: 5,
+		FinalConclusion:                   *persisted.FinalConclusion,
+	}
+
+	first, err := activities.SendDiagnosisRoomFinalReadyNotification(ctx, req)
+	if err != nil {
+		t.Fatalf("SendDiagnosisRoomFinalReadyNotification first: %v", err)
+	}
+	second, err := activities.SendDiagnosisRoomFinalReadyNotification(ctx, req)
+	if err != nil {
+		t.Fatalf("SendDiagnosisRoomFinalReadyNotification second: %v", err)
+	}
+	if first.LifecycleEventID == 0 ||
+		second.LifecycleEventID != first.LifecycleEventID ||
+		first.ProviderMessageID != "msg-final-ready" ||
+		first.NotificationStatus != "delivered" ||
+		first.IdempotencyKey == "" {
+		t.Fatalf("notification results first=%+v second=%+v", first, second)
+	}
+	calls, profileID := resolver.LastCall()
+	if calls != 1 || profileID != 5 {
+		t.Fatalf("resolver calls/profile = %d/%d, want 1/5", calls, profileID)
+	}
+	if scope := resolver.LastScope(); scope != domain.NotificationDeliveryScopeDiagnosisConsultation {
+		t.Fatalf("resolver scope = %s, want %s", scope, domain.NotificationDeliveryScopeDiagnosisConsultation)
+	}
+	requests := im.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("notification requests len = %d, want 1", len(requests))
+	}
+	body := requests[0].Body
+	if requests[0].NotificationChannelID != 5 ||
+		requests[0].DiagnosisTaskID != int64(seed.TaskID) ||
+		requests[0].IdempotencyKey != first.IdempotencyKey ||
+		requests[0].Title != "AI diagnosis ready: session-room-final-ready-notify" ||
+		requests[0].Severity != "warning" ||
+		!strings.Contains(body, "AI diagnosis is ready for room session-room-final-ready-notify") ||
+		!strings.Contains(body, "Review room: https://openclarion.example.test/ops/diagnosis-room?auth_mode=session&session_id=session-room-final-ready-notify&wecom_auto_login=1&wecom_launch_context=app_conversation") ||
+		!strings.Contains(body, "Review the conclusion, provide missing evidence if needed") ||
+		!strings.Contains(body, "Confidence: high") ||
+		!strings.Contains(body, "Human review: required") ||
+		!strings.Contains(body, "AI conclusion: CPU saturation is explained by the latest rollout") ||
+		!strings.Contains(body, "Missing evidence:") ||
+		!strings.Contains(body, "[high] Restart cause - Inspect previous container logs before final remediation.") ||
+		!strings.Contains(body, "Evidence collection suggestions:") ||
+		!strings.Contains(body, "Next action: collect 1 executable evidence request(s) and provide 1 operator-supplied evidence item(s).") ||
+		!strings.Contains(body, "Executable evidence requests: 1") ||
+		!strings.Contains(body, "1. active_alerts - Confirm sibling alerts remain firing. (limit=5)") {
+		t.Fatalf("notification request = %+v", requests[0])
+	}
+	assertSubstringsInOrder(t, body, "Next action:", "AI conclusion:")
+	assertSubstringsInOrder(t, body, "Missing evidence:", "AI conclusion:")
+	assertSubstringsInOrder(t, body, "Evidence collection suggestions:", "AI conclusion:")
+	assertSubstringsInOrder(t, body, "Executable evidence requests: 1", "AI conclusion:")
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 20)
+		if err != nil {
+			return err
+		}
+		var event domain.DiagnosisTaskEvent
+		for _, candidate := range events {
+			if candidate.ID == domain.DiagnosisTaskEventID(first.LifecycleEventID) {
+				event = candidate
+				break
+			}
+		}
+		if event.ID == 0 || event.Kind != "diagnosis_room.final_ready_notification_sent" {
+			t.Fatalf("events = %+v, want final-ready notification event %d", events, first.LifecycleEventID)
+		}
+		var payload struct {
+			IdempotencyKey string                                   `json:"idempotency_key"`
+			ChannelProfile int64                                    `json:"notification_channel_profile_id"`
+			RoomURL        string                                   `json:"room_url"`
+			Conclusion     temporalpkg.DiagnosisRoomFinalConclusion `json:"final_conclusion"`
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatalf("notification event payload: %v", err)
+		}
+		if payload.IdempotencyKey != first.IdempotencyKey ||
+			payload.ChannelProfile != 5 ||
+			payload.RoomURL != "https://openclarion.example.test/ops/diagnosis-room?auth_mode=session&session_id=session-room-final-ready-notify&wecom_auto_login=1&wecom_launch_context=app_conversation" ||
+			payload.Conclusion.Status != "available" ||
+			payload.Conclusion.Content != turnReq.AssistantMessage ||
+			payload.Conclusion.Confidence != "high" {
+			t.Fatalf("notification event payload = %+v raw=%s", payload, event.Payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify notification event: %v", err)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_SendAssistantTurnNotificationIsIdempotentAndAudited(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-assistant-turn-notification")
+	im := &recordingIMProvider{delivery: ports.IMDelivery{
+		ProviderMessageID: "msg-assistant-turn",
+		Status:            "delivered",
+		Raw:               json.RawMessage(`{"accepted":true}`),
+	}}
+	resolver := &recordingNotificationProviderResolver{provider: im}
+	activities := temporalpkg.NewActivities(
+		env.factory,
+		temporalpkg.WithNotificationChannelProviderResolver(resolver),
+		temporalpkg.WithPublicBaseURL(mustPublicBaseURL(t)),
+	)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 17, 50, 0, 0, time.UTC)
+	_, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-assistant-turn-notify",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	})
+	if err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+	turnReq := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-assistant-turn-notify", startedAt)
+	persisted, err := activities.PersistDiagnosisTurn(ctx, turnReq)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn: %v", err)
+	}
+	if persisted.FinalConclusion != nil {
+		t.Fatalf("PersistDiagnosisTurn final conclusion = %+v, want nil for needs-evidence turn", persisted.FinalConclusion)
+	}
+	req := temporalpkg.SendDiagnosisRoomAssistantTurnNotificationInput{
+		SessionID:                         "session-room-assistant-turn-notify",
+		DiagnosisTaskID:                   int64(seed.TaskID),
+		OwnerSubject:                      "owner-1",
+		AssistantTurnID:                   persisted.AssistantTurnID,
+		AssistantMessageID:                persisted.AssistantMessageID,
+		AssistantSequence:                 persisted.AssistantSequence,
+		TurnCount:                         persisted.TurnCount,
+		OccurredAt:                        persisted.AssistantOccurredAt,
+		CloseNotificationChannelProfileID: 5,
+		AssistantMessage:                  persisted.AssistantMessage,
+		Confidence:                        persisted.Confidence,
+		RequiresHumanReview:               persisted.RequiresHumanReview,
+		Findings:                          persisted.Findings,
+		RecommendedActions:                persisted.RecommendedActions,
+		EvidenceRequests:                  persisted.EvidenceRequests,
+		Insight:                           persisted.Insight,
+	}
+
+	first, err := activities.SendDiagnosisRoomAssistantTurnNotification(ctx, req)
+	if err != nil {
+		t.Fatalf("SendDiagnosisRoomAssistantTurnNotification first: %v", err)
+	}
+	second, err := activities.SendDiagnosisRoomAssistantTurnNotification(ctx, req)
+	if err != nil {
+		t.Fatalf("SendDiagnosisRoomAssistantTurnNotification second: %v", err)
+	}
+	if first.LifecycleEventID == 0 ||
+		second.LifecycleEventID != first.LifecycleEventID ||
+		first.ProviderMessageID != "msg-assistant-turn" ||
+		first.NotificationStatus != "delivered" ||
+		first.IdempotencyKey == "" {
+		t.Fatalf("notification results first=%+v second=%+v", first, second)
+	}
+	calls, profileID := resolver.LastCall()
+	if calls != 1 || profileID != 5 {
+		t.Fatalf("resolver calls/profile = %d/%d, want 1/5", calls, profileID)
+	}
+	if scope := resolver.LastScope(); scope != domain.NotificationDeliveryScopeDiagnosisConsultation {
+		t.Fatalf("resolver scope = %s, want %s", scope, domain.NotificationDeliveryScopeDiagnosisConsultation)
+	}
+	requests := im.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("notification requests len = %d, want 1", len(requests))
+	}
+	body := requests[0].Body
+	if requests[0].NotificationChannelID != 5 ||
+		requests[0].DiagnosisTaskID != int64(seed.TaskID) ||
+		requests[0].IdempotencyKey != first.IdempotencyKey ||
+		requests[0].Title != "Initial AI diagnosis report: session-room-assistant-turn-notify" ||
+		requests[0].Severity != "warning" ||
+		!strings.Contains(body, "Initial AI diagnosis report is ready for room session-room-assistant-turn-notify") ||
+		!strings.Contains(body, "Review room: https://openclarion.example.test/ops/diagnosis-room?auth_mode=session&session_id=session-room-assistant-turn-notify&wecom_auto_login=1&wecom_launch_context=app_conversation") ||
+		!strings.Contains(body, "collect missing evidence") ||
+		!strings.Contains(body, "Confidence: high") ||
+		!strings.Contains(body, "Human review: required") ||
+		!strings.Contains(body, "Conclusion status: needs_evidence") ||
+		!strings.Contains(body, "AI diagnosis: CPU saturation is concentrated on api-1.") ||
+		!strings.Contains(body, "Confidence rationale: Confidence depends on sibling alert and restart evidence.") ||
+		!strings.Contains(body, "Findings:") ||
+		!strings.Contains(body, "api-1 CPU exceeded threshold") ||
+		!strings.Contains(body, "Recommended actions:") ||
+		!strings.Contains(body, "Inspect recent deployment") ||
+		!strings.Contains(body, "Missing evidence:") ||
+		!strings.Contains(body, "[high] Restart cause - Inspect previous container logs.") ||
+		!strings.Contains(body, "Evidence collection suggestions:") ||
+		!strings.Contains(body, "Next action: collect 1 executable evidence request(s) and provide 1 operator-supplied evidence item(s).") ||
+		!strings.Contains(body, "Executable evidence requests: 1") ||
+		!strings.Contains(body, "1. active_alerts - Need current active sibling alerts. (limit=5)") {
+		t.Fatalf("notification request = %+v", requests[0])
+	}
+	assertSubstringsInOrder(t, body, "Next action:", "AI diagnosis:")
+	assertSubstringsInOrder(t, body, "Missing evidence:", "AI diagnosis:")
+	assertSubstringsInOrder(t, body, "Evidence collection suggestions:", "AI diagnosis:")
+	assertSubstringsInOrder(t, body, "Executable evidence requests: 1", "AI diagnosis:")
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 20)
+		if err != nil {
+			return err
+		}
+		var event domain.DiagnosisTaskEvent
+		for _, candidate := range events {
+			if candidate.ID == domain.DiagnosisTaskEventID(first.LifecycleEventID) {
+				event = candidate
+				break
+			}
+		}
+		if event.ID == 0 || event.Kind != "diagnosis_room.assistant_turn_notification_sent" {
+			t.Fatalf("events = %+v, want assistant-turn notification event %d", events, first.LifecycleEventID)
+		}
+		var payload struct {
+			IdempotencyKey    string                            `json:"idempotency_key"`
+			ChannelProfile    int64                             `json:"notification_channel_profile_id"`
+			RoomURL           string                            `json:"room_url"`
+			AssistantMessage  string                            `json:"assistant_message"`
+			Confidence        string                            `json:"confidence"`
+			RequiresReview    bool                              `json:"requires_human_review"`
+			Findings          []string                          `json:"findings"`
+			Recommended       []string                          `json:"recommended_actions"`
+			EvidenceRequests  []diagnosisroom.EvidenceRequest   `json:"evidence_requests"`
+			ConsultationState diagnosisroom.ConsultationInsight `json:"consultation_insight"`
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatalf("notification event payload: %v", err)
+		}
+		if payload.IdempotencyKey != first.IdempotencyKey ||
+			payload.ChannelProfile != 5 ||
+			payload.RoomURL != "https://openclarion.example.test/ops/diagnosis-room?auth_mode=session&session_id=session-room-assistant-turn-notify&wecom_auto_login=1&wecom_launch_context=app_conversation" ||
+			payload.AssistantMessage != turnReq.AssistantMessage ||
+			payload.Confidence != "high" ||
+			!payload.RequiresReview ||
+			!reflect.DeepEqual(payload.Findings, []string{"api-1 CPU exceeded threshold"}) ||
+			!reflect.DeepEqual(payload.Recommended, []string{"Inspect recent deployment"}) ||
+			len(payload.EvidenceRequests) != 1 ||
+			payload.ConsultationState.ConclusionStatus != "needs_evidence" ||
+			payload.ConsultationState.ConfidenceRationale != "Confidence depends on sibling alert and restart evidence." {
+			t.Fatalf("notification event payload = %+v raw=%s", payload, event.Payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify notification event: %v", err)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_SendAssistantTurnNotificationRetriesAfterFailure(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-assistant-turn-notification-failure")
+	im := &recordingIMProvider{err: &ports.IMError{Message: "webhook unavailable", StatusCode: 503, Retryable: true}}
+	activities := temporalpkg.NewActivities(env.factory, temporalpkg.WithIMProvider(im))
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 17, 55, 0, 0, time.UTC)
+	_, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-assistant-turn-notify-failure",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	})
+	if err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+	turnReq := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-assistant-turn-notify-failure", startedAt)
+	persisted, err := activities.PersistDiagnosisTurn(ctx, turnReq)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn: %v", err)
+	}
+	req := temporalpkg.SendDiagnosisRoomAssistantTurnNotificationInput{
+		SessionID:           "session-room-assistant-turn-notify-failure",
+		DiagnosisTaskID:     int64(seed.TaskID),
+		OwnerSubject:        "owner-1",
+		AssistantTurnID:     persisted.AssistantTurnID,
+		AssistantMessageID:  persisted.AssistantMessageID,
+		AssistantSequence:   persisted.AssistantSequence,
+		TurnCount:           persisted.TurnCount,
+		OccurredAt:          persisted.AssistantOccurredAt,
+		AssistantMessage:    persisted.AssistantMessage,
+		Confidence:          persisted.Confidence,
+		RequiresHumanReview: persisted.RequiresHumanReview,
+		Findings:            persisted.Findings,
+		RecommendedActions:  persisted.RecommendedActions,
+		EvidenceRequests:    persisted.EvidenceRequests,
+		Insight:             persisted.Insight,
+	}
+
+	_, err = activities.SendDiagnosisRoomAssistantTurnNotification(ctx, req)
+	if err == nil {
+		t.Fatal("SendDiagnosisRoomAssistantTurnNotification first error = nil, want retryable notification error")
+	}
+	var failedEvent domain.DiagnosisTaskEvent
+	var failedPayload struct {
+		IdempotencyKey string `json:"idempotency_key"`
+		ProviderStatus string `json:"provider_status"`
+		ProviderRaw    struct {
+			Retryable  bool `json:"retryable"`
+			StatusCode int  `json:"status_code"`
+		} `json:"provider_raw"`
+	}
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 20)
+		if err != nil {
+			return err
+		}
+		for _, candidate := range events {
+			if candidate.Kind != "diagnosis_room.assistant_turn_notification_sent" {
+				continue
+			}
+			if err := json.Unmarshal(candidate.Payload, &failedPayload); err != nil {
+				return err
+			}
+			if failedPayload.ProviderStatus == "failed" {
+				failedEvent = candidate
+				return nil
+			}
+		}
+		return fmt.Errorf("failed assistant-turn notification event not found")
+	})
+	if err != nil {
+		t.Fatalf("verify first failed notification event: %v", err)
+	}
+	if failedEvent.ID == 0 ||
+		failedPayload.IdempotencyKey == "" ||
+		!failedPayload.ProviderRaw.Retryable ||
+		failedPayload.ProviderRaw.StatusCode != 503 {
+		t.Fatalf("failed notification event = %+v payload=%+v", failedEvent, failedPayload)
+	}
+	im.mu.Lock()
+	im.err = nil
+	im.delivery = ports.IMDelivery{
+		ProviderMessageID: "msg-assistant-turn-retry",
+		Status:            "delivered",
+		Raw:               json.RawMessage(`{"accepted":true}`),
+	}
+	im.mu.Unlock()
+	second, err := activities.SendDiagnosisRoomAssistantTurnNotification(ctx, req)
+	if err != nil {
+		t.Fatalf("SendDiagnosisRoomAssistantTurnNotification second: %v", err)
+	}
+	third, err := activities.SendDiagnosisRoomAssistantTurnNotification(ctx, req)
+	if err != nil {
+		t.Fatalf("SendDiagnosisRoomAssistantTurnNotification third: %v", err)
+	}
+	if second.LifecycleEventID == 0 ||
+		second.LifecycleEventID == int64(failedEvent.ID) ||
+		second.ProviderMessageID != "msg-assistant-turn-retry" ||
+		second.NotificationStatus != "delivered" ||
+		second.IdempotencyKey != failedPayload.IdempotencyKey {
+		t.Fatalf("second notification result = %+v after failed payload=%+v", second, failedPayload)
+	}
+	if third.LifecycleEventID != second.LifecycleEventID ||
+		third.ProviderMessageID != second.ProviderMessageID ||
+		third.NotificationStatus != second.NotificationStatus ||
+		third.IdempotencyKey != second.IdempotencyKey {
+		t.Fatalf("third notification result = %+v after second=%+v", third, second)
+	}
+	if requests := im.Requests(); len(requests) != 2 ||
+		requests[0].IdempotencyKey != failedPayload.IdempotencyKey ||
+		requests[1].IdempotencyKey != failedPayload.IdempotencyKey {
+		t.Fatalf("notification requests = %+v, want failed attempt plus delivered retry with same idempotency key", requests)
+	}
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 20)
+		if err != nil {
+			return err
+		}
+		var event domain.DiagnosisTaskEvent
+		for _, candidate := range events {
+			if candidate.ID == failedEvent.ID {
+				event = candidate
+				break
+			}
+		}
+		if event.ID == 0 || event.Kind != "diagnosis_room.assistant_turn_notification_sent" {
+			t.Fatalf("events = %+v, want failed assistant-turn notification event %d", events, failedEvent.ID)
+		}
+		var delivered domain.DiagnosisTaskEvent
+		for _, candidate := range events {
+			if candidate.ID == domain.DiagnosisTaskEventID(second.LifecycleEventID) {
+				delivered = candidate
+				break
+			}
+		}
+		if delivered.ID == 0 || delivered.Kind != "diagnosis_room.assistant_turn_notification_sent" {
+			t.Fatalf("events = %+v, want delivered retry event %d", events, second.LifecycleEventID)
+		}
+		var deliveredPayload struct {
+			IdempotencyKey    string `json:"idempotency_key"`
+			ProviderMessageID string `json:"provider_message_id"`
+			ProviderStatus    string `json:"provider_status"`
+		}
+		if err := json.Unmarshal(delivered.Payload, &deliveredPayload); err != nil {
+			t.Fatalf("delivered notification event payload: %v", err)
+		}
+		if deliveredPayload.IdempotencyKey != failedPayload.IdempotencyKey ||
+			deliveredPayload.ProviderMessageID != "msg-assistant-turn-retry" ||
+			deliveredPayload.ProviderStatus != "delivered" {
+			t.Fatalf("delivered notification event payload = %+v raw=%s", deliveredPayload, delivered.Payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify notification event: %v", err)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_CloseNotificationIncludesFinalConclusion(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-close-notification-final")
+	im := &recordingIMProvider{delivery: ports.IMDelivery{
+		ProviderMessageID: "msg-final-close",
+		Status:            "delivered",
+		Raw:               json.RawMessage(`{"accepted":true}`),
+	}}
+	activities := temporalpkg.NewActivities(env.factory, temporalpkg.WithIMProvider(im))
+	ctx := context.Background()
+	startedAt := time.Date(2026, 5, 28, 18, 0, 0, 0, time.UTC)
+	_, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-close-notify-final",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+	})
+	if err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+	turnReq := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-close-notify-final", startedAt)
+	turnReq.AssistantMessage = "CPU saturation is explained by the latest rollout and requires scaling before traffic peak."
+	turnReq.RawOutput = json.RawMessage(`{
+		"schema_version":"diagnosis_turn.v1",
+		"message":"CPU saturation is explained by the latest rollout and requires scaling before traffic peak.",
+		"findings":["api-1 CPU exceeded threshold"],
+		"recommended_actions":["Scale the affected deployment before traffic peak"],
+		"evidence_requests":[{"tool":"active_alerts","reason":"Confirm sibling alerts remain firing.","limit":5}],
+		"confidence":"high",
+		"requires_human_review":true,
+		"confidence_rationale":"Deployment timing and CPU evidence are aligned.",
+		"missing_evidence_requests":[{"label":"Restart cause","detail":"Inspect previous container logs before final remediation.","priority":"high"}],
+		"evidence_collection_suggestions":[{"label":"CPU trend","detail":"Collect a bounded CPU range query for the affected deployment.","priority":"medium"}],
+		"conclusion_status":"final"
+	}`)
+	persisted, err := activities.PersistDiagnosisTurn(ctx, turnReq)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn: %v", err)
+	}
+	closeReq := temporalpkg.CloseDiagnosisChatSessionInput{
+		SessionID:       "session-room-close-notify-final",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		ConfirmedBy:     "owner-1",
+		TurnCount:       persisted.TurnCount,
+		ClosedAt:        startedAt.Add(5 * time.Minute),
+		Reason:          "human_confirmed",
+	}
+	if _, err := activities.CloseDiagnosisChatSession(ctx, closeReq); err != nil {
+		t.Fatalf("CloseDiagnosisChatSession: %v", err)
+	}
+
+	result, err := activities.SendDiagnosisRoomCloseNotification(ctx, closeReq)
+	if err != nil {
+		t.Fatalf("SendDiagnosisRoomCloseNotification: %v", err)
+	}
+	requests := im.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("notification requests len = %d, want 1", len(requests))
+	}
+	body := requests[0].Body
+	if requests[0].Severity != "warning" ||
+		!strings.Contains(body, "Confidence: high") ||
+		!strings.Contains(body, "Human review: required") ||
+		!strings.Contains(body, "AI conclusion: CPU saturation is explained by the latest rollout") ||
+		!strings.Contains(body, "Confidence rationale: Deployment timing and CPU evidence are aligned.") ||
+		!strings.Contains(body, "Findings:") ||
+		!strings.Contains(body, "api-1 CPU exceeded threshold") ||
+		!strings.Contains(body, "Recommended actions:") ||
+		!strings.Contains(body, "Scale the affected deployment before traffic peak") ||
+		!strings.Contains(body, "Missing evidence:") ||
+		!strings.Contains(body, "[high] Restart cause - Inspect previous container logs before final remediation.") ||
+		!strings.Contains(body, "Evidence collection suggestions:") ||
+		!strings.Contains(body, "[medium] CPU trend - Collect a bounded CPU range query for the affected deployment.") ||
+		!strings.Contains(body, "Next action: collect 1 executable evidence request(s) and provide 1 operator-supplied evidence item(s).") ||
+		!strings.Contains(body, "Executable evidence requests: 1") ||
+		!strings.Contains(body, "1. active_alerts - Confirm sibling alerts remain firing. (limit=5)") ||
+		!strings.Contains(body, "Evidence context refs:") {
+		t.Fatalf("notification request = %+v", requests[0])
+	}
+	assertSubstringsInOrder(t, body, "Next action:", "AI conclusion:")
+	assertSubstringsInOrder(t, body, "Missing evidence:", "AI conclusion:")
+	assertSubstringsInOrder(t, body, "Evidence collection suggestions:", "AI conclusion:")
+	assertSubstringsInOrder(t, body, "Executable evidence requests: 1", "AI conclusion:")
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 20)
+		if err != nil {
+			return err
+		}
+		var event domain.DiagnosisTaskEvent
+		for _, candidate := range events {
+			if candidate.ID == domain.DiagnosisTaskEventID(result.LifecycleEventID) {
+				event = candidate
+				break
+			}
+		}
+		if event.ID == 0 {
+			t.Fatalf("events = %+v, want notification event %d", events, result.LifecycleEventID)
+		}
+		var payload struct {
+			FinalConclusion temporalpkg.DiagnosisRoomFinalConclusion `json:"final_conclusion"`
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatalf("notification event payload: %v", err)
+		}
+		if payload.FinalConclusion.Status != "available" ||
+			payload.FinalConclusion.Content != turnReq.AssistantMessage ||
+			payload.FinalConclusion.Confidence != "high" ||
+			payload.FinalConclusion.RequiresHumanReview == nil ||
+			!*payload.FinalConclusion.RequiresHumanReview {
+			t.Fatalf("notification final conclusion = %+v raw=%s", payload.FinalConclusion, event.Payload)
 		}
 		return nil
 	})
@@ -806,6 +2012,27 @@ func validPersistDiagnosisTurnInput(taskID domain.DiagnosisTaskID, sessionID str
 		ContainerStartedAt:  startedAt.Add(time.Minute),
 		ContainerFinishedAt: startedAt.Add(time.Minute + time.Second),
 		RawOutput:           rawOutput,
+	}
+}
+
+func mustPublicBaseURL(t *testing.T) *url.URL {
+	t.Helper()
+	parsed, err := url.Parse("https://openclarion.example.test/ops")
+	if err != nil {
+		t.Fatalf("parse public base URL: %v", err)
+	}
+	return parsed
+}
+
+func assertSubstringsInOrder(t *testing.T, value, first, second string) {
+	t.Helper()
+	firstIndex := strings.Index(value, first)
+	secondIndex := strings.Index(value, second)
+	if firstIndex < 0 || secondIndex < 0 {
+		t.Fatalf("value is missing ordered substrings %q then %q: %s", first, second, value)
+	}
+	if firstIndex >= secondIndex {
+		t.Fatalf("substring %q index %d must be before %q index %d: %s", first, firstIndex, second, secondIndex, value)
 	}
 }
 

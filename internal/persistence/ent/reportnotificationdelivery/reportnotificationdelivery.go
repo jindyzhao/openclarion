@@ -16,6 +16,8 @@ const (
 	FieldID = "id"
 	// FieldFinalReportID holds the string denoting the final_report_id field in the database.
 	FieldFinalReportID = "final_report_id"
+	// FieldReportNotificationChannelProfileID holds the string denoting the report_notification_channel_profile_id field in the database.
+	FieldReportNotificationChannelProfileID = "report_notification_channel_profile_id"
 	// FieldIdempotencyKey holds the string denoting the idempotency_key field in the database.
 	FieldIdempotencyKey = "idempotency_key"
 	// FieldProviderMessageID holds the string denoting the provider_message_id field in the database.
@@ -51,6 +53,7 @@ const (
 var Columns = []string{
 	FieldID,
 	FieldFinalReportID,
+	FieldReportNotificationChannelProfileID,
 	FieldIdempotencyKey,
 	FieldProviderMessageID,
 	FieldProviderStatus,
@@ -104,6 +107,11 @@ func ByID(opts ...sql.OrderTermOption) OrderOption {
 // ByFinalReportID orders the results by the final_report_id field.
 func ByFinalReportID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldFinalReportID, opts...).ToFunc()
+}
+
+// ByReportNotificationChannelProfileID orders the results by the report_notification_channel_profile_id field.
+func ByReportNotificationChannelProfileID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldReportNotificationChannelProfileID, opts...).ToFunc()
 }
 
 // ByIdempotencyKey orders the results by the idempotency_key field.

@@ -14,9 +14,53 @@ require_tool() {
   }
 }
 
+fail() {
+  echo "[sandbox-m4-runtime-smoke-artifacts] $1" >&2
+  exit 2
+}
+
+validate_single_line() {
+  local label="$1"
+  local value="$2"
+  if [[ -z "$value" || "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+    fail "$label must be a non-empty single-line value"
+  fi
+}
+
+validate_ignored_repo_output_dir() {
+  local label="$1"
+  local path="$2"
+  local path_abs=""
+  local rel=""
+  local tracked=""
+
+  validate_single_line "$label" "$path"
+  if ! path_abs="$(realpath -m -- "$path")"; then
+    fail "$label path must be resolvable"
+  fi
+
+  case "$path_abs" in
+    "$ROOT_DIR"/*|"$ROOT_DIR")
+      rel="${path_abs#"$ROOT_DIR"/}"
+      if ! git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        fail "$label repo-local output requires git ignore verification"
+      fi
+      tracked="$(git -C "$ROOT_DIR" ls-files -- "$rel" "$rel/" 2>/dev/null || true)"
+      if [[ -n "$tracked" ]]; then
+        fail "$label repo-local output must not overlap tracked files"
+      fi
+      if ! git -C "$ROOT_DIR" check-ignore -q -- "$rel"; then
+        fail "$label repo-local output must be ignored by git"
+      fi
+      ;;
+  esac
+}
+
 require_tool docker
+require_tool git
 require_tool go
 require_tool make
+require_tool realpath
 
 artifacts_dir="${OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR:-}"
 runtime_image="${OPENCLARION_AGENT_RUNTIME_IMAGE:-}"
@@ -49,6 +93,8 @@ if [[ ! "$runtime_image" =~ ^[^[:space:]@]+@sha256:[a-f0-9]{64}$ ]]; then
   echo "[sandbox-m4-runtime-smoke-artifacts] OPENCLARION_AGENT_RUNTIME_IMAGE must be pinned by lowercase sha256 digest: $runtime_image" >&2
   exit 2
 fi
+
+validate_ignored_repo_output_dir "OPENCLARION_M4_RUNTIME_SMOKE_ARTIFACTS_DIR" "$artifacts_dir"
 
 if [[ -e "$artifacts_dir" ]]; then
   if [[ -L "$artifacts_dir" || ! -d "$artifacts_dir" ]]; then

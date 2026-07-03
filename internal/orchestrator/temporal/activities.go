@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/llmretry"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 	"github.com/openclarion/openclarion/internal/usecases/reportdraft"
+	"github.com/openclarion/openclarion/internal/usecases/reportnotification"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 )
 
@@ -29,6 +31,7 @@ type Activities struct {
 	containerNetwork             ports.ContainerNetworkPolicy
 	alertSourceProviders         *alertsourceprovider.Builder
 	reportPolicyReplayer         reportPolicyReplayer
+	publicBaseURL                *url.URL
 }
 
 // ActivityOption configures optional dependencies for activity handlers.
@@ -100,6 +103,14 @@ func WithAlertSourceProviderBuilder(builder *alertsourceprovider.Builder) Activi
 	}
 }
 
+// WithPublicBaseURL injects the externally reachable browser base URL used in
+// operator-facing notification links.
+func WithPublicBaseURL(baseURL *url.URL) ActivityOption {
+	return func(a *Activities) {
+		a.publicBaseURL = clonePublicBaseURL(baseURL)
+	}
+}
+
 // NewActivities constructs the activity handler set for a worker.
 func NewActivities(uowFactory ports.UnitOfWorkFactory, opts ...ActivityOption) *Activities {
 	activities := &Activities{uowFactory: uowFactory}
@@ -107,6 +118,14 @@ func NewActivities(uowFactory ports.UnitOfWorkFactory, opts ...ActivityOption) *
 		opt(activities)
 	}
 	return activities
+}
+
+func clonePublicBaseURL(baseURL *url.URL) *url.URL {
+	if baseURL == nil {
+		return nil
+	}
+	clone := *baseURL
+	return &clone
 }
 
 // StartDiagnosisTask verifies that the workflow input's TaskID is
@@ -419,135 +438,31 @@ func (a *Activities) SendReportNotification(ctx context.Context, req ReportNotif
 		return ReportNotificationResult{}, temporalsdk.NewNonRetryableApplicationError(
 			"send-report-notification: report_notification_channel_profile_id must be >= 0", errTypeInvalidInput, nil)
 	}
-	imProvider, err := a.reportNotificationProvider(ctx, domain.NotificationChannelProfileID(req.ReportNotificationChannelProfileID))
-	if err != nil {
-		return ReportNotificationResult{}, err
-	}
 
-	report, err := a.loadFinalReportForNotification(ctx, domain.FinalReportID(req.FinalReportID))
+	service, err := reportnotification.NewService(
+		a.uowFactory,
+		reportnotification.WithIMProvider(a.imProvider),
+		reportnotification.WithNotificationChannelProviderResolver(a.notificationProviderResolver),
+	)
 	if err != nil {
-		return ReportNotificationResult{}, mapActivityError(err, "send-report-notification load report")
+		return ReportNotificationResult{}, mapActivityError(err, "send-report-notification service")
 	}
-	notification := ports.IMNotification{
-		IdempotencyKey: reportNotificationIdempotencyKey(report.ID),
-		FinalReportID:  int64(report.ID),
-		CorrelationKey: report.CorrelationKey,
-		Title:          report.Title,
-		Body:           report.NotificationText,
-		Severity:       string(report.Severity),
-	}
-	deliveryLog, err := a.ensureNotificationDelivery(ctx, report.ID, notification.IdempotencyKey)
+	result, err := service.Send(ctx, reportnotification.Request{
+		FinalReportID:                      domain.FinalReportID(req.FinalReportID),
+		ReportNotificationChannelProfileID: domain.NotificationChannelProfileID(req.ReportNotificationChannelProfileID),
+	})
 	if err != nil {
-		return ReportNotificationResult{}, mapActivityError(err, "send-report-notification prepare delivery")
-	}
-	if deliveryLog.Status == domain.ReportNotificationDeliveryStatusDelivered {
-		return reportNotificationResultFromDelivery(deliveryLog), nil
-	}
-
-	delivery, err := imProvider.SendNotification(ctx, notification)
-	if err != nil {
-		if persistErr := a.markNotificationDeliveryFailed(ctx, deliveryLog, err); persistErr != nil {
-			return ReportNotificationResult{}, fmt.Errorf(
-				"send-report-notification persist failure after provider error: %w", persistErr)
+		if errors.Is(err, domain.ErrInvariantViolation) {
+			return ReportNotificationResult{}, mapActivityError(err, "send-report-notification")
 		}
 		return ReportNotificationResult{}, mapNotificationError(err)
 	}
-	delivered, err := deliveryLog.MarkDelivered(
-		truncateString(delivery.ProviderMessageID, 256),
-		truncateString(delivery.Status, 64),
-		defaultJSONObject(delivery.Raw),
-		time.Now(),
-	)
-	if err != nil {
-		return ReportNotificationResult{}, mapActivityError(err, "send-report-notification build delivered delivery")
-	}
-	saved, err := a.updateNotificationDelivery(ctx, delivered)
-	if err != nil {
-		return ReportNotificationResult{}, mapActivityError(err, "send-report-notification persist delivered delivery")
-	}
-	return reportNotificationResultFromDelivery(saved), nil
-}
-
-func (a *Activities) reportNotificationProvider(ctx context.Context, channelProfileID domain.NotificationChannelProfileID) (ports.IMProvider, error) {
-	if channelProfileID == 0 {
-		if a.imProvider == nil {
-			return nil, temporalsdk.NewNonRetryableApplicationError(
-				"send-report-notification: im provider is not configured", errTypeInvalidInput, nil)
-		}
-		return a.imProvider, nil
-	}
-	if a.notificationProviderResolver == nil {
-		return nil, temporalsdk.NewNonRetryableApplicationError(
-			"send-report-notification: notification channel provider resolver is not configured", errTypeInvalidInput, nil)
-	}
-	provider, err := a.notificationProviderResolver.ResolveReportNotificationProvider(ctx, channelProfileID)
-	if err != nil {
-		return nil, mapActivityError(err, "send-report-notification resolve notification channel")
-	}
-	if provider == nil {
-		return nil, temporalsdk.NewNonRetryableApplicationError(
-			"send-report-notification: notification channel provider resolver returned nil provider", errTypeInvalidInput, nil)
-	}
-	return provider, nil
-}
-
-func (a *Activities) loadFinalReportForNotification(ctx context.Context, id domain.FinalReportID) (domain.FinalReport, error) {
-	var report domain.FinalReport
-	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
-		got, err := uow.Reports().FindFinalReportByID(ctx, id)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				return fmt.Errorf("final report %d not found: %w", id, domain.ErrInvariantViolation)
-			}
-			return err
-		}
-		report = got
-		return nil
-	})
-	return report, err
-}
-
-func (a *Activities) ensureNotificationDelivery(ctx context.Context, finalReportID domain.FinalReportID, idempotencyKey string) (domain.ReportNotificationDelivery, error) {
-	existing, found, err := a.lookupNotificationDelivery(ctx, idempotencyKey)
-	if err != nil {
-		return domain.ReportNotificationDelivery{}, err
-	}
-	if found {
-		return existing, nil
-	}
-	pending, err := domain.NewReportNotificationDelivery(finalReportID, idempotencyKey)
-	if err != nil {
-		return domain.ReportNotificationDelivery{}, err
-	}
-	saved, err := a.saveNotificationDelivery(ctx, pending)
-	if err == nil {
-		return saved, nil
-	}
-	if !errors.Is(err, domain.ErrAlreadyExists) {
-		return domain.ReportNotificationDelivery{}, err
-	}
-	existing, found, err = a.lookupNotificationDelivery(ctx, idempotencyKey)
-	if err != nil {
-		return domain.ReportNotificationDelivery{}, err
-	}
-	if !found {
-		return domain.ReportNotificationDelivery{}, fmt.Errorf(
-			"notification delivery duplicate re-fetch missing for idempotency_key %q",
-			idempotencyKey)
-	}
-	return existing, nil
-}
-
-func (a *Activities) markNotificationDeliveryFailed(ctx context.Context, delivery domain.ReportNotificationDelivery, providerErr error) error {
-	failed, err := delivery.MarkFailed(
-		truncateString(providerErr.Error(), 2000),
-		notificationFailureRaw(providerErr),
-	)
-	if err != nil {
-		return err
-	}
-	_, err = a.updateNotificationDelivery(ctx, failed)
-	return err
+	return ReportNotificationResult{
+		FinalReportID:              int64(result.FinalReportID),
+		NotificationIdempotencyKey: result.NotificationIdempotencyKey,
+		ProviderMessageID:          result.ProviderMessageID,
+		Status:                     result.Status,
+	}, nil
 }
 
 func (a *Activities) buildSubReportRequest(ctx context.Context, snapshotID domain.EvidenceSnapshotID, scenario reportprompt.Scenario, groupIndex int) (domain.EvidenceSnapshot, ports.LLMRequest, error) {
@@ -665,52 +580,6 @@ func (a *Activities) saveFinalReport(ctx context.Context, report domain.FinalRep
 	return id, err
 }
 
-func (a *Activities) lookupNotificationDelivery(ctx context.Context, idempotencyKey string) (domain.ReportNotificationDelivery, bool, error) {
-	var (
-		delivery domain.ReportNotificationDelivery
-		found    bool
-	)
-	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
-		existing, err := uow.Reports().FindNotificationDeliveryByIdempotencyKey(ctx, idempotencyKey)
-		if err != nil {
-			if errors.Is(err, domain.ErrNotFound) {
-				return nil
-			}
-			return err
-		}
-		delivery = existing
-		found = true
-		return nil
-	})
-	return delivery, found, err
-}
-
-func (a *Activities) saveNotificationDelivery(ctx context.Context, delivery domain.ReportNotificationDelivery) (domain.ReportNotificationDelivery, error) {
-	var saved domain.ReportNotificationDelivery
-	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
-		got, err := uow.Reports().SaveNotificationDelivery(ctx, delivery)
-		if err != nil {
-			return err
-		}
-		saved = got
-		return nil
-	})
-	return saved, err
-}
-
-func (a *Activities) updateNotificationDelivery(ctx context.Context, delivery domain.ReportNotificationDelivery) (domain.ReportNotificationDelivery, error) {
-	var saved domain.ReportNotificationDelivery
-	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
-		got, err := uow.Reports().UpdateNotificationDelivery(ctx, delivery)
-		if err != nil {
-			return err
-		}
-		saved = got
-		return nil
-	})
-	return saved, err
-}
-
 func subReportDomainFromDraft(snapshotID domain.EvidenceSnapshotID, idempotencyKey string, scenario reportprompt.Scenario, draft reportdraft.SubReport, result llmretry.Result) (domain.SubReport, error) {
 	findings, err := marshalRaw("subreport findings", draft.Findings)
 	if err != nil {
@@ -788,44 +657,6 @@ func subReportIDsFromWorkflow(ids []int64) ([]domain.SubReportID, error) {
 
 func finalReportIdempotencyKey(correlationKey string) string {
 	return "final_report:" + correlationKey
-}
-
-func reportNotificationIdempotencyKey(id domain.FinalReportID) string {
-	return fmt.Sprintf("final_report:%d/notification", id)
-}
-
-func reportNotificationResultFromDelivery(delivery domain.ReportNotificationDelivery) ReportNotificationResult {
-	status := delivery.ProviderStatus
-	if status == "" {
-		status = string(delivery.Status)
-	}
-	return ReportNotificationResult{
-		FinalReportID:              int64(delivery.FinalReportID),
-		NotificationIdempotencyKey: delivery.IdempotencyKey,
-		ProviderMessageID:          delivery.ProviderMessageID,
-		Status:                     status,
-	}
-}
-
-func notificationFailureRaw(err error) json.RawMessage {
-	payload := struct {
-		Error      string `json:"error"`
-		Retryable  *bool  `json:"retryable,omitempty"`
-		StatusCode int    `json:"status_code,omitempty"`
-	}{
-		Error: err.Error(),
-	}
-	var imErr *ports.IMError
-	if errors.As(err, &imErr) {
-		retryable := imErr.Retryable
-		payload.Retryable = &retryable
-		payload.StatusCode = imErr.StatusCode
-	}
-	raw, marshalErr := json.Marshal(payload)
-	if marshalErr != nil {
-		return json.RawMessage(`{}`)
-	}
-	return raw
 }
 
 func defaultJSONObject(raw json.RawMessage) json.RawMessage {

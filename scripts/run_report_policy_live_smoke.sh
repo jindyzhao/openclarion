@@ -7,9 +7,21 @@
 # policy's configured alert source provider.
 
 set -euo pipefail
+umask 077
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+
+env_truthy() {
+  case "${1:-}" in
+    1 | true | TRUE | yes | YES)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
 
 missing=()
 require_env() {
@@ -85,6 +97,18 @@ echo "[report-policy-live-smoke] running policy-driven report replay and waiting
 go run ./scripts/manual_evidence_readiness --target report-policy-live-smoke --require-ready >/dev/null
 go run ./cmd/openclarion "${args[@]}" >"$output"
 
-go run ./scripts/report_live_smoke_output "$output"
+if env_truthy "${REPORT_LIVE_SMOKE_REQUIRE_AI_REVIEW:-}"; then
+  ai_review_wait_timeout="${REPORT_LIVE_SMOKE_AI_REVIEW_WAIT_TIMEOUT:-10m}"
+  ai_review_poll_interval="${REPORT_LIVE_SMOKE_AI_REVIEW_POLL_INTERVAL:-5s}"
+  echo "[report-policy-live-smoke] enriching report proof with diagnosis-room AI review evidence..." >&2
+  go run ./scripts/report_ai_review_proof \
+    --input "$output" \
+    --output "$output" \
+    --wait-timeout "$ai_review_wait_timeout" \
+    --poll-interval "$ai_review_poll_interval"
+  go run ./scripts/report_live_smoke_output --require-ai-review "$output"
+else
+  go run ./scripts/report_live_smoke_output "$output"
+fi
 
 echo "[report-policy-live-smoke] OK - live smoke output: $output" >&2

@@ -137,6 +137,9 @@ func diagnosisRoomWorkflowInputFromStartRequest(req ports.DiagnosisRoomStartRequ
 	if req.EvidenceSnapshotID == 0 {
 		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("diagnosis-room starter: evidence_snapshot_id must be non-zero: %w", domain.ErrInvariantViolation)
 	}
+	if req.CloseNotificationChannelProfileID < 0 {
+		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("diagnosis-room starter: close_notification_channel_profile_id must be non-negative: %w", domain.ErrInvariantViolation)
+	}
 	ownerSubject := strings.TrimSpace(req.OwnerSubject)
 	if ownerSubject == "" {
 		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("diagnosis-room starter: owner subject must be non-empty: %w", domain.ErrInvariantViolation)
@@ -148,12 +151,41 @@ func diagnosisRoomWorkflowInputFromStartRequest(req ports.DiagnosisRoomStartRequ
 	if err != nil {
 		return DiagnosisRoomWorkflowInput{}, "", err
 	}
+	initialTurn, err := diagnosisRoomInitialTurnFromStartRequest(req.InitialTurn)
+	if err != nil {
+		return DiagnosisRoomWorkflowInput{}, "", err
+	}
 	return DiagnosisRoomWorkflowInput{
-		SessionID:          sessionID,
-		EvidenceSnapshotID: int64(req.EvidenceSnapshotID),
-		OwnerSubject:       ownerSubject,
-		Evidence:           append(json.RawMessage(nil), req.Evidence...),
+		SessionID:                         sessionID,
+		EvidenceSnapshotID:                int64(req.EvidenceSnapshotID),
+		OwnerSubject:                      ownerSubject,
+		Evidence:                          append(json.RawMessage(nil), req.Evidence...),
+		CloseNotificationChannelProfileID: int64(req.CloseNotificationChannelProfileID),
+		InitialTurn:                       initialTurn,
 	}, workflowID, nil
+}
+
+func diagnosisRoomInitialTurnFromStartRequest(req *ports.DiagnosisRoomInitialTurnRequest) (*SubmitDiagnosisTurnRequest, error) {
+	if req == nil {
+		return nil, nil
+	}
+	messageID := strings.TrimSpace(req.MessageID)
+	if messageID == "" {
+		return nil, fmt.Errorf("diagnosis-room starter: initial turn message_id must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	actorSubject := strings.TrimSpace(req.ActorSubject)
+	if actorSubject == "" {
+		return nil, fmt.Errorf("diagnosis-room starter: initial turn actor_subject must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	message := strings.TrimSpace(req.Message)
+	if message == "" {
+		return nil, fmt.Errorf("diagnosis-room starter: initial turn message must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	return &SubmitDiagnosisTurnRequest{
+		MessageID:    messageID,
+		ActorSubject: actorSubject,
+		Message:      message,
+	}, nil
 }
 
 func (s *DiagnosisRoomStarter) waitReady(ctx context.Context, workflowID, runID string) (DiagnosisRoomWorkflowState, error) {

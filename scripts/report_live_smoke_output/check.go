@@ -4,6 +4,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +22,9 @@ const (
 	maxProofCorrelationKeyBytes          = 256
 	maxProofProviderMessageIDBytes       = 512
 	maxProofNotificationKeyBytes         = 256
+	maxProofSessionIDBytes               = 128
+	maxProofReviewSourceBytes            = 128
+	maxProofReviewReasonBytes            = 512
 )
 
 type smokeOutput struct {
@@ -33,6 +37,7 @@ type smokeOutput struct {
 	WorkflowResult *workflowResult `json:"workflow_result"`
 	Stats          replayStats     `json:"stats"`
 	Snapshots      []snapshotRef   `json:"snapshots"`
+	AIReview       *aiReviewProof  `json:"ai_review,omitempty"`
 }
 
 type workflowResult struct {
@@ -41,6 +46,77 @@ type workflowResult struct {
 	NotificationIdempotencyKey string  `json:"notification_idempotency_key"`
 	ProviderMessageID          string  `json:"provider_message_id"`
 	NotificationStatus         string  `json:"notification_status"`
+}
+
+type aiReviewProof struct {
+	Status             string                     `json:"status"`
+	ReviewedAt         string                     `json:"reviewed_at"`
+	FinalReportID      int64                      `json:"final_report_id"`
+	ReviewedSubReports []aiSubReportReview        `json:"reviewed_sub_reports"`
+	PendingSubReports  []aiPendingSubReportReview `json:"pending_sub_reports,omitempty"`
+}
+
+type aiSubReportReview struct {
+	SubReportID                       int64  `json:"sub_report_id"`
+	EvidenceSnapshotID                int64  `json:"evidence_snapshot_id"`
+	DiagnosisTaskID                   int64  `json:"diagnosis_task_id"`
+	SessionID                         string `json:"session_id"`
+	ChatSessionID                     int64  `json:"chat_session_id"`
+	ConclusionStatus                  string `json:"conclusion_status"`
+	ConclusionSource                  string `json:"conclusion_source"`
+	Confidence                        string `json:"confidence"`
+	RequiresHumanReview               *bool  `json:"requires_human_review"`
+	ConfidenceTimelineCount           int    `json:"confidence_timeline_count"`
+	EvidenceRequestCount              int    `json:"evidence_request_count"`
+	MissingEvidenceRequestCount       int    `json:"missing_evidence_request_count"`
+	EvidenceCollectionSuggestionCount int    `json:"evidence_collection_suggestion_count"`
+	EvidenceCollectionResultCount     int    `json:"evidence_collection_result_count"`
+	SupplementalEvidenceCount         int    `json:"supplemental_evidence_count"`
+	NotificationTimelineCount         int    `json:"notification_timeline_count"`
+}
+
+func (r aiSubReportReview) evidenceWorkCount() int {
+	return r.EvidenceRequestCount +
+		r.MissingEvidenceRequestCount +
+		r.EvidenceCollectionSuggestionCount +
+		r.EvidenceCollectionResultCount +
+		r.SupplementalEvidenceCount
+}
+
+type aiPendingSubReportReview struct {
+	SubReportID        int64                `json:"sub_report_id"`
+	EvidenceSnapshotID int64                `json:"evidence_snapshot_id"`
+	Reason             string               `json:"reason"`
+	TaskStates         []aiPendingTaskState `json:"task_states"`
+}
+
+type aiPendingTaskState struct {
+	DiagnosisTaskID                   int64  `json:"diagnosis_task_id"`
+	TaskStatus                        string `json:"task_status,omitempty"`
+	FailureReason                     string `json:"failure_reason,omitempty"`
+	LatestTurnStatus                  string `json:"latest_turn_status,omitempty"`
+	LatestConfidence                  string `json:"latest_confidence,omitempty"`
+	LatestRequiresHumanReview         *bool  `json:"latest_requires_human_review,omitempty"`
+	ConfidenceTimelineCount           int    `json:"confidence_timeline_count,omitempty"`
+	EvidenceRequestCount              int    `json:"evidence_request_count,omitempty"`
+	MissingEvidenceRequestCount       int    `json:"missing_evidence_request_count,omitempty"`
+	EvidenceCollectionSuggestionCount int    `json:"evidence_collection_suggestion_count,omitempty"`
+	EvidenceCollectionResultCount     int    `json:"evidence_collection_result_count,omitempty"`
+	SupplementalEvidenceCount         int    `json:"supplemental_evidence_count,omitempty"`
+	NotificationTimelineCount         int    `json:"notification_timeline_count,omitempty"`
+	FinalReadyEventCount              int    `json:"final_ready_event_count,omitempty"`
+	FailedEventCount                  int    `json:"failed_event_count,omitempty"`
+	ClosedEventCount                  int    `json:"closed_event_count,omitempty"`
+	LastEventKind                     string `json:"last_event_kind,omitempty"`
+	LastEventAt                       string `json:"last_event_at,omitempty"`
+}
+
+func (s aiPendingTaskState) evidenceWorkCount() int {
+	return s.EvidenceRequestCount +
+		s.MissingEvidenceRequestCount +
+		s.EvidenceCollectionSuggestionCount +
+		s.EvidenceCollectionResultCount +
+		s.SupplementalEvidenceCount
 }
 
 type proofRequest struct {
@@ -94,10 +170,11 @@ func main() {
 }
 
 func run(args []string) error {
-	if len(args) != 1 {
-		return fmt.Errorf("usage: report_live_smoke_output <output.json>")
+	cfg, err := parseArgs(args)
+	if err != nil {
+		return err
 	}
-	path := filepath.Clean(args[0])
+	path := filepath.Clean(cfg.path)
 	raw, err := readProofFile(path)
 	if err != nil {
 		return err
@@ -106,7 +183,27 @@ func run(args []string) error {
 	if err := strictjson.Unmarshal(raw, &out); err != nil {
 		return fmt.Errorf("decode JSON output: %w", err)
 	}
-	return validate(out)
+	return validate(out, cfg.requireAIReview)
+}
+
+type config struct {
+	path            string
+	requireAIReview bool
+}
+
+func parseArgs(args []string) (config, error) {
+	var cfg config
+	fs := flag.NewFlagSet("report_live_smoke_output", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.BoolVar(&cfg.requireAIReview, "require-ai-review", false, "require linked diagnosis-room AI review proof")
+	if err := fs.Parse(args); err != nil {
+		return config{}, err
+	}
+	if fs.NArg() != 1 {
+		return config{}, fmt.Errorf("usage: report_live_smoke_output [--require-ai-review] <output.json>")
+	}
+	cfg.path = fs.Arg(0)
+	return cfg, nil
 }
 
 func readProofFile(path string) ([]byte, error) {
@@ -145,7 +242,7 @@ func requireRegularFile(path string) error {
 	return nil
 }
 
-func validate(out smokeOutput) error {
+func validate(out smokeOutput, requireAIReview bool) error {
 	checkedAt, err := validateCheckedAt(out.CheckedAt)
 	if err != nil {
 		return err
@@ -212,26 +309,33 @@ func validate(out smokeOutput) error {
 	if err := validateNotificationStatus(out.WorkflowResult.NotificationStatus); err != nil {
 		return err
 	}
+	if err := validateAIReview(out.AIReview, *out.WorkflowResult, out.Snapshots, requireAIReview); err != nil {
+		return err
+	}
 	return nil
 }
 
 func validateCheckedAt(raw string) (time.Time, error) {
+	return validateCheckedAtField("checked_at", raw)
+}
+
+func validateCheckedAtField(field, raw string) (time.Time, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
-		return time.Time{}, fmt.Errorf("checked_at must be non-empty")
+		return time.Time{}, fmt.Errorf("%s must be non-empty", field)
 	}
 	if value != raw {
-		return time.Time{}, fmt.Errorf("checked_at must not contain leading or trailing whitespace")
+		return time.Time{}, fmt.Errorf("%s must not contain leading or trailing whitespace", field)
 	}
 	checkedAt, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("checked_at must be RFC3339: %w", err)
+		return time.Time{}, fmt.Errorf("%s must be RFC3339: %w", field, err)
 	}
 	if checkedAt.UTC().Format(time.RFC3339Nano) != value {
-		return time.Time{}, fmt.Errorf("checked_at must be canonical UTC RFC3339")
+		return time.Time{}, fmt.Errorf("%s must be canonical UTC RFC3339", field)
 	}
 	if checkedAt.After(nowUTC()) {
-		return time.Time{}, fmt.Errorf("checked_at must not be in the future")
+		return time.Time{}, fmt.Errorf("%s must not be in the future", field)
 	}
 	return checkedAt.UTC(), nil
 }
@@ -445,6 +549,237 @@ func validateNotificationStatus(status string) error {
 	}
 }
 
+func validateAIReview(review *aiReviewProof, result workflowResult, snapshots []snapshotRef, required bool) error {
+	if review == nil {
+		if required {
+			return fmt.Errorf("ai_review must be present when --require-ai-review is set")
+		}
+		return nil
+	}
+	status, err := validateRequiredCleanString("ai_review.status", review.Status)
+	if err != nil {
+		return err
+	}
+	switch status {
+	case "complete", "pending_evidence":
+	default:
+		return fmt.Errorf("ai_review.status = %q, want complete or pending_evidence", status)
+	}
+	if _, err := validateCheckedAtField("ai_review.reviewed_at", review.ReviewedAt); err != nil {
+		return err
+	}
+	if review.FinalReportID != result.FinalReportID {
+		return fmt.Errorf("ai_review.final_report_id must match workflow_result.final_report_id")
+	}
+	expectedSnapshots := make(map[int64]int64, len(result.SubReportIDs))
+	for i, subReportID := range result.SubReportIDs {
+		expectedSnapshots[subReportID] = snapshots[i].ID
+	}
+	if status == "complete" && len(review.PendingSubReports) != 0 {
+		return fmt.Errorf("ai_review.pending_sub_reports must be empty when status is complete")
+	}
+	if status == "complete" && len(review.ReviewedSubReports) != len(result.SubReportIDs) {
+		return fmt.Errorf("ai_review.reviewed_sub_reports length must match workflow_result.sub_report_ids length when status is complete")
+	}
+	if status == "pending_evidence" && len(review.PendingSubReports) == 0 {
+		return fmt.Errorf("ai_review.pending_sub_reports must be non-empty when status is pending_evidence")
+	}
+	if len(review.ReviewedSubReports)+len(review.PendingSubReports) != len(result.SubReportIDs) {
+		return fmt.Errorf("ai_review reviewed and pending subreport count must match workflow_result.sub_report_ids length")
+	}
+	seen := make(map[int64]struct{}, len(result.SubReportIDs))
+	for i, item := range review.ReviewedSubReports {
+		expectedSnapshot, ok := expectedSnapshots[item.SubReportID]
+		if !ok {
+			return fmt.Errorf("ai_review.reviewed_sub_reports[%d].sub_report_id is not in workflow_result.sub_report_ids", i)
+		}
+		if _, ok := seen[item.SubReportID]; ok {
+			return fmt.Errorf("ai_review.reviewed_sub_reports[%d].sub_report_id duplicates id %d", i, item.SubReportID)
+		}
+		if err := validateAISubReportReview(i, item, expectedSnapshot); err != nil {
+			return err
+		}
+		seen[item.SubReportID] = struct{}{}
+	}
+	for i, item := range review.PendingSubReports {
+		expectedSnapshot, ok := expectedSnapshots[item.SubReportID]
+		if !ok {
+			return fmt.Errorf("ai_review.pending_sub_reports[%d].sub_report_id is not in workflow_result.sub_report_ids", i)
+		}
+		if _, ok := seen[item.SubReportID]; ok {
+			return fmt.Errorf("ai_review.pending_sub_reports[%d].sub_report_id duplicates id %d", i, item.SubReportID)
+		}
+		if err := validateAIPendingSubReportReview(i, item, expectedSnapshot); err != nil {
+			return err
+		}
+		seen[item.SubReportID] = struct{}{}
+	}
+	return nil
+}
+
+func validateAISubReportReview(index int, review aiSubReportReview, evidenceSnapshotID int64) error {
+	field := func(name string) string {
+		return fmt.Sprintf("ai_review.reviewed_sub_reports[%d].%s", index, name)
+	}
+	if review.EvidenceSnapshotID != evidenceSnapshotID {
+		return fmt.Errorf("%s must match the workflow snapshot for sub_report_id %d", field("evidence_snapshot_id"), review.SubReportID)
+	}
+	if review.DiagnosisTaskID <= 0 {
+		return fmt.Errorf("%s must be > 0", field("diagnosis_task_id"))
+	}
+	if _, err := validateProofID(field("session_id"), review.SessionID, maxProofSessionIDBytes); err != nil {
+		return err
+	}
+	if review.ChatSessionID <= 0 {
+		return fmt.Errorf("%s must be > 0", field("chat_session_id"))
+	}
+	status, err := validateRequiredCleanString(field("conclusion_status"), review.ConclusionStatus)
+	if err != nil {
+		return err
+	}
+	if status != "available" {
+		return fmt.Errorf("%s = %q, want available", field("conclusion_status"), status)
+	}
+	if _, err := validateRequiredBoundedCleanString(field("conclusion_source"), review.ConclusionSource, maxProofReviewSourceBytes); err != nil {
+		return err
+	}
+	confidence, err := validateRequiredCleanString(field("confidence"), review.Confidence)
+	if err != nil {
+		return err
+	}
+	switch confidence {
+	case "low", "medium", "high":
+	default:
+		return fmt.Errorf("%s = %q, want low, medium, or high", field("confidence"), confidence)
+	}
+	if review.RequiresHumanReview == nil {
+		return fmt.Errorf("%s must be present", field("requires_human_review"))
+	}
+	if review.ConfidenceTimelineCount <= 0 {
+		return fmt.Errorf("%s must be > 0", field("confidence_timeline_count"))
+	}
+	if review.EvidenceRequestCount < 0 ||
+		review.MissingEvidenceRequestCount < 0 ||
+		review.EvidenceCollectionSuggestionCount < 0 ||
+		review.EvidenceCollectionResultCount < 0 ||
+		review.SupplementalEvidenceCount < 0 ||
+		review.NotificationTimelineCount < 0 {
+		return fmt.Errorf("%s counts must be non-negative", field("evidence"))
+	}
+	if review.evidenceWorkCount() == 0 {
+		return fmt.Errorf("%s must include at least one evidence guidance, collection result, or supplemental evidence item", field("evidence"))
+	}
+	return nil
+}
+
+func validateAIPendingSubReportReview(index int, review aiPendingSubReportReview, evidenceSnapshotID int64) error {
+	field := func(name string) string {
+		return fmt.Sprintf("ai_review.pending_sub_reports[%d].%s", index, name)
+	}
+	if review.EvidenceSnapshotID != evidenceSnapshotID {
+		return fmt.Errorf("%s must match the workflow snapshot for sub_report_id %d", field("evidence_snapshot_id"), review.SubReportID)
+	}
+	if _, err := validateRequiredBoundedCleanString(field("reason"), review.Reason, maxProofReviewReasonBytes); err != nil {
+		return err
+	}
+	if len(review.TaskStates) == 0 {
+		return fmt.Errorf("%s must be non-empty", field("task_states"))
+	}
+	for i, state := range review.TaskStates {
+		if err := validateAIPendingTaskState(fmt.Sprintf("%s[%d]", field("task_states"), i), state); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAIPendingTaskState(field string, state aiPendingTaskState) error {
+	if state.DiagnosisTaskID <= 0 {
+		return fmt.Errorf("%s.diagnosis_task_id must be > 0", field)
+	}
+	taskStatus, err := validateRequiredCleanString(field+".task_status", state.TaskStatus)
+	if err != nil {
+		return err
+	}
+	if taskStatus == "failed" {
+		if _, err := validateRequiredBoundedCleanString(field+".failure_reason", state.FailureReason, maxProofReviewReasonBytes); err != nil {
+			return err
+		}
+		if state.FailedEventCount <= 0 {
+			return fmt.Errorf("%s.failed_event_count must be > 0 when task_status is failed", field)
+		}
+		if state.ClosedEventCount < 0 ||
+			state.ConfidenceTimelineCount < 0 ||
+			state.EvidenceRequestCount < 0 ||
+			state.MissingEvidenceRequestCount < 0 ||
+			state.EvidenceCollectionSuggestionCount < 0 ||
+			state.EvidenceCollectionResultCount < 0 ||
+			state.SupplementalEvidenceCount < 0 ||
+			state.NotificationTimelineCount < 0 ||
+			state.FinalReadyEventCount < 0 {
+			return fmt.Errorf("%s counts must be non-negative", field)
+		}
+		if _, err := validateRequiredCleanString(field+".last_event_kind", state.LastEventKind); err != nil {
+			return err
+		}
+		if _, err := validateCheckedAtField(field+".last_event_at", state.LastEventAt); err != nil {
+			return err
+		}
+		return nil
+	}
+	status, err := validateRequiredCleanString(field+".latest_turn_status", state.LatestTurnStatus)
+	if err != nil {
+		return err
+	}
+	switch status {
+	case "investigating", "needs_evidence", "ready_for_review":
+	default:
+		return fmt.Errorf("%s.latest_turn_status = %q, want investigating, needs_evidence, or ready_for_review", field, status)
+	}
+	confidence, err := validateRequiredCleanString(field+".latest_confidence", state.LatestConfidence)
+	if err != nil {
+		return err
+	}
+	switch confidence {
+	case "low", "medium", "high":
+	default:
+		return fmt.Errorf("%s.latest_confidence = %q, want low, medium, or high", field, confidence)
+	}
+	if state.LatestRequiresHumanReview == nil {
+		return fmt.Errorf("%s.latest_requires_human_review must be present", field)
+	}
+	if state.ConfidenceTimelineCount <= 0 {
+		return fmt.Errorf("%s.confidence_timeline_count must be > 0", field)
+	}
+	if state.EvidenceRequestCount < 0 ||
+		state.MissingEvidenceRequestCount < 0 ||
+		state.EvidenceCollectionSuggestionCount < 0 ||
+		state.EvidenceCollectionResultCount < 0 ||
+		state.SupplementalEvidenceCount < 0 ||
+		state.NotificationTimelineCount < 0 ||
+		state.FinalReadyEventCount < 0 ||
+		state.FailedEventCount < 0 ||
+		state.ClosedEventCount < 0 {
+		return fmt.Errorf("%s counts must be non-negative", field)
+	}
+	if state.evidenceWorkCount() == 0 {
+		return fmt.Errorf("%s must include at least one evidence guidance, collection result, or supplemental evidence item", field)
+	}
+	if state.NotificationTimelineCount == 0 {
+		return fmt.Errorf("%s.notification_timeline_count must be > 0", field)
+	}
+	if state.FinalReadyEventCount != 0 || state.ClosedEventCount != 0 {
+		return fmt.Errorf("%s must not include final-ready or closed events while pending evidence", field)
+	}
+	if _, err := validateRequiredCleanString(field+".last_event_kind", state.LastEventKind); err != nil {
+		return err
+	}
+	if _, err := validateCheckedAtField(field+".last_event_at", state.LastEventAt); err != nil {
+		return err
+	}
+	return nil
+}
+
 func validateStats(stats replayStats, snapshots []snapshotRef, requestLimit int) error {
 	if stats.Ingested.Total <= 0 {
 		return fmt.Errorf("stats.ingested.total must be > 0")
@@ -493,8 +828,8 @@ func validateStats(stats replayStats, snapshots []snapshotRef, requestLimit int)
 	for _, snapshot := range snapshots {
 		eventTotal += snapshot.EventCount
 	}
-	if eventTotal != stats.EventsLoaded {
-		return fmt.Errorf("stats.events_loaded must equal sum of snapshot event_count")
+	if eventTotal > stats.EventsLoaded {
+		return fmt.Errorf("sum of snapshot event_count must be <= stats.events_loaded")
 	}
 	return nil
 }

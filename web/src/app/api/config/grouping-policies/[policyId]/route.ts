@@ -1,5 +1,6 @@
 import { replaceGroupingPolicy } from "@/features/settings/grouping-policies/api";
 import type { GroupingPolicyWriteRequest } from "@/features/settings/grouping-policies/types";
+import { authorizedBackendResultResponse } from "@/lib/api/protected-route";
 import { apiResultResponse, parsePositiveIntegerRouteParam, readRequestJSON } from "@/lib/api/route";
 
 type RouteContext = {
@@ -19,5 +20,7 @@ export async function PUT(request: Request, context: RouteContext) {
   if (!body.ok) {
     return apiResultResponse(body);
   }
-  return apiResultResponse(await replaceGroupingPolicy(parsedID.data, body.data));
+  return authorizedBackendResultResponse(request, (headers) =>
+    replaceGroupingPolicy(parsedID.data, body.data, { headers }),
+  );
 }

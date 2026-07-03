@@ -21,6 +21,12 @@ func makeEvent(id int64, labels map[string]string, startsAt time.Time) domain.Al
 	}
 }
 
+func makeProfileEvent(id int64, profileID domain.AlertSourceProfileID, labels map[string]string, startsAt time.Time) domain.AlertEvent {
+	event := makeEvent(id, labels, startsAt)
+	event.AlertSourceProfileID = profileID
+	return event
+}
+
 // base time for tests.
 var t0 = time.Date(2026, 5, 26, 10, 0, 0, 0, time.UTC)
 
@@ -76,6 +82,30 @@ func TestGroupEvents_DifferentKeySplits(t *testing.T) {
 	dims1 := parseDimensions(t, groups[1].Dimensions)
 	if dims0["alertname"] == dims1["alertname"] {
 		t.Errorf("groups should have different alertnames, both have %q", dims0["alertname"])
+	}
+}
+
+func TestGroupEvents_SourceProfilesSplitIdenticalDimensions(t *testing.T) {
+	labels := map[string]string{"alertname": "HighCPU", "severity": "warning"}
+	events := []domain.AlertEvent{
+		makeProfileEvent(1, 1, labels, t0),
+		makeProfileEvent(2, 2, labels, t0),
+	}
+
+	groups, err := GroupEvents(events, DefaultConfig())
+	if err != nil {
+		t.Fatalf("GroupEvents: %v", err)
+	}
+	if len(groups) != 2 {
+		t.Fatalf("groups = %d, want 2", len(groups))
+	}
+	dims0 := parseDimensions(t, groups[0].Dimensions)
+	dims1 := parseDimensions(t, groups[1].Dimensions)
+	if dims0[alertSourceProfileDimensionKey] == dims1[alertSourceProfileDimensionKey] {
+		t.Fatalf("source profile dimensions = %q and %q, want distinct", dims0[alertSourceProfileDimensionKey], dims1[alertSourceProfileDimensionKey])
+	}
+	if groups[0].GroupKey == groups[1].GroupKey {
+		t.Fatalf("group keys must differ across source profiles: %s", groups[0].GroupKey)
 	}
 }
 

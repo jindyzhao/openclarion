@@ -241,7 +241,7 @@ func (p *Provider) post(ctx context.Context, body chatCompletionRequest, idempot
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("openai llm: post chat completion: %w", err)
+		return fmt.Errorf("openai llm: post chat completion: %w", redactHTTPClientError(err))
 	}
 	defer resp.Body.Close()
 
@@ -252,6 +252,30 @@ func (p *Provider) post(ctx context.Context, body chatCompletionRequest, idempot
 		return fmt.Errorf("openai llm: decode response: %w", err)
 	}
 	return nil
+}
+
+func redactHTTPClientError(err error) error {
+	if err == nil {
+		return nil
+	}
+	op := ""
+	for {
+		var urlErr *url.Error
+		if !errors.As(err, &urlErr) {
+			break
+		}
+		if op == "" {
+			op = urlErr.Op
+		}
+		if urlErr.Err == nil {
+			break
+		}
+		err = urlErr.Err
+	}
+	if op != "" {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	return err
 }
 
 func apiStatusError(resp *http.Response) error {

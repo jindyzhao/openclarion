@@ -1,4 +1,8 @@
-import { requestJSON, type ApiResult } from "@/lib/api/client";
+import {
+  requestJSON,
+  type ApiResult,
+  type RequestJSONOptions,
+} from "@/lib/api/client";
 
 import type {
   GroupingPolicy,
@@ -7,35 +11,51 @@ import type {
   GroupingPolicyWriteRequest
 } from "./types";
 
-export async function fetchGroupingPolicies(): Promise<ApiResult<GroupingPolicyListResponse>> {
-  return requestJSON<GroupingPolicyListResponse>("/api/v1/config/grouping-policies?limit=100");
+type BackendRequestOptions = Pick<RequestJSONOptions, "headers">;
+
+export async function fetchGroupingPolicies(
+  options: BackendRequestOptions = {}
+): Promise<ApiResult<GroupingPolicyListResponse>> {
+  return requestJSON<GroupingPolicyListResponse>("/api/v1/config/grouping-policies?limit=100", {
+    headers: options.headers
+  });
 }
 
-export async function createGroupingPolicy(body: GroupingPolicyWriteRequest): Promise<ApiResult<GroupingPolicy>> {
+export async function createGroupingPolicy(
+  body: GroupingPolicyWriteRequest,
+  options: BackendRequestOptions = {}
+): Promise<ApiResult<GroupingPolicy>> {
   return requestJSON<GroupingPolicy>("/api/v1/config/grouping-policies", {
     method: "POST",
-    body
+    body,
+    headers: options.headers
   });
 }
 
 export async function replaceGroupingPolicy(
   policyID: number,
-  body: GroupingPolicyWriteRequest
+  body: GroupingPolicyWriteRequest,
+  options: BackendRequestOptions = {}
 ): Promise<ApiResult<GroupingPolicy>> {
   if (!Number.isSafeInteger(policyID) || policyID < 1) {
     return { ok: false, error: { message: "Grouping policy ID must be a positive integer.", status: 400 } };
   }
   return requestJSON<GroupingPolicy>(`/api/v1/config/grouping-policies/${policyID}`, {
     method: "PUT",
-    body
+    body,
+    headers: options.headers
   });
 }
 
-export async function previewGroupingPolicy(policyID: number): Promise<ApiResult<GroupingPolicyPreviewResult>> {
+export async function previewGroupingPolicy(
+  policyID: number,
+  options: BackendRequestOptions = {}
+): Promise<ApiResult<GroupingPolicyPreviewResult>> {
   if (!Number.isSafeInteger(policyID) || policyID < 1) {
     return { ok: false, error: { message: "Grouping policy ID must be a positive integer.", status: 400 } };
   }
   return requestJSON<GroupingPolicyPreviewResult>(`/api/v1/config/grouping-policies/${policyID}/preview?limit=100`, {
-    method: "POST"
+    method: "POST",
+    headers: options.headers
   });
 }

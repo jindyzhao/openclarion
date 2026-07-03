@@ -133,9 +133,6 @@ func validateTicketForPersistence(ticket diagnosisauth.Ticket) error {
 	if strings.TrimSpace(ticket.Scope) == "" {
 		return fmt.Errorf("diagnosis auth ticket store: scope is required: %w", domain.ErrInvariantViolation)
 	}
-	if len(ticket.Roles) == 0 {
-		return fmt.Errorf("diagnosis auth ticket store: roles are required: %w", domain.ErrInvariantViolation)
-	}
 	for _, role := range ticket.Roles {
 		if strings.TrimSpace(string(role)) == "" {
 			return fmt.Errorf("diagnosis auth ticket store: roles must be non-empty: %w", domain.ErrInvariantViolation)

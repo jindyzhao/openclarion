@@ -1,11 +1,25 @@
 import { ReportShell } from "@/features/reports/report-shell";
 import { fetchAlertSourceProfiles } from "@/features/settings/alert-sources/api";
 import { AlertSourceSettingsManager } from "@/features/settings/alert-sources/alert-source-settings-view";
+import {
+  alertSourceLaunchIntentFromSearchParams,
+  alertSourceLaunchIntentKey
+} from "@/features/settings/alert-sources/format";
+import { diagnosisBackendRequestOptionsFromIncomingHeaders } from "@/lib/api/server-authorization";
 
 export const dynamic = "force-dynamic";
 
-export default async function AlertSourceSettingsPage() {
-  const result = await fetchAlertSourceProfiles();
+type AlertSourceSettingsPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function AlertSourceSettingsPage({
+  searchParams
+}: AlertSourceSettingsPageProps) {
+  const backendRequestOptions =
+    await diagnosisBackendRequestOptionsFromIncomingHeaders();
+  const result = await fetchAlertSourceProfiles(backendRequestOptions);
+  const launchIntent = alertSourceLaunchIntentFromSearchParams(await searchParams);
   const count = result.ok ? result.data.items.length : 0;
 
   return (
@@ -18,7 +32,11 @@ export default async function AlertSourceSettingsPage() {
         <div className="status-line">{count} profiles</div>
       </section>
 
-      <AlertSourceSettingsManager result={result} />
+      <AlertSourceSettingsManager
+        key={alertSourceLaunchIntentKey(launchIntent)}
+        launchIntent={launchIntent}
+        result={result}
+      />
     </ReportShell>
   );
 }

@@ -3,12 +3,15 @@ import {
   fetchGroupingPolicies
 } from "@/features/settings/grouping-policies/api";
 import type { GroupingPolicyWriteRequest } from "@/features/settings/grouping-policies/types";
+import { authorizedBackendResultResponse } from "@/lib/api/protected-route";
 import { apiResultResponse, readRequestJSON } from "@/lib/api/route";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  return apiResultResponse(await fetchGroupingPolicies());
+export async function GET(request: Request) {
+  return authorizedBackendResultResponse(request, (headers) =>
+    fetchGroupingPolicies({ headers }),
+  );
 }
 
 export async function POST(request: Request) {
@@ -16,5 +19,9 @@ export async function POST(request: Request) {
   if (!body.ok) {
     return apiResultResponse(body);
   }
-  return apiResultResponse(await createGroupingPolicy(body.data), 201);
+  return authorizedBackendResultResponse(
+    request,
+    (headers) => createGroupingPolicy(body.data, { headers }),
+    201,
+  );
 }

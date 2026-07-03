@@ -263,6 +263,9 @@ func (r *reportRepo) SaveNotificationDelivery(ctx context.Context, d domain.Repo
 		SetIdempotencyKey(d.IdempotencyKey).
 		SetStatus(string(d.Status)).
 		SetRaw(d.Raw)
+	if d.ReportNotificationChannelProfileID > 0 {
+		builder = builder.SetReportNotificationChannelProfileID(int(d.ReportNotificationChannelProfileID))
+	}
 	if d.ProviderMessageID != "" {
 		builder = builder.SetProviderMessageID(d.ProviderMessageID)
 	}
@@ -304,6 +307,11 @@ func (r *reportRepo) UpdateNotificationDelivery(ctx context.Context, d domain.Re
 		SetStatus(string(d.Status)).
 		SetRaw(d.Raw).
 		SetFailureReason(d.FailureReason)
+	if d.ReportNotificationChannelProfileID > 0 {
+		builder = builder.SetReportNotificationChannelProfileID(int(d.ReportNotificationChannelProfileID))
+	} else {
+		builder = builder.ClearReportNotificationChannelProfileID()
+	}
 	if d.DeliveredAt != nil {
 		builder = builder.SetDeliveredAt(*d.DeliveredAt)
 	} else {

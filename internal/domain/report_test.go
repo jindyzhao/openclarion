@@ -100,6 +100,7 @@ func TestReportNotificationDeliveryLifecycle(t *testing.T) {
 	if string(pending.Raw) != "{}" {
 		t.Fatalf("Raw = %s, want {}", pending.Raw)
 	}
+	pending.ReportNotificationChannelProfileID = 7
 
 	deliveredAt := time.Date(2026, 5, 28, 11, 10, 9, 123456789, time.FixedZone("HKT", 8*60*60))
 	delivered, err := pending.MarkDelivered(" msg-1 ", " accepted ", json.RawMessage(`{"message_id":"msg-1"}`), deliveredAt)
@@ -108,6 +109,9 @@ func TestReportNotificationDeliveryLifecycle(t *testing.T) {
 	}
 	if delivered.Status != ReportNotificationDeliveryStatusDelivered || delivered.ProviderMessageID != "msg-1" || delivered.ProviderStatus != "accepted" {
 		t.Fatalf("delivered = %+v", delivered)
+	}
+	if delivered.ReportNotificationChannelProfileID != 7 {
+		t.Fatalf("delivered channel profile id = %d, want 7", delivered.ReportNotificationChannelProfileID)
 	}
 	wantDeliveredAt := NormalizeUTCMicro(deliveredAt)
 	if delivered.DeliveredAt == nil || !delivered.DeliveredAt.Equal(wantDeliveredAt) {
@@ -153,6 +157,18 @@ func TestReportNotificationDeliveryRejectsInvalid(t *testing.T) {
 					return err
 				}
 				_, err = d.MarkDelivered("msg", "delivered", nil, time.Time{})
+				return err
+			},
+		},
+		{
+			name: "negative notification channel profile id",
+			call: func() error {
+				d, err := NewReportNotificationDelivery(42, "key")
+				if err != nil {
+					return err
+				}
+				d.ReportNotificationChannelProfileID = -1
+				_, err = d.MarkDelivered("msg", "delivered", nil, time.Now())
 				return err
 			},
 		},

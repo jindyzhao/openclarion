@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { diagnosisSessionCookieName } from "@/lib/api/diagnosis-session";
+
 import { POST } from "./route";
 
 describe("diagnosis ws-ticket route", () => {
@@ -11,7 +13,16 @@ describe("diagnosis ws-ticket route", () => {
     delete process.env.OPENCLARION_BROWSER_WS_BASE_URL;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => Response.json({ session_id: "session-1", ticket: "ticket-1" }, { status: 201 }))
+      vi.fn(async () =>
+        Response.json(
+          {
+            expires_at: "2026-05-28T10:00:30Z",
+            session_id: "session-1",
+            ticket: "ticket-1",
+          },
+          { status: 201 },
+        ),
+      ),
     );
   });
 
@@ -22,7 +33,7 @@ describe("diagnosis ws-ticket route", () => {
     vi.restoreAllMocks();
   });
 
-  it("forwards only the bearer header and generated request body to the backend", async () => {
+  it("forwards only the authorization header and generated request body to the backend", async () => {
     const response = await POST(
       new Request("https://console.example.com/api/diagnosis/ws-ticket", {
         method: "POST",
@@ -36,6 +47,7 @@ describe("diagnosis ws-ticket route", () => {
 
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({
+      expires_at: "2026-05-28T10:00:30Z",
       session_id: "session-1",
       ticket: "ticket-1",
       websocket_url: "wss://console.example.com/ws/diagnosis?session_id=session-1&ticket=ticket-1"
@@ -51,6 +63,108 @@ describe("diagnosis ws-ticket route", () => {
     const headers = init.headers as Headers;
     expect(headers.get("authorization")).toBe("Bearer token-1");
     expect(headers.get("x-extra-secret")).toBeNull();
+  });
+
+  it("forwards Basic authorization for LDAP diagnosis auth", async () => {
+    const response = await POST(
+      new Request("https://console.example.com/api/diagnosis/ws-ticket", {
+        method: "POST",
+        headers: {
+          authorization: "Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk",
+        },
+        body: JSON.stringify({ session_id: "session-1" })
+      })
+    );
+
+    expect(response.status).toBe(201);
+    const fetchMock = vi.mocked(fetch);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+    const headers = init.headers as Headers;
+    expect(headers.get("authorization")).toBe(
+      "Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk",
+    );
+  });
+
+  it("uses the diagnosis session cookie when Authorization is absent", async () => {
+    const response = await POST(
+      new Request("https://console.example.com/api/diagnosis/ws-ticket", {
+        method: "POST",
+        headers: {
+          cookie: "openclarion_diagnosis_session=session.token.one",
+        },
+        body: JSON.stringify({ session_id: "session-1" }),
+      })
+    );
+
+    expect(response.status).toBe(201);
+    const fetchMock = vi.mocked(fetch);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
+    const headers = init.headers as Headers;
+    expect(headers.get("authorization")).toBe("Bearer session.token.one");
+  });
+
+  it("uses wss from forwarded HTTPS without trusting forwarded host", async () => {
+    const response = await POST(
+      new Request("http://console.example.com/api/diagnosis/ws-ticket", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer token-1",
+          "x-forwarded-host": "evil.example.test",
+          "x-forwarded-proto": "https",
+        },
+        body: JSON.stringify({ session_id: "session-1" }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      websocket_url:
+        "wss://console.example.com/ws/diagnosis?session_id=session-1&ticket=ticket-1",
+    });
+  });
+
+  it("clears the diagnosis session cookie when backend rejects browser-session ticket issuance", async () => {
+    for (const status of [401, 403]) {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        Response.json({ error: "invalid session" }, { status }),
+      );
+
+      const response = await POST(
+        new Request("https://console.example.com/api/diagnosis/ws-ticket", {
+          method: "POST",
+          headers: {
+            cookie: `${diagnosisSessionCookieName}=expired.session.token`,
+          },
+          body: JSON.stringify({ session_id: "session-1" }),
+        }),
+      );
+
+      expect(response.status).toBe(status);
+      const setCookie = response.headers.get("set-cookie") ?? "";
+      expect(setCookie).toContain(`${diagnosisSessionCookieName}=`);
+      expect(setCookie).toContain("Expires=Thu, 01 Jan 1970 00:00:00 GMT");
+      expect(setCookie).toContain("HttpOnly");
+    }
+  });
+
+  it("does not clear the diagnosis session cookie for explicit LDAP ticket failures", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({ error: "invalid ldap credentials" }, { status: 401 }),
+    );
+
+    const response = await POST(
+      new Request("https://console.example.com/api/diagnosis/ws-ticket", {
+        method: "POST",
+        headers: {
+          authorization: "Basic b3BlcmF0b3ItMTpsZGFwLXBhc3N3b3Jk",
+          cookie: `${diagnosisSessionCookieName}=session.token.one`,
+        },
+        body: JSON.stringify({ session_id: "session-1" }),
+      }),
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("set-cookie")).toBeNull();
   });
 
   it("uses the configured browser WebSocket base URL when provided", async () => {
@@ -69,25 +183,48 @@ describe("diagnosis ws-ticket route", () => {
     expect(body.websocket_url).toBe("ws://ws.example.com/ws/diagnosis?session_id=session-1&ticket=ticket-1");
   });
 
-  it("uses the diagnosis session cookie when Authorization is absent", async () => {
-    const response = await POST(
-      new Request("https://console.example.com/api/diagnosis/ws-ticket", {
-        method: "POST",
-        headers: {
-          cookie: "openclarion_diagnosis_session=session.token.one"
-        },
-        body: JSON.stringify({ session_id: "session-1" })
-      })
-    );
+  it("rejects malformed backend ticket responses before building a WebSocket URL", async () => {
+    for (const backendResponse of [
+      {
+        ticket: "ticket 1",
+        session_id: "session-1",
+        expires_at: "2026-05-28T10:00:30Z",
+      },
+      {
+        ticket: "ticket-1",
+        session_id: " session-1",
+        expires_at: "2026-05-28T10:00:30Z",
+      },
+      {
+        ticket: "ticket-1",
+        session_id: "session-1",
+        expires_at: "not-a-date",
+      },
+      {
+        session_id: "session-1",
+        expires_at: "2026-05-28T10:00:30Z",
+      },
+    ]) {
+      vi.mocked(fetch).mockResolvedValueOnce(
+        Response.json(backendResponse, { status: 201 }),
+      );
 
-    expect(response.status).toBe(201);
-    const fetchMock = vi.mocked(fetch);
-    const [, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit];
-    const headers = init.headers as Headers;
-    expect(headers.get("authorization")).toBe("Bearer session.token.one");
+      const response = await POST(
+        new Request("https://console.example.com/api/diagnosis/ws-ticket", {
+          method: "POST",
+          headers: { authorization: "Bearer token-1" },
+          body: JSON.stringify({ session_id: "session-1" }),
+        }),
+      );
+
+      expect(response.status).toBe(502);
+      await expect(response.json()).resolves.toEqual({
+        error: "diagnosis WebSocket ticket response is invalid",
+      });
+    }
   });
 
-  it("rejects missing bearer authorization before contacting the backend", async () => {
+  it("rejects missing authorization before contacting the backend", async () => {
     const response = await POST(
       new Request("https://console.example.com/api/diagnosis/ws-ticket", {
         method: "POST",

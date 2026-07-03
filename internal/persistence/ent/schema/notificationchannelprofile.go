@@ -9,6 +9,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/entsql"
+	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
 	"entgo.io/ent/schema/index"
 )
@@ -31,7 +32,7 @@ func (NotificationChannelProfile) Fields() []ent.Field {
 		field.String("kind").
 			MaxLen(32).
 			Default("webhook").
-			Comment(`"webhook"`),
+			Comment(`"webhook" or "wecom"`),
 		field.String("secret_ref").
 			MaxLen(256).
 			NotEmpty().
@@ -51,6 +52,13 @@ func (NotificationChannelProfile) Fields() []ent.Field {
 			Default(time.Now).
 			UpdateDefault(time.Now).
 			Comment("server-side last-mutation timestamp"),
+	}
+}
+
+// Edges of the NotificationChannelProfile.
+func (NotificationChannelProfile) Edges() []ent.Edge {
+	return []ent.Edge{
+		edge.To("test_proofs", NotificationChannelTestProof.Type),
 	}
 }
 

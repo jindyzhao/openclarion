@@ -14,6 +14,12 @@ import (
 var fixedCheckedAt = time.Date(2026, 6, 5, 4, 0, 0, 0, time.UTC)
 
 func TestServicePrometheusNoAuthSuccess(t *testing.T) {
+	provider := &recordingMetricsProvider{
+		alerts: []ports.ActiveAlert{
+			{Source: "prometheus"},
+			{Source: "prometheus"},
+		},
+	}
 	service := newTestService(t, func(profile domain.AlertSourceProfile, credentials ProviderCredentials) (ports.MetricsProvider, error) {
 		if profile.BaseURL != "https://prometheus.example.test" {
 			t.Fatalf("profile base URL = %q", profile.BaseURL)
@@ -21,12 +27,7 @@ func TestServicePrometheusNoAuthSuccess(t *testing.T) {
 		if credentials.BearerToken != "" {
 			t.Fatalf("BearerToken = %q, want empty", credentials.BearerToken)
 		}
-		return fakeMetricsProvider{
-			alerts: []ports.ActiveAlert{
-				{Source: "prometheus"},
-				{Source: "prometheus"},
-			},
-		}, nil
+		return provider, nil
 	})
 
 	result, err := service.TestAlertSourceConnection(context.Background(), mustProfile(t, 1, domain.AlertSourceKindPrometheus, domain.AlertSourceAuthModeNone))
@@ -36,8 +37,54 @@ func TestServicePrometheusNoAuthSuccess(t *testing.T) {
 	if result.Status != StatusSuccess || result.ReasonCode != ReasonOK || result.ObservedAlerts != 2 {
 		t.Fatalf("result = %+v", result)
 	}
+	if result.Message != "Prometheus alert listing and metric query succeeded." {
+		t.Fatalf("message = %q", result.Message)
+	}
 	if !result.CheckedAt.Equal(fixedCheckedAt) {
 		t.Fatalf("checked_at = %s, want %s", result.CheckedAt, fixedCheckedAt)
+	}
+	if provider.listCalls != 1 || provider.queryCalls != 1 {
+		t.Fatalf("provider calls list=%d query=%d", provider.listCalls, provider.queryCalls)
+	}
+	if provider.queryReq.Query != prometheusMetricProbeQuery ||
+		!provider.queryReq.Time.Equal(fixedCheckedAt) ||
+		provider.queryReq.Timeout != DefaultTimeout ||
+		provider.queryReq.Limit != 1 {
+		t.Fatalf("metric probe request = %+v", provider.queryReq)
+	}
+}
+
+func TestServiceThanosRuleSkipsMetricProbe(t *testing.T) {
+	provider := &recordingMetricsProvider{
+		alerts: []ports.ActiveAlert{
+			{Source: "prometheus"},
+		},
+	}
+	service := newTestService(t, func(profile domain.AlertSourceProfile, credentials ProviderCredentials) (ports.MetricsProvider, error) {
+		if profile.Kind != domain.AlertSourceKindPrometheus {
+			t.Fatalf("profile kind = %q, want prometheus", profile.Kind)
+		}
+		if profile.Labels["source"] != "thanos-rule" {
+			t.Fatalf("profile labels = %#v, want source=thanos-rule", profile.Labels)
+		}
+		if credentials.BearerToken != "" {
+			t.Fatalf("BearerToken = %q, want empty", credentials.BearerToken)
+		}
+		return provider, nil
+	})
+
+	result, err := service.TestAlertSourceConnection(context.Background(), mustThanosRuleProfile(t, 7))
+	if err != nil {
+		t.Fatalf("TestAlertSourceConnection: %v", err)
+	}
+	if result.Status != StatusSuccess || result.ReasonCode != ReasonOK || result.ObservedAlerts != 1 {
+		t.Fatalf("result = %+v", result)
+	}
+	if result.Message != "Thanos Rule alert listing succeeded." {
+		t.Fatalf("message = %q", result.Message)
+	}
+	if provider.listCalls != 1 || provider.queryCalls != 0 {
+		t.Fatalf("provider calls list=%d query=%d", provider.listCalls, provider.queryCalls)
 	}
 }
 
@@ -122,6 +169,11 @@ func TestServiceReturnsUnsupportedForAlertmanagerWithoutFactory(t *testing.T) {
 }
 
 func TestServiceAlertmanagerNoAuthSuccess(t *testing.T) {
+	provider := &recordingMetricsProvider{alerts: []ports.ActiveAlert{
+		{Source: "alertmanager"},
+		{Source: "alertmanager"},
+		{Source: "alertmanager"},
+	}}
 	service := newTestService(t,
 		func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error) {
 			t.Fatal("prometheus factory should not be called for Alertmanager")
@@ -134,11 +186,7 @@ func TestServiceAlertmanagerNoAuthSuccess(t *testing.T) {
 			if credentials.BearerToken != "" {
 				t.Fatalf("BearerToken = %q, want empty", credentials.BearerToken)
 			}
-			return fakeMetricsProvider{alerts: []ports.ActiveAlert{
-				{Source: "alertmanager"},
-				{Source: "alertmanager"},
-				{Source: "alertmanager"},
-			}}, nil
+			return provider, nil
 		}),
 	)
 
@@ -148,6 +196,9 @@ func TestServiceAlertmanagerNoAuthSuccess(t *testing.T) {
 	}
 	if result.Status != StatusSuccess || result.ReasonCode != ReasonOK || result.ObservedAlerts != 3 {
 		t.Fatalf("result = %+v", result)
+	}
+	if provider.listCalls != 1 || provider.queryCalls != 0 {
+		t.Fatalf("provider calls list=%d query=%d", provider.listCalls, provider.queryCalls)
 	}
 }
 
@@ -185,6 +236,25 @@ func TestServiceSanitizesFactoryAndProviderErrors(t *testing.T) {
 				t.Fatalf("message leaked raw provider data: %q", result.Message)
 			}
 		})
+	}
+}
+
+func TestServicePrometheusMetricProbeFailureIsSanitized(t *testing.T) {
+	// #nosec G101 -- test-only credential-bearing URL fixture verifies sanitization.
+	rawEndpoint := "https://operator:token@prometheus.example.test/api/v1/query"
+	service := newTestService(t, func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error) {
+		return metricProbeFailureProvider{err: errors.New(rawEndpoint)}, nil
+	})
+
+	result, err := service.TestAlertSourceConnection(context.Background(), mustProfile(t, 6, domain.AlertSourceKindPrometheus, domain.AlertSourceAuthModeNone))
+	if err != nil {
+		t.Fatalf("TestAlertSourceConnection: %v", err)
+	}
+	if result.Status != StatusFailed || result.ReasonCode != ReasonUpstreamError {
+		t.Fatalf("result = %+v", result)
+	}
+	if strings.Contains(result.Message, rawEndpoint) || strings.Contains(result.Message, "token") {
+		t.Fatalf("message leaked raw provider data: %q", result.Message)
 	}
 }
 
@@ -245,6 +315,24 @@ func mustProfile(t *testing.T, id domain.AlertSourceProfileID, kind domain.Alert
 	return profile
 }
 
+func mustThanosRuleProfile(t *testing.T, id domain.AlertSourceProfileID) domain.AlertSourceProfile {
+	t.Helper()
+	profile, err := domain.NewAlertSourceProfile(
+		"Thanos Rule active alerts",
+		domain.AlertSourceKindPrometheus,
+		"https://thanos-rule.example.test",
+		domain.AlertSourceAuthModeNone,
+		"",
+		true,
+		map[string]string{"env": "test", "source": "thanos-rule"},
+	)
+	if err != nil {
+		t.Fatalf("NewAlertSourceProfile: %v", err)
+	}
+	profile.ID = id
+	return profile
+}
+
 type fakeMetricsProvider struct {
 	alerts []ports.ActiveAlert
 	err    error
@@ -260,6 +348,44 @@ func (p fakeMetricsProvider) QueryMetric(context.Context, ports.MetricQueryReque
 
 func (p fakeMetricsProvider) QueryMetricRange(context.Context, ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
 	return ports.MetricQueryResult{}, p.err
+}
+
+type recordingMetricsProvider struct {
+	alerts     []ports.ActiveAlert
+	listCalls  int
+	queryCalls int
+	queryReq   ports.MetricQueryRequest
+}
+
+func (p *recordingMetricsProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {
+	p.listCalls++
+	return p.alerts, nil
+}
+
+func (p *recordingMetricsProvider) QueryMetric(_ context.Context, req ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	p.queryCalls++
+	p.queryReq = req
+	return ports.MetricQueryResult{ResultType: "vector"}, nil
+}
+
+func (p *recordingMetricsProvider) QueryMetricRange(context.Context, ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{}, nil
+}
+
+type metricProbeFailureProvider struct {
+	err error
+}
+
+func (p metricProbeFailureProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {
+	return nil, nil
+}
+
+func (p metricProbeFailureProvider) QueryMetric(context.Context, ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{}, p.err
+}
+
+func (p metricProbeFailureProvider) QueryMetricRange(context.Context, ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	return ports.MetricQueryResult{}, nil
 }
 
 type blockingMetricsProvider struct{}

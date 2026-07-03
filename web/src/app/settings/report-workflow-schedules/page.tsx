@@ -1,14 +1,28 @@
 import { ReportShell } from "@/features/reports/report-shell";
 import { fetchReportWorkflowPolicies } from "@/features/settings/report-workflow-policies/api";
 import { fetchReportWorkflowSchedules } from "@/features/settings/report-workflow-schedules/api";
+import {
+  reportWorkflowScheduleLaunchIntentFromSearchParams,
+  reportWorkflowScheduleLaunchIntentKey
+} from "@/features/settings/report-workflow-schedules/format";
 import { ReportWorkflowScheduleSettingsManager } from "@/features/settings/report-workflow-schedules/report-workflow-schedule-settings-view";
+import { diagnosisBackendRequestOptionsFromIncomingHeaders } from "@/lib/api/server-authorization";
 
 export const dynamic = "force-dynamic";
 
-export default async function ReportWorkflowScheduleSettingsPage() {
+type ReportWorkflowScheduleSettingsPageProps = {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+};
+
+export default async function ReportWorkflowScheduleSettingsPage({
+  searchParams
+}: ReportWorkflowScheduleSettingsPageProps) {
+  const launchIntent = reportWorkflowScheduleLaunchIntentFromSearchParams(await searchParams);
+  const backendRequestOptions =
+    await diagnosisBackendRequestOptionsFromIncomingHeaders();
   const [result, reportWorkflowPoliciesResult] = await Promise.all([
-    fetchReportWorkflowSchedules(),
-    fetchReportWorkflowPolicies()
+    fetchReportWorkflowSchedules(backendRequestOptions),
+    fetchReportWorkflowPolicies(backendRequestOptions)
   ]);
   const count = result.ok ? result.data.items.length : 0;
 
@@ -23,6 +37,8 @@ export default async function ReportWorkflowScheduleSettingsPage() {
       </section>
 
       <ReportWorkflowScheduleSettingsManager
+        key={reportWorkflowScheduleLaunchIntentKey(launchIntent)}
+        launchIntent={launchIntent}
         reportWorkflowPoliciesResult={reportWorkflowPoliciesResult}
         result={result}
       />

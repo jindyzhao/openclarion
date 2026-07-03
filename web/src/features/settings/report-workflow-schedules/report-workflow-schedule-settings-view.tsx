@@ -14,6 +14,7 @@ import {
   Button,
   Card,
   Col,
+  Descriptions,
   Empty,
   Form,
   Input,
@@ -24,9 +25,10 @@ import {
   Statistic,
   Table,
   Tag,
+  Tooltip,
   Typography
 } from "antd";
-import type { TableColumnsType } from "antd";
+import type { DescriptionsProps, TableColumnsType } from "antd";
 import { useMemo, useState } from "react";
 
 import type { ApiResult } from "@/lib/api/client";
@@ -34,10 +36,24 @@ import type { ApiResult } from "@/lib/api/client";
 import { formatDateTime, formatDurationSeconds } from "../format";
 import {
   settingsErrorMessage,
+  settingsManagePermissionNotice,
+  settingsReadPermissionEmptyDescription,
+  settingsReadPermissionNotice,
   type SettingsNotice,
+  useClientReady,
   useSettingsList,
   useSettingsMutation
 } from "../query-state";
+import { ReadOnlyModeAlert } from "../permission-notice";
+import {
+  useCurrentRBACAuthorizations,
+  type CurrentRBACAuthorizationCheck
+} from "../rbac-capabilities";
+import {
+  reportWorkflowScheduleManageKey,
+  reportWorkflowSchedulePolicyAuthorizationChecks,
+  reportWorkflowSchedulePolicyPermissionBlockReason
+} from "./rbac-gates";
 import type {
   ReportWorkflowPolicy,
   ReportWorkflowPolicyListResponse
@@ -51,7 +67,13 @@ import {
 import {
   emptyReportWorkflowScheduleForm,
   formStateToWriteRequest,
-  scheduleToFormState
+  reportWorkflowScheduleDraftReadiness,
+  reportWorkflowScheduleEnablementReadiness,
+  reportWorkflowScheduleProofOutcome,
+  reportWorkflowScheduleReplayWindowBlocker,
+  scheduleToFormState,
+  type ReportWorkflowScheduleDraftReadiness,
+  type ReportWorkflowScheduleLaunchIntent
 } from "./format";
 import type {
   ReportWorkflowSchedule,
@@ -61,6 +83,7 @@ import type {
 } from "./types";
 
 type ReportWorkflowScheduleSettingsManagerProps = {
+  launchIntent?: ReportWorkflowScheduleLaunchIntent | null;
   reportWorkflowPoliciesResult: ApiResult<ReportWorkflowPolicyListResponse>;
   result: ApiResult<ReportWorkflowScheduleListResponse>;
 };
@@ -71,6 +94,11 @@ type SaveScheduleVariables = {
   body: ReportWorkflowScheduleWriteRequest;
   scheduleID: number | null;
 };
+
+const reportWorkflowScheduleBaseAuthorizationChecks: CurrentRBACAuthorizationCheck[] = [
+  { key: "reportWorkflowRead", permission: "report_workflow.read" },
+  { key: "reportWorkflowManage", permission: "report_workflow.manage" }
+];
 
 type EnablementVariables = {
   enabled: boolean;
@@ -84,19 +112,24 @@ type RelationSelectOption = {
 };
 
 type ScheduleRelationOptions = {
+  policyEnabledIDs: ReadonlySet<number>;
   policyLabels: Record<number, string>;
   policyOptions: RelationSelectOption[];
   warnings: string[];
 };
 
 export function ReportWorkflowScheduleSettingsManager({
+  launchIntent = null,
   reportWorkflowPoliciesResult,
   result
 }: ReportWorkflowScheduleSettingsManagerProps) {
   const [form] = Form.useForm<ReportWorkflowScheduleFormState>();
+  const clientReady = useClientReady();
   const [editingID, setEditingID] = useState<number | null>(null);
   const [actionID, setActionID] = useState<number | null>(null);
+  const [launchNotice, setLaunchNotice] = useState<string | null>(launchIntent?.message ?? null);
   const {
+    errorStatus,
     items: schedules,
     notice,
     query,
@@ -118,10 +151,95 @@ export function ReportWorkflowScheduleSettingsManager({
     mutationFn: ({ scheduleID, enabled }) =>
       enabled ? enableReportWorkflowScheduleAction(scheduleID) : disableReportWorkflowScheduleAction(scheduleID)
   });
-  const busy = query.isFetching || saveSchedule.isPending || enablementAction.isPending;
+  const authorizationChecks = useMemo(
+    () => [
+      ...reportWorkflowScheduleBaseAuthorizationChecks,
+      ...schedules.map((schedule) => ({
+        key: reportWorkflowScheduleManageKey(schedule.id),
+        permission: "report_workflow.manage" as const,
+        scopeKey: String(schedule.id),
+        scopeKind: "report_workflow_schedule" as const
+      })),
+      ...reportWorkflowSchedulePolicyAuthorizationChecks(
+        reportWorkflowPoliciesResult.ok
+          ? reportWorkflowPoliciesResult.data.items.map((policy) => policy.id)
+          : []
+      )
+    ],
+    [reportWorkflowPoliciesResult, schedules]
+  );
+  const currentAuthorization = useCurrentRBACAuthorizations(authorizationChecks, clientReady);
+  const busy =
+    !clientReady ||
+    currentAuthorization.isChecking ||
+    query.isFetching ||
+    saveSchedule.isPending ||
+    enablementAction.isPending;
+  const canReadSchedules = currentAuthorization.can("reportWorkflowRead");
+  const canCreateSchedule = currentAuthorization.can("reportWorkflowManage");
+  const selectedReportWorkflowPolicyID = Form.useWatch("reportWorkflowPolicyID", form) ?? null;
+  const authorizationChecking = !clientReady || currentAuthorization.isChecking;
+  const currentScheduleManagePermissionBlockReason = authorizationChecking
+    ? ""
+    : editingID === null || currentAuthorization.can(reportWorkflowScheduleManageKey(editingID))
+      ? ""
+      : `Current user is not authorized to manage report workflow schedule #${editingID}.`;
+  const schedulePolicyPermissionBlockReason =
+    authorizationChecking
+      ? ""
+      : reportWorkflowSchedulePolicyPermissionBlockReason({
+          can: currentAuthorization.can,
+          editingScheduleID: editingID,
+          reportWorkflowPolicyID: selectedReportWorkflowPolicyID
+        });
+  const scheduleSavePermissionBlockReason =
+    authorizationChecking
+      ? ""
+      : editingID === null
+        ? canCreateSchedule
+          ? ""
+          : "Current user is not authorized to create report workflow schedules."
+        : currentScheduleManagePermissionBlockReason ||
+          schedulePolicyPermissionBlockReason;
+  const canEditCurrentScheduleForm =
+    authorizationChecking ||
+    (editingID === null
+      ? canCreateSchedule
+      : currentScheduleManagePermissionBlockReason === "");
+  const canSaveCurrentSchedule = scheduleSavePermissionBlockReason === "";
+  const formPermissionNotice = settingsManagePermissionNotice({
+    canManage:
+      scheduleSavePermissionBlockReason ===
+      "Current user is not authorized to create report workflow schedules."
+        ? false
+        : currentScheduleManagePermissionBlockReason === "",
+    isChecking: authorizationChecking,
+    resourceLabel:
+      editingID === null
+        ? "report workflow schedule creation"
+        : `report workflow schedule #${editingID}`,
+  }) ??
+    (schedulePolicyPermissionBlockReason === ""
+      ? null
+      : {
+          kind: "warning" as const,
+          message: schedulePolicyPermissionBlockReason
+        });
+  const readPermissionNotice = settingsReadPermissionNotice({
+    canRead: canReadSchedules,
+    errorStatus,
+    isChecking: authorizationChecking,
+    resourceLabel: "report workflow schedules",
+  });
+  const visibleNotice =
+    currentAuthorization.notice ?? readPermissionNotice ?? notice;
   const relationOptions = useMemo(
     () => buildScheduleRelationOptions(reportWorkflowPoliciesResult),
     [reportWorkflowPoliciesResult]
+  );
+  const initialFormValues = useMemo(
+    () => reportWorkflowScheduleLaunchInitialForm(launchIntent, relationOptions),
+    [launchIntent, relationOptions]
   );
 
   const summary = useMemo(() => {
@@ -136,6 +254,15 @@ export function ReportWorkflowScheduleSettingsManager({
   }
 
   async function handleSubmit(values: ReportWorkflowScheduleFormState) {
+    if (!canSaveCurrentSchedule) {
+      setNotice({
+        kind: "warning",
+        message:
+          scheduleSavePermissionBlockReason ||
+          "You are not authorized to save this schedule."
+      });
+      return;
+    }
     const parsed = formStateToWriteRequest(values);
     if (!parsed.ok) {
       setNotice({ kind: "error", message: parsed.message });
@@ -151,10 +278,22 @@ export function ReportWorkflowScheduleSettingsManager({
 
     form.setFieldsValue(emptyReportWorkflowScheduleForm());
     setEditingID(null);
+    setLaunchNotice(null);
     setNotice({ kind: "info", message: "Schedule saved." });
   }
 
   async function handleEnablement(schedule: ReportWorkflowSchedule, enabled: boolean) {
+    if (enabled) {
+      const readiness = reportWorkflowScheduleEnablementReadiness({
+        policyEnabledIDs: relationOptions.policyEnabledIDs,
+        schedule
+      });
+      if (readiness.status === "blocked") {
+        setNotice({ kind: "error", message: readiness.blockers.join(" ") });
+        return;
+      }
+    }
+
     setActionID(schedule.id);
     try {
       await enablementAction.mutateAsync({ scheduleID: schedule.id, enabled });
@@ -170,12 +309,14 @@ export function ReportWorkflowScheduleSettingsManager({
   function editSchedule(schedule: ReportWorkflowSchedule) {
     setEditingID(schedule.id);
     form.setFieldsValue(scheduleToFormState(schedule));
+    setLaunchNotice(null);
     setNotice(null);
   }
 
   function resetForm() {
     setEditingID(null);
     form.setFieldsValue(emptyReportWorkflowScheduleForm());
+    setLaunchNotice(null);
     setNotice(null);
   }
 
@@ -188,7 +329,17 @@ export function ReportWorkflowScheduleSettingsManager({
         <MetricCard label="Policies" value={summary.policyCount} />
       </Row>
 
-      {notice ? <Notice notice={notice} /> : null}
+      {visibleNotice ? <Notice notice={visibleNotice} /> : null}
+      {launchNotice ? (
+        <Alert
+          aria-label="Report workflow schedule launch preset"
+          description={launchNotice}
+          message="Schedule action loaded"
+          role="status"
+          showIcon
+          type="info"
+        />
+      ) : null}
       {relationOptions.warnings.length > 0 ? (
         <Alert
           description={relationOptions.warnings.join(" ")}
@@ -204,17 +355,20 @@ export function ReportWorkflowScheduleSettingsManager({
           <Card
             extra={
               editingID === null ? null : (
-                <Button disabled={busy} icon={<PlusOutlined />} onClick={resetForm} type="default">
+                <Button disabled={busy || !canCreateSchedule} icon={<PlusOutlined />} onClick={resetForm} type="default">
                   New
                 </Button>
               )
             }
             title={editingID === null ? "New Schedule" : `Edit Schedule #${editingID}`}
           >
+            {formPermissionNotice ? (
+              <ReadOnlyModeAlert notice={formPermissionNotice} />
+            ) : null}
             <Form<ReportWorkflowScheduleFormState>
-              disabled={busy}
+              disabled={busy || !canEditCurrentScheduleForm}
               form={form}
-              initialValues={emptyReportWorkflowScheduleForm()}
+              initialValues={initialFormValues}
               layout="vertical"
               onFinish={handleSubmit}
             >
@@ -316,8 +470,17 @@ export function ReportWorkflowScheduleSettingsManager({
                 </Col>
               </Row>
 
+              <Form.Item noStyle shouldUpdate>
+                {(scheduleForm) => (
+                  <ScheduleDraftPreview
+                    relationOptions={relationOptions}
+                    values={scheduleForm.getFieldsValue(true) as ReportWorkflowScheduleFormState}
+                  />
+                )}
+              </Form.Item>
+
               <Space wrap>
-                <Button htmlType="submit" icon={<SaveOutlined />} loading={busy} type="primary">
+                <Button disabled={busy || !canSaveCurrentSchedule} htmlType="submit" icon={<SaveOutlined />} loading={busy} type="primary">
                   Save Schedule
                 </Button>
                 <Button disabled={busy} onClick={resetForm} type="default">
@@ -331,7 +494,7 @@ export function ReportWorkflowScheduleSettingsManager({
         <Col lg={16} md={24} xs={24}>
           <Card
             extra={
-              <Button disabled={busy} icon={<ReloadOutlined />} loading={busy} onClick={handleRefresh} type="default">
+              <Button disabled={busy || !canReadSchedules} icon={<ReloadOutlined />} loading={busy} onClick={handleRefresh} type="default">
                 Refresh
               </Button>
             }
@@ -340,6 +503,8 @@ export function ReportWorkflowScheduleSettingsManager({
             <ReportWorkflowScheduleTable
               actionID={actionID}
               busy={busy}
+              canRead={canReadSchedules}
+              canManageSchedule={(scheduleID) => currentAuthorization.can(reportWorkflowScheduleManageKey(scheduleID))}
               onDisable={(schedule) => handleEnablement(schedule, false)}
               onEdit={editSchedule}
               onEnable={(schedule) => handleEnablement(schedule, true)}
@@ -375,21 +540,188 @@ function Notice({ notice }: { notice: SettingsNotice }) {
   );
 }
 
+function ScheduleDraftPreview({
+  relationOptions,
+  values
+}: {
+  relationOptions: ScheduleRelationOptions;
+  values: ReportWorkflowScheduleFormState;
+}) {
+  const readiness = reportWorkflowScheduleDraftReadiness({
+    form: normalizeScheduleFormValues(values),
+    policyEnabledIDs: relationOptions.policyEnabledIDs
+  });
+  const proofOutcome = reportWorkflowScheduleProofOutcome({
+    form: normalizeScheduleFormValues(values),
+    policyEnabledIDs: relationOptions.policyEnabledIDs,
+    policyLabels: relationOptions.policyLabels
+  });
+  const policyLabel =
+    values.reportWorkflowPolicyID === null || values.reportWorkflowPolicyID === undefined
+      ? "Not selected"
+      : relationLabel(
+          relationOptions.policyLabels,
+          values.reportWorkflowPolicyID,
+          `Policy #${values.reportWorkflowPolicyID}`
+        );
+  const items: DescriptionsProps["items"] = [
+    {
+      children: policyLabel,
+      key: "policy",
+      label: "Policy"
+    },
+    {
+      children: `Every ${draftDuration(values.intervalSeconds)} / offset ${draftDuration(values.offsetSeconds)}`,
+      key: "cadence",
+      label: "Cadence"
+    },
+    {
+      children: `Window ${draftDuration(values.replayWindowSeconds)} / delay ${draftDuration(values.replayDelaySeconds)} / limit ${
+        values.replayLimit ?? "Not set"
+      }`,
+      key: "replay",
+      label: "Replay"
+    },
+    {
+      children: draftDuration(values.catchupWindowSeconds),
+      key: "catchup",
+      label: "Catch-up"
+    }
+  ];
+
+  return (
+    <div aria-label="Schedule readiness preview" className="settings-preview-panel">
+      <Space direction="vertical" size={10}>
+        <Space wrap>
+          <Tag color={scheduleReadinessColor(readiness.status)}>{scheduleReadinessLabel(readiness.status)}</Tag>
+          {values.temporalScheduleID ? <Tag>{values.temporalScheduleID}</Tag> : null}
+        </Space>
+        <Typography.Text strong>{readiness.label}</Typography.Text>
+        <Typography.Text type="secondary">{readiness.detail}</Typography.Text>
+        <Descriptions column={1} items={items} size="small" />
+        <ScheduledProofOutcomePreview outcome={proofOutcome} />
+      </Space>
+    </div>
+  );
+}
+
+function ScheduledProofOutcomePreview({
+  outcome
+}: {
+  outcome: ReturnType<typeof reportWorkflowScheduleProofOutcome>;
+}) {
+  return (
+    <div aria-label="Scheduled proof outcome" className="settings-proof-outcome">
+      <div className="settings-preview-header">
+        <Typography.Text strong>Scheduled Proof Outcome</Typography.Text>
+        <Tag color={scheduleReadinessColor(outcome.status)}>{scheduleReadinessLabel(outcome.status)}</Tag>
+      </div>
+      <Typography.Text type="secondary">{outcome.detail}</Typography.Text>
+      <div className="workflow-automation-grid">
+        {outcome.items.map((item) => (
+          <div className="workflow-automation-item" key={item.title}>
+            <div className="workflow-automation-item-header">
+              <Typography.Text className="muted">{item.title}</Typography.Text>
+              <Tag color={scheduleReadinessColor(item.status)}>{scheduleReadinessLabel(item.status)}</Tag>
+            </div>
+            <Typography.Text strong>{item.value}</Typography.Text>
+            <Typography.Text type="secondary">{item.detail}</Typography.Text>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function normalizeScheduleFormValues(
+  values: Partial<ReportWorkflowScheduleFormState>
+): ReportWorkflowScheduleFormState {
+  const defaults = emptyReportWorkflowScheduleForm();
+  return {
+    name: values.name ?? defaults.name,
+    reportWorkflowPolicyID: values.reportWorkflowPolicyID ?? defaults.reportWorkflowPolicyID,
+    temporalScheduleID: values.temporalScheduleID ?? defaults.temporalScheduleID,
+    intervalSeconds: values.intervalSeconds ?? defaults.intervalSeconds,
+    offsetSeconds: values.offsetSeconds ?? defaults.offsetSeconds,
+    replayWindowSeconds: values.replayWindowSeconds ?? defaults.replayWindowSeconds,
+    replayDelaySeconds: values.replayDelaySeconds ?? defaults.replayDelaySeconds,
+    replayLimit: values.replayLimit ?? defaults.replayLimit,
+    catchupWindowSeconds: values.catchupWindowSeconds ?? defaults.catchupWindowSeconds
+  };
+}
+
+function draftDuration(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isSafeInteger(value) || value < 0) {
+    return "Not set";
+  }
+  return formatDurationSeconds(value);
+}
+
+function scheduleReadinessColor(status: ReportWorkflowScheduleDraftReadiness["status"]): string {
+  switch (status) {
+    case "ready":
+      return "green";
+    case "pending":
+      return "default";
+    case "blocked":
+      return "red";
+  }
+}
+
+function scheduleReadinessLabel(status: ReportWorkflowScheduleDraftReadiness["status"]): string {
+  switch (status) {
+    case "ready":
+      return "Ready";
+    case "pending":
+      return "Pending";
+    case "blocked":
+      return "Blocked";
+  }
+}
+
 function buildScheduleRelationOptions(
   policiesResult: ApiResult<ReportWorkflowPolicyListResponse>
 ): ScheduleRelationOptions {
   if (!policiesResult.ok) {
     return {
+      policyEnabledIDs: new Set(),
       policyLabels: {},
       policyOptions: [],
       warnings: [`Report workflow policies failed to load: ${policiesResult.error.message}.`]
     };
   }
   return {
+    policyEnabledIDs: new Set(policiesResult.data.items.filter((policy) => policy.enabled).map((policy) => policy.id)),
     policyLabels: Object.fromEntries(policiesResult.data.items.map((policy) => [policy.id, policyLabel(policy)])),
     policyOptions: policiesResult.data.items.map((policy) => relationOption(policy.id, policyLabel(policy))),
     warnings: []
   };
+}
+
+function reportWorkflowScheduleLaunchInitialForm(
+  launchIntent: ReportWorkflowScheduleLaunchIntent | null,
+  relationOptions: ScheduleRelationOptions
+): ReportWorkflowScheduleFormState {
+  if (launchIntent === null) {
+    return emptyReportWorkflowScheduleForm();
+  }
+  return {
+    ...emptyReportWorkflowScheduleForm(),
+    intervalSeconds: 3600,
+    name: launchIntent.name,
+    reportWorkflowPolicyID: launchPolicyID(launchIntent.policyID, relationOptions),
+    temporalScheduleID: launchIntent.temporalScheduleID
+  };
+}
+
+function launchPolicyID(
+  policyID: number | null,
+  relationOptions: ScheduleRelationOptions
+): number | null {
+  if (policyID !== null && relationOptions.policyEnabledIDs.has(policyID)) {
+    return policyID;
+  }
+  return relationOptions.policyOptions.find((option) => relationOptions.policyEnabledIDs.has(option.value))?.value ?? null;
 }
 
 function relationOption(value: number, label: string): RelationSelectOption {
@@ -411,6 +743,8 @@ function relationLabel(labels: Record<number, string>, id: number, fallback: str
 type ReportWorkflowScheduleTableProps = {
   actionID: number | null;
   busy: boolean;
+  canRead: boolean;
+  canManageSchedule: (scheduleID: number) => boolean;
   onDisable: (schedule: ReportWorkflowSchedule) => void;
   onEdit: (schedule: ReportWorkflowSchedule) => void;
   onEnable: (schedule: ReportWorkflowSchedule) => void;
@@ -421,6 +755,8 @@ type ReportWorkflowScheduleTableProps = {
 function ReportWorkflowScheduleTable({
   actionID,
   busy,
+  canRead,
+  canManageSchedule,
   onDisable,
   onEdit,
   onEnable,
@@ -460,14 +796,23 @@ function ReportWorkflowScheduleTable({
     {
       key: "replay",
       title: "Replay",
-      render: (_, schedule) => (
-        <Space direction="vertical" size={2}>
-          <Typography.Text>{formatDurationSeconds(schedule.replay_window_seconds)} window</Typography.Text>
-          <Typography.Text type="secondary">
-            delay {formatDurationSeconds(schedule.replay_delay_seconds)} / limit {schedule.replay_limit}
-          </Typography.Text>
-        </Space>
-      )
+      render: (_, schedule) => {
+        const replayWindowBlocker = reportWorkflowScheduleReplayWindowBlocker({
+          intervalSeconds: schedule.interval_seconds,
+          replayWindowSeconds: schedule.replay_window_seconds
+        });
+        return (
+          <Space direction="vertical" size={2}>
+            <Space size={6} wrap>
+              <Typography.Text>{formatDurationSeconds(schedule.replay_window_seconds)} window</Typography.Text>
+              {replayWindowBlocker === null ? null : <Tag color="red">Overlapping window</Tag>}
+            </Space>
+            <Typography.Text type="secondary">
+              delay {formatDurationSeconds(schedule.replay_delay_seconds)} / limit {schedule.replay_limit}
+            </Typography.Text>
+          </Space>
+        );
+      }
     },
     {
       dataIndex: "catchup_window_seconds",
@@ -496,35 +841,41 @@ function ReportWorkflowScheduleTable({
     },
     {
       key: "actions",
-      render: (_, schedule) => (
-        <Space wrap>
-          <Button disabled={busy || actionID !== null} icon={<EditOutlined />} onClick={() => onEdit(schedule)} size="small">
-            Edit
-          </Button>
-          {schedule.enabled ? (
+      render: (_, schedule) => {
+        const canManage = canManageSchedule(schedule.id);
+        return (
+          <Space wrap>
             <Button
-              disabled={busy || actionID !== null}
-              icon={<PauseCircleOutlined />}
-              loading={actionID === schedule.id}
-              onClick={() => onDisable(schedule)}
+              disabled={busy || actionID !== null || !canManage}
+              icon={<EditOutlined />}
+              onClick={() => onEdit(schedule)}
               size="small"
             >
-              Disable
+              Edit
             </Button>
-          ) : (
-            <Button
-              disabled={busy || actionID !== null}
-              icon={<PlayCircleOutlined />}
-              loading={actionID === schedule.id}
-              onClick={() => onEnable(schedule)}
-              size="small"
-              type="primary"
-            >
-              Enable
-            </Button>
-          )}
-        </Space>
-      ),
+            {schedule.enabled ? (
+              <Button
+                disabled={busy || actionID !== null || !canManage}
+                icon={<PauseCircleOutlined />}
+                loading={actionID === schedule.id}
+                onClick={() => onDisable(schedule)}
+                size="small"
+              >
+                Disable
+              </Button>
+            ) : (
+              <EnableScheduleButton
+                actionID={actionID}
+                busy={busy}
+                canManage={canManage}
+                onEnable={onEnable}
+                policyEnabledIDs={relationOptions.policyEnabledIDs}
+                schedule={schedule}
+              />
+            )}
+          </Space>
+        );
+      },
       title: "Actions"
     }
   ];
@@ -537,7 +888,11 @@ function ReportWorkflowScheduleTable({
       locale={{
         emptyText: (
           <Empty
-            description="No report workflow schedules"
+            description={settingsReadPermissionEmptyDescription({
+              canRead,
+              emptyDescription: "No report workflow schedules",
+              resourceLabel: "report workflow schedules",
+            })}
             image={<CalendarOutlined aria-hidden className="settings-empty-icon" />}
           />
         )
@@ -546,6 +901,45 @@ function ReportWorkflowScheduleTable({
       rowKey="id"
       scroll={{ x: 1040 }}
     />
+  );
+}
+
+function EnableScheduleButton({
+  actionID,
+  busy,
+  canManage,
+  onEnable,
+  policyEnabledIDs,
+  schedule
+}: {
+  actionID: number | null;
+  busy: boolean;
+  canManage: boolean;
+  onEnable: (schedule: ReportWorkflowSchedule) => void;
+  policyEnabledIDs: ReadonlySet<number>;
+  schedule: ReportWorkflowSchedule;
+}) {
+  const readiness = reportWorkflowScheduleEnablementReadiness({ policyEnabledIDs, schedule });
+  const blocked = readiness.status === "blocked";
+  const button = (
+    <Button
+      disabled={busy || actionID !== null || blocked || !canManage}
+      icon={<PlayCircleOutlined />}
+      loading={actionID === schedule.id}
+      onClick={() => onEnable(schedule)}
+      size="small"
+      type="primary"
+    >
+      Enable
+    </Button>
+  );
+  if (!blocked) {
+    return button;
+  }
+  return (
+    <Tooltip title={readiness.detail}>
+      <span>{button}</span>
+    </Tooltip>
   );
 }
 

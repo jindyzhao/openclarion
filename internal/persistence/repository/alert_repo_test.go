@@ -63,6 +63,10 @@ func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 	resetDB(t)
 	startsAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
 	e := mustNewAlertEvent(t, "prometheus", "fp-1", "canon-A", startsAt)
+	e, err := e.WithAlertSourceProfile(7)
+	if err != nil {
+		t.Fatalf("WithAlertSourceProfile: %v", err)
+	}
 
 	var saved domain.AlertEvent
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
@@ -81,6 +85,9 @@ func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 	if saved.Status != domain.AlertStatusFiring {
 		t.Errorf("saved.Status = %q, want %q", saved.Status, domain.AlertStatusFiring)
 	}
+	if saved.AlertSourceProfileID != 7 {
+		t.Errorf("saved.AlertSourceProfileID = %d, want 7", saved.AlertSourceProfileID)
+	}
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
 		byID, err := uow.Alerts().FindEventByID(ctx, saved.ID)
@@ -90,15 +97,12 @@ func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 		if byID.CanonicalFingerprint != "canon-A" {
 			t.Errorf("FindEventByID.CanonicalFingerprint = %q, want %q", byID.CanonicalFingerprint, "canon-A")
 		}
-		// Natural key lookup uses the same normalised timestamp the
-		// repository writes; passing the original (already UTC)
-		// startsAt is fine because NormalizeUTCMicro is idempotent.
-		byKey, err := uow.Alerts().FindEventByNaturalKey(ctx, "prometheus", "canon-A", startsAt)
-		if err != nil {
-			t.Fatalf("FindEventByNaturalKey: %v", err)
+		if byID.AlertSourceProfileID != 7 {
+			t.Errorf("FindEventByID.AlertSourceProfileID = %d, want 7", byID.AlertSourceProfileID)
 		}
-		if byKey.ID != saved.ID {
-			t.Errorf("FindEventByNaturalKey.ID = %d, want %d", byKey.ID, saved.ID)
+		_, err = uow.Alerts().FindEventByNaturalKey(ctx, "prometheus", "canon-A", startsAt)
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("FindEventByNaturalKey for profiled event = %v, want ErrNotFound", err)
 		}
 	})
 }
@@ -127,6 +131,39 @@ func TestAlertRepository_SaveEvent_DuplicateNaturalKey(t *testing.T) {
 	}
 	if !errors.Is(err, domain.ErrAlreadyExists) {
 		t.Fatalf("second SaveEvent: want errors.Is ErrAlreadyExists, got %v", err)
+	}
+}
+
+func TestAlertRepository_SaveEvent_DedupesWithinAlertSourceProfile(t *testing.T) {
+	resetDB(t)
+	startsAt := time.Date(2026, 5, 22, 11, 30, 0, 0, time.UTC)
+	first := mustNewAlertEvent(t, "prometheus", "fp-X", "canon-X", startsAt)
+	first, err := first.WithAlertSourceProfile(7)
+	if err != nil {
+		t.Fatalf("WithAlertSourceProfile first: %v", err)
+	}
+	second := mustNewAlertEvent(t, "prometheus", "fp-X", "canon-X", startsAt)
+	second, err = second.WithAlertSourceProfile(8)
+	if err != nil {
+		t.Fatalf("WithAlertSourceProfile second: %v", err)
+	}
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		if _, err := uow.Alerts().SaveEvent(ctx, first); err != nil {
+			t.Fatalf("SaveEvent first profile: %v", err)
+		}
+		if _, err := uow.Alerts().SaveEvent(ctx, second); err != nil {
+			t.Fatalf("SaveEvent second profile: %v", err)
+		}
+	})
+
+	ctx := context.Background()
+	err = integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, serr := uow.Alerts().SaveEvent(ctx, first)
+		return serr
+	})
+	if !errors.Is(err, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate profile SaveEvent err = %v, want ErrAlreadyExists", err)
 	}
 }
 

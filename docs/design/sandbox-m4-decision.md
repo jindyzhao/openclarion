@@ -136,6 +136,8 @@ smoke, and egress allow/deny smoke, retaining the five canonical artifact
 filenames expected by the review-evidence template. The Provider timeout,
 output-cap, and egress proofs remain boundary proofs and use their existing
 smoke harness images unless the operator explicitly overrides those harnesses.
+If the retained artifact directory is inside the repository, the target requires
+it to be ignored by git and not overlap tracked files.
 
 The generator copies the quality `sample_basis`, case IDs, scenarios, and
 required evidence refs, fills the canonical runtime-smoke names/sources, reads

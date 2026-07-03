@@ -20,6 +20,8 @@ type AlertEvent struct {
 	ID int `json:"id,omitempty"`
 	// upstream provider identifier, e.g. "alertmanager", "datadog"
 	Source string `json:"source,omitempty"`
+	// optional operator-managed alert source profile that produced the event; 0 means unbound
+	AlertSourceProfileID int `json:"alert_source_profile_id,omitempty"`
 	// fingerprint reported by the upstream provider, retained verbatim
 	SourceFingerprint string `json:"source_fingerprint,omitempty"`
 	// sha256 hex of canonical(sorted(labels)); computed in-process
@@ -69,7 +71,7 @@ func (*AlertEvent) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case alertevent.FieldLabels, alertevent.FieldAnnotations, alertevent.FieldRawPayload:
 			values[i] = new([]byte)
-		case alertevent.FieldID:
+		case alertevent.FieldID, alertevent.FieldAlertSourceProfileID:
 			values[i] = new(sql.NullInt64)
 		case alertevent.FieldSource, alertevent.FieldSourceFingerprint, alertevent.FieldCanonicalFingerprint, alertevent.FieldStatus:
 			values[i] = new(sql.NullString)
@@ -101,6 +103,12 @@ func (_m *AlertEvent) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field source", values[i])
 			} else if value.Valid {
 				_m.Source = value.String
+			}
+		case alertevent.FieldAlertSourceProfileID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field alert_source_profile_id", values[i])
+			} else if value.Valid {
+				_m.AlertSourceProfileID = int(value.Int64)
 			}
 		case alertevent.FieldSourceFingerprint:
 			if value, ok := values[i].(*sql.NullString); !ok {
@@ -206,6 +214,9 @@ func (_m *AlertEvent) String() string {
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
 	builder.WriteString("source=")
 	builder.WriteString(_m.Source)
+	builder.WriteString(", ")
+	builder.WriteString("alert_source_profile_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.AlertSourceProfileID))
 	builder.WriteString(", ")
 	builder.WriteString("source_fingerprint=")
 	builder.WriteString(_m.SourceFingerprint)

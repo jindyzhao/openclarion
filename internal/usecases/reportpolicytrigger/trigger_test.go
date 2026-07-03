@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
+	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourceprovider"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
@@ -95,6 +97,10 @@ func TestReplayAndStartResolvesPolicyBindings(t *testing.T) {
 	if len(captured.Replay.SourceFilter) != 1 || captured.Replay.SourceFilter[0] != "prometheus" {
 		t.Fatalf("source filter = %+v", captured.Replay.SourceFilter)
 	}
+	if len(captured.Replay.AlertSourceProfileFilter) != 1 ||
+		captured.Replay.AlertSourceProfileFilter[0] != source.ID {
+		t.Fatalf("source profile filter = %+v", captured.Replay.AlertSourceProfileFilter)
+	}
 	wantCorrelation := "report-workflow-policy:13:2026-06-05T08:00:00Z:2026-06-05T09:00:00Z"
 	if captured.CorrelationKey != wantCorrelation {
 		t.Fatalf("CorrelationKey = %q, want %q", captured.CorrelationKey, wantCorrelation)
@@ -104,6 +110,88 @@ func TestReplayAndStartResolvesPolicyBindings(t *testing.T) {
 	}
 	if captured.ReportNotificationChannelProfileID != 14 {
 		t.Fatalf("ReportNotificationChannelProfileID = %d, want 14", captured.ReportNotificationChannelProfileID)
+	}
+}
+
+func TestReplayAndStartStartsAutoDiagnosisForAutoRoomPolicy(t *testing.T) {
+	source := mustAlertSourceProfile(t, 15, domain.AlertSourceAuthModeNone)
+	source.Kind = domain.AlertSourceKindAlertmanager
+	grouping := mustGroupingPolicy(t, 16, nil)
+	policy := mustReportWorkflowPolicy(t, 17, source.ID, grouping.ID, domain.ReportWorkflowScenarioSingleAlert)
+	policy.ReportNotificationChannelProfileID = 14
+	policy.DiagnosisFollowUp = domain.DiagnosisFollowUpModeAutoRoom
+	snapshot := alertreplay.SnapshotRef{ID: 71, GroupIndex: 0, EventCount: 3}
+	autoDiagnosis := &recordingPolicyAutoDiagnosis{
+		result: alertdiagnosis.Result{
+			PoliciesMatched: 1,
+			Snapshots:       []alertreplay.SnapshotRef{snapshot},
+			Rooms: []alertdiagnosis.RoomStart{{
+				PolicyID:           policy.ID,
+				EvidenceSnapshotID: snapshot.ID,
+				SessionID:          "diagnosis-session-auto-p17-s71",
+			}},
+		},
+	}
+	var captured reporttrigger.Request
+	providers, err := alertsourceprovider.NewBuilder(func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.MetricsProvider, error) {
+		return fakeMetricsProvider{}, nil
+	}, alertsourceprovider.WithAlertmanagerFactory(func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.MetricsProvider, error) {
+		return fakeMetricsProvider{}, nil
+	}))
+	if err != nil {
+		t.Fatalf("NewBuilder: %v", err)
+	}
+	service, err := NewService(
+		&fakePolicyUOWFactory{configRepo: &fakePolicyConfigRepo{
+			sources:   map[domain.AlertSourceProfileID]domain.AlertSourceProfile{source.ID: source},
+			groupings: map[domain.GroupingPolicyID]domain.GroupingPolicy{grouping.ID: grouping},
+			policies:  map[domain.ReportWorkflowPolicyID]domain.ReportWorkflowPolicy{policy.ID: policy},
+		}},
+		fakeReportStarter{},
+		providers,
+		WithReplayAndStart(func(
+			_ context.Context,
+			_ ports.MetricsProvider,
+			_ ports.UnitOfWorkFactory,
+			_ ports.ReportWorkflowStarter,
+			req reporttrigger.Request,
+		) (reporttrigger.Result, error) {
+			captured = req
+			return reporttrigger.Result{
+				Replay:  alertreplay.Result{Snapshots: []alertreplay.SnapshotRef{snapshot}},
+				Started: true,
+			}, nil
+		}),
+		WithAutoDiagnosisTrigger(autoDiagnosis),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.ReplayAndStartDetailed(context.Background(), Request{
+		PolicyID:    policy.ID,
+		WindowStart: replayWindowStart,
+		WindowEnd:   replayWindowStart.Add(time.Hour),
+		Limit:       10,
+	})
+	if err != nil {
+		t.Fatalf("ReplayAndStartDetailed: %v", err)
+	}
+	if !result.Trigger.Started || result.AutoDiagnosis == nil || len(result.AutoDiagnosis.Rooms) != 1 {
+		t.Fatalf("result = %+v, want report and auto diagnosis starts", result)
+	}
+	if len(autoDiagnosis.requests) != 1 {
+		t.Fatalf("auto diagnosis requests = %d, want 1", len(autoDiagnosis.requests))
+	}
+	got := autoDiagnosis.requests[0]
+	if got.AlertSourceProfileID != source.ID ||
+		got.Policy.ID != policy.ID ||
+		len(got.Snapshots) != 1 ||
+		got.Snapshots[0] != snapshot {
+		t.Fatalf("auto diagnosis request = %+v", got)
+	}
+	if captured.Replay.CreatedByWorkflow != CreatedByWorkflow {
+		t.Fatalf("CreatedByWorkflow = %q, want %q", captured.Replay.CreatedByWorkflow, CreatedByWorkflow)
 	}
 }
 
@@ -160,6 +248,60 @@ func TestReplayAndStartRejectsDisabledBindings(t *testing.T) {
 			}, nil)
 
 			_, err := service.ReplayAndStart(context.Background(), Request{
+				PolicyID:    policy.ID,
+				WindowStart: replayWindowStart,
+				WindowEnd:   replayWindowStart.Add(time.Hour),
+				Limit:       1,
+			})
+			if !errors.Is(err, domain.ErrInvariantViolation) {
+				t.Fatalf("err = %v, want ErrInvariantViolation", err)
+			}
+		})
+	}
+}
+
+func TestReplayAndStartRejectsInvalidAutoRoomRuntimeBindings(t *testing.T) {
+	source := mustAlertSourceProfile(t, 24, domain.AlertSourceAuthModeNone)
+	grouping := mustGroupingPolicy(t, 25, nil)
+	policy := mustReportWorkflowPolicy(t, 26, source.ID, grouping.ID, domain.ReportWorkflowScenarioSingleAlert)
+	policy.DiagnosisFollowUp = domain.DiagnosisFollowUpModeAutoRoom
+
+	tests := []struct {
+		name   string
+		source domain.AlertSourceProfile
+		policy domain.ReportWorkflowPolicy
+	}{
+		{
+			name:   "source_not_alertmanager",
+			source: source,
+			policy: func() domain.ReportWorkflowPolicy {
+				out := policy
+				out.ReportNotificationChannelProfileID = 14
+				return out
+			}(),
+		},
+		{
+			name: "notification_channel_missing",
+			source: func() domain.AlertSourceProfile {
+				out := source
+				out.Kind = domain.AlertSourceKindAlertmanager
+				return out
+			}(),
+			policy: policy,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			service := newTestPolicyTriggerService(t, &fakePolicyConfigRepo{
+				sources:   map[domain.AlertSourceProfileID]domain.AlertSourceProfile{source.ID: tc.source},
+				groupings: map[domain.GroupingPolicyID]domain.GroupingPolicy{grouping.ID: grouping},
+				policies:  map[domain.ReportWorkflowPolicyID]domain.ReportWorkflowPolicy{policy.ID: tc.policy},
+			}, func(t *testing.T, _ reporttrigger.Request) {
+				t.Fatal("replay should not run for an invalid auto_room policy")
+			})
+
+			_, err := service.ReplayAndStartDetailed(context.Background(), Request{
 				PolicyID:    policy.ID,
 				WindowStart: replayWindowStart,
 				WindowEnd:   replayWindowStart.Add(time.Hour),
@@ -404,6 +546,17 @@ type fakeReportStarter struct{}
 
 func (fakeReportStarter) StartReportBatch(context.Context, ports.ReportBatchStartRequest) (ports.WorkflowHandle, error) {
 	return ports.WorkflowHandle{}, nil
+}
+
+type recordingPolicyAutoDiagnosis struct {
+	requests []alertdiagnosis.StartRoomsRequest
+	result   alertdiagnosis.Result
+	err      error
+}
+
+func (r *recordingPolicyAutoDiagnosis) StartRooms(_ context.Context, req alertdiagnosis.StartRoomsRequest) (alertdiagnosis.Result, error) {
+	r.requests = append(r.requests, req)
+	return r.result, r.err
 }
 
 type fakeSecretResolver struct {

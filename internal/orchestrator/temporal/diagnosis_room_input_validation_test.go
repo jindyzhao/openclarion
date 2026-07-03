@@ -61,3 +61,19 @@ func TestValidateDiagnosisRoomWorkflowInputRejectsAmbiguousEvidence(t *testing.T
 		})
 	}
 }
+
+func TestValidateDiagnosisRoomWorkflowInputRejectsNegativeCloseNotificationChannel(t *testing.T) {
+	input := DiagnosisRoomWorkflowInput{
+		SessionID:                         "session-1",
+		DiagnosisTaskID:                   1001,
+		OwnerSubject:                      "owner-1",
+		Evidence:                          json.RawMessage(`{"alert":"cpu_saturation","severity":"warning"}`),
+		CloseNotificationChannelProfileID: -1,
+		Policy:                            diagnosisroom.DefaultPolicy(),
+	}
+
+	err := validateDiagnosisRoomWorkflowInput(input, input.Policy)
+	if err == nil || !strings.Contains(err.Error(), "close_notification_channel_profile_id") {
+		t.Fatalf("validateDiagnosisRoomWorkflowInput error = %v, want close channel validation", err)
+	}
+}

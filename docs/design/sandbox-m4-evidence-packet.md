@@ -65,7 +65,9 @@ OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR=artifacts/samples/runtime-smokes \
 This is only a retained lifecycle/security artifact path. The custom thin
 runner remains a candidate proof until a representative quality manifest,
 human review evidence, and verified M4 decision packet support a recorded
-`proceed` decision.
+`proceed` decision. If these retained output paths are inside the repository,
+the smoke helper requires them to be ignored by git and not overlap tracked
+files.
 
 The quality manifest still owns the real direct/sandbox SubReport file list,
 its `sample_basis`, and the per-case alert scenario labels. The decision gate

@@ -27,3 +27,9 @@ var ErrAlreadyExists = errors.New("domain: entity already exists")
 // before any persistence call. Wrap with fmt.Errorf to attach the
 // specific field or rule that failed.
 var ErrInvariantViolation = errors.New("domain: invariant violation")
+
+// ErrPreconditionFailed is returned when a valid operation cannot be
+// accepted because the current aggregate or workflow state is not ready
+// for it. It differs from ErrInvariantViolation: the request shape can be
+// valid, but the operation must wait for additional state changes.
+var ErrPreconditionFailed = errors.New("domain: precondition failed")

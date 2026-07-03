@@ -4,8 +4,11 @@ package notificationchannelcheck
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
@@ -59,6 +62,13 @@ type Result struct {
 	CheckedAt         time.Time
 	ProviderMessageID string
 	ProviderStatus    string
+	ContentKind       string
+	ContentSHA256     string
+}
+
+// Request selects optional controls for one notification channel test.
+type Request struct {
+	ContentKind string
 }
 
 // Service coordinates provider construction and sanitized test delivery.
@@ -109,12 +119,23 @@ func NewService(builder *notificationchannelprovider.Builder, opts ...Option) (*
 	return service, nil
 }
 
-// TestNotificationChannel performs one sanitized test send for profile. Disabled
-// profiles may be tested so operators can verify draft channels before
+// TestNotificationChannel performs one sanitized test send for profile.
+// Disabled profiles may be tested so operators can verify draft channels before
 // enablement; workflow delivery still requires an enabled report-scoped profile.
-func (s *Service) TestNotificationChannel(ctx context.Context, profile domain.NotificationChannelProfile) (Result, error) {
+func (s *Service) TestNotificationChannel(ctx context.Context, profile domain.NotificationChannelProfile, requests ...Request) (Result, error) {
 	if s == nil || s.builder == nil || s.clock == nil {
 		return Result{}, fmt.Errorf("notification channel check: service is not configured: %w", domain.ErrInvariantViolation)
+	}
+	if len(requests) > 1 {
+		return Result{}, fmt.Errorf("notification channel check: at most one request is supported: %w", domain.ErrInvariantViolation)
+	}
+	req := Request{}
+	if len(requests) == 1 {
+		req = requests[0]
+	}
+	contentKind := strings.TrimSpace(req.ContentKind)
+	if contentKind != "" && !validTestContentKind(contentKind) {
+		return Result{}, fmt.Errorf("notification channel check: content_kind is unsupported: %w", domain.ErrInvariantViolation)
 	}
 	result := Result{
 		ChannelID:  profile.ID,
@@ -127,12 +148,16 @@ func (s *Service) TestNotificationChannel(ctx context.Context, profile domain.No
 	if profile.ID <= 0 || !profile.Kind.Valid() {
 		return result, nil
 	}
+	if profile.Kind != domain.NotificationChannelKindWeCom && profileHasDiagnosisDeliveryScope(profile) {
+		result.Message = "Diagnosis notification channel tests require an Enterprise WeChat profile."
+		return result, nil
+	}
 
 	provider, err := s.builder.Build(ctx, profile)
 	if err != nil {
 		return resultFromBuildError(result, err), nil
 	}
-	return s.testProvider(ctx, profile, result, provider), nil
+	return s.testProvider(ctx, profile, result, provider, contentKind), nil
 }
 
 func resultFromBuildError(result Result, err error) Result {
@@ -170,6 +195,7 @@ func (s *Service) testProvider(
 	profile domain.NotificationChannelProfile,
 	result Result,
 	provider ports.IMProvider,
+	contentKind string,
 ) Result {
 	if provider == nil {
 		result.Status = StatusFailed
@@ -180,7 +206,16 @@ func (s *Service) testProvider(
 
 	checkCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
-	delivery, err := provider.SendNotification(checkCtx, testNotification(profile.ID))
+	testMessage, err := testNotification(profile, contentKind)
+	if err != nil {
+		result.Status = StatusFailed
+		result.ReasonCode = ReasonInvalidProfile
+		result.Message = "Requested notification channel test content is not compatible with the profile delivery scopes."
+		return result
+	}
+	result.ContentKind = testMessage.ContentKind
+	result.ContentSHA256 = testMessage.ContentSHA256
+	delivery, err := provider.SendNotification(checkCtx, testMessage.Notification)
 	if err != nil {
 		result.Status = StatusFailed
 		if checkCtx.Err() != nil {
@@ -207,15 +242,107 @@ func (s *Service) testProvider(
 	return result
 }
 
-func testNotification(channelID domain.NotificationChannelProfileID) ports.IMNotification {
-	return ports.IMNotification{
-		IdempotencyKey:        fmt.Sprintf("notification_channel:%d/test", channelID),
-		NotificationChannelID: int64(channelID),
-		CorrelationKey:        "notification-channel-test",
-		Title:                 "OpenClarion notification channel test",
-		Body:                  "This is a test notification from OpenClarion.",
-		Severity:              "info",
+type testNotificationMessage struct {
+	Notification  ports.IMNotification
+	ContentKind   string
+	ContentSHA256 string
+}
+
+func testNotification(profile domain.NotificationChannelProfile, contentKind string) (testNotificationMessage, error) {
+	title, body, contentKind, err := testNotificationContent(profile, contentKind)
+	if err != nil {
+		return testNotificationMessage{}, err
 	}
+	return testNotificationMessage{
+		Notification: ports.IMNotification{
+			IdempotencyKey:        fmt.Sprintf("notification_channel:%d/test", profile.ID),
+			NotificationChannelID: int64(profile.ID),
+			CorrelationKey:        "notification-channel-test",
+			Title:                 title,
+			Body:                  body,
+			Severity:              "info",
+		},
+		ContentKind:   contentKind,
+		ContentSHA256: sha256Hex(body),
+	}, nil
+}
+
+func testNotificationContent(profile domain.NotificationChannelProfile, contentKind string) (string, string, string, error) {
+	if contentKind == "" {
+		switch {
+		case hasDeliveryScope(profile, domain.NotificationDeliveryScopeDiagnosisConsultation):
+			contentKind = "ai_diagnosis_sample"
+		case hasDeliveryScope(profile, domain.NotificationDeliveryScopeDiagnosisClose):
+			contentKind = "diagnosis_close_sample"
+		default:
+			contentKind = "transport_sample"
+		}
+	}
+
+	switch contentKind {
+	case "ai_diagnosis_sample":
+		if !hasDeliveryScope(profile, domain.NotificationDeliveryScopeDiagnosisConsultation) {
+			return "", "", "", fmt.Errorf("ai diagnosis sample requires diagnosis_consultation delivery scope: %w", domain.ErrInvariantViolation)
+		}
+		return "OpenClarion AI diagnosis channel test", strings.Join([]string{
+			"This test validates that the channel can receive OpenClarion AI diagnosis updates, not raw Alertmanager alerts.",
+			"Confidence: medium",
+			"Human review: required",
+			"Missing evidence:",
+			"1. [high] Owner rollout context - Confirm whether the service owner has already mitigated the rollout risk.",
+			"Evidence collection suggestions:",
+			"1. [medium] Current saturation trend - Collect a bounded CPU or JVM memory range query before raising confidence.",
+			"AI diagnosis: Synthetic CPU saturation is likely related to a recent rollout.",
+			"Recommended actions:",
+			"1. Review the diagnosis room before closing the alert.",
+			"2. Provide supplemental evidence if confidence needs improvement.",
+			"Executable evidence requests: 1",
+			"1. active_alerts - Confirm related alerts are still firing. (limit=5)",
+		}, "\n"), "ai_diagnosis_sample", nil
+	case "diagnosis_close_sample":
+		if !hasDeliveryScope(profile, domain.NotificationDeliveryScopeDiagnosisClose) {
+			return "", "", "", fmt.Errorf("diagnosis close sample requires diagnosis_close delivery scope: %w", domain.ErrInvariantViolation)
+		}
+		return "OpenClarion diagnosis close channel test", strings.Join([]string{
+			"This test validates that the channel can receive OpenClarion diagnosis room close notifications.",
+			"Confidence: medium",
+			"AI conclusion: Synthetic alert impact has been reviewed and is ready for operator closure.",
+			"Recommended actions:",
+			"1. Confirm the close reason is recorded before archiving the room.",
+		}, "\n"), "diagnosis_close_sample", nil
+	case "transport_sample":
+		return "OpenClarion notification channel test", "This is a test notification from OpenClarion.", "transport_sample", nil
+	default:
+		return "", "", "", fmt.Errorf("unsupported notification channel test content kind: %w", domain.ErrInvariantViolation)
+	}
+}
+
+func validTestContentKind(value string) bool {
+	switch value {
+	case "transport_sample", "ai_diagnosis_sample", "diagnosis_close_sample":
+		return true
+	default:
+		return false
+	}
+}
+
+func sha256Hex(value string) string {
+	sum := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(sum[:])
+}
+
+func hasDeliveryScope(profile domain.NotificationChannelProfile, want domain.NotificationDeliveryScope) bool {
+	for _, scope := range profile.DeliveryScopes {
+		if scope == want {
+			return true
+		}
+	}
+	return false
+}
+
+func profileHasDiagnosisDeliveryScope(profile domain.NotificationChannelProfile) bool {
+	return hasDeliveryScope(profile, domain.NotificationDeliveryScopeDiagnosisConsultation) ||
+		hasDeliveryScope(profile, domain.NotificationDeliveryScopeDiagnosisClose)
 }
 
 func truncate(value string, maxLength int) string {

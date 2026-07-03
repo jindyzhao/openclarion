@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourceprovider"
@@ -49,8 +50,15 @@ type ReplayAndStartFunc func(
 // Result returns the replay/start result plus the immutable policy metadata
 // that was resolved for the request.
 type Result struct {
-	Trigger reporttrigger.Result
-	Policy  domain.ReportWorkflowPolicy
+	Trigger       reporttrigger.Result
+	Policy        domain.ReportWorkflowPolicy
+	AutoDiagnosis *alertdiagnosis.Result
+}
+
+// AutoDiagnosisTrigger starts automatic diagnosis rooms for snapshots already
+// built by report-policy replay.
+type AutoDiagnosisTrigger interface {
+	StartRooms(context.Context, alertdiagnosis.StartRoomsRequest) (alertdiagnosis.Result, error)
 }
 
 // Service resolves enabled configuration and starts policy-driven report replay.
@@ -59,6 +67,7 @@ type Service struct {
 	starter        ports.ReportWorkflowStarter
 	providers      *alertsourceprovider.Builder
 	replayAndStart ReplayAndStartFunc
+	autoDiagnosis  AutoDiagnosisTrigger
 }
 
 // Option customizes Service construction.
@@ -69,6 +78,16 @@ func WithReplayAndStart(fn ReplayAndStartFunc) Option {
 	return func(s *Service) {
 		if fn != nil {
 			s.replayAndStart = fn
+		}
+	}
+}
+
+// WithAutoDiagnosisTrigger enables automatic diagnosis-room starts for
+// policies whose follow-up mode is explicitly auto_room.
+func WithAutoDiagnosisTrigger(trigger AutoDiagnosisTrigger) Option {
+	return func(s *Service) {
+		if trigger != nil {
+			s.autoDiagnosis = trigger
 		}
 	}
 }
@@ -134,12 +153,13 @@ func (s *Service) ReplayAndStartDetailed(ctx context.Context, req Request) (Resu
 
 	triggerReq := reporttrigger.Request{
 		Replay: alertreplay.Request{
-			WindowStart:       req.WindowStart,
-			WindowEnd:         req.WindowEnd,
-			Grouping:          groupingConfig(binding.grouping),
-			SourceFilter:      append([]string(nil), binding.grouping.SourceFilter...),
-			CreatedByWorkflow: createdByWorkflow(req),
-			Limit:             req.Limit,
+			WindowStart:              req.WindowStart,
+			WindowEnd:                req.WindowEnd,
+			Grouping:                 groupingConfig(binding.grouping),
+			SourceFilter:             append([]string(nil), binding.grouping.SourceFilter...),
+			AlertSourceProfileFilter: []domain.AlertSourceProfileID{binding.source.ID},
+			CreatedByWorkflow:        createdByWorkflow(req),
+			Limit:                    req.Limit,
 		},
 		CorrelationKey:                     correlationKey(req),
 		WorkflowID:                         strings.TrimSpace(req.WorkflowID),
@@ -150,10 +170,36 @@ func (s *Service) ReplayAndStartDetailed(ctx context.Context, req Request) (Resu
 	if err != nil {
 		return Result{}, err
 	}
+	autoDiagnosis, err := s.startAutoDiagnosis(ctx, binding, result.Replay.Snapshots)
+	if err != nil {
+		return Result{}, err
+	}
 	return Result{
-		Trigger: result,
-		Policy:  binding.policy,
+		Trigger:       result,
+		Policy:        binding.policy,
+		AutoDiagnosis: autoDiagnosis,
 	}, nil
+}
+
+func (s *Service) startAutoDiagnosis(
+	ctx context.Context,
+	binding policyBinding,
+	snapshots []alertreplay.SnapshotRef,
+) (*alertdiagnosis.Result, error) {
+	if s.autoDiagnosis == nil ||
+		binding.policy.DiagnosisFollowUp != domain.DiagnosisFollowUpModeAutoRoom ||
+		len(snapshots) == 0 {
+		return nil, nil
+	}
+	result, err := s.autoDiagnosis.StartRooms(ctx, alertdiagnosis.StartRoomsRequest{
+		AlertSourceProfileID: binding.source.ID,
+		Policy:               binding.policy,
+		Snapshots:            snapshots,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("report policy trigger: start auto diagnosis rooms: %w", err)
+	}
+	return &result, nil
 }
 
 type policyBinding struct {
@@ -185,6 +231,14 @@ func (s *Service) loadBinding(ctx context.Context, policyID domain.ReportWorkflo
 		}
 		if !binding.source.Enabled {
 			return fmt.Errorf("report policy trigger: alert source profile must be enabled before replay: %w", domain.ErrInvariantViolation)
+		}
+		if binding.policy.DiagnosisFollowUp == domain.DiagnosisFollowUpModeAutoRoom &&
+			binding.source.Kind != domain.AlertSourceKindAlertmanager {
+			return fmt.Errorf("report policy trigger: auto-room workflow policy requires an alertmanager alert source before replay: %w", domain.ErrInvariantViolation)
+		}
+		if binding.policy.DiagnosisFollowUp == domain.DiagnosisFollowUpModeAutoRoom &&
+			binding.policy.ReportNotificationChannelProfileID == 0 {
+			return fmt.Errorf("report policy trigger: auto-room workflow policy requires a notification channel profile before replay: %w", domain.ErrInvariantViolation)
 		}
 		binding.grouping, err = uow.Config().FindGroupingPolicyByID(ctx, binding.policy.GroupingPolicyID)
 		if err != nil {

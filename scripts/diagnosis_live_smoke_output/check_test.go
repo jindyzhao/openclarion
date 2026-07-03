@@ -123,6 +123,30 @@ func TestRunAcceptsLiveSmokeProofWithCloseNotification(t *testing.T) {
 	}
 }
 
+func TestRunAcceptsLiveSmokeProofWithNotificationDeliveryProof(t *testing.T) {
+	path := writeSmokeProof(t, validCreatedProofWithNotificationDeliveryProof())
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsLiveSmokeProofWithBrowserConfirmConclusion(t *testing.T) {
+	path := writeSmokeProof(t, validCreatedProofWithBrowserConfirmConclusion())
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsLiveSmokeProofWithUnavailableBrowserConfirmConclusion(t *testing.T) {
+	path := writeSmokeProof(t, validCreatedProofWithUnavailableBrowserConfirmConclusion())
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
 func TestRunAcceptsLiveSmokeProofWithAutoEvidenceFollowUp(t *testing.T) {
 	body := validExistingProof()
 	body = replaceProof(t, body, `"assistant_turns_after":1`, `"assistant_turns_after":2`)
@@ -130,6 +154,80 @@ func TestRunAcceptsLiveSmokeProofWithAutoEvidenceFollowUp(t *testing.T) {
 	body = replaceProof(t, body, `"transcript_messages_after":2`, `"transcript_messages_after":4`)
 	body = replaceProof(t, body, `"completed_turn_text":"Turn 1 completed."`, `"completed_turn_text":"Turn 2 completed."`)
 	path := writeSmokeProof(t, body)
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsLiveSmokeProofWithStateRefreshTurnEvidence(t *testing.T) {
+	body := replaceProof(
+		t,
+		validExistingProof(),
+		`"completed_turn_text":"Turn 1 completed."`,
+		`"completed_turn_text":"Loaded state: open, 1 turn(s)."`,
+	)
+	path := writeSmokeProof(t, body)
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsLiveSmokeProofWithToolRequestSeed(t *testing.T) {
+	body := replaceProof(
+		t,
+		validExistingProof(),
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"`,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence","tool_request_seed_requested":true,"tool_request_seed_count":1,"tool_request_seed_matched_count":1,"evidence_plan_count":1,"evidence_collection_result_count":1,"evidence_collection_summary_visible":true,"evidence_collection_summary_text":"1/1 collected 1 alerts"`,
+	)
+	path := writeSmokeProof(t, body)
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsLiveSmokeProofWithStagedOperatorCollection(t *testing.T) {
+	body := replaceProof(
+		t,
+		validExistingProof(),
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"`,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence","operator_staged_collection_requested":true,"operator_staged_collection_count":2,"operator_staged_collection_triggered":true,"operator_staged_collection_matched_count":2,"operator_staged_collection_missing":"","operator_staged_collection_modes":"review_queue,form","operator_staged_collection_result_count_before":1,"operator_staged_collection_result_count_after":3,"operator_staged_collection_assistant_turns_before":1,"operator_staged_collection_assistant_turns_after":2,"operator_staged_collection_assistant_turn_delta":1,"operator_staged_collection_confidence_before":"low","operator_staged_collection_confidence_after":"medium","operator_staged_collection_summary_text":"3 collected evidence items"`,
+	)
+	path := writeSmokeProof(t, body)
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsLiveSmokeProofWithPlannedEvidenceCollection(t *testing.T) {
+	path := writeSmokeProof(t, validExistingProofWithPlannedEvidenceCollection(t))
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsLiveSmokeProofWithAutoCollectedPlannedEvidence(t *testing.T) {
+	path := writeSmokeProof(t, validExistingProofWithAutoCollectedPlannedEvidence(t))
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsLiveSmokeProofWithAlreadyFinalPlannedEvidence(t *testing.T) {
+	path := writeSmokeProof(t, validExistingProofWithAlreadyFinalPlannedEvidence(t))
+
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsLiveSmokeProofWithSupplementalEvidenceFollowUp(t *testing.T) {
+	path := writeSmokeProof(t, validExistingProofWithSupplementalEvidence(t))
 
 	if err := run([]string{path}); err != nil {
 		t.Fatalf("run: %v", err)
@@ -413,6 +511,41 @@ func TestRunRejectsInvalidLiveSmokeProof(t *testing.T) {
 			want: "evidence must mention close_notification",
 		},
 		{
+			name: "notification delivery proof without evidence mention",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithNotificationDeliveryProof(), `"evidence":"turn_result close_notification ai_notification_delivery"`, `"evidence":"turn_result close_notification"`)
+			},
+			want: "evidence must mention ai_notification_delivery",
+		},
+		{
+			name: "supplemental evidence proof without evidence mention",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProofWithSupplementalEvidence(t), `"evidence":"turn_result supplemental_evidence"`, `"evidence":"turn_result"`)
+			},
+			want: "evidence must mention supplemental_evidence",
+		},
+		{
+			name: "planned evidence proof without evidence mention",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProofWithPlannedEvidenceCollection(t), `"evidence":"turn_result planned_evidence_collection"`, `"evidence":"turn_result"`)
+			},
+			want: "evidence must mention planned_evidence_collection",
+		},
+		{
+			name: "planned evidence claim without proof",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProof(), `"evidence":"turn_result"`, `"evidence":"turn_result planned_evidence_collection"`)
+			},
+			want: "evidence must not mention planned_evidence_collection",
+		},
+		{
+			name: "supplemental evidence claim without proof",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProof(), `"evidence":"turn_result"`, `"evidence":"turn_result supplemental_evidence"`)
+			},
+			want: "evidence must not mention supplemental_evidence",
+		},
+		{
 			name: "missing browser proof",
 			body: func(t *testing.T) string {
 				return removeProof(t, validExistingProof(), `,"browser":{"state_loaded":true,"turn_result_observed":true,"assistant_turns_before":0,"assistant_turns_after":1,"assistant_turn_delta":1,"transcript_messages_before":0,"transcript_messages_after":2,"connection_status_after_turn":"connected","submitted_message_visible":true,"submitted_message_length":1,"submitted_message_sha256":"`+testMessageSHA256+`","completed_turn_text":"Turn 1 completed.","consultation_insight_visible":true,"consultation_progress_visible":true,"evidence_readiness_visible":true,"confidence":"medium","confidence_aria_value":"medium confidence","evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"}`)
@@ -544,6 +677,108 @@ func TestRunRejectsInvalidLiveSmokeProof(t *testing.T) {
 			want: "browser.evidence_readiness_text",
 		},
 		{
+			name: "browser tool request seed without matched evidence plan identity",
+			body: func(t *testing.T) string {
+				return replaceProof(
+					t,
+					validExistingProof(),
+					`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"`,
+					`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence","tool_request_seed_requested":true,"tool_request_seed_count":1,"tool_request_seed_matched_count":0,"tool_request_seed_missing":"metric_range_query template #8","evidence_plan_count":1`,
+				)
+			},
+			want: "browser.tool_request_seed_matched_count",
+		},
+		{
+			name: "supplemental required unavailable",
+			body: func(t *testing.T) string {
+				return replaceProof(
+					t,
+					validExistingProof(),
+					`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"`,
+					`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence","supplemental_evidence_requested":true,"supplemental_evidence_required":true,"supplemental_follow_up_available":false,"supplemental_block_reason":"no_supplemental_follow_up_available"`,
+				)
+			},
+			want: "supplemental_follow_up_available",
+		},
+		{
+			name: "supplemental assistant count did not advance",
+			body: func(t *testing.T) string {
+				body := validExistingProofWithSupplementalEvidence(t)
+				body = replaceProof(t, body, `"supplemental_assistant_turns_after":2`, `"supplemental_assistant_turns_after":1`)
+				body = replaceProof(t, body, `"supplemental_assistant_turn_delta":1`, `"supplemental_assistant_turn_delta":0`)
+				return body
+			},
+			want: "supplemental_assistant_turns_after",
+		},
+		{
+			name: "planned evidence assistant count did not advance",
+			body: func(t *testing.T) string {
+				body := validExistingProofWithPlannedEvidenceCollection(t)
+				body = replaceProof(t, body, `"completed_turn_text":"Turn 1 completed."`, `"completed_turn_text":"Turn 2 completed."`)
+				body = replaceProof(t, body, `"planned_evidence_assistant_turns_after":2`, `"planned_evidence_assistant_turns_after":1`)
+				body = replaceProof(t, body, `"planned_evidence_assistant_turn_delta":1`, `"planned_evidence_assistant_turn_delta":0`)
+				return body
+			},
+			want: "planned_evidence_assistant_turns_after",
+		},
+		{
+			name: "auto-collected planned evidence reports zero collected",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProofWithAutoCollectedPlannedEvidence(t), `"planned_evidence_collection_summary_text":"1/1 collected 1 alerts"`, `"planned_evidence_collection_summary_text":"0/1 collected 1 skipped"`)
+			},
+			want: "planned_evidence_collection_summary_text",
+		},
+		{
+			name: "already-final planned evidence missing final state signal",
+			body: func(t *testing.T) string {
+				body := validExistingProofWithAlreadyFinalPlannedEvidence(t)
+				body = replaceProof(t, body, `"planned_evidence_final_conclusion_visible":true`, `"planned_evidence_final_conclusion_visible":false`)
+				body = replaceProof(t, body, `"planned_evidence_ready_for_confirmation_visible":true`, `"planned_evidence_ready_for_confirmation_visible":false`)
+				return body
+			},
+			want: "planned_evidence_final_conclusion_visible or browser.planned_evidence_ready_for_confirmation_visible",
+		},
+		{
+			name: "supplemental confidence mismatch",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProofWithSupplementalEvidence(t), `"supplemental_confidence_after":"high"`, `"supplemental_confidence_after":"medium"`)
+			},
+			want: "supplemental_confidence_after",
+		},
+		{
+			name: "supplemental completion evidence mismatches turn",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProofWithSupplementalEvidence(t), `"supplemental_completion_evidence_after":"Loaded state: open, 2 turn(s)."`, `"supplemental_completion_evidence_after":"Loaded state: open, 1 turn(s)."`)
+			},
+			want: "supplemental_completion_evidence_after",
+		},
+		{
+			name: "supplemental review queue hidden",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProofWithSupplementalEvidence(t), `"supplemental_review_queue_visible":true`, `"supplemental_review_queue_visible":false`)
+			},
+			want: "supplemental_review_queue_visible",
+		},
+		{
+			name: "supplemental review queue empty",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validExistingProofWithSupplementalEvidence(t), `"supplemental_review_queue_item_count":2`, `"supplemental_review_queue_item_count":0`)
+			},
+			want: "supplemental_review_queue_item_count",
+		},
+		{
+			name: "supplemental blocked confirmation missing reason",
+			body: func(t *testing.T) string {
+				return replaceProof(
+					t,
+					validExistingProofWithSupplementalEvidence(t),
+					`"supplemental_confirm_block_reason_after":"Confirmation blocked Resolve missing evidence requests before confirming."`,
+					`"supplemental_confirm_block_reason_after":""`,
+				)
+			},
+			want: "supplemental_confirm_block_reason_after",
+		},
+		{
 			name: "evidence snapshot id string",
 			body: func(t *testing.T) string {
 				return replaceProof(t, validExistingProof(), `"evidence_snapshot_id":null,"created_room":null`, `"evidence_snapshot_id":"7","created_room":null`)
@@ -661,6 +896,69 @@ func TestRunRejectsInvalidLiveSmokeProof(t *testing.T) {
 			want: "accepted or delivered",
 		},
 		{
+			name: "notification proof missing close phase",
+			body: func(t *testing.T) string {
+				return removeProof(t, validCreatedProofWithNotificationDeliveryProof(), `,{"event_kind":"diagnosis_room.close_notification_sent","notification_channel_profile_id":9,"provider_status":"accepted","provider_message_id":"wecom-close","assistant_message_id":"msg-1/assistant","assistant_turn_id":4,"turn_count":1,"content_kind":"final_conclusion","content_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","recommended_action_count":1,"evidence_request_count":2,"occurred_at":"2026-05-29T01:02:05.000001Z"}`)
+			},
+			want: `notification_proof.entries missing required event_kind "diagnosis_room.close_notification_sent"`,
+		},
+		{
+			name: "notification proof wrong final content kind",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithNotificationDeliveryProof(), `"event_kind":"diagnosis_room.final_ready_notification_sent","notification_channel_profile_id":9,"provider_status":"accepted","provider_message_id":"wecom-final","assistant_message_id":"msg-1/assistant","assistant_turn_id":4,"turn_count":1,"content_kind":"final_conclusion"`, `"event_kind":"diagnosis_room.final_ready_notification_sent","notification_channel_profile_id":9,"provider_status":"accepted","provider_message_id":"wecom-final","assistant_message_id":"msg-1/assistant","assistant_turn_id":4,"turn_count":1,"content_kind":"assistant_message"`)
+			},
+			want: "content_kind",
+		},
+		{
+			name: "notification proof queued provider status",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithNotificationDeliveryProof(), `"provider_status":"accepted","provider_message_id":"wecom-assistant"`, `"provider_status":"queued","provider_message_id":"wecom-assistant"`)
+			},
+			want: "want accepted, delivered, sent, or success",
+		},
+		{
+			name: "browser confirmation missing evidence claim",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithBrowserConfirmConclusion(), "confirm_conclusion closeout", "closeout")
+			},
+			want: "evidence must mention confirm_conclusion",
+		},
+		{
+			name: "browser requested confirmation availability missing",
+			body: func(t *testing.T) string {
+				return removeProof(t, validCreatedProofWithBrowserConfirmConclusion(), `"confirm_conclusion_available":true,`)
+			},
+			want: "confirm_conclusion_available",
+		},
+		{
+			name: "browser requested confirmation unavailable without block reason",
+			body: func(t *testing.T) string {
+				return removeProof(t, validCreatedProofWithUnavailableBrowserConfirmConclusion(), `"confirm_conclusion_block_reason":"diagnosis_not_ready_for_confirmation",`)
+			},
+			want: "confirm_conclusion_block_reason",
+		},
+		{
+			name: "browser requested confirmation unavailable cannot be confirmed",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithUnavailableBrowserConfirmConclusion(), `"final_conclusion_confirmed":false`, `"final_conclusion_confirmed":true`)
+			},
+			want: "final_conclusion_confirmed",
+		},
+		{
+			name: "browser confirmation not visible",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithBrowserConfirmConclusion(), `"final_conclusion_visible":true`, `"final_conclusion_visible":false`)
+			},
+			want: "browser.final_conclusion_visible",
+		},
+		{
+			name: "browser confirmation state mismatch",
+			body: func(t *testing.T) string {
+				return replaceProof(t, validCreatedProofWithBrowserConfirmConclusion(), `"confirmed_state_text":"Loaded state: closed, 1 turn(s)."`, `"confirmed_state_text":"Loaded state: open, 1 turn(s)."`)
+			},
+			want: "browser.confirmed_state_text",
+		},
+		{
 			name: "duplicate proof key",
 			body: func(t *testing.T) string {
 				return replaceProof(t, validExistingProof(), `"passed":true`, `"passed":true,"passed":false`)
@@ -706,6 +1004,88 @@ func validCreatedProof() string {
 	return `{"passed":true,"checked_at":"2026-05-29T01:02:03Z","request":{"mode":"create_room","session_id":"s","evidence_snapshot_id":7,"message_length":1,"message_sha256":"` + testMessageSHA256 + `"},"web_base_url":"http://127.0.0.1:32101","api_base_url":"http://127.0.0.1:8080","session_id":"s","evidence_snapshot_id":7,"created_room":{"session_id":"s","evidence_snapshot_id":7,"diagnosis_task_id":1,"chat_session_id":1,"workflow_id":"diagnosis-room-s","run_id":"run"},"message_length":1,"message_sha256":"` + testMessageSHA256 + `","browser":{"state_loaded":true,"turn_result_observed":true,"assistant_turns_before":0,"assistant_turns_after":1,"assistant_turn_delta":1,"transcript_messages_before":0,"transcript_messages_after":2,"connection_status_after_turn":"connected","submitted_message_visible":true,"submitted_message_length":1,"submitted_message_sha256":"` + testMessageSHA256 + `","completed_turn_text":"Turn 1 completed.","consultation_insight_visible":true,"consultation_progress_visible":true,"evidence_readiness_visible":true,"confidence":"medium","confidence_aria_value":"medium confidence","evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"},"evidence":"turn_result"}`
 }
 
+func validExistingProofWithPlannedEvidenceCollection(t *testing.T) string {
+	body := validExistingProof()
+	body = replaceProof(t, body, `"assistant_turns_after":1`, `"assistant_turns_after":2`)
+	body = replaceProof(t, body, `"assistant_turn_delta":1`, `"assistant_turn_delta":2`)
+	body = replaceProof(t, body, `"transcript_messages_after":2`, `"transcript_messages_after":4`)
+	body = replaceProof(
+		t,
+		body,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"`,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence","evidence_collection_result_count":2,"planned_evidence_collection_requested":true,"planned_evidence_collection_available":true,"planned_evidence_collection_action_count":1,"planned_evidence_collection_tool":"metric_range_query","planned_evidence_collection_mode":"manual_update","planned_evidence_collection_satisfied":true,"planned_evidence_collection_triggered":true,"planned_evidence_assistant_turns_before":1,"planned_evidence_assistant_turns_after":2,"planned_evidence_assistant_turn_delta":1,"planned_evidence_confidence_before":"medium","planned_evidence_confidence_after":"medium","planned_evidence_collection_result_count_before":1,"planned_evidence_collection_result_count_after":2,"planned_evidence_timeline_visible":true`,
+	)
+	return replaceProof(t, body, `"evidence":"turn_result"`, `"evidence":"turn_result planned_evidence_collection"`)
+}
+
+func validExistingProofWithAutoCollectedPlannedEvidence(t *testing.T) string {
+	body := validExistingProof()
+	body = replaceProof(
+		t,
+		body,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"`,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence","evidence_collection_result_count":2,"evidence_collection_summary_visible":true,"evidence_collection_summary_text":"1/1 collected 1 alerts","planned_evidence_collection_requested":true,"planned_evidence_collection_available":false,"planned_evidence_collection_action_count":0,"planned_evidence_collection_mode":"auto_collected","planned_evidence_collection_satisfied":true,"planned_evidence_assistant_turns_after":1,"planned_evidence_confidence_after":"medium","planned_evidence_collection_result_count_before":1,"planned_evidence_collection_result_count_after":2,"planned_evidence_backend_collection_result_count":2,"planned_evidence_backend_collected_result_count":1,"planned_evidence_collection_summary_visible":true,"planned_evidence_collection_summary_text":"1/1 collected 1 alerts"`,
+	)
+	return replaceProof(t, body, `"evidence":"turn_result"`, `"evidence":"turn_result planned_evidence_collection"`)
+}
+
+func validExistingProofWithAlreadyFinalPlannedEvidence(t *testing.T) string {
+	body := validExistingProof()
+	body = replaceProof(t, body, `"assistant_turns_before":0`, `"assistant_turns_before":3`)
+	body = replaceProof(t, body, `"assistant_turns_after":1`, `"assistant_turns_after":4`)
+	body = replaceProof(t, body, `"transcript_messages_before":0`, `"transcript_messages_before":6`)
+	body = replaceProof(t, body, `"transcript_messages_after":2`, `"transcript_messages_after":8`)
+	body = replaceProof(t, body, `"completed_turn_text":"Turn 1 completed."`, `"completed_turn_text":"Turn 4 completed."`)
+	body = replaceProof(t, body, `"confidence":"medium","confidence_aria_value":"medium confidence"`, `"confidence":"high","confidence_aria_value":"high confidence"`)
+	body = replaceProof(
+		t,
+		body,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"`,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 0 Suggestions 0 Next Ready for confirmation","evidence_collection_result_count":0,"evidence_collection_summary_visible":false,"evidence_collection_summary_text":"","planned_evidence_collection_requested":true,"planned_evidence_collection_available":false,"planned_evidence_collection_action_count":0,"planned_evidence_collection_result_count_before":0,"planned_evidence_collection_result_count_after":0,"planned_evidence_collection_summary_visible":false,"planned_evidence_final_conclusion_visible":true,"planned_evidence_ready_for_confirmation_visible":true,"planned_evidence_collection_mode":"already_final","planned_evidence_collection_satisfied":true,"planned_evidence_assistant_turns_after":4,"planned_evidence_confidence_after":"high"`,
+	)
+	return replaceProof(t, body, `"evidence":"turn_result"`, `"evidence":"turn_result planned_evidence_collection"`)
+}
+
+func validExistingProofWithSupplementalEvidence(t *testing.T) string {
+	body := validExistingProof()
+	body = replaceProof(t, body, `"assistant_turns_after":1`, `"assistant_turns_after":2`)
+	body = replaceProof(t, body, `"assistant_turn_delta":1`, `"assistant_turn_delta":2`)
+	body = replaceProof(t, body, `"transcript_messages_after":2`, `"transcript_messages_after":4`)
+	body = replaceProof(t, body, `"completed_turn_text":"Turn 1 completed."`, `"completed_turn_text":"Turn 2 completed."`)
+	body = replaceProof(t, body, `"confidence":"medium","confidence_aria_value":"medium confidence"`, `"confidence":"high","confidence_aria_value":"high confidence"`)
+	body = replaceProof(
+		t,
+		body,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"`,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence","supplemental_evidence_requested":true,"supplemental_evidence_required":true,"supplemental_follow_up_available":true,"supplemental_follow_up_count":2,"supplemental_request_label":"CPU saturation evidence","supplemental_evidence_submitted":true,"supplemental_evidence_length":42,"supplemental_evidence_sha256":"`+testMessageSHA256+`","supplemental_assistant_turns_before":1,"supplemental_assistant_turns_after":2,"supplemental_assistant_turn_delta":1,"supplemental_completion_evidence_after":"Loaded state: open, 2 turn(s).","supplemental_confidence_before":"medium","supplemental_confidence_after":"high","supplemental_history_visible":true,"supplemental_history_count_before":0,"supplemental_history_count_after":1,"supplemental_review_queue_visible":true,"supplemental_review_queue_item_count":2,"supplemental_confirm_conclusion_available_after":false,"supplemental_confirm_block_reason_after":"Confirmation blocked Resolve missing evidence requests before confirming."`,
+	)
+	return replaceProof(t, body, `"evidence":"turn_result"`, `"evidence":"turn_result supplemental_evidence"`)
+}
+
+func validCreatedProofWithBrowserConfirmConclusion() string {
+	body := strings.Replace(
+		validCreatedProof(),
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"`,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence","confirm_conclusion_requested":true,"confirm_conclusion_available":true,"final_conclusion_confirmed":true,"final_conclusion_visible":true,"confirmed_state_text":"Loaded state: closed, 1 turn(s).","connection_status_after_confirm":"connected","confirm_button_disabled_after_confirm":true,"close_reason_visible":true,"conclusion_version_visible":true`,
+		1,
+	)
+	return strings.Replace(
+		body,
+		`"evidence":"turn_result"`,
+		`"evidence":"turn_result confirm_conclusion closeout"`,
+		1,
+	)
+}
+
+func validCreatedProofWithUnavailableBrowserConfirmConclusion() string {
+	return strings.Replace(
+		validCreatedProof(),
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence"`,
+		`"evidence_readiness_text":"Plan 1 Collected 1 Missing 1 Suggestions 1 Next Collect missing evidence","confirm_conclusion_requested":true,"confirm_conclusion_available":false,"confirm_conclusion_blocked":true,"confirm_conclusion_block_reason":"diagnosis_not_ready_for_confirmation","final_conclusion_confirmed":false`,
+		1,
+	)
+}
+
 func validCreatedProofWithCloseNotification() string {
 	return strings.Replace(
 		validCreatedProof(),
@@ -715,10 +1095,32 @@ func validCreatedProofWithCloseNotification() string {
 	)
 }
 
+func validCreatedProofWithNotificationDeliveryProof() string {
+	body := validCreatedProofWithCloseNotification()
+	body = replaceProofForFixture(
+		body,
+		`"evidence_snapshot_id":7,"message_length":1`,
+		`"evidence_snapshot_id":7,"notification_channel_profile_id":9,"require_notification_proof":true,"message_length":1`,
+	)
+	body = replaceProofForFixture(
+		body,
+		`,"evidence":"turn_result close_notification"}`,
+		`,"notification_proof":{"checked_at":"2026-05-29T01:03:01Z","requested":true,"passed":true,"entries":[{"event_kind":"diagnosis_room.assistant_turn_notification_sent","notification_channel_profile_id":9,"provider_status":"accepted","provider_message_id":"wecom-assistant","assistant_message_id":"msg-1/assistant","assistant_turn_id":4,"turn_count":1,"content_kind":"assistant_message","content_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","recommended_action_count":1,"evidence_request_count":2,"occurred_at":"2026-05-29T01:02:04Z"},{"event_kind":"diagnosis_room.final_ready_notification_sent","notification_channel_profile_id":9,"provider_status":"accepted","provider_message_id":"wecom-final","assistant_message_id":"msg-1/assistant","assistant_turn_id":4,"turn_count":1,"content_kind":"final_conclusion","content_sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","recommended_action_count":1,"evidence_request_count":2,"occurred_at":"2026-05-29T01:02:04.5Z"},{"event_kind":"diagnosis_room.close_notification_sent","notification_channel_profile_id":9,"provider_status":"accepted","provider_message_id":"wecom-close","assistant_message_id":"msg-1/assistant","assistant_turn_id":4,"turn_count":1,"content_kind":"final_conclusion","content_sha256":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","recommended_action_count":1,"evidence_request_count":2,"occurred_at":"2026-05-29T01:02:05.000001Z"}]},"evidence":"turn_result close_notification ai_notification_delivery"}`,
+	)
+	return body
+}
+
 func replaceProof(t *testing.T, body, old, replacement string) string {
 	t.Helper()
 	if !strings.Contains(body, old) {
 		t.Fatalf("proof fixture missing substring %q", old)
+	}
+	return strings.Replace(body, old, replacement, 1)
+}
+
+func replaceProofForFixture(body, old, replacement string) string {
+	if !strings.Contains(body, old) {
+		panic("proof fixture missing substring: " + old)
 	}
 	return strings.Replace(body, old, replacement, 1)
 }

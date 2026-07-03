@@ -245,6 +245,6 @@
   (`make diagnosis-room-workflow-test`)
 - [x] final group notification sent on session close
   (`make diagnosis-room-workflow-test`)
-- [ ] live browser acceptance evidence captured against a real backend/worker
+- [x] live browser acceptance evidence captured against a real backend/worker
   stack
 - [x] no automatic compression in V1 path

@@ -79,9 +79,9 @@ var ErrNestedTransaction = errors.New("ports: nested WithinTx is not supported")
 // queries needed by the grouping stage.
 type AlertRepository interface {
 	// SaveEvent inserts a new AlertEvent. A duplicate
-	// (source, canonical_fingerprint, starts_at) returns a wrapped
-	// domain.ErrAlreadyExists. The returned AlertEvent has its ID
-	// and CreatedAt populated.
+	// (alert_source_profile_id, source, canonical_fingerprint, starts_at)
+	// returns a wrapped domain.ErrAlreadyExists. The returned AlertEvent has
+	// its ID and CreatedAt populated.
 	SaveEvent(ctx context.Context, e domain.AlertEvent) (domain.AlertEvent, error)
 
 	// UpdateEventResolution persists an EndsAt + Status transition
@@ -94,11 +94,11 @@ type AlertRepository interface {
 	// domain.ErrNotFound.
 	FindEventByID(ctx context.Context, id domain.AlertEventID) (domain.AlertEvent, error)
 
-	// FindEventByNaturalKey returns the AlertEvent matching the
-	// natural unique key (source, canonical_fingerprint,
-	// starts_at). startsAt is normalised via
-	// domain.NormalizeUTCMicro before the lookup. Returns
-	// domain.ErrNotFound when no such row exists.
+	// FindEventByNaturalKey returns the unbound AlertEvent matching the
+	// legacy key (source, canonical_fingerprint, starts_at) with
+	// alert_source_profile_id == 0. startsAt is normalised via
+	// domain.NormalizeUTCMicro before the lookup. Returns domain.ErrNotFound
+	// when no such row exists.
 	FindEventByNaturalKey(ctx context.Context, source, canonicalFingerprint string, startsAt time.Time) (domain.AlertEvent, error)
 
 	// ListEventsByStartsAtRange returns AlertEvents whose StartsAt
@@ -119,9 +119,17 @@ type AlertRepository interface {
 	// with a wrapped domain.ErrInvariantViolation.
 	ListEventsByStartsAtRange(ctx context.Context, startInclusive, endExclusive time.Time, limit int) ([]domain.AlertEvent, error)
 
+	// ListEventsByStartsAtRangeFiltered is ListEventsByStartsAtRange with
+	// optional source/profile predicates applied before ordering and limiting.
+	ListEventsByStartsAtRangeFiltered(ctx context.Context, startInclusive, endExclusive time.Time, filter AlertEventFilter, limit int) ([]domain.AlertEvent, error)
+
 	// ListEvents returns the most recent AlertEvents, ordered by
 	// (starts_at DESC, id DESC), capped by limit. limit MUST be > 0.
 	ListEvents(ctx context.Context, limit int) ([]domain.AlertEvent, error)
+
+	// ListEventsFiltered is ListEvents with optional source/profile predicates
+	// applied before ordering and limiting.
+	ListEventsFiltered(ctx context.Context, filter AlertEventFilter, limit int) ([]domain.AlertEvent, error)
 
 	// SaveGroup inserts a new AlertGroup header (without the M2N
 	// link). A duplicate (group_key, first_seen_at) returns a
@@ -206,6 +214,16 @@ type EvidenceRepository interface {
 	List(ctx context.Context, limit int) ([]domain.EvidenceSnapshot, error)
 }
 
+// AlertEventFilter captures optional AlertEvent query predicates. Empty slices
+// mean no predicate. IDs must be positive when provided. Non-positive profile
+// IDs are ignored by repository implementations so callers can pass optional
+// values without special casing.
+type AlertEventFilter struct {
+	IDs                   []domain.AlertEventID
+	Sources               []string
+	AlertSourceProfileIDs []domain.AlertSourceProfileID
+}
+
 // DiagnosisRepository covers DiagnosisTask plus append-only
 // DiagnosisTaskEvent lifecycle logs and the M5 diagnosis-room
 // ChatSession / ChatTurn transcript boundary.
@@ -285,6 +303,16 @@ type DiagnosisRepository interface {
 	// FindChatSessionByKey returns the ChatSession matching the
 	// external WebSocket/session key, or domain.ErrNotFound.
 	FindChatSessionByKey(ctx context.Context, sessionKey string) (domain.ChatSession, error)
+
+	// ListChatSessions returns recent diagnosis-room sessions ordered by
+	// (updated_at DESC, id DESC), with their backing DiagnosisTask loaded.
+	// limit MUST be > 0.
+	ListChatSessions(ctx context.Context, limit int) ([]domain.ChatSessionWithTask, error)
+
+	// ListChatSessionsPage returns a deterministic page of recent
+	// diagnosis-room sessions ordered by (updated_at DESC, id DESC), with their
+	// backing DiagnosisTask loaded. limit MUST be > 0 and offset MUST be >= 0.
+	ListChatSessionsPage(ctx context.Context, limit int, offset int) ([]domain.ChatSessionWithTask, error)
 
 	// SaveChatTurn appends one immutable chat transcript row. A
 	// duplicate (chat_session_id, message_id) or
@@ -479,6 +507,84 @@ type ConfigurationRepository interface {
 	// ordered by (updated_at DESC, id DESC), capped by limit. limit MUST be
 	// > 0.
 	ListNotificationChannelProfiles(ctx context.Context, limit int) ([]domain.NotificationChannelProfile, error)
+
+	// SaveNotificationChannelTestProof appends one sanitized notification
+	// channel test proof row. The returned proof has ID and CreatedAt
+	// populated.
+	SaveNotificationChannelTestProof(ctx context.Context, proof domain.NotificationChannelTestProof) (domain.NotificationChannelTestProof, error)
+
+	// ListLatestNotificationChannelTestProofs returns the latest proof per
+	// content kind for one notification channel profile, ordered by recency.
+	// limit MUST be > 0.
+	ListLatestNotificationChannelTestProofs(ctx context.Context, profileID domain.NotificationChannelProfileID, limit int) ([]domain.NotificationChannelTestProof, error)
+
+	// UpsertDirectoryDepartment inserts or replaces the local projection for
+	// one upstream directory department, keyed by (provider, external_id). The
+	// returned row has ID, CreatedAt, and UpdatedAt populated.
+	UpsertDirectoryDepartment(ctx context.Context, d domain.DirectoryDepartment) (domain.DirectoryDepartment, error)
+
+	// UpsertDirectoryUser inserts or replaces the local projection for one
+	// upstream directory user. Replays with the same (provider, subject) or
+	// (provider, external_id) converge to one row. The returned row has ID,
+	// CreatedAt, and UpdatedAt populated.
+	UpsertDirectoryUser(ctx context.Context, u domain.DirectoryUser) (domain.DirectoryUser, error)
+
+	// FindDirectoryDepartmentByProviderExternalID returns one projected
+	// department by provider natural key, or domain.ErrNotFound.
+	FindDirectoryDepartmentByProviderExternalID(ctx context.Context, provider, externalID string) (domain.DirectoryDepartment, error)
+
+	// FindDirectoryUserByProviderSubject returns one projected user by stable
+	// provider subject, or domain.ErrNotFound.
+	FindDirectoryUserByProviderSubject(ctx context.Context, provider, subject string) (domain.DirectoryUser, error)
+
+	// ListDirectoryUsersBySubject returns projected users matching one stable
+	// IAM subject across directory providers, ordered by (provider ASC, id ASC),
+	// capped by limit. limit MUST be > 0.
+	ListDirectoryUsersBySubject(ctx context.Context, subject string, limit int) ([]domain.DirectoryUser, error)
+
+	// ListDirectoryUsersByExternalID returns projected users matching one
+	// upstream external identifier across directory providers, ordered by
+	// (provider ASC, id ASC), capped by limit. limit MUST be > 0.
+	ListDirectoryUsersByExternalID(ctx context.Context, externalID string, limit int) ([]domain.DirectoryUser, error)
+
+	// ListDirectoryDepartments returns projected departments ordered by
+	// (path ASC, id ASC), capped by limit. Provider is optional; when non-empty
+	// it filters to one upstream source.
+	ListDirectoryDepartments(ctx context.Context, provider string, limit int) ([]domain.DirectoryDepartment, error)
+
+	// ListDirectoryUsers returns projected users ordered by
+	// (display_name ASC, subject ASC, id ASC), capped by limit. Provider is
+	// optional; when non-empty it filters to one upstream source.
+	ListDirectoryUsers(ctx context.Context, provider string, limit int) ([]domain.DirectoryUser, error)
+
+	// DeactivateStaleDirectoryUsers marks active users for provider inactive
+	// when they were not refreshed by the current full sync timestamp. This is
+	// only valid after a full sync; incremental sync callers must not use it.
+	DeactivateStaleDirectoryUsers(ctx context.Context, provider string, syncedAt time.Time) (int, error)
+
+	// SaveDirectorySyncRun appends one admitted local directory projection sync
+	// run summary. It stores aggregate counters and sanitized failure details
+	// only, not upstream raw records or credentials.
+	SaveDirectorySyncRun(ctx context.Context, run domain.DirectorySyncRun) (domain.DirectorySyncRun, error)
+
+	// ListDirectorySyncRuns returns sync runs ordered by
+	// (synced_at DESC, id DESC), capped by limit. Provider is optional; when
+	// non-empty it filters to one upstream source.
+	ListDirectorySyncRuns(ctx context.Context, provider string, limit int) ([]domain.DirectorySyncRun, error)
+
+	// UpsertRBACAssignment inserts or replaces one local OpenClarion role
+	// assignment keyed by (subject_kind, subject_key, role, scope_kind,
+	// scope_key). The returned row has ID, CreatedAt, and UpdatedAt populated.
+	UpsertRBACAssignment(ctx context.Context, a domain.RBACAssignment) (domain.RBACAssignment, error)
+
+	// ListRBACAssignments returns local role assignments ordered by
+	// (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListRBACAssignments(ctx context.Context, limit int) ([]domain.RBACAssignment, error)
+
+	// ListRBACAssignmentsForPrincipal returns enabled role assignments matching
+	// one IAM subject or any of its local directory department keys. Results are
+	// ordered by (updated_at DESC, id DESC), capped by limit. limit MUST be > 0.
+	ListRBACAssignmentsForPrincipal(ctx context.Context, subject string, departmentKeys []string, limit int) ([]domain.RBACAssignment, error)
 }
 
 // DirectoryRepository covers local directory projections and sync-run audit
@@ -514,6 +620,11 @@ type DirectoryRepository interface {
 	// ListUsers returns provider users ordered by (display_name ASC, id ASC),
 	// capped by limit. provider MUST be non-empty and limit MUST be > 0.
 	ListUsers(ctx context.Context, provider string, activeOnly bool, limit int) ([]domain.DirectoryUser, error)
+
+	// DeactivateStaleUsers marks active users for provider inactive when a
+	// full sync did not refresh them at syncedAt. Incremental sync callers
+	// MUST NOT use it.
+	DeactivateStaleUsers(ctx context.Context, provider string, syncedAt time.Time) (int, error)
 
 	// SaveSyncRun records one admitted directory sync result. The returned run
 	// has ID and CreatedAt populated.

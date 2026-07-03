@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -12,26 +13,32 @@ import (
 
 	temporalsdk "go.temporal.io/sdk/temporal"
 
+	"github.com/openclarion/openclarion/internal/diagnosisquery"
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosiscontext"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
-const diagnosisRoomAgentName = "diagnosis-assistant"
+const (
+	diagnosisRoomAgentName                  = "diagnosis-assistant"
+	diagnosisToolSnapshotSourceScopeMatched = "matched"
+)
 
 // DiagnosisTurnActivityInput is the workflow-to-activity payload for one
 // stateless M5 sandbox invocation.
 type DiagnosisTurnActivityInput struct {
-	SessionID         string
-	DiagnosisTaskID   int64
-	MessageID         string
-	UserSequence      int
-	AssistantSequence int
-	ActorSubject      string
-	Evidence          json.RawMessage
-	Conversation      []diagnosisroom.ConversationTurn
-	Message           string
-	Policy            diagnosisroom.Policy
+	SessionID            string
+	DiagnosisTaskID      int64
+	MessageID            string
+	UserSequence         int
+	AssistantSequence    int
+	ActorSubject         string
+	Evidence             json.RawMessage
+	Conversation         []diagnosisroom.ConversationTurn
+	Message              string
+	SupplementalEvidence *DiagnosisRoomSupplementalEvidence
+	Policy               diagnosisroom.Policy
 }
 
 // DiagnosisTurnActivityResult is the schema-validated assistant response
@@ -75,6 +82,14 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 	}
 	result, err := a.containerProvider.Run(ctx, containerReq)
 	if err != nil {
+		var exitErr *ports.ContainerExitError
+		if errors.As(err, &exitErr) {
+			if retryableDiagnosisTurnContainerExit(exitErr) {
+				return DiagnosisTurnActivityResult{}, fmt.Errorf("run-diagnosis-turn container: %w", err)
+			}
+			return DiagnosisTurnActivityResult{}, temporalsdk.NewNonRetryableApplicationError(
+				fmt.Sprintf("run-diagnosis-turn container: %v", err), errTypeRuntimeFailure, err)
+		}
 		return DiagnosisTurnActivityResult{}, fmt.Errorf("run-diagnosis-turn container: %w", err)
 	}
 	if err := ports.ValidateContainerRunResult(containerReq, result); err != nil {
@@ -84,12 +99,23 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 		)
 	}
 
-	output, err := diagnosisroom.ParseTurnOutput(result.Output)
+	output, rawOutput, err := parseDiagnosisTurnActivityOutput(result.Output, req)
 	if err != nil {
 		return DiagnosisTurnActivityResult{}, mapActivityError(
 			fmt.Errorf("%w: %w", domain.ErrInvariantViolation, err),
 			"run-diagnosis-turn output",
 		)
+	}
+	if enriched, changed := enrichDiagnosisTurnOutputEvidenceRequests(output, req.Evidence); changed {
+		normalized, err := json.Marshal(enriched)
+		if err != nil {
+			return DiagnosisTurnActivityResult{}, mapActivityError(
+				fmt.Errorf("%w: marshal enriched diagnosis turn output: %w", domain.ErrInvariantViolation, err),
+				"run-diagnosis-turn output",
+			)
+		}
+		output = enriched
+		rawOutput = normalized
 	}
 	return DiagnosisTurnActivityResult{
 		InvocationID:        result.InvocationID,
@@ -97,7 +123,7 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 		AssistantSequence:   req.AssistantSequence,
 		AssistantMessage:    output.Message,
 		Output:              output,
-		RawOutput:           cloneRawMessage(result.Output),
+		RawOutput:           rawOutput,
 		RuntimeID:           result.RuntimeID,
 		StartedAt:           result.StartedAt,
 		FinishedAt:          result.FinishedAt,
@@ -105,6 +131,301 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 		Confidence:          output.Confidence,
 		Insight:             output.Insight(),
 	}, nil
+}
+
+func parseDiagnosisTurnActivityOutput(
+	raw json.RawMessage,
+	req DiagnosisTurnActivityInput,
+) (diagnosisroom.TurnOutput, json.RawMessage, error) {
+	output, err := diagnosisroom.ParseTurnOutput(raw)
+	if err == nil {
+		return output, cloneRawMessage(raw), nil
+	}
+	repaired, ok := repairSupplementalResidualBoundaryOutput(raw, req.SupplementalEvidence, err)
+	if !ok {
+		return diagnosisroom.TurnOutput{}, nil, err
+	}
+	output, repairErr := diagnosisroom.ParseTurnOutput(repaired)
+	if repairErr != nil {
+		return diagnosisroom.TurnOutput{}, nil, err
+	}
+	return output, repaired, nil
+}
+
+func repairSupplementalResidualBoundaryOutput(
+	raw json.RawMessage,
+	supplemental *DiagnosisRoomSupplementalEvidence,
+	parseErr error,
+) (json.RawMessage, bool) {
+	if supplemental == nil ||
+		parseErr == nil ||
+		!strings.Contains(parseErr.Error(), "low-confidence or evidence-seeking output must include") ||
+		!diagnosisRoomSupplementalEvidenceAcceptsResidualBoundary(supplemental) {
+		return nil, false
+	}
+	var output diagnosisroom.TurnOutput
+	if err := json.Unmarshal(raw, &output); err != nil {
+		return nil, false
+	}
+	confidence := strings.TrimSpace(output.Confidence)
+	conclusionStatus := strings.TrimSpace(output.ConclusionStatus)
+	needsImprovementPath := confidence == "low" || conclusionStatus == "needs_evidence"
+	hasImprovementPath := len(output.EvidenceRequests) > 0 ||
+		len(output.MissingEvidenceRequests) > 0 ||
+		len(output.EvidenceCollectionSuggestions) > 0
+	if !needsImprovementPath || hasImprovementPath {
+		return nil, false
+	}
+	output.RequiresHumanReview = true
+	output.ConclusionStatus = "ready_for_review"
+	if confidence == "low" {
+		output.Confidence = "medium"
+	}
+	if strings.TrimSpace(output.ConfidenceRationale) == "" {
+		output.ConfidenceRationale = "Operator supplemental evidence states the requested non-executable artifact is unavailable and accepts residual uncertainty; the diagnosis is ready for bounded human review."
+	}
+	normalized, err := json.Marshal(output)
+	if err != nil {
+		return nil, false
+	}
+	return normalized, true
+}
+
+func diagnosisRoomSupplementalEvidenceAcceptsResidualBoundary(in *DiagnosisRoomSupplementalEvidence) bool {
+	if in == nil || strings.TrimSpace(in.Evidence) == "" {
+		return false
+	}
+	text := strings.ToLower(strings.Join([]string{
+		in.Label,
+		in.Detail,
+		in.Evidence,
+	}, " "))
+	acceptsResidual := strings.Contains(text, "residual uncertainty") &&
+		(strings.Contains(text, "accept") || strings.Contains(text, "accepted"))
+	unavailableArtifact := strings.Contains(text, "not available") ||
+		strings.Contains(text, "unavailable") ||
+		strings.Contains(text, "cannot provide") ||
+		strings.Contains(text, "can't provide") ||
+		strings.Contains(text, "not provided")
+	return acceptsResidual && unavailableArtifact
+}
+
+func retryableDiagnosisTurnContainerExit(err *ports.ContainerExitError) bool {
+	if err == nil {
+		return false
+	}
+	diagnostic := strings.ToLower(strings.TrimSpace(err.Diagnostic))
+	if diagnostic == "" {
+		return false
+	}
+	if strings.Contains(diagnostic, "diagnosis assistant llm validation failed") ||
+		strings.Contains(diagnostic, "llm retry failed") ||
+		strings.Contains(diagnostic, "openai llm:") {
+		return transientLLMFailureText(diagnostic)
+	}
+	return false
+}
+
+func transientLLMFailureText(text string) bool {
+	switch {
+	case strings.Contains(text, "context deadline exceeded"):
+		return true
+	case strings.Contains(text, "deadline exceeded"):
+		return true
+	case strings.Contains(text, "i/o timeout"):
+		return true
+	case strings.Contains(text, "tls handshake timeout"):
+		return true
+	case strings.Contains(text, "connection reset"):
+		return true
+	case strings.Contains(text, "connection refused"):
+		return true
+	case strings.Contains(text, "temporary failure"):
+		return true
+	default:
+		return false
+	}
+}
+
+func enrichDiagnosisTurnOutputEvidenceRequests(
+	output diagnosisroom.TurnOutput,
+	evidence json.RawMessage,
+) (diagnosisroom.TurnOutput, bool) {
+	tools := diagnosisToolCatalogFromEvidence(evidence)
+	if len(tools) == 0 || len(output.EvidenceRequests) == 0 {
+		return output, false
+	}
+	preferredSourceProfiles := diagnosisEvidenceSourceProfileIDs(evidence)
+	changed := false
+	requests := append([]diagnosisroom.EvidenceRequest(nil), output.EvidenceRequests...)
+	for i, req := range requests {
+		enriched, ok := enrichDiagnosisEvidenceRequest(req, tools, preferredSourceProfiles)
+		if ok {
+			requests[i] = enriched
+			changed = true
+		}
+	}
+	if !changed {
+		return output, false
+	}
+	output.EvidenceRequests = requests
+	return output, true
+}
+
+func diagnosisToolCatalogFromEvidence(evidence json.RawMessage) []diagnosiscontext.AvailableDiagnosisTool {
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(evidence, &top); err != nil {
+		return nil
+	}
+	raw, ok := top[diagnosiscontext.AvailableDiagnosisToolsKey]
+	if !ok {
+		return nil
+	}
+	var catalog struct {
+		Items []diagnosiscontext.AvailableDiagnosisTool `json:"items"`
+	}
+	if err := json.Unmarshal(raw, &catalog); err != nil {
+		return nil
+	}
+	return catalog.Items
+}
+
+func diagnosisEvidenceSourceProfileIDs(evidence json.RawMessage) map[int64]struct{} {
+	var snapshot struct {
+		Events []struct {
+			AlertSourceProfileID int64 `json:"alert_source_profile_id"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal(evidence, &snapshot); err != nil {
+		return nil
+	}
+	if len(snapshot.Events) == 0 {
+		return nil
+	}
+	out := make(map[int64]struct{})
+	for _, event := range snapshot.Events {
+		if event.AlertSourceProfileID > 0 {
+			out[event.AlertSourceProfileID] = struct{}{}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func enrichDiagnosisEvidenceRequest(
+	req diagnosisroom.EvidenceRequest,
+	tools []diagnosiscontext.AvailableDiagnosisTool,
+	preferredSourceProfiles map[int64]struct{},
+) (diagnosisroom.EvidenceRequest, bool) {
+	if req.TemplateID > 0 && req.AlertSourceProfileID > 0 {
+		return req, false
+	}
+	matches := make([]diagnosiscontext.AvailableDiagnosisTool, 0, 1)
+	for _, tool := range tools {
+		if !diagnosisToolCatalogItemMatchesRequest(tool, req) {
+			continue
+		}
+		matches = append(matches, tool)
+	}
+	if len(matches) > 1 {
+		matches = diagnosisToolMatchesForEvidenceSource(matches, preferredSourceProfiles)
+	}
+	if len(matches) != 1 {
+		return req, false
+	}
+	match := matches[0]
+	changed := false
+	if req.TemplateID == 0 {
+		req.TemplateID = match.TemplateID
+		changed = true
+	}
+	if req.AlertSourceProfileID == 0 {
+		req.AlertSourceProfileID = match.AlertSourceProfileID
+		changed = true
+	}
+	if req.Limit == 0 && match.DefaultLimit > 0 {
+		req.Limit = match.DefaultLimit
+		changed = true
+	}
+	if req.Tool == domain.DiagnosisToolKindMetricRangeQuery {
+		if req.WindowSeconds == 0 && match.DefaultWindowSeconds > 0 {
+			req.WindowSeconds = match.DefaultWindowSeconds
+			changed = true
+		}
+		if req.StepSeconds == 0 && match.DefaultStepSeconds > 0 {
+			req.StepSeconds = match.DefaultStepSeconds
+			changed = true
+		}
+	}
+	return req, changed
+}
+
+func diagnosisToolMatchesForEvidenceSource(
+	matches []diagnosiscontext.AvailableDiagnosisTool,
+	preferredSourceProfiles map[int64]struct{},
+) []diagnosiscontext.AvailableDiagnosisTool {
+	if len(matches) <= 1 {
+		return matches
+	}
+	if len(preferredSourceProfiles) > 0 {
+		filtered := make([]diagnosiscontext.AvailableDiagnosisTool, 0, len(matches))
+		for _, match := range matches {
+			if _, ok := preferredSourceProfiles[match.AlertSourceProfileID]; ok {
+				filtered = append(filtered, match)
+			}
+		}
+		if len(filtered) > 0 {
+			return filtered
+		}
+	}
+	filtered := make([]diagnosiscontext.AvailableDiagnosisTool, 0, len(matches))
+	for _, match := range matches {
+		if match.SnapshotSourceScope == diagnosisToolSnapshotSourceScopeMatched {
+			filtered = append(filtered, match)
+		}
+	}
+	if len(filtered) > 0 {
+		return filtered
+	}
+	return matches
+}
+
+func diagnosisToolCatalogItemMatchesRequest(
+	tool diagnosiscontext.AvailableDiagnosisTool,
+	req diagnosisroom.EvidenceRequest,
+) bool {
+	if tool.Tool != string(req.Tool) {
+		return false
+	}
+	if req.TemplateID > 0 && tool.TemplateID != req.TemplateID {
+		return false
+	}
+	if req.AlertSourceProfileID > 0 && tool.AlertSourceProfileID != req.AlertSourceProfileID {
+		return false
+	}
+	switch req.Tool {
+	case domain.DiagnosisToolKindMetricQuery, domain.DiagnosisToolKindMetricRangeQuery:
+		if !diagnosisToolCatalogQueryMatchesRequest(tool, req.Query) {
+			return false
+		}
+	}
+	return true
+}
+
+func diagnosisToolCatalogQueryMatchesRequest(
+	tool diagnosiscontext.AvailableDiagnosisTool,
+	query string,
+) bool {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return false
+	}
+	if strings.TrimSpace(tool.EvidenceRequest.Query) == query {
+		return true
+	}
+	return diagnosisquery.MatchesTemplate(tool.QueryTemplate, query)
 }
 
 func validateDiagnosisTurnActivityInput(policy diagnosisroom.Policy, req DiagnosisTurnActivityInput) error {

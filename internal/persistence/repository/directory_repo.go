@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	entsql "entgo.io/ent/dialect/sql"
 
@@ -188,6 +189,34 @@ func (r *directoryRepo) ListUsers(ctx context.Context, provider string, activeOn
 		out[i] = directoryUserToDomain(row)
 	}
 	return out, nil
+}
+
+// DeactivateStaleUsers marks active users inactive when a full sync did not
+// refresh them at the provided timestamp.
+func (r *directoryRepo) DeactivateStaleUsers(ctx context.Context, provider string, syncedAt time.Time) (int, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return 0, err
+	}
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		return 0, fmt.Errorf("deactivate stale directory users: provider must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if syncedAt.IsZero() {
+		return 0, fmt.Errorf("deactivate stale directory users: synced_at must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	updated, err := r.tx.DirectoryUser.Update().
+		Where(
+			directoryuser.ProviderEQ(provider),
+			directoryuser.ActiveEQ(true),
+			directoryuser.SyncedAtLT(syncedAt),
+		).
+		SetActive(false).
+		SetSyncedAt(syncedAt).
+		Save(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("deactivate stale directory users: %w", err)
+	}
+	return updated, nil
 }
 
 // SaveSyncRun records one admitted directory sync result.

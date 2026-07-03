@@ -20,7 +20,7 @@ type NotificationChannelProfile struct {
 	ID int `json:"id,omitempty"`
 	// operator-facing unique display name
 	Name string `json:"name,omitempty"`
-	// "webhook"
+	// "webhook" or "wecom"
 	Kind string `json:"kind,omitempty"`
 	// deployment-managed endpoint secret reference, never the endpoint or credential value
 	SecretRef string `json:"secret_ref,omitempty"`
@@ -33,8 +33,29 @@ type NotificationChannelProfile struct {
 	// server-side channel creation timestamp
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// server-side last-mutation timestamp
-	UpdatedAt    time.Time `json:"updated_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the NotificationChannelProfileQuery when eager-loading is set.
+	Edges        NotificationChannelProfileEdges `json:"edges"`
 	selectValues sql.SelectValues
+}
+
+// NotificationChannelProfileEdges holds the relations/edges for other nodes in the graph.
+type NotificationChannelProfileEdges struct {
+	// TestProofs holds the value of the test_proofs edge.
+	TestProofs []*NotificationChannelTestProof `json:"test_proofs,omitempty"`
+	// loadedTypes holds the information for reporting if a
+	// type was loaded (or requested) in eager-loading or not.
+	loadedTypes [1]bool
+}
+
+// TestProofsOrErr returns the TestProofs value or an error if the edge
+// was not loaded in eager-loading.
+func (e NotificationChannelProfileEdges) TestProofsOrErr() ([]*NotificationChannelTestProof, error) {
+	if e.loadedTypes[0] {
+		return e.TestProofs, nil
+	}
+	return nil, &NotLoadedError{edge: "test_proofs"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -136,6 +157,11 @@ func (_m *NotificationChannelProfile) assignValues(columns []string, values []an
 // This includes values selected through modifiers, order, etc.
 func (_m *NotificationChannelProfile) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
+}
+
+// QueryTestProofs queries the "test_proofs" edge of the NotificationChannelProfile entity.
+func (_m *NotificationChannelProfile) QueryTestProofs() *NotificationChannelTestProofQuery {
+	return NewNotificationChannelProfileClient(_m.config).QueryTestProofs(_m)
 }
 
 // Update returns a builder for updating this NotificationChannelProfile.

@@ -577,6 +577,54 @@ func TestDiagnosisRepository_SaveChatSession_DuplicateKeys(t *testing.T) {
 	}
 }
 
+func TestDiagnosisRepository_ListChatSessions(t *testing.T) {
+	resetDB(t)
+	taskA := makeDiagnosisTaskForChat(t, "list-a")
+	taskB := makeDiagnosisTaskForChat(t, "list-b")
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		if _, err := uow.Diagnosis().SaveChatSession(ctx, makeChatSessionForDiagnosis(t, taskA, "session-list-a")); err != nil {
+			t.Fatalf("SaveChatSession A: %v", err)
+		}
+		if _, err := uow.Diagnosis().SaveChatSession(ctx, makeChatSessionForDiagnosis(t, taskB, "session-list-b")); err != nil {
+			t.Fatalf("SaveChatSession B: %v", err)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		out, err := uow.Diagnosis().ListChatSessions(ctx, 1)
+		if err != nil {
+			t.Fatalf("ListChatSessions: %v", err)
+		}
+		if len(out) != 1 {
+			t.Fatalf("ListChatSessions len = %d, want 1", len(out))
+		}
+		if out[0].Session.SessionKey != "session-list-b" ||
+			out[0].Session.DiagnosisTaskID != taskB ||
+			out[0].Task.ID != taskB ||
+			out[0].Task.EvidenceSnapshotID == 0 {
+			t.Fatalf("ListChatSessions[0] = %+v", out[0])
+		}
+
+		paged, err := uow.Diagnosis().ListChatSessionsPage(ctx, 1, 1)
+		if err != nil {
+			t.Fatalf("ListChatSessionsPage: %v", err)
+		}
+		if len(paged) != 1 || paged[0].Session.SessionKey != "session-list-a" {
+			t.Fatalf("ListChatSessionsPage = %+v, want second session", paged)
+		}
+
+		_, err = uow.Diagnosis().ListChatSessions(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("ListChatSessions zero limit: want ErrInvariantViolation, got %v", err)
+		}
+		_, err = uow.Diagnosis().ListChatSessionsPage(ctx, 1, -1)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("ListChatSessionsPage negative offset: want ErrInvariantViolation, got %v", err)
+		}
+	})
+}
+
 func TestDiagnosisRepository_SaveChatTurnAndList(t *testing.T) {
 	resetDB(t)
 	taskID := makeDiagnosisTaskForChat(t, "turn")

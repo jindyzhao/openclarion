@@ -5,6 +5,8 @@
 # must be operator-private: outside this repository, or under the repo-local
 # ignored .openclarion-private/ directory, and not readable by group/other.
 
+set -euo pipefail
+
 openclarion_load_private_env_file() {
   local label="$1"
   local root_dir="$2"
@@ -119,4 +121,29 @@ openclarion_private_env_file_allowed_in_repo() {
     printf '[%s] repo-local env file must be ignored by git\n' "$label" >&2
     return 2
   fi
+}
+
+openclarion_private_output_path_allowed() {
+  local label="$1"
+  local root_dir="$2"
+  local output_path_abs="$3"
+  local rel
+
+  case "$output_path_abs" in
+    "$root_dir"/.openclarion-private/*)
+      rel="${output_path_abs#"$root_dir"/}"
+      if ! command -v git >/dev/null 2>&1 || ! git -C "$root_dir" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        printf '[%s] repo-local output requires git ignore verification\n' "$label" >&2
+        return 2
+      fi
+      if ! git -C "$root_dir" check-ignore -q -- "$rel"; then
+        printf '[%s] repo-local output must be ignored by git\n' "$label" >&2
+        return 2
+      fi
+      ;;
+    "$root_dir"/*|"$root_dir")
+      printf '[%s] repo-local output must live under .openclarion-private/\n' "$label" >&2
+      return 2
+      ;;
+  esac
 }

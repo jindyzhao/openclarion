@@ -18,8 +18,62 @@ require_tool() {
   }
 }
 
+fail() {
+  echo "[custom-thin-runner-smoke] $1" >&2
+  exit 2
+}
+
+validate_single_line() {
+  local label="$1"
+  local value="$2"
+  if [[ -z "$value" || "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+    fail "$label must be a non-empty single-line value"
+  fi
+}
+
+validate_ignored_repo_output_path() {
+  local label="$1"
+  local path="$2"
+  local path_abs=""
+  local rel=""
+  local tracked=""
+
+  validate_single_line "$label" "$path"
+  if ! path_abs="$(realpath -m -- "$path")"; then
+    fail "$label path must be resolvable"
+  fi
+
+  case "$path_abs" in
+    "$ROOT_DIR"/*|"$ROOT_DIR")
+      rel="${path_abs#"$ROOT_DIR"/}"
+      if ! git -C "$ROOT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        fail "$label repo-local output requires git ignore verification"
+      fi
+      tracked="$(git -C "$ROOT_DIR" ls-files -- "$rel" "$rel/" 2>/dev/null || true)"
+      if [[ -n "$tracked" ]]; then
+        fail "$label repo-local output must not overlap tracked files"
+      fi
+      if ! git -C "$ROOT_DIR" check-ignore -q -- "$rel"; then
+        fail "$label repo-local output must be ignored by git"
+      fi
+      ;;
+  esac
+}
+
+validate_ignored_repo_output_file() {
+  local label="$1"
+  local path="$2"
+
+  validate_ignored_repo_output_path "$label" "$path"
+  if [[ "$path" == */ || "$(basename "$path")" == "." || "$(basename "$path")" == ".." ]]; then
+    fail "$label must name a file path"
+  fi
+}
+
 require_tool docker
+require_tool git
 require_tool go
+require_tool realpath
 
 run_id="${OPENCLARION_CUSTOM_THIN_RUNNER_SMOKE_RUN_ID:-$$-${RANDOM:-0}}"
 tmp_dir="$(mktemp -d -t openclarion-custom-thin-runner.XXXXXX)"
@@ -29,6 +83,13 @@ local_tag="openclarion/custom-thin-runner:smoke-${run_id}"
 digest_ref_out="${OPENCLARION_CUSTOM_THIN_RUNNER_DIGEST_REF_OUT:-}"
 artifacts_dir="${OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR:-}"
 registry_cid=""
+
+if [[ -n "$digest_ref_out" ]]; then
+  validate_ignored_repo_output_file "OPENCLARION_CUSTOM_THIN_RUNNER_DIGEST_REF_OUT" "$digest_ref_out"
+fi
+if [[ -n "$artifacts_dir" ]]; then
+  validate_ignored_repo_output_path "OPENCLARION_CUSTOM_THIN_RUNNER_ARTIFACTS_DIR" "$artifacts_dir"
+fi
 
 cleanup() {
   if [[ -n "$registry_cid" ]]; then

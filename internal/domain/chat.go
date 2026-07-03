@@ -81,6 +81,14 @@ type ChatSession struct {
 	UpdatedAt       time.Time
 }
 
+// ChatSessionWithTask is a read model for operator-facing room lists. It keeps
+// the ChatSession lifecycle fields together with the DiagnosisTask execution
+// that anchors the room to one EvidenceSnapshot.
+type ChatSessionWithTask struct {
+	Session ChatSession
+	Task    DiagnosisTask
+}
+
 // NewChatSession constructs an open diagnosis-room chat session.
 // Repository insert paths fill ID / CreatedAt / UpdatedAt.
 func NewChatSession(taskID DiagnosisTaskID, sessionKey, ownerSubject string, startedAt time.Time) (ChatSession, error) {

@@ -21,6 +21,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
+	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchanneltestproof"
 	"github.com/openclarion/openclarion/internal/persistence/ent/rbacassignment"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
@@ -53,8 +54,14 @@ func init() {
 			return nil
 		}
 	}()
+	// alerteventDescAlertSourceProfileID is the schema descriptor for alert_source_profile_id field.
+	alerteventDescAlertSourceProfileID := alerteventFields[1].Descriptor()
+	// alertevent.DefaultAlertSourceProfileID holds the default value on creation for the alert_source_profile_id field.
+	alertevent.DefaultAlertSourceProfileID = alerteventDescAlertSourceProfileID.Default.(int)
+	// alertevent.AlertSourceProfileIDValidator is a validator for the "alert_source_profile_id" field. It is called by the builders before save.
+	alertevent.AlertSourceProfileIDValidator = alerteventDescAlertSourceProfileID.Validators[0].(func(int) error)
 	// alerteventDescSourceFingerprint is the schema descriptor for source_fingerprint field.
-	alerteventDescSourceFingerprint := alerteventFields[1].Descriptor()
+	alerteventDescSourceFingerprint := alerteventFields[2].Descriptor()
 	// alertevent.SourceFingerprintValidator is a validator for the "source_fingerprint" field. It is called by the builders before save.
 	alertevent.SourceFingerprintValidator = func() func(string) error {
 		validators := alerteventDescSourceFingerprint.Validators
@@ -72,7 +79,7 @@ func init() {
 		}
 	}()
 	// alerteventDescCanonicalFingerprint is the schema descriptor for canonical_fingerprint field.
-	alerteventDescCanonicalFingerprint := alerteventFields[2].Descriptor()
+	alerteventDescCanonicalFingerprint := alerteventFields[3].Descriptor()
 	// alertevent.CanonicalFingerprintValidator is a validator for the "canonical_fingerprint" field. It is called by the builders before save.
 	alertevent.CanonicalFingerprintValidator = func() func(string) error {
 		validators := alerteventDescCanonicalFingerprint.Validators
@@ -90,13 +97,13 @@ func init() {
 		}
 	}()
 	// alerteventDescStatus is the schema descriptor for status field.
-	alerteventDescStatus := alerteventFields[6].Descriptor()
+	alerteventDescStatus := alerteventFields[7].Descriptor()
 	// alertevent.DefaultStatus holds the default value on creation for the status field.
 	alertevent.DefaultStatus = alerteventDescStatus.Default.(string)
 	// alertevent.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	alertevent.StatusValidator = alerteventDescStatus.Validators[0].(func(string) error)
 	// alerteventDescCreatedAt is the schema descriptor for created_at field.
-	alerteventDescCreatedAt := alerteventFields[9].Descriptor()
+	alerteventDescCreatedAt := alerteventFields[10].Descriptor()
 	// alertevent.DefaultCreatedAt holds the default value on creation for the created_at field.
 	alertevent.DefaultCreatedAt = alerteventDescCreatedAt.Default.(func() time.Time)
 	alertgroupFields := schema.AlertGroup{}.Fields()
@@ -1203,6 +1210,44 @@ func init() {
 	notificationchannelprofile.DefaultUpdatedAt = notificationchannelprofileDescUpdatedAt.Default.(func() time.Time)
 	// notificationchannelprofile.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	notificationchannelprofile.UpdateDefaultUpdatedAt = notificationchannelprofileDescUpdatedAt.UpdateDefault.(func() time.Time)
+	notificationchanneltestproofFields := schema.NotificationChannelTestProof{}.Fields()
+	_ = notificationchanneltestproofFields
+	// notificationchanneltestproofDescKind is the schema descriptor for kind field.
+	notificationchanneltestproofDescKind := notificationchanneltestproofFields[1].Descriptor()
+	// notificationchanneltestproof.KindValidator is a validator for the "kind" field. It is called by the builders before save.
+	notificationchanneltestproof.KindValidator = notificationchanneltestproofDescKind.Validators[0].(func(string) error)
+	// notificationchanneltestproofDescStatus is the schema descriptor for status field.
+	notificationchanneltestproofDescStatus := notificationchanneltestproofFields[2].Descriptor()
+	// notificationchanneltestproof.StatusValidator is a validator for the "status" field. It is called by the builders before save.
+	notificationchanneltestproof.StatusValidator = notificationchanneltestproofDescStatus.Validators[0].(func(string) error)
+	// notificationchanneltestproofDescReasonCode is the schema descriptor for reason_code field.
+	notificationchanneltestproofDescReasonCode := notificationchanneltestproofFields[3].Descriptor()
+	// notificationchanneltestproof.ReasonCodeValidator is a validator for the "reason_code" field. It is called by the builders before save.
+	notificationchanneltestproof.ReasonCodeValidator = notificationchanneltestproofDescReasonCode.Validators[0].(func(string) error)
+	// notificationchanneltestproofDescMessage is the schema descriptor for message field.
+	notificationchanneltestproofDescMessage := notificationchanneltestproofFields[4].Descriptor()
+	// notificationchanneltestproof.MessageValidator is a validator for the "message" field. It is called by the builders before save.
+	notificationchanneltestproof.MessageValidator = notificationchanneltestproofDescMessage.Validators[0].(func(string) error)
+	// notificationchanneltestproofDescContentKind is the schema descriptor for content_kind field.
+	notificationchanneltestproofDescContentKind := notificationchanneltestproofFields[5].Descriptor()
+	// notificationchanneltestproof.ContentKindValidator is a validator for the "content_kind" field. It is called by the builders before save.
+	notificationchanneltestproof.ContentKindValidator = notificationchanneltestproofDescContentKind.Validators[0].(func(string) error)
+	// notificationchanneltestproofDescContentSha256 is the schema descriptor for content_sha256 field.
+	notificationchanneltestproofDescContentSha256 := notificationchanneltestproofFields[6].Descriptor()
+	// notificationchanneltestproof.ContentSha256Validator is a validator for the "content_sha256" field. It is called by the builders before save.
+	notificationchanneltestproof.ContentSha256Validator = notificationchanneltestproofDescContentSha256.Validators[0].(func(string) error)
+	// notificationchanneltestproofDescProviderMessageID is the schema descriptor for provider_message_id field.
+	notificationchanneltestproofDescProviderMessageID := notificationchanneltestproofFields[8].Descriptor()
+	// notificationchanneltestproof.ProviderMessageIDValidator is a validator for the "provider_message_id" field. It is called by the builders before save.
+	notificationchanneltestproof.ProviderMessageIDValidator = notificationchanneltestproofDescProviderMessageID.Validators[0].(func(string) error)
+	// notificationchanneltestproofDescProviderStatus is the schema descriptor for provider_status field.
+	notificationchanneltestproofDescProviderStatus := notificationchanneltestproofFields[9].Descriptor()
+	// notificationchanneltestproof.ProviderStatusValidator is a validator for the "provider_status" field. It is called by the builders before save.
+	notificationchanneltestproof.ProviderStatusValidator = notificationchanneltestproofDescProviderStatus.Validators[0].(func(string) error)
+	// notificationchanneltestproofDescCreatedAt is the schema descriptor for created_at field.
+	notificationchanneltestproofDescCreatedAt := notificationchanneltestproofFields[10].Descriptor()
+	// notificationchanneltestproof.DefaultCreatedAt holds the default value on creation for the created_at field.
+	notificationchanneltestproof.DefaultCreatedAt = notificationchanneltestproofDescCreatedAt.Default.(func() time.Time)
 	rbacassignmentFields := schema.RBACAssignment{}.Fields()
 	_ = rbacassignmentFields
 	// rbacassignmentDescSubjectKind is the schema descriptor for subject_kind field.
@@ -1336,7 +1381,7 @@ func init() {
 	reportnotificationdeliveryFields := schema.ReportNotificationDelivery{}.Fields()
 	_ = reportnotificationdeliveryFields
 	// reportnotificationdeliveryDescIdempotencyKey is the schema descriptor for idempotency_key field.
-	reportnotificationdeliveryDescIdempotencyKey := reportnotificationdeliveryFields[1].Descriptor()
+	reportnotificationdeliveryDescIdempotencyKey := reportnotificationdeliveryFields[2].Descriptor()
 	// reportnotificationdelivery.IdempotencyKeyValidator is a validator for the "idempotency_key" field. It is called by the builders before save.
 	reportnotificationdelivery.IdempotencyKeyValidator = func() func(string) error {
 		validators := reportnotificationdeliveryDescIdempotencyKey.Validators
@@ -1354,29 +1399,29 @@ func init() {
 		}
 	}()
 	// reportnotificationdeliveryDescProviderMessageID is the schema descriptor for provider_message_id field.
-	reportnotificationdeliveryDescProviderMessageID := reportnotificationdeliveryFields[2].Descriptor()
+	reportnotificationdeliveryDescProviderMessageID := reportnotificationdeliveryFields[3].Descriptor()
 	// reportnotificationdelivery.ProviderMessageIDValidator is a validator for the "provider_message_id" field. It is called by the builders before save.
 	reportnotificationdelivery.ProviderMessageIDValidator = reportnotificationdeliveryDescProviderMessageID.Validators[0].(func(string) error)
 	// reportnotificationdeliveryDescProviderStatus is the schema descriptor for provider_status field.
-	reportnotificationdeliveryDescProviderStatus := reportnotificationdeliveryFields[3].Descriptor()
+	reportnotificationdeliveryDescProviderStatus := reportnotificationdeliveryFields[4].Descriptor()
 	// reportnotificationdelivery.ProviderStatusValidator is a validator for the "provider_status" field. It is called by the builders before save.
 	reportnotificationdelivery.ProviderStatusValidator = reportnotificationdeliveryDescProviderStatus.Validators[0].(func(string) error)
 	// reportnotificationdeliveryDescStatus is the schema descriptor for status field.
-	reportnotificationdeliveryDescStatus := reportnotificationdeliveryFields[4].Descriptor()
+	reportnotificationdeliveryDescStatus := reportnotificationdeliveryFields[5].Descriptor()
 	// reportnotificationdelivery.DefaultStatus holds the default value on creation for the status field.
 	reportnotificationdelivery.DefaultStatus = reportnotificationdeliveryDescStatus.Default.(string)
 	// reportnotificationdelivery.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	reportnotificationdelivery.StatusValidator = reportnotificationdeliveryDescStatus.Validators[0].(func(string) error)
 	// reportnotificationdeliveryDescFailureReason is the schema descriptor for failure_reason field.
-	reportnotificationdeliveryDescFailureReason := reportnotificationdeliveryFields[6].Descriptor()
+	reportnotificationdeliveryDescFailureReason := reportnotificationdeliveryFields[7].Descriptor()
 	// reportnotificationdelivery.FailureReasonValidator is a validator for the "failure_reason" field. It is called by the builders before save.
 	reportnotificationdelivery.FailureReasonValidator = reportnotificationdeliveryDescFailureReason.Validators[0].(func(string) error)
 	// reportnotificationdeliveryDescCreatedAt is the schema descriptor for created_at field.
-	reportnotificationdeliveryDescCreatedAt := reportnotificationdeliveryFields[8].Descriptor()
+	reportnotificationdeliveryDescCreatedAt := reportnotificationdeliveryFields[9].Descriptor()
 	// reportnotificationdelivery.DefaultCreatedAt holds the default value on creation for the created_at field.
 	reportnotificationdelivery.DefaultCreatedAt = reportnotificationdeliveryDescCreatedAt.Default.(func() time.Time)
 	// reportnotificationdeliveryDescUpdatedAt is the schema descriptor for updated_at field.
-	reportnotificationdeliveryDescUpdatedAt := reportnotificationdeliveryFields[9].Descriptor()
+	reportnotificationdeliveryDescUpdatedAt := reportnotificationdeliveryFields[10].Descriptor()
 	// reportnotificationdelivery.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	reportnotificationdelivery.DefaultUpdatedAt = reportnotificationdeliveryDescUpdatedAt.Default.(func() time.Time)
 	// reportnotificationdelivery.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.

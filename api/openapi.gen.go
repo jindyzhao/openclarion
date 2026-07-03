@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"reflect"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,9 +35,10 @@ func (s *HealthResponse) ApplyDefaults() {
 // #/components/schemas/DashboardSummary
 // Operational summary for the web dashboard.
 type DashboardSummary struct {
-	GeneratedAt time.Time               `form:"generated_at" json:"generated_at"`
-	Alerts      DashboardSummaryAlerts  `form:"alerts" json:"alerts"`
-	Reports     DashboardSummaryReports `form:"reports" json:"reports"`
+	GeneratedAt time.Time                 `form:"generated_at" json:"generated_at"`
+	Alerts      DashboardSummaryAlerts    `form:"alerts" json:"alerts"`
+	Diagnosis   DashboardSummaryDiagnosis `form:"diagnosis" json:"diagnosis"`
+	Reports     DashboardSummaryReports   `form:"reports" json:"reports"`
 }
 
 // ApplyDefaults sets default values for fields that are nil.
@@ -52,6 +54,22 @@ type DashboardSummaryAlerts struct {
 
 // ApplyDefaults sets default values for fields that are nil.
 func (s *DashboardSummaryAlerts) ApplyDefaults() {
+}
+
+// #/components/schemas/DashboardSummary/properties/diagnosis
+type DashboardSummaryDiagnosis struct {
+	// Evidence snapshots linked to recent alert events.
+	LinkedSnapshots int64 `form:"linked_snapshots" json:"linked_snapshots"`
+	// Diagnosis rooms linked to those evidence snapshots.
+	RoomsStarted int64 `form:"rooms_started" json:"rooms_started"`
+	// Linked evidence snapshots that do not have a diagnosis room yet.
+	SnapshotsNeedingRoom int64 `form:"snapshots_needing_room" json:"snapshots_needing_room"`
+	// Recent alert events with at least one linked evidence snapshot that needs a diagnosis room.
+	AffectedAlertsNeedingRoom int64 `form:"affected_alerts_needing_room" json:"affected_alerts_needing_room"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DashboardSummaryDiagnosis) ApplyDefaults() {
 }
 
 // #/components/schemas/DashboardSummary/properties/reports
@@ -80,6 +98,23 @@ type DashboardAlertStats struct {
 
 // ApplyDefaults sets default values for fields that are nil.
 func (s *DashboardAlertStats) ApplyDefaults() {
+}
+
+// #/components/schemas/DashboardDiagnosisStats
+// AI diagnosis counters mapped from the recent alert-event window.
+type DashboardDiagnosisStats struct {
+	// Evidence snapshots linked to recent alert events.
+	LinkedSnapshots int64 `form:"linked_snapshots" json:"linked_snapshots"`
+	// Diagnosis rooms linked to those evidence snapshots.
+	RoomsStarted int64 `form:"rooms_started" json:"rooms_started"`
+	// Linked evidence snapshots that do not have a diagnosis room yet.
+	SnapshotsNeedingRoom int64 `form:"snapshots_needing_room" json:"snapshots_needing_room"`
+	// Recent alert events with at least one linked evidence snapshot that needs a diagnosis room.
+	AffectedAlertsNeedingRoom int64 `form:"affected_alerts_needing_room" json:"affected_alerts_needing_room"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DashboardDiagnosisStats) ApplyDefaults() {
 }
 
 // #/components/schemas/AlertSourceKind
@@ -355,6 +390,7 @@ type NotificationChannelKind string
 
 const (
 	Webhook NotificationChannelKind = "webhook"
+	Wecom   NotificationChannelKind = "wecom"
 )
 
 // #/components/schemas/NotificationDeliveryScope
@@ -362,8 +398,9 @@ const (
 type NotificationDeliveryScope string
 
 const (
-	Report         NotificationDeliveryScope = "report"
-	DiagnosisClose NotificationDeliveryScope = "diagnosis_close"
+	Report                NotificationDeliveryScope = "report"
+	DiagnosisConsultation NotificationDeliveryScope = "diagnosis_consultation"
+	DiagnosisClose        NotificationDeliveryScope = "diagnosis_close"
 )
 
 // #/components/schemas/NotificationChannelTestStatus
@@ -395,20 +432,22 @@ const (
 type NotificationChannelLabels = map[string]string
 
 // #/components/schemas/NotificationChannelProfile
-// Operator-managed notification channel profile without endpoint URLs or credential values.
+// Operator-managed notification channel profile without endpoint URLs or credential values. Diagnosis consultation and close delivery scopes are valid only on Enterprise WeChat channels.
 type NotificationChannelProfile struct {
 	ID   int64                   `form:"id" json:"id"`
 	Name string                  `form:"name" json:"name"`
 	Kind NotificationChannelKind `form:"kind" json:"kind"`
 	// Deployment-managed endpoint secret reference; never the endpoint URL or credential value.
 	SecretRef string `form:"secret_ref" json:"secret_ref"`
-	// Notification flows that may use this channel after later workflow binding.
+	// Notification flows that may use this channel after later workflow binding. Diagnosis consultation and close scopes require kind=wecom.
 	DeliveryScopes []NotificationDeliveryScope `form:"delivery_scopes" json:"delivery_scopes"`
 	// Whether operators enabled this channel for future notification binding.
-	Enabled   bool                      `form:"enabled" json:"enabled"`
-	Labels    NotificationChannelLabels `form:"labels" json:"labels"`
-	CreatedAt time.Time                 `form:"created_at" json:"created_at"`
-	UpdatedAt time.Time                 `form:"updated_at" json:"updated_at"`
+	Enabled bool                      `form:"enabled" json:"enabled"`
+	Labels  NotificationChannelLabels `form:"labels" json:"labels"`
+	// Latest sanitized notification-channel test proof rows, grouped by content kind. Endpoint URLs, secret references, raw provider responses, and raw provider errors are never returned.
+	LatestTestResults []NotificationChannelTestResult `form:"latest_test_results" json:"latest_test_results"`
+	CreatedAt         time.Time                       `form:"created_at" json:"created_at"`
+	UpdatedAt         time.Time                       `form:"updated_at" json:"updated_at"`
 }
 
 // ApplyDefaults sets default values for fields that are nil.
@@ -416,11 +455,15 @@ func (s *NotificationChannelProfile) ApplyDefaults() {
 }
 
 // #/components/schemas/NotificationChannelProfile/properties/delivery_scopes
-// Notification flows that may use this channel after later workflow binding.
+// Notification flows that may use this channel after later workflow binding. Diagnosis consultation and close scopes require kind=wecom.
 type NotificationChannelProfileDeliveryScopes = []NotificationDeliveryScope
 
+// #/components/schemas/NotificationChannelProfile/properties/latest_test_results
+// Latest sanitized notification-channel test proof rows, grouped by content kind. Endpoint URLs, secret references, raw provider responses, and raw provider errors are never returned.
+type NotificationChannelProfileLatestTestResults = []NotificationChannelTestResult
+
 // #/components/schemas/NotificationChannelProfileWriteRequest
-// Notification channel profile metadata accepted by create and replace operations.
+// Notification channel profile metadata accepted by create and replace operations. Diagnosis consultation and close delivery scopes require kind=wecom.
 type NotificationChannelProfileWriteRequest struct {
 	Name                 string                      `form:"name" json:"name"`
 	Kind                 NotificationChannelKind     `form:"kind" json:"kind"`
@@ -570,6 +613,7 @@ func (s *NotificationChannelProfileWriteRequest) ApplyDefaults() {
 }
 
 // #/components/schemas/NotificationChannelProfileWriteRequest/properties/delivery_scopes
+// Notification flows that may use this channel. Diagnosis consultation and close scopes require kind=wecom.
 type NotificationChannelProfileWriteRequestDeliveryScopes = []NotificationDeliveryScope
 
 // #/components/schemas/NotificationChannelTestResult
@@ -580,8 +624,12 @@ type NotificationChannelTestResult struct {
 	Status     NotificationChannelTestStatus     `form:"status" json:"status"`
 	ReasonCode NotificationChannelTestReasonCode `form:"reason_code" json:"reason_code"`
 	// Operator-facing sanitized message. It must not include endpoint URLs, secret references, tokens, or raw provider error text.
-	Message   string    `form:"message" json:"message"`
-	CheckedAt time.Time `form:"checked_at" json:"checked_at"`
+	Message string `form:"message" json:"message"`
+	// Sanitized kind of test notification content prepared for provider delivery. It is omitted when no provider delivery attempt was made.
+	ContentKind *string `form:"content_kind,omitempty" json:"content_kind,omitempty"`
+	// SHA-256 digest of the sanitized test notification body prepared for provider delivery. It is omitted when no provider delivery attempt was made.
+	ContentSha256 *string   `form:"content_sha256,omitempty" json:"content_sha256,omitempty"`
+	CheckedAt     time.Time `form:"checked_at" json:"checked_at"`
 	// Optional bounded provider acknowledgement identifier, when available from a successful provider response.
 	ProviderMessageID string `form:"provider_message_id" json:"provider_message_id"`
 	// Optional bounded provider acknowledgement status, when available from a successful provider response.
@@ -591,6 +639,16 @@ type NotificationChannelTestResult struct {
 // ApplyDefaults sets default values for fields that are nil.
 func (s *NotificationChannelTestResult) ApplyDefaults() {
 }
+
+// #/components/schemas/NotificationChannelTestResult/properties/content_kind
+// Sanitized kind of test notification content prepared for provider delivery. It is omitted when no provider delivery attempt was made.
+type NotificationChannelTestResultContentKind string
+
+const (
+	NotificationChannelTestResultContentKindTransportSample      NotificationChannelTestResultContentKind = "transport_sample"
+	NotificationChannelTestResultContentKindAiDiagnosisSample    NotificationChannelTestResultContentKind = "ai_diagnosis_sample"
+	NotificationChannelTestResultContentKindDiagnosisCloseSample NotificationChannelTestResultContentKind = "diagnosis_close_sample"
+)
 
 // #/components/schemas/NotificationChannelProfileListResponse
 // Notification channel profile list response.
@@ -604,6 +662,853 @@ func (s *NotificationChannelProfileListResponse) ApplyDefaults() {
 
 // #/components/schemas/NotificationChannelProfileListResponse/properties/items
 type NotificationChannelProfileListResponseItem = []NotificationChannelProfile
+
+// #/components/schemas/DirectorySyncRequest
+// Optional request body for one IAM-to-local directory sync run.
+type DirectorySyncRequest struct {
+	PageSize             *int           `form:"page_size,omitempty" json:"page_size,omitempty"`
+	UpdatedAfter         *time.Time     `form:"updated_after,omitempty" json:"updated_after,omitempty"`
+	AdditionalProperties map[string]any `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a DirectorySyncRequest) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *DirectorySyncRequest) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *DirectorySyncRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["page_size"]; found {
+		var val int
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'page_size': %w", err)
+		}
+		a.PageSize = &val
+		delete(object, "page_size")
+	}
+
+	if raw, found := object["updated_after"]; found {
+		var val time.Time
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'updated_after': %w", err)
+		}
+		a.UpdatedAfter = &val
+		delete(object, "updated_after")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a DirectorySyncRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.PageSize != nil {
+		object["page_size"], err = json.Marshal(a.PageSize)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'page_size': %w", err)
+		}
+	}
+
+	if a.UpdatedAfter != nil {
+		object["updated_after"], err = json.Marshal(a.UpdatedAfter)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'updated_after': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DirectorySyncRequest) ApplyDefaults() {
+	if s.PageSize == nil {
+		v := 100
+		s.PageSize = &v
+	}
+}
+
+// #/components/schemas/DirectorySyncResponse
+// Summary of a completed local directory projection sync run.
+type DirectorySyncResponse struct {
+	DepartmentPages     int `form:"department_pages" json:"department_pages"`
+	UserPages           int `form:"user_pages" json:"user_pages"`
+	DepartmentsUpserted int `form:"departments_upserted" json:"departments_upserted"`
+	UsersUpserted       int `form:"users_upserted" json:"users_upserted"`
+	// Active projected users marked inactive because they were absent from a completed full sync. Incremental syncs report 0.
+	UsersDeactivated int       `form:"users_deactivated" json:"users_deactivated"`
+	SyncedAt         time.Time `form:"synced_at" json:"synced_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DirectorySyncResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/DirectorySyncRun
+// Persisted summary of one admitted local directory projection sync run.
+type DirectorySyncRun struct {
+	ID           int64      `form:"id" json:"id"`
+	Provider     string     `form:"provider" json:"provider"`
+	PageSize     int        `form:"page_size" json:"page_size"`
+	UpdatedAfter *time.Time `form:"updated_after,omitempty" json:"updated_after,omitempty"`
+	Status       string     `form:"status" json:"status"`
+	// Stable sanitized failure reason code when status is failed; empty for successful runs.
+	FailureCode string `form:"failure_code" json:"failure_code"`
+	// Operator-facing sanitized failure summary when status is failed; empty for successful runs.
+	FailureMessage      string    `form:"failure_message" json:"failure_message"`
+	DepartmentPages     int       `form:"department_pages" json:"department_pages"`
+	UserPages           int       `form:"user_pages" json:"user_pages"`
+	DepartmentsUpserted int       `form:"departments_upserted" json:"departments_upserted"`
+	UsersUpserted       int       `form:"users_upserted" json:"users_upserted"`
+	SyncedAt            time.Time `form:"synced_at" json:"synced_at"`
+	CreatedAt           time.Time `form:"created_at" json:"created_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DirectorySyncRun) ApplyDefaults() {
+}
+
+// #/components/schemas/DirectorySyncRun/properties/status
+type DirectorySyncRunStatus string
+
+const (
+	DirectorySyncRunStatusSucceeded DirectorySyncRunStatus = "succeeded"
+	DirectorySyncRunStatusFailed    DirectorySyncRunStatus = "failed"
+)
+
+// #/components/schemas/DirectorySyncRunListResponse
+// Local directory sync run history response.
+type DirectorySyncRunListResponse struct {
+	Items []DirectorySyncRun `form:"items" json:"items"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DirectorySyncRunListResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/DirectorySyncRunListResponse/properties/items
+type DirectorySyncRunListResponseItem = []DirectorySyncRun
+
+// #/components/schemas/DirectoryDepartment
+// Local projection of one upstream directory department.
+type DirectoryDepartment struct {
+	ID               int64      `form:"id" json:"id"`
+	Provider         string     `form:"provider" json:"provider"`
+	ExternalID       string     `form:"external_id" json:"external_id"`
+	ParentExternalID string     `form:"parent_external_id" json:"parent_external_id"`
+	Name             string     `form:"name" json:"name"`
+	DisplayName      string     `form:"display_name" json:"display_name"`
+	Path             string     `form:"path" json:"path"`
+	ParentPath       string     `form:"parent_path" json:"parent_path"`
+	Level            int        `form:"level" json:"level"`
+	Source           string     `form:"source" json:"source"`
+	MemberCount      int        `form:"member_count" json:"member_count"`
+	SourceUpdatedAt  *time.Time `form:"source_updated_at,omitempty" json:"source_updated_at,omitempty"`
+	SyncedAt         time.Time  `form:"synced_at" json:"synced_at"`
+	CreatedAt        time.Time  `form:"created_at" json:"created_at"`
+	UpdatedAt        time.Time  `form:"updated_at" json:"updated_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DirectoryDepartment) ApplyDefaults() {
+}
+
+// #/components/schemas/DirectoryDepartmentListResponse
+// Local directory department list response.
+type DirectoryDepartmentListResponse struct {
+	Items []DirectoryDepartment `form:"items" json:"items"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DirectoryDepartmentListResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/DirectoryDepartmentListResponse/properties/items
+type DirectoryDepartmentListResponseItem = []DirectoryDepartment
+
+// #/components/schemas/DirectoryUser
+// Local projection of one upstream directory user for attribution, pickers, and local RBAC.
+type DirectoryUser struct {
+	ID                    int64      `form:"id" json:"id"`
+	Provider              string     `form:"provider" json:"provider"`
+	Subject               string     `form:"subject" json:"subject"`
+	ExternalID            string     `form:"external_id" json:"external_id"`
+	Username              string     `form:"username" json:"username"`
+	DisplayName           string     `form:"display_name" json:"display_name"`
+	Email                 string     `form:"email" json:"email"`
+	JobTitle              string     `form:"job_title" json:"job_title"`
+	Department            string     `form:"department" json:"department"`
+	Section               string     `form:"section" json:"section"`
+	DepartmentPath        string     `form:"department_path" json:"department_path"`
+	DepartmentPaths       []string   `form:"department_paths" json:"department_paths"`
+	DepartmentExternalIds []string   `form:"department_external_ids" json:"department_external_ids"`
+	Active                bool       `form:"active" json:"active"`
+	SourceUpdatedAt       *time.Time `form:"source_updated_at,omitempty" json:"source_updated_at,omitempty"`
+	SyncedAt              time.Time  `form:"synced_at" json:"synced_at"`
+	CreatedAt             time.Time  `form:"created_at" json:"created_at"`
+	UpdatedAt             time.Time  `form:"updated_at" json:"updated_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DirectoryUser) ApplyDefaults() {
+}
+
+// #/components/schemas/DirectoryUserListResponse
+// Local directory user list response.
+type DirectoryUserListResponse struct {
+	Items []DirectoryUser `form:"items" json:"items"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DirectoryUserListResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/DirectoryUserListResponse/properties/items
+type DirectoryUserListResponseItem = []DirectoryUser
+
+// #/components/schemas/RBACSubjectKind
+// Local role assignment subject type.
+type RBACSubjectKind string
+
+const (
+	User       RBACSubjectKind = "user"
+	Department RBACSubjectKind = "department"
+)
+
+// #/components/schemas/RBACScopeKind
+// OpenClarion product resource family covered by a local role assignment.
+type RBACScopeKind string
+
+const (
+	RBACScopeKindGlobal                 RBACScopeKind = "global"
+	RBACScopeKindDiagnosisRoom          RBACScopeKind = "diagnosis_room"
+	RBACScopeKindAlertSource            RBACScopeKind = "alert_source"
+	RBACScopeKindGroupingPolicy         RBACScopeKind = "grouping_policy"
+	RBACScopeKindReportWorkflow         RBACScopeKind = "report_workflow"
+	RBACScopeKindReportWorkflowSchedule RBACScopeKind = "report_workflow_schedule"
+	RBACScopeKindNotificationChannel    RBACScopeKind = "notification_channel"
+	RBACScopeKindDiagnosisToolTemplate  RBACScopeKind = "diagnosis_tool_template"
+)
+
+// #/components/schemas/RBACRole
+// OpenClarion-local role.
+type RBACRole string
+
+const (
+	RBACRoleAdmin     RBACRole = "admin"
+	RBACRoleOperator  RBACRole = "operator"
+	RBACRoleResponder RBACRole = "responder"
+	RBACRoleViewer    RBACRole = "viewer"
+)
+
+// #/components/schemas/RBACPermission
+// OpenClarion-local action-level permission.
+type RBACPermission string
+
+const (
+	DirectoryRead               RBACPermission = "directory.read"
+	DirectoryManage             RBACPermission = "directory.manage"
+	RbacManage                  RBACPermission = "rbac.manage"
+	OperationsRead              RBACPermission = "operations.read"
+	DiagnosisRoomRead           RBACPermission = "diagnosis_room.read"
+	DiagnosisRoomParticipate    RBACPermission = "diagnosis_room.participate"
+	DiagnosisRoomAdminister     RBACPermission = "diagnosis_room.administer"
+	AlertSourceRead             RBACPermission = "alert_source.read"
+	AlertSourceManage           RBACPermission = "alert_source.manage"
+	GroupingPolicyRead          RBACPermission = "grouping_policy.read"
+	GroupingPolicyManage        RBACPermission = "grouping_policy.manage"
+	ReportWorkflowRead          RBACPermission = "report_workflow.read"
+	ReportWorkflowManage        RBACPermission = "report_workflow.manage"
+	NotificationChannelRead     RBACPermission = "notification_channel.read"
+	NotificationChannelManage   RBACPermission = "notification_channel.manage"
+	NotificationChannelTest     RBACPermission = "notification_channel.test"
+	DiagnosisToolTemplateRead   RBACPermission = "diagnosis_tool_template.read"
+	DiagnosisToolTemplateManage RBACPermission = "diagnosis_tool_template.manage"
+)
+
+// #/components/schemas/RBACAssignment
+// Local OpenClarion role assignment.
+type RBACAssignment struct {
+	ID          int64           `form:"id" json:"id"`
+	SubjectKind RBACSubjectKind `form:"subject_kind" json:"subject_kind"`
+	SubjectKey  string          `form:"subject_key" json:"subject_key"`
+	Role        RBACRole        `form:"role" json:"role"`
+	ScopeKind   RBACScopeKind   `form:"scope_kind" json:"scope_kind"`
+	ScopeKey    string          `form:"scope_key" json:"scope_key"`
+	Enabled     bool            `form:"enabled" json:"enabled"`
+	// Authenticated subject that created this local role assignment.
+	CreatedBy string `form:"created_by" json:"created_by"`
+	// Authenticated subject that last mutated this local role assignment.
+	UpdatedBy string    `form:"updated_by" json:"updated_by"`
+	CreatedAt time.Time `form:"created_at" json:"created_at"`
+	UpdatedAt time.Time `form:"updated_at" json:"updated_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *RBACAssignment) ApplyDefaults() {
+}
+
+// #/components/schemas/RBACAssignmentListResponse
+// Local RBAC assignment list response.
+type RBACAssignmentListResponse struct {
+	Items []RBACAssignment `form:"items" json:"items"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *RBACAssignmentListResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/RBACAssignmentListResponse/properties/items
+type RBACAssignmentListResponseItem = []RBACAssignment
+
+// #/components/schemas/RBACAssignmentWriteRequest
+// Local role assignment write request.
+type RBACAssignmentWriteRequest struct {
+	SubjectKind          RBACSubjectKind `form:"subject_kind" json:"subject_kind"`
+	SubjectKey           string          `form:"subject_key" json:"subject_key"`
+	Role                 RBACRole        `form:"role" json:"role"`
+	ScopeKind            RBACScopeKind   `form:"scope_kind" json:"scope_kind"`
+	ScopeKey             *string         `form:"scope_key,omitempty" json:"scope_key,omitempty"`
+	Enabled              *bool           `form:"enabled,omitempty" json:"enabled,omitempty"`
+	AdditionalProperties map[string]any  `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a RBACAssignmentWriteRequest) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *RBACAssignmentWriteRequest) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *RBACAssignmentWriteRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["subject_kind"]; found {
+		if err := json.Unmarshal(raw, &a.SubjectKind); err != nil {
+			return fmt.Errorf("error reading 'subject_kind': %w", err)
+		}
+		delete(object, "subject_kind")
+	}
+
+	if raw, found := object["subject_key"]; found {
+		if err := json.Unmarshal(raw, &a.SubjectKey); err != nil {
+			return fmt.Errorf("error reading 'subject_key': %w", err)
+		}
+		delete(object, "subject_key")
+	}
+
+	if raw, found := object["role"]; found {
+		if err := json.Unmarshal(raw, &a.Role); err != nil {
+			return fmt.Errorf("error reading 'role': %w", err)
+		}
+		delete(object, "role")
+	}
+
+	if raw, found := object["scope_kind"]; found {
+		if err := json.Unmarshal(raw, &a.ScopeKind); err != nil {
+			return fmt.Errorf("error reading 'scope_kind': %w", err)
+		}
+		delete(object, "scope_kind")
+	}
+
+	if raw, found := object["scope_key"]; found {
+		var val string
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'scope_key': %w", err)
+		}
+		a.ScopeKey = &val
+		delete(object, "scope_key")
+	}
+
+	if raw, found := object["enabled"]; found {
+		var val bool
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'enabled': %w", err)
+		}
+		a.Enabled = &val
+		delete(object, "enabled")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a RBACAssignmentWriteRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["subject_kind"], err = json.Marshal(a.SubjectKind)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'subject_kind': %w", err)
+	}
+
+	object["subject_key"], err = json.Marshal(a.SubjectKey)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'subject_key': %w", err)
+	}
+
+	object["role"], err = json.Marshal(a.Role)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'role': %w", err)
+	}
+
+	object["scope_kind"], err = json.Marshal(a.ScopeKind)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'scope_kind': %w", err)
+	}
+
+	if a.ScopeKey != nil {
+		object["scope_key"], err = json.Marshal(a.ScopeKey)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scope_key': %w", err)
+		}
+	}
+
+	if a.Enabled != nil {
+		object["enabled"], err = json.Marshal(a.Enabled)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'enabled': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *RBACAssignmentWriteRequest) ApplyDefaults() {
+	if s.ScopeKey == nil {
+		v := ""
+		s.ScopeKey = &v
+	}
+	if s.Enabled == nil {
+		v := true
+		s.Enabled = &v
+	}
+}
+
+// #/components/schemas/RBACAuthorizeRequest
+// Local RBAC authorization preview request.
+type RBACAuthorizeRequest struct {
+	Subject              string         `form:"subject" json:"subject"`
+	DepartmentKeys       []string       `form:"department_keys" json:"department_keys"`
+	Permission           RBACPermission `form:"permission" json:"permission"`
+	ScopeKind            RBACScopeKind  `form:"scope_kind" json:"scope_kind"`
+	ScopeKey             *string        `form:"scope_key,omitempty" json:"scope_key,omitempty"`
+	AdditionalProperties map[string]any `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a RBACAuthorizeRequest) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *RBACAuthorizeRequest) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *RBACAuthorizeRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["subject"]; found {
+		if err := json.Unmarshal(raw, &a.Subject); err != nil {
+			return fmt.Errorf("error reading 'subject': %w", err)
+		}
+		delete(object, "subject")
+	}
+
+	if raw, found := object["department_keys"]; found {
+		if err := json.Unmarshal(raw, &a.DepartmentKeys); err != nil {
+			return fmt.Errorf("error reading 'department_keys': %w", err)
+		}
+		delete(object, "department_keys")
+	}
+
+	if raw, found := object["permission"]; found {
+		if err := json.Unmarshal(raw, &a.Permission); err != nil {
+			return fmt.Errorf("error reading 'permission': %w", err)
+		}
+		delete(object, "permission")
+	}
+
+	if raw, found := object["scope_kind"]; found {
+		if err := json.Unmarshal(raw, &a.ScopeKind); err != nil {
+			return fmt.Errorf("error reading 'scope_kind': %w", err)
+		}
+		delete(object, "scope_kind")
+	}
+
+	if raw, found := object["scope_key"]; found {
+		var val string
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'scope_key': %w", err)
+		}
+		a.ScopeKey = &val
+		delete(object, "scope_key")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a RBACAuthorizeRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["subject"], err = json.Marshal(a.Subject)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'subject': %w", err)
+	}
+
+	object["department_keys"], err = json.Marshal(a.DepartmentKeys)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'department_keys': %w", err)
+	}
+
+	object["permission"], err = json.Marshal(a.Permission)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'permission': %w", err)
+	}
+
+	object["scope_kind"], err = json.Marshal(a.ScopeKind)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'scope_kind': %w", err)
+	}
+
+	if a.ScopeKey != nil {
+		object["scope_key"], err = json.Marshal(a.ScopeKey)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scope_key': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *RBACAuthorizeRequest) ApplyDefaults() {
+	if s.ScopeKey == nil {
+		v := ""
+		s.ScopeKey = &v
+	}
+}
+
+// #/components/schemas/RBACAuthorizeResponse
+// Local RBAC authorization preview response.
+type RBACAuthorizeResponse struct {
+	Allowed   bool      `form:"allowed" json:"allowed"`
+	CheckedAt time.Time `form:"checked_at" json:"checked_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *RBACAuthorizeResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/RBACCurrentAuthorizationCheck
+// One authorization check for the authenticated current operator.
+type RBACCurrentAuthorizationCheck struct {
+	Permission           RBACPermission `form:"permission" json:"permission"`
+	ScopeKind            RBACScopeKind  `form:"scope_kind" json:"scope_kind"`
+	ScopeKey             *string        `form:"scope_key,omitempty" json:"scope_key,omitempty"`
+	AdditionalProperties map[string]any `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a RBACCurrentAuthorizationCheck) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *RBACCurrentAuthorizationCheck) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *RBACCurrentAuthorizationCheck) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["permission"]; found {
+		if err := json.Unmarshal(raw, &a.Permission); err != nil {
+			return fmt.Errorf("error reading 'permission': %w", err)
+		}
+		delete(object, "permission")
+	}
+
+	if raw, found := object["scope_kind"]; found {
+		if err := json.Unmarshal(raw, &a.ScopeKind); err != nil {
+			return fmt.Errorf("error reading 'scope_kind': %w", err)
+		}
+		delete(object, "scope_kind")
+	}
+
+	if raw, found := object["scope_key"]; found {
+		var val string
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'scope_key': %w", err)
+		}
+		a.ScopeKey = &val
+		delete(object, "scope_key")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a RBACCurrentAuthorizationCheck) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["permission"], err = json.Marshal(a.Permission)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'permission': %w", err)
+	}
+
+	object["scope_kind"], err = json.Marshal(a.ScopeKind)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'scope_kind': %w", err)
+	}
+
+	if a.ScopeKey != nil {
+		object["scope_key"], err = json.Marshal(a.ScopeKey)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'scope_key': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *RBACCurrentAuthorizationCheck) ApplyDefaults() {
+	if s.ScopeKey == nil {
+		v := ""
+		s.ScopeKey = &v
+	}
+}
+
+// #/components/schemas/RBACCurrentAuthorizationRequest
+// Current operator authorization check batch request.
+type RBACCurrentAuthorizationRequest struct {
+	Requests             []RBACCurrentAuthorizationCheck `form:"requests" json:"requests"`
+	AdditionalProperties map[string]any                  `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a RBACCurrentAuthorizationRequest) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *RBACCurrentAuthorizationRequest) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *RBACCurrentAuthorizationRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["requests"]; found {
+		if err := json.Unmarshal(raw, &a.Requests); err != nil {
+			return fmt.Errorf("error reading 'requests': %w", err)
+		}
+		delete(object, "requests")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a RBACCurrentAuthorizationRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["requests"], err = json.Marshal(a.Requests)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'requests': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *RBACCurrentAuthorizationRequest) ApplyDefaults() {
+}
+
+// #/components/schemas/RBACCurrentAuthorizationRequest/properties/requests
+type RBACCurrentAuthorizationRequestRequests = []RBACCurrentAuthorizationCheck
+
+// #/components/schemas/RBACCurrentAuthorizationDecision
+// One current operator authorization decision.
+type RBACCurrentAuthorizationDecision struct {
+	Permission RBACPermission `form:"permission" json:"permission"`
+	ScopeKind  RBACScopeKind  `form:"scope_kind" json:"scope_kind"`
+	ScopeKey   string         `form:"scope_key" json:"scope_key"`
+	Allowed    bool           `form:"allowed" json:"allowed"`
+	CheckedAt  time.Time      `form:"checked_at" json:"checked_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *RBACCurrentAuthorizationDecision) ApplyDefaults() {
+}
+
+// #/components/schemas/RBACCurrentAuthorizationResponse
+// Current operator authorization check batch response.
+type RBACCurrentAuthorizationResponse struct {
+	Subject        string   `form:"subject" json:"subject"`
+	DepartmentKeys []string `form:"department_keys" json:"department_keys"`
+	// Local directory projections matching the authenticated subject. Inactive rows are returned for identity visibility, but only active rows contribute department keys.
+	DirectoryUsers []DirectoryUser                    `form:"directory_users" json:"directory_users"`
+	Decisions      []RBACCurrentAuthorizationDecision `form:"decisions" json:"decisions"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *RBACCurrentAuthorizationResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/RBACCurrentAuthorizationResponse/properties/directory_users
+// Local directory projections matching the authenticated subject. Inactive rows are returned for identity visibility, but only active rows contribute department keys.
+type RBACCurrentAuthorizationResponseDirectoryUsers = []DirectoryUser
+
+// #/components/schemas/RBACCurrentAuthorizationResponse/properties/decisions
+type RBACCurrentAuthorizationResponseDecisions = []RBACCurrentAuthorizationDecision
 
 // #/components/schemas/GroupingPolicyPreviewSeverity
 // Group severity computed from alert labels during grouping preview.
@@ -802,12 +1707,13 @@ const (
 )
 
 // #/components/schemas/DiagnosisFollowUpMode
-// Diagnosis-room handoff behavior after report creation.
+// Diagnosis-room handoff behavior after report creation or alert intake.
 type DiagnosisFollowUpMode string
 
 const (
 	DiagnosisFollowUpModeDisabled    DiagnosisFollowUpMode = "disabled"
 	DiagnosisFollowUpModeSuggestRoom DiagnosisFollowUpMode = "suggest_room"
+	DiagnosisFollowUpModeAutoRoom    DiagnosisFollowUpMode = "auto_room"
 )
 
 // #/components/schemas/ReportWorkflowPolicy
@@ -1035,6 +1941,7 @@ type ReportWorkflowPolicyWriteRequestDiagnosisFollowUp string
 const (
 	ReportWorkflowPolicyWriteRequestDiagnosisFollowUpDisabled    ReportWorkflowPolicyWriteRequestDiagnosisFollowUp = "disabled"
 	ReportWorkflowPolicyWriteRequestDiagnosisFollowUpSuggestRoom ReportWorkflowPolicyWriteRequestDiagnosisFollowUp = "suggest_room"
+	ReportWorkflowPolicyWriteRequestDiagnosisFollowUpAutoRoom    ReportWorkflowPolicyWriteRequestDiagnosisFollowUp = "auto_room"
 )
 
 // #/components/schemas/ReportWorkflowPolicyListResponse
@@ -1051,13 +1958,13 @@ func (s *ReportWorkflowPolicyListResponse) ApplyDefaults() {
 type ReportWorkflowPolicyListResponseItem = []ReportWorkflowPolicy
 
 // #/components/schemas/ReportWorkflowSchedule
-// Operator-managed report workflow schedule metadata. Enabled state changes only through explicit action endpoints and does not imply Temporal registration in this slice.
+// Operator-managed report workflow schedule metadata. Enabled state changes only through explicit action endpoints; configured runtime synchronizers may project persisted state into Temporal Schedule registration and pause state.
 type ReportWorkflowSchedule struct {
 	ID   int64  `form:"id" json:"id"`
 	Name string `form:"name" json:"name"`
 	// Bound report workflow policy identifier.
 	ReportWorkflowPolicyID int64 `form:"report_workflow_policy_id" json:"report_workflow_policy_id"`
-	// Stable Temporal Schedule identifier reserved for the later registration slice.
+	// Stable Temporal Schedule identifier used by runtime schedule synchronization.
 	TemporalScheduleID string `form:"temporal_schedule_id" json:"temporal_schedule_id"`
 	// Temporal interval cadence in whole seconds.
 	IntervalSeconds int64 `form:"interval_seconds" json:"interval_seconds"`
@@ -1518,18 +2425,25 @@ const (
 type ReportWorkflowPolicyImpactPreviewReasonCode string
 
 const (
-	ReportWorkflowPolicyImpactPreviewReasonCodeOk                                    ReportWorkflowPolicyImpactPreviewReasonCode = "ok"
-	ReportWorkflowPolicyImpactPreviewReasonCodeAlertSourceDisabled                   ReportWorkflowPolicyImpactPreviewReasonCode = "alert_source_disabled"
-	ReportWorkflowPolicyImpactPreviewReasonCodeGroupingPolicyDisabled                ReportWorkflowPolicyImpactPreviewReasonCode = "grouping_policy_disabled"
-	ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelDisabled           ReportWorkflowPolicyImpactPreviewReasonCode = "notification_channel_disabled"
-	ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissingReportScope ReportWorkflowPolicyImpactPreviewReasonCode = "notification_channel_missing_report_scope"
-	ReportWorkflowPolicyImpactPreviewReasonCodeUnsupportedTriggerMode                ReportWorkflowPolicyImpactPreviewReasonCode = "unsupported_trigger_mode"
-	ReportWorkflowPolicyImpactPreviewReasonCodeNoMatchingEvents                      ReportWorkflowPolicyImpactPreviewReasonCode = "no_matching_events"
+	ReportWorkflowPolicyImpactPreviewReasonCodeOk                                                   ReportWorkflowPolicyImpactPreviewReasonCode = "ok"
+	ReportWorkflowPolicyImpactPreviewReasonCodeAlertSourceDisabled                                  ReportWorkflowPolicyImpactPreviewReasonCode = "alert_source_disabled"
+	ReportWorkflowPolicyImpactPreviewReasonCodeAutoRoomRequiresAlertmanager                         ReportWorkflowPolicyImpactPreviewReasonCode = "auto_room_requires_alertmanager"
+	ReportWorkflowPolicyImpactPreviewReasonCodeGroupingPolicyDisabled                               ReportWorkflowPolicyImpactPreviewReasonCode = "grouping_policy_disabled"
+	ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelDisabled                          ReportWorkflowPolicyImpactPreviewReasonCode = "notification_channel_disabled"
+	ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissing                           ReportWorkflowPolicyImpactPreviewReasonCode = "notification_channel_missing"
+	ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelNotWecom                          ReportWorkflowPolicyImpactPreviewReasonCode = "notification_channel_not_wecom"
+	ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissingReportScope                ReportWorkflowPolicyImpactPreviewReasonCode = "notification_channel_missing_report_scope"
+	ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissingDiagnosisConsultationScope ReportWorkflowPolicyImpactPreviewReasonCode = "notification_channel_missing_diagnosis_consultation_scope"
+	ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissingDiagnosisCloseScope        ReportWorkflowPolicyImpactPreviewReasonCode = "notification_channel_missing_diagnosis_close_scope"
+	ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissingAiDeliveryProof            ReportWorkflowPolicyImpactPreviewReasonCode = "notification_channel_missing_ai_delivery_proof"
+	ReportWorkflowPolicyImpactPreviewReasonCodeUnsupportedTriggerMode                               ReportWorkflowPolicyImpactPreviewReasonCode = "unsupported_trigger_mode"
+	ReportWorkflowPolicyImpactPreviewReasonCodeNoMatchingEvents                                     ReportWorkflowPolicyImpactPreviewReasonCode = "no_matching_events"
 )
 
 // #/components/schemas/ReportWorkflowPolicyImpactPreviewResult
 // Non-persistent impact preview for one report workflow policy. The backend computes this from persisted configuration and a bounded recent AlertEvent sample without provider calls, secret resolution, workflow starts, notification sends, or group/snapshot persistence.
 type ReportWorkflowPolicyImpactPreviewResult struct {
+	// Persisted policy identifier. Draft previews return 0 because no report workflow policy is stored.
 	PolicyID    int64                                         `form:"policy_id" json:"policy_id"`
 	Status      ReportWorkflowPolicyImpactPreviewStatus       `form:"status" json:"status"`
 	ReasonCodes []ReportWorkflowPolicyImpactPreviewReasonCode `form:"reason_codes" json:"reason_codes"`
@@ -1549,14 +2463,18 @@ type ReportWorkflowPolicyImpactPreviewResult struct {
 	GroupingSeverityKey   string                    `form:"grouping_severity_key" json:"grouping_severity_key"`
 	GroupingSourceFilter  []string                  `form:"grouping_source_filter" json:"grouping_source_filter"`
 	// Optional notification channel profile identifier bound to final report delivery.
-	ReportNotificationChannelProfileID      Nullable[int64]              `form:"report_notification_channel_profile_id" json:"report_notification_channel_profile_id"`
-	ReportNotificationChannelBound          bool                         `form:"report_notification_channel_bound" json:"report_notification_channel_bound"`
-	ReportNotificationChannelEnabled        bool                         `form:"report_notification_channel_enabled" json:"report_notification_channel_enabled"`
-	ReportNotificationChannelHasReportScope bool                         `form:"report_notification_channel_has_report_scope" json:"report_notification_channel_has_report_scope"`
-	EventsScanned                           int64                        `form:"events_scanned" json:"events_scanned"`
-	EventsMatched                           int64                        `form:"events_matched" json:"events_matched"`
-	GroupsEstimated                         int64                        `form:"groups_estimated" json:"groups_estimated"`
-	Groups                                  []GroupingPolicyPreviewGroup `form:"groups" json:"groups"`
+	ReportNotificationChannelProfileID      Nullable[int64] `form:"report_notification_channel_profile_id" json:"report_notification_channel_profile_id"`
+	ReportNotificationChannelBound          bool            `form:"report_notification_channel_bound" json:"report_notification_channel_bound"`
+	ReportNotificationChannelEnabled        bool            `form:"report_notification_channel_enabled" json:"report_notification_channel_enabled"`
+	ReportNotificationChannelHasReportScope bool            `form:"report_notification_channel_has_report_scope" json:"report_notification_channel_has_report_scope"`
+	// Whether the bound notification channel can deliver diagnosis-room assistant and final-ready consultation updates for auto_room policies.
+	ReportNotificationChannelHasDiagnosisConsultationScope bool `form:"report_notification_channel_has_diagnosis_consultation_scope" json:"report_notification_channel_has_diagnosis_consultation_scope"`
+	// Whether the bound notification channel can deliver diagnosis-room close notifications for auto_room policies.
+	ReportNotificationChannelHasDiagnosisCloseScope bool                         `form:"report_notification_channel_has_diagnosis_close_scope" json:"report_notification_channel_has_diagnosis_close_scope"`
+	EventsScanned                                   int64                        `form:"events_scanned" json:"events_scanned"`
+	EventsMatched                                   int64                        `form:"events_matched" json:"events_matched"`
+	GroupsEstimated                                 int64                        `form:"groups_estimated" json:"groups_estimated"`
+	Groups                                          []GroupingPolicyPreviewGroup `form:"groups" json:"groups"`
 }
 
 // ApplyDefaults sets default values for fields that are nil.
@@ -1790,8 +2708,10 @@ type AlertListResponseItem = []AlertEventSummary
 // #/components/schemas/AlertEventSummary
 // Alert event summary.
 type AlertEventSummary struct {
-	ID                   int64               `form:"id" json:"id"`
-	Source               string              `form:"source" json:"source"`
+	ID     int64  `form:"id" json:"id"`
+	Source string `form:"source" json:"source"`
+	// Operator-managed alert source profile that produced this alert; 0 marks legacy provider-only events.
+	AlertSourceProfileID int64               `form:"alert_source_profile_id" json:"alert_source_profile_id"`
 	SourceFingerprint    string              `form:"source_fingerprint" json:"source_fingerprint"`
 	CanonicalFingerprint string              `form:"canonical_fingerprint" json:"canonical_fingerprint"`
 	Labels               map[string]string   `form:"labels" json:"labels"`
@@ -1799,7 +2719,9 @@ type AlertEventSummary struct {
 	Status               string              `form:"status" json:"status"`
 	StartsAt             time.Time           `form:"starts_at" json:"starts_at"`
 	EndsAt               Nullable[time.Time] `form:"ends_at" json:"ends_at"`
-	CreatedAt            time.Time           `form:"created_at" json:"created_at"`
+	// Lightweight EvidenceSnapshot links whose payload events contain this alert fingerprint.
+	LinkedEvidenceSnapshots []AlertEvidenceSnapshotLink `form:"linked_evidence_snapshots" json:"linked_evidence_snapshots"`
+	CreatedAt               time.Time                   `form:"created_at" json:"created_at"`
 }
 
 // ApplyDefaults sets default values for fields that are nil.
@@ -1819,6 +2741,45 @@ const (
 	AlertEventSummaryStatusFiring   AlertEventSummaryStatus = "firing"
 	AlertEventSummaryStatusResolved AlertEventSummaryStatus = "resolved"
 )
+
+// #/components/schemas/AlertEventSummary/properties/linked_evidence_snapshots
+// Lightweight EvidenceSnapshot links whose payload events contain this alert fingerprint.
+type AlertEventSummaryLinkedEvidenceSnapshots = []AlertEvidenceSnapshotLink
+
+// #/components/schemas/AlertEvidenceSnapshotLink
+// Lightweight EvidenceSnapshot and diagnosis-room links for an alert event.
+type AlertEvidenceSnapshotLink struct {
+	// EvidenceSnapshot identifier.
+	ID int64 `form:"id" json:"id"`
+	// AlertGroup that produced the evidence snapshot.
+	AlertGroupID int64 `form:"alert_group_id" json:"alert_group_id"`
+	// Snapshot digest used for evidence idempotency.
+	Digest string `form:"digest" json:"digest"`
+	Status string `form:"status" json:"status"`
+	// Workflow or trigger that created the snapshot.
+	CreatedByWorkflow string `form:"created_by_workflow" json:"created_by_workflow"`
+	// Snapshot creation timestamp.
+	CreatedAt time.Time `form:"created_at" json:"created_at"`
+	// Diagnosis rooms backed by this evidence snapshot.
+	DiagnosisRooms []DiagnosisRoomSummary `form:"diagnosis_rooms" json:"diagnosis_rooms"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *AlertEvidenceSnapshotLink) ApplyDefaults() {
+}
+
+// #/components/schemas/AlertEvidenceSnapshotLink/properties/status
+type AlertEvidenceSnapshotLinkStatus string
+
+const (
+	AlertEvidenceSnapshotLinkStatusComplete AlertEvidenceSnapshotLinkStatus = "complete"
+	AlertEvidenceSnapshotLinkStatusPartial  AlertEvidenceSnapshotLinkStatus = "partial"
+	AlertEvidenceSnapshotLinkStatusFailed   AlertEvidenceSnapshotLinkStatus = "failed"
+)
+
+// #/components/schemas/AlertEvidenceSnapshotLink/properties/diagnosis_rooms
+// Diagnosis rooms backed by this evidence snapshot.
+type AlertEvidenceSnapshotLinkDiagnosisRooms = []DiagnosisRoomSummary
 
 // #/components/schemas/EvidenceSnapshotListResponse
 // List response for recent evidence snapshots.
@@ -1879,108 +2840,234 @@ func (s *ReportListResponse) ApplyDefaults() {
 // #/components/schemas/ReportListResponse/properties/items
 type ReportListResponseItem = []FinalReportSummary
 
-// #/components/schemas/DiagnosisAuthCheckResponse
-// Sanitized diagnosis authentication principal summary.
-type DiagnosisAuthCheckResponse struct {
-	// Stable authenticated subject used by diagnosis-room ownership checks.
+// #/components/schemas/DiagnosisTaskStatus
+// Lifecycle status of a diagnosis workflow task.
+type DiagnosisTaskStatus string
+
+const (
+	DiagnosisTaskStatusPending   DiagnosisTaskStatus = "pending"
+	DiagnosisTaskStatusRunning   DiagnosisTaskStatus = "running"
+	DiagnosisTaskStatusSucceeded DiagnosisTaskStatus = "succeeded"
+	DiagnosisTaskStatusFailed    DiagnosisTaskStatus = "failed"
+	DiagnosisTaskStatusCancelled DiagnosisTaskStatus = "cancelled"
+)
+
+// #/components/schemas/DiagnosisRoomStatus
+// Lifecycle status of a diagnosis-room chat session.
+type DiagnosisRoomStatus string
+
+const (
+	Open   DiagnosisRoomStatus = "open"
+	Closed DiagnosisRoomStatus = "closed"
+)
+
+// #/components/schemas/DiagnosisHandoffReason
+// Reason a diagnosis handoff item is waiting for operator action.
+type DiagnosisHandoffReason string
+
+const (
+	MissingDiagnosisRoom DiagnosisHandoffReason = "missing_diagnosis_room"
+)
+
+// #/components/schemas/DiagnosisHandoffListResponse
+// List response for pending diagnosis handoffs.
+type DiagnosisHandoffListResponse struct {
+	Items []DiagnosisHandoffBacklogItem `form:"items" json:"items"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisHandoffListResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisHandoffListResponse/properties/items
+type DiagnosisHandoffListResponseItem = []DiagnosisHandoffBacklogItem
+
+// #/components/schemas/DiagnosisHandoffBacklogItem
+// Pending AI diagnosis handoff for one evidence snapshot.
+type DiagnosisHandoffBacklogItem struct {
+	Reason           DiagnosisHandoffReason    `form:"reason" json:"reason"`
+	EvidenceSnapshot AlertEvidenceSnapshotLink `form:"evidence_snapshot" json:"evidence_snapshot"`
+	// Recent alert events linked to this evidence snapshot.
+	Alerts []AlertEventSummary `form:"alerts" json:"alerts"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisHandoffBacklogItem) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisHandoffBacklogItem/properties/alerts
+// Recent alert events linked to this evidence snapshot.
+type DiagnosisHandoffBacklogItemAlerts = []AlertEventSummary
+
+// #/components/schemas/DiagnosisRoomListResponse
+// List response for recent diagnosis-room sessions.
+type DiagnosisRoomListResponse struct {
+	Items []DiagnosisRoomSummary `form:"items" json:"items"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisRoomListResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisRoomListResponse/properties/items
+type DiagnosisRoomListResponseItem = []DiagnosisRoomSummary
+
+// #/components/schemas/DiagnosisRoomWorkflowVisibility
+// Sanitized Temporal execution metadata for a diagnosis-room workflow.
+type DiagnosisRoomWorkflowVisibility struct {
+	// Temporal workflow execution status, or not_found when visibility lookup could not find the stored execution.
+	Status string `form:"status" json:"status"`
+	// Temporal task queue recorded for the execution.
+	TaskQueue *string `form:"task_queue,omitempty" json:"task_queue,omitempty"`
+	// Temporal workflow start time.
+	StartTime *time.Time `form:"start_time,omitempty" json:"start_time,omitempty"`
+	// Temporal workflow execution time.
+	ExecutionTime *time.Time `form:"execution_time,omitempty" json:"execution_time,omitempty"`
+	// Temporal workflow close time, when available.
+	CloseTime *time.Time `form:"close_time,omitempty" json:"close_time,omitempty"`
+	// Temporal history event count.
+	HistoryLength *int64 `form:"history_length,omitempty" json:"history_length,omitempty"`
+	// Temporal history size in bytes.
+	HistorySizeBytes *int64 `form:"history_size_bytes,omitempty" json:"history_size_bytes,omitempty"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisRoomWorkflowVisibility) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisRoomSummary
+// Operator-facing diagnosis-room lifecycle summary.
+type DiagnosisRoomSummary struct {
+	// External diagnosis room session key used for WebSocket ticket issuance.
+	SessionID string `form:"session_id" json:"session_id"`
+	// Persistent ChatSession lifecycle row.
+	ChatSessionID int64 `form:"chat_session_id" json:"chat_session_id"`
+	// Persistent DiagnosisTask that backs this room.
+	DiagnosisTaskID int64 `form:"diagnosis_task_id" json:"diagnosis_task_id"`
+	// EvidenceSnapshot frozen for the room.
+	EvidenceSnapshotID int64 `form:"evidence_snapshot_id" json:"evidence_snapshot_id"`
+	// Temporal workflow ID for the room.
+	WorkflowID string `form:"workflow_id" json:"workflow_id"`
+	// Temporal run ID for the room.
+	RunID      string              `form:"run_id" json:"run_id"`
+	TaskStatus DiagnosisTaskStatus `form:"task_status" json:"task_status"`
+	RoomStatus DiagnosisRoomStatus `form:"room_status" json:"room_status"`
+	// Accepted user-turn count tracked by the room workflow.
+	TurnCount int `form:"turn_count" json:"turn_count"`
+	// Time the room session started.
+	StartedAt time.Time `form:"started_at" json:"started_at"`
+	// Last accepted turn or close time.
+	LastActivityAt time.Time `form:"last_activity_at" json:"last_activity_at"`
+	// Terminal close time, when the room is closed.
+	ClosedAt Nullable[time.Time] `form:"closed_at" json:"closed_at"`
+	// Workflow, user, or system reason that closed the room.
+	CloseReason string `form:"close_reason" json:"close_reason"`
+	// Sanitized participant summary derived from room ownership, transcript turns, supplemental evidence, and confirmation metadata.
+	Participants []DiagnosisRoomParticipantSummary `form:"participants,omitempty" json:"participants,omitempty"`
+	// Minimal directory display projections for non-system room participant subjects that matched local directory users. This is limited to participants visible in this room and is not a full directory listing.
+	ParticipantDirectoryUsers []DiagnosisRoomParticipantDirectoryUser `form:"participant_directory_users,omitempty" json:"participant_directory_users,omitempty"`
+	LatestConclusion          *DiagnosisRoomConclusionSummary         `form:"latest_conclusion,omitempty" json:"latest_conclusion,omitempty"`
+	LatestProgress            *DiagnosisRoomProgressSummary           `form:"latest_progress,omitempty" json:"latest_progress,omitempty"`
+	// Sanitized outbound diagnosis-room notification delivery timeline.
+	NotificationTimeline []DiagnosisRoomNotificationTimelineEntry `form:"notification_timeline,omitempty" json:"notification_timeline,omitempty"`
+	WorkflowVisibility   *DiagnosisRoomWorkflowVisibility         `form:"workflow_visibility,omitempty" json:"workflow_visibility,omitempty"`
+	// Server-side room row creation timestamp.
+	CreatedAt time.Time `form:"created_at" json:"created_at"`
+	// Server-side last-mutation timestamp.
+	UpdatedAt time.Time `form:"updated_at" json:"updated_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisRoomSummary) ApplyDefaults() {
+	if s.LatestConclusion != nil {
+		s.LatestConclusion.ApplyDefaults()
+	}
+	if s.LatestProgress != nil {
+		s.LatestProgress.ApplyDefaults()
+	}
+	if s.WorkflowVisibility != nil {
+		s.WorkflowVisibility.ApplyDefaults()
+	}
+}
+
+// #/components/schemas/DiagnosisRoomSummary/properties/participants
+// Sanitized participant summary derived from room ownership, transcript turns, supplemental evidence, and confirmation metadata.
+type DiagnosisRoomSummaryParticipants = []DiagnosisRoomParticipantSummary
+
+// #/components/schemas/DiagnosisRoomSummary/properties/participant_directory_users
+// Minimal directory display projections for non-system room participant subjects that matched local directory users. This is limited to participants visible in this room and is not a full directory listing.
+type DiagnosisRoomSummaryParticipantDirectoryUsers = []DiagnosisRoomParticipantDirectoryUser
+
+// #/components/schemas/DiagnosisRoomSummary/properties/notification_timeline
+// Sanitized outbound diagnosis-room notification delivery timeline.
+type DiagnosisRoomSummaryNotificationTimeline = []DiagnosisRoomNotificationTimelineEntry
+
+// #/components/schemas/DiagnosisRoomParticipantSummary
+// Sanitized diagnosis-room participant activity summary.
+type DiagnosisRoomParticipantSummary struct {
+	// Stable authenticated subject used for audit and room authorization.
+	Subject string                                     `form:"subject" json:"subject"`
+	Roles   []DiagnosisRoomParticipantSummaryRolesItem `form:"roles" json:"roles"`
+	// Whether the subject is an OpenClarion system actor.
+	IsSystem                  bool `form:"is_system" json:"is_system"`
+	MessageCount              int  `form:"message_count" json:"message_count"`
+	EvidenceCollectionCount   int  `form:"evidence_collection_count" json:"evidence_collection_count"`
+	SupplementalEvidenceCount int  `form:"supplemental_evidence_count" json:"supplemental_evidence_count"`
+	ConfirmedConclusion       bool `form:"confirmed_conclusion" json:"confirmed_conclusion"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisRoomParticipantSummary) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisRoomParticipantSummary/properties/roles
+type DiagnosisRoomParticipantSummaryRoles = []DiagnosisRoomParticipantSummaryRolesItem
+
+// #/components/schemas/DiagnosisRoomParticipantSummary/properties/roles/items
+type DiagnosisRoomParticipantSummaryRolesItem string
+
+const (
+	DiagnosisRoomParticipantSummaryRolesItemOwner                DiagnosisRoomParticipantSummaryRolesItem = "owner"
+	DiagnosisRoomParticipantSummaryRolesItemMessage              DiagnosisRoomParticipantSummaryRolesItem = "message"
+	DiagnosisRoomParticipantSummaryRolesItemEvidence             DiagnosisRoomParticipantSummaryRolesItem = "evidence"
+	DiagnosisRoomParticipantSummaryRolesItemSupplementalEvidence DiagnosisRoomParticipantSummaryRolesItem = "supplemental_evidence"
+	DiagnosisRoomParticipantSummaryRolesItemConfirmation         DiagnosisRoomParticipantSummaryRolesItem = "confirmation"
+	DiagnosisRoomParticipantSummaryRolesItemAssistant            DiagnosisRoomParticipantSummaryRolesItem = "assistant"
+)
+
+// #/components/schemas/DiagnosisRoomParticipantDirectoryUser
+// Minimal local directory display projection for one diagnosis-room participant.
+type DiagnosisRoomParticipantDirectoryUser struct {
+	// Stable authenticated subject used for audit and room authorization.
 	Subject string `form:"subject" json:"subject"`
-	// OpenClarion diagnosis authorization roles mapped from IAM claims or browser session state.
-	Roles []string `form:"roles" json:"roles"`
-	// Diagnosis auth provider mode that accepted the credentials.
-	Mode string `form:"mode" json:"mode"`
-	// Server-side timestamp when the credentials were checked.
-	CheckedAt time.Time `form:"checked_at" json:"checked_at"`
-	// Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
-	RoleAuthorized bool `form:"role_authorized" json:"role_authorized"`
+	// Directory username when available.
+	Username string `form:"username" json:"username"`
+	// Human-readable display name when available.
+	DisplayName string `form:"display_name" json:"display_name"`
+	// Job title when available.
+	JobTitle string `form:"job_title" json:"job_title"`
+	// Immediate department name when available.
+	Department string `form:"department" json:"department"`
+	// Section name when available.
+	Section string `form:"section" json:"section"`
+	// Human-readable department path when available.
+	DepartmentPath string `form:"department_path" json:"department_path"`
+	// All human-readable department paths when available.
+	DepartmentPaths []string `form:"department_paths" json:"department_paths"`
+	// Whether the directory user is active in the upstream projection.
+	Active bool `form:"active" json:"active"`
 }
 
 // ApplyDefaults sets default values for fields that are nil.
-func (s *DiagnosisAuthCheckResponse) ApplyDefaults() {
+func (s *DiagnosisRoomParticipantDirectoryUser) ApplyDefaults() {
 }
-
-// #/components/schemas/DiagnosisAuthCheckResponse/properties/mode
-// Diagnosis auth provider mode that accepted the credentials.
-type DiagnosisAuthCheckResponseMode string
-
-const (
-	DiagnosisAuthCheckResponseModeOidc    DiagnosisAuthCheckResponseMode = "oidc"
-	DiagnosisAuthCheckResponseModeUnknown DiagnosisAuthCheckResponseMode = "unknown"
-)
-
-// #/components/schemas/DiagnosisAuthSessionResponse
-// Short-lived diagnosis browser session issued after accepted IAM OIDC Authorization credentials.
-type DiagnosisAuthSessionResponse struct {
-	// OpenClarion diagnosis bearer session token. The BFF stores this value in an HttpOnly cookie and does not expose it to browser JavaScript.
-	Token string `form:"token" json:"token"`
-	// Stable authenticated subject used by diagnosis-room ownership checks.
-	Subject string `form:"subject" json:"subject"`
-	// OpenClarion diagnosis authorization roles mapped from IAM claims.
-	Roles []string `form:"roles" json:"roles"`
-	// Diagnosis auth provider mode that accepted the credentials.
-	Mode string `form:"mode" json:"mode"`
-	// Server-side timestamp when the credentials were checked.
-	CheckedAt time.Time `form:"checked_at" json:"checked_at"`
-	// Expiry time for the issued OpenClarion session token.
-	ExpiresAt time.Time `form:"expires_at" json:"expires_at"`
-	// Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
-	RoleAuthorized bool `form:"role_authorized" json:"role_authorized"`
-}
-
-// ApplyDefaults sets default values for fields that are nil.
-func (s *DiagnosisAuthSessionResponse) ApplyDefaults() {
-}
-
-// #/components/schemas/DiagnosisAuthSessionResponse/properties/mode
-// Diagnosis auth provider mode that accepted the credentials.
-type DiagnosisAuthSessionResponseMode string
-
-const (
-	DiagnosisAuthSessionResponseModeOidc    DiagnosisAuthSessionResponseMode = "oidc"
-	DiagnosisAuthSessionResponseModeUnknown DiagnosisAuthSessionResponseMode = "unknown"
-)
-
-// #/components/schemas/DiagnosisAuthStatusResponse
-// Non-sensitive diagnosis auth provider wiring status.
-type DiagnosisAuthStatusResponse struct {
-	// Whether diagnosis auth is wired in the running backend.
-	Configured bool `form:"configured" json:"configured"`
-	// Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
-	Mode string `form:"mode" json:"mode"`
-	// Configured diagnosis auth modes accepted by the running backend.
-	SupportedModes []DiagnosisAuthStatusResponseSupportedModesItem `form:"supported_modes" json:"supported_modes"`
-}
-
-// ApplyDefaults sets default values for fields that are nil.
-func (s *DiagnosisAuthStatusResponse) ApplyDefaults() {
-}
-
-// #/components/schemas/DiagnosisAuthStatusResponse/properties/mode
-// Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
-type DiagnosisAuthStatusResponseMode string
-
-const (
-	DiagnosisAuthStatusResponseModeOidc    DiagnosisAuthStatusResponseMode = "oidc"
-	DiagnosisAuthStatusResponseModeUnknown DiagnosisAuthStatusResponseMode = "unknown"
-	DiagnosisAuthStatusResponseModeNone    DiagnosisAuthStatusResponseMode = "none"
-)
-
-// #/components/schemas/DiagnosisAuthStatusResponse/properties/supported_modes
-// Configured diagnosis auth modes accepted by the running backend.
-type DiagnosisAuthStatusResponseSupportedModes = []DiagnosisAuthStatusResponseSupportedModesItem
-
-// #/components/schemas/DiagnosisAuthStatusResponse/properties/supported_modes/items
-type DiagnosisAuthStatusResponseSupportedModesItem string
-
-const (
-	DiagnosisAuthStatusResponseSupportedModesItemOidc    DiagnosisAuthStatusResponseSupportedModesItem = "oidc"
-	DiagnosisAuthStatusResponseSupportedModesItemUnknown DiagnosisAuthStatusResponseSupportedModesItem = "unknown"
-)
 
 // #/components/schemas/DiagnosisRoomCreateRequest
 // Request to create a short-conversation diagnosis room from a frozen EvidenceSnapshot.
 type DiagnosisRoomCreateRequest struct {
-	EvidenceSnapshotID   int64          `form:"evidence_snapshot_id" json:"evidence_snapshot_id"`
-	AdditionalProperties map[string]any `json:"-"`
+	EvidenceSnapshotID                int64          `form:"evidence_snapshot_id" json:"evidence_snapshot_id"`
+	CloseNotificationChannelProfileID *int64         `form:"close_notification_channel_profile_id,omitempty" json:"close_notification_channel_profile_id,omitempty"`
+	AdditionalProperties              map[string]any `json:"-"`
 }
 
 // Get returns the specified additional property value and whether it was found.
@@ -2013,6 +3100,15 @@ func (a *DiagnosisRoomCreateRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "evidence_snapshot_id")
 	}
 
+	if raw, found := object["close_notification_channel_profile_id"]; found {
+		var val int64
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'close_notification_channel_profile_id': %w", err)
+		}
+		a.CloseNotificationChannelProfileID = &val
+		delete(object, "close_notification_channel_profile_id")
+	}
+
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]any)
 		for fieldName, fieldBuf := range object {
@@ -2036,6 +3132,13 @@ func (a DiagnosisRoomCreateRequest) MarshalJSON() ([]byte, error) {
 		return nil, fmt.Errorf("error marshaling 'evidence_snapshot_id': %w", err)
 	}
 
+	if a.CloseNotificationChannelProfileID != nil {
+		object["close_notification_channel_profile_id"], err = json.Marshal(a.CloseNotificationChannelProfileID)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'close_notification_channel_profile_id': %w", err)
+		}
+	}
+
 	for fieldName, field := range a.AdditionalProperties {
 		object[fieldName], err = json.Marshal(field)
 		if err != nil {
@@ -2047,6 +3150,83 @@ func (a DiagnosisRoomCreateRequest) MarshalJSON() ([]byte, error) {
 
 // ApplyDefaults sets default values for fields that are nil.
 func (s *DiagnosisRoomCreateRequest) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisRoomCloseUnavailableRequest
+// Request to close a local diagnosis-room lifecycle row after backend workflow visibility proves the workflow is unavailable.
+type DiagnosisRoomCloseUnavailableRequest struct {
+	Reason               *string        `form:"reason,omitempty" json:"reason,omitempty"`
+	AdditionalProperties map[string]any `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a DiagnosisRoomCloseUnavailableRequest) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *DiagnosisRoomCloseUnavailableRequest) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *DiagnosisRoomCloseUnavailableRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["reason"]; found {
+		var val string
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'reason': %w", err)
+		}
+		a.Reason = &val
+		delete(object, "reason")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a DiagnosisRoomCloseUnavailableRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	if a.Reason != nil {
+		object["reason"], err = json.Marshal(a.Reason)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'reason': %w", err)
+		}
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisRoomCloseUnavailableRequest) ApplyDefaults() {
 }
 
 // #/components/schemas/DiagnosisRoomCreateResponse
@@ -2069,6 +3249,169 @@ type DiagnosisRoomCreateResponse struct {
 // ApplyDefaults sets default values for fields that are nil.
 func (s *DiagnosisRoomCreateResponse) ApplyDefaults() {
 }
+
+// #/components/schemas/DiagnosisAuthCheckResponse
+// Sanitized diagnosis authentication principal summary.
+type DiagnosisAuthCheckResponse struct {
+	// Stable authenticated subject used by diagnosis-room ownership checks.
+	Subject string `form:"subject" json:"subject"`
+	// Diagnosis authorization roles mapped by the configured auth provider. V1 roles are owner and admin.
+	Roles []string `form:"roles" json:"roles"`
+	// Configured diagnosis auth provider mode that accepted the credentials. none is never returned by a successful check.
+	Mode string `form:"mode" json:"mode"`
+	// Server-side timestamp when the credentials were checked.
+	CheckedAt time.Time `form:"checked_at" json:"checked_at"`
+	// Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
+	RoleAuthorized bool `form:"role_authorized" json:"role_authorized"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisAuthCheckResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisAuthCheckResponse/properties/mode
+// Configured diagnosis auth provider mode that accepted the credentials. none is never returned by a successful check.
+type DiagnosisAuthCheckResponseMode string
+
+const (
+	DiagnosisAuthCheckResponseModeLdap    DiagnosisAuthCheckResponseMode = "ldap"
+	DiagnosisAuthCheckResponseModeStatic  DiagnosisAuthCheckResponseMode = "static"
+	DiagnosisAuthCheckResponseModeOidc    DiagnosisAuthCheckResponseMode = "oidc"
+	DiagnosisAuthCheckResponseModeUnknown DiagnosisAuthCheckResponseMode = "unknown"
+)
+
+// #/components/schemas/DiagnosisAuthSessionResponse
+// Short-lived diagnosis browser session issued after accepted Authorization credentials. The token is intended only for the trusted browser BFF to store in an HTTP-only cookie and must not be exposed to page JavaScript.
+type DiagnosisAuthSessionResponse struct {
+	// OpenClarion diagnosis bearer session token. The BFF stores this value in an HTTP-only cookie and does not expose it to the browser UI.
+	Token string `form:"token" json:"token"`
+	// Stable authenticated subject used by diagnosis-room ownership checks.
+	Subject string `form:"subject" json:"subject"`
+	// Diagnosis authorization roles mapped by the configured auth provider. V1 roles are owner and admin.
+	Roles []string `form:"roles" json:"roles"`
+	// Diagnosis auth provider mode that accepted the credentials. none is never returned by a successful session issue.
+	Mode string `form:"mode" json:"mode"`
+	// Server-side timestamp when the credentials were checked.
+	CheckedAt time.Time `form:"checked_at" json:"checked_at"`
+	// Expiry time for the issued OpenClarion session token.
+	ExpiresAt time.Time `form:"expires_at" json:"expires_at"`
+	// Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
+	RoleAuthorized bool `form:"role_authorized" json:"role_authorized"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisAuthSessionResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisAuthSessionResponse/properties/mode
+// Diagnosis auth provider mode that accepted the credentials. none is never returned by a successful session issue.
+type DiagnosisAuthSessionResponseMode string
+
+const (
+	DiagnosisAuthSessionResponseModeLdap    DiagnosisAuthSessionResponseMode = "ldap"
+	DiagnosisAuthSessionResponseModeStatic  DiagnosisAuthSessionResponseMode = "static"
+	DiagnosisAuthSessionResponseModeOidc    DiagnosisAuthSessionResponseMode = "oidc"
+	DiagnosisAuthSessionResponseModeUnknown DiagnosisAuthSessionResponseMode = "unknown"
+)
+
+// #/components/schemas/DiagnosisAuthStatusResponse
+// Non-sensitive diagnosis auth provider wiring status.
+type DiagnosisAuthStatusResponse struct {
+	// Whether diagnosis auth is wired in the running backend.
+	Configured bool `form:"configured" json:"configured"`
+	// Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
+	Mode string `form:"mode" json:"mode"`
+	// Configured diagnosis auth modes accepted by the running backend.
+	SupportedModes  []DiagnosisAuthStatusResponseSupportedModesItem `form:"supported_modes,omitempty" json:"supported_modes,omitempty"`
+	RoleMapping     *DiagnosisAuthRoleMappingStatus                 `form:"role_mapping,omitempty" json:"role_mapping,omitempty"`
+	TransportPolicy *DiagnosisAuthTransportPolicyStatus             `form:"transport_policy,omitempty" json:"transport_policy,omitempty"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisAuthStatusResponse) ApplyDefaults() {
+	if s.RoleMapping != nil {
+		s.RoleMapping.ApplyDefaults()
+	}
+	if s.TransportPolicy != nil {
+		s.TransportPolicy.ApplyDefaults()
+	}
+}
+
+// #/components/schemas/DiagnosisAuthStatusResponse/properties/mode
+// Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
+type DiagnosisAuthStatusResponseMode string
+
+const (
+	DiagnosisAuthStatusResponseModeLdap    DiagnosisAuthStatusResponseMode = "ldap"
+	DiagnosisAuthStatusResponseModeStatic  DiagnosisAuthStatusResponseMode = "static"
+	DiagnosisAuthStatusResponseModeOidc    DiagnosisAuthStatusResponseMode = "oidc"
+	DiagnosisAuthStatusResponseModeUnknown DiagnosisAuthStatusResponseMode = "unknown"
+	DiagnosisAuthStatusResponseModeNone    DiagnosisAuthStatusResponseMode = "none"
+)
+
+// #/components/schemas/DiagnosisAuthStatusResponse/properties/supported_modes
+// Configured diagnosis auth modes accepted by the running backend.
+type DiagnosisAuthStatusResponseSupportedModes = []DiagnosisAuthStatusResponseSupportedModesItem
+
+// #/components/schemas/DiagnosisAuthStatusResponse/properties/supported_modes/items
+type DiagnosisAuthStatusResponseSupportedModesItem string
+
+const (
+	DiagnosisAuthStatusResponseSupportedModesItemLdap    DiagnosisAuthStatusResponseSupportedModesItem = "ldap"
+	DiagnosisAuthStatusResponseSupportedModesItemStatic  DiagnosisAuthStatusResponseSupportedModesItem = "static"
+	DiagnosisAuthStatusResponseSupportedModesItemOidc    DiagnosisAuthStatusResponseSupportedModesItem = "oidc"
+	DiagnosisAuthStatusResponseSupportedModesItemUnknown DiagnosisAuthStatusResponseSupportedModesItem = "unknown"
+)
+
+// #/components/schemas/DiagnosisAuthTransportPolicyStatus
+// Non-sensitive credential transport readiness summary. It reports only the security class and never includes endpoints, DNs, usernames, domains, certificates, or secrets.
+type DiagnosisAuthTransportPolicyStatus struct {
+	// Credential transport security class accepted by the running backend.
+	Security string `form:"security" json:"security"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisAuthTransportPolicyStatus) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisAuthTransportPolicyStatus/properties/security
+// Credential transport security class accepted by the running backend.
+type DiagnosisAuthTransportPolicyStatusSecurity string
+
+const (
+	TLS               DiagnosisAuthTransportPolicyStatusSecurity = "tls"
+	StartTLS          DiagnosisAuthTransportPolicyStatusSecurity = "start_tls"
+	InsecurePlaintext DiagnosisAuthTransportPolicyStatusSecurity = "insecure_plaintext"
+)
+
+// #/components/schemas/DiagnosisAuthRoleMappingStatus
+// Non-sensitive owner/admin role mapping readiness summary. Counts indicate configured mapping paths only and never include upstream role values, user IDs, DNs, claims, endpoints, or secrets.
+type DiagnosisAuthRoleMappingStatus struct {
+	// Number of configured upstream mappings that grant OpenClarion owner access.
+	OwnerMappingCount int `form:"owner_mapping_count" json:"owner_mapping_count"`
+	// Number of configured upstream mappings that grant OpenClarion admin access.
+	AdminMappingCount int `form:"admin_mapping_count" json:"admin_mapping_count"`
+	// OpenClarion roles granted by default by the configured provider.
+	DefaultRoles []DiagnosisAuthRoleMappingStatusDefaultRolesItem `form:"default_roles" json:"default_roles"`
+	// Whether at least one owner/admin mapping path or default role is configured.
+	Configured bool `form:"configured" json:"configured"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisAuthRoleMappingStatus) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisAuthRoleMappingStatus/properties/default_roles
+// OpenClarion roles granted by default by the configured provider.
+type DiagnosisAuthRoleMappingStatusDefaultRoles = []DiagnosisAuthRoleMappingStatusDefaultRolesItem
+
+// #/components/schemas/DiagnosisAuthRoleMappingStatus/properties/default_roles/items
+type DiagnosisAuthRoleMappingStatusDefaultRolesItem string
+
+const (
+	DiagnosisAuthRoleMappingStatusDefaultRolesItemOwner DiagnosisAuthRoleMappingStatusDefaultRolesItem = "owner"
+	DiagnosisAuthRoleMappingStatusDefaultRolesItemAdmin DiagnosisAuthRoleMappingStatusDefaultRolesItem = "admin"
+)
 
 // #/components/schemas/DiagnosisWSTicketRequest
 // Request to issue a short-lived WebSocket ticket for a diagnosis session.
@@ -2164,6 +3507,7 @@ type ReportReplayTriggerRequest struct {
 	WindowStart          time.Time      `form:"window_start" json:"window_start"`
 	WindowEnd            time.Time      `form:"window_end" json:"window_end"`
 	Limit                *int32         `form:"limit,omitempty" json:"limit,omitempty"`
+	AlertEventID         *int64         `form:"alert_event_id,omitempty" json:"alert_event_id,omitempty"`
 	CorrelationKey       *string        `form:"correlation_key,omitempty" json:"correlation_key,omitempty"`
 	WorkflowID           *string        `form:"workflow_id,omitempty" json:"workflow_id,omitempty"`
 	Scenario             *string        `form:"scenario,omitempty" json:"scenario,omitempty"`
@@ -2214,6 +3558,15 @@ func (a *ReportReplayTriggerRequest) UnmarshalJSON(b []byte) error {
 		}
 		a.Limit = &val
 		delete(object, "limit")
+	}
+
+	if raw, found := object["alert_event_id"]; found {
+		var val int64
+		if err := json.Unmarshal(raw, &val); err != nil {
+			return fmt.Errorf("error reading 'alert_event_id': %w", err)
+		}
+		a.AlertEventID = &val
+		delete(object, "alert_event_id")
 	}
 
 	if raw, found := object["correlation_key"]; found {
@@ -2278,6 +3631,13 @@ func (a ReportReplayTriggerRequest) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	if a.AlertEventID != nil {
+		object["alert_event_id"], err = json.Marshal(a.AlertEventID)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'alert_event_id': %w", err)
+		}
+	}
+
 	if a.CorrelationKey != nil {
 		object["correlation_key"], err = json.Marshal(a.CorrelationKey)
 		if err != nil {
@@ -2331,16 +3691,22 @@ const (
 type ReportReplayTriggerResponse struct {
 	// True when at least one EvidenceSnapshot was available and workflow start was accepted.
 	Started bool `form:"started" json:"started"`
+	// Final report correlation key used by the replayed report workflow and downstream delivery proof.
+	CorrelationKey string `form:"correlation_key" json:"correlation_key"`
 	// Started workflow ID, or empty when no snapshots were available.
 	WorkflowID string `form:"workflow_id" json:"workflow_id"`
 	// Started workflow run ID, or empty when no snapshots were available.
-	RunID     string                    `form:"run_id" json:"run_id"`
-	Stats     ReportReplayStats         `form:"stats" json:"stats"`
-	Snapshots []ReportReplaySnapshotRef `form:"snapshots" json:"snapshots"`
+	RunID         string                                   `form:"run_id" json:"run_id"`
+	Stats         ReportReplayStats                        `form:"stats" json:"stats"`
+	Snapshots     []ReportReplaySnapshotRef                `form:"snapshots" json:"snapshots"`
+	AutoDiagnosis *AlertmanagerWebhookAutoDiagnosisSummary `form:"auto_diagnosis,omitempty" json:"auto_diagnosis,omitempty"`
 }
 
 // ApplyDefaults sets default values for fields that are nil.
 func (s *ReportReplayTriggerResponse) ApplyDefaults() {
+	if s.AutoDiagnosis != nil {
+		s.AutoDiagnosis.ApplyDefaults()
+	}
 }
 
 // #/components/schemas/ReportReplayTriggerResponse/properties/snapshots
@@ -2625,6 +3991,9 @@ type AlertmanagerWebhookAlert struct {
 	EndsAt               *time.Time        `form:"endsAt,omitempty" json:"endsAt,omitempty"`
 	GeneratorURL         *string           `form:"generatorURL,omitempty" json:"generatorURL,omitempty"`
 	Fingerprint          *string           `form:"fingerprint,omitempty" json:"fingerprint,omitempty"`
+	SilencedBy           []string          `form:"silencedBy,omitempty" json:"silencedBy,omitempty"`
+	InhibitedBy          []string          `form:"inhibitedBy,omitempty" json:"inhibitedBy,omitempty"`
+	MutedBy              []string          `form:"mutedBy,omitempty" json:"mutedBy,omitempty"`
 	AdditionalProperties map[string]any    `json:"-"`
 }
 
@@ -2706,6 +4075,27 @@ func (a *AlertmanagerWebhookAlert) UnmarshalJSON(b []byte) error {
 		delete(object, "fingerprint")
 	}
 
+	if raw, found := object["silencedBy"]; found {
+		if err := json.Unmarshal(raw, &a.SilencedBy); err != nil {
+			return fmt.Errorf("error reading 'silencedBy': %w", err)
+		}
+		delete(object, "silencedBy")
+	}
+
+	if raw, found := object["inhibitedBy"]; found {
+		if err := json.Unmarshal(raw, &a.InhibitedBy); err != nil {
+			return fmt.Errorf("error reading 'inhibitedBy': %w", err)
+		}
+		delete(object, "inhibitedBy")
+	}
+
+	if raw, found := object["mutedBy"]; found {
+		if err := json.Unmarshal(raw, &a.MutedBy); err != nil {
+			return fmt.Errorf("error reading 'mutedBy': %w", err)
+		}
+		delete(object, "mutedBy")
+	}
+
 	if len(object) != 0 {
 		a.AdditionalProperties = make(map[string]any)
 		for fieldName, fieldBuf := range object {
@@ -2765,6 +4155,21 @@ func (a AlertmanagerWebhookAlert) MarshalJSON() ([]byte, error) {
 		}
 	}
 
+	object["silencedBy"], err = json.Marshal(a.SilencedBy)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'silencedBy': %w", err)
+	}
+
+	object["inhibitedBy"], err = json.Marshal(a.InhibitedBy)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'inhibitedBy': %w", err)
+	}
+
+	object["mutedBy"], err = json.Marshal(a.MutedBy)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'mutedBy': %w", err)
+	}
+
 	for fieldName, field := range a.AdditionalProperties {
 		object[fieldName], err = json.Marshal(field)
 		if err != nil {
@@ -2798,13 +4203,19 @@ type AlertmanagerWebhookIngestResponse struct {
 	SourceID        int64 `form:"source_id" json:"source_id"`
 	Received        int64 `form:"received" json:"received"`
 	SkippedResolved int64 `form:"skipped_resolved" json:"skipped_resolved"`
-	TruncatedAlerts int64 `form:"truncated_alerts" json:"truncated_alerts"`
+	// Firing alert entries ignored because Alertmanager marked them silenced, inhibited, or muted.
+	SkippedSuppressed int64 `form:"skipped_suppressed" json:"skipped_suppressed"`
+	TruncatedAlerts   int64 `form:"truncated_alerts" json:"truncated_alerts"`
 	// Counter summary from webhook alert ingestion.
-	Ingested AlertmanagerWebhookIngestResponseIngested `form:"ingested" json:"ingested"`
+	Ingested      AlertmanagerWebhookIngestResponseIngested `form:"ingested" json:"ingested"`
+	AutoDiagnosis *AlertmanagerWebhookAutoDiagnosisSummary  `form:"auto_diagnosis,omitempty" json:"auto_diagnosis,omitempty"`
 }
 
 // ApplyDefaults sets default values for fields that are nil.
 func (s *AlertmanagerWebhookIngestResponse) ApplyDefaults() {
+	if s.AutoDiagnosis != nil {
+		s.AutoDiagnosis.ApplyDefaults()
+	}
 }
 
 // #/components/schemas/AlertmanagerWebhookIngestResponse/properties/ingested
@@ -2818,6 +4229,273 @@ type AlertmanagerWebhookIngestResponseIngested struct {
 
 // ApplyDefaults sets default values for fields that are nil.
 func (s *AlertmanagerWebhookIngestResponseIngested) ApplyDefaults() {
+}
+
+// #/components/schemas/AlertmanagerWebhookAutoDiagnosisSummary
+// Sanitized summary of automatic diagnosis-room handoff triggered by a webhook ingest.
+type AlertmanagerWebhookAutoDiagnosisSummary struct {
+	PoliciesMatched      int64                                  `form:"policies_matched" json:"policies_matched"`
+	Snapshots            int64                                  `form:"snapshots" json:"snapshots"`
+	RoomsStarted         int64                                  `form:"rooms_started" json:"rooms_started"`
+	RoomsSkipped         int64                                  `form:"rooms_skipped" json:"rooms_skipped"`
+	Rooms                []AlertmanagerWebhookAutoDiagnosisRoom `form:"rooms,omitempty" json:"rooms,omitempty"`
+	AdditionalProperties map[string]any                         `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a AlertmanagerWebhookAutoDiagnosisSummary) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *AlertmanagerWebhookAutoDiagnosisSummary) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *AlertmanagerWebhookAutoDiagnosisSummary) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["policies_matched"]; found {
+		if err := json.Unmarshal(raw, &a.PoliciesMatched); err != nil {
+			return fmt.Errorf("error reading 'policies_matched': %w", err)
+		}
+		delete(object, "policies_matched")
+	}
+
+	if raw, found := object["snapshots"]; found {
+		if err := json.Unmarshal(raw, &a.Snapshots); err != nil {
+			return fmt.Errorf("error reading 'snapshots': %w", err)
+		}
+		delete(object, "snapshots")
+	}
+
+	if raw, found := object["rooms_started"]; found {
+		if err := json.Unmarshal(raw, &a.RoomsStarted); err != nil {
+			return fmt.Errorf("error reading 'rooms_started': %w", err)
+		}
+		delete(object, "rooms_started")
+	}
+
+	if raw, found := object["rooms_skipped"]; found {
+		if err := json.Unmarshal(raw, &a.RoomsSkipped); err != nil {
+			return fmt.Errorf("error reading 'rooms_skipped': %w", err)
+		}
+		delete(object, "rooms_skipped")
+	}
+
+	if raw, found := object["rooms"]; found {
+		if err := json.Unmarshal(raw, &a.Rooms); err != nil {
+			return fmt.Errorf("error reading 'rooms': %w", err)
+		}
+		delete(object, "rooms")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a AlertmanagerWebhookAutoDiagnosisSummary) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["policies_matched"], err = json.Marshal(a.PoliciesMatched)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'policies_matched': %w", err)
+	}
+
+	object["snapshots"], err = json.Marshal(a.Snapshots)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'snapshots': %w", err)
+	}
+
+	object["rooms_started"], err = json.Marshal(a.RoomsStarted)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'rooms_started': %w", err)
+	}
+
+	object["rooms_skipped"], err = json.Marshal(a.RoomsSkipped)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'rooms_skipped': %w", err)
+	}
+
+	object["rooms"], err = json.Marshal(a.Rooms)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'rooms': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *AlertmanagerWebhookAutoDiagnosisSummary) ApplyDefaults() {
+}
+
+// #/components/schemas/AlertmanagerWebhookAutoDiagnosisSummary/properties/rooms
+// Diagnosis rooms accepted for automatic consultation, with only navigation-safe identifiers.
+type AlertmanagerWebhookAutoDiagnosisSummaryRooms = []AlertmanagerWebhookAutoDiagnosisRoom
+
+// #/components/schemas/AlertmanagerWebhookAutoDiagnosisRoom
+// Navigation-safe reference to one automatic diagnosis room started for alert diagnosis.
+type AlertmanagerWebhookAutoDiagnosisRoom struct {
+	PolicyID             int64          `form:"policy_id" json:"policy_id"`
+	EvidenceSnapshotID   int64          `form:"evidence_snapshot_id" json:"evidence_snapshot_id"`
+	SessionID            string         `form:"session_id" json:"session_id"`
+	InitialMessageID     string         `form:"initial_message_id" json:"initial_message_id"`
+	WorkflowID           string         `form:"workflow_id" json:"workflow_id"`
+	RunID                string         `form:"run_id" json:"run_id"`
+	AdditionalProperties map[string]any `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a AlertmanagerWebhookAutoDiagnosisRoom) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *AlertmanagerWebhookAutoDiagnosisRoom) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *AlertmanagerWebhookAutoDiagnosisRoom) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["policy_id"]; found {
+		if err := json.Unmarshal(raw, &a.PolicyID); err != nil {
+			return fmt.Errorf("error reading 'policy_id': %w", err)
+		}
+		delete(object, "policy_id")
+	}
+
+	if raw, found := object["evidence_snapshot_id"]; found {
+		if err := json.Unmarshal(raw, &a.EvidenceSnapshotID); err != nil {
+			return fmt.Errorf("error reading 'evidence_snapshot_id': %w", err)
+		}
+		delete(object, "evidence_snapshot_id")
+	}
+
+	if raw, found := object["session_id"]; found {
+		if err := json.Unmarshal(raw, &a.SessionID); err != nil {
+			return fmt.Errorf("error reading 'session_id': %w", err)
+		}
+		delete(object, "session_id")
+	}
+
+	if raw, found := object["initial_message_id"]; found {
+		if err := json.Unmarshal(raw, &a.InitialMessageID); err != nil {
+			return fmt.Errorf("error reading 'initial_message_id': %w", err)
+		}
+		delete(object, "initial_message_id")
+	}
+
+	if raw, found := object["workflow_id"]; found {
+		if err := json.Unmarshal(raw, &a.WorkflowID); err != nil {
+			return fmt.Errorf("error reading 'workflow_id': %w", err)
+		}
+		delete(object, "workflow_id")
+	}
+
+	if raw, found := object["run_id"]; found {
+		if err := json.Unmarshal(raw, &a.RunID); err != nil {
+			return fmt.Errorf("error reading 'run_id': %w", err)
+		}
+		delete(object, "run_id")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a AlertmanagerWebhookAutoDiagnosisRoom) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["policy_id"], err = json.Marshal(a.PolicyID)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'policy_id': %w", err)
+	}
+
+	object["evidence_snapshot_id"], err = json.Marshal(a.EvidenceSnapshotID)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'evidence_snapshot_id': %w", err)
+	}
+
+	object["session_id"], err = json.Marshal(a.SessionID)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'session_id': %w", err)
+	}
+
+	object["initial_message_id"], err = json.Marshal(a.InitialMessageID)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'initial_message_id': %w", err)
+	}
+
+	object["workflow_id"], err = json.Marshal(a.WorkflowID)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'workflow_id': %w", err)
+	}
+
+	object["run_id"], err = json.Marshal(a.RunID)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'run_id': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *AlertmanagerWebhookAutoDiagnosisRoom) ApplyDefaults() {
 }
 
 // #/components/schemas/ReportReplaySnapshotRef
@@ -2850,6 +4528,101 @@ type FinalReportSummary struct {
 func (s *FinalReportSummary) ApplyDefaults() {
 }
 
+// #/components/schemas/ReportNotificationDeliveryStatus
+// Final report notification delivery lifecycle status.
+type ReportNotificationDeliveryStatus string
+
+const (
+	ReportNotificationDeliveryStatusPending   ReportNotificationDeliveryStatus = "pending"
+	ReportNotificationDeliveryStatusDelivered ReportNotificationDeliveryStatus = "delivered"
+	ReportNotificationDeliveryStatusFailed    ReportNotificationDeliveryStatus = "failed"
+)
+
+// #/components/schemas/ReportNotificationDeliveryProof
+// Sanitized final report notification delivery proof retained for audit.
+type ReportNotificationDeliveryProof struct {
+	ID                  int64                     `form:"id" json:"id"`
+	IdempotencyKey      string                    `form:"idempotency_key" json:"idempotency_key"`
+	NotificationPurpose ReportNotificationPurpose `form:"notification_purpose" json:"notification_purpose"`
+	// Notification channel profile used for this delivery attempt, or null for legacy fallback.
+	ReportNotificationChannelProfileID Nullable[int64]                  `form:"report_notification_channel_profile_id" json:"report_notification_channel_profile_id"`
+	Status                             ReportNotificationDeliveryStatus `form:"status" json:"status"`
+	ProviderMessageID                  *string                          `form:"provider_message_id,omitempty" json:"provider_message_id,omitempty"`
+	ProviderStatus                     *string                          `form:"provider_status,omitempty" json:"provider_status,omitempty"`
+	FailureReason                      *string                          `form:"failure_reason,omitempty" json:"failure_reason,omitempty"`
+	DeliveredAt                        *time.Time                       `form:"delivered_at,omitempty" json:"delivered_at,omitempty"`
+	CreatedAt                          time.Time                        `form:"created_at" json:"created_at"`
+	UpdatedAt                          time.Time                        `form:"updated_at" json:"updated_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportNotificationDeliveryProof) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportNotificationRetryRequest
+// Optional override for retrying a report notification.
+type ReportNotificationRetryRequest struct {
+	// Optional notification channel profile identifier for this retry attempt. Omit or set null to use the legacy fallback provider.
+	ReportNotificationChannelProfileID Nullable[int64]            `form:"report_notification_channel_profile_id,omitempty" json:"report_notification_channel_profile_id,omitempty"`
+	NotificationPurpose                *ReportNotificationPurpose `form:"notification_purpose,omitempty" json:"notification_purpose,omitempty"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportNotificationRetryRequest) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportNotificationPurpose
+// Operator-facing report notification purpose. Handoff means the report is asking operators to complete diagnosis readiness; final means the report is already operator-confirmed.
+type ReportNotificationPurpose string
+
+const (
+	Handoff ReportNotificationPurpose = "handoff"
+	Final   ReportNotificationPurpose = "final"
+)
+
+// #/components/schemas/ReportNotificationRetryState
+// Outcome of a report notification retry request. Sent means a provider request was made; already_pending and already_delivered mean existing delivery proof was returned without another provider request.
+type ReportNotificationRetryState string
+
+const (
+	ReportNotificationRetryStateSent             ReportNotificationRetryState = "sent"
+	ReportNotificationRetryStateAlreadyPending   ReportNotificationRetryState = "already_pending"
+	ReportNotificationRetryStateAlreadyDelivered ReportNotificationRetryState = "already_delivered"
+)
+
+// #/components/schemas/ReportNotificationRetryResponse
+// Delivery proof and retry outcome after a report notification retry request.
+type ReportNotificationRetryResponse struct {
+	RetryState ReportNotificationRetryState    `form:"retry_state" json:"retry_state"`
+	Delivery   ReportNotificationDeliveryProof `form:"delivery" json:"delivery"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportNotificationRetryResponse) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportFinalNotificationReadiness
+// Server-derived readiness for sending the operator-confirmed final report notification.
+type ReportFinalNotificationReadiness struct {
+	Ready               bool                      `form:"ready" json:"ready"`
+	NotificationPurpose ReportNotificationPurpose `form:"notification_purpose" json:"notification_purpose"`
+	Status              string                    `form:"status" json:"status"`
+	StatusLabel         string                    `form:"status_label" json:"status_label"`
+	Detail              string                    `form:"detail" json:"detail"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *ReportFinalNotificationReadiness) ApplyDefaults() {
+}
+
+// #/components/schemas/ReportFinalNotificationReadiness/properties/status
+type ReportFinalNotificationReadinessStatus string
+
+const (
+	ReportFinalNotificationReadinessStatusReady   ReportFinalNotificationReadinessStatus = "ready"
+	ReportFinalNotificationReadinessStatusBlocked ReportFinalNotificationReadinessStatus = "blocked"
+)
+
 // #/components/schemas/FinalReportDetail
 // Final report detail with linked SubReports.
 type FinalReportDetail struct {
@@ -2862,12 +4635,15 @@ type FinalReportDetail struct {
 	SubReports         []FinalReportSubReportSummary `form:"sub_reports" json:"sub_reports"`
 	RecommendedActions []ReportAction                `form:"recommended_actions" json:"recommended_actions"`
 	NotificationText   string                        `form:"notification_text" json:"notification_text"`
-	Content            map[string]any                `form:"content" json:"content"`
-	Model              string                        `form:"model" json:"model"`
-	OutputMode         string                        `form:"output_mode" json:"output_mode"`
-	CreatedByWorkflow  string                        `form:"created_by_workflow" json:"created_by_workflow"`
-	CreatedAt          time.Time                     `form:"created_at" json:"created_at"`
-	LinkedSubReports   []SubReportDetail             `form:"linked_sub_reports" json:"linked_sub_reports"`
+	// Sanitized final report notification delivery proof, ordered by recency.
+	NotificationDeliveries     []ReportNotificationDeliveryProof `form:"notification_deliveries" json:"notification_deliveries"`
+	FinalNotificationReadiness ReportFinalNotificationReadiness  `form:"final_notification_readiness" json:"final_notification_readiness"`
+	Content                    map[string]any                    `form:"content" json:"content"`
+	Model                      string                            `form:"model" json:"model"`
+	OutputMode                 string                            `form:"output_mode" json:"output_mode"`
+	CreatedByWorkflow          string                            `form:"created_by_workflow" json:"created_by_workflow"`
+	CreatedAt                  time.Time                         `form:"created_at" json:"created_at"`
+	LinkedSubReports           []SubReportDetail                 `form:"linked_sub_reports" json:"linked_sub_reports"`
 }
 
 // ApplyDefaults sets default values for fields that are nil.
@@ -2879,6 +4655,10 @@ type FinalReportDetailSubReports = []FinalReportSubReportSummary
 
 // #/components/schemas/FinalReportDetail/properties/recommended_actions
 type FinalReportDetailRecommendedActions = []ReportAction
+
+// #/components/schemas/FinalReportDetail/properties/notification_deliveries
+// Sanitized final report notification delivery proof, ordered by recency.
+type FinalReportDetailNotificationDeliveries = []ReportNotificationDeliveryProof
 
 // #/components/schemas/FinalReportDetail/properties/content
 type FinalReportDetailContent = map[string]any
@@ -2905,12 +4685,20 @@ type SubReportDetail struct {
 	CreatedByWorkflow   string                          `form:"created_by_workflow" json:"created_by_workflow"`
 	CreatedAt           time.Time                       `form:"created_at" json:"created_at"`
 	DiagnosisConclusion *DiagnosisRoomConclusionSummary `form:"diagnosis_conclusion,omitempty" json:"diagnosis_conclusion,omitempty"`
+	DiagnosisProgress   *DiagnosisRoomProgressSummary   `form:"diagnosis_progress,omitempty" json:"diagnosis_progress,omitempty"`
+	DiagnosisRoom       *DiagnosisRoomSummary           `form:"diagnosis_room,omitempty" json:"diagnosis_room,omitempty"`
 }
 
 // ApplyDefaults sets default values for fields that are nil.
 func (s *SubReportDetail) ApplyDefaults() {
 	if s.DiagnosisConclusion != nil {
 		s.DiagnosisConclusion.ApplyDefaults()
+	}
+	if s.DiagnosisProgress != nil {
+		s.DiagnosisProgress.ApplyDefaults()
+	}
+	if s.DiagnosisRoom != nil {
+		s.DiagnosisRoom.ApplyDefaults()
 	}
 }
 
@@ -2923,30 +4711,98 @@ type SubReportDetailRecommendedActions = []ReportAction
 // #/components/schemas/SubReportDetail/properties/content
 type SubReportDetailContent = map[string]any
 
+// #/components/schemas/DiagnosisRoomProgressSummary
+// Latest non-final diagnosis-room AI progress linked to a report evidence snapshot.
+type DiagnosisRoomProgressSummary struct {
+	DiagnosisTaskID int64   `form:"diagnosis_task_id" json:"diagnosis_task_id"`
+	SessionID       *string `form:"session_id,omitempty" json:"session_id,omitempty"`
+	ChatSessionID   *int64  `form:"chat_session_id,omitempty" json:"chat_session_id,omitempty"`
+	EventKind       string  `form:"event_kind" json:"event_kind"`
+	// Current non-final diagnosis progress state. Failed means the diagnosis task terminated before a final conclusion was recorded.
+	Status              string           `form:"status" json:"status"`
+	EvidenceSnapshotID  int64            `form:"evidence_snapshot_id" json:"evidence_snapshot_id"`
+	Confidence          ReportConfidence `form:"confidence" json:"confidence"`
+	RequiresHumanReview bool             `form:"requires_human_review" json:"requires_human_review"`
+	ConclusionStatus    *string          `form:"conclusion_status,omitempty" json:"conclusion_status,omitempty"`
+	ConfidenceRationale *string          `form:"confidence_rationale,omitempty" json:"confidence_rationale,omitempty"`
+	// Sanitized terminal failure reason when status is failed.
+	FailureReason                 *string                                           `form:"failure_reason,omitempty" json:"failure_reason,omitempty"`
+	EvidenceRequestCount          int                                               `form:"evidence_request_count" json:"evidence_request_count"`
+	EvidenceRequests              []DiagnosisRoomEvidenceRequestSummary             `form:"evidence_requests,omitempty" json:"evidence_requests,omitempty"`
+	EvidenceCollectionResults     []DiagnosisRoomEvidenceCollectionResultSummary    `form:"evidence_collection_results,omitempty" json:"evidence_collection_results,omitempty"`
+	MissingEvidenceRequests       []DiagnosisRoomConsultationEvidenceRequestSummary `form:"missing_evidence_requests,omitempty" json:"missing_evidence_requests,omitempty"`
+	EvidenceCollectionSuggestions []DiagnosisRoomConsultationEvidenceRequestSummary `form:"evidence_collection_suggestions,omitempty" json:"evidence_collection_suggestions,omitempty"`
+	SupplementalEvidence          []DiagnosisRoomSupplementalEvidenceSummary        `form:"supplemental_evidence,omitempty" json:"supplemental_evidence,omitempty"`
+	ConfidenceTimeline            []DiagnosisRoomConfidenceTimelineEntry            `form:"confidence_timeline,omitempty" json:"confidence_timeline,omitempty"`
+	AssistantMessageID            *string                                           `form:"assistant_message_id,omitempty" json:"assistant_message_id,omitempty"`
+	AssistantTurnID               *int64                                            `form:"assistant_turn_id,omitempty" json:"assistant_turn_id,omitempty"`
+	AssistantSequence             *int                                              `form:"assistant_sequence,omitempty" json:"assistant_sequence,omitempty"`
+	TurnCount                     *int                                              `form:"turn_count,omitempty" json:"turn_count,omitempty"`
+	OccurredAt                    time.Time                                         `form:"occurred_at" json:"occurred_at"`
+	RecordedAt                    time.Time                                         `form:"recorded_at" json:"recorded_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisRoomProgressSummary) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisRoomProgressSummary/properties/status
+// Current non-final diagnosis progress state. Failed means the diagnosis task terminated before a final conclusion was recorded.
+type DiagnosisRoomProgressSummaryStatus string
+
+const (
+	DiagnosisRoomProgressSummaryStatusInProgress DiagnosisRoomProgressSummaryStatus = "in_progress"
+	DiagnosisRoomProgressSummaryStatusFailed     DiagnosisRoomProgressSummaryStatus = "failed"
+)
+
+// #/components/schemas/DiagnosisRoomProgressSummary/properties/evidence_requests
+type DiagnosisRoomProgressSummaryEvidenceRequests = []DiagnosisRoomEvidenceRequestSummary
+
+// #/components/schemas/DiagnosisRoomProgressSummary/properties/evidence_collection_results
+type DiagnosisRoomProgressSummaryEvidenceCollectionResults = []DiagnosisRoomEvidenceCollectionResultSummary
+
+// #/components/schemas/DiagnosisRoomProgressSummary/properties/missing_evidence_requests
+type DiagnosisRoomProgressSummaryMissingEvidenceRequests = []DiagnosisRoomConsultationEvidenceRequestSummary
+
+// #/components/schemas/DiagnosisRoomProgressSummary/properties/evidence_collection_suggestions
+type DiagnosisRoomProgressSummaryEvidenceCollectionSuggestions = []DiagnosisRoomConsultationEvidenceRequestSummary
+
+// #/components/schemas/DiagnosisRoomProgressSummary/properties/supplemental_evidence
+type DiagnosisRoomProgressSummarySupplementalEvidence = []DiagnosisRoomSupplementalEvidenceSummary
+
+// #/components/schemas/DiagnosisRoomProgressSummary/properties/confidence_timeline
+type DiagnosisRoomProgressSummaryConfidenceTimeline = []DiagnosisRoomConfidenceTimelineEntry
+
 // #/components/schemas/DiagnosisRoomConclusionSummary
 // Latest available diagnosis-room conclusion linked to a report evidence snapshot.
 type DiagnosisRoomConclusionSummary struct {
-	DiagnosisTaskID         int64                                      `form:"diagnosis_task_id" json:"diagnosis_task_id"`
-	SessionID               string                                     `form:"session_id" json:"session_id"`
-	ChatSessionID           int64                                      `form:"chat_session_id" json:"chat_session_id"`
-	EventKind               string                                     `form:"event_kind" json:"event_kind"`
-	Status                  string                                     `form:"status" json:"status"`
-	Source                  string                                     `form:"source" json:"source"`
-	Reason                  *string                                    `form:"reason,omitempty" json:"reason,omitempty"`
-	EvidenceSnapshotID      *int64                                     `form:"evidence_snapshot_id,omitempty" json:"evidence_snapshot_id,omitempty"`
-	ConclusionVersion       *string                                    `form:"conclusion_version,omitempty" json:"conclusion_version,omitempty"`
-	ConfirmedBy             *string                                    `form:"confirmed_by,omitempty" json:"confirmed_by,omitempty"`
-	SupplementalContextRefs []string                                   `form:"supplemental_context_refs,omitempty" json:"supplemental_context_refs,omitempty"`
-	SupplementalEvidence    []DiagnosisRoomSupplementalEvidenceSummary `form:"supplemental_evidence,omitempty" json:"supplemental_evidence,omitempty"`
-	ConfidenceTimeline      []DiagnosisRoomConfidenceTimelineEntry     `form:"confidence_timeline,omitempty" json:"confidence_timeline,omitempty"`
-	AssistantTurnID         *int64                                     `form:"assistant_turn_id,omitempty" json:"assistant_turn_id,omitempty"`
-	AssistantMessageID      *string                                    `form:"assistant_message_id,omitempty" json:"assistant_message_id,omitempty"`
-	AssistantSequence       *int                                       `form:"assistant_sequence,omitempty" json:"assistant_sequence,omitempty"`
-	AssistantOccurredAt     *time.Time                                 `form:"assistant_occurred_at,omitempty" json:"assistant_occurred_at,omitempty"`
-	Content                 string                                     `form:"content" json:"content"`
-	Confidence              *ReportConfidence                          `form:"confidence,omitempty" json:"confidence,omitempty"`
-	RequiresHumanReview     *bool                                      `form:"requires_human_review,omitempty" json:"requires_human_review,omitempty"`
-	RecordedAt              time.Time                                  `form:"recorded_at" json:"recorded_at"`
+	DiagnosisTaskID               int64                                             `form:"diagnosis_task_id" json:"diagnosis_task_id"`
+	SessionID                     string                                            `form:"session_id" json:"session_id"`
+	ChatSessionID                 int64                                             `form:"chat_session_id" json:"chat_session_id"`
+	EventKind                     string                                            `form:"event_kind" json:"event_kind"`
+	Status                        string                                            `form:"status" json:"status"`
+	Source                        string                                            `form:"source" json:"source"`
+	Reason                        *string                                           `form:"reason,omitempty" json:"reason,omitempty"`
+	EvidenceSnapshotID            *int64                                            `form:"evidence_snapshot_id,omitempty" json:"evidence_snapshot_id,omitempty"`
+	ConclusionVersion             *string                                           `form:"conclusion_version,omitempty" json:"conclusion_version,omitempty"`
+	ConfirmedBy                   *string                                           `form:"confirmed_by,omitempty" json:"confirmed_by,omitempty"`
+	SupplementalContextRefs       []string                                          `form:"supplemental_context_refs,omitempty" json:"supplemental_context_refs,omitempty"`
+	SupplementalEvidence          []DiagnosisRoomSupplementalEvidenceSummary        `form:"supplemental_evidence,omitempty" json:"supplemental_evidence,omitempty"`
+	ConfidenceTimeline            []DiagnosisRoomConfidenceTimelineEntry            `form:"confidence_timeline,omitempty" json:"confidence_timeline,omitempty"`
+	AssistantTurnID               *int64                                            `form:"assistant_turn_id,omitempty" json:"assistant_turn_id,omitempty"`
+	AssistantMessageID            *string                                           `form:"assistant_message_id,omitempty" json:"assistant_message_id,omitempty"`
+	AssistantSequence             *int                                              `form:"assistant_sequence,omitempty" json:"assistant_sequence,omitempty"`
+	AssistantOccurredAt           *time.Time                                        `form:"assistant_occurred_at,omitempty" json:"assistant_occurred_at,omitempty"`
+	Content                       string                                            `form:"content" json:"content"`
+	Confidence                    *ReportConfidence                                 `form:"confidence,omitempty" json:"confidence,omitempty"`
+	RequiresHumanReview           *bool                                             `form:"requires_human_review,omitempty" json:"requires_human_review,omitempty"`
+	ConfidenceRationale           *string                                           `form:"confidence_rationale,omitempty" json:"confidence_rationale,omitempty"`
+	Findings                      []string                                          `form:"findings,omitempty" json:"findings,omitempty"`
+	RecommendedActions            []string                                          `form:"recommended_actions,omitempty" json:"recommended_actions,omitempty"`
+	EvidenceRequests              []DiagnosisRoomEvidenceRequestSummary             `form:"evidence_requests,omitempty" json:"evidence_requests,omitempty"`
+	MissingEvidenceRequests       []DiagnosisRoomConsultationEvidenceRequestSummary `form:"missing_evidence_requests,omitempty" json:"missing_evidence_requests,omitempty"`
+	EvidenceCollectionSuggestions []DiagnosisRoomConsultationEvidenceRequestSummary `form:"evidence_collection_suggestions,omitempty" json:"evidence_collection_suggestions,omitempty"`
+	RecordedAt                    time.Time                                         `form:"recorded_at" json:"recorded_at"`
 }
 
 // ApplyDefaults sets default values for fields that are nil.
@@ -2966,18 +4822,31 @@ type DiagnosisRoomConclusionSummarySupplementalEvidence = []DiagnosisRoomSupplem
 // #/components/schemas/DiagnosisRoomConclusionSummary/properties/confidence_timeline
 type DiagnosisRoomConclusionSummaryConfidenceTimeline = []DiagnosisRoomConfidenceTimelineEntry
 
+// #/components/schemas/DiagnosisRoomConclusionSummary/properties/evidence_requests
+type DiagnosisRoomConclusionSummaryEvidenceRequests = []DiagnosisRoomEvidenceRequestSummary
+
+// #/components/schemas/DiagnosisRoomConclusionSummary/properties/missing_evidence_requests
+type DiagnosisRoomConclusionSummaryMissingEvidenceRequests = []DiagnosisRoomConsultationEvidenceRequestSummary
+
+// #/components/schemas/DiagnosisRoomConclusionSummary/properties/evidence_collection_suggestions
+type DiagnosisRoomConclusionSummaryEvidenceCollectionSuggestions = []DiagnosisRoomConsultationEvidenceRequestSummary
+
 // #/components/schemas/DiagnosisRoomSupplementalEvidenceSummary
 // Operator-provided evidence captured during a diagnosis-room follow-up turn.
 type DiagnosisRoomSupplementalEvidenceSummary struct {
-	Label              string    `form:"label" json:"label"`
-	Detail             string    `form:"detail" json:"detail"`
-	Priority           string    `form:"priority" json:"priority"`
-	Evidence           string    `form:"evidence" json:"evidence"`
+	Label    string `form:"label" json:"label"`
+	Detail   string `form:"detail" json:"detail"`
+	Priority string `form:"priority" json:"priority"`
+	Evidence string `form:"evidence" json:"evidence"`
+	// Authenticated subject that provided the supplemental evidence, when retained by the event payload.
+	ActorSubject       *string   `form:"actor_subject,omitempty" json:"actor_subject,omitempty"`
 	ContextRefs        []string  `form:"context_refs,omitempty" json:"context_refs,omitempty"`
 	UserMessageID      *string   `form:"user_message_id,omitempty" json:"user_message_id,omitempty"`
 	AssistantMessageID *string   `form:"assistant_message_id,omitempty" json:"assistant_message_id,omitempty"`
 	UserTurnID         *int64    `form:"user_turn_id,omitempty" json:"user_turn_id,omitempty"`
 	AssistantTurnID    *int64    `form:"assistant_turn_id,omitempty" json:"assistant_turn_id,omitempty"`
+	UserSequence       *int      `form:"user_sequence,omitempty" json:"user_sequence,omitempty"`
+	AssistantSequence  *int      `form:"assistant_sequence,omitempty" json:"assistant_sequence,omitempty"`
 	ProvidedAt         time.Time `form:"provided_at" json:"provided_at"`
 }
 
@@ -2988,17 +4857,42 @@ func (s *DiagnosisRoomSupplementalEvidenceSummary) ApplyDefaults() {
 // #/components/schemas/DiagnosisRoomEvidenceRequestSummary
 // Executable evidence request proposed by a diagnosis-room assistant turn.
 type DiagnosisRoomEvidenceRequestSummary struct {
-	Tool          string  `form:"tool" json:"tool"`
-	Reason        string  `form:"reason" json:"reason"`
-	Query         *string `form:"query,omitempty" json:"query,omitempty"`
-	TemplateID    *int64  `form:"template_id,omitempty" json:"template_id,omitempty"`
-	WindowSeconds *int    `form:"window_seconds,omitempty" json:"window_seconds,omitempty"`
-	StepSeconds   *int    `form:"step_seconds,omitempty" json:"step_seconds,omitempty"`
-	Limit         *int    `form:"limit,omitempty" json:"limit,omitempty"`
+	Tool                 string  `form:"tool" json:"tool"`
+	Reason               string  `form:"reason" json:"reason"`
+	Query                *string `form:"query,omitempty" json:"query,omitempty"`
+	TemplateID           *int64  `form:"template_id,omitempty" json:"template_id,omitempty"`
+	AlertSourceProfileID *int64  `form:"alert_source_profile_id,omitempty" json:"alert_source_profile_id,omitempty"`
+	WindowSeconds        *int    `form:"window_seconds,omitempty" json:"window_seconds,omitempty"`
+	StepSeconds          *int    `form:"step_seconds,omitempty" json:"step_seconds,omitempty"`
+	Limit                *int    `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // ApplyDefaults sets default values for fields that are nil.
 func (s *DiagnosisRoomEvidenceRequestSummary) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisRoomEvidenceCollectionResultSummary
+// Sanitized provider-backed evidence collection result for a diagnosis-room assistant turn.
+type DiagnosisRoomEvidenceCollectionResultSummary struct {
+	Tool                 string    `form:"tool" json:"tool"`
+	Status               string    `form:"status" json:"status"`
+	ReasonCode           *string   `form:"reason_code,omitempty" json:"reason_code,omitempty"`
+	Message              *string   `form:"message,omitempty" json:"message,omitempty"`
+	RequestReason        *string   `form:"request_reason,omitempty" json:"request_reason,omitempty"`
+	Query                *string   `form:"query,omitempty" json:"query,omitempty"`
+	TemplateID           *int64    `form:"template_id,omitempty" json:"template_id,omitempty"`
+	AlertSourceProfileID *int64    `form:"alert_source_profile_id,omitempty" json:"alert_source_profile_id,omitempty"`
+	AlertSourceKind      *string   `form:"alert_source_kind,omitempty" json:"alert_source_kind,omitempty"`
+	WindowSeconds        *int      `form:"window_seconds,omitempty" json:"window_seconds,omitempty"`
+	StepSeconds          *int      `form:"step_seconds,omitempty" json:"step_seconds,omitempty"`
+	Limit                *int      `form:"limit,omitempty" json:"limit,omitempty"`
+	ObservedAlerts       *int      `form:"observed_alerts,omitempty" json:"observed_alerts,omitempty"`
+	ObservedMetricSeries *int      `form:"observed_metric_series,omitempty" json:"observed_metric_series,omitempty"`
+	CollectedAt          time.Time `form:"collected_at" json:"collected_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisRoomEvidenceCollectionResultSummary) ApplyDefaults() {
 }
 
 // #/components/schemas/DiagnosisRoomConsultationEvidenceRequestSummary
@@ -3023,6 +4917,7 @@ type DiagnosisRoomConfidenceTimelineEntry struct {
 	ConfidenceRationale           *string                                           `form:"confidence_rationale,omitempty" json:"confidence_rationale,omitempty"`
 	EvidenceRequestCount          int                                               `form:"evidence_request_count" json:"evidence_request_count"`
 	EvidenceRequests              []DiagnosisRoomEvidenceRequestSummary             `form:"evidence_requests,omitempty" json:"evidence_requests,omitempty"`
+	EvidenceCollectionResults     []DiagnosisRoomEvidenceCollectionResultSummary    `form:"evidence_collection_results,omitempty" json:"evidence_collection_results,omitempty"`
 	MissingEvidenceRequests       []DiagnosisRoomConsultationEvidenceRequestSummary `form:"missing_evidence_requests,omitempty" json:"missing_evidence_requests,omitempty"`
 	EvidenceCollectionSuggestions []DiagnosisRoomConsultationEvidenceRequestSummary `form:"evidence_collection_suggestions,omitempty" json:"evidence_collection_suggestions,omitempty"`
 	AssistantMessageID            *string                                           `form:"assistant_message_id,omitempty" json:"assistant_message_id,omitempty"`
@@ -3039,11 +4934,151 @@ func (s *DiagnosisRoomConfidenceTimelineEntry) ApplyDefaults() {
 // #/components/schemas/DiagnosisRoomConfidenceTimelineEntry/properties/evidence_requests
 type DiagnosisRoomConfidenceTimelineEntryEvidenceRequests = []DiagnosisRoomEvidenceRequestSummary
 
+// #/components/schemas/DiagnosisRoomConfidenceTimelineEntry/properties/evidence_collection_results
+type DiagnosisRoomConfidenceTimelineEntryEvidenceCollectionResults = []DiagnosisRoomEvidenceCollectionResultSummary
+
 // #/components/schemas/DiagnosisRoomConfidenceTimelineEntry/properties/missing_evidence_requests
 type DiagnosisRoomConfidenceTimelineEntryMissingEvidenceRequests = []DiagnosisRoomConsultationEvidenceRequestSummary
 
 // #/components/schemas/DiagnosisRoomConfidenceTimelineEntry/properties/evidence_collection_suggestions
 type DiagnosisRoomConfidenceTimelineEntryEvidenceCollectionSuggestions = []DiagnosisRoomConsultationEvidenceRequestSummary
+
+// #/components/schemas/DiagnosisRoomNotificationTimelineEntry
+// Sanitized outbound notification delivery retained from diagnosis-room lifecycle events.
+type DiagnosisRoomNotificationTimelineEntry struct {
+	EventKind                    string            `form:"event_kind" json:"event_kind"`
+	NotificationChannelProfileID *int64            `form:"notification_channel_profile_id,omitempty" json:"notification_channel_profile_id,omitempty"`
+	ProviderStatus               string            `form:"provider_status" json:"provider_status"`
+	ProviderMessageID            *string           `form:"provider_message_id,omitempty" json:"provider_message_id,omitempty"`
+	AssistantMessageID           *string           `form:"assistant_message_id,omitempty" json:"assistant_message_id,omitempty"`
+	AssistantTurnID              *int64            `form:"assistant_turn_id,omitempty" json:"assistant_turn_id,omitempty"`
+	AssistantSequence            *int              `form:"assistant_sequence,omitempty" json:"assistant_sequence,omitempty"`
+	TurnCount                    *int              `form:"turn_count,omitempty" json:"turn_count,omitempty"`
+	Confidence                   *ReportConfidence `form:"confidence,omitempty" json:"confidence,omitempty"`
+	RequiresHumanReview          *bool             `form:"requires_human_review,omitempty" json:"requires_human_review,omitempty"`
+	// Sanitized proof source for the AI content used to build the outbound notification.
+	ContentKind *string `form:"content_kind,omitempty" json:"content_kind,omitempty"`
+	// SHA-256 digest of the trimmed AI content used to build the outbound notification.
+	ContentSha256          *string   `form:"content_sha256,omitempty" json:"content_sha256,omitempty"`
+	RecommendedActionCount *int      `form:"recommended_action_count,omitempty" json:"recommended_action_count,omitempty"`
+	EvidenceRequestCount   *int      `form:"evidence_request_count,omitempty" json:"evidence_request_count,omitempty"`
+	OccurredAt             time.Time `form:"occurred_at" json:"occurred_at"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisRoomNotificationTimelineEntry) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisRoomNotificationTimelineEntry/properties/content_kind
+// Sanitized proof source for the AI content used to build the outbound notification.
+type DiagnosisRoomNotificationTimelineEntryContentKind string
+
+const (
+	AssistantMessage DiagnosisRoomNotificationTimelineEntryContentKind = "assistant_message"
+	FinalConclusion  DiagnosisRoomNotificationTimelineEntryContentKind = "final_conclusion"
+)
+
+// #/components/schemas/DiagnosisNotificationRetryRequest
+// Request to retry the latest still-failed diagnosis-room notification of a specific lifecycle kind.
+type DiagnosisNotificationRetryRequest struct {
+	EventKind            string         `form:"event_kind" json:"event_kind"`
+	AdditionalProperties map[string]any `json:"-"`
+}
+
+// Get returns the specified additional property value and whether it was found.
+func (a DiagnosisNotificationRetryRequest) Get(fieldName string) (value any, found bool) {
+	if a.AdditionalProperties != nil {
+		value, found = a.AdditionalProperties[fieldName]
+	}
+	return
+}
+
+// Set sets an additional property value.
+func (a *DiagnosisNotificationRetryRequest) Set(fieldName string, value any) {
+	if a.AdditionalProperties == nil {
+		a.AdditionalProperties = make(map[string]any)
+	}
+	a.AdditionalProperties[fieldName] = value
+}
+
+func (a *DiagnosisNotificationRetryRequest) UnmarshalJSON(b []byte) error {
+	object := make(map[string]json.RawMessage)
+	err := json.Unmarshal(b, &object)
+	if err != nil {
+		return err
+	}
+
+	if raw, found := object["event_kind"]; found {
+		if err := json.Unmarshal(raw, &a.EventKind); err != nil {
+			return fmt.Errorf("error reading 'event_kind': %w", err)
+		}
+		delete(object, "event_kind")
+	}
+
+	if len(object) != 0 {
+		a.AdditionalProperties = make(map[string]any)
+		for fieldName, fieldBuf := range object {
+			var fieldVal any
+			err := json.Unmarshal(fieldBuf, &fieldVal)
+			if err != nil {
+				return fmt.Errorf("error unmarshaling field %s: %w", fieldName, err)
+			}
+			a.AdditionalProperties[fieldName] = fieldVal
+		}
+	}
+	return nil
+}
+
+func (a DiagnosisNotificationRetryRequest) MarshalJSON() ([]byte, error) {
+	var err error
+	object := make(map[string]json.RawMessage)
+
+	object["event_kind"], err = json.Marshal(a.EventKind)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling 'event_kind': %w", err)
+	}
+
+	for fieldName, field := range a.AdditionalProperties {
+		object[fieldName], err = json.Marshal(field)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling '%s': %w", fieldName, err)
+		}
+	}
+	return json.Marshal(object)
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisNotificationRetryRequest) ApplyDefaults() {
+}
+
+// #/components/schemas/DiagnosisNotificationRetryRequest/properties/event_kind
+type DiagnosisNotificationRetryRequestEventKind string
+
+const (
+	DiagnosisRoomAssistantTurnNotificationSent DiagnosisNotificationRetryRequestEventKind = "diagnosis_room.assistant_turn_notification_sent"
+	DiagnosisRoomFinalReadyNotificationSent    DiagnosisNotificationRetryRequestEventKind = "diagnosis_room.final_ready_notification_sent"
+	DiagnosisRoomCloseNotificationSent         DiagnosisNotificationRetryRequestEventKind = "diagnosis_room.close_notification_sent"
+)
+
+// #/components/schemas/DiagnosisNotificationRetryState
+// Outcome of a diagnosis-room notification retry request.
+type DiagnosisNotificationRetryState string
+
+const (
+	DiagnosisNotificationRetryStateSent             DiagnosisNotificationRetryState = "sent"
+	DiagnosisNotificationRetryStateAlreadyDelivered DiagnosisNotificationRetryState = "already_delivered"
+)
+
+// #/components/schemas/DiagnosisNotificationRetryResponse
+// Sanitized retry result for one diagnosis-room notification lifecycle event.
+type DiagnosisNotificationRetryResponse struct {
+	RetryState   DiagnosisNotificationRetryState        `form:"retry_state" json:"retry_state"`
+	Notification DiagnosisRoomNotificationTimelineEntry `form:"notification" json:"notification"`
+}
+
+// ApplyDefaults sets default values for fields that are nil.
+func (s *DiagnosisNotificationRetryResponse) ApplyDefaults() {
+}
 
 // #/components/schemas/FinalReportSubReportSummary
 // SubReport summary embedded in the final report content.
@@ -3120,346 +5155,594 @@ type ErrorResponse struct {
 func (s *ErrorResponse) ApplyDefaults() {
 }
 
+// #/paths//api/v1/config/notification-channels/{channel_id}/test/post/parameters/1/schema
+type PostAPIV1ConfigNotificationChannelsChannelIDTestParameter string
+
+const (
+	PostAPIV1ConfigNotificationChannelsChannelIDTestParameterTransportSample      PostAPIV1ConfigNotificationChannelsChannelIDTestParameter = "transport_sample"
+	PostAPIV1ConfigNotificationChannelsChannelIDTestParameterAiDiagnosisSample    PostAPIV1ConfigNotificationChannelsChannelIDTestParameter = "ai_diagnosis_sample"
+	PostAPIV1ConfigNotificationChannelsChannelIDTestParameterDiagnosisCloseSample PostAPIV1ConfigNotificationChannelsChannelIDTestParameter = "diagnosis_close_sample"
+)
+
 // Base64-encoded, gzip-compressed OpenAPI spec.
 var openAPISpecJSON = []string{
-	"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",
+	"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",
+	"/wEAAP//1X39DYnuBAA=",
 }
 
 // decodeOpenAPISpec decodes and decompresses the embedded spec.
@@ -3542,6 +5825,18 @@ type ServerInterface interface {
 	// Enable a diagnosis tool template
 	// (POST /api/v1/config/diagnosis-tool-templates/{template_id}/enable)
 	EnableDiagnosisToolTemplate(w http.ResponseWriter, r *http.Request, templateId int64)
+	// List local directory departments
+	// (GET /api/v1/config/directory/departments)
+	ListDirectoryDepartments(w http.ResponseWriter, r *http.Request, params ListDirectoryDepartmentsParams)
+	// Sync local directory projection
+	// (POST /api/v1/config/directory/sync)
+	SyncDirectory(w http.ResponseWriter, r *http.Request)
+	// List local directory sync runs
+	// (GET /api/v1/config/directory/sync-runs)
+	ListDirectorySyncRuns(w http.ResponseWriter, r *http.Request, params ListDirectorySyncRunsParams)
+	// List local directory users
+	// (GET /api/v1/config/directory/users)
+	ListDirectoryUsers(w http.ResponseWriter, r *http.Request, params ListDirectoryUsersParams)
 	// List grouping policies
 	// (GET /api/v1/config/grouping-policies)
 	ListGroupingPolicies(w http.ResponseWriter, r *http.Request, params ListGroupingPoliciesParams)
@@ -3571,13 +5866,28 @@ type ServerInterface interface {
 	ReplaceNotificationChannelProfile(w http.ResponseWriter, r *http.Request, channelId int64)
 	// Test a notification channel profile
 	// (POST /api/v1/config/notification-channels/{channel_id}/test)
-	TestNotificationChannelProfile(w http.ResponseWriter, r *http.Request, channelId int64)
+	TestNotificationChannelProfile(w http.ResponseWriter, r *http.Request, channelId int64, params TestNotificationChannelProfileParams)
+	// List local RBAC assignments
+	// (GET /api/v1/config/rbac/assignments)
+	ListRBACAssignments(w http.ResponseWriter, r *http.Request, params ListRBACAssignmentsParams)
+	// Upsert a local RBAC assignment
+	// (POST /api/v1/config/rbac/assignments)
+	UpsertRBACAssignment(w http.ResponseWriter, r *http.Request)
+	// Preview a local RBAC decision
+	// (POST /api/v1/config/rbac/authorize)
+	AuthorizeRBAC(w http.ResponseWriter, r *http.Request)
+	// Evaluate current operator RBAC decisions
+	// (POST /api/v1/config/rbac/current-authorizations)
+	AuthorizeCurrentRBAC(w http.ResponseWriter, r *http.Request)
 	// List report workflow policies
 	// (GET /api/v1/config/report-workflow-policies)
 	ListReportWorkflowPolicies(w http.ResponseWriter, r *http.Request, params ListReportWorkflowPoliciesParams)
 	// Create a report workflow policy
 	// (POST /api/v1/config/report-workflow-policies)
 	CreateReportWorkflowPolicy(w http.ResponseWriter, r *http.Request)
+	// Preview report workflow policy draft impact
+	// (POST /api/v1/config/report-workflow-policies/impact-preview)
+	PreviewReportWorkflowPolicyDraftImpact(w http.ResponseWriter, r *http.Request, params PreviewReportWorkflowPolicyDraftImpactParams)
 	// Get a report workflow policy
 	// (GET /api/v1/config/report-workflow-policies/{policy_id})
 	GetReportWorkflowPolicy(w http.ResponseWriter, r *http.Request, policyId int64)
@@ -3617,18 +5927,39 @@ type ServerInterface interface {
 	// Get operational dashboard summary
 	// (GET /api/v1/dashboard)
 	GetDashboard(w http.ResponseWriter, r *http.Request)
-	// Check diagnosis authorization
+	// Check diagnosis authorization credentials
 	// (POST /api/v1/diagnosis/auth/check)
 	CheckDiagnosisAuth(w http.ResponseWriter, r *http.Request)
 	// Issue diagnosis browser session
 	// (POST /api/v1/diagnosis/auth/session)
 	IssueDiagnosisAuthSession(w http.ResponseWriter, r *http.Request)
-	// Get diagnosis auth status
+	// Get diagnosis auth wiring status
 	// (GET /api/v1/diagnosis/auth/status)
 	GetDiagnosisAuthStatus(w http.ResponseWriter, r *http.Request)
+	// List pending diagnosis handoffs
+	// (GET /api/v1/diagnosis/handoffs)
+	ListDiagnosisHandoffs(w http.ResponseWriter, r *http.Request, params ListDiagnosisHandoffsParams)
+	// List diagnosis rooms
+	// (GET /api/v1/diagnosis/rooms)
+	ListDiagnosisRooms(w http.ResponseWriter, r *http.Request, params ListDiagnosisRoomsParams)
 	// Create a diagnosis room
 	// (POST /api/v1/diagnosis/rooms)
 	CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request)
+	// Get a diagnosis room
+	// (GET /api/v1/diagnosis/rooms/{session_id})
+	GetDiagnosisRoom(w http.ResponseWriter, r *http.Request, sessionId string)
+	// Close an unavailable diagnosis room
+	// (POST /api/v1/diagnosis/rooms/{session_id}/close-unavailable)
+	CloseUnavailableDiagnosisRoom(w http.ResponseWriter, r *http.Request, sessionId string)
+	// Retry diagnosis room notification
+	// (POST /api/v1/diagnosis/rooms/{session_id}/notifications/retry)
+	RetryDiagnosisRoomNotification(w http.ResponseWriter, r *http.Request, sessionId string)
+	// Verify Enterprise WeChat app callback URL
+	// (GET /api/v1/diagnosis/wecom/app-callback)
+	VerifyDiagnosisWeComAppCallback(w http.ResponseWriter, r *http.Request, params VerifyDiagnosisWeComAppCallbackParams)
+	// Accept Enterprise WeChat app callback message
+	// (POST /api/v1/diagnosis/wecom/app-callback)
+	AcceptDiagnosisWeComAppCallback(w http.ResponseWriter, r *http.Request, params AcceptDiagnosisWeComAppCallbackParams)
 	// Issue a diagnosis WebSocket ticket
 	// (POST /api/v1/diagnosis/ws-ticket)
 	IssueDiagnosisWSTicket(w http.ResponseWriter, r *http.Request)
@@ -3644,6 +5975,9 @@ type ServerInterface interface {
 	// Get final report detail
 	// (GET /api/v1/reports/{report_id})
 	GetReport(w http.ResponseWriter, r *http.Request, reportId int64)
+	// Retry report notification
+	// (POST /api/v1/reports/{report_id}/notification/retry)
+	RetryReportNotification(w http.ResponseWriter, r *http.Request, reportId int64)
 	// Health check endpoint
 	// (GET /healthz)
 	GetHealthz(w http.ResponseWriter, r *http.Request)
@@ -3667,6 +6001,30 @@ type ListDiagnosisToolTemplatesParams struct {
 	Limit *int32 `form:"limit" json:"limit"`
 }
 
+// ListDirectoryDepartmentsParams defines parameters for ListDirectoryDepartments.
+type ListDirectoryDepartmentsParams struct {
+	// limit (optional)
+	Limit *int32 `form:"limit" json:"limit"`
+	// provider (optional)
+	Provider *string `form:"provider" json:"provider"`
+}
+
+// ListDirectorySyncRunsParams defines parameters for ListDirectorySyncRuns.
+type ListDirectorySyncRunsParams struct {
+	// limit (optional)
+	Limit *int32 `form:"limit" json:"limit"`
+	// provider (optional)
+	Provider *string `form:"provider" json:"provider"`
+}
+
+// ListDirectoryUsersParams defines parameters for ListDirectoryUsers.
+type ListDirectoryUsersParams struct {
+	// limit (optional)
+	Limit *int32 `form:"limit" json:"limit"`
+	// provider (optional)
+	Provider *string `form:"provider" json:"provider"`
+}
+
 // ListGroupingPoliciesParams defines parameters for ListGroupingPolicies.
 type ListGroupingPoliciesParams struct {
 	// limit (optional)
@@ -3685,8 +6043,26 @@ type ListNotificationChannelProfilesParams struct {
 	Limit *int32 `form:"limit" json:"limit"`
 }
 
+// TestNotificationChannelProfileParams defines parameters for TestNotificationChannelProfile.
+type TestNotificationChannelProfileParams struct {
+	// content_kind (optional)
+	ContentKind *string `form:"content_kind" json:"content_kind"`
+}
+
+// ListRBACAssignmentsParams defines parameters for ListRBACAssignments.
+type ListRBACAssignmentsParams struct {
+	// limit (optional)
+	Limit *int32 `form:"limit" json:"limit"`
+}
+
 // ListReportWorkflowPoliciesParams defines parameters for ListReportWorkflowPolicies.
 type ListReportWorkflowPoliciesParams struct {
+	// limit (optional)
+	Limit *int32 `form:"limit" json:"limit"`
+}
+
+// PreviewReportWorkflowPolicyDraftImpactParams defines parameters for PreviewReportWorkflowPolicyDraftImpact.
+type PreviewReportWorkflowPolicyDraftImpactParams struct {
 	// limit (optional)
 	Limit *int32 `form:"limit" json:"limit"`
 }
@@ -3701,6 +6077,40 @@ type PreviewReportWorkflowPolicyImpactParams struct {
 type ListReportWorkflowSchedulesParams struct {
 	// limit (optional)
 	Limit *int32 `form:"limit" json:"limit"`
+}
+
+// ListDiagnosisHandoffsParams defines parameters for ListDiagnosisHandoffs.
+type ListDiagnosisHandoffsParams struct {
+	// limit (optional)
+	Limit *int32 `form:"limit" json:"limit"`
+}
+
+// ListDiagnosisRoomsParams defines parameters for ListDiagnosisRooms.
+type ListDiagnosisRoomsParams struct {
+	// limit (optional)
+	Limit *int32 `form:"limit" json:"limit"`
+}
+
+// VerifyDiagnosisWeComAppCallbackParams defines parameters for VerifyDiagnosisWeComAppCallback.
+type VerifyDiagnosisWeComAppCallbackParams struct {
+	// msg_signature (required)
+	MsgSignature string `form:"msg_signature" json:"msg_signature"`
+	// timestamp (required)
+	Timestamp string `form:"timestamp" json:"timestamp"`
+	// nonce (required)
+	Nonce string `form:"nonce" json:"nonce"`
+	// echostr (required)
+	Echostr string `form:"echostr" json:"echostr"`
+}
+
+// AcceptDiagnosisWeComAppCallbackParams defines parameters for AcceptDiagnosisWeComAppCallback.
+type AcceptDiagnosisWeComAppCallbackParams struct {
+	// msg_signature (required)
+	MsgSignature string `form:"msg_signature" json:"msg_signature"`
+	// timestamp (required)
+	Timestamp string `form:"timestamp" json:"timestamp"`
+	// nonce (required)
+	Nonce string `form:"nonce" json:"nonce"`
 }
 
 // ListEvidenceSnapshotsParams defines parameters for ListEvidenceSnapshots.
@@ -4031,6 +6441,119 @@ func (siw *ServerInterfaceWrapper) EnableDiagnosisToolTemplate(w http.ResponseWr
 	handler.ServeHTTP(w, r)
 }
 
+// ListDirectoryDepartments operation middleware
+func (siw *ServerInterfaceWrapper) ListDirectoryDepartments(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDirectoryDepartmentsParams
+
+	// ------------- Optional query parameter "limit" -------------
+	err = BindQueryParameter("limit", r.URL.Query(), &params.Limit, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "integer", Format: "int32", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "provider" -------------
+	err = BindQueryParameter("provider", r.URL.Query(), &params.Provider, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDirectoryDepartments(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SyncDirectory operation middleware
+func (siw *ServerInterfaceWrapper) SyncDirectory(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SyncDirectory(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDirectorySyncRuns operation middleware
+func (siw *ServerInterfaceWrapper) ListDirectorySyncRuns(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDirectorySyncRunsParams
+
+	// ------------- Optional query parameter "limit" -------------
+	err = BindQueryParameter("limit", r.URL.Query(), &params.Limit, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "integer", Format: "int32", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "provider" -------------
+	err = BindQueryParameter("provider", r.URL.Query(), &params.Provider, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDirectorySyncRuns(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDirectoryUsers operation middleware
+func (siw *ServerInterfaceWrapper) ListDirectoryUsers(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDirectoryUsersParams
+
+	// ------------- Optional query parameter "limit" -------------
+	err = BindQueryParameter("limit", r.URL.Query(), &params.Limit, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "integer", Format: "int32", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	// ------------- Optional query parameter "provider" -------------
+	err = BindQueryParameter("provider", r.URL.Query(), &params.Provider, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDirectoryUsers(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListGroupingPolicies operation middleware
 func (siw *ServerInterfaceWrapper) ListGroupingPolicies(w http.ResponseWriter, r *http.Request) {
 	var err error
@@ -4260,8 +6783,86 @@ func (siw *ServerInterfaceWrapper) TestNotificationChannelProfile(w http.Respons
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params TestNotificationChannelProfileParams
+
+	// ------------- Optional query parameter "content_kind" -------------
+	err = BindQueryParameter("content_kind", r.URL.Query(), &params.ContentKind, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "content_kind", Err: err})
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.TestNotificationChannelProfile(w, r, channelId)
+		siw.Handler.TestNotificationChannelProfile(w, r, channelId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRBACAssignments operation middleware
+func (siw *ServerInterfaceWrapper) ListRBACAssignments(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRBACAssignmentsParams
+
+	// ------------- Optional query parameter "limit" -------------
+	err = BindQueryParameter("limit", r.URL.Query(), &params.Limit, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "integer", Format: "int32", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRBACAssignments(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UpsertRBACAssignment operation middleware
+func (siw *ServerInterfaceWrapper) UpsertRBACAssignment(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UpsertRBACAssignment(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthorizeRBAC operation middleware
+func (siw *ServerInterfaceWrapper) AuthorizeRBAC(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthorizeRBAC(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AuthorizeCurrentRBAC operation middleware
+func (siw *ServerInterfaceWrapper) AuthorizeCurrentRBAC(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AuthorizeCurrentRBAC(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4302,6 +6903,32 @@ func (siw *ServerInterfaceWrapper) CreateReportWorkflowPolicy(w http.ResponseWri
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateReportWorkflowPolicy(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewReportWorkflowPolicyDraftImpact operation middleware
+func (siw *ServerInterfaceWrapper) PreviewReportWorkflowPolicyDraftImpact(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params PreviewReportWorkflowPolicyDraftImpactParams
+
+	// ------------- Optional query parameter "limit" -------------
+	err = BindQueryParameter("limit", r.URL.Query(), &params.Limit, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "integer", Format: "int32", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewReportWorkflowPolicyDraftImpact(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4667,11 +7294,225 @@ func (siw *ServerInterfaceWrapper) GetDiagnosisAuthStatus(w http.ResponseWriter,
 	handler.ServeHTTP(w, r)
 }
 
+// ListDiagnosisHandoffs operation middleware
+func (siw *ServerInterfaceWrapper) ListDiagnosisHandoffs(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDiagnosisHandoffsParams
+
+	// ------------- Optional query parameter "limit" -------------
+	err = BindQueryParameter("limit", r.URL.Query(), &params.Limit, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "integer", Format: "int32", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDiagnosisHandoffs(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDiagnosisRooms operation middleware
+func (siw *ServerInterfaceWrapper) ListDiagnosisRooms(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDiagnosisRoomsParams
+
+	// ------------- Optional query parameter "limit" -------------
+	err = BindQueryParameter("limit", r.URL.Query(), &params.Limit, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: false, Type: "integer", Format: "int32", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDiagnosisRooms(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // CreateDiagnosisRoom operation middleware
 func (siw *ServerInterfaceWrapper) CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.CreateDiagnosisRoom(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetDiagnosisRoom operation middleware
+func (siw *ServerInterfaceWrapper) GetDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// ------------- Path parameter "session_id" -------------
+	var sessionId string
+
+	err = BindParameter("session_id", r.PathValue("session_id"), &sessionId, ParameterOptions{Style: "simple", ParamLocation: ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDiagnosisRoom(w, r, sessionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CloseUnavailableDiagnosisRoom operation middleware
+func (siw *ServerInterfaceWrapper) CloseUnavailableDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// ------------- Path parameter "session_id" -------------
+	var sessionId string
+
+	err = BindParameter("session_id", r.PathValue("session_id"), &sessionId, ParameterOptions{Style: "simple", ParamLocation: ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CloseUnavailableDiagnosisRoom(w, r, sessionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RetryDiagnosisRoomNotification operation middleware
+func (siw *ServerInterfaceWrapper) RetryDiagnosisRoomNotification(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// ------------- Path parameter "session_id" -------------
+	var sessionId string
+
+	err = BindParameter("session_id", r.PathValue("session_id"), &sessionId, ParameterOptions{Style: "simple", ParamLocation: ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "session_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RetryDiagnosisRoomNotification(w, r, sessionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// VerifyDiagnosisWeComAppCallback operation middleware
+func (siw *ServerInterfaceWrapper) VerifyDiagnosisWeComAppCallback(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params VerifyDiagnosisWeComAppCallbackParams
+
+	// ------------- Required query parameter "msg_signature" -------------
+	err = BindQueryParameter("msg_signature", r.URL.Query(), &params.MsgSignature, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: true, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "msg_signature", Err: err})
+		return
+	}
+
+	// ------------- Required query parameter "timestamp" -------------
+	err = BindQueryParameter("timestamp", r.URL.Query(), &params.Timestamp, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: true, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "timestamp", Err: err})
+		return
+	}
+
+	// ------------- Required query parameter "nonce" -------------
+	err = BindQueryParameter("nonce", r.URL.Query(), &params.Nonce, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: true, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "nonce", Err: err})
+		return
+	}
+
+	// ------------- Required query parameter "echostr" -------------
+	err = BindQueryParameter("echostr", r.URL.Query(), &params.Echostr, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: true, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "echostr", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.VerifyDiagnosisWeComAppCallback(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcceptDiagnosisWeComAppCallback operation middleware
+func (siw *ServerInterfaceWrapper) AcceptDiagnosisWeComAppCallback(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params AcceptDiagnosisWeComAppCallbackParams
+
+	// ------------- Required query parameter "msg_signature" -------------
+	err = BindQueryParameter("msg_signature", r.URL.Query(), &params.MsgSignature, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: true, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "msg_signature", Err: err})
+		return
+	}
+
+	// ------------- Required query parameter "timestamp" -------------
+	err = BindQueryParameter("timestamp", r.URL.Query(), &params.Timestamp, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: true, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "timestamp", Err: err})
+		return
+	}
+
+	// ------------- Required query parameter "nonce" -------------
+	err = BindQueryParameter("nonce", r.URL.Query(), &params.Nonce, ParameterOptions{Style: "form", ParamLocation: ParamLocationQuery, Explode: true, Required: true, Type: "string", Format: "", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "nonce", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcceptDiagnosisWeComAppCallback(w, r, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4786,6 +7627,31 @@ func (siw *ServerInterfaceWrapper) GetReport(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// RetryReportNotification operation middleware
+func (siw *ServerInterfaceWrapper) RetryReportNotification(w http.ResponseWriter, r *http.Request) {
+	var err error
+	_ = err
+
+	// ------------- Path parameter "report_id" -------------
+	var reportId int64
+
+	err = BindParameter("report_id", r.PathValue("report_id"), &reportId, ParameterOptions{Style: "simple", ParamLocation: ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", AllowReserved: false})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "report_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RetryReportNotification(w, r, reportId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetHealthz operation middleware
 func (siw *ServerInterfaceWrapper) GetHealthz(w http.ResponseWriter, r *http.Request) {
 
@@ -4866,6 +7732,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("PUT "+options.BaseURL+"/api/v1/config/diagnosis-tool-templates/{template_id}", wrapper.ReplaceDiagnosisToolTemplate)
 	m.HandleFunc("POST "+options.BaseURL+"/api/v1/config/diagnosis-tool-templates/{template_id}/disable", wrapper.DisableDiagnosisToolTemplate)
 	m.HandleFunc("POST "+options.BaseURL+"/api/v1/config/diagnosis-tool-templates/{template_id}/enable", wrapper.EnableDiagnosisToolTemplate)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/config/directory/departments", wrapper.ListDirectoryDepartments)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/config/directory/sync", wrapper.SyncDirectory)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/config/directory/sync-runs", wrapper.ListDirectorySyncRuns)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/config/directory/users", wrapper.ListDirectoryUsers)
 	m.HandleFunc("GET "+options.BaseURL+"/api/v1/config/grouping-policies", wrapper.ListGroupingPolicies)
 	m.HandleFunc("POST "+options.BaseURL+"/api/v1/config/grouping-policies", wrapper.CreateGroupingPolicy)
 	m.HandleFunc("GET "+options.BaseURL+"/api/v1/config/grouping-policies/{policy_id}", wrapper.GetGroupingPolicy)
@@ -4876,8 +7746,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("GET "+options.BaseURL+"/api/v1/config/notification-channels/{channel_id}", wrapper.GetNotificationChannelProfile)
 	m.HandleFunc("PUT "+options.BaseURL+"/api/v1/config/notification-channels/{channel_id}", wrapper.ReplaceNotificationChannelProfile)
 	m.HandleFunc("POST "+options.BaseURL+"/api/v1/config/notification-channels/{channel_id}/test", wrapper.TestNotificationChannelProfile)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/config/rbac/assignments", wrapper.ListRBACAssignments)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/config/rbac/assignments", wrapper.UpsertRBACAssignment)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/config/rbac/authorize", wrapper.AuthorizeRBAC)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/config/rbac/current-authorizations", wrapper.AuthorizeCurrentRBAC)
 	m.HandleFunc("GET "+options.BaseURL+"/api/v1/config/report-workflow-policies", wrapper.ListReportWorkflowPolicies)
 	m.HandleFunc("POST "+options.BaseURL+"/api/v1/config/report-workflow-policies", wrapper.CreateReportWorkflowPolicy)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/config/report-workflow-policies/impact-preview", wrapper.PreviewReportWorkflowPolicyDraftImpact)
 	m.HandleFunc("GET "+options.BaseURL+"/api/v1/config/report-workflow-policies/{policy_id}", wrapper.GetReportWorkflowPolicy)
 	m.HandleFunc("PUT "+options.BaseURL+"/api/v1/config/report-workflow-policies/{policy_id}", wrapper.ReplaceReportWorkflowPolicy)
 	m.HandleFunc("POST "+options.BaseURL+"/api/v1/config/report-workflow-policies/{policy_id}/disable", wrapper.DisableReportWorkflowPolicy)
@@ -4894,12 +7769,20 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc("POST "+options.BaseURL+"/api/v1/diagnosis/auth/check", wrapper.CheckDiagnosisAuth)
 	m.HandleFunc("POST "+options.BaseURL+"/api/v1/diagnosis/auth/session", wrapper.IssueDiagnosisAuthSession)
 	m.HandleFunc("GET "+options.BaseURL+"/api/v1/diagnosis/auth/status", wrapper.GetDiagnosisAuthStatus)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/diagnosis/handoffs", wrapper.ListDiagnosisHandoffs)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/diagnosis/rooms", wrapper.ListDiagnosisRooms)
 	m.HandleFunc("POST "+options.BaseURL+"/api/v1/diagnosis/rooms", wrapper.CreateDiagnosisRoom)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/diagnosis/rooms/{session_id}", wrapper.GetDiagnosisRoom)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/diagnosis/rooms/{session_id}/close-unavailable", wrapper.CloseUnavailableDiagnosisRoom)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/diagnosis/rooms/{session_id}/notifications/retry", wrapper.RetryDiagnosisRoomNotification)
+	m.HandleFunc("GET "+options.BaseURL+"/api/v1/diagnosis/wecom/app-callback", wrapper.VerifyDiagnosisWeComAppCallback)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/diagnosis/wecom/app-callback", wrapper.AcceptDiagnosisWeComAppCallback)
 	m.HandleFunc("POST "+options.BaseURL+"/api/v1/diagnosis/ws-ticket", wrapper.IssueDiagnosisWSTicket)
 	m.HandleFunc("GET "+options.BaseURL+"/api/v1/evidence-snapshots", wrapper.ListEvidenceSnapshots)
 	m.HandleFunc("POST "+options.BaseURL+"/api/v1/report-triggers/replay-window", wrapper.TriggerReportReplay)
 	m.HandleFunc("GET "+options.BaseURL+"/api/v1/reports", wrapper.ListReports)
 	m.HandleFunc("GET "+options.BaseURL+"/api/v1/reports/{report_id}", wrapper.GetReport)
+	m.HandleFunc("POST "+options.BaseURL+"/api/v1/reports/{report_id}/notification/retry", wrapper.RetryReportNotification)
 	m.HandleFunc("GET "+options.BaseURL+"/healthz", wrapper.GetHealthz)
 	return m
 }
@@ -5024,6 +7907,48 @@ func (d Date) MarshalText() ([]byte, error) {
 // Format returns the date formatted according to layout.
 func (d Date) Format(layout string) string {
 	return d.Time.Format(layout)
+}
+
+const (
+	emailRegexString = "^(?:(?:(?:(?:[a-zA-Z]|\\d|[!#\\$%&'\\*\\+\\-\\/=\\?\\^_`{\\|}~]|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}])+(?:\\.([a-zA-Z]|\\d|[!#\\$%&'\\*\\+\\-\\/=\\?\\^_`{\\|}~]|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}])+)*)|(?:(?:\\x22)(?:(?:(?:(?:\\x20|\\x09)*(?:\\x0d\\x0a))?(?:\\x20|\\x09)+)?(?:(?:[\\x01-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]|\\x21|[\\x23-\\x5b]|[\\x5d-\\x7e]|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}])|(?:(?:[\\x01-\\x09\\x0b\\x0c\\x0d-\\x7f]|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}]))))*(?:(?:(?:\\x20|\\x09)*(?:\\x0d\\x0a))?(\\x20|\\x09)+)?(?:\\x22))))@(?:(?:(?:[a-zA-Z]|\\d|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}])|(?:(?:[a-zA-Z]|\\d|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}])(?:[a-zA-Z]|\\d|-|\\.|~|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}])*(?:[a-zA-Z]|\\d|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}])))\\.)+(?:(?:[a-zA-Z]|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}])|(?:(?:[a-zA-Z]|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}])(?:[a-zA-Z]|\\d|-|\\.|~|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}])*(?:[a-zA-Z]|[\\x{00A0}-\\x{D7FF}\\x{F900}-\\x{FDCF}\\x{FDF0}-\\x{FFEF}])))\\.?$"
+)
+
+var (
+	emailRegex = regexp.MustCompile(emailRegexString)
+)
+
+// ErrValidationEmail is the sentinel error returned when an email fails validation
+var ErrValidationEmail = errors.New("email: failed to pass regex validation")
+
+// Email represents an email address.
+// It is a string type that must pass regex validation before being marshalled
+// to JSON or unmarshalled from JSON.
+type Email string
+
+func (e Email) MarshalJSON() ([]byte, error) {
+	if !emailRegex.MatchString(string(e)) {
+		return nil, ErrValidationEmail
+	}
+
+	return json.Marshal(string(e))
+}
+
+func (e *Email) UnmarshalJSON(data []byte) error {
+	if e == nil {
+		return nil
+	}
+
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+
+	*e = Email(s)
+	if !emailRegex.MatchString(s) {
+		return ErrValidationEmail
+	}
+
+	return nil
 }
 
 // Nullable is a generic type that can distinguish between:

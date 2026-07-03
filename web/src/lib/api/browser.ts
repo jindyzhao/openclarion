@@ -5,7 +5,10 @@ import type { components } from "./openapi";
 
 type ErrorResponse = components["schemas"]["ErrorResponse"];
 
-export async function requestSameOriginJSON<T>(path: string, options: RequestJSONOptions = {}): Promise<ApiResult<T>> {
+export async function requestSameOriginJSON<T>(
+  path: string,
+  options: RequestJSONOptions = {},
+): Promise<ApiResult<T>> {
   let response: Response;
   try {
     const headers = new Headers(options.headers);
@@ -18,14 +21,18 @@ export async function requestSameOriginJSON<T>(path: string, options: RequestJSO
 
     response = await fetch(path, {
       cache: "no-store",
+      credentials: "same-origin",
       method: options.method ?? "GET",
       headers,
-      body: options.body === undefined ? undefined : JSON.stringify(options.body)
+      body:
+        options.body === undefined ? undefined : JSON.stringify(options.body),
     });
   } catch (error) {
     return {
       ok: false,
-      error: { message: error instanceof Error ? error.message : "Request failed." }
+      error: {
+        message: error instanceof Error ? error.message : "Request failed.",
+      },
     };
   }
 
@@ -34,8 +41,8 @@ export async function requestSameOriginJSON<T>(path: string, options: RequestJSO
       ok: false,
       error: {
         message: await errorMessage(response),
-        status: response.status
-      }
+        status: response.status,
+      },
     };
   }
 
@@ -43,8 +50,10 @@ export async function requestSameOriginJSON<T>(path: string, options: RequestJSO
     return { ok: true, data: undefined as T };
   }
 
-  return { ok: true, data: (await response.json()) as T };
+  return parseJSONResponse<T>(response);
 }
+
+const invalidJSONMessage = "Response body must be valid JSON.";
 
 async function errorMessage(response: Response): Promise<string> {
   try {
@@ -56,4 +65,15 @@ async function errorMessage(response: Response): Promise<string> {
     // Fall through to the HTTP status line.
   }
   return response.statusText || `HTTP ${response.status}`;
+}
+
+async function parseJSONResponse<T>(response: Response): Promise<ApiResult<T>> {
+  try {
+    return { ok: true, data: (await response.json()) as T };
+  } catch {
+    return {
+      ok: false,
+      error: { message: invalidJSONMessage, status: 502 },
+    };
+  }
 }

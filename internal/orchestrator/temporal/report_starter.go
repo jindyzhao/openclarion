@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	defaultReportStartWorkflowExecutionTimeout = 15 * time.Minute
+	defaultReportStartWorkflowExecutionTimeout = 90 * time.Minute
 	defaultReportStartWorkflowTaskTimeout      = 10 * time.Second
 )
 

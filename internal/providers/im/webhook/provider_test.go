@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/openclarion/openclarion/internal/observability/correlation"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -124,6 +125,38 @@ func TestSendNotification_PostsWeComTextPayload(t *testing.T) {
 	}
 	if string(delivery.Raw) != `{"errcode":0,"errmsg":"ok"}` {
 		t.Fatalf("delivery.Raw = %s", delivery.Raw)
+	}
+}
+
+func TestSendNotification_TruncatesWeComTextPayloadAtUTF8Boundary(t *testing.T) {
+	var gotPayload weComPayload
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+	}))
+	defer srv.Close()
+
+	p, err := NewProvider(Config{URL: srv.URL, Format: "wecom"})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	req := validNotification()
+	req.Body = strings.Repeat(string(rune(0x1F680)), maxWeComTextContentBytes)
+	if _, err := p.SendNotification(context.Background(), req); err != nil {
+		t.Fatalf("SendNotification: %v", err)
+	}
+
+	if len(gotPayload.Text.Content) > maxWeComTextContentBytes {
+		t.Fatalf("content length = %d, want <= %d", len(gotPayload.Text.Content), maxWeComTextContentBytes)
+	}
+	if !utf8.ValidString(gotPayload.Text.Content) {
+		t.Fatalf("content is not valid UTF-8")
+	}
+	if !strings.HasSuffix(gotPayload.Text.Content, weComTruncationSuffix) {
+		t.Fatalf("content suffix = %q, want truncation suffix", gotPayload.Text.Content[len(gotPayload.Text.Content)-len(weComTruncationSuffix):])
 	}
 }
 
@@ -622,5 +655,8 @@ func TestSendNotification_ContextCanceledIsRetryableIMError(t *testing.T) {
 	}
 	if !imErr.Retryable {
 		t.Fatalf("IMError.Retryable = false, want true")
+	}
+	if strings.Contains(imErr.Message, "example.invalid") || strings.Contains(imErr.Error(), "example.invalid") {
+		t.Fatalf("IMError leaked endpoint: %q", imErr.Error())
 	}
 }

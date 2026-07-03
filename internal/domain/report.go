@@ -209,17 +209,18 @@ func (s ReportNotificationDeliveryStatus) Valid() bool {
 // outbound FinalReport notification idempotency key. The same row moves
 // pending -> delivered/failed across Activity retries.
 type ReportNotificationDelivery struct {
-	ID                ReportNotificationDeliveryID
-	FinalReportID     FinalReportID
-	IdempotencyKey    string
-	ProviderMessageID string
-	ProviderStatus    string
-	Status            ReportNotificationDeliveryStatus
-	Raw               json.RawMessage
-	FailureReason     string
-	DeliveredAt       *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	ID                                 ReportNotificationDeliveryID
+	FinalReportID                      FinalReportID
+	ReportNotificationChannelProfileID NotificationChannelProfileID
+	IdempotencyKey                     string
+	ProviderMessageID                  string
+	ProviderStatus                     string
+	Status                             ReportNotificationDeliveryStatus
+	Raw                                json.RawMessage
+	FailureReason                      string
+	DeliveredAt                        *time.Time
+	CreatedAt                          time.Time
+	UpdatedAt                          time.Time
 }
 
 // NewReportNotificationDelivery constructs a pending delivery row for a
@@ -288,6 +289,9 @@ func (d ReportNotificationDelivery) validate() error {
 	}
 	if strings.TrimSpace(d.IdempotencyKey) == "" {
 		return fmt.Errorf("report notification delivery: idempotency_key must be non-empty: %w", ErrInvariantViolation)
+	}
+	if d.ReportNotificationChannelProfileID < 0 {
+		return fmt.Errorf("report notification delivery: report_notification_channel_profile_id must be non-negative: %w", ErrInvariantViolation)
 	}
 	if !d.Status.Valid() {
 		return fmt.Errorf("report notification delivery: status %q is invalid: %w", d.Status, ErrInvariantViolation)

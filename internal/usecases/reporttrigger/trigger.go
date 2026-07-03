@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -27,9 +28,10 @@ type Request struct {
 
 // Result records both replay output and the optional workflow handle.
 type Result struct {
-	Replay   alertreplay.Result
-	Workflow ports.WorkflowHandle
-	Started  bool
+	CorrelationKey string
+	Replay         alertreplay.Result
+	Workflow       ports.WorkflowHandle
+	Started        bool
 }
 
 // Service owns the dependencies needed to replay alerts and start
@@ -87,6 +89,11 @@ func ReplayAndStart(
 	if err != nil {
 		return result, err
 	}
+	correlationKey, err := correlationKeyForRequest(req)
+	if err != nil {
+		return result, err
+	}
+	result.CorrelationKey = correlationKey
 
 	startReq, ok, err := BuildStartRequest(replay, req)
 	if err != nil {
@@ -165,7 +172,20 @@ func correlationKeyForRequest(req Request) (string, error) {
 	if start.IsZero() || end.IsZero() || !end.After(start) {
 		return "", fmt.Errorf("report trigger: replay window must be valid when correlation key is omitted: %w", domain.ErrInvariantViolation)
 	}
-	return "alert-replay:" + start.Format(time.RFC3339Nano) + ":" + end.Format(time.RFC3339Nano), nil
+	components := []string{"alert-replay", start.Format(time.RFC3339Nano), end.Format(time.RFC3339Nano)}
+	if len(req.Replay.AlertEventIDFilter) > 0 {
+		ids := append([]domain.AlertEventID(nil), req.Replay.AlertEventIDFilter...)
+		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+		idParts := make([]string, 0, len(ids))
+		for _, id := range ids {
+			if id <= 0 {
+				return "", fmt.Errorf("report trigger: alert event id filter must contain positive ids: %w", domain.ErrInvariantViolation)
+			}
+			idParts = append(idParts, fmt.Sprintf("%d", id))
+		}
+		components = append(components, "alert-events", strings.Join(idParts, ","))
+	}
+	return strings.Join(components, ":"), nil
 }
 
 func workflowIDForCorrelationKey(correlationKey string) string {

@@ -77,6 +77,26 @@ func TestServiceEnableRequiresEnabledPolicy(t *testing.T) {
 	}
 }
 
+func TestServiceEnableRejectsOverlappingReplayWindow(t *testing.T) {
+	schedule := defaultSchedule()
+	schedule.Interval = time.Minute
+	schedule.ReplayWindow = time.Hour
+	repo := newFakeConfigRepo()
+	repo.schedules[9] = schedule
+	repo.reportPolicies[7] = defaultPolicy(true)
+	svc := mustService(t, repo).WithClock(func() time.Time {
+		return time.Date(2026, 6, 5, 9, 0, 0, 0, time.UTC)
+	})
+
+	_, err := svc.Enable(context.Background(), ActionRequest{ScheduleID: 9})
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("Enable err = %v, want ErrInvariantViolation", err)
+	}
+	if repo.updateScheduleCalls != 0 {
+		t.Fatalf("update calls = %d, want 0", repo.updateScheduleCalls)
+	}
+}
+
 func TestServiceDisableDoesNotRequireEnabledPolicy(t *testing.T) {
 	schedule := defaultSchedule()
 	schedule.Enabled = true

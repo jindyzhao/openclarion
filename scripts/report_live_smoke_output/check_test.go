@@ -34,6 +34,51 @@ func TestRunAcceptsCompletedLiveSmokeOutput(t *testing.T) {
 	}
 }
 
+func TestRunAcceptsFilteredLiveSmokeOutput(t *testing.T) {
+	body := strings.Replace(
+		completedOutput("delivered", "webhook-message-99"),
+		`"events_loaded": 1`,
+		`"events_loaded": 2`,
+		1,
+	)
+	path := writeSmokeOutput(t, body)
+	if err := run([]string{path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsRequiredAIReviewLiveSmokeOutput(t *testing.T) {
+	path := writeSmokeOutput(t, validOutputWithAIReview())
+	if err := run([]string{"--require-ai-review", path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsPendingEvidenceAIReviewLiveSmokeOutput(t *testing.T) {
+	path := writeSmokeOutput(t, validOutputWithPendingAIReview())
+	if err := run([]string{"--require-ai-review", path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunAcceptsFailedPendingEvidenceAIReviewLiveSmokeOutput(t *testing.T) {
+	path := writeSmokeOutput(t, validOutputWithFailedPendingAIReview())
+	if err := run([]string{"--require-ai-review", path}); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+}
+
+func TestRunRejectsMissingRequiredAIReviewLiveSmokeOutput(t *testing.T) {
+	path := writeSmokeOutput(t, completedOutput("accepted", "webhook-message-99"))
+	err := run([]string{"--require-ai-review", path})
+	if err == nil {
+		t.Fatal("run: want missing ai_review rejection")
+	}
+	if !strings.Contains(err.Error(), "ai_review must be present") {
+		t.Fatalf("error = %q, want ai_review requirement", err.Error())
+	}
+}
+
 func TestRunRejectsSymlinkLiveSmokeOutput(t *testing.T) {
 	target := writeSmokeOutput(t, completedOutput("accepted", "webhook-message-99"))
 	link := filepath.Join(t.TempDir(), "linked-output.json")
@@ -323,9 +368,9 @@ func TestRunRejectsIncompleteLiveSmokeOutput(t *testing.T) {
 			want: "stats.groups_closed",
 		},
 		{
-			name: "snapshot event counts do not match events loaded",
+			name: "snapshot event counts exceed events loaded",
 			body: strings.Replace(validOutputWith(`"workflow_result":{"sub_report_ids":[1],"final_report_id":2,"notification_idempotency_key":"final_report:2/notification","notification_status":"accepted"}`), `"event_count":1`, `"event_count":2`, 1),
-			want: "stats.events_loaded must equal sum",
+			want: "sum of snapshot event_count must be <= stats.events_loaded",
 		},
 		{
 			name: "ingest failure",
@@ -368,6 +413,43 @@ func TestRunRejectsIncompleteLiveSmokeOutput(t *testing.T) {
 			want: `unknown field "unexpected"`,
 		},
 		{
+			name: "ai review final report mismatch",
+			body: strings.Replace(validOutputWithAIReview(), `"final_report_id":2,"reviewed_sub_reports"`, `"final_report_id":3,"reviewed_sub_reports"`, 1),
+			want: "ai_review.final_report_id must match workflow_result.final_report_id",
+		},
+		{
+			name: "ai review subreport mismatch",
+			body: strings.Replace(validOutputWithAIReview(), `"sub_report_id":1`, `"sub_report_id":2`, 1),
+			want: "sub_report_id is not in workflow_result.sub_report_ids",
+		},
+		{
+			name: "ai review snapshot mismatch",
+			body: strings.Replace(validOutputWithAIReview(), `"evidence_snapshot_id":1`, `"evidence_snapshot_id":2`, 1),
+			want: "evidence_snapshot_id must match the workflow snapshot",
+		},
+		{
+			name: "ai review missing human review flag",
+			body: strings.Replace(validOutputWithAIReview(), `,"requires_human_review":true`, "", 1),
+			want: "requires_human_review must be present",
+		},
+		{
+			name: "ai review missing evidence activity",
+			body: func() string {
+				body := validOutputWithAIReview()
+				body = strings.Replace(body, `"evidence_request_count":1`, `"evidence_request_count":0`, 1)
+				body = strings.Replace(body, `"missing_evidence_request_count":1`, `"missing_evidence_request_count":0`, 1)
+				body = strings.Replace(body, `"evidence_collection_suggestion_count":1`, `"evidence_collection_suggestion_count":0`, 1)
+				body = strings.Replace(body, `"evidence_collection_result_count":1`, `"evidence_collection_result_count":0`, 1)
+				return body
+			}(),
+			want: "must include at least one evidence guidance",
+		},
+		{
+			name: "pending ai review missing task states",
+			body: strings.Replace(validOutputWithPendingAIReview(), `"task_states":[{"diagnosis_task_id":10,"task_status":"running","latest_turn_status":"needs_evidence","latest_confidence":"medium","latest_requires_human_review":true,"confidence_timeline_count":1,"evidence_request_count":0,"missing_evidence_request_count":1,"evidence_collection_suggestion_count":1,"evidence_collection_result_count":0,"notification_timeline_count":1,"last_event_kind":"diagnosis_room.turn_persisted","last_event_at":"2026-05-29T01:03:00Z"}]`, `"task_states":[]`, 1),
+			want: "task_states must be non-empty",
+		},
+		{
 			name: "log polluted output",
 			body: `{"started":true}
 {"started":true}`,
@@ -405,6 +487,45 @@ func validOutputWith(replacement string) string {
 		}
 	}
 	panic("unsupported replacement")
+}
+
+func validOutputWithAIReview() string {
+	body := validOutputWith(`"workflow_result":{"sub_report_ids":[1],"final_report_id":2,"notification_idempotency_key":"final_report:2/notification","provider_message_id":"msg-1","notification_status":"accepted"}`)
+	insertAt := strings.Index(body, `"stats":`)
+	if insertAt == -1 {
+		panic("stats field not found")
+	}
+	return body[:insertAt] + validAIReviewBlock() + "," + body[insertAt:]
+}
+
+func validOutputWithPendingAIReview() string {
+	body := validOutputWith(`"workflow_result":{"sub_report_ids":[1],"final_report_id":2,"notification_idempotency_key":"final_report:2/notification","provider_message_id":"msg-1","notification_status":"accepted"}`)
+	insertAt := strings.Index(body, `"stats":`)
+	if insertAt == -1 {
+		panic("stats field not found")
+	}
+	return body[:insertAt] + validPendingAIReviewBlock() + "," + body[insertAt:]
+}
+
+func validOutputWithFailedPendingAIReview() string {
+	body := validOutputWith(`"workflow_result":{"sub_report_ids":[1],"final_report_id":2,"notification_idempotency_key":"final_report:2/notification","provider_message_id":"msg-1","notification_status":"accepted"}`)
+	insertAt := strings.Index(body, `"stats":`)
+	if insertAt == -1 {
+		panic("stats field not found")
+	}
+	return body[:insertAt] + validFailedPendingAIReviewBlock() + "," + body[insertAt:]
+}
+
+func validAIReviewBlock() string {
+	return `"ai_review":{"status":"complete","reviewed_at":"2026-05-29T01:03:00Z","final_report_id":2,"reviewed_sub_reports":[{"sub_report_id":1,"evidence_snapshot_id":1,"diagnosis_task_id":10,"session_id":"diagnosis-session-1","chat_session_id":20,"conclusion_status":"available","conclusion_source":"assistant","confidence":"medium","requires_human_review":true,"confidence_timeline_count":1,"evidence_request_count":1,"missing_evidence_request_count":1,"evidence_collection_suggestion_count":1,"evidence_collection_result_count":1,"supplemental_evidence_count":0,"notification_timeline_count":1}]}`
+}
+
+func validPendingAIReviewBlock() string {
+	return `"ai_review":{"status":"pending_evidence","reviewed_at":"2026-05-29T01:03:00Z","final_report_id":2,"reviewed_sub_reports":[],"pending_sub_reports":[{"sub_report_id":1,"evidence_snapshot_id":1,"reason":"subreport 1 evidence snapshot 1 has no available diagnosis conclusion","task_states":[{"diagnosis_task_id":10,"task_status":"running","latest_turn_status":"needs_evidence","latest_confidence":"medium","latest_requires_human_review":true,"confidence_timeline_count":1,"evidence_request_count":0,"missing_evidence_request_count":1,"evidence_collection_suggestion_count":1,"evidence_collection_result_count":0,"notification_timeline_count":1,"last_event_kind":"diagnosis_room.turn_persisted","last_event_at":"2026-05-29T01:03:00Z"}]}]}`
+}
+
+func validFailedPendingAIReviewBlock() string {
+	return `"ai_review":{"status":"pending_evidence","reviewed_at":"2026-05-29T01:03:00Z","final_report_id":2,"reviewed_sub_reports":[],"pending_sub_reports":[{"sub_report_id":1,"evidence_snapshot_id":1,"reason":"subreport 1 evidence snapshot 1 has no available diagnosis conclusion","task_states":[{"diagnosis_task_id":10,"task_status":"failed","failure_reason":"Diagnosis turn failed before an assistant response; upstream LLM request timed out.","failed_event_count":1,"closed_event_count":1,"last_event_kind":"diagnosis_room.failed","last_event_at":"2026-05-29T01:03:00Z"}]}]}`
 }
 
 func validTwoSnapshotOutput() string {

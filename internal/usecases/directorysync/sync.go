@@ -48,6 +48,7 @@ type Result struct {
 	UserPages           int
 	DepartmentsUpserted int
 	UsersUpserted       int
+	UsersDeactivated    int
 }
 
 // Service coordinates provider pagination, domain validation, repository
@@ -334,6 +335,13 @@ func (s *Service) persistSuccess(
 				return fmt.Errorf("directory sync: upsert user: %w", err)
 			}
 			result.UsersUpserted++
+		}
+		if req.updatedAfter == nil {
+			deactivated, err := uow.Directory().DeactivateStaleUsers(ctx, req.providerName, req.syncedAt)
+			if err != nil {
+				return fmt.Errorf("directory sync: deactivate stale users: %w", err)
+			}
+			result.UsersDeactivated = deactivated
 		}
 		run, err := domain.NewDirectorySyncSucceededRun(
 			req.providerName,

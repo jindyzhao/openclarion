@@ -16,6 +16,8 @@ const (
 	FieldID = "id"
 	// FieldSource holds the string denoting the source field in the database.
 	FieldSource = "source"
+	// FieldAlertSourceProfileID holds the string denoting the alert_source_profile_id field in the database.
+	FieldAlertSourceProfileID = "alert_source_profile_id"
 	// FieldSourceFingerprint holds the string denoting the source_fingerprint field in the database.
 	FieldSourceFingerprint = "source_fingerprint"
 	// FieldCanonicalFingerprint holds the string denoting the canonical_fingerprint field in the database.
@@ -49,6 +51,7 @@ const (
 var Columns = []string{
 	FieldID,
 	FieldSource,
+	FieldAlertSourceProfileID,
 	FieldSourceFingerprint,
 	FieldCanonicalFingerprint,
 	FieldLabels,
@@ -79,6 +82,10 @@ func ValidColumn(column string) bool {
 var (
 	// SourceValidator is a validator for the "source" field. It is called by the builders before save.
 	SourceValidator func(string) error
+	// DefaultAlertSourceProfileID holds the default value on creation for the "alert_source_profile_id" field.
+	DefaultAlertSourceProfileID int
+	// AlertSourceProfileIDValidator is a validator for the "alert_source_profile_id" field. It is called by the builders before save.
+	AlertSourceProfileIDValidator func(int) error
 	// SourceFingerprintValidator is a validator for the "source_fingerprint" field. It is called by the builders before save.
 	SourceFingerprintValidator func(string) error
 	// CanonicalFingerprintValidator is a validator for the "canonical_fingerprint" field. It is called by the builders before save.
@@ -102,6 +109,11 @@ func ByID(opts ...sql.OrderTermOption) OrderOption {
 // BySource orders the results by the source field.
 func BySource(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSource, opts...).ToFunc()
+}
+
+// ByAlertSourceProfileID orders the results by the alert_source_profile_id field.
+func ByAlertSourceProfileID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAlertSourceProfileID, opts...).ToFunc()
 }
 
 // BySourceFingerprint orders the results by the source_fingerprint field.

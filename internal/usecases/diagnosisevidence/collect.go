@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/openclarion/openclarion/internal/diagnosisquery"
@@ -37,20 +38,21 @@ type ReasonCode string
 
 // ReasonCode values are stable machine-readable evidence collection outcomes.
 const (
-	ReasonOK                    ReasonCode = "ok"
-	ReasonUnsupportedTool       ReasonCode = "unsupported_tool"
-	ReasonTemplateUnavailable   ReasonCode = "template_unavailable"
-	ReasonTemplateAmbiguous     ReasonCode = "template_ambiguous"
-	ReasonTemplateDisabled      ReasonCode = "template_disabled"
-	ReasonTemplateToolMismatch  ReasonCode = "template_tool_mismatch"
-	ReasonTemplateQueryMismatch ReasonCode = "template_query_mismatch"
-	ReasonSourceUnavailable     ReasonCode = "source_unavailable"
-	ReasonSourceDisabled        ReasonCode = "source_disabled"
-	ReasonSourceKindMismatch    ReasonCode = "source_kind_mismatch"
-	ReasonProviderUnavailable   ReasonCode = "provider_unavailable"
-	ReasonProviderFailed        ReasonCode = "provider_failed"
-	ReasonCollectionTimedOut    ReasonCode = "collection_timed_out"
-	ReasonInvalidRequest        ReasonCode = "invalid_request"
+	ReasonOK                     ReasonCode = "ok"
+	ReasonUnsupportedTool        ReasonCode = "unsupported_tool"
+	ReasonTemplateUnavailable    ReasonCode = "template_unavailable"
+	ReasonTemplateAmbiguous      ReasonCode = "template_ambiguous"
+	ReasonTemplateSourceMismatch ReasonCode = "template_source_mismatch"
+	ReasonTemplateDisabled       ReasonCode = "template_disabled"
+	ReasonTemplateToolMismatch   ReasonCode = "template_tool_mismatch"
+	ReasonTemplateQueryMismatch  ReasonCode = "template_query_mismatch"
+	ReasonSourceUnavailable      ReasonCode = "source_unavailable"
+	ReasonSourceDisabled         ReasonCode = "source_disabled"
+	ReasonSourceKindMismatch     ReasonCode = "source_kind_mismatch"
+	ReasonProviderUnavailable    ReasonCode = "provider_unavailable"
+	ReasonProviderFailed         ReasonCode = "provider_failed"
+	ReasonCollectionTimedOut     ReasonCode = "collection_timed_out"
+	ReasonInvalidRequest         ReasonCode = "invalid_request"
 )
 
 // Request asks the service to execute one batch of diagnosis evidence plans.
@@ -174,6 +176,12 @@ func (s *Service) collectOne(ctx context.Context, req diagnosisroom.EvidenceRequ
 		item.Status = StatusUnsupported
 		item.ReasonCode = ReasonUnsupportedTool
 		item.Message = "Evidence request tool is unsupported."
+		return item, nil
+	}
+	if req.TemplateID < 0 || req.AlertSourceProfileID < 0 {
+		item.Status = StatusSkipped
+		item.ReasonCode = ReasonInvalidRequest
+		item.Message = "Evidence request identifier is invalid."
 		return item, nil
 	}
 	plan, blocked, err := s.resolvePlan(ctx, req, item)
@@ -377,6 +385,12 @@ func (s *Service) resolvePlan(
 			item.Message = "Multiple enabled diagnosis tool templates match this evidence request; template_id is required."
 			return resolvedPlan{}, &item, nil
 		}
+		if errors.Is(err, errTemplateSourceMismatch) {
+			item.Status = StatusSkipped
+			item.ReasonCode = ReasonTemplateSourceMismatch
+			item.Message = "Diagnosis tool template is bound to a different alert source profile."
+			return resolvedPlan{}, &item, nil
+		}
 		if errors.Is(err, errSourceUnavailable) {
 			item.Status = StatusSkipped
 			item.ReasonCode = ReasonSourceUnavailable
@@ -419,11 +433,11 @@ func (s *Service) resolvePlan(
 		item.Message = "Alert source profile is disabled."
 		return resolvedPlan{}, &item, nil
 	}
-	if !toolSupportsSourceKind(req.Tool, profile.Kind) {
+	if !toolSupportsSourceProfile(req.Tool, profile) {
 		item.AlertSourceKind = profile.Kind
 		item.Status = StatusSkipped
 		item.ReasonCode = ReasonSourceKindMismatch
-		item.Message = "Alert source profile kind does not support the requested tool."
+		item.Message = sourceProfileUnsupportedToolMessage(req.Tool, profile)
 		return resolvedPlan{}, &item, nil
 	}
 	limit := req.Limit
@@ -454,9 +468,10 @@ func (s *Service) resolvePlan(
 }
 
 var (
-	errTemplateUnavailable = errors.New("diagnosis evidence template unavailable")
-	errTemplateAmbiguous   = errors.New("diagnosis evidence template ambiguous")
-	errSourceUnavailable   = errors.New("diagnosis evidence source unavailable")
+	errTemplateUnavailable    = errors.New("diagnosis evidence template unavailable")
+	errTemplateAmbiguous      = errors.New("diagnosis evidence template ambiguous")
+	errTemplateSourceMismatch = errors.New("diagnosis evidence template source mismatch")
+	errSourceUnavailable      = errors.New("diagnosis evidence source unavailable")
 )
 
 func resolveTemplate(
@@ -472,6 +487,10 @@ func resolveTemplate(
 			}
 			return domain.DiagnosisToolTemplate{}, err
 		}
+		if req.AlertSourceProfileID > 0 &&
+			template.AlertSourceProfileID != domain.AlertSourceProfileID(req.AlertSourceProfileID) {
+			return domain.DiagnosisToolTemplate{}, errTemplateSourceMismatch
+		}
 		return template, nil
 	}
 	templates, err := repo.ListDiagnosisToolTemplates(ctx, defaultTemplateLimit)
@@ -484,6 +503,10 @@ func resolveTemplate(
 			continue
 		}
 		if isMetricTool(req.Tool) && req.Query != "" && !diagnosisquery.MatchesTemplate(template.QueryTemplate, req.Query) {
+			continue
+		}
+		if req.AlertSourceProfileID > 0 &&
+			template.AlertSourceProfileID != domain.AlertSourceProfileID(req.AlertSourceProfileID) {
 			continue
 		}
 		matches = append(matches, template)
@@ -533,6 +556,13 @@ func durationSeconds(value time.Duration) int {
 	return int(value / time.Second)
 }
 
+func toolSupportsSourceProfile(tool domain.DiagnosisToolKind, profile domain.AlertSourceProfile) bool {
+	if alertSourceProfileSourceLabelIs(profile, "thanos-rule") {
+		return tool == domain.DiagnosisToolKindActiveAlerts
+	}
+	return toolSupportsSourceKind(tool, profile.Kind)
+}
+
 func toolSupportsSourceKind(tool domain.DiagnosisToolKind, kind domain.AlertSourceKind) bool {
 	switch tool {
 	case domain.DiagnosisToolKindActiveAlerts:
@@ -542,6 +572,20 @@ func toolSupportsSourceKind(tool domain.DiagnosisToolKind, kind domain.AlertSour
 	default:
 		return false
 	}
+}
+
+func sourceProfileUnsupportedToolMessage(tool domain.DiagnosisToolKind, profile domain.AlertSourceProfile) string {
+	if alertSourceProfileSourceLabelIs(profile, "thanos-rule") && isMetricTool(tool) {
+		return "Thanos Rule alert source supports active_alerts only; use a Thanos Query or Prometheus alert source profile for metric evidence."
+	}
+	return "Alert source profile kind does not support the requested tool."
+}
+
+func alertSourceProfileSourceLabelIs(profile domain.AlertSourceProfile, want string) bool {
+	if profile.Labels == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(profile.Labels["source"]), want)
 }
 
 func limitActiveAlerts(in []ports.ActiveAlert, limit int) []ports.ActiveAlert {
@@ -558,10 +602,11 @@ func cloneActiveAlerts(in []ports.ActiveAlert) []ports.ActiveAlert {
 	out := make([]ports.ActiveAlert, len(in))
 	for i, alert := range in {
 		out[i] = ports.ActiveAlert{
-			Source:      alert.Source,
-			Labels:      cloneStringMap(alert.Labels),
-			Annotations: cloneStringMap(alert.Annotations),
-			StartsAt:    alert.StartsAt,
+			Source:               alert.Source,
+			AlertSourceProfileID: alert.AlertSourceProfileID,
+			Labels:               cloneStringMap(alert.Labels),
+			Annotations:          cloneStringMap(alert.Annotations),
+			StartsAt:             alert.StartsAt,
 		}
 	}
 	return out

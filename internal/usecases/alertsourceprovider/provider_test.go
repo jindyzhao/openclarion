@@ -12,7 +12,7 @@ import (
 
 func TestBuilderBuildsPrometheusProviderWithoutCredentials(t *testing.T) {
 	profile := mustProviderProfile(t, domain.AlertSourceKindPrometheus, domain.AlertSourceAuthModeNone)
-	provider := fakeMetricsProvider{}
+	provider := fakeMetricsProvider{alerts: []ports.ActiveAlert{{Source: "prometheus"}}}
 	builder, err := NewBuilder(func(got domain.AlertSourceProfile, credentials Credentials) (ports.MetricsProvider, error) {
 		if got.ID != profile.ID {
 			t.Fatalf("profile ID = %d, want %d", got.ID, profile.ID)
@@ -30,8 +30,12 @@ func TestBuilderBuildsPrometheusProviderWithoutCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
-	if got != provider {
-		t.Fatalf("provider = %v, want configured fake", got)
+	alerts, err := got.ListActiveAlerts(context.Background())
+	if err != nil {
+		t.Fatalf("ListActiveAlerts: %v", err)
+	}
+	if len(alerts) != 1 || alerts[0].AlertSourceProfileID != profile.ID {
+		t.Fatalf("alerts = %+v, want source profile %d", alerts, profile.ID)
 	}
 }
 
@@ -156,10 +160,12 @@ func mustProviderProfile(
 	return profile
 }
 
-type fakeMetricsProvider struct{}
+type fakeMetricsProvider struct {
+	alerts []ports.ActiveAlert
+}
 
-func (fakeMetricsProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {
-	return nil, nil
+func (p fakeMetricsProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {
+	return append([]ports.ActiveAlert(nil), p.alerts...), nil
 }
 
 func (fakeMetricsProvider) QueryMetric(context.Context, ports.MetricQueryRequest) (ports.MetricQueryResult, error) {

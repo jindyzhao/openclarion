@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"slices"
@@ -15,6 +16,7 @@ import (
 
 	gooidc "github.com/coreos/go-oidc/v3/oidc"
 	"github.com/coreos/go-oidc/v3/oidc/oidctest"
+	"github.com/go-jose/go-jose/v4"
 
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -27,9 +29,9 @@ func TestProviderAuthenticatesBearerAndMapsRoles(t *testing.T) {
 		"email": "user@example.com",
 	})
 
-	principal, err := provider.AuthenticateBearer(context.Background(), "Bearer "+rawToken)
+	principal, err := provider.AuthenticateAuthorization(context.Background(), "Bearer "+rawToken)
 	if err != nil {
-		t.Fatalf("AuthenticateBearer: %v", err)
+		t.Fatalf("AuthenticateAuthorization: %v", err)
 	}
 	if principal.Subject != "user-123" {
 		t.Fatalf("Subject = %q, want user-123", principal.Subject)
@@ -61,12 +63,68 @@ func TestProviderSupportsCustomRoleClaimAndValues(t *testing.T) {
 		"groups": "claims-owner",
 	})
 
-	principal, err := provider.AuthenticateBearer(context.Background(), rawToken)
+	principal, err := provider.AuthenticateAuthorization(context.Background(), rawToken)
 	if err != nil {
-		t.Fatalf("AuthenticateBearer: %v", err)
+		t.Fatalf("AuthenticateAuthorization: %v", err)
 	}
 	if len(principal.Roles) != 1 || principal.Roles[0] != ports.AuthRoleOwner {
 		t.Fatalf("Roles = %#v, want owner", principal.Roles)
+	}
+}
+
+func TestProviderEnrichesClaimsFromUserInfo(t *testing.T) {
+	ts, priv := newOIDCTestServerWithUserInfo(t, "access-token-1", map[string]any{
+		"sub":                "user-123",
+		"roles":              []string{"owner"},
+		"email":              "operator@example.com",
+		"preferred_username": "operator",
+	})
+	provider := newTestProvider(t, ts.URL, Config{ClientID: "openclarion"})
+	rawToken := signIDToken(t, priv, ts.URL, "openclarion", time.Now().Add(time.Hour), map[string]any{
+		"roles": []string{"ignored"},
+	})
+
+	principal, err := provider.AuthenticateAuthorizationWithAuxiliaryCredentials(
+		context.Background(),
+		"Bearer "+rawToken,
+		ports.AuthAuxiliaryCredentials{OIDCAccessToken: "access-token-1"},
+	)
+	if err != nil {
+		t.Fatalf("AuthenticateAuthorizationWithAuxiliaryCredentials: %v", err)
+	}
+	if !slices.Contains(principal.Roles, ports.AuthRoleOwner) {
+		t.Fatalf("Roles = %#v, want owner from UserInfo", principal.Roles)
+	}
+	var claims map[string]any
+	if err := json.Unmarshal(principal.Claims, &claims); err != nil {
+		t.Fatalf("claims JSON: %v", err)
+	}
+	if claims["email"] != "operator@example.com" ||
+		claims["preferred_username"] != "operator" {
+		t.Fatalf("claims = %#v, want UserInfo profile claims", claims)
+	}
+}
+
+func TestProviderRejectsMismatchedUserInfoSubject(t *testing.T) {
+	ts, priv := newOIDCTestServerWithUserInfo(t, "access-token-1", map[string]any{
+		"sub":   "other-user",
+		"roles": []string{"owner"},
+	})
+	provider := newTestProvider(t, ts.URL, Config{ClientID: "openclarion"})
+	rawToken := signIDToken(t, priv, ts.URL, "openclarion", time.Now().Add(time.Hour), map[string]any{
+		"roles": []string{"owner"},
+	})
+
+	_, err := provider.AuthenticateAuthorizationWithAuxiliaryCredentials(
+		context.Background(),
+		"Bearer "+rawToken,
+		ports.AuthAuxiliaryCredentials{OIDCAccessToken: "access-token-1"},
+	)
+	if err == nil {
+		t.Fatal("AuthenticateAuthorizationWithAuxiliaryCredentials: want subject mismatch error")
+	}
+	if !strings.Contains(err.Error(), "userinfo subject") {
+		t.Fatalf("error = %q, want userinfo subject mismatch", err.Error())
 	}
 }
 
@@ -75,8 +133,8 @@ func TestProviderRejectsInvalidBearerValues(t *testing.T) {
 	provider := newTestProvider(t, ts.URL, Config{ClientID: "openclarion"})
 	for _, token := range []string{"", "Bearer", "Bearer one two", "raw token"} {
 		t.Run(token, func(t *testing.T) {
-			if _, err := provider.AuthenticateBearer(context.Background(), token); err == nil {
-				t.Fatalf("AuthenticateBearer(%q): want error", token)
+			if _, err := provider.AuthenticateAuthorization(context.Background(), token); err == nil {
+				t.Fatalf("AuthenticateAuthorization(%q): want error", token)
 			}
 		})
 	}
@@ -89,8 +147,8 @@ func TestProviderRejectsInvalidToken(t *testing.T) {
 		"roles": []string{"owner"},
 	})
 
-	if _, err := provider.AuthenticateBearer(context.Background(), rawToken); err == nil {
-		t.Fatal("AuthenticateBearer with wrong audience: want error")
+	if _, err := provider.AuthenticateAuthorization(context.Background(), rawToken); err == nil {
+		t.Fatal("AuthenticateAuthorization with wrong audience: want error")
 	}
 }
 
@@ -101,8 +159,8 @@ func TestProviderRejectsExpiredToken(t *testing.T) {
 		"roles": []string{"owner"},
 	})
 
-	if _, err := provider.AuthenticateBearer(context.Background(), rawToken); err == nil {
-		t.Fatal("AuthenticateBearer with expired token: want error")
+	if _, err := provider.AuthenticateAuthorization(context.Background(), rawToken); err == nil {
+		t.Fatal("AuthenticateAuthorization with expired token: want error")
 	}
 }
 
@@ -113,8 +171,8 @@ func TestProviderRejectsMalformedRoleClaim(t *testing.T) {
 		"roles": []any{"owner", 42},
 	})
 
-	if _, err := provider.AuthenticateBearer(context.Background(), rawToken); err == nil {
-		t.Fatal("AuthenticateBearer with malformed roles: want error")
+	if _, err := provider.AuthenticateAuthorization(context.Background(), rawToken); err == nil {
+		t.Fatal("AuthenticateAuthorization with malformed roles: want error")
 	}
 }
 
@@ -151,9 +209,9 @@ func TestProviderRejectsDuplicateClaimNames(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			rawToken := oidctest.SignIDToken(priv, "test-key", gooidc.RS256, tt.claims)
 
-			_, err := provider.AuthenticateBearer(context.Background(), rawToken)
+			_, err := provider.AuthenticateAuthorization(context.Background(), rawToken)
 			if err == nil {
-				t.Fatal("AuthenticateBearer with duplicate claim names: want error")
+				t.Fatal("AuthenticateAuthorization with duplicate claim names: want error")
 			}
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("error = %q, want %q", err.Error(), tt.want)
@@ -173,9 +231,9 @@ func TestProviderVerifiesTokenBeforeStrictClaimScan(t *testing.T) {
 	)
 	rawToken := oidctest.SignIDToken(priv, "test-key", gooidc.RS256, claims)
 
-	_, err := provider.AuthenticateBearer(context.Background(), rawToken)
+	_, err := provider.AuthenticateAuthorization(context.Background(), rawToken)
 	if err == nil {
-		t.Fatal("AuthenticateBearer with wrong audience and duplicate claims: want error")
+		t.Fatal("AuthenticateAuthorization with wrong audience and duplicate claims: want error")
 	}
 	if !strings.Contains(err.Error(), "verify token") {
 		t.Fatalf("error = %q, want verify error", err.Error())
@@ -196,9 +254,9 @@ func TestProviderRejectsTrailingClaimPayloadValueDuringVerification(t *testing.T
 	)
 	rawToken := oidctest.SignIDToken(priv, "test-key", gooidc.RS256, claims)
 
-	_, err := provider.AuthenticateBearer(context.Background(), rawToken)
+	_, err := provider.AuthenticateAuthorization(context.Background(), rawToken)
 	if err == nil {
-		t.Fatal("AuthenticateBearer with trailing claim payload value: want error")
+		t.Fatal("AuthenticateAuthorization with trailing claim payload value: want error")
 	}
 	if !strings.Contains(err.Error(), "verify token") {
 		t.Fatalf("error = %q, want verify error", err.Error())
@@ -292,6 +350,51 @@ func newOIDCTestServer(t *testing.T) (*httptest.Server, *rsa.PrivateKey) {
 	ts := httptest.NewServer(srv)
 	t.Cleanup(ts.Close)
 	srv.SetIssuer(ts.URL)
+	return ts, priv
+}
+
+func newOIDCTestServerWithUserInfo(t *testing.T, accessToken string, userInfoClaims map[string]any) (*httptest.Server, *rsa.PrivateKey) {
+	t.Helper()
+	priv, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("GenerateKey: %v", err)
+	}
+	var issuer string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/.well-known/openid-configuration":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                                issuer,
+				"authorization_endpoint":                issuer + "/auth",
+				"token_endpoint":                        issuer + "/token",
+				"jwks_uri":                              issuer + "/keys",
+				"userinfo_endpoint":                     issuer + "/userinfo",
+				"response_types_supported":              []string{"code"},
+				"subject_types_supported":               []string{"public"},
+				"id_token_signing_alg_values_supported": []string{gooidc.RS256},
+			})
+		case "/keys":
+			_ = json.NewEncoder(w).Encode(jose.JSONWebKeySet{
+				Keys: []jose.JSONWebKey{{
+					Algorithm: gooidc.RS256,
+					Key:       priv.Public(),
+					KeyID:     "test-key",
+					Use:       "sig",
+				}},
+			})
+		case "/userinfo":
+			if r.Header.Get("Authorization") != "Bearer "+accessToken {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(userInfoClaims)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	issuer = ts.URL
+	t.Cleanup(ts.Close)
 	return ts, priv
 }
 

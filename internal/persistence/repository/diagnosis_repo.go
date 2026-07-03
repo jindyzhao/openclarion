@@ -365,6 +365,50 @@ func (r *diagnosisRepo) FindChatSessionByKey(ctx context.Context, sessionKey str
 	return chatSessionToDomain(row), nil
 }
 
+// ListChatSessions returns recent operator-facing room lifecycle rows with
+// their backing DiagnosisTask loaded for evidence/workflow references.
+func (r *diagnosisRepo) ListChatSessions(ctx context.Context, limit int) ([]domain.ChatSessionWithTask, error) {
+	return r.ListChatSessionsPage(ctx, limit, 0)
+}
+
+// ListChatSessionsPage returns a deterministic page of operator-facing room
+// lifecycle rows with their backing DiagnosisTask loaded.
+func (r *diagnosisRepo) ListChatSessionsPage(ctx context.Context, limit int, offset int) ([]domain.ChatSessionWithTask, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list chat sessions: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	if offset < 0 {
+		return nil, fmt.Errorf("list chat sessions: offset must be >= 0 (got %d): %w", offset, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.ChatSession.Query().
+		WithTask().
+		Order(
+			chatsession.ByUpdatedAt(sql.OrderDesc()),
+			chatsession.ByID(sql.OrderDesc()),
+		).
+		Offset(offset).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list chat sessions: %w", err)
+	}
+	out := make([]domain.ChatSessionWithTask, len(rows))
+	for i, row := range rows {
+		task, err := row.Edges.TaskOrErr()
+		if err != nil {
+			return nil, fmt.Errorf("list chat sessions: load task: %w", err)
+		}
+		out[i] = domain.ChatSessionWithTask{
+			Session: chatSessionToDomain(row),
+			Task:    diagnosisTaskToDomain(task),
+		}
+	}
+	return out, nil
+}
+
 // SaveChatTurn appends one immutable transcript row.
 func (r *diagnosisRepo) SaveChatTurn(ctx context.Context, turn domain.ChatTurn) (domain.ChatTurn, error) {
 	if err := checkOpen(r.closed); err != nil {

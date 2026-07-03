@@ -70,6 +70,25 @@ func TestNewAlertEvent(t *testing.T) {
 			t.Errorf("CanonicalFingerprint = %q, want %q", e.CanonicalFingerprint, "canonical-1")
 		}
 	})
+
+	t.Run("source profile is optional but cannot be negative", func(t *testing.T) {
+		t.Parallel()
+		e, err := NewAlertEvent("alertmanager", "fp-1", "canonical-1", nil, nil, nil, startsAt)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		tagged, err := e.WithAlertSourceProfile(7)
+		if err != nil {
+			t.Fatalf("WithAlertSourceProfile: %v", err)
+		}
+		if tagged.AlertSourceProfileID != 7 {
+			t.Fatalf("AlertSourceProfileID = %d, want 7", tagged.AlertSourceProfileID)
+		}
+		_, err = e.WithAlertSourceProfile(-1)
+		if !errors.Is(err, ErrInvariantViolation) {
+			t.Fatalf("err = %v, want ErrInvariantViolation", err)
+		}
+	})
 }
 
 func TestAlertEvent_Resolve(t *testing.T) {

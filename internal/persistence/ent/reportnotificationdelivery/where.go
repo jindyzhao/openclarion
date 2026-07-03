@@ -60,6 +60,11 @@ func FinalReportID(v int) predicate.ReportNotificationDelivery {
 	return predicate.ReportNotificationDelivery(sql.FieldEQ(FieldFinalReportID, v))
 }
 
+// ReportNotificationChannelProfileID applies equality check predicate on the "report_notification_channel_profile_id" field. It's identical to ReportNotificationChannelProfileIDEQ.
+func ReportNotificationChannelProfileID(v int) predicate.ReportNotificationDelivery {
+	return predicate.ReportNotificationDelivery(sql.FieldEQ(FieldReportNotificationChannelProfileID, v))
+}
+
 // IdempotencyKey applies equality check predicate on the "idempotency_key" field. It's identical to IdempotencyKeyEQ.
 func IdempotencyKey(v string) predicate.ReportNotificationDelivery {
 	return predicate.ReportNotificationDelivery(sql.FieldEQ(FieldIdempotencyKey, v))
@@ -118,6 +123,56 @@ func FinalReportIDIn(vs ...int) predicate.ReportNotificationDelivery {
 // FinalReportIDNotIn applies the NotIn predicate on the "final_report_id" field.
 func FinalReportIDNotIn(vs ...int) predicate.ReportNotificationDelivery {
 	return predicate.ReportNotificationDelivery(sql.FieldNotIn(FieldFinalReportID, vs...))
+}
+
+// ReportNotificationChannelProfileIDEQ applies the EQ predicate on the "report_notification_channel_profile_id" field.
+func ReportNotificationChannelProfileIDEQ(v int) predicate.ReportNotificationDelivery {
+	return predicate.ReportNotificationDelivery(sql.FieldEQ(FieldReportNotificationChannelProfileID, v))
+}
+
+// ReportNotificationChannelProfileIDNEQ applies the NEQ predicate on the "report_notification_channel_profile_id" field.
+func ReportNotificationChannelProfileIDNEQ(v int) predicate.ReportNotificationDelivery {
+	return predicate.ReportNotificationDelivery(sql.FieldNEQ(FieldReportNotificationChannelProfileID, v))
+}
+
+// ReportNotificationChannelProfileIDIn applies the In predicate on the "report_notification_channel_profile_id" field.
+func ReportNotificationChannelProfileIDIn(vs ...int) predicate.ReportNotificationDelivery {
+	return predicate.ReportNotificationDelivery(sql.FieldIn(FieldReportNotificationChannelProfileID, vs...))
+}
+
+// ReportNotificationChannelProfileIDNotIn applies the NotIn predicate on the "report_notification_channel_profile_id" field.
+func ReportNotificationChannelProfileIDNotIn(vs ...int) predicate.ReportNotificationDelivery {
+	return predicate.ReportNotificationDelivery(sql.FieldNotIn(FieldReportNotificationChannelProfileID, vs...))
+}
+
+// ReportNotificationChannelProfileIDGT applies the GT predicate on the "report_notification_channel_profile_id" field.
+func ReportNotificationChannelProfileIDGT(v int) predicate.ReportNotificationDelivery {
+	return predicate.ReportNotificationDelivery(sql.FieldGT(FieldReportNotificationChannelProfileID, v))
+}
+
+// ReportNotificationChannelProfileIDGTE applies the GTE predicate on the "report_notification_channel_profile_id" field.
+func ReportNotificationChannelProfileIDGTE(v int) predicate.ReportNotificationDelivery {
+	return predicate.ReportNotificationDelivery(sql.FieldGTE(FieldReportNotificationChannelProfileID, v))
+}
+
+// ReportNotificationChannelProfileIDLT applies the LT predicate on the "report_notification_channel_profile_id" field.
+func ReportNotificationChannelProfileIDLT(v int) predicate.ReportNotificationDelivery {
+	return predicate.ReportNotificationDelivery(sql.FieldLT(FieldReportNotificationChannelProfileID, v))
+}
+
+// ReportNotificationChannelProfileIDLTE applies the LTE predicate on the "report_notification_channel_profile_id" field.
+func ReportNotificationChannelProfileIDLTE(v int) predicate.ReportNotificationDelivery {
+	return predicate.ReportNotificationDelivery(sql.FieldLTE(FieldReportNotificationChannelProfileID, v))
+}
+
+// ReportNotificationChannelProfileIDIsNil applies the IsNil predicate on the "report_notification_channel_profile_id" field.
+func ReportNotificationChannelProfileIDIsNil() predicate.ReportNotificationDelivery {
+	return predicate.ReportNotificationDelivery(sql.FieldIsNull(FieldReportNotificationChannelProfileID))
+}
+
+// ReportNotificationChannelProfileIDNotNil applies the NotNil predicate on the "report_notification_channel_profile_id" field.
+func ReportNotificationChannelProfileIDNotNil() predicate.ReportNotificationDelivery {
+	return predicate.ReportNotificationDelivery(sql.FieldNotNull(FieldReportNotificationChannelProfileID))
 }
 
 // IdempotencyKeyEQ applies the EQ predicate on the "idempotency_key" field.

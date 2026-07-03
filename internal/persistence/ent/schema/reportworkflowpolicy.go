@@ -46,7 +46,7 @@ func (ReportWorkflowPolicy) Fields() []ent.Field {
 		field.String("diagnosis_follow_up").
 			MaxLen(32).
 			Default("disabled").
-			Comment(`"disabled" | "suggest_room"`),
+			Comment(`"disabled" | "suggest_room" | "auto_room"`),
 		field.Bool("enabled").
 			Default(false).
 			Comment("whether operators explicitly enabled this policy for report workflow binding"),

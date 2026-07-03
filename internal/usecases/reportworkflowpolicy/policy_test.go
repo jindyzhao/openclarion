@@ -3,6 +3,7 @@ package reportworkflowpolicy
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,7 +15,8 @@ func TestServiceCreateStoresDisabledDraftAndValidatesBindings(t *testing.T) {
 	repo := newFakeConfigRepo()
 	repo.alertSources[1] = domain.AlertSourceProfile{ID: 1, Enabled: false}
 	repo.groupingPolicies[2] = domain.GroupingPolicy{ID: 2, Enabled: false}
-	svc := mustService(t, repo)
+	now := time.Date(2026, 6, 5, 9, 30, 0, 0, time.UTC)
+	svc := mustService(t, repo).WithClock(func() time.Time { return now })
 
 	saved, err := svc.Create(context.Background(), defaultWriteRequest())
 	if err != nil {
@@ -144,6 +146,193 @@ func TestServiceEnableRequiresReportNotificationChannelReady(t *testing.T) {
 	}
 }
 
+func TestServiceEnableRequiresDiagnosisScopesForAutoRoomChannel(t *testing.T) {
+	policy := defaultPolicy()
+	policy.ReportNotificationChannelProfileID = 3
+	policy.DiagnosisFollowUp = domain.DiagnosisFollowUpModeAutoRoom
+	repo := newFakeConfigRepo()
+	repo.reportPolicies[7] = policy
+	repo.alertSources[1] = domain.AlertSourceProfile{
+		ID:      1,
+		Kind:    domain.AlertSourceKindAlertmanager,
+		Enabled: true,
+	}
+	repo.groupingPolicies[2] = domain.GroupingPolicy{ID: 2, Enabled: true}
+	repo.notificationChannels[3] = domain.NotificationChannelProfile{
+		ID:             3,
+		Kind:           domain.NotificationChannelKindWeCom,
+		Enabled:        true,
+		DeliveryScopes: []domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeReport},
+	}
+	now := time.Date(2026, 6, 5, 9, 30, 0, 0, time.UTC)
+	svc := mustService(t, repo).WithClock(func() time.Time { return now })
+
+	_, err := svc.Enable(context.Background(), ActionRequest{PolicyID: 7})
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("Enable err = %v, want ErrInvariantViolation", err)
+	}
+	if repo.updateReportPolicyCalls != 0 {
+		t.Fatalf("update calls = %d, want 0", repo.updateReportPolicyCalls)
+	}
+
+	repo.notificationChannels[3] = domain.NotificationChannelProfile{
+		ID:      3,
+		Kind:    domain.NotificationChannelKindWeCom,
+		Enabled: true,
+		DeliveryScopes: []domain.NotificationDeliveryScope{
+			domain.NotificationDeliveryScopeDiagnosisConsultation,
+			domain.NotificationDeliveryScopeReport,
+		},
+	}
+	_, err = svc.Enable(context.Background(), ActionRequest{PolicyID: 7})
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("Enable without diagnosis_close scope err = %v, want ErrInvariantViolation", err)
+	}
+	if repo.updateReportPolicyCalls != 0 {
+		t.Fatalf("update calls = %d, want 0", repo.updateReportPolicyCalls)
+	}
+
+	repo.notificationChannels[3] = readyReportWorkflowNotificationChannel(3, now)
+	enabled, err := svc.Enable(context.Background(), ActionRequest{PolicyID: 7})
+	if err != nil {
+		t.Fatalf("Enable with diagnosis scopes: %v", err)
+	}
+	if !enabled.Enabled || enabled.ReportNotificationChannelProfileID != 3 {
+		t.Fatalf("enabled = %+v", enabled)
+	}
+}
+
+func TestServiceEnableRequiresAIProofForAutoRoomChannel(t *testing.T) {
+	policy := defaultPolicy()
+	policy.ReportNotificationChannelProfileID = 3
+	policy.DiagnosisFollowUp = domain.DiagnosisFollowUpModeAutoRoom
+	repo := newFakeConfigRepo()
+	repo.reportPolicies[7] = policy
+	repo.alertSources[1] = domain.AlertSourceProfile{
+		ID:      1,
+		Kind:    domain.AlertSourceKindAlertmanager,
+		Enabled: true,
+	}
+	repo.groupingPolicies[2] = domain.GroupingPolicy{ID: 2, Enabled: true}
+	repo.notificationChannels[3] = domain.NotificationChannelProfile{
+		ID:      3,
+		Kind:    domain.NotificationChannelKindWeCom,
+		Enabled: true,
+		DeliveryScopes: []domain.NotificationDeliveryScope{
+			domain.NotificationDeliveryScopeDiagnosisClose,
+			domain.NotificationDeliveryScopeDiagnosisConsultation,
+			domain.NotificationDeliveryScopeReport,
+		},
+	}
+	now := time.Date(2026, 6, 5, 9, 30, 0, 0, time.UTC)
+	svc := mustService(t, repo).WithClock(func() time.Time { return now })
+
+	_, err := svc.Enable(context.Background(), ActionRequest{PolicyID: 7})
+	if !errors.Is(err, domain.ErrInvariantViolation) ||
+		!strings.Contains(err.Error(), "ai_diagnosis_sample") ||
+		!strings.Contains(err.Error(), "diagnosis_close_sample") {
+		t.Fatalf("Enable err = %v, want missing AI proof ErrInvariantViolation", err)
+	}
+	if repo.updateReportPolicyCalls != 0 {
+		t.Fatalf("update calls = %d, want 0", repo.updateReportPolicyCalls)
+	}
+}
+
+func TestServiceEnableRequiresWeComForAutoRoomChannel(t *testing.T) {
+	policy := defaultPolicy()
+	policy.ReportNotificationChannelProfileID = 3
+	policy.DiagnosisFollowUp = domain.DiagnosisFollowUpModeAutoRoom
+	repo := newFakeConfigRepo()
+	repo.reportPolicies[7] = policy
+	repo.alertSources[1] = domain.AlertSourceProfile{
+		ID:      1,
+		Kind:    domain.AlertSourceKindAlertmanager,
+		Enabled: true,
+	}
+	repo.groupingPolicies[2] = domain.GroupingPolicy{ID: 2, Enabled: true}
+	repo.notificationChannels[3] = domain.NotificationChannelProfile{
+		ID:      3,
+		Kind:    domain.NotificationChannelKindWebhook,
+		Enabled: true,
+		DeliveryScopes: []domain.NotificationDeliveryScope{
+			domain.NotificationDeliveryScopeDiagnosisClose,
+			domain.NotificationDeliveryScopeDiagnosisConsultation,
+			domain.NotificationDeliveryScopeReport,
+		},
+	}
+	now := time.Date(2026, 6, 5, 9, 30, 0, 0, time.UTC)
+	svc := mustService(t, repo).WithClock(func() time.Time { return now })
+
+	_, err := svc.Enable(context.Background(), ActionRequest{PolicyID: 7})
+	if !errors.Is(err, domain.ErrInvariantViolation) || !strings.Contains(err.Error(), "Enterprise WeChat") {
+		t.Fatalf("Enable err = %v, want Enterprise WeChat ErrInvariantViolation", err)
+	}
+	if repo.updateReportPolicyCalls != 0 {
+		t.Fatalf("update calls = %d, want 0", repo.updateReportPolicyCalls)
+	}
+}
+
+func TestServiceEnableRequiresNotificationChannelForAutoRoom(t *testing.T) {
+	policy := defaultPolicy()
+	policy.DiagnosisFollowUp = domain.DiagnosisFollowUpModeAutoRoom
+	repo := newFakeConfigRepo()
+	repo.reportPolicies[7] = policy
+	repo.alertSources[1] = domain.AlertSourceProfile{
+		ID:      1,
+		Kind:    domain.AlertSourceKindAlertmanager,
+		Enabled: true,
+	}
+	repo.groupingPolicies[2] = domain.GroupingPolicy{ID: 2, Enabled: true}
+	now := time.Date(2026, 6, 5, 9, 30, 0, 0, time.UTC)
+	svc := mustService(t, repo).WithClock(func() time.Time { return now })
+
+	_, err := svc.Enable(context.Background(), ActionRequest{PolicyID: 7})
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("Enable err = %v, want ErrInvariantViolation", err)
+	}
+	if repo.updateReportPolicyCalls != 0 {
+		t.Fatalf("update calls = %d, want 0", repo.updateReportPolicyCalls)
+	}
+}
+
+func TestServiceEnableRequiresAlertmanagerSourceForAutoRoom(t *testing.T) {
+	policy := defaultPolicy()
+	policy.ReportNotificationChannelProfileID = 3
+	policy.DiagnosisFollowUp = domain.DiagnosisFollowUpModeAutoRoom
+	repo := newFakeConfigRepo()
+	repo.reportPolicies[7] = policy
+	repo.alertSources[1] = domain.AlertSourceProfile{
+		ID:      1,
+		Kind:    domain.AlertSourceKindPrometheus,
+		Enabled: true,
+	}
+	repo.groupingPolicies[2] = domain.GroupingPolicy{ID: 2, Enabled: true}
+	now := time.Date(2026, 6, 5, 9, 30, 0, 0, time.UTC)
+	repo.notificationChannels[3] = readyReportWorkflowNotificationChannel(3, now)
+	svc := mustService(t, repo).WithClock(func() time.Time { return now })
+
+	_, err := svc.Enable(context.Background(), ActionRequest{PolicyID: 7})
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("Enable err = %v, want ErrInvariantViolation", err)
+	}
+	if repo.updateReportPolicyCalls != 0 {
+		t.Fatalf("update calls = %d, want 0", repo.updateReportPolicyCalls)
+	}
+
+	repo.alertSources[1] = domain.AlertSourceProfile{
+		ID:      1,
+		Kind:    domain.AlertSourceKindAlertmanager,
+		Enabled: true,
+	}
+	enabled, err := svc.Enable(context.Background(), ActionRequest{PolicyID: 7})
+	if err != nil {
+		t.Fatalf("Enable with alertmanager source: %v", err)
+	}
+	if !enabled.Enabled || enabled.EnabledAt == nil {
+		t.Fatalf("enabled = %+v", enabled)
+	}
+}
+
 func TestServiceEnableAndDisableToggleExplicitState(t *testing.T) {
 	repo := newFakeConfigRepo()
 	repo.reportPolicies[7] = defaultPolicy()
@@ -244,6 +433,47 @@ func defaultPolicy() domain.ReportWorkflowPolicy {
 	}
 	policy.ID = 7
 	return policy
+}
+
+func readyReportWorkflowNotificationChannel(
+	id domain.NotificationChannelProfileID,
+	checkedAt time.Time,
+) domain.NotificationChannelProfile {
+	channel := domain.NotificationChannelProfile{
+		ID:        id,
+		Kind:      domain.NotificationChannelKindWeCom,
+		Enabled:   true,
+		UpdatedAt: checkedAt.Add(-time.Second),
+		DeliveryScopes: []domain.NotificationDeliveryScope{
+			domain.NotificationDeliveryScopeDiagnosisClose,
+			domain.NotificationDeliveryScopeDiagnosisConsultation,
+			domain.NotificationDeliveryScopeReport,
+		},
+	}
+	channel.LatestTestProofs = []domain.NotificationChannelTestProof{
+		reportWorkflowNotificationProof(channel, domain.NotificationChannelTestContentAIDiagnosisSample, checkedAt),
+		reportWorkflowNotificationProof(channel, domain.NotificationChannelTestContentDiagnosisCloseSample, checkedAt),
+	}
+	return channel
+}
+
+func reportWorkflowNotificationProof(
+	channel domain.NotificationChannelProfile,
+	contentKind domain.NotificationChannelTestContentKind,
+	checkedAt time.Time,
+) domain.NotificationChannelTestProof {
+	return domain.NotificationChannelTestProof{
+		NotificationChannelProfileID: channel.ID,
+		Kind:                         channel.Kind,
+		Status:                       domain.NotificationChannelTestStatusSuccess,
+		ReasonCode:                   domain.NotificationChannelTestReasonOK,
+		Message:                      "Notification channel test delivery succeeded.",
+		ContentKind:                  contentKind,
+		ContentSHA256:                strings.Repeat("d", 64),
+		CheckedAt:                    checkedAt,
+		ProviderMessageID:            "provider-message-1",
+		ProviderStatus:               "delivered",
+	}
 }
 
 type fakeUOWFactory struct {

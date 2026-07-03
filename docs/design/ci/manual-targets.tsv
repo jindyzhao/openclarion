@@ -3,12 +3,17 @@ atlas-smoke	manual Atlas acceptance smoke; requires Docker image pulls and a loc
 manual-evidence-readiness	manual readiness preflight for remaining live/evidence targets; intentionally operator-run so missing secrets and artifact paths are not evaluated in CI
 openclarion-service-image-build	manual deployment image build; requires a local Go toolchain, a Docker daemon, and an explicit non-latest image tag
 openclarion-service-image-push	manual deployment image publish; requires a local Go toolchain, a Docker daemon, prior registry login, and an explicit non-latest registry tag
+diagnosis-auth-live-smoke	manual diagnosis auth smoke; requires a running OpenClarion API and live LDAP or bearer credentials
+notification-channel-live-smoke	manual notification channel smoke; requires a running OpenClarion API, a persisted notification channel profile, and server-side secret resolver wiring
+alert-consultation-setup	manual alert consultation setup; requires a running OpenClarion API, live Alertmanager endpoint metadata, and server-side Enterprise WeChat secret resolver wiring
+alertmanager-auto-diagnosis-live-smoke	manual Alertmanager auto-diagnosis smoke; requires a running OpenClarion API/worker stack, enabled Alertmanager source profile, enabled auto_room policy, LLM provider, and Enterprise WeChat notification channel
 report-live-smoke	manual M2 live report smoke; requires real PostgreSQL, Temporal, Prometheus, worker, and Webhook services
 report-policy-live-smoke	manual M3.1 profile-driven report live smoke; requires real PostgreSQL, Temporal, an enabled report workflow policy, a configured alert source profile, worker, and notification delivery config
 report-schedule-live-smoke	manual M3.1 scheduled report trigger proof; requires real PostgreSQL, Temporal, an enabled report workflow schedule/policy binding, worker, and notification delivery config before retained live proof can be captured
 agent-runtime-smoke	manual M4 candidate runtime smoke; requires a digest-pinned sandbox image and Docker runtime
 custom-thin-runner-smoke	manual M4 local candidate smoke; builds an image and exercises Docker-backed runtime paths
 sandbox-m4-runtime-smoke-artifacts	manual M4 runtime-smoke artifact collection; requires a digest-pinned runtime image, Docker runtime, and empty output directory
+sandbox-image-audit	manual M5 sandbox image audit; requires an operator-selected digest-pinned sandbox image and Docker runtime
 sandbox-m4-baseline-audit	manual M4 baseline audit retention; requires an absent output file selected by an operator
 sandbox-m4-subreport-generate	manual M4 sandbox SubReport generation; requires PostgreSQL access, a digest-pinned sandbox image, Docker runtime, and an absent summary output file
 sandbox-m4-quality-sample-export	manual M4 quality sample export; requires PostgreSQL access, an operator-selected persisted SubReport mapping, and an empty output directory
@@ -22,6 +27,7 @@ diagnosis-dev-oidc-issuer	manual M5 local OIDC issuer/token helper; binds a deve
 stage5-local-worker-check	manual M5 local worker readiness; requires a private env file, Docker daemon/network, digest-pinned sandbox image, and direct diagnosis notification webhook
 stage5-local-worker	manual M5 local worker start; requires local control-plane dependencies, a private env file, Docker daemon/network, digest-pinned sandbox image, and direct diagnosis notification webhook
 diagnosis-live-browser-smoke	manual M5 browser smoke; requires a real backend, worker, token, and sandbox-capable runtime
+diagnosis-live-convergence-smoke	manual M5 backend-only convergence smoke; requires a real backend, worker, bearer token, and existing or creatable diagnosis room
 container-provider-smoke	manual M4 Docker Provider smoke; requires a real local Docker daemon
 container-provider-timeout-smoke	manual M4 Docker Provider timeout smoke; requires a real local Docker daemon
 container-provider-output-cap-smoke	manual M4 Docker Provider output-cap smoke; requires a real local Docker daemon

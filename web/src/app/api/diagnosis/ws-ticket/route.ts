@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { requestJSON } from "@/lib/api/client";
+import { normalizedDiagnosisWSTicketResponse } from "@/lib/api/diagnosis-auth-response";
 import {
   diagnosisAuthorizationFromRequest,
-  expireDiagnosisSessionCookieOnAuthFailure
+  diagnosisRequestPublicOrigin,
+  expireDiagnosisSessionCookieOnAuthFailure,
 } from "@/lib/api/diagnosis-session";
 import type { components } from "@/lib/api/openapi";
 import { apiResultResponse, readRequestJSON } from "@/lib/api/route";
@@ -17,7 +19,10 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const authorization = diagnosisAuthorizationFromRequest(request);
   if (authorization === null) {
-    const response = NextResponse.json<ErrorResponse>({ error: "authorization is required" }, { status: 401 });
+    const response = NextResponse.json<ErrorResponse>(
+      { error: "authorization is required" },
+      { status: 401 },
+    );
     expireDiagnosisSessionCookieOnAuthFailure(response, request, 401);
     return response;
   }
@@ -34,22 +39,37 @@ export async function POST(request: Request) {
   });
   if (!ticket.ok) {
     const response = apiResultResponse(ticket);
-    expireDiagnosisSessionCookieOnAuthFailure(response, request, ticket.error.status);
+    expireDiagnosisSessionCookieOnAuthFailure(
+      response,
+      request,
+      ticket.error.status,
+    );
     return response;
+  }
+
+  const normalizedTicket = normalizedDiagnosisWSTicketResponse(ticket.data);
+  if (normalizedTicket === null) {
+    return NextResponse.json<ErrorResponse>(
+      { error: "diagnosis WebSocket ticket response is invalid" },
+      { status: 502 },
+    );
   }
 
   let websocketURL: string;
   try {
-    websocketURL = diagnosisWebSocketURL(request.url, ticket.data.session_id, ticket.data.ticket);
+    websocketURL = diagnosisWebSocketURL(
+      diagnosisRequestPublicOrigin(request),
+      normalizedTicket.session_id,
+      normalizedTicket.ticket,
+    );
   } catch {
     return NextResponse.json<ErrorResponse>({ error: "diagnosis WebSocket URL is not configured" }, { status: 500 });
   }
-  return NextResponse.json({ ...ticket.data, websocket_url: websocketURL }, { status: 201 });
+  return NextResponse.json({ ...normalizedTicket, websocket_url: websocketURL }, { status: 201 });
 }
 
-function diagnosisWebSocketURL(requestURL: string, sessionID: string, ticket: string): string {
-  const sameOrigin = new URL(requestURL).origin;
-  const websocketBaseURL = process.env.OPENCLARION_BROWSER_WS_BASE_URL?.trim() || sameOrigin;
+function diagnosisWebSocketURL(requestOrigin: string, sessionID: string, ticket: string): string {
+  const websocketBaseURL = process.env.OPENCLARION_BROWSER_WS_BASE_URL?.trim() || requestOrigin;
   const baseURL = new URL(websocketBaseURL);
   if (baseURL.username !== "" || baseURL.password !== "" || baseURL.search !== "" || baseURL.hash !== "") {
     throw new Error("Diagnosis WebSocket URL must not include userinfo.");

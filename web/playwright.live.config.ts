@@ -8,8 +8,18 @@ const baseURL = providedBaseURL && providedBaseURL !== "" ? providedBaseURL : lo
 const isCI = Boolean(process.env.CI);
 const liveAPIBaseURL = process.env.OPENCLARION_LIVE_API_BASE_URL?.trim() ?? "";
 const liveWSBaseURL = process.env.OPENCLARION_LIVE_BROWSER_WS_BASE_URL?.trim() || liveAPIBaseURL;
-const liveTurnTimeoutMS = positiveIntegerEnv("OPENCLARION_LIVE_TURN_TIMEOUT_MS", 120_000);
-const liveTestTimeoutMS = positiveIntegerEnv("OPENCLARION_LIVE_TEST_TIMEOUT_MS", liveTurnTimeoutMS + 60_000);
+const defaultLiveTurnTimeoutMS = 300_000;
+const liveTurnTimeoutMS = positiveIntegerEnv("OPENCLARION_LIVE_TURN_TIMEOUT_MS", defaultLiveTurnTimeoutMS);
+const liveExpectedTurns =
+  1 +
+  liveJSONArrayLengthEnv("OPENCLARION_LIVE_OPERATOR_TOOL_REQUESTS_JSON") +
+  (truthyEnv("OPENCLARION_LIVE_COLLECT_PLANNED_EVIDENCE") ? 1 : 0) +
+  (truthyEnv("OPENCLARION_LIVE_SUBMIT_SUPPLEMENTAL_EVIDENCE") ? 1 : 0);
+const reuseExistingWebServer = truthyEnv("OPENCLARION_LIVE_REUSE_EXISTING_WEB_SERVER");
+const liveTestTimeoutMS = positiveIntegerEnv(
+  "OPENCLARION_LIVE_TEST_TIMEOUT_MS",
+  liveTurnTimeoutMS * liveExpectedTurns + 60_000
+);
 const liveWebServerTimeoutMS = positiveIntegerEnv("OPENCLARION_LIVE_WEB_SERVER_TIMEOUT_MS", 120_000);
 
 export default defineConfig({
@@ -39,7 +49,7 @@ export default defineConfig({
           name: "next-live",
           command: `OPENCLARION_API_BASE_URL=${shellQuote(liveAPIBaseURL)} OPENCLARION_BROWSER_WS_BASE_URL=${shellQuote(liveWSBaseURL)} npm run start -- --hostname ${host} --port ${webPort}`,
           url: localBaseURL,
-          reuseExistingServer: !isCI,
+          reuseExistingServer: reuseExistingWebServer,
           timeout: liveWebServerTimeoutMS
         }
 });
@@ -57,4 +67,26 @@ function positiveIntegerEnv(name: string, fallback: number): number {
     throw new Error(`${name} must be a positive integer`);
   }
   return Number(raw);
+}
+
+function truthyEnv(name: string): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  return value === "1" || value === "true" || value === "yes";
+}
+
+function liveJSONArrayLengthEnv(name: string): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return 0;
+  }
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(raw);
+  } catch {
+    throw new Error(`${name} must be valid JSON`);
+  }
+  if (!Array.isArray(decoded)) {
+    throw new Error(`${name} must be a JSON array`);
+  }
+  return decoded.length;
 }

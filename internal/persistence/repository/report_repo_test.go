@@ -295,6 +295,7 @@ func TestReportRepository_NotificationDeliveryLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewReportNotificationDelivery: %v", err)
 		}
+		pending.ReportNotificationChannelProfileID = 3
 		saved, err = uow.Reports().SaveNotificationDelivery(ctx, pending)
 		if err != nil {
 			t.Fatalf("SaveNotificationDelivery: %v", err)
@@ -305,6 +306,9 @@ func TestReportRepository_NotificationDeliveryLifecycle(t *testing.T) {
 	}
 	if saved.Status != domain.ReportNotificationDeliveryStatusPending {
 		t.Fatalf("saved.Status = %q, want pending", saved.Status)
+	}
+	if saved.ReportNotificationChannelProfileID != 3 {
+		t.Fatalf("saved channel profile id = %d, want 3", saved.ReportNotificationChannelProfileID)
 	}
 
 	ctx := context.Background()
@@ -341,7 +345,9 @@ func TestReportRepository_NotificationDeliveryLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("FindNotificationDeliveryByIdempotencyKey: %v", err)
 		}
-		if byKey.ID != saved.ID || byKey.Status != domain.ReportNotificationDeliveryStatusDelivered {
+		if byKey.ID != saved.ID ||
+			byKey.Status != domain.ReportNotificationDeliveryStatusDelivered ||
+			byKey.ReportNotificationChannelProfileID != 3 {
 			t.Fatalf("byKey = %+v", byKey)
 		}
 

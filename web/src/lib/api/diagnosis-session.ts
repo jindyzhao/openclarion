@@ -1,8 +1,8 @@
 import { normalizeForwardedAuthorization } from "./authorization";
 
-const diagnosisSessionCookieName = "openclarion_diagnosis_session";
+export const diagnosisSessionCookieName = "openclarion_diagnosis_session";
 
-type CookieResponse = {
+type DiagnosisCookieResponse = {
   cookies: {
     set: (options: {
       name: string;
@@ -12,24 +12,41 @@ type CookieResponse = {
       secure: boolean;
       path: string;
       expires?: Date;
+      maxAge?: number;
     }) => void;
   };
 };
 
-export function diagnosisAuthorizationFromRequest(request: Request): string | null {
-  if (request.headers.has("authorization")) {
-    return normalizeForwardedAuthorization(request.headers.get("authorization") ?? "");
+type DiagnosisAuthorizationHeaders = {
+  get(name: string): string | null;
+};
+
+export function diagnosisAuthorizationFromRequest(
+  request: Request,
+): string | null {
+  return diagnosisAuthorizationFromHeaders(request.headers);
+}
+
+export function diagnosisAuthorizationFromHeaders(
+  headers: DiagnosisAuthorizationHeaders,
+): string | null {
+  const rawAuthorization = headers.get("authorization");
+  if (rawAuthorization !== null && rawAuthorization.trim() !== "") {
+    return normalizeForwardedAuthorization(rawAuthorization);
   }
-  const sessionToken = diagnosisSessionTokenFromCookieHeader(request.headers.get("cookie") ?? "");
+  const sessionToken = diagnosisSessionTokenFromCookieHeader(
+    headers.get("cookie") ?? "",
+  );
   return sessionToken === null ? null : `Bearer ${sessionToken}`;
 }
 
-export function diagnosisRequestHasSessionCookie(request: Request): boolean {
-  return cookieValueFromHeader(request.headers.get("cookie") ?? "", diagnosisSessionCookieName) !== null;
-}
-
-function diagnosisRequestUsesSessionCookieAuthorization(request: Request): boolean {
-  return !request.headers.has("authorization") && diagnosisRequestHasSessionCookie(request);
+export function diagnosisSessionCookieSecure(
+  request: Request | string,
+): boolean {
+  if (typeof request !== "string") {
+    return diagnosisRequestPublicOrigin(request).startsWith("https://");
+  }
+  return new URL(request).protocol === "https:";
 }
 
 export function diagnosisRequestPublicOrigin(request: Request): string {
@@ -40,7 +57,41 @@ export function diagnosisRequestPublicOrigin(request: Request): string {
   return requestURL.origin;
 }
 
-export function expireDiagnosisSessionCookie(response: CookieResponse, request: Request | string) {
+export function diagnosisRequestHasSessionCookie(request: Request): boolean {
+  return (
+    cookieValueFromHeader(
+      request.headers.get("cookie") ?? "",
+      diagnosisSessionCookieName,
+    ) !== null
+  );
+}
+
+export function diagnosisRequestUsesSessionCookieAuthorization(
+  request: Request,
+): boolean {
+  return (
+    (request.headers.get("authorization") ?? "").trim() === "" &&
+    diagnosisRequestHasSessionCookie(request)
+  );
+}
+
+export function expireDiagnosisSessionCookieOnAuthFailure(
+  response: DiagnosisCookieResponse,
+  request: Request,
+  status: number | undefined,
+) {
+  if (
+    diagnosisRequestUsesSessionCookieAuthorization(request) &&
+    (status === 401 || status === 403)
+  ) {
+    expireDiagnosisSessionCookie(response, request);
+  }
+}
+
+export function expireDiagnosisSessionCookie(
+  response: DiagnosisCookieResponse,
+  request: Request | string,
+) {
   response.cookies.set({
     name: diagnosisSessionCookieName,
     value: "",
@@ -48,17 +99,16 @@ export function expireDiagnosisSessionCookie(response: CookieResponse, request: 
     sameSite: "lax",
     secure: diagnosisSessionCookieSecure(request),
     path: "/",
-    expires: new Date(0)
+    expires: new Date(0),
   });
 }
 
-export function expireDiagnosisSessionCookieOnAuthFailure(response: CookieResponse, request: Request, status: number | undefined) {
-  if (diagnosisRequestUsesSessionCookieAuthorization(request) && status === 401) {
-    expireDiagnosisSessionCookie(response, request);
-  }
-}
-
-export function setDiagnosisSessionCookie(response: CookieResponse, request: Request | string, token: string, expires: Date) {
+export function setDiagnosisSessionCookie(
+  response: DiagnosisCookieResponse,
+  request: Request | string,
+  token: string,
+  expires: Date,
+) {
   response.cookies.set({
     name: diagnosisSessionCookieName,
     value: token,
@@ -66,18 +116,17 @@ export function setDiagnosisSessionCookie(response: CookieResponse, request: Req
     sameSite: "lax",
     secure: diagnosisSessionCookieSecure(request),
     path: "/",
-    expires
+    expires,
   });
-}
-
-export function diagnosisSessionCookieSecure(request: Request | string): boolean {
-  const url = typeof request === "string" ? new URL(request) : new URL(diagnosisRequestPublicOrigin(request));
-  return url.protocol === "https:";
 }
 
 export function normalizedDiagnosisSessionToken(raw: string): string | null {
   const token = raw.trim();
-  if (token === "" || token !== raw || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)) {
+  if (
+    token === "" ||
+    token !== raw ||
+    !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token)
+  ) {
     return null;
   }
   return token;
@@ -95,8 +144,9 @@ function cookieValueFromHeader(header: string, cookieName: string): string | nul
     if (name !== cookieName) {
       continue;
     }
+    const rawValue = rawValueParts.join("=");
     try {
-      return decodeURIComponent(rawValueParts.join("="));
+      return decodeURIComponent(rawValue);
     } catch {
       return null;
     }

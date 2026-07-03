@@ -33,7 +33,7 @@ export interface paths {
         };
         /**
          * Get operational dashboard summary
-         * @description Returns a bounded operational summary for recent alerts and final report delivery outcomes.
+         * @description Authenticates and authorizes a local operations reader, then returns a bounded operational summary for recent alerts and final report delivery outcomes.
          */
         get: operations["getDashboard"];
         put?: never;
@@ -123,7 +123,7 @@ export interface paths {
         put?: never;
         /**
          * Ingest an Alertmanager webhook payload
-         * @description Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts as AlertEvent rows, skips resolved alerts, and returns sanitized ingest counters without starting report workflows.
+         * @description Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts as AlertEvent rows, skips resolved alerts, starts automatic diagnosis rooms for enabled auto_room policies, and returns sanitized ingest and auto-diagnosis counters without starting report workflows.
          */
         post: operations["ingestAlertmanagerWebhook"];
         delete?: never;
@@ -288,6 +288,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/config/report-workflow-policies/impact-preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview report workflow policy draft impact
+         * @description Evaluates an unsaved report workflow policy draft against its bound alert source/grouping/channel configuration and a bounded recent alert sample. This action does not store the draft, call alert providers, resolve secrets, start workflows, send notifications, or persist groups or snapshots.
+         */
+        post: operations["previewReportWorkflowPolicyDraftImpact"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/config/report-workflow-policies/{policy_id}/impact-preview": {
         parameters: {
             query?: never;
@@ -337,13 +357,13 @@ export interface paths {
         };
         /**
          * List report workflow schedules
-         * @description Returns operator-managed report workflow schedule metadata. This read does not inspect Temporal Schedule state.
+         * @description Returns persisted operator-managed report workflow schedule metadata. This read does not query Temporal Schedule runtime state.
          */
         get: operations["listReportWorkflowSchedules"];
         put?: never;
         /**
          * Create a report workflow schedule
-         * @description Stores report workflow schedule metadata as a disabled draft. This operation does not register a Temporal Schedule, start workflows, call alert providers, resolve secrets, or send notifications.
+         * @description Stores report workflow schedule metadata as a disabled draft. When a schedule synchronizer is configured, the HTTP handler synchronizes a paused Temporal Schedule after persistence. This operation does not start workflows, call alert providers, resolve secrets, or send notifications.
          */
         post: operations["createReportWorkflowSchedule"];
         delete?: never;
@@ -366,7 +386,7 @@ export interface paths {
         get: operations["getReportWorkflowSchedule"];
         /**
          * Replace a report workflow schedule
-         * @description Replaces report workflow schedule metadata while preserving explicit enabled state. This operation does not register a Temporal Schedule, start workflows, call alert providers, resolve secrets, or send notifications.
+         * @description Replaces report workflow schedule metadata while preserving explicit enabled state. When a schedule synchronizer is configured, the HTTP handler synchronizes Temporal Schedule spec and pause state after persistence. This operation does not immediately start workflows, call alert providers, resolve secrets, or send notifications.
          */
         put: operations["replaceReportWorkflowSchedule"];
         post?: never;
@@ -387,7 +407,7 @@ export interface paths {
         put?: never;
         /**
          * Enable a report workflow schedule
-         * @description Explicitly enables a report workflow schedule after validating that the bound report workflow policy is enabled. This action does not register or unpause a Temporal Schedule.
+         * @description Explicitly enables a report workflow schedule after validating that the bound report workflow policy is enabled. When a schedule synchronizer is configured, the HTTP handler creates or updates and unpauses the Temporal Schedule for future starts. This action does not immediately start a report workflow.
          */
         post: operations["enableReportWorkflowSchedule"];
         delete?: never;
@@ -407,7 +427,7 @@ export interface paths {
         put?: never;
         /**
          * Disable a report workflow schedule
-         * @description Explicitly disables a report workflow schedule. This action pauses future starts only after the later Temporal registration slice wires schedule state to Temporal; it does not cancel already-started report workflows.
+         * @description Explicitly disables a report workflow schedule. When a schedule synchronizer is configured, the HTTP handler pauses the Temporal Schedule for future starts. This action does not cancel already-started report workflows.
          */
         post: operations["disableReportWorkflowSchedule"];
         delete?: never;
@@ -519,7 +539,7 @@ export interface paths {
         put?: never;
         /**
          * Create a notification channel profile
-         * @description Stores notification channel metadata with a deployment-managed secret reference only. This operation does not send notifications.
+         * @description Stores notification channel metadata with a deployment-managed secret reference only. This operation does not send notifications. Diagnosis consultation and close delivery scopes require an Enterprise WeChat channel.
          */
         post: operations["createNotificationChannelProfile"];
         delete?: never;
@@ -542,7 +562,7 @@ export interface paths {
         get: operations["getNotificationChannelProfile"];
         /**
          * Replace a notification channel profile
-         * @description Replaces mutable notification channel profile metadata. This operation does not send notifications.
+         * @description Replaces mutable notification channel profile metadata. This operation does not send notifications. Diagnosis consultation and close delivery scopes require an Enterprise WeChat channel.
          */
         put: operations["replaceNotificationChannelProfile"];
         post?: never;
@@ -563,9 +583,153 @@ export interface paths {
         put?: never;
         /**
          * Test a notification channel profile
-         * @description Sends one bounded backend test notification for a persisted notification channel profile and returns sanitized status only. This action does not create report delivery records.
+         * @description Sends one bounded backend test notification for a persisted notification channel profile, records sanitized test proof, and returns sanitized status only. This action does not create report delivery records.
          */
         post: operations["testNotificationChannelProfile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/directory/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sync local directory projection
+         * @description Pulls normalized users and departments from the configured IAM directory provider into OpenClarion's local projection. This endpoint never accepts IAM secrets or raw Enterprise WeChat payloads.
+         */
+        post: operations["syncDirectory"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/directory/sync-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List local directory sync runs
+         * @description Returns successful local directory projection sync run summaries for operator review. The response never includes IAM secrets, raw Enterprise WeChat payloads, or upstream credentials.
+         */
+        get: operations["listDirectorySyncRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/directory/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List local directory users
+         * @description Returns OpenClarion's local directory user projection for operator pickers, audit attribution, and local RBAC configuration.
+         */
+        get: operations["listDirectoryUsers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/directory/departments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List local directory departments
+         * @description Returns OpenClarion's local directory department projection for operator pickers and local RBAC configuration.
+         */
+        get: operations["listDirectoryDepartments"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/rbac/assignments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List local RBAC assignments
+         * @description Returns OpenClarion-local role assignments for operator review and access-control management. IAM authenticates users and supplies directory data; OpenClarion owns product-specific authorization.
+         */
+        get: operations["listRBACAssignments"];
+        put?: never;
+        /**
+         * Upsert a local RBAC assignment
+         * @description Creates or updates one OpenClarion-local role assignment. IAM authenticates users and supplies directory data; OpenClarion owns product-specific authorization.
+         */
+        post: operations["upsertRBACAssignment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/rbac/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview a local RBAC decision
+         * @description Evaluates OpenClarion-local role assignments for one principal and requested action. This endpoint is intended for admin UI previews and tests; business endpoints must still enforce their own authorization checks.
+         */
+        post: operations["authorizeRBAC"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/config/rbac/current-authorizations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Evaluate current operator RBAC decisions
+         * @description Evaluates OpenClarion-local role assignments for the authenticated current operator. This endpoint is intended for permission-aware UI controls; business endpoints must still enforce their own authorization checks.
+         */
+        post: operations["authorizeCurrentRBAC"];
         delete?: never;
         options?: never;
         head?: never;
@@ -581,7 +745,7 @@ export interface paths {
         };
         /**
          * List alert events
-         * @description Returns the most recent alert events ordered by starts_at descending.
+         * @description Authenticates and authorizes a local operations reader, then returns the most recent alert events ordered by starts_at descending.
          */
         get: operations["listAlerts"];
         put?: never;
@@ -601,7 +765,7 @@ export interface paths {
         };
         /**
          * List evidence snapshots
-         * @description Returns the most recent evidence snapshots ordered by created_at descending.
+         * @description Authenticates and authorizes a local operations reader, then returns the most recent evidence snapshots ordered by created_at descending.
          */
         get: operations["listEvidenceSnapshots"];
         put?: never;
@@ -621,7 +785,7 @@ export interface paths {
         };
         /**
          * List final reports
-         * @description Returns the most recent final reports ordered by created_at descending.
+         * @description Authenticates and authorizes a local operations reader, then returns the most recent final reports ordered by created_at descending.
          */
         get: operations["listReports"];
         put?: never;
@@ -643,7 +807,7 @@ export interface paths {
         put?: never;
         /**
          * Replay an alert window and start report generation
-         * @description Replays a bounded alert window, persists EvidenceSnapshots, and starts the report batch workflow when snapshots are available.
+         * @description Authenticates and authorizes a local report-workflow manager, replays a bounded alert window, persists EvidenceSnapshots, and starts the report batch workflow when snapshots are available.
          */
         post: operations["triggerReportReplay"];
         delete?: never;
@@ -660,12 +824,36 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Get diagnosis auth status
-         * @description Returns non-sensitive diagnosis auth wiring status. It never returns issuer URLs, tokens, claims, or signing keys.
+         * Get diagnosis auth wiring status
+         * @description Returns non-sensitive diagnosis auth provider wiring status. The response does not include endpoint URLs, directory names, credentials, tokens, or claims.
          */
         get: operations["getDiagnosisAuthStatus"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagnosis/wecom/app-callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Verify Enterprise WeChat app callback URL
+         * @description Verifies the Enterprise WeChat application message callback challenge and returns the decrypted echo string as text/plain. The response never includes callback token, EncodingAESKey, raw encrypted payloads, or decrypted message bodies beyond the provider challenge echo.
+         */
+        get: operations["verifyDiagnosisWeComAppCallback"];
+        put?: never;
+        /**
+         * Accept Enterprise WeChat app callback message
+         * @description Verifies and decrypts one Enterprise WeChat application message callback, extracts the sender identity and message metadata for the server-side callback boundary, and acknowledges the provider without returning decrypted message content.
+         */
+        post: operations["acceptDiagnosisWeComAppCallback"];
         delete?: never;
         options?: never;
         head?: never;
@@ -682,7 +870,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Check diagnosis authorization
+         * Check diagnosis authorization credentials
          * @description Authenticates diagnosis Authorization credentials and returns a sanitized principal summary without issuing a WebSocket ticket.
          */
         post: operations["checkDiagnosisAuth"];
@@ -703,7 +891,7 @@ export interface paths {
         put?: never;
         /**
          * Issue diagnosis browser session
-         * @description Authenticates an IAM OIDC bearer token and returns a short-lived OpenClarion session token for the trusted browser BFF to store in an HttpOnly cookie. The session token must not be exposed to page JavaScript.
+         * @description Authenticates diagnosis Authorization credentials and returns a short-lived OpenClarion session token for the trusted browser BFF to store in an HTTP-only cookie. IAM OIDC bearer tokens are the standard browser path; explicit compatibility modes such as LDAP Basic can still be exchanged without persisting upstream credentials in browser state.
          */
         post: operations["issueDiagnosisAuthSession"];
         delete?: never;
@@ -723,7 +911,7 @@ export interface paths {
         put?: never;
         /**
          * Issue a diagnosis WebSocket ticket
-         * @description Authenticates an OIDC bearer token or an OpenClarion browser-session bearer token, checks diagnosis-room RBAC, and returns a short-lived single-use ticket for the WebSocket upgrade.
+         * @description Authenticates diagnosis Authorization credentials, checks diagnosis-room RBAC, and returns a short-lived single-use ticket for the WebSocket upgrade.
          */
         post: operations["issueDiagnosisWSTicket"];
         delete?: never;
@@ -739,13 +927,97 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List diagnosis rooms
+         * @description Returns the most recent diagnosis-room sessions with their backing task and evidence references ordered by updated_at descending.
+         */
+        get: operations["listDiagnosisRooms"];
         put?: never;
         /**
          * Create a diagnosis room
-         * @description Authenticates an OIDC bearer token or an OpenClarion browser-session bearer token, starts a short-conversation diagnosis room from a frozen EvidenceSnapshot, and returns the session identifier once the room is ready for WebSocket tickets.
+         * @description Authenticates diagnosis Authorization credentials, starts a short-conversation diagnosis room from a frozen EvidenceSnapshot, and returns the session identifier once the room is ready for WebSocket tickets.
          */
         post: operations["createDiagnosisRoom"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagnosis/rooms/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get a diagnosis room
+         * @description Returns one exact diagnosis-room session with its backing task, retained conclusion, progress, notification proof, and sanitized workflow visibility when available.
+         */
+        get: operations["getDiagnosisRoom"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagnosis/rooms/{session_id}/notifications/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry diagnosis room notification
+         * @description Authenticates diagnosis Authorization credentials, retries the latest still-failed notification of the requested diagnosis-room notification kind, and appends a sanitized immutable retry event. The request does not accept provider endpoints, credentials, or idempotency keys.
+         */
+        post: operations["retryDiagnosisRoomNotification"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagnosis/handoffs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List pending diagnosis handoffs
+         * @description Authenticates and authorizes a local operations reader, then returns recent evidence snapshots linked to alert events that do not have a diagnosis room yet.
+         */
+        get: operations["listDiagnosisHandoffs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/diagnosis/rooms/{session_id}/close-unavailable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Close an unavailable diagnosis room
+         * @description Authenticates diagnosis Authorization credentials, verifies the diagnosis-room workflow is no longer usable through backend workflow visibility, closes the local room lifecycle row, and returns the updated room summary. This endpoint does not start a replacement room.
+         */
+        post: operations["closeUnavailableDiagnosisRoom"];
         delete?: never;
         options?: never;
         head?: never;
@@ -761,11 +1033,31 @@ export interface paths {
         };
         /**
          * Get final report detail
-         * @description Returns one final report with linked subreports for evidence traceability.
+         * @description Authenticates and authorizes a local operations reader, then returns one final report with linked subreports for evidence traceability.
          */
         get: operations["getReport"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/reports/{report_id}/notification/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry report notification
+         * @description Authenticates and authorizes a local report-workflow manager, sends or retries a persisted report notification as either a diagnosis handoff or an operator-confirmed final report notification, and returns delivery proof plus whether this call sent a provider request or returned an existing in-flight/completed proof.
+         */
+        post: operations["retryReportNotification"];
         delete?: never;
         options?: never;
         head?: never;
@@ -801,6 +1093,15 @@ export interface components {
             alerts: components["schemas"]["DashboardAlertStats"] & Record<string, never>;
             /**
              * @example {
+             *       "linked_snapshots": 6,
+             *       "rooms_started": 4,
+             *       "snapshots_needing_room": 2,
+             *       "affected_alerts_needing_room": 2
+             *     }
+             */
+            diagnosis: components["schemas"]["DashboardDiagnosisStats"] & Record<string, never>;
+            /**
+             * @example {
              *       "total_recent": 8,
              *       "delivered": 7,
              *       "failed": 1,
@@ -824,6 +1125,29 @@ export interface components {
             firing: number;
             /** Format: int64 */
             resolved: number;
+        };
+        /** @description AI diagnosis counters mapped from the recent alert-event window. */
+        DashboardDiagnosisStats: {
+            /**
+             * Format: int64
+             * @description Evidence snapshots linked to recent alert events.
+             */
+            linked_snapshots: number;
+            /**
+             * Format: int64
+             * @description Diagnosis rooms linked to those evidence snapshots.
+             */
+            rooms_started: number;
+            /**
+             * Format: int64
+             * @description Linked evidence snapshots that do not have a diagnosis room yet.
+             */
+            snapshots_needing_room: number;
+            /**
+             * Format: int64
+             * @description Recent alert events with at least one linked evidence snapshot that needs a diagnosis room.
+             */
+            affected_alerts_needing_room: number;
         };
         /**
          * @description Supported alert source adapter kind.
@@ -972,15 +1296,16 @@ export interface components {
         /**
          * @description Supported notification channel adapter kind.
          * @example webhook
+         * @example wecom
          * @enum {string}
          */
-        NotificationChannelKind: "webhook";
+        NotificationChannelKind: "webhook" | "wecom";
         /**
          * @description Notification flow that may use a channel once workflow binding is implemented.
          * @example report
          * @enum {string}
          */
-        NotificationDeliveryScope: "report" | "diagnosis_close";
+        NotificationDeliveryScope: "report" | "diagnosis_consultation" | "diagnosis_close";
         /**
          * @description Sanitized notification-channel test outcome category.
          * @example success
@@ -1003,7 +1328,7 @@ export interface components {
         NotificationChannelLabels: {
             [key: string]: string;
         };
-        /** @description Operator-managed notification channel profile without endpoint URLs or credential values. */
+        /** @description Operator-managed notification channel profile without endpoint URLs or credential values. Diagnosis consultation and close delivery scopes are valid only on Enterprise WeChat channels. */
         NotificationChannelProfile: {
             /**
              * Format: int64
@@ -1019,10 +1344,9 @@ export interface components {
              */
             secret_ref: string;
             /**
-             * @description Notification flows that may use this channel after later workflow binding.
+             * @description Notification flows that may use this channel after later workflow binding. Diagnosis consultation and close scopes require kind=wecom.
              * @example [
-             *       "report",
-             *       "diagnosis_close"
+             *       "report"
              *     ]
              */
             delivery_scopes: components["schemas"]["NotificationDeliveryScope"][];
@@ -1032,6 +1356,24 @@ export interface components {
              */
             enabled: boolean;
             labels: components["schemas"]["NotificationChannelLabels"];
+            /**
+             * @description Latest sanitized notification-channel test proof rows, grouped by content kind. Endpoint URLs, secret references, raw provider responses, and raw provider errors are never returned.
+             * @example [
+             *       {
+             *         "channel_id": 1,
+             *         "kind": "wecom",
+             *         "status": "success",
+             *         "reason_code": "ok",
+             *         "message": "Notification channel test delivery succeeded.",
+             *         "content_kind": "ai_diagnosis_sample",
+             *         "content_sha256": "5c6ffbdd40d9556b73a21e63c3e0e9047c7f534c2ab09dc7ed89b889f0d011e7",
+             *         "checked_at": "2026-06-05T10:00:00Z",
+             *         "provider_message_id": "msg-42",
+             *         "provider_status": "accepted"
+             *       }
+             *     ]
+             */
+            latest_test_results: components["schemas"]["NotificationChannelTestResult"][];
             /**
              * Format: date-time
              * @example 2026-06-05T09:00:00Z
@@ -1043,7 +1385,7 @@ export interface components {
              */
             updated_at: string;
         };
-        /** @description Notification channel profile metadata accepted by create and replace operations. */
+        /** @description Notification channel profile metadata accepted by create and replace operations. Diagnosis consultation and close delivery scopes require kind=wecom. */
         NotificationChannelProfileWriteRequest: {
             /** @example Operations webhook */
             name: string;
@@ -1054,9 +1396,9 @@ export interface components {
              */
             secret_ref: string;
             /**
+             * @description Notification flows that may use this channel. Diagnosis consultation and close scopes require kind=wecom.
              * @example [
-             *       "report",
-             *       "diagnosis_close"
+             *       "report"
              *     ]
              */
             delivery_scopes: components["schemas"]["NotificationDeliveryScope"][];
@@ -1080,6 +1422,17 @@ export interface components {
              */
             message: string;
             /**
+             * @description Sanitized kind of test notification content prepared for provider delivery. It is omitted when no provider delivery attempt was made.
+             * @example ai_diagnosis_sample
+             * @enum {string}
+             */
+            content_kind?: "transport_sample" | "ai_diagnosis_sample" | "diagnosis_close_sample";
+            /**
+             * @description SHA-256 digest of the sanitized test notification body prepared for provider delivery. It is omitted when no provider delivery attempt was made.
+             * @example 5c6ffbdd40d9556b73a21e63c3e0e9047c7f534c2ab09dc7ed89b889f0d011e7
+             */
+            content_sha256?: string;
+            /**
              * Format: date-time
              * @example 2026-06-05T10:00:00Z
              */
@@ -1101,9 +1454,9 @@ export interface components {
              * @example [
              *       {
              *         "id": 1,
-             *         "name": "Operations webhook",
-             *         "kind": "webhook",
-             *         "secret_ref": "secret/example/ops-webhook",
+             *         "name": "Operations WeCom",
+             *         "kind": "wecom",
+             *         "secret_ref": "secret/example/ops-wecom",
              *         "delivery_scopes": [
              *           "report",
              *           "diagnosis_close"
@@ -1112,12 +1465,495 @@ export interface components {
              *         "labels": {
              *           "team": "ops"
              *         },
+             *         "latest_test_results": [],
              *         "created_at": "2026-06-05T09:00:00Z",
              *         "updated_at": "2026-06-05T09:00:00Z"
              *       }
              *     ]
              */
             items: components["schemas"]["NotificationChannelProfile"][];
+        };
+        /** @description Optional request body for one IAM-to-local directory sync run. */
+        DirectorySyncRequest: {
+            /**
+             * @description Upstream directory page size.
+             * @default 100
+             * @example 100
+             */
+            page_size: number;
+            /**
+             * Format: date-time
+             * @description Optional incremental sync lower bound.
+             * @example 2026-06-26T00:00:00Z
+             */
+            updated_after?: string;
+        };
+        /** @description Summary of a completed local directory projection sync run. */
+        DirectorySyncResponse: {
+            /** @example 1 */
+            department_pages: number;
+            /** @example 1 */
+            user_pages: number;
+            /** @example 8 */
+            departments_upserted: number;
+            /** @example 96 */
+            users_upserted: number;
+            /**
+             * @description Active projected users marked inactive because they were absent from a completed full sync. Incremental syncs report 0.
+             * @example 0
+             */
+            users_deactivated: number;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            synced_at: string;
+        };
+        /** @description Persisted summary of one admitted local directory projection sync run. */
+        DirectorySyncRun: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            id: number;
+            /** @example ops_iam */
+            provider: string;
+            /** @example 100 */
+            page_size: number;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T00:00:00Z
+             */
+            updated_after?: string;
+            /**
+             * @example succeeded
+             * @enum {string}
+             */
+            status: "succeeded" | "failed";
+            /**
+             * @description Stable sanitized failure reason code when status is failed; empty for successful runs.
+             * @example invalid_provider_record
+             */
+            failure_code: string;
+            /**
+             * @description Operator-facing sanitized failure summary when status is failed; empty for successful runs.
+             * @example Directory sync received a provider record that failed local validation.
+             */
+            failure_message: string;
+            /** @example 1 */
+            department_pages: number;
+            /** @example 1 */
+            user_pages: number;
+            /** @example 8 */
+            departments_upserted: number;
+            /** @example 96 */
+            users_upserted: number;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            synced_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            created_at: string;
+        };
+        /** @description Local directory sync run history response. */
+        DirectorySyncRunListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "provider": "ops_iam",
+             *         "page_size": 100,
+             *         "updated_after": "2026-06-26T00:00:00Z",
+             *         "status": "succeeded",
+             *         "failure_code": "",
+             *         "failure_message": "",
+             *         "department_pages": 1,
+             *         "user_pages": 1,
+             *         "departments_upserted": 8,
+             *         "users_upserted": 96,
+             *         "synced_at": "2026-06-26T08:00:00Z",
+             *         "created_at": "2026-06-26T08:00:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["DirectorySyncRun"][];
+        };
+        /** @description Local projection of one upstream directory department. */
+        DirectoryDepartment: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            id: number;
+            /** @example ops_iam */
+            provider: string;
+            /** @example dep-2 */
+            external_id: string;
+            /** @example dep-1 */
+            parent_external_id: string;
+            /** @example SRE */
+            name: string;
+            /** @example SRE */
+            display_name: string;
+            /** @example IT/Platform/SRE */
+            path: string;
+            /** @example IT/Platform */
+            parent_path: string;
+            /** @example 3 */
+            level: number;
+            /** @example iam */
+            source: string;
+            /** @example 12 */
+            member_count: number;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T07:50:00Z
+             */
+            source_updated_at?: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            synced_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            updated_at: string;
+        };
+        /** @description Local directory department list response. */
+        DirectoryDepartmentListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "provider": "ops_iam",
+             *         "external_id": "dep-2",
+             *         "parent_external_id": "dep-1",
+             *         "name": "SRE",
+             *         "display_name": "SRE",
+             *         "path": "IT/Platform/SRE",
+             *         "parent_path": "IT/Platform",
+             *         "level": 3,
+             *         "source": "iam",
+             *         "member_count": 12,
+             *         "synced_at": "2026-06-26T08:00:00Z",
+             *         "created_at": "2026-06-26T08:00:00Z",
+             *         "updated_at": "2026-06-26T08:00:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["DirectoryDepartment"][];
+        };
+        /** @description Local projection of one upstream directory user for attribution, pickers, and local RBAC. */
+        DirectoryUser: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            id: number;
+            /** @example ops_iam */
+            provider: string;
+            /** @example iam-user-1 */
+            subject: string;
+            /** @example wecom-user-1 */
+            external_id: string;
+            /** @example alice */
+            username: string;
+            /** @example Alice */
+            display_name: string;
+            /** @example alice@example.test */
+            email: string;
+            /** @example SRE */
+            job_title: string;
+            /** @example Platform */
+            department: string;
+            /** @example SRE */
+            section: string;
+            /** @example IT/Platform/SRE */
+            department_path: string;
+            /**
+             * @example [
+             *       "IT/Platform/SRE",
+             *       "IT/Shared"
+             *     ]
+             */
+            department_paths: string[];
+            /**
+             * @example [
+             *       "dep-2"
+             *     ]
+             */
+            department_external_ids: string[];
+            /** @example true */
+            active: boolean;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T07:50:00Z
+             */
+            source_updated_at?: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            synced_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            updated_at: string;
+        };
+        /** @description Local directory user list response. */
+        DirectoryUserListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "provider": "ops_iam",
+             *         "subject": "iam-user-1",
+             *         "external_id": "wecom-user-1",
+             *         "username": "alice",
+             *         "display_name": "Alice",
+             *         "email": "alice@example.test",
+             *         "job_title": "SRE",
+             *         "department": "Platform",
+             *         "section": "SRE",
+             *         "department_path": "IT/Platform/SRE",
+             *         "department_external_ids": [
+             *           "dep-2"
+             *         ],
+             *         "active": true,
+             *         "synced_at": "2026-06-26T08:00:00Z",
+             *         "created_at": "2026-06-26T08:00:00Z",
+             *         "updated_at": "2026-06-26T08:00:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["DirectoryUser"][];
+        };
+        /**
+         * @description Local role assignment subject type.
+         * @enum {string}
+         */
+        RBACSubjectKind: "user" | "department";
+        /**
+         * @description OpenClarion product resource family covered by a local role assignment.
+         * @enum {string}
+         */
+        RBACScopeKind: "global" | "diagnosis_room" | "alert_source" | "grouping_policy" | "report_workflow" | "report_workflow_schedule" | "notification_channel" | "diagnosis_tool_template";
+        /**
+         * @description OpenClarion-local role.
+         * @enum {string}
+         */
+        RBACRole: "admin" | "operator" | "responder" | "viewer";
+        /**
+         * @description OpenClarion-local action-level permission.
+         * @enum {string}
+         */
+        RBACPermission: "directory.read" | "directory.manage" | "rbac.manage" | "operations.read" | "diagnosis_room.read" | "diagnosis_room.participate" | "diagnosis_room.administer" | "alert_source.read" | "alert_source.manage" | "grouping_policy.read" | "grouping_policy.manage" | "report_workflow.read" | "report_workflow.manage" | "notification_channel.read" | "notification_channel.manage" | "notification_channel.test" | "diagnosis_tool_template.read" | "diagnosis_tool_template.manage";
+        /** @description Local OpenClarion role assignment. */
+        RBACAssignment: {
+            /**
+             * Format: int64
+             * @example 1
+             */
+            id: number;
+            subject_kind: components["schemas"]["RBACSubjectKind"];
+            /** @example dep-2 */
+            subject_key: string;
+            role: components["schemas"]["RBACRole"];
+            scope_kind: components["schemas"]["RBACScopeKind"];
+            /** @example room-1 */
+            scope_key: string;
+            /** @example true */
+            enabled: boolean;
+            /**
+             * @description Authenticated subject that created this local role assignment.
+             * @example iam-admin-1
+             */
+            created_by: string;
+            /**
+             * @description Authenticated subject that last mutated this local role assignment.
+             * @example iam-admin-1
+             */
+            updated_by: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            updated_at: string;
+        };
+        /** @description Local RBAC assignment list response. */
+        RBACAssignmentListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "subject_kind": "department",
+             *         "subject_key": "dep-2",
+             *         "role": "responder",
+             *         "scope_kind": "diagnosis_room",
+             *         "scope_key": "room-1",
+             *         "enabled": true,
+             *         "created_by": "iam-admin-1",
+             *         "updated_by": "iam-admin-1",
+             *         "created_at": "2026-06-26T08:00:00Z",
+             *         "updated_at": "2026-06-26T08:00:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["RBACAssignment"][];
+        };
+        /** @description Local role assignment write request. */
+        RBACAssignmentWriteRequest: {
+            subject_kind: components["schemas"]["RBACSubjectKind"];
+            /** @example dep-2 */
+            subject_key: string;
+            role: components["schemas"]["RBACRole"];
+            scope_kind: components["schemas"]["RBACScopeKind"];
+            /**
+             * @default
+             * @example room-1
+             */
+            scope_key: string;
+            /**
+             * @default true
+             * @example true
+             */
+            enabled: boolean;
+        };
+        /** @description Local RBAC authorization preview request. */
+        RBACAuthorizeRequest: {
+            /** @example iam-user-1 */
+            subject: string;
+            /**
+             * @example [
+             *       "dep-2"
+             *     ]
+             */
+            department_keys: string[];
+            permission: components["schemas"]["RBACPermission"];
+            scope_kind: components["schemas"]["RBACScopeKind"];
+            /**
+             * @default
+             * @example room-1
+             */
+            scope_key: string;
+        };
+        /** @description Local RBAC authorization preview response. */
+        RBACAuthorizeResponse: {
+            /** @example true */
+            allowed: boolean;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            checked_at: string;
+        };
+        /** @description One authorization check for the authenticated current operator. */
+        RBACCurrentAuthorizationCheck: {
+            permission: components["schemas"]["RBACPermission"];
+            scope_kind: components["schemas"]["RBACScopeKind"];
+            /**
+             * @default
+             * @example room-1
+             */
+            scope_key: string;
+        };
+        /** @description Current operator authorization check batch request. */
+        RBACCurrentAuthorizationRequest: {
+            /**
+             * @example [
+             *       {
+             *         "permission": "directory.read",
+             *         "scope_kind": "global",
+             *         "scope_key": ""
+             *       }
+             *     ]
+             */
+            requests: components["schemas"]["RBACCurrentAuthorizationCheck"][];
+        };
+        /** @description One current operator authorization decision. */
+        RBACCurrentAuthorizationDecision: {
+            permission: components["schemas"]["RBACPermission"];
+            scope_kind: components["schemas"]["RBACScopeKind"];
+            /** @example room-1 */
+            scope_key: string;
+            /** @example true */
+            allowed: boolean;
+            /**
+             * Format: date-time
+             * @example 2026-06-26T08:00:00Z
+             */
+            checked_at: string;
+        };
+        /** @description Current operator authorization check batch response. */
+        RBACCurrentAuthorizationResponse: {
+            /** @example iam-user-1 */
+            subject: string;
+            /**
+             * @example [
+             *       "dep-2"
+             *     ]
+             */
+            department_keys: string[];
+            /**
+             * @description Local directory projections matching the authenticated subject. Inactive rows are returned for identity visibility, but only active rows contribute department keys.
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "provider": "ops_iam",
+             *         "subject": "iam-user-1",
+             *         "external_id": "wecom-user-1",
+             *         "username": "alice",
+             *         "display_name": "Alice",
+             *         "email": "alice@example.test",
+             *         "job_title": "SRE",
+             *         "department": "Platform",
+             *         "section": "SRE",
+             *         "department_path": "IT/Platform/SRE",
+             *         "department_external_ids": [
+             *           "dep-2"
+             *         ],
+             *         "active": true,
+             *         "synced_at": "2026-06-26T08:00:00Z",
+             *         "created_at": "2026-06-26T08:00:00Z",
+             *         "updated_at": "2026-06-26T08:00:00Z"
+             *       }
+             *     ]
+             */
+            directory_users: components["schemas"]["DirectoryUser"][];
+            /**
+             * @example [
+             *       {
+             *         "permission": "directory.read",
+             *         "scope_kind": "global",
+             *         "scope_key": "",
+             *         "allowed": true,
+             *         "checked_at": "2026-06-26T08:00:00Z"
+             *       }
+             *     ]
+             */
+            decisions: components["schemas"]["RBACCurrentAuthorizationDecision"][];
         };
         /**
          * @description Group severity computed from alert labels during grouping preview.
@@ -1228,11 +2064,11 @@ export interface components {
          */
         ReportWorkflowScenario: "single_alert" | "cascade" | "alert_storm";
         /**
-         * @description Diagnosis-room handoff behavior after report creation.
+         * @description Diagnosis-room handoff behavior after report creation or alert intake.
          * @example suggest_room
          * @enum {string}
          */
-        DiagnosisFollowUpMode: "disabled" | "suggest_room";
+        DiagnosisFollowUpMode: "disabled" | "suggest_room" | "auto_room";
         /** @description Operator-managed report workflow policy. Enabled state changes only through explicit action endpoints. */
         ReportWorkflowPolicy: {
             /**
@@ -1325,7 +2161,7 @@ export interface components {
              * @default disabled
              * @enum {string}
              */
-            diagnosis_follow_up: "disabled" | "suggest_room";
+            diagnosis_follow_up: "disabled" | "suggest_room" | "auto_room";
         };
         /** @description Report workflow policy list response. */
         ReportWorkflowPolicyListResponse: {
@@ -1350,7 +2186,7 @@ export interface components {
              */
             items: components["schemas"]["ReportWorkflowPolicy"][];
         };
-        /** @description Operator-managed report workflow schedule metadata. Enabled state changes only through explicit action endpoints and does not imply Temporal registration in this slice. */
+        /** @description Operator-managed report workflow schedule metadata. Enabled state changes only through explicit action endpoints; configured runtime synchronizers may project persisted state into Temporal Schedule registration and pause state. */
         ReportWorkflowSchedule: {
             /**
              * Format: int64
@@ -1366,7 +2202,7 @@ export interface components {
              */
             report_workflow_policy_id: number;
             /**
-             * @description Stable Temporal Schedule identifier reserved for the later registration slice.
+             * @description Stable Temporal Schedule identifier used by runtime schedule synchronization.
              * @example openclarion-report-policy-1-daily
              */
             temporal_schedule_id: string;
@@ -1448,17 +2284,35 @@ export interface components {
              * @example openclarion-report-policy-1-daily
              */
             temporal_schedule_id: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @example 86400
+             */
             interval_seconds: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @example 21600
+             */
             offset_seconds: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @example 3600
+             */
             replay_window_seconds: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @example 300
+             */
             replay_delay_seconds: number;
-            /** Format: int32 */
+            /**
+             * Format: int32
+             * @example 10000
+             */
             replay_limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @example 3600
+             */
             catchup_window_seconds: number;
         };
         /** @description Report workflow schedule list response. */
@@ -1640,11 +2494,12 @@ export interface components {
          * @example ok
          * @enum {string}
          */
-        ReportWorkflowPolicyImpactPreviewReasonCode: "ok" | "alert_source_disabled" | "grouping_policy_disabled" | "notification_channel_disabled" | "notification_channel_missing_report_scope" | "unsupported_trigger_mode" | "no_matching_events";
+        ReportWorkflowPolicyImpactPreviewReasonCode: "ok" | "alert_source_disabled" | "auto_room_requires_alertmanager" | "grouping_policy_disabled" | "notification_channel_disabled" | "notification_channel_missing" | "notification_channel_not_wecom" | "notification_channel_missing_report_scope" | "notification_channel_missing_diagnosis_consultation_scope" | "notification_channel_missing_diagnosis_close_scope" | "notification_channel_missing_ai_delivery_proof" | "unsupported_trigger_mode" | "no_matching_events";
         /** @description Non-persistent impact preview for one report workflow policy. The backend computes this from persisted configuration and a bounded recent AlertEvent sample without provider calls, secret resolution, workflow starts, notification sends, or group/snapshot persistence. */
         ReportWorkflowPolicyImpactPreviewResult: {
             /**
              * Format: int64
+             * @description Persisted policy identifier. Draft previews return 0 because no report workflow policy is stored.
              * @example 1
              */
             policy_id: number;
@@ -1711,6 +2566,16 @@ export interface components {
             report_notification_channel_enabled: boolean;
             /** @example true */
             report_notification_channel_has_report_scope: boolean;
+            /**
+             * @description Whether the bound notification channel can deliver diagnosis-room assistant and final-ready consultation updates for auto_room policies.
+             * @example true
+             */
+            report_notification_channel_has_diagnosis_consultation_scope: boolean;
+            /**
+             * @description Whether the bound notification channel can deliver diagnosis-room close notifications for auto_room policies.
+             * @example true
+             */
+            report_notification_channel_has_diagnosis_close_scope: boolean;
             /**
              * Format: int64
              * @example 3
@@ -1873,6 +2738,7 @@ export interface components {
          *         {
          *           "id": 42,
          *           "source": "prometheus",
+         *           "alert_source_profile_id": 1,
          *           "source_fingerprint": "prom:cpu:node-a",
          *           "canonical_fingerprint": "sha256:93b885adfe0da089cdf634904fd59f71",
          *           "labels": {
@@ -1884,6 +2750,7 @@ export interface components {
          *           "status": "firing",
          *           "starts_at": "2026-05-27T08:00:00Z",
          *           "ends_at": null,
+         *           "linked_evidence_snapshots": [],
          *           "created_at": "2026-05-27T08:00:01Z"
          *         }
          *       ]
@@ -1895,6 +2762,7 @@ export interface components {
              *       {
              *         "id": 42,
              *         "source": "prometheus",
+             *         "alert_source_profile_id": 1,
              *         "source_fingerprint": "prom:cpu:node-a",
              *         "canonical_fingerprint": "sha256:93b885adfe0da089cdf634904fd59f71",
              *         "labels": {
@@ -1906,6 +2774,7 @@ export interface components {
              *         "status": "firing",
              *         "starts_at": "2026-05-27T08:00:00Z",
              *         "ends_at": null,
+             *         "linked_evidence_snapshots": [],
              *         "created_at": "2026-05-27T08:00:01Z"
              *       }
              *     ]
@@ -1920,6 +2789,11 @@ export interface components {
              */
             id: number;
             source: string;
+            /**
+             * Format: int64
+             * @description Operator-managed alert source profile that produced this alert; 0 marks legacy provider-only events.
+             */
+            alert_source_profile_id: number;
             source_fingerprint: string;
             canonical_fingerprint: string;
             labels: {
@@ -1934,8 +2808,44 @@ export interface components {
             starts_at: string;
             /** Format: date-time */
             ends_at: string | null;
+            /** @description Lightweight EvidenceSnapshot links whose payload events contain this alert fingerprint. */
+            linked_evidence_snapshots: components["schemas"]["AlertEvidenceSnapshotLink"][];
             /** Format: date-time */
             created_at: string;
+        };
+        /** @description Lightweight EvidenceSnapshot and diagnosis-room links for an alert event. */
+        AlertEvidenceSnapshotLink: {
+            /**
+             * Format: int64
+             * @description EvidenceSnapshot identifier.
+             * @example 247
+             */
+            id: number;
+            /**
+             * Format: int64
+             * @description AlertGroup that produced the evidence snapshot.
+             * @example 31
+             */
+            alert_group_id: number;
+            /**
+             * @description Snapshot digest used for evidence idempotency.
+             * @example sha256:7a38bf81f383f69433ad6e900434f376
+             */
+            digest: string;
+            /** @enum {string} */
+            status: "complete" | "partial" | "failed";
+            /**
+             * @description Workflow or trigger that created the snapshot.
+             * @example AlertmanagerWebhookAutoDiagnosis
+             */
+            created_by_workflow: string;
+            /**
+             * Format: date-time
+             * @description Snapshot creation timestamp.
+             */
+            created_at: string;
+            /** @description Diagnosis rooms backed by this evidence snapshot. */
+            diagnosis_rooms: components["schemas"]["DiagnosisRoomSummary"][];
         };
         /**
          * @description List response for recent evidence snapshots.
@@ -2020,101 +2930,326 @@ export interface components {
              */
             items: components["schemas"]["FinalReportSummary"][];
         };
-        /** @description Sanitized diagnosis authentication principal summary. */
-        DiagnosisAuthCheckResponse: {
+        /**
+         * @description Lifecycle status of a diagnosis workflow task.
+         * @example running
+         * @enum {string}
+         */
+        DiagnosisTaskStatus: "pending" | "running" | "succeeded" | "failed" | "cancelled";
+        /**
+         * @description Lifecycle status of a diagnosis-room chat session.
+         * @example open
+         * @enum {string}
+         */
+        DiagnosisRoomStatus: "open" | "closed";
+        /**
+         * @description Reason a diagnosis handoff item is waiting for operator action.
+         * @example missing_diagnosis_room
+         * @enum {string}
+         */
+        DiagnosisHandoffReason: "missing_diagnosis_room";
+        /** @description List response for pending diagnosis handoffs. */
+        DiagnosisHandoffListResponse: {
             /**
-             * @description Stable authenticated subject used by diagnosis-room ownership checks.
-             * @example operator-1
+             * @example [
+             *       {
+             *         "reason": "missing_diagnosis_room",
+             *         "evidence_snapshot": {
+             *           "id": 247,
+             *           "alert_group_id": 31,
+             *           "digest": "sha256:7a38bf81f383f69433ad6e900434f376",
+             *           "status": "complete",
+             *           "created_by_workflow": "AlertmanagerWebhookAutoDiagnosis",
+             *           "created_at": "2026-06-18T02:20:28Z",
+             *           "diagnosis_rooms": []
+             *         },
+             *         "alerts": [
+             *           {
+             *             "id": 42,
+             *             "source": "alertmanager",
+             *             "alert_source_profile_id": 1,
+             *             "source_fingerprint": "am:checkout-latency:prod",
+             *             "canonical_fingerprint": "sha256:checkout-latency-prod",
+             *             "labels": {
+             *               "alertname": "CheckoutLatencyHigh",
+             *               "severity": "warning"
+             *             },
+             *             "annotations": {
+             *               "summary": "Checkout p95 latency is above the warning threshold."
+             *             },
+             *             "status": "firing",
+             *             "starts_at": "2026-06-18T02:20:00Z",
+             *             "ends_at": null,
+             *             "linked_evidence_snapshots": [],
+             *             "created_at": "2026-06-18T02:20:01Z"
+             *           }
+             *         ]
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["DiagnosisHandoffBacklogItem"][];
+        };
+        /** @description Pending AI diagnosis handoff for one evidence snapshot. */
+        DiagnosisHandoffBacklogItem: {
+            reason: components["schemas"]["DiagnosisHandoffReason"];
+            evidence_snapshot: components["schemas"]["AlertEvidenceSnapshotLink"];
+            /** @description Recent alert events linked to this evidence snapshot. */
+            alerts: components["schemas"]["AlertEventSummary"][];
+        };
+        /** @description List response for recent diagnosis-room sessions. */
+        DiagnosisRoomListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "session_id": "diagnosis-session-auto-p3-s247",
+             *         "chat_session_id": 353,
+             *         "diagnosis_task_id": 353,
+             *         "evidence_snapshot_id": 247,
+             *         "workflow_id": "diagnosis-room-diagnosis-session-auto-p3-s247",
+             *         "run_id": "run-247",
+             *         "task_status": "running",
+             *         "room_status": "open",
+             *         "turn_count": 1,
+             *         "started_at": "2026-06-18T02:20:28Z",
+             *         "last_activity_at": "2026-06-18T02:20:31Z",
+             *         "closed_at": null,
+             *         "close_reason": "",
+             *         "created_at": "2026-06-18T02:20:28Z",
+             *         "updated_at": "2026-06-18T02:20:31Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["DiagnosisRoomSummary"][];
+        };
+        /** @description Sanitized Temporal execution metadata for a diagnosis-room workflow. */
+        DiagnosisRoomWorkflowVisibility: {
+            /**
+             * @description Temporal workflow execution status, or not_found when visibility lookup could not find the stored execution.
+             * @example running
+             */
+            status: string;
+            /**
+             * @description Temporal task queue recorded for the execution.
+             * @example openclarion
+             */
+            task_queue?: string;
+            /**
+             * Format: date-time
+             * @description Temporal workflow start time.
+             */
+            start_time?: string;
+            /**
+             * Format: date-time
+             * @description Temporal workflow execution time.
+             */
+            execution_time?: string;
+            /**
+             * Format: date-time
+             * @description Temporal workflow close time, when available.
+             */
+            close_time?: string;
+            /**
+             * Format: int64
+             * @description Temporal history event count.
+             */
+            history_length?: number;
+            /**
+             * Format: int64
+             * @description Temporal history size in bytes.
+             */
+            history_size_bytes?: number;
+        };
+        /** @description Operator-facing diagnosis-room lifecycle summary. */
+        DiagnosisRoomSummary: {
+            /**
+             * @description External diagnosis room session key used for WebSocket ticket issuance.
+             * @example diagnosis-session-auto-p3-s247
+             */
+            session_id: string;
+            /**
+             * Format: int64
+             * @description Persistent ChatSession lifecycle row.
+             * @example 353
+             */
+            chat_session_id: number;
+            /**
+             * Format: int64
+             * @description Persistent DiagnosisTask that backs this room.
+             * @example 353
+             */
+            diagnosis_task_id: number;
+            /**
+             * Format: int64
+             * @description EvidenceSnapshot frozen for the room.
+             * @example 247
+             */
+            evidence_snapshot_id: number;
+            /**
+             * @description Temporal workflow ID for the room.
+             * @example diagnosis-room-diagnosis-session-auto-p3-s247
+             */
+            workflow_id: string;
+            /**
+             * @description Temporal run ID for the room.
+             * @example run-247
+             */
+            run_id: string;
+            task_status: components["schemas"]["DiagnosisTaskStatus"];
+            room_status: components["schemas"]["DiagnosisRoomStatus"];
+            /**
+             * @description Accepted user-turn count tracked by the room workflow.
+             * @example 1
+             */
+            turn_count: number;
+            /**
+             * Format: date-time
+             * @description Time the room session started.
+             * @example 2026-06-18T02:20:28Z
+             */
+            started_at: string;
+            /**
+             * Format: date-time
+             * @description Last accepted turn or close time.
+             * @example 2026-06-18T02:20:31Z
+             */
+            last_activity_at: string;
+            /**
+             * Format: date-time
+             * @description Terminal close time, when the room is closed.
+             * @example null
+             */
+            closed_at: string | null;
+            /**
+             * @description Workflow, user, or system reason that closed the room.
+             * @example
+             */
+            close_reason: string;
+            /**
+             * @description Sanitized participant summary derived from room ownership, transcript turns, supplemental evidence, and confirmation metadata.
+             * @example [
+             *       {
+             *         "subject": "operator:alice",
+             *         "roles": [
+             *           "owner",
+             *           "message",
+             *           "confirmation"
+             *         ],
+             *         "is_system": false,
+             *         "message_count": 1,
+             *         "evidence_collection_count": 0,
+             *         "supplemental_evidence_count": 0,
+             *         "confirmed_conclusion": true
+             *       },
+             *       {
+             *         "subject": "openclarion:auto-diagnosis",
+             *         "roles": [
+             *           "assistant"
+             *         ],
+             *         "is_system": true,
+             *         "message_count": 1,
+             *         "evidence_collection_count": 0,
+             *         "supplemental_evidence_count": 0,
+             *         "confirmed_conclusion": false
+             *       }
+             *     ]
+             */
+            participants?: components["schemas"]["DiagnosisRoomParticipantSummary"][];
+            /**
+             * @description Minimal directory display projections for non-system room participant subjects that matched local directory users. This is limited to participants visible in this room and is not a full directory listing.
+             * @example [
+             *       {
+             *         "subject": "operator:alice",
+             *         "username": "alice",
+             *         "display_name": "Alice",
+             *         "job_title": "SRE",
+             *         "department": "Platform",
+             *         "section": "SRE",
+             *         "department_path": "IT/Platform/SRE",
+             *         "active": true
+             *       }
+             *     ]
+             */
+            participant_directory_users?: components["schemas"]["DiagnosisRoomParticipantDirectoryUser"][];
+            latest_conclusion?: components["schemas"]["DiagnosisRoomConclusionSummary"];
+            latest_progress?: components["schemas"]["DiagnosisRoomProgressSummary"];
+            /** @description Sanitized outbound diagnosis-room notification delivery timeline. */
+            notification_timeline?: components["schemas"]["DiagnosisRoomNotificationTimelineEntry"][];
+            workflow_visibility?: components["schemas"]["DiagnosisRoomWorkflowVisibility"];
+            /**
+             * Format: date-time
+             * @description Server-side room row creation timestamp.
+             * @example 2026-06-18T02:20:28Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description Server-side last-mutation timestamp.
+             * @example 2026-06-18T02:20:31Z
+             */
+            updated_at: string;
+        };
+        /** @description Sanitized diagnosis-room participant activity summary. */
+        DiagnosisRoomParticipantSummary: {
+            /** @description Stable authenticated subject used for audit and room authorization. */
+            subject: string;
+            roles: ("owner" | "message" | "evidence" | "supplemental_evidence" | "confirmation" | "assistant")[];
+            /** @description Whether the subject is an OpenClarion system actor. */
+            is_system: boolean;
+            message_count: number;
+            evidence_collection_count: number;
+            supplemental_evidence_count: number;
+            confirmed_conclusion: boolean;
+        };
+        /** @description Minimal local directory display projection for one diagnosis-room participant. */
+        DiagnosisRoomParticipantDirectoryUser: {
+            /**
+             * @description Stable authenticated subject used for audit and room authorization.
+             * @example iam-user-1
              */
             subject: string;
             /**
-             * @description OpenClarion diagnosis authorization roles mapped from IAM claims or browser session state.
+             * @description Directory username when available.
+             * @example alice
+             */
+            username: string;
+            /**
+             * @description Human-readable display name when available.
+             * @example Alice
+             */
+            display_name: string;
+            /**
+             * @description Job title when available.
+             * @example SRE
+             */
+            job_title: string;
+            /**
+             * @description Immediate department name when available.
+             * @example Platform
+             */
+            department: string;
+            /**
+             * @description Section name when available.
+             * @example SRE
+             */
+            section: string;
+            /**
+             * @description Human-readable department path when available.
+             * @example IT/Platform/SRE
+             */
+            department_path: string;
+            /**
+             * @description All human-readable department paths when available.
              * @example [
-             *       "owner"
+             *       "IT/Platform/SRE",
+             *       "IT/Shared"
              *     ]
              */
-            roles: string[];
+            department_paths: string[];
             /**
-             * @description Diagnosis auth provider mode that accepted the credentials.
-             * @example oidc
-             * @enum {string}
-             */
-            mode: "oidc" | "unknown";
-            /**
-             * Format: date-time
-             * @description Server-side timestamp when the credentials were checked.
-             * @example 2026-06-30T10:00:00Z
-             */
-            checked_at: string;
-            /**
-             * @description Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
+             * @description Whether the directory user is active in the upstream projection.
              * @example true
              */
-            role_authorized: boolean;
-        };
-        /** @description Short-lived diagnosis browser session issued after accepted IAM OIDC Authorization credentials. */
-        DiagnosisAuthSessionResponse: {
-            /**
-             * @description OpenClarion diagnosis bearer session token. The BFF stores this value in an HttpOnly cookie and does not expose it to browser JavaScript.
-             * @example openclarion.session.token
-             */
-            token: string;
-            /**
-             * @description Stable authenticated subject used by diagnosis-room ownership checks.
-             * @example operator-1
-             */
-            subject: string;
-            /**
-             * @description OpenClarion diagnosis authorization roles mapped from IAM claims.
-             * @example [
-             *       "owner"
-             *     ]
-             */
-            roles: string[];
-            /**
-             * @description Diagnosis auth provider mode that accepted the credentials.
-             * @example oidc
-             * @enum {string}
-             */
-            mode: "oidc" | "unknown";
-            /**
-             * Format: date-time
-             * @description Server-side timestamp when the credentials were checked.
-             * @example 2026-06-30T10:00:00Z
-             */
-            checked_at: string;
-            /**
-             * Format: date-time
-             * @description Expiry time for the issued OpenClarion session token.
-             * @example 2026-06-30T18:00:00Z
-             */
-            expires_at: string;
-            /**
-             * @description Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
-             * @example true
-             */
-            role_authorized: boolean;
-        };
-        /** @description Non-sensitive diagnosis auth provider wiring status. */
-        DiagnosisAuthStatusResponse: {
-            /**
-             * @description Whether diagnosis auth is wired in the running backend.
-             * @example true
-             */
-            configured: boolean;
-            /**
-             * @description Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
-             * @example oidc
-             * @enum {string}
-             */
-            mode: "oidc" | "unknown" | "none";
-            /**
-             * @description Configured diagnosis auth modes accepted by the running backend.
-             * @example [
-             *       "oidc"
-             *     ]
-             */
-            supported_modes: ("oidc" | "unknown")[];
+            active: boolean;
         };
         /** @description Request to create a short-conversation diagnosis room from a frozen EvidenceSnapshot. */
         DiagnosisRoomCreateRequest: {
@@ -2124,6 +3259,20 @@ export interface components {
              * @example 7
              */
             evidence_snapshot_id: number;
+            /**
+             * Format: int64
+             * @description Optional notification channel profile used for AI diagnosis update, final-ready, and close notifications from this room.
+             * @example 2
+             */
+            close_notification_channel_profile_id?: number;
+        };
+        /** @description Request to close a local diagnosis-room lifecycle row after backend workflow visibility proves the workflow is unavailable. */
+        DiagnosisRoomCloseUnavailableRequest: {
+            /**
+             * @description Operator-facing reason stored on the closed room. Defaults to workflow_unavailable.
+             * @example workflow_unavailable
+             */
+            reason?: string;
         };
         /** @description Created diagnosis room identity and workflow handle. */
         DiagnosisRoomCreateResponse: {
@@ -2160,6 +3309,138 @@ export interface components {
              * @example run-42
              */
             run_id: string;
+        };
+        /** @description Sanitized diagnosis authentication principal summary. */
+        DiagnosisAuthCheckResponse: {
+            /**
+             * @description Stable authenticated subject used by diagnosis-room ownership checks.
+             * @example operator-1
+             */
+            subject: string;
+            /**
+             * @description Diagnosis authorization roles mapped by the configured auth provider. V1 roles are owner and admin.
+             * @example [
+             *       "owner"
+             *     ]
+             */
+            roles: string[];
+            /**
+             * @description Configured diagnosis auth provider mode that accepted the credentials. none is never returned by a successful check.
+             * @example ldap
+             * @enum {string}
+             */
+            mode: "ldap" | "static" | "oidc" | "unknown";
+            /**
+             * Format: date-time
+             * @description Server-side timestamp when the credentials were checked.
+             * @example 2026-06-21T04:00:00Z
+             */
+            checked_at: string;
+            /**
+             * @description Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
+             * @example true
+             */
+            role_authorized: boolean;
+        };
+        /** @description Short-lived diagnosis browser session issued after accepted Authorization credentials. The token is intended only for the trusted browser BFF to store in an HTTP-only cookie and must not be exposed to page JavaScript. */
+        DiagnosisAuthSessionResponse: {
+            /**
+             * @description OpenClarion diagnosis bearer session token. The BFF stores this value in an HTTP-only cookie and does not expose it to the browser UI.
+             * @example openclarion.session.token
+             */
+            token: string;
+            /**
+             * @description Stable authenticated subject used by diagnosis-room ownership checks.
+             * @example operator-1
+             */
+            subject: string;
+            /**
+             * @description Diagnosis authorization roles mapped by the configured auth provider. V1 roles are owner and admin.
+             * @example [
+             *       "owner"
+             *     ]
+             */
+            roles: string[];
+            /**
+             * @description Diagnosis auth provider mode that accepted the credentials. none is never returned by a successful session issue.
+             * @example ldap
+             * @enum {string}
+             */
+            mode: "ldap" | "static" | "oidc" | "unknown";
+            /**
+             * Format: date-time
+             * @description Server-side timestamp when the credentials were checked.
+             * @example 2026-06-21T04:00:00Z
+             */
+            checked_at: string;
+            /**
+             * Format: date-time
+             * @description Expiry time for the issued OpenClarion session token.
+             * @example 2026-06-21T12:00:00Z
+             */
+            expires_at: string;
+            /**
+             * @description Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
+             * @example true
+             */
+            role_authorized: boolean;
+        };
+        /** @description Non-sensitive diagnosis auth provider wiring status. */
+        DiagnosisAuthStatusResponse: {
+            /**
+             * @description Whether diagnosis auth is wired in the running backend.
+             * @example true
+             */
+            configured: boolean;
+            /**
+             * @description Configured diagnosis auth provider mode. none means no provider is wired; unknown means a provider was injected without a named mode.
+             * @example ldap
+             * @enum {string}
+             */
+            mode: "ldap" | "static" | "oidc" | "unknown" | "none";
+            /**
+             * @description Configured diagnosis auth modes accepted by the running backend.
+             * @example [
+             *       "oidc"
+             *     ]
+             */
+            supported_modes?: ("ldap" | "static" | "oidc" | "unknown")[];
+            role_mapping?: components["schemas"]["DiagnosisAuthRoleMappingStatus"];
+            transport_policy?: components["schemas"]["DiagnosisAuthTransportPolicyStatus"];
+        };
+        /** @description Non-sensitive credential transport readiness summary. It reports only the security class and never includes endpoints, DNs, usernames, domains, certificates, or secrets. */
+        DiagnosisAuthTransportPolicyStatus: {
+            /**
+             * @description Credential transport security class accepted by the running backend.
+             * @example tls
+             * @enum {string}
+             */
+            security: "tls" | "start_tls" | "insecure_plaintext";
+        };
+        /** @description Non-sensitive owner/admin role mapping readiness summary. Counts indicate configured mapping paths only and never include upstream role values, user IDs, DNs, claims, endpoints, or secrets. */
+        DiagnosisAuthRoleMappingStatus: {
+            /**
+             * @description Number of configured upstream mappings that grant OpenClarion owner access.
+             * @example 1
+             */
+            owner_mapping_count: number;
+            /**
+             * @description Number of configured upstream mappings that grant OpenClarion admin access.
+             * @example 1
+             */
+            admin_mapping_count: number;
+            /**
+             * @description OpenClarion roles granted by default by the configured provider.
+             * @example [
+             *       "owner"
+             *     ]
+             */
+            default_roles: ("owner" | "admin")[];
+            /**
+             * @description Whether at least one owner/admin mapping path or default role is configured.
+             * @example true
+             */
+            configured: boolean;
         };
         /** @description Request to issue a short-lived WebSocket ticket for a diagnosis session. */
         DiagnosisWSTicketRequest: {
@@ -2209,6 +3490,12 @@ export interface components {
              */
             limit: number;
             /**
+             * Format: int64
+             * @description Optional persisted AlertEvent ID to constrain a row-level replay to the selected alert.
+             * @example 42
+             */
+            alert_event_id?: number;
+            /**
              * @description Optional final-report idempotency key. Defaults to the normalized replay window.
              * @example incident-window-20260527T0900Z
              */
@@ -2233,6 +3520,11 @@ export interface components {
              */
             started: boolean;
             /**
+             * @description Final report correlation key used by the replayed report workflow and downstream delivery proof.
+             * @example incident-window-20260527T0900Z
+             */
+            correlation_key: string;
+            /**
              * @description Started workflow ID, or empty when no snapshots were available.
              * @example report-batch-0bf4f5e1a8cb2d3299dcb4d280d5a6a0
              */
@@ -2253,6 +3545,7 @@ export interface components {
              *     ]
              */
             snapshots: components["schemas"]["ReportReplaySnapshotRef"][];
+            auto_diagnosis?: components["schemas"]["AlertmanagerWebhookAutoDiagnosisSummary"];
         };
         /**
          * @description Counter summary from alert replay.
@@ -2409,6 +3702,27 @@ export interface components {
             generatorURL?: string;
             /** @example abc123 */
             fingerprint?: string;
+            /**
+             * @description Optional Alertmanager API suppression references; alerts with entries here are ignored by webhook ingestion.
+             * @example [
+             *       "silence-1"
+             *     ]
+             */
+            silencedBy?: string[];
+            /**
+             * @description Optional Alertmanager API inhibition references; alerts with entries here are ignored by webhook ingestion.
+             * @example [
+             *       "inhibit-1"
+             *     ]
+             */
+            inhibitedBy?: string[];
+            /**
+             * @description Optional Alertmanager API mute references; alerts with entries here are ignored by webhook ingestion.
+             * @example [
+             *       "mute-1"
+             *     ]
+             */
+            mutedBy?: string[];
         };
         /** @description Sanitized counters from Alertmanager webhook ingestion. */
         AlertmanagerWebhookIngestResponse: {
@@ -2427,6 +3741,12 @@ export interface components {
              * @example 1
              */
             skipped_resolved: number;
+            /**
+             * Format: int64
+             * @description Firing alert entries ignored because Alertmanager marked them silenced, inhibited, or muted.
+             * @example 2
+             */
+            skipped_suppressed: number;
             /**
              * Format: int64
              * @example 0
@@ -2451,6 +3771,69 @@ export interface components {
                 /** Format: int64 */
                 failed: number;
             };
+            auto_diagnosis?: components["schemas"]["AlertmanagerWebhookAutoDiagnosisSummary"];
+        };
+        /** @description Sanitized summary of automatic diagnosis-room handoff triggered by a webhook ingest. */
+        AlertmanagerWebhookAutoDiagnosisSummary: {
+            /**
+             * Format: int64
+             * @description Enabled auto_room report workflow policies matched for this alert source.
+             * @example 1
+             */
+            policies_matched: number;
+            /**
+             * Format: int64
+             * @description Evidence snapshots produced or reused for automatic diagnosis.
+             * @example 1
+             */
+            snapshots: number;
+            /**
+             * Format: int64
+             * @description Diagnosis room workflows accepted for automatic consultation.
+             * @example 1
+             */
+            rooms_started: number;
+            /**
+             * Format: int64
+             * @description Evidence snapshots intentionally left without an automatic diagnosis room in this trigger because the runtime safety cap was reached.
+             * @example 0
+             */
+            rooms_skipped: number;
+            /** @description Diagnosis rooms accepted for automatic consultation, with only navigation-safe identifiers. */
+            rooms?: components["schemas"]["AlertmanagerWebhookAutoDiagnosisRoom"][];
+        };
+        /** @description Navigation-safe reference to one automatic diagnosis room started for alert diagnosis. */
+        AlertmanagerWebhookAutoDiagnosisRoom: {
+            /**
+             * Format: int64
+             * @example 7
+             */
+            policy_id: number;
+            /**
+             * Format: int64
+             * @example 17
+             */
+            evidence_snapshot_id: number;
+            /**
+             * @description External diagnosis-room session key.
+             * @example diagnosis-session-auto-p7-s17
+             */
+            session_id: string;
+            /**
+             * @description Deterministic first-turn message id used by automatic diagnosis.
+             * @example diagnosis-auto-initial-p7-s17
+             */
+            initial_message_id: string;
+            /**
+             * @description Diagnosis-room workflow id accepted by the orchestration runtime.
+             * @example diagnosis-room-diagnosis-session-auto-p7-s17
+             */
+            workflow_id: string;
+            /**
+             * @description Diagnosis-room workflow run id accepted by the orchestration runtime.
+             * @example run-17
+             */
+            run_id: string;
         };
         /** @description EvidenceSnapshot reference returned by replay. */
         ReportReplaySnapshotRef: {
@@ -2477,6 +3860,93 @@ export interface components {
             created_by_workflow: string;
             /** Format: date-time */
             created_at: string;
+        };
+        /**
+         * @description Final report notification delivery lifecycle status.
+         * @enum {string}
+         */
+        ReportNotificationDeliveryStatus: "pending" | "delivered" | "failed";
+        /** @description Sanitized final report notification delivery proof retained for audit. */
+        ReportNotificationDeliveryProof: {
+            /**
+             * Format: int64
+             * @example 31
+             */
+            id: number;
+            /** @example final_report:11/notification/final */
+            idempotency_key: string;
+            notification_purpose: components["schemas"]["ReportNotificationPurpose"];
+            /**
+             * Format: int64
+             * @description Notification channel profile used for this delivery attempt, or null for legacy fallback.
+             * @example 2
+             */
+            report_notification_channel_profile_id: number | null;
+            status: components["schemas"]["ReportNotificationDeliveryStatus"];
+            /** @example msg-31 */
+            provider_message_id?: string;
+            /** @example accepted */
+            provider_status?: string;
+            /** @example webhook returned 500 */
+            failure_reason?: string;
+            /**
+             * Format: date-time
+             * @example 2026-05-27T09:05:10Z
+             */
+            delivered_at?: string;
+            /**
+             * Format: date-time
+             * @example 2026-05-27T09:05:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-05-27T09:05:10Z
+             */
+            updated_at: string;
+        };
+        /** @description Optional override for retrying a report notification. */
+        ReportNotificationRetryRequest: {
+            /**
+             * Format: int64
+             * @description Optional notification channel profile identifier for this retry attempt. Omit or set null to use the legacy fallback provider.
+             * @example 2
+             */
+            report_notification_channel_profile_id?: number | null;
+            notification_purpose?: components["schemas"]["ReportNotificationPurpose"];
+        };
+        /**
+         * @description Operator-facing report notification purpose. Handoff means the report is asking operators to complete diagnosis readiness; final means the report is already operator-confirmed.
+         * @default handoff
+         * @example handoff
+         * @enum {string}
+         */
+        ReportNotificationPurpose: "handoff" | "final";
+        /**
+         * @description Outcome of a report notification retry request. Sent means a provider request was made; already_pending and already_delivered mean existing delivery proof was returned without another provider request.
+         * @example sent
+         * @enum {string}
+         */
+        ReportNotificationRetryState: "sent" | "already_pending" | "already_delivered";
+        /** @description Delivery proof and retry outcome after a report notification retry request. */
+        ReportNotificationRetryResponse: {
+            retry_state: components["schemas"]["ReportNotificationRetryState"];
+            delivery: components["schemas"]["ReportNotificationDeliveryProof"];
+        };
+        /** @description Server-derived readiness for sending the operator-confirmed final report notification. */
+        ReportFinalNotificationReadiness: {
+            /** @example true */
+            ready: boolean;
+            notification_purpose: components["schemas"]["ReportNotificationPurpose"];
+            /**
+             * @example ready
+             * @enum {string}
+             */
+            status: "ready" | "blocked";
+            /** @example Final notification ready */
+            status_label: string;
+            /** @example All linked subreports have operator-confirmed AI conclusions; final notification can be sent. */
+            detail: string;
         };
         /** @description Final report detail with linked SubReports. */
         FinalReportDetail: {
@@ -2515,6 +3985,25 @@ export interface components {
             recommended_actions: components["schemas"]["ReportAction"][];
             /** @example Checkout latency incident requires review. */
             notification_text: string;
+            /**
+             * @description Sanitized final report notification delivery proof, ordered by recency.
+             * @example [
+             *       {
+             *         "id": 31,
+             *         "idempotency_key": "final_report:11/notification/final",
+             *         "notification_purpose": "final",
+             *         "report_notification_channel_profile_id": 2,
+             *         "status": "delivered",
+             *         "provider_message_id": "msg-31",
+             *         "provider_status": "accepted",
+             *         "delivered_at": "2026-05-27T09:05:10Z",
+             *         "created_at": "2026-05-27T09:05:00Z",
+             *         "updated_at": "2026-05-27T09:05:10Z"
+             *       }
+             *     ]
+             */
+            notification_deliveries: components["schemas"]["ReportNotificationDeliveryProof"][];
+            final_notification_readiness: components["schemas"]["ReportFinalNotificationReadiness"];
             /**
              * @example {
              *       "title": "Checkout latency incident",
@@ -2585,6 +4074,60 @@ export interface components {
              *           "confidence": "high",
              *           "requires_human_review": true,
              *           "recorded_at": "2026-05-27T09:08:01Z"
+             *         },
+             *         "diagnosis_progress": {
+             *           "diagnosis_task_id": 301,
+             *           "session_id": "diagnosis-session-301",
+             *           "chat_session_id": 401,
+             *           "event_kind": "diagnosis_room.turn_persisted",
+             *           "status": "in_progress",
+             *           "evidence_snapshot_id": 7,
+             *           "confidence": "low",
+             *           "requires_human_review": true,
+             *           "conclusion_status": "needs_evidence",
+             *           "confidence_rationale": "Deployment timing is still missing.",
+             *           "evidence_request_count": 1,
+             *           "missing_evidence_requests": [
+             *             {
+             *               "label": "Deployment window",
+             *               "detail": "Provide checkout deployment timing before raising confidence.",
+             *               "priority": "high"
+             *             }
+             *           ],
+             *           "occurred_at": "2026-05-27T09:07:00Z",
+             *           "recorded_at": "2026-05-27T09:07:01Z"
+             *         },
+             *         "diagnosis_room": {
+             *           "session_id": "diagnosis-session-301",
+             *           "chat_session_id": 401,
+             *           "diagnosis_task_id": 301,
+             *           "evidence_snapshot_id": 7,
+             *           "workflow_id": "diagnosis-room-diagnosis-session-301",
+             *           "run_id": "run-301",
+             *           "task_status": "running",
+             *           "room_status": "open",
+             *           "turn_count": 2,
+             *           "started_at": "2026-05-27T09:06:00Z",
+             *           "last_activity_at": "2026-05-27T09:08:01Z",
+             *           "closed_at": null,
+             *           "close_reason": "",
+             *           "notification_timeline": [
+             *             {
+             *               "event_kind": "diagnosis_room.final_ready_notification_sent",
+             *               "notification_channel_profile_id": 2,
+             *               "provider_status": "delivered",
+             *               "provider_message_id": "wecom-final-ready-301",
+             *               "assistant_message_id": "msg-1/assistant",
+             *               "assistant_turn_id": 501,
+             *               "assistant_sequence": 2,
+             *               "turn_count": 2,
+             *               "confidence": "high",
+             *               "requires_human_review": true,
+             *               "occurred_at": "2026-05-27T09:08:02Z"
+             *             }
+             *           ],
+             *           "created_at": "2026-05-27T09:06:00Z",
+             *           "updated_at": "2026-05-27T09:08:01Z"
              *         }
              *       }
              *     ]
@@ -2614,6 +4157,46 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             diagnosis_conclusion?: components["schemas"]["DiagnosisRoomConclusionSummary"];
+            diagnosis_progress?: components["schemas"]["DiagnosisRoomProgressSummary"];
+            diagnosis_room?: components["schemas"]["DiagnosisRoomSummary"];
+        };
+        /** @description Latest non-final diagnosis-room AI progress linked to a report evidence snapshot. */
+        DiagnosisRoomProgressSummary: {
+            /** Format: int64 */
+            diagnosis_task_id: number;
+            session_id?: string;
+            /** Format: int64 */
+            chat_session_id?: number;
+            event_kind: string;
+            /**
+             * @description Current non-final diagnosis progress state. Failed means the diagnosis task terminated before a final conclusion was recorded.
+             * @enum {string}
+             */
+            status: "in_progress" | "failed";
+            /** Format: int64 */
+            evidence_snapshot_id: number;
+            confidence: components["schemas"]["ReportConfidence"];
+            requires_human_review: boolean;
+            conclusion_status?: string;
+            confidence_rationale?: string;
+            /** @description Sanitized terminal failure reason when status is failed. */
+            failure_reason?: string;
+            evidence_request_count: number;
+            evidence_requests?: components["schemas"]["DiagnosisRoomEvidenceRequestSummary"][];
+            evidence_collection_results?: components["schemas"]["DiagnosisRoomEvidenceCollectionResultSummary"][];
+            missing_evidence_requests?: components["schemas"]["DiagnosisRoomConsultationEvidenceRequestSummary"][];
+            evidence_collection_suggestions?: components["schemas"]["DiagnosisRoomConsultationEvidenceRequestSummary"][];
+            supplemental_evidence?: components["schemas"]["DiagnosisRoomSupplementalEvidenceSummary"][];
+            confidence_timeline?: components["schemas"]["DiagnosisRoomConfidenceTimelineEntry"][];
+            assistant_message_id?: string;
+            /** Format: int64 */
+            assistant_turn_id?: number;
+            assistant_sequence?: number;
+            turn_count?: number;
+            /** Format: date-time */
+            occurred_at: string;
+            /** Format: date-time */
+            recorded_at: string;
         };
         /** @description Latest available diagnosis-room conclusion linked to a report evidence snapshot. */
         DiagnosisRoomConclusionSummary: {
@@ -2643,6 +4226,12 @@ export interface components {
             content: string;
             confidence?: components["schemas"]["ReportConfidence"];
             requires_human_review?: boolean;
+            confidence_rationale?: string;
+            findings?: string[];
+            recommended_actions?: string[];
+            evidence_requests?: components["schemas"]["DiagnosisRoomEvidenceRequestSummary"][];
+            missing_evidence_requests?: components["schemas"]["DiagnosisRoomConsultationEvidenceRequestSummary"][];
+            evidence_collection_suggestions?: components["schemas"]["DiagnosisRoomConsultationEvidenceRequestSummary"][];
             /** Format: date-time */
             recorded_at: string;
         };
@@ -2652,6 +4241,11 @@ export interface components {
             detail: string;
             priority: string;
             evidence: string;
+            /**
+             * @description Authenticated subject that provided the supplemental evidence, when retained by the event payload.
+             * @example operator:bob
+             */
+            actor_subject?: string;
             context_refs?: string[];
             user_message_id?: string;
             assistant_message_id?: string;
@@ -2659,6 +4253,8 @@ export interface components {
             user_turn_id?: number;
             /** Format: int64 */
             assistant_turn_id?: number;
+            user_sequence?: number;
+            assistant_sequence?: number;
             /** Format: date-time */
             provided_at: string;
         };
@@ -2669,9 +4265,32 @@ export interface components {
             query?: string;
             /** Format: int64 */
             template_id?: number;
+            /** Format: int64 */
+            alert_source_profile_id?: number;
             window_seconds?: number;
             step_seconds?: number;
             limit?: number;
+        };
+        /** @description Sanitized provider-backed evidence collection result for a diagnosis-room assistant turn. */
+        DiagnosisRoomEvidenceCollectionResultSummary: {
+            tool: string;
+            status: string;
+            reason_code?: string;
+            message?: string;
+            request_reason?: string;
+            query?: string;
+            /** Format: int64 */
+            template_id?: number;
+            /** Format: int64 */
+            alert_source_profile_id?: number;
+            alert_source_kind?: string;
+            window_seconds?: number;
+            step_seconds?: number;
+            limit?: number;
+            observed_alerts?: number;
+            observed_metric_series?: number;
+            /** Format: date-time */
+            collected_at: string;
         };
         /** @description Human-readable evidence gap or collection suggestion from a diagnosis-room assistant turn. */
         DiagnosisRoomConsultationEvidenceRequestSummary: {
@@ -2688,6 +4307,7 @@ export interface components {
             confidence_rationale?: string;
             evidence_request_count: number;
             evidence_requests?: components["schemas"]["DiagnosisRoomEvidenceRequestSummary"][];
+            evidence_collection_results?: components["schemas"]["DiagnosisRoomEvidenceCollectionResultSummary"][];
             missing_evidence_requests?: components["schemas"]["DiagnosisRoomConsultationEvidenceRequestSummary"][];
             evidence_collection_suggestions?: components["schemas"]["DiagnosisRoomConsultationEvidenceRequestSummary"][];
             assistant_message_id?: string;
@@ -2697,6 +4317,47 @@ export interface components {
             turn_count?: number;
             /** Format: date-time */
             occurred_at: string;
+        };
+        /** @description Sanitized outbound notification delivery retained from diagnosis-room lifecycle events. */
+        DiagnosisRoomNotificationTimelineEntry: {
+            event_kind: string;
+            /** Format: int64 */
+            notification_channel_profile_id?: number;
+            provider_status: string;
+            provider_message_id?: string;
+            assistant_message_id?: string;
+            /** Format: int64 */
+            assistant_turn_id?: number;
+            assistant_sequence?: number;
+            turn_count?: number;
+            confidence?: components["schemas"]["ReportConfidence"];
+            requires_human_review?: boolean;
+            /**
+             * @description Sanitized proof source for the AI content used to build the outbound notification.
+             * @enum {string}
+             */
+            content_kind?: "assistant_message" | "final_conclusion";
+            /** @description SHA-256 digest of the trimmed AI content used to build the outbound notification. */
+            content_sha256?: string;
+            recommended_action_count?: number;
+            evidence_request_count?: number;
+            /** Format: date-time */
+            occurred_at: string;
+        };
+        /** @description Request to retry the latest still-failed diagnosis-room notification of a specific lifecycle kind. */
+        DiagnosisNotificationRetryRequest: {
+            /** @enum {string} */
+            event_kind: "diagnosis_room.assistant_turn_notification_sent" | "diagnosis_room.final_ready_notification_sent" | "diagnosis_room.close_notification_sent";
+        };
+        /**
+         * @description Outcome of a diagnosis-room notification retry request.
+         * @enum {string}
+         */
+        DiagnosisNotificationRetryState: "sent" | "already_delivered";
+        /** @description Sanitized retry result for one diagnosis-room notification lifecycle event. */
+        DiagnosisNotificationRetryResponse: {
+            retry_state: components["schemas"]["DiagnosisNotificationRetryState"];
+            notification: components["schemas"]["DiagnosisRoomNotificationTimelineEntry"];
         };
         /** @description SubReport summary embedded in the final report content. */
         FinalReportSubReportSummary: {
@@ -2758,6 +4419,8 @@ export interface components {
         DiagnosisToolTemplateID: number;
         /** @description Notification channel profile identifier. */
         NotificationChannelProfileID: number;
+        /** @description Optional local directory provider filter. */
+        DirectoryProvider: string;
     };
     requestBodies: never;
     headers: never;
@@ -2801,6 +4464,24 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DashboardSummary"];
+                };
+            };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Caller is not authorized to read operational data */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
             /** @description Dashboard summary failed server-side */
@@ -3692,6 +5373,61 @@ export interface operations {
                 };
             };
             /** @description Report workflow policy disablement failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    previewReportWorkflowPolicyDraftImpact: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Unsaved report workflow policy draft metadata to preview. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReportWorkflowPolicyWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Sanitized report workflow policy draft impact preview result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportWorkflowPolicyImpactPreviewResult"];
+                };
+            };
+            /** @description Draft impact preview request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Draft-bound profile was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report workflow policy draft impact preview failed server-side */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -4633,7 +6369,10 @@ export interface operations {
     };
     testNotificationChannelProfile: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Optional sanitized test notification sample to send. When omitted, the server picks the highest-signal sample supported by the profile delivery scopes. */
+                content_kind?: "transport_sample" | "ai_diagnosis_sample" | "diagnosis_close_sample";
+            };
             header?: never;
             path: {
                 /** @description Notification channel profile identifier. */
@@ -4690,6 +6429,384 @@ export interface operations {
             };
         };
     };
+    syncDirectory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Optional bounded sync request. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DirectorySyncRequest"];
+            };
+        };
+        responses: {
+            /** @description Directory sync completed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectorySyncResponse"];
+                };
+            };
+            /** @description Directory sync request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Directory sync failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Directory syncer is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listDirectorySyncRuns: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+                /** @description Optional local directory provider filter. */
+                provider?: components["parameters"]["DirectoryProvider"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Local directory sync runs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectorySyncRunListResponse"];
+                };
+            };
+            /** @description Directory sync run list parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Directory sync run list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listDirectoryUsers: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+                /** @description Optional local directory provider filter. */
+                provider?: components["parameters"]["DirectoryProvider"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Local directory users */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryUserListResponse"];
+                };
+            };
+            /** @description Directory user list parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Directory user list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listDirectoryDepartments: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+                /** @description Optional local directory provider filter. */
+                provider?: components["parameters"]["DirectoryProvider"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Local directory departments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectoryDepartmentListResponse"];
+                };
+            };
+            /** @description Directory department list parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Directory department list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listRBACAssignments: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Local RBAC assignments */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RBACAssignmentListResponse"];
+                };
+            };
+            /** @description RBAC assignment list parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description RBAC assignment list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    upsertRBACAssignment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Local role assignment to upsert. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RBACAssignmentWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description RBAC assignment upserted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RBACAssignment"];
+                };
+            };
+            /** @description RBAC assignment request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description RBAC assignment upsert failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    authorizeRBAC: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Authorization decision request. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RBACAuthorizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Local RBAC decision */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RBACAuthorizeResponse"];
+                };
+            };
+            /** @description RBAC authorization request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description RBAC authorization failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description RBAC authorizer is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    authorizeCurrentRBAC: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Current operator authorization checks. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RBACCurrentAuthorizationRequest"];
+            };
+        };
+        responses: {
+            /** @description Current operator local RBAC decisions */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RBACCurrentAuthorizationResponse"];
+                };
+            };
+            /** @description Current RBAC authorization request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Current RBAC authorization failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description RBAC authorization dependencies are not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     listAlerts: {
         parameters: {
             query?: {
@@ -4713,6 +6830,24 @@ export interface operations {
             };
             /** @description Alert list request parameters are invalid */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Caller is not authorized to read operational data */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4761,6 +6896,24 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Caller is not authorized to read operational data */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Evidence snapshot list failed server-side */
             500: {
                 headers: {
@@ -4795,6 +6948,24 @@ export interface operations {
             };
             /** @description Report list request parameters are invalid */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Caller is not authorized to read operational data */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4845,6 +7016,24 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Caller is not authorized to manage report workflows */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Replay or workflow start failed server-side */
             500: {
                 headers: {
@@ -4874,13 +7063,111 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Diagnosis auth status */
+            /** @description Diagnosis auth wiring status */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["DiagnosisAuthStatusResponse"];
+                };
+            };
+        };
+    };
+    verifyDiagnosisWeComAppCallback: {
+        parameters: {
+            query: {
+                /** @description Enterprise WeChat callback signature. */
+                msg_signature: string;
+                /** @description Enterprise WeChat callback timestamp. */
+                timestamp: string;
+                /** @description Enterprise WeChat callback nonce. */
+                nonce: string;
+                /** @description Enterprise WeChat encrypted callback echo challenge. */
+                echostr: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Callback URL challenge verified */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": string;
+                };
+            };
+            /** @description Callback verification query is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Enterprise WeChat app callback verifier is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    acceptDiagnosisWeComAppCallback: {
+        parameters: {
+            query: {
+                /** @description Enterprise WeChat callback signature. */
+                msg_signature: string;
+                /** @description Enterprise WeChat callback timestamp. */
+                timestamp: string;
+                /** @description Enterprise WeChat callback nonce. */
+                nonce: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Enterprise WeChat encrypted XML callback body. */
+        requestBody: {
+            content: {
+                "application/xml": string;
+                "text/xml": string;
+            };
+        };
+        responses: {
+            /** @description Callback message accepted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/plain": "success";
+                };
+            };
+            /** @description Callback message query or body is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Enterprise WeChat app callback verifier is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
         };
@@ -4993,7 +7280,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Bearer token is missing or invalid */
+            /** @description Authorization credentials are missing or invalid */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5040,6 +7327,47 @@ export interface operations {
             };
         };
     };
+    listDiagnosisRooms: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Recent diagnosis rooms */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisRoomListResponse"];
+                };
+            };
+            /** @description Diagnosis room list request parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis room list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     createDiagnosisRoom: {
         parameters: {
             query?: never;
@@ -5072,7 +7400,7 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
-            /** @description Bearer token is missing, invalid, or lacks a principal subject */
+            /** @description Authorization credentials are missing, invalid, or lack a principal subject */
             401: {
                 headers: {
                     [name: string]: unknown;
@@ -5119,6 +7447,279 @@ export interface operations {
             };
         };
     };
+    getDiagnosisRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description External diagnosis room session key to read. */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Exact diagnosis room */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisRoomSummary"];
+                };
+            };
+            /** @description Diagnosis room session key is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis room was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis room lookup failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retryDiagnosisRoomNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description External diagnosis room session key whose failed notification should be retried. */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Notification event kind to retry. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiagnosisNotificationRetryRequest"];
+            };
+        };
+        responses: {
+            /** @description Diagnosis notification retry completed or an existing successful delivery was returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisNotificationRetryResponse"];
+                };
+            };
+            /** @description Retry request is invalid or no retryable failed notification exists */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authorization credentials are missing or invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated principal cannot access the diagnosis session */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis room was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Retry failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis notification retry wiring is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listDiagnosisHandoffs: {
+        parameters: {
+            query?: {
+                /** @description Maximum number of rows to return. */
+                limit?: components["parameters"]["ListLimit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending diagnosis handoffs */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisHandoffListResponse"];
+                };
+            };
+            /** @description Diagnosis handoff list request parameters are invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Caller is not authorized to read operational data */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis handoff list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    closeUnavailableDiagnosisRoom: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description External diagnosis room session key to close. */
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        /** @description Optional operator close reason. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["DiagnosisRoomCloseUnavailableRequest"];
+            };
+        };
+        responses: {
+            /** @description Diagnosis room was closed locally because its workflow is unavailable */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiagnosisRoomSummary"];
+                };
+            };
+            /** @description Close request is invalid or the workflow is still usable */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authorization credentials are missing, invalid, or lack a principal subject */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated principal cannot close the diagnosis room */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Diagnosis room was not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Close failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Workflow visibility lookup or diagnosis auth is not configured */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
     getReport: {
         parameters: {
             query?: never;
@@ -5149,6 +7750,24 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse"];
                 };
             };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Caller is not authorized to read operational data */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Report was not found */
             404: {
                 headers: {
@@ -5160,6 +7779,79 @@ export interface operations {
             };
             /** @description Report detail failed server-side */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    retryReportNotification: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Final report identifier. */
+                report_id: components["parameters"]["ReportID"];
+            };
+            cookie?: never;
+        };
+        /** @description Optional notification channel and purpose override for the retry attempt. */
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReportNotificationRetryRequest"];
+            };
+        };
+        responses: {
+            /** @description Report notification retry completed or existing delivery proof was returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReportNotificationRetryResponse"];
+                };
+            };
+            /** @description Retry request is invalid or notification configuration is unusable */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report notification retry credentials are missing or invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authenticated principal cannot retry report notifications */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Retry failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Report notification retry wiring is not configured */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

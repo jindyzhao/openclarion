@@ -17,6 +17,9 @@ import (
 
 // ListReportWorkflowPolicies implements api.ServerInterface.
 func (s *Server) ListReportWorkflowPolicies(w http.ResponseWriter, r *http.Request, params api.ListReportWorkflowPoliciesParams) {
+	if !s.authorizeLocalRBACRequest(w, r, domain.RBACPermissionReportWorkflowRead) {
+		return
+	}
 	limit, err := parseListLimit(params.Limit)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -41,6 +44,9 @@ func (s *Server) ListReportWorkflowPolicies(w http.ResponseWriter, r *http.Reque
 
 // CreateReportWorkflowPolicy implements api.ServerInterface.
 func (s *Server) CreateReportWorkflowPolicy(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizeLocalRBACRequest(w, r, domain.RBACPermissionReportWorkflowManage) {
+		return
+	}
 	body, err := decodeReportWorkflowPolicyWriteRequest(w, r)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -67,6 +73,9 @@ func (s *Server) GetReportWorkflowPolicy(w http.ResponseWriter, r *http.Request,
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "policy_id must be positive", nil)
 		return
 	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionReportWorkflowRead, domain.RBACScopeKindReportWorkflow, rbacResourceScopeKey(policyID)) {
+		return
+	}
 
 	var policy domain.ReportWorkflowPolicy
 	err := s.uowFactory.WithinTx(r.Context(), func(ctx context.Context, uow ports.UnitOfWork) error {
@@ -91,6 +100,16 @@ func (s *Server) ReplaceReportWorkflowPolicy(w http.ResponseWriter, r *http.Requ
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "policy_id must be positive", nil)
 		return
 	}
+	_, rbacPrincipal, ok := s.authorizeLocalRBACPrincipalsForScope(
+		w,
+		r,
+		domain.RBACPermissionReportWorkflowManage,
+		domain.RBACScopeKindReportWorkflow,
+		rbacResourceScopeKey(policyID),
+	)
+	if !ok {
+		return
+	}
 	body, err := decodeReportWorkflowPolicyWriteRequest(w, r)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
@@ -107,6 +126,9 @@ func (s *Server) ReplaceReportWorkflowPolicy(w http.ResponseWriter, r *http.Requ
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
+	if !s.authorizeReportWorkflowPolicyBindings(w, r, rbacPrincipal, req) {
+		return
+	}
 	saved, err := svc.Replace(r.Context(), domain.ReportWorkflowPolicyID(policyID), req)
 	writeReportWorkflowPolicyMutationResult(r.Context(), w, s.logger, err, "replace report workflow policy failed", saved, http.StatusOK)
 }
@@ -121,6 +143,56 @@ func (s *Server) DisableReportWorkflowPolicy(w http.ResponseWriter, r *http.Requ
 	s.runReportWorkflowPolicyAction(w, r, policyID, false)
 }
 
+// PreviewReportWorkflowPolicyDraftImpact implements api.ServerInterface.
+func (s *Server) PreviewReportWorkflowPolicyDraftImpact(
+	w http.ResponseWriter,
+	r *http.Request,
+	params api.PreviewReportWorkflowPolicyDraftImpactParams,
+) {
+	if !s.authorizeLocalRBACRequest(w, r, domain.RBACPermissionReportWorkflowManage) {
+		return
+	}
+	body, err := decodeReportWorkflowPolicyWriteRequest(w, r)
+	if err != nil {
+		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	req, err := reportWorkflowImpactDraftRequest(body)
+	if err != nil {
+		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	limit, err := parseListLimit(params.Limit)
+	if err != nil {
+		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	req.Limit = limit
+	svc, err := reportworkflowimpact.NewService(
+		s.uowFactory,
+		reportworkflowimpact.WithClock(func() time.Time { return time.Now().UTC() }),
+	)
+	if err != nil {
+		writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "preview report workflow policy draft impact failed", err)
+		return
+	}
+
+	result, err := svc.PreviewDraft(r.Context(), req)
+	if errors.Is(err, domain.ErrNotFound) {
+		writeError(r.Context(), w, s.logger, http.StatusNotFound, reportWorkflowPolicyNotFoundMessage(err), nil)
+		return
+	}
+	if errors.Is(err, domain.ErrInvariantViolation) {
+		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
+		return
+	}
+	if err != nil {
+		writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "preview report workflow policy draft impact failed", err)
+		return
+	}
+	writeJSON(r.Context(), w, s.logger, http.StatusOK, reportWorkflowImpactPreviewResponse(result))
+}
+
 // PreviewReportWorkflowPolicyImpact implements api.ServerInterface.
 func (s *Server) PreviewReportWorkflowPolicyImpact(
 	w http.ResponseWriter,
@@ -130,6 +202,9 @@ func (s *Server) PreviewReportWorkflowPolicyImpact(
 ) {
 	if policyID <= 0 {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "policy_id must be positive", nil)
+		return
+	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionReportWorkflowRead, domain.RBACScopeKindReportWorkflow, rbacResourceScopeKey(policyID)) {
 		return
 	}
 	limit, err := parseListLimit(params.Limit)
@@ -167,6 +242,13 @@ func (s *Server) PreviewReportWorkflowPolicyImpact(
 
 // TriggerReportWorkflowPolicyReplay implements api.ServerInterface.
 func (s *Server) TriggerReportWorkflowPolicyReplay(w http.ResponseWriter, r *http.Request, policyID int64) {
+	if policyID <= 0 {
+		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "policy_id must be positive", nil)
+		return
+	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionReportWorkflowManage, domain.RBACScopeKindReportWorkflow, rbacResourceScopeKey(policyID)) {
+		return
+	}
 	if s.policyTrigger == nil {
 		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "report workflow policy replay trigger is not configured", nil)
 		return
@@ -182,7 +264,7 @@ func (s *Server) TriggerReportWorkflowPolicyReplay(w http.ResponseWriter, r *htt
 		return
 	}
 
-	result, err := s.policyTrigger.ReplayAndStart(r.Context(), req)
+	response, err := s.runReportWorkflowPolicyReplay(r.Context(), req)
 	if errors.Is(err, domain.ErrNotFound) {
 		writeError(r.Context(), w, s.logger, http.StatusNotFound, reportWorkflowPolicyNotFoundMessage(err), nil)
 		return
@@ -195,12 +277,38 @@ func (s *Server) TriggerReportWorkflowPolicyReplay(w http.ResponseWriter, r *htt
 		writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "trigger report workflow policy replay failed", err)
 		return
 	}
-	writeJSON(r.Context(), w, s.logger, http.StatusAccepted, reportReplayTriggerResponse(result))
+	writeJSON(r.Context(), w, s.logger, http.StatusAccepted, response)
+}
+
+func (s *Server) runReportWorkflowPolicyReplay(
+	ctx context.Context,
+	req reportpolicytrigger.Request,
+) (api.ReportReplayTriggerResponse, error) {
+	if detailed, ok := s.policyTrigger.(ReportWorkflowPolicyReplayDetailedTrigger); ok {
+		result, err := detailed.ReplayAndStartDetailed(ctx, req)
+		if err != nil {
+			return api.ReportReplayTriggerResponse{}, err
+		}
+		response := reportReplayTriggerResponse(result.Trigger)
+		if result.AutoDiagnosis != nil {
+			autoDiagnosis := alertmanagerWebhookAutoDiagnosisSummary(*result.AutoDiagnosis)
+			response.AutoDiagnosis = &autoDiagnosis
+		}
+		return response, nil
+	}
+	result, err := s.policyTrigger.ReplayAndStart(ctx, req)
+	if err != nil {
+		return api.ReportReplayTriggerResponse{}, err
+	}
+	return reportReplayTriggerResponse(result), nil
 }
 
 func (s *Server) runReportWorkflowPolicyAction(w http.ResponseWriter, r *http.Request, policyID int64, enabled bool) {
 	if policyID <= 0 {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "policy_id must be positive", nil)
+		return
+	}
+	if !s.authorizeLocalRBACRequestForScope(w, r, domain.RBACPermissionReportWorkflowManage, domain.RBACScopeKindReportWorkflow, rbacResourceScopeKey(policyID)) {
 		return
 	}
 	svc, err := s.newReportWorkflowPolicyService()
@@ -255,7 +363,79 @@ func reportWorkflowPolicyWriteRequest(body api.ReportWorkflowPolicyWriteRequest)
 	if err != nil {
 		return reportworkflowpolicy.WriteRequest{}, err
 	}
+	if body.AlertSourceProfileID <= 0 {
+		return reportworkflowpolicy.WriteRequest{}, errors.New("alert_source_profile_id must be positive")
+	}
+	if body.GroupingPolicyID <= 0 {
+		return reportworkflowpolicy.WriteRequest{}, errors.New("grouping_policy_id must be positive")
+	}
 	return reportworkflowpolicy.WriteRequest{
+		Name:                               body.Name,
+		AlertSourceProfileID:               domain.AlertSourceProfileID(body.AlertSourceProfileID),
+		GroupingPolicyID:                   domain.GroupingPolicyID(body.GroupingPolicyID),
+		ReportNotificationChannelProfileID: reportNotificationChannelProfileID,
+		TriggerMode:                        domain.ReportWorkflowTriggerMode(derefString(body.TriggerMode)),
+		ReportScenario:                     domain.ReportWorkflowScenario(derefString(body.ReportScenario)),
+		DiagnosisFollowUp:                  domain.DiagnosisFollowUpMode(derefString(body.DiagnosisFollowUp)),
+	}, nil
+}
+
+func (s *Server) authorizeReportWorkflowPolicyBindings(
+	w http.ResponseWriter,
+	r *http.Request,
+	principal domain.RBACPrincipal,
+	req reportworkflowpolicy.WriteRequest,
+) bool {
+	checks := []struct {
+		permission domain.RBACPermission
+		scopeKind  domain.RBACScopeKind
+		scopeKey   string
+	}{
+		{
+			permission: domain.RBACPermissionAlertSourceRead,
+			scopeKind:  domain.RBACScopeKindAlertSource,
+			scopeKey:   rbacResourceScopeKey(int64(req.AlertSourceProfileID)),
+		},
+		{
+			permission: domain.RBACPermissionGroupingPolicyRead,
+			scopeKind:  domain.RBACScopeKindGroupingPolicy,
+			scopeKey:   rbacResourceScopeKey(int64(req.GroupingPolicyID)),
+		},
+	}
+	if req.ReportNotificationChannelProfileID > 0 {
+		checks = append(checks, struct {
+			permission domain.RBACPermission
+			scopeKind  domain.RBACScopeKind
+			scopeKey   string
+		}{
+			permission: domain.RBACPermissionNotificationChannelTest,
+			scopeKind:  domain.RBACScopeKindNotificationChannel,
+			scopeKey:   rbacResourceScopeKey(int64(req.ReportNotificationChannelProfileID)),
+		})
+	}
+	for _, check := range checks {
+		allowed, ok := s.authorizeResolvedLocalRBACPrincipalForScope(
+			w,
+			r,
+			principal,
+			check.permission,
+			check.scopeKind,
+			check.scopeKey,
+			true,
+		)
+		if !ok || !allowed {
+			return false
+		}
+	}
+	return true
+}
+
+func reportWorkflowImpactDraftRequest(body api.ReportWorkflowPolicyWriteRequest) (reportworkflowimpact.DraftRequest, error) {
+	reportNotificationChannelProfileID, err := optionalNotificationChannelProfileID(body.ReportNotificationChannelProfileID)
+	if err != nil {
+		return reportworkflowimpact.DraftRequest{}, err
+	}
+	return reportworkflowimpact.DraftRequest{
 		Name:                               body.Name,
 		AlertSourceProfileID:               domain.AlertSourceProfileID(body.AlertSourceProfileID),
 		GroupingPolicyID:                   domain.GroupingPolicyID(body.GroupingPolicyID),
@@ -355,31 +535,33 @@ func reportWorkflowPolicyResponse(policy domain.ReportWorkflowPolicy) api.Report
 
 func reportWorkflowImpactPreviewResponse(result reportworkflowimpact.Result) api.ReportWorkflowPolicyImpactPreviewResult {
 	return api.ReportWorkflowPolicyImpactPreviewResult{
-		PolicyID:                                int64(result.Policy.ID),
-		Status:                                  reportWorkflowImpactPreviewStatus(result.Status),
-		ReasonCodes:                             reportWorkflowImpactPreviewReasonCodes(result.ReasonCodes),
-		Message:                                 result.Message,
-		CheckedAt:                               result.CheckedAt,
-		TriggerMode:                             api.ReportWorkflowTriggerMode(result.Policy.TriggerMode),
-		ReportScenario:                          api.ReportWorkflowScenario(result.Policy.ReportScenario),
-		DiagnosisFollowUp:                       api.DiagnosisFollowUpMode(result.Policy.DiagnosisFollowUp),
-		AlertSourceProfileID:                    int64(result.AlertSourceID),
-		AlertSourceKind:                         api.AlertSourceKind(result.AlertSourceKind),
-		AlertSourceAuthMode:                     api.AlertSourceAuthMode(result.AlertSourceAuthMode),
-		AlertSourceEnabled:                      result.AlertSourceEnabled,
-		GroupingPolicyID:                        int64(result.GroupingPolicy.ID),
-		GroupingPolicyEnabled:                   result.GroupingPolicy.Enabled,
-		GroupingDimensionKeys:                   result.GroupingPolicy.DimensionKeys,
-		GroupingSeverityKey:                     result.GroupingPolicy.SeverityKey,
-		GroupingSourceFilter:                    result.GroupingPolicy.SourceFilter,
-		ReportNotificationChannelProfileID:      nullableReportNotificationChannelProfileID(result.Policy.ReportNotificationChannelProfileID),
-		ReportNotificationChannelBound:          result.ReportNotificationChannelBound,
-		ReportNotificationChannelEnabled:        result.ReportNotificationChannelEnabled,
-		ReportNotificationChannelHasReportScope: result.ReportNotificationChannelReportScope,
-		EventsScanned:                           int64(result.EventsScanned),
-		EventsMatched:                           int64(result.EventsMatched),
-		GroupsEstimated:                         int64(len(result.Groups)),
-		Groups:                                  groupingPolicyPreviewGroups(result.Groups),
+		PolicyID:                           int64(result.Policy.ID),
+		Status:                             reportWorkflowImpactPreviewStatus(result.Status),
+		ReasonCodes:                        reportWorkflowImpactPreviewReasonCodes(result.ReasonCodes),
+		Message:                            result.Message,
+		CheckedAt:                          result.CheckedAt,
+		TriggerMode:                        api.ReportWorkflowTriggerMode(result.Policy.TriggerMode),
+		ReportScenario:                     api.ReportWorkflowScenario(result.Policy.ReportScenario),
+		DiagnosisFollowUp:                  api.DiagnosisFollowUpMode(result.Policy.DiagnosisFollowUp),
+		AlertSourceProfileID:               int64(result.AlertSourceID),
+		AlertSourceKind:                    api.AlertSourceKind(result.AlertSourceKind),
+		AlertSourceAuthMode:                api.AlertSourceAuthMode(result.AlertSourceAuthMode),
+		AlertSourceEnabled:                 result.AlertSourceEnabled,
+		GroupingPolicyID:                   int64(result.GroupingPolicy.ID),
+		GroupingPolicyEnabled:              result.GroupingPolicy.Enabled,
+		GroupingDimensionKeys:              result.GroupingPolicy.DimensionKeys,
+		GroupingSeverityKey:                result.GroupingPolicy.SeverityKey,
+		GroupingSourceFilter:               result.GroupingPolicy.SourceFilter,
+		ReportNotificationChannelProfileID: nullableReportNotificationChannelProfileID(result.Policy.ReportNotificationChannelProfileID),
+		ReportNotificationChannelBound:     result.ReportNotificationChannelBound,
+		ReportNotificationChannelEnabled:   result.ReportNotificationChannelEnabled,
+		ReportNotificationChannelHasDiagnosisConsultationScope: result.ReportNotificationChannelConsultationScope,
+		ReportNotificationChannelHasDiagnosisCloseScope:        result.ReportNotificationChannelCloseScope,
+		ReportNotificationChannelHasReportScope:                result.ReportNotificationChannelReportScope,
+		EventsScanned:                                          int64(result.EventsScanned),
+		EventsMatched:                                          int64(result.EventsMatched),
+		GroupsEstimated:                                        int64(len(result.Groups)),
+		Groups:                                                 groupingPolicyPreviewGroups(result.Groups),
 	}
 }
 
@@ -410,12 +592,24 @@ func reportWorkflowImpactPreviewReasonCode(reason reportworkflowimpact.ReasonCod
 		return api.ReportWorkflowPolicyImpactPreviewReasonCodeOk
 	case reportworkflowimpact.ReasonAlertSourceDisabled:
 		return api.ReportWorkflowPolicyImpactPreviewReasonCodeAlertSourceDisabled
+	case reportworkflowimpact.ReasonAutoRoomRequiresAlertmanager:
+		return api.ReportWorkflowPolicyImpactPreviewReasonCodeAutoRoomRequiresAlertmanager
 	case reportworkflowimpact.ReasonGroupingPolicyDisabled:
 		return api.ReportWorkflowPolicyImpactPreviewReasonCodeGroupingPolicyDisabled
 	case reportworkflowimpact.ReasonNotificationChannelDisabled:
 		return api.ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelDisabled
+	case reportworkflowimpact.ReasonNotificationChannelMissing:
+		return api.ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissing
+	case reportworkflowimpact.ReasonNotificationChannelNotWeCom:
+		return api.ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelNotWecom
 	case reportworkflowimpact.ReasonNotificationChannelMissingReportScope:
 		return api.ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissingReportScope
+	case reportworkflowimpact.ReasonNotificationChannelMissingDiagnosisConsultationScope:
+		return api.ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissingDiagnosisConsultationScope
+	case reportworkflowimpact.ReasonNotificationChannelMissingDiagnosisCloseScope:
+		return api.ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissingDiagnosisCloseScope
+	case reportworkflowimpact.ReasonNotificationChannelMissingAIProof:
+		return api.ReportWorkflowPolicyImpactPreviewReasonCodeNotificationChannelMissingAiDeliveryProof
 	case reportworkflowimpact.ReasonUnsupportedTriggerMode:
 		return api.ReportWorkflowPolicyImpactPreviewReasonCodeUnsupportedTriggerMode
 	case reportworkflowimpact.ReasonNoMatchingEvents:

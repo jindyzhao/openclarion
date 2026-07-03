@@ -3,10 +3,26 @@ import type {
   GroupingPolicyFormState,
   GroupingPolicyWriteRequest
 } from "./types";
+import {
+  containsControlOrWhitespace,
+  utf8ByteLength
+} from "../validation";
 
 type ParseResult<T> =
   | { ok: true; value: T }
   | { ok: false; message: string };
+
+type SearchParamValue = string | string[] | undefined;
+
+export type GroupingPolicyLaunchIntentName = "default-alert-grouping";
+
+export type GroupingPolicyLaunchIntent = {
+  dimensionKeysText: string;
+  message: string;
+  name: string;
+  severityKey: string;
+  sourceFilterText: string;
+};
 
 export function emptyGroupingPolicyForm(): GroupingPolicyFormState {
   return {
@@ -15,6 +31,56 @@ export function emptyGroupingPolicyForm(): GroupingPolicyFormState {
     severityKey: "severity",
     sourceFilterText: "",
     enabled: false
+  };
+}
+
+export function groupingPolicyLaunchHref({
+  intent
+}: {
+  intent: GroupingPolicyLaunchIntentName;
+}): string {
+  const params = new URLSearchParams({ intent });
+  return `/settings/grouping-policies?${params.toString()}`;
+}
+
+export function groupingPolicyLaunchIntentFromSearchParams(
+  searchParams: Record<string, SearchParamValue>
+): GroupingPolicyLaunchIntent | null {
+  switch (firstSearchParamValue(searchParams.intent)) {
+    case "default-alert-grouping":
+      return {
+        dimensionKeysText: "alertname\nservice\nnamespace\npod",
+        message:
+          "Prepared a default alert grouping policy for alert name, service, namespace, and pod dimensions.",
+        name: "Default alert grouping",
+        severityKey: "severity",
+        sourceFilterText: ""
+      };
+    default:
+      return null;
+  }
+}
+
+export function groupingPolicyLaunchIntentKey(launchIntent: GroupingPolicyLaunchIntent | null): string {
+  if (launchIntent === null) {
+    return "default";
+  }
+  return `${launchIntent.name}:${launchIntent.dimensionKeysText}:${launchIntent.severityKey}`;
+}
+
+export function groupingPolicyLaunchInitialForm(
+  launchIntent: GroupingPolicyLaunchIntent | null
+): GroupingPolicyFormState {
+  if (launchIntent === null) {
+    return emptyGroupingPolicyForm();
+  }
+  return {
+    ...emptyGroupingPolicyForm(),
+    dimensionKeysText: launchIntent.dimensionKeysText,
+    enabled: true,
+    name: launchIntent.name,
+    severityKey: launchIntent.severityKey,
+    sourceFilterText: launchIntent.sourceFilterText
   };
 }
 
@@ -34,8 +100,8 @@ export function formStateToWriteRequest(form: GroupingPolicyFormState): ParseRes
   if (name === "") {
     return { ok: false, message: "Policy name is required." };
   }
-  if (name.length > 120) {
-    return { ok: false, message: "Policy name must be 120 characters or fewer." };
+  if (utf8ByteLength(name) > 120) {
+    return { ok: false, message: "Policy name must be 120 bytes or fewer." };
   }
   const dimensions = parseTokenList(form.dimensionKeysText, {
     field: "Dimension key",
@@ -97,13 +163,20 @@ function parseTokenList(
     if (!validPolicyToken(token)) {
       return { ok: false, message: `${options.field} must not contain whitespace or control characters.` };
     }
-    if (token.length > 64) {
-      return { ok: false, message: `${options.field} must be 64 characters or fewer.` };
+    if (utf8ByteLength(token) > 64) {
+      return { ok: false, message: `${options.field} must be 64 bytes or fewer.` };
     }
   }
   return { ok: true, value: unique };
 }
 
 function validPolicyToken(value: string): boolean {
-  return !/[\s\u0000-\u001f\u007f]/.test(value);
+  return !containsControlOrWhitespace(value);
+}
+
+function firstSearchParamValue(value: SearchParamValue): string | null {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+  return value ?? null;
 }
