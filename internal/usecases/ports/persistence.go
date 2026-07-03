@@ -309,6 +309,11 @@ type DiagnosisRepository interface {
 	// limit MUST be > 0.
 	ListChatSessions(ctx context.Context, limit int) ([]domain.ChatSessionWithTask, error)
 
+	// ListChatSessionsPage returns a deterministic page of recent
+	// diagnosis-room sessions ordered by (updated_at DESC, id DESC), with their
+	// backing DiagnosisTask loaded. limit MUST be > 0 and offset MUST be >= 0.
+	ListChatSessionsPage(ctx context.Context, limit int, offset int) ([]domain.ChatSessionWithTask, error)
+
 	// SaveChatTurn appends one immutable chat transcript row. A
 	// duplicate (chat_session_id, message_id) or
 	// (chat_session_id, sequence) returns a wrapped

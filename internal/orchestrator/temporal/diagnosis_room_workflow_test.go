@@ -872,6 +872,12 @@ func TestDiagnosisRoomWorkflow_ConfirmConclusionUpdateRejectsSkippedEvidence(t *
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
 	env.SetStartTime(time.Date(2026, 5, 28, 10, 57, 0, 0, time.UTC))
+	skippedRequest := diagnosisroom.EvidenceRequest{
+		Tool:   "metric_query",
+		Reason: "Read service availability.",
+		Query:  `up{job="api"}`,
+		Limit:  5,
+	}
 	registerDiagnosisRoomPersistenceActivitiesWithCollect(t, env,
 		func(_ context.Context, got temporalpkg.CollectDiagnosisEvidenceInput) (temporalpkg.CollectDiagnosisEvidenceResult, error) {
 			if got.SessionID == "" || got.DiagnosisTaskID == 0 || len(got.Requests) != 1 {
@@ -890,7 +896,7 @@ func TestDiagnosisRoomWorkflow_ConfirmConclusionUpdateRejectsSkippedEvidence(t *
 			}, nil
 		},
 	)
-	registerFinalDiagnosisTurnActivity(t, env)
+	registerFinalDiagnosisTurnActivityWithEvidenceRequests(t, env, "msg-final", []diagnosisroom.EvidenceRequest{skippedRequest})
 
 	var submit captureSubmitTurnUpdate
 	var collect captureCollectEvidenceUpdate
@@ -917,12 +923,7 @@ func TestDiagnosisRoomWorkflow_ConfirmConclusionUpdateRejectsSkippedEvidence(t *
 						MessageID:    "collect-skipped",
 						ActorSubject: "owner-1",
 						Message:      "Collect planned metric evidence.",
-						Requests: []diagnosisroom.EvidenceRequest{{
-							Tool:   "metric_query",
-							Reason: "Read service availability.",
-							Query:  `up{job="api"}`,
-							Limit:  5,
-						}},
+						Requests:     []diagnosisroom.EvidenceRequest{skippedRequest},
 					},
 				)
 			}),
@@ -961,6 +962,12 @@ func TestDiagnosisRoomWorkflow_ConfirmConclusionUpdateAcceptsReviewedSkippedEvid
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
 	env.SetStartTime(time.Date(2026, 5, 28, 10, 57, 0, 0, time.UTC))
+	skippedRequest := diagnosisroom.EvidenceRequest{
+		Tool:   "metric_query",
+		Reason: "Read service availability.",
+		Query:  `up{job="api"}`,
+		Limit:  5,
+	}
 	registerDiagnosisRoomPersistenceActivitiesWithCollect(t, env,
 		func(_ context.Context, got temporalpkg.CollectDiagnosisEvidenceInput) (temporalpkg.CollectDiagnosisEvidenceResult, error) {
 			if got.SessionID == "" || got.DiagnosisTaskID == 0 || len(got.Requests) != 1 {
@@ -979,7 +986,7 @@ func TestDiagnosisRoomWorkflow_ConfirmConclusionUpdateAcceptsReviewedSkippedEvid
 			}, nil
 		},
 	)
-	registerFinalDiagnosisTurnActivity(t, env)
+	registerFinalDiagnosisTurnActivityWithEvidenceRequests(t, env, "msg-final", []diagnosisroom.EvidenceRequest{skippedRequest})
 
 	var submit captureSubmitTurnUpdate
 	var collect captureCollectEvidenceUpdate
@@ -1022,12 +1029,7 @@ func TestDiagnosisRoomWorkflow_ConfirmConclusionUpdateAcceptsReviewedSkippedEvid
 						MessageID:    "collect-skipped",
 						ActorSubject: "owner-1",
 						Message:      "Collect planned metric evidence.",
-						Requests: []diagnosisroom.EvidenceRequest{{
-							Tool:   "metric_query",
-							Reason: "Read service availability.",
-							Query:  `up{job="api"}`,
-							Limit:  5,
-						}},
+						Requests:     []diagnosisroom.EvidenceRequest{skippedRequest},
 					},
 				)
 			}),
@@ -1771,6 +1773,11 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRunsAutoFollowUp(t *testing.
 						Confidence:          "low",
 						RequiresHumanReview: true,
 						ConfidenceRationale: "Current sibling alert evidence is missing.",
+						EvidenceRequests: []diagnosisroom.EvidenceRequest{{
+							Tool:   "active_alerts",
+							Reason: "Need current sibling alerts.",
+							Limit:  5,
+						}},
 						EvidenceCollectionSuggestions: []diagnosisroom.ConsultationEvidenceRequest{{
 							Label:    "Current alert context",
 							Detail:   "Collect current sibling alerts before finalizing.",
@@ -1778,7 +1785,7 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRunsAutoFollowUp(t *testing.
 						}},
 						ConclusionStatus: "needs_evidence",
 					},
-					RawOutput:           json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"` + message + `","confidence":"low","requires_human_review":true,"confidence_rationale":"Current sibling alert evidence is missing.","evidence_collection_suggestions":[{"label":"Current alert context","detail":"Collect current sibling alerts before finalizing.","priority":"high"}],"conclusion_status":"needs_evidence"}`),
+					RawOutput:           json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"` + message + `","confidence":"low","requires_human_review":true,"confidence_rationale":"Current sibling alert evidence is missing.","evidence_requests":[{"tool":"active_alerts","reason":"Need current sibling alerts.","limit":5}],"evidence_collection_suggestions":[{"label":"Current alert context","detail":"Collect current sibling alerts before finalizing.","priority":"high"}],"conclusion_status":"needs_evidence"}`),
 					StartedAt:           time.Date(2026, 5, 28, 11, 0, 0, 0, time.UTC),
 					FinishedAt:          time.Date(2026, 5, 28, 11, 0, 1, 0, time.UTC),
 					RequiresHumanReview: true,
@@ -1833,7 +1840,7 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRunsAutoFollowUp(t *testing.
 					},
 				)
 			}),
-			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-1", ActorSubject: "openclarion.alertmanager-webhook:1:policy:1", Message: "Start diagnosis"},
+			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-1", ActorSubject: "owner-1", Message: "Start diagnosis"},
 		)
 	}, time.Millisecond)
 
@@ -1853,15 +1860,15 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRunsAutoFollowUp(t *testing.
 	if collect.result.State.TurnCount != 2 ||
 		collect.result.State.LatestInsight == nil ||
 		collect.result.State.LatestInsight.ConclusionStatus != "final" ||
-		len(collect.result.State.EvidenceTimeline) != 1 ||
+		len(collect.result.State.EvidenceTimeline) != 2 ||
 		collect.result.State.InFlight {
 		t.Fatalf("collect state = %+v", collect.result)
 	}
-	if collect.result.State.EvidenceTimeline[0].Trigger != "manual_evidence_collection" {
+	if collect.result.State.EvidenceTimeline[1].Trigger != "manual_evidence_collection" {
 		t.Fatalf("evidence timeline = %+v", collect.result.State.EvidenceTimeline)
 	}
-	if collect.result.State.EvidenceTimeline[0].ActorSubject != "owner-1" {
-		t.Fatalf("evidence timeline actor = %q, want owner-1", collect.result.State.EvidenceTimeline[0].ActorSubject)
+	if collect.result.State.EvidenceTimeline[1].ActorSubject != "owner-1" {
+		t.Fatalf("evidence timeline actor = %q, want owner-1", collect.result.State.EvidenceTimeline[1].ActorSubject)
 	}
 	if len(evidenceCollectedCalls) != 1 ||
 		evidenceCollectedCalls[0].UserMessageID != "collect-1" ||
@@ -1932,13 +1939,19 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRunsAutoFollowUpForFailedCol
 						RequiresHumanReview: true,
 						ConfidenceRationale: "The current metric sample is missing.",
 						ConclusionStatus:    "needs_evidence",
+						EvidenceRequests: []diagnosisroom.EvidenceRequest{{
+							Tool:   "metric_query",
+							Reason: "Need current CPU sample.",
+							Query:  "up",
+							Limit:  5,
+						}},
 						EvidenceCollectionSuggestions: []diagnosisroom.ConsultationEvidenceRequest{{
 							Label:    "Current CPU sample",
 							Detail:   "Collect a bounded CPU query before finalizing.",
 							Priority: "high",
 						}},
 					},
-					RawOutput:           json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"` + message + `","confidence":"low","requires_human_review":true,"confidence_rationale":"The current metric sample is missing.","evidence_collection_suggestions":[{"label":"Current CPU sample","detail":"Collect a bounded CPU query before finalizing.","priority":"high"}],"conclusion_status":"needs_evidence"}`),
+					RawOutput:           json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"` + message + `","confidence":"low","requires_human_review":true,"confidence_rationale":"The current metric sample is missing.","evidence_requests":[{"tool":"metric_query","reason":"Need current CPU sample.","query":"up","limit":5}],"evidence_collection_suggestions":[{"label":"Current CPU sample","detail":"Collect a bounded CPU query before finalizing.","priority":"high"}],"conclusion_status":"needs_evidence"}`),
 					StartedAt:           time.Date(2026, 5, 28, 11, 2, 0, 0, time.UTC),
 					FinishedAt:          time.Date(2026, 5, 28, 11, 2, 1, 0, time.UTC),
 					RequiresHumanReview: true,
@@ -2011,7 +2024,7 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRunsAutoFollowUpForFailedCol
 					},
 				)
 			}),
-			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-1", ActorSubject: "openclarion.alertmanager-webhook:1:policy:1", Message: "Start diagnosis"},
+			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-1", ActorSubject: "owner-1", Message: "Start diagnosis"},
 		)
 	}, time.Millisecond)
 
@@ -2137,6 +2150,48 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRejectsManualRequestsOutside
 			},
 			want: "step_seconds must not exceed window_seconds",
 		},
+		{
+			name:      "reason over parser cap",
+			messageID: "collect-reason-over-cap",
+			request: diagnosisroom.EvidenceRequest{
+				Tool:   "active_alerts",
+				Reason: strings.Repeat("a", diagnosisroom.EvidenceRequestReasonBytesMaximum()+1),
+				Limit:  5,
+			},
+			want: "reason exceeds 500 bytes",
+		},
+		{
+			name:      "reason contains control rune",
+			messageID: "collect-reason-control-rune",
+			request: diagnosisroom.EvidenceRequest{
+				Tool:   "active_alerts",
+				Reason: "Need\ncurrent sibling alerts.",
+				Limit:  5,
+			},
+			want: "reason must be single-line",
+		},
+		{
+			name:      "query over parser cap",
+			messageID: "collect-query-over-cap",
+			request: diagnosisroom.EvidenceRequest{
+				Tool:   "metric_query",
+				Reason: "Need current metric value.",
+				Query:  strings.Repeat("a", diagnosisroom.EvidenceRequestQueryBytesMaximum()+1),
+				Limit:  5,
+			},
+			want: "query exceeds 500 bytes",
+		},
+		{
+			name:      "query contains control rune",
+			messageID: "collect-query-control-rune",
+			request: diagnosisroom.EvidenceRequest{
+				Tool:   "metric_query",
+				Reason: "Need current metric value.",
+				Query:  "up\nrate",
+				Limit:  5,
+			},
+			want: "query must be single-line",
+		},
 	}
 
 	for _, tc := range tests {
@@ -2190,6 +2245,62 @@ func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRejectsManualRequestsOutside
 			assertCollectUpdateRejected(t, collect, tc.want)
 		})
 	}
+}
+
+func TestDiagnosisRoomWorkflow_CollectEvidenceUpdateRejectsRequestsOutsideAssistantPlan(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 11, 5, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+	registerDiagnosisTurnActivity(t, env)
+
+	var submit captureSubmitTurnUpdate
+	var collect captureCollectEvidenceUpdate
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-before-unapproved-collection",
+			submit.callbackOnSuccess(t, func() {
+				env.UpdateWorkflow(
+					temporalpkg.DiagnosisRoomCollectEvidenceUpdate,
+					"collect-unapproved-template",
+					collect.callbackOnTerminal(t, func() {
+						env.SignalWorkflow(
+							temporalpkg.DiagnosisRoomCloseSignal,
+							temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"},
+						)
+					}),
+					temporalpkg.CollectDiagnosisEvidenceRequest{
+						MessageID:    "collect-unapproved-template",
+						ActorSubject: "owner-1",
+						Message:      "Collect evidence outside the assistant plan.",
+						Requests: []diagnosisroom.EvidenceRequest{{
+							TemplateID:           99,
+							AlertSourceProfileID: 88,
+							Tool:                 "active_alerts",
+							Reason:               "Need current sibling alerts.",
+							Limit:                5,
+						}},
+					},
+				)
+			}),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "submit-unapproved-collection",
+				ActorSubject: "owner-1",
+				Message:      "Start diagnosis before manual collection.",
+			},
+		)
+	}, time.Millisecond)
+
+	input := defaultRoomInput()
+	input.Policy = diagnosisroom.DefaultPolicy()
+	input.Policy.MaxAutoEvidenceFollowUps = 0
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+	if submit.rejected != nil || submit.completeErr != nil {
+		t.Fatalf("submit update rejected=%v completeErr=%v", submit.rejected, submit.completeErr)
+	}
+	assertCollectUpdateRejected(t, collect, "must match a pending assistant evidence request")
 }
 
 func TestDiagnosisRoomWorkflow_AutoEvidenceFollowUpCanBeDisabled(t *testing.T) {
@@ -3380,6 +3491,36 @@ func registerFinalDiagnosisTurnActivity(t *testing.T, env *testsuite.TestWorkflo
 	)
 }
 
+func registerFinalDiagnosisTurnActivityWithEvidenceRequests(
+	t *testing.T,
+	env *testsuite.TestWorkflowEnvironment,
+	messageID string,
+	requests []diagnosisroom.EvidenceRequest,
+) {
+	t.Helper()
+	env.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.DiagnosisTurnActivityInput) (temporalpkg.DiagnosisTurnActivityResult, error) {
+			if got.SessionID == "" || got.DiagnosisTaskID == 0 || got.MessageID == "" {
+				t.Fatalf("activity input missing identity: %+v", got)
+			}
+			message := "Final diagnosis for " + got.MessageID + "."
+			output := diagnosisroom.TurnOutput{
+				SchemaVersion:       diagnosisroom.TurnOutputSchemaVersion,
+				Message:             message,
+				Confidence:          "medium",
+				RequiresHumanReview: true,
+				ConfidenceRationale: "The evidence supports a final diagnosis pending operator review.",
+				ConclusionStatus:    "final",
+			}
+			if got.MessageID == messageID {
+				output.EvidenceRequests = append([]diagnosisroom.EvidenceRequest(nil), requests...)
+			}
+			return diagnosisTurnActivityResultForTest(t, got, output), nil
+		},
+		activity.RegisterOptions{Name: "RunDiagnosisTurn"},
+	)
+}
+
 func registerReadyForReviewDiagnosisTurnActivity(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
 	t.Helper()
 	env.RegisterActivityWithOptions(
@@ -3701,7 +3842,8 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect
 			}
 			return temporalpkg.CollectDiagnosisEvidenceResult{
 				Items: []diagnosisevidence.Item{{
-					Tool:           "active_alerts",
+					Request:        got.Requests[0],
+					Tool:           got.Requests[0].Tool,
 					Status:         diagnosisevidence.StatusCollected,
 					ReasonCode:     diagnosisevidence.ReasonOK,
 					Message:        "Active alert collection succeeded.",

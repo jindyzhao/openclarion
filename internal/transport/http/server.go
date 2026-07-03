@@ -455,29 +455,28 @@ func (s *Server) ListDiagnosisRooms(w http.ResponseWriter, r *http.Request, para
 	}
 
 	var items []api.DiagnosisRoomSummary
-	queryLimit := limit
-	if !hasGlobalRead {
-		queryLimit = maxListLimit
-	}
-	err = s.uowFactory.WithinTx(r.Context(), func(ctx context.Context, uow ports.UnitOfWork) error {
-		rooms, lerr := uow.Diagnosis().ListChatSessions(ctx, queryLimit)
-		if lerr != nil {
+	if hasGlobalRead {
+		err = s.uowFactory.WithinTx(r.Context(), func(ctx context.Context, uow ports.UnitOfWork) error {
+			rooms, lerr := uow.Diagnosis().ListChatSessions(ctx, limit)
+			if lerr != nil {
+				return lerr
+			}
+			items, lerr = diagnosisRoomSummariesWithConclusionsAndNotifications(ctx, uow.Diagnosis(), rooms)
 			return lerr
-		}
-		items, lerr = diagnosisRoomSummariesWithConclusionsAndNotifications(ctx, uow.Diagnosis(), rooms)
-		return lerr
-	})
-	if err != nil {
-		writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "list diagnosis rooms failed", err)
-		return
-	}
-	if !hasGlobalRead {
-		items, ok = s.filterDiagnosisRoomSummariesByLocalRBAC(w, r, rbacPrincipal, items)
-		if !ok {
+		})
+		if err != nil {
+			writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "list diagnosis rooms failed", err)
 			return
 		}
-		if len(items) > limit {
-			items = items[:limit]
+	} else {
+		var err error
+		items, ok, err = s.listDiagnosisRoomSummariesByLocalRBAC(r.Context(), w, r, rbacPrincipal, limit)
+		if err != nil {
+			writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "list diagnosis rooms failed", err)
+			return
+		}
+		if !ok {
+			return
 		}
 	}
 	items, err = s.withDiagnosisRoomParticipantDirectoryUsers(r.Context(), items)
@@ -490,6 +489,51 @@ func (s *Server) ListDiagnosisRooms(w http.ResponseWriter, r *http.Request, para
 	writeJSON(r.Context(), w, s.logger, http.StatusOK, api.DiagnosisRoomListResponse{
 		Items: items,
 	})
+}
+
+func (s *Server) listDiagnosisRoomSummariesByLocalRBAC(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	principal domain.RBACPrincipal,
+	limit int,
+) ([]api.DiagnosisRoomSummary, bool, error) {
+	items := make([]api.DiagnosisRoomSummary, 0, limit)
+	allowedBySession := map[string]bool{}
+	for offset := 0; len(items) < limit; {
+		var page []api.DiagnosisRoomSummary
+		if err := s.uowFactory.WithinTx(ctx, func(txCtx context.Context, uow ports.UnitOfWork) error {
+			rooms, lerr := uow.Diagnosis().ListChatSessionsPage(txCtx, maxListLimit, offset)
+			if lerr != nil {
+				return lerr
+			}
+			page, lerr = diagnosisRoomSummariesWithConclusionsAndNotifications(txCtx, uow.Diagnosis(), rooms)
+			return lerr
+		}); err != nil {
+			return nil, false, err
+		}
+		if len(page) == 0 {
+			break
+		}
+		for _, item := range page {
+			allowed, ok := s.diagnosisRoomReadAllowedBySession(w, r, principal, item.SessionID, allowedBySession)
+			if !ok {
+				return nil, false, nil
+			}
+			if !allowed {
+				continue
+			}
+			items = append(items, item)
+			if len(items) >= limit {
+				break
+			}
+		}
+		if len(page) < maxListLimit {
+			break
+		}
+		offset += len(page)
+	}
+	return items, true, nil
 }
 
 func (s *Server) filterDiagnosisRoomSummariesByLocalRBAC(

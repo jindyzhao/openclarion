@@ -69,6 +69,30 @@ describe("directory sync config route", () => {
     expect(headers.get("cookie")).toBeNull();
   });
 
+  it("forwards an empty body as the default sync request", async () => {
+    const response = await POST(
+      new Request("https://console.example.com/api/config/directory/sync", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer token-1",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+
+    const fetchMock = vi.mocked(fetch);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [, init] = fetchMock.mock.calls[0] as unknown as [
+      URL,
+      RequestInit,
+    ];
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe(JSON.stringify({}));
+    const headers = init.headers as Headers;
+    expect(headers.get("authorization")).toBe("Bearer token-1");
+  });
+
   it("requires explicit or browser-session authorization", async () => {
     const response = await POST(
       new Request("https://console.example.com/api/config/directory/sync", {

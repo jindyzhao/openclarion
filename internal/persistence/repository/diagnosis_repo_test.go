@@ -606,9 +606,21 @@ func TestDiagnosisRepository_ListChatSessions(t *testing.T) {
 			t.Fatalf("ListChatSessions[0] = %+v", out[0])
 		}
 
+		paged, err := uow.Diagnosis().ListChatSessionsPage(ctx, 1, 1)
+		if err != nil {
+			t.Fatalf("ListChatSessionsPage: %v", err)
+		}
+		if len(paged) != 1 || paged[0].Session.SessionKey != "session-list-a" {
+			t.Fatalf("ListChatSessionsPage = %+v, want second session", paged)
+		}
+
 		_, err = uow.Diagnosis().ListChatSessions(ctx, 0)
 		if !errors.Is(err, domain.ErrInvariantViolation) {
 			t.Fatalf("ListChatSessions zero limit: want ErrInvariantViolation, got %v", err)
+		}
+		_, err = uow.Diagnosis().ListChatSessionsPage(ctx, 1, -1)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("ListChatSessionsPage negative offset: want ErrInvariantViolation, got %v", err)
 		}
 	})
 }

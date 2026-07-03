@@ -1337,6 +1337,33 @@ func (s *diagnosisRoomState) validateCollectEvidence(req CollectDiagnosisEvidenc
 			return err
 		}
 	}
+	if err := s.validateManualEvidenceRequestsApproved(req.Requests); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *diagnosisRoomState) validateManualEvidenceRequestsApproved(requests []diagnosisroom.EvidenceRequest) error {
+	pending := make(map[string]struct{}, len(s.latestEvidenceRequests))
+	addPending := func(items []diagnosisroom.EvidenceRequest) {
+		for _, item := range items {
+			pending[diagnosisRoomEvidenceRequestIdentity(item)] = struct{}{}
+		}
+	}
+	addPending(pendingDiagnosisRoomEvidenceRequests(s.latestEvidenceRequests, s.latestCollectionResults))
+	if s.finalConclusion != nil {
+		addPending(pendingDiagnosisRoomEvidenceRequests(s.finalConclusion.EvidenceRequests, s.latestCollectionResults))
+	}
+	if len(pending) == 0 {
+		return fmt.Errorf("diagnosis room collect evidence: no pending assistant evidence requests are available")
+	}
+	for i, request := range requests {
+		key := diagnosisRoomEvidenceRequestIdentity(request)
+		if _, ok := pending[key]; !ok {
+			return fmt.Errorf("diagnosis room collect evidence: requests[%d] must match a pending assistant evidence request", i)
+		}
+		delete(pending, key)
+	}
 	return nil
 }
 
@@ -1353,8 +1380,22 @@ func validateManualEvidenceRequest(index int, req diagnosisroom.EvidenceRequest)
 	if strings.TrimSpace(req.Reason) != req.Reason {
 		return fmt.Errorf("diagnosis room collect evidence: requests[%d].reason must not contain leading or trailing whitespace", index)
 	}
+	if len([]byte(req.Reason)) > diagnosisroom.EvidenceRequestReasonBytesMaximum() {
+		return fmt.Errorf("diagnosis room collect evidence: requests[%d].reason exceeds %d bytes", index, diagnosisroom.EvidenceRequestReasonBytesMaximum())
+	}
+	if diagnosisroom.EvidenceRequestTextHasControlRune(req.Reason) {
+		return fmt.Errorf("diagnosis room collect evidence: requests[%d].reason must be single-line", index)
+	}
 	if strings.TrimSpace(req.Query) != req.Query {
 		return fmt.Errorf("diagnosis room collect evidence: requests[%d].query must not contain leading or trailing whitespace", index)
+	}
+	if req.Query != "" {
+		if len([]byte(req.Query)) > diagnosisroom.EvidenceRequestQueryBytesMaximum() {
+			return fmt.Errorf("diagnosis room collect evidence: requests[%d].query exceeds %d bytes", index, diagnosisroom.EvidenceRequestQueryBytesMaximum())
+		}
+		if diagnosisroom.EvidenceRequestTextHasControlRune(req.Query) {
+			return fmt.Errorf("diagnosis room collect evidence: requests[%d].query must be single-line", index)
+		}
 	}
 	if req.Limit < 0 {
 		return fmt.Errorf("diagnosis room collect evidence: requests[%d].limit must be non-negative", index)

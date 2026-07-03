@@ -723,6 +723,22 @@ func EvidenceRequestRangeSecondsBounds() (minSeconds int, maxSeconds int) {
 	return minEvidenceRequestRangeSeconds, maxEvidenceRequestRangeSeconds
 }
 
+// EvidenceRequestReasonBytesMaximum returns the parser-enforced reason byte cap.
+func EvidenceRequestReasonBytesMaximum() int {
+	return maxEvidenceRequestReasonBytes
+}
+
+// EvidenceRequestQueryBytesMaximum returns the parser-enforced query byte cap.
+func EvidenceRequestQueryBytesMaximum() int {
+	return maxEvidenceRequestQueryBytes
+}
+
+// EvidenceRequestTextHasControlRune reports whether text would violate the
+// parser's single-line evidence request text contract.
+func EvidenceRequestTextHasControlRune(value string) bool {
+	return containsControlRune(value)
+}
+
 func validateEvidenceRequestRange(index int, windowSeconds int, stepSeconds int) error {
 	if windowSeconds < minEvidenceRequestRangeSeconds || windowSeconds > maxEvidenceRequestRangeSeconds {
 		return fmt.Errorf("diagnosis turn output: evidence_requests[%d].window_seconds must be between %d and %d", index, minEvidenceRequestRangeSeconds, maxEvidenceRequestRangeSeconds)

@@ -798,6 +798,9 @@ func (r *retryTestRepo) FindChatSessionByKey(_ context.Context, sessionKey strin
 func (r *retryTestRepo) ListChatSessions(context.Context, int) ([]domain.ChatSessionWithTask, error) {
 	return nil, errors.New("unexpected ListChatSessions call")
 }
+func (r *retryTestRepo) ListChatSessionsPage(context.Context, int, int) ([]domain.ChatSessionWithTask, error) {
+	return nil, errors.New("unexpected ListChatSessionsPage call")
+}
 func (r *retryTestRepo) SaveChatTurn(context.Context, domain.ChatTurn) (domain.ChatTurn, error) {
 	return domain.ChatTurn{}, errors.New("unexpected SaveChatTurn call")
 }

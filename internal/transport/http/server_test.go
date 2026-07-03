@@ -2020,6 +2020,99 @@ func TestListDiagnosisRooms_FiltersBeforeLimitForScopedRBAC(t *testing.T) {
 	}
 }
 
+func TestListDiagnosisRooms_PagesScopedRBACPastFirstGlobalPage(t *testing.T) {
+	startedAt := time.Date(2026, 6, 27, 10, 0, 0, 0, time.UTC)
+	sessions := make([]domain.ChatSessionWithTask, 0, maxListLimit+1)
+	for i := 0; i < maxListLimit; i++ {
+		taskID := domain.DiagnosisTaskID(2000 + i)
+		sessionKey := fmt.Sprintf("room-hidden-%03d", i)
+		updatedAt := startedAt.Add(time.Duration(maxListLimit-i) * time.Minute)
+		sessions = append(sessions, domain.ChatSessionWithTask{
+			Session: domain.ChatSession{
+				ID:              domain.ChatSessionID(1000 + i),
+				DiagnosisTaskID: taskID,
+				SessionKey:      sessionKey,
+				OwnerSubject:    "operator:hidden",
+				Status:          domain.ChatSessionStatusOpen,
+				StartedAt:       updatedAt,
+				LastActivityAt:  updatedAt,
+				CreatedAt:       updatedAt,
+				UpdatedAt:       updatedAt,
+			},
+			Task: domain.DiagnosisTask{
+				ID:                 taskID,
+				EvidenceSnapshotID: domain.EvidenceSnapshotID(3000 + i),
+				WorkflowID:         "diagnosis-room-" + sessionKey,
+				RunID:              "run-" + sessionKey,
+				Status:             domain.DiagnosisStatusRunning,
+			},
+		})
+	}
+	visibleTaskID := domain.DiagnosisTaskID(9001)
+	visibleAt := startedAt.Add(-time.Minute)
+	sessions = append(sessions, domain.ChatSessionWithTask{
+		Session: domain.ChatSession{
+			ID:              9001,
+			DiagnosisTaskID: visibleTaskID,
+			SessionKey:      "room-visible-after-first-page",
+			OwnerSubject:    "operator:visible",
+			Status:          domain.ChatSessionStatusOpen,
+			StartedAt:       visibleAt,
+			LastActivityAt:  visibleAt,
+			CreatedAt:       visibleAt,
+			UpdatedAt:       visibleAt,
+		},
+		Task: domain.DiagnosisTask{
+			ID:                 visibleTaskID,
+			EvidenceSnapshotID: 9901,
+			WorkflowID:         "diagnosis-room-room-visible-after-first-page",
+			RunID:              "run-visible-after-first-page",
+			Status:             domain.DiagnosisStatusRunning,
+		},
+	})
+	factory := &fakeUOWFactory{
+		configRepo: &fakeConfigRepo{
+			directoryUsers: []domain.DirectoryUser{
+				testDirectoryUser(11, "operator:visible", "Visible Operator"),
+			},
+		},
+		diagnosisRepo: &fakeDiagnosisRepo{chatSessions: sessions},
+	}
+	authorizer := &fakeRBACAuthorizer{
+		authorize: func(req rbacusecase.AuthorizeRequest) (rbacusecase.AuthorizeDecision, error) {
+			return rbacusecase.AuthorizeDecision{
+				Allowed: req.ScopeKind == domain.RBACScopeKindDiagnosisRoom &&
+					req.ScopeKey == "room-visible-after-first-page",
+				CheckedAt: startedAt,
+			}, nil
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodGet, "/api/v1/diagnosis/rooms?limit=1", nil)
+	addTestLocalRBACAuthorization(req)
+	testHandler(factory, testLocalRBACOptions(t, "responder-1", authorizer)...).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body api.DiagnosisRoomListResponse
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if len(body.Items) != 1 || body.Items[0].SessionID != "room-visible-after-first-page" {
+		t.Fatalf("items = %+v, want visible room from second page", body.Items)
+	}
+	if len(factory.diagnosisRepo.chatSessionPageCalls) != 2 ||
+		factory.diagnosisRepo.chatSessionPageCalls[0] != (chatSessionPageCall{limit: maxListLimit, offset: 0}) ||
+		factory.diagnosisRepo.chatSessionPageCalls[1] != (chatSessionPageCall{limit: maxListLimit, offset: maxListLimit}) {
+		t.Fatalf("chat session page calls = %+v, want first two pages", factory.diagnosisRepo.chatSessionPageCalls)
+	}
+	if authorizer.called != maxListLimit+2 {
+		t.Fatalf("authorizer calls = %d, want global plus scoped rooms through the second page", authorizer.called)
+	}
+}
+
 func TestGetDiagnosisRoom_ReturnsExactSummary(t *testing.T) {
 	startedAt := time.Date(2026, 6, 20, 3, 14, 25, 0, time.UTC)
 	notificationAt := startedAt.Add(95 * time.Second)
@@ -10673,20 +10766,27 @@ func (r *fakeEvidenceRepo) List(_ context.Context, limit int) ([]domain.Evidence
 
 type fakeDiagnosisRepo struct {
 	ports.DiagnosisRepository
-	tasksBySnapshot      map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
-	eventsByTaskAndKind  map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
-	chatTurnsBySession   map[domain.ChatSessionID][]domain.ChatTurn
-	chatSessions         []domain.ChatSessionWithTask
-	lastSnapshotID       domain.EvidenceSnapshotID
-	lastTaskLimit        int
-	lastTaskID           domain.DiagnosisTaskID
-	lastFindTaskID       domain.DiagnosisTaskID
-	lastEventKind        string
-	lastEventLimit       int
-	lastChatSessionLimit int
-	lastChatSessionKey   string
-	lastChatTurnSession  domain.ChatSessionID
-	lastChatTurnLimit    int
+	tasksBySnapshot       map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
+	eventsByTaskAndKind   map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
+	chatTurnsBySession    map[domain.ChatSessionID][]domain.ChatTurn
+	chatSessions          []domain.ChatSessionWithTask
+	lastSnapshotID        domain.EvidenceSnapshotID
+	lastTaskLimit         int
+	lastTaskID            domain.DiagnosisTaskID
+	lastFindTaskID        domain.DiagnosisTaskID
+	lastEventKind         string
+	lastEventLimit        int
+	lastChatSessionLimit  int
+	lastChatSessionOffset int
+	chatSessionPageCalls  []chatSessionPageCall
+	lastChatSessionKey    string
+	lastChatTurnSession   domain.ChatSessionID
+	lastChatTurnLimit     int
+}
+
+type chatSessionPageCall struct {
+	limit  int
+	offset int
 }
 
 func (r *fakeDiagnosisRepo) ListTasksByEvidenceSnapshot(_ context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]domain.DiagnosisTask, error) {
@@ -10730,9 +10830,18 @@ func (r *fakeDiagnosisRepo) ListEventsByTaskAndKind(_ context.Context, taskID do
 	return events[:limit], nil
 }
 
-func (r *fakeDiagnosisRepo) ListChatSessions(_ context.Context, limit int) ([]domain.ChatSessionWithTask, error) {
+func (r *fakeDiagnosisRepo) ListChatSessions(ctx context.Context, limit int) ([]domain.ChatSessionWithTask, error) {
+	return r.ListChatSessionsPage(ctx, limit, 0)
+}
+
+func (r *fakeDiagnosisRepo) ListChatSessionsPage(_ context.Context, limit int, offset int) ([]domain.ChatSessionWithTask, error) {
 	r.lastChatSessionLimit = limit
-	sessions := r.chatSessions
+	r.lastChatSessionOffset = offset
+	r.chatSessionPageCalls = append(r.chatSessionPageCalls, chatSessionPageCall{limit: limit, offset: offset})
+	if offset >= len(r.chatSessions) {
+		return nil, nil
+	}
+	sessions := r.chatSessions[offset:]
 	if limit > len(sessions) {
 		limit = len(sessions)
 	}

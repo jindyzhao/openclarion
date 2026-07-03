@@ -4,7 +4,7 @@ import {
   diagnosisAuthorizationHeaders,
   protectedApiResultResponse,
 } from "@/lib/api/protected-route";
-import { apiResultResponse, readRequestJSON } from "@/lib/api/route";
+import { apiResultResponse, readOptionalRequestJSON } from "@/lib/api/route";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export async function POST(request: Request) {
   if (!headers.ok) {
     return apiResultResponse(headers);
   }
-  const body = await readRequestJSON<DirectorySyncRequest>(request);
+  const body = await readOptionalRequestJSON<DirectorySyncRequest>(request, {});
   if (!body.ok) {
     return apiResultResponse(body);
   }
