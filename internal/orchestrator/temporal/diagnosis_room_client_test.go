@@ -957,19 +957,27 @@ func TestDiagnosisRoomSubmitTurnValidatorErrorMapsApplicationRejections(t *testi
 
 func TestDiagnosisRoomClient_SubmitDiagnosisTurnMapsApplicationRejections(t *testing.T) {
 	tests := []struct {
-		name      string
-		errType   string
-		wantError error
+		name              string
+		errType           string
+		wantError         error
+		wantAlreadyExists bool
 	}{
 		{
-			name:      "duplicate message id",
-			errType:   errTypeSubmitTurnDuplicateMessage,
-			wantError: diagnosisroom.ErrDuplicateMessageID,
+			name:              "duplicate message id",
+			errType:           errTypeSubmitTurnDuplicateMessage,
+			wantError:         diagnosisroom.ErrDuplicateMessageID,
+			wantAlreadyExists: true,
 		},
 		{
-			name:      "turn in flight",
-			errType:   errTypeSubmitTurnInFlight,
-			wantError: diagnosisroom.ErrTurnInFlight,
+			name:              "turn in flight",
+			errType:           errTypeSubmitTurnInFlight,
+			wantError:         diagnosisroom.ErrTurnInFlight,
+			wantAlreadyExists: true,
+		},
+		{
+			name:      "invariant",
+			errType:   errTypeInvariantViolation,
+			wantError: domain.ErrInvariantViolation,
 		},
 	}
 	for _, tc := range tests {
@@ -993,8 +1001,11 @@ func TestDiagnosisRoomClient_SubmitDiagnosisTurnMapsApplicationRejections(t *tes
 			if !errors.Is(err, tc.wantError) {
 				t.Fatalf("SubmitDiagnosisTurn error = %v, want %v", err, tc.wantError)
 			}
-			if !errors.Is(err, domain.ErrAlreadyExists) {
+			if tc.wantAlreadyExists && !errors.Is(err, domain.ErrAlreadyExists) {
 				t.Fatalf("SubmitDiagnosisTurn error = %v, want ErrAlreadyExists compatibility", err)
+			}
+			if !tc.wantAlreadyExists && errors.Is(err, domain.ErrAlreadyExists) {
+				t.Fatalf("SubmitDiagnosisTurn error = %v, did not want ErrAlreadyExists compatibility", err)
 			}
 		})
 	}

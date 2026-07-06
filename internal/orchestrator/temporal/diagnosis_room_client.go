@@ -324,6 +324,12 @@ func mapDiagnosisRoomSubmitTurnError(prefix string, err error) error {
 				err:    err,
 				class:  errors.Join(diagnosisroom.ErrTurnInFlight, domain.ErrAlreadyExists),
 			}
+		case errTypeInvariantViolation:
+			return diagnosisRoomClientClassifiedError{
+				prefix: prefix,
+				err:    err,
+				class:  domain.ErrInvariantViolation,
+			}
 		}
 	}
 	return fmt.Errorf("%s: %w", prefix, err)
