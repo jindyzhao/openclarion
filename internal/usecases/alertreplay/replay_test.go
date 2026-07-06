@@ -497,6 +497,59 @@ func TestReplayPersistedWindowForReport_IDFilterDoesNotShrinkExistingGroup(t *te
 	}
 }
 
+func TestReplayPersistedWindowForReport_IDFilterLaterEventReusesExistingGroup(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	batch := seedAlerts("Selected", 2, windowStart, 0, time.Minute, "warning")
+	if _, err := alertingest.IngestAlerts(ctx, batch, integration.factory); err != nil {
+		t.Fatalf("IngestAlerts: %v", err)
+	}
+	first, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, defaultRequest(windowStart, windowEnd))
+	if err != nil {
+		t.Fatalf("first ReplayPersistedWindowForReport: %v", err)
+	}
+	if first.Stats.GroupsSaved != 1 || first.Stats.SnapshotsSaved != 1 || len(first.Snapshots) != 1 || first.Snapshots[0].EventCount != 2 {
+		t.Fatalf("first result = %+v, want one two-event snapshot", first)
+	}
+
+	events, err := integration.client.AlertEvent.Query().
+		Order(alertevent.ByID()).
+		All(ctx)
+	if err != nil {
+		t.Fatalf("list alert events: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %d, want 2", len(events))
+	}
+
+	req := defaultRequest(windowStart, windowEnd)
+	req.AlertEventIDFilter = []domain.AlertEventID{domain.AlertEventID(events[1].ID)}
+	second, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, req)
+	if err != nil {
+		t.Fatalf("second ReplayPersistedWindowForReport: %v", err)
+	}
+	if second.Stats.EventsLoaded != 1 ||
+		second.Stats.GroupsBuilt != 1 ||
+		second.Stats.GroupsExisting != 1 ||
+		second.Stats.SnapshotsDuplicate != 1 ||
+		len(second.Snapshots) != 1 ||
+		second.Snapshots[0].EventCount != 2 {
+		t.Fatalf("second result = %+v, want duplicate snapshot over linked existing group", second)
+	}
+	if got := countAlertGroups(ctx, t); got != 1 {
+		t.Fatalf("alert_group count = %d, want 1", got)
+	}
+	if got := countEvidenceSnapshots(ctx, t); got != 1 {
+		t.Fatalf("evidence_snapshot count = %d, want duplicate replay to reuse existing snapshot", got)
+	}
+	if got := countEventGroupLinks(ctx, t); got != 2 {
+		t.Fatalf("alert_event_groups count = %d, want both original events still linked", got)
+	}
+}
+
 func TestReplayPersistedWindowForReport_ExistingGroupExpansionHonorsLimit(t *testing.T) {
 	resetDB(t)
 	ctx := context.Background()
@@ -544,6 +597,81 @@ func TestReplayPersistedWindowForReport_ExistingGroupExpansionHonorsLimit(t *tes
 	}
 	if got := countEventGroupLinks(ctx, t); got != 2 {
 		t.Fatalf("alert_event_groups count = %d, want original links unchanged", got)
+	}
+}
+
+func TestReplayPersistedWindowForReport_ExistingGroupExpansionHonorsReplayScope(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	prometheusAlert := seedAlerts("Scoped", 1, windowStart, 0, time.Minute, "warning")[0]
+	alertmanagerAlert := prometheusAlert
+	alertmanagerAlert.Source = "alertmanager"
+	alertmanagerAlert.Labels = map[string]string{
+		"alertname": "Scoped",
+		"instance":  "Scoped-0",
+		"severity":  "critical",
+	}
+	alertmanagerAlert.StartsAt = windowStart.Add(time.Minute)
+	if _, err := alertingest.IngestAlerts(ctx, []ports.ActiveAlert{prometheusAlert, alertmanagerAlert}, integration.factory); err != nil {
+		t.Fatalf("IngestAlerts: %v", err)
+	}
+	first, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, defaultRequest(windowStart, windowEnd))
+	if err != nil {
+		t.Fatalf("first ReplayPersistedWindowForReport: %v", err)
+	}
+	if first.Stats.GroupsSaved != 1 || first.Stats.SnapshotsSaved != 1 || len(first.Snapshots) != 1 || first.Snapshots[0].EventCount != 2 {
+		t.Fatalf("first result = %+v, want one two-source snapshot", first)
+	}
+
+	req := defaultRequest(windowStart, windowEnd)
+	req.SourceFilter = []string{"prometheus"}
+	second, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, req)
+	if err != nil {
+		t.Fatalf("second ReplayPersistedWindowForReport: %v", err)
+	}
+	if second.Stats.EventsLoaded != 1 ||
+		second.Stats.GroupsBuilt != 1 ||
+		second.Stats.GroupsRefreshed != 1 ||
+		second.Stats.SnapshotsSaved != 1 ||
+		len(second.Snapshots) != 1 ||
+		second.Snapshots[0].EventCount != 1 {
+		t.Fatalf("second result = %+v, want scoped one-event snapshot refresh", second)
+	}
+
+	groups, err := integration.client.AlertGroup.Query().All(ctx)
+	if err != nil {
+		t.Fatalf("list alert groups: %v", err)
+	}
+	if len(groups) != 1 {
+		t.Fatalf("alert groups = %d, want 1", len(groups))
+	}
+	wantLastSeen := domain.NormalizeUTCMicro(prometheusAlert.StartsAt)
+	if groups[0].EventCount != 1 ||
+		groups[0].Severity != string(domain.GroupSeverityWarning) ||
+		!groups[0].LastSeenAt.Equal(wantLastSeen) {
+		t.Fatalf("group = event_count:%d severity:%s last_seen:%s, want scoped prometheus event", groups[0].EventCount, groups[0].Severity, groups[0].LastSeenAt)
+	}
+
+	snapshot, err := integration.client.EvidenceSnapshot.Get(ctx, int(second.Snapshots[0].ID))
+	if err != nil {
+		t.Fatalf("get scoped evidence snapshot: %v", err)
+	}
+	var payload struct {
+		Events []struct {
+			Source string `json:"source"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal(snapshot.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal scoped snapshot payload: %v", err)
+	}
+	if len(payload.Events) != 1 || payload.Events[0].Source != "prometheus" {
+		t.Fatalf("snapshot events = %+v, want only prometheus event", payload.Events)
+	}
+	if got := countEventGroupLinks(ctx, t); got != 2 {
+		t.Fatalf("alert_event_groups count = %d, want existing historical links retained", got)
 	}
 }
 

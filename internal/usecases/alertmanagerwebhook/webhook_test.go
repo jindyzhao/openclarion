@@ -696,8 +696,16 @@ func (r *fakeWebhookAlertRepo) FindGroupByNaturalKey(context.Context, string, ti
 	return domain.AlertGroup{}, domain.ErrNotFound
 }
 
+func (r *fakeWebhookAlertRepo) FindGroupByEventIDAndGroupKey(context.Context, domain.AlertEventID, string) (domain.AlertGroup, error) {
+	return domain.AlertGroup{}, domain.ErrNotFound
+}
+
 func (r *fakeWebhookAlertRepo) LinkEventsToGroup(context.Context, domain.AlertGroupID, []domain.AlertEventID) error {
 	return nil
+}
+
+func (r *fakeWebhookAlertRepo) ListEventsForGroupByStartsAtRangeFiltered(context.Context, domain.AlertGroupID, time.Time, time.Time, ports.AlertEventFilter, int) ([]domain.AlertEvent, error) {
+	return nil, nil
 }
 
 func (r *fakeWebhookAlertRepo) ListEventIDsForGroup(context.Context, domain.AlertGroupID, int) ([]domain.AlertEventID, error) {
