@@ -692,7 +692,7 @@ func (s *diagnosisRoomState) submitDiagnosisRoomTurn(
 ) (SubmitDiagnosisTurnResult, error) {
 	decision, turnEvidence, err := s.validateSubmit(ctx, req, evidenceContextVersion)
 	if err != nil {
-		return SubmitDiagnosisTurnResult{}, err
+		return SubmitDiagnosisTurnResult{}, diagnosisRoomSubmitTurnValidatorError(err)
 	}
 	s.inFlight = true
 	s.latestError = nil

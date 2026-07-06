@@ -700,7 +700,7 @@ func (r *fakeWebhookAlertRepo) LinkEventsToGroup(context.Context, domain.AlertGr
 	return nil
 }
 
-func (r *fakeWebhookAlertRepo) ListEventIDsForGroup(context.Context, domain.AlertGroupID) ([]domain.AlertEventID, error) {
+func (r *fakeWebhookAlertRepo) ListEventIDsForGroup(context.Context, domain.AlertGroupID, int) ([]domain.AlertEventID, error) {
 	return nil, nil
 }
 

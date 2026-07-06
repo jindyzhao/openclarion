@@ -497,6 +497,56 @@ func TestReplayPersistedWindowForReport_IDFilterDoesNotShrinkExistingGroup(t *te
 	}
 }
 
+func TestReplayPersistedWindowForReport_ExistingGroupExpansionHonorsLimit(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	batch := seedAlerts("Selected", 2, windowStart, 0, time.Minute, "warning")
+	if _, err := alertingest.IngestAlerts(ctx, batch, integration.factory); err != nil {
+		t.Fatalf("IngestAlerts: %v", err)
+	}
+	first, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, defaultRequest(windowStart, windowEnd))
+	if err != nil {
+		t.Fatalf("first ReplayPersistedWindowForReport: %v", err)
+	}
+	if first.Stats.SnapshotsSaved != 1 || len(first.Snapshots) != 1 || first.Snapshots[0].EventCount != 2 {
+		t.Fatalf("first result = %+v, want one two-event snapshot", first)
+	}
+
+	events, err := integration.client.AlertEvent.Query().
+		Order(alertevent.ByID()).
+		All(ctx)
+	if err != nil {
+		t.Fatalf("list alert events: %v", err)
+	}
+	req := defaultRequest(windowStart, windowEnd)
+	req.AlertEventIDFilter = []domain.AlertEventID{domain.AlertEventID(events[0].ID)}
+	req.Limit = 1
+	second, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, req)
+	if err == nil {
+		t.Fatal("second ReplayPersistedWindowForReport: want limit error, got nil")
+	}
+	if !errors.Is(err, domain.ErrInvariantViolation) ||
+		!strings.Contains(err.Error(), "existing alert group") ||
+		!strings.Contains(err.Error(), "more than limit (1)") {
+		t.Fatalf("second error = %v, want existing group expansion limit violation", err)
+	}
+	if second.Stats.EventsLoaded != 1 ||
+		second.Stats.GroupsBuilt != 1 ||
+		second.Stats.Failed != 1 ||
+		len(second.Snapshots) != 0 {
+		t.Fatalf("second result = %+v, want per-group failure before snapshot", second)
+	}
+	if got := countEvidenceSnapshots(ctx, t); got != 1 {
+		t.Fatalf("evidence_snapshot count = %d, want only original snapshot", got)
+	}
+	if got := countEventGroupLinks(ctx, t); got != 2 {
+		t.Fatalf("alert_event_groups count = %d, want original links unchanged", got)
+	}
+}
+
 func TestReplayWindow_SourceFilterExcludesNonMatchingEventsFromGrouping(t *testing.T) {
 	resetDB(t)
 	ctx := context.Background()

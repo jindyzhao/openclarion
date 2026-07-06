@@ -922,6 +922,39 @@ func TestDiagnosisRoomClient_ConfirmDiagnosisConclusionMapsApplicationRejection(
 	}
 }
 
+func TestDiagnosisRoomSubmitTurnValidatorErrorMapsApplicationRejections(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantType string
+	}{
+		{
+			name:     "duplicate message id",
+			err:      diagnosisroom.ErrDuplicateMessageID,
+			wantType: errTypeSubmitTurnDuplicateMessage,
+		},
+		{
+			name:     "turn in flight",
+			err:      diagnosisroom.ErrTurnInFlight,
+			wantType: errTypeSubmitTurnInFlight,
+		},
+		{
+			name:     "invariant",
+			err:      domain.ErrInvariantViolation,
+			wantType: errTypeInvariantViolation,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := diagnosisRoomSubmitTurnValidatorError(tc.err)
+			var appErr *temporalsdk.ApplicationError
+			if !errors.As(err, &appErr) || appErr.Type() != tc.wantType {
+				t.Fatalf("mapped error = %v, want ApplicationError type %s", err, tc.wantType)
+			}
+		})
+	}
+}
+
 func TestDiagnosisRoomClient_SubmitDiagnosisTurnMapsApplicationRejections(t *testing.T) {
 	tests := []struct {
 		name      string

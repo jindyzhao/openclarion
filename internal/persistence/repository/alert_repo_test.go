@@ -301,7 +301,7 @@ func TestAlertRepository_GroupAndLinkEvents(t *testing.T) {
 	})
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
-		ids, err := uow.Alerts().ListEventIDsForGroup(ctx, groupID)
+		ids, err := uow.Alerts().ListEventIDsForGroup(ctx, groupID, 10)
 		if err != nil {
 			t.Fatalf("ListEventIDsForGroup: %v", err)
 		}
@@ -312,6 +312,13 @@ func TestAlertRepository_GroupAndLinkEvents(t *testing.T) {
 		// (startsAt), then e1 (startsAt+2m).
 		if ids[0] != eventIDs[1] || ids[1] != eventIDs[0] {
 			t.Errorf("ListEventIDsForGroup order = %v, want [e0=%d, e1=%d]", ids, eventIDs[1], eventIDs[0])
+		}
+		limited, lerr := uow.Alerts().ListEventIDsForGroup(ctx, groupID, 1)
+		if lerr != nil {
+			t.Fatalf("ListEventIDsForGroup limit 1: %v", lerr)
+		}
+		if len(limited) != 1 || limited[0] != eventIDs[1] {
+			t.Fatalf("ListEventIDsForGroup limit 1 = %v, want [%d]", limited, eventIDs[1])
 		}
 	})
 }
@@ -356,7 +363,7 @@ func TestAlertRepository_ListActiveGroups_OrdersByLastSeenDesc(t *testing.T) {
 func TestAlertRepository_ListEventIDsForGroup_MissingGroupReturnsNotFound(t *testing.T) {
 	resetDB(t)
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
-		_, err := uow.Alerts().ListEventIDsForGroup(ctx, 999999)
+		_, err := uow.Alerts().ListEventIDsForGroup(ctx, 999999, 10)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Fatalf("ListEventIDsForGroup missing group: want errors.Is ErrNotFound, got %v", err)
 		}
@@ -378,7 +385,7 @@ func TestAlertRepository_ListEventIDsForGroup_ExistingEmptyGroupReturnsEmptySlic
 	})
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
-		ids, err := uow.Alerts().ListEventIDsForGroup(ctx, groupID)
+		ids, err := uow.Alerts().ListEventIDsForGroup(ctx, groupID, 10)
 		if err != nil {
 			t.Fatalf("ListEventIDsForGroup existing empty group: %v", err)
 		}

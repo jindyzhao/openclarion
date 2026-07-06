@@ -180,9 +180,10 @@ type AlertRepository interface {
 
 	// ListEventIDsForGroup returns the AlertEventIDs linked to the
 	// AlertGroup via the M2N edge, ordered by AlertEvent.starts_at
-	// ascending. Returns an empty slice (not domain.ErrNotFound)
-	// when the group exists but has no events linked.
-	ListEventIDsForGroup(ctx context.Context, groupID domain.AlertGroupID) ([]domain.AlertEventID, error)
+	// ascending and capped by limit. Returns an empty slice (not
+	// domain.ErrNotFound) when the group exists but has no events
+	// linked. limit MUST be > 0.
+	ListEventIDsForGroup(ctx context.Context, groupID domain.AlertGroupID, limit int) ([]domain.AlertEventID, error)
 
 	// ListActiveGroups returns AlertGroups whose status == "active",
 	// ordered by last_seen_at descending. limit MUST be > 0; the

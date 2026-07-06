@@ -308,7 +308,7 @@ func ReplayPersistedWindowForReport(
 			eventsForGroup = append(eventsForGroup, ev)
 		}
 
-		groupOutcome, perr := processGroup(ctx, factory, draft, eventsForGroup, req.CreatedByWorkflow)
+		groupOutcome, perr := processGroup(ctx, factory, draft, eventsForGroup, req.CreatedByWorkflow, req.Limit)
 		if perr != nil {
 			result.Stats.Failed++
 			slog.WarnContext(ctx, "alertreplay: per-group pipeline failed",
@@ -403,6 +403,7 @@ func processGroup(
 	draft domain.AlertGroup,
 	eventsForGroup []domain.AlertEvent,
 	createdByWorkflow string,
+	limit int,
 ) (groupResult, error) {
 	var result groupResult
 
@@ -417,7 +418,7 @@ func processGroup(
 		var persisted domain.AlertGroup
 		switch {
 		case ferr == nil:
-			expanded, xerr := existingGroupSnapshotEvents(ctx, alerts, existing.ID, eventsForGroup)
+			expanded, xerr := existingGroupSnapshotEvents(ctx, alerts, existing.ID, eventsForGroup, limit)
 			if xerr != nil {
 				return fmt.Errorf("load existing group events: %w", xerr)
 			}
@@ -521,22 +522,45 @@ func existingGroupSnapshotEvents(
 	alerts ports.AlertRepository,
 	groupID domain.AlertGroupID,
 	current []domain.AlertEvent,
+	limit int,
 ) ([]domain.AlertEvent, error) {
 	byID := make(map[domain.AlertEventID]domain.AlertEvent, len(current))
+	seenIDs := make(map[domain.AlertEventID]struct{}, len(current))
 	for _, event := range current {
+		if event.ID <= 0 {
+			return nil, fmt.Errorf("current alert event id %d must be positive: %w", event.ID, domain.ErrInvariantViolation)
+		}
 		byID[event.ID] = event
+		seenIDs[event.ID] = struct{}{}
 	}
-	linkedIDs, err := alerts.ListEventIDsForGroup(ctx, groupID)
+	if len(seenIDs) > limit {
+		return nil, fmt.Errorf(
+			"existing alert group %d expansion contains more than limit (%d) events: %w",
+			groupID, limit, domain.ErrInvariantViolation,
+		)
+	}
+	linkedIDs, err := alerts.ListEventIDsForGroup(ctx, groupID, limit+1)
 	if err != nil {
 		return nil, err
 	}
+	var missingIDs []domain.AlertEventID
 	for _, id := range linkedIDs {
 		if id <= 0 {
 			return nil, fmt.Errorf("linked alert event id %d must be positive: %w", id, domain.ErrInvariantViolation)
 		}
-		if _, ok := byID[id]; ok {
+		if _, ok := seenIDs[id]; ok {
 			continue
 		}
+		if len(seenIDs)+1 > limit {
+			return nil, fmt.Errorf(
+				"existing alert group %d expansion contains more than limit (%d) events: %w",
+				groupID, limit, domain.ErrInvariantViolation,
+			)
+		}
+		seenIDs[id] = struct{}{}
+		missingIDs = append(missingIDs, id)
+	}
+	for _, id := range missingIDs {
 		event, ferr := alerts.FindEventByID(ctx, id)
 		if ferr != nil {
 			return nil, fmt.Errorf("find linked alert event %d: %w", id, ferr)

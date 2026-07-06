@@ -522,7 +522,7 @@ func (r *alertRepo) LinkEventsToGroup(ctx context.Context, groupID domain.AlertG
 }
 
 // ListEventIDsForGroup returns the AlertEventIDs linked to the
-// AlertGroup ordered by AlertEvent.starts_at ascending.
+// AlertGroup ordered by AlertEvent.starts_at ascending and capped by limit.
 //
 // Implementation note: we cannot use Ent's IDs(ctx) shortcut here.
 // On an M2N traversal, Ent emits SELECT DISTINCT id ... ORDER BY
@@ -533,12 +533,15 @@ func (r *alertRepo) LinkEventsToGroup(ctx context.Context, groupID domain.AlertG
 // no-op anyway. Materialising the rows and projecting their IDs is
 // both correct and equivalent in cost given the bounded fan-out of
 // events per group.
-func (r *alertRepo) ListEventIDsForGroup(ctx context.Context, groupID domain.AlertGroupID) ([]domain.AlertEventID, error) {
+func (r *alertRepo) ListEventIDsForGroup(ctx context.Context, groupID domain.AlertGroupID, limit int) ([]domain.AlertEventID, error) {
 	if err := checkOpen(r.closed); err != nil {
 		return nil, err
 	}
 	if groupID == 0 {
 		return nil, fmt.Errorf("list event ids for group: group id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list event ids for group: limit %d must be > 0: %w", limit, domain.ErrInvariantViolation)
 	}
 	if _, err := r.tx.AlertGroup.Get(ctx, int(groupID)); err != nil {
 		return nil, asNotFound(err)
@@ -547,6 +550,7 @@ func (r *alertRepo) ListEventIDsForGroup(ctx context.Context, groupID domain.Ale
 		Where(alertgroup.IDEQ(int(groupID))).
 		QueryEvents().
 		Order(alertevent.ByStartsAt()).
+		Limit(limit).
 		All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list event ids for group %d: %w", groupID, err)
