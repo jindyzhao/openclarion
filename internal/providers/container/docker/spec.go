@@ -49,6 +49,10 @@ type Config struct {
 	OutputMaxBytes  int64
 	Command         []string
 	WorkingDir      string
+	// AllowlistNetworkMode names the existing Docker network used when a
+	// request explicitly asks for allowlisted egress through an external proxy
+	// or firewall boundary.
+	AllowlistNetworkMode string
 }
 
 // WorkspacePaths are host-side paths prepared by the control plane for
@@ -109,7 +113,7 @@ func BuildRunSpec(cfg Config, req ports.ContainerRunRequest, workspace Workspace
 	if err := validateBindMounts(binds); err != nil {
 		return RunSpec{}, err
 	}
-	networkMode, err := networkModeFor(req.Network)
+	networkMode, err := networkModeFor(req.Network, normalized.AllowlistNetworkMode)
 	if err != nil {
 		return RunSpec{}, err
 	}
@@ -161,6 +165,9 @@ func (c Config) Normalized() (Config, error) {
 	if out.WorkingDir == "" {
 		out.WorkingDir = DefaultWorkingDir
 	}
+	if out.AllowlistNetworkMode == "" {
+		out.AllowlistNetworkMode = DefaultAllowlistNetworkMode
+	}
 	if len(out.CapDrop) == 0 {
 		out.CapDrop = []string{DropAllCapabilities}
 	}
@@ -207,6 +214,9 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.WorkingDir) != DefaultWorkingDir {
 		return fmt.Errorf("sandbox working directory must be %q", DefaultWorkingDir)
+	}
+	if err := validateAllowlistNetworkMode(c.AllowlistNetworkMode); err != nil {
+		return err
 	}
 	for _, arg := range c.Command {
 		if strings.TrimSpace(arg) == "" {
@@ -344,7 +354,7 @@ func validateOutputMount(mount BindMount) error {
 	return nil
 }
 
-func networkModeFor(policy ports.ContainerNetworkPolicy) (string, error) {
+func networkModeFor(policy ports.ContainerNetworkPolicy, allowlistNetworkMode string) (string, error) {
 	if err := policy.Validate(); err != nil {
 		return "", err
 	}
@@ -352,10 +362,31 @@ func networkModeFor(policy ports.ContainerNetworkPolicy) (string, error) {
 	case ports.ContainerNetworkNone:
 		return string(ports.ContainerNetworkNone), nil
 	case ports.ContainerNetworkAllowlist:
-		return DefaultAllowlistNetworkMode, nil
+		if err := validateAllowlistNetworkMode(allowlistNetworkMode); err != nil {
+			return "", err
+		}
+		return allowlistNetworkMode, nil
 	default:
 		return "", fmt.Errorf("unsupported container network mode %q", policy.Mode)
 	}
+}
+
+func validateAllowlistNetworkMode(networkMode string) error {
+	trimmed := strings.TrimSpace(networkMode)
+	if trimmed == "" {
+		return fmt.Errorf("sandbox allowlist network mode is required")
+	}
+	if trimmed != networkMode || strings.ContainsAny(trimmed, " \t\r\n") {
+		return fmt.Errorf("sandbox allowlist network mode %q contains whitespace", networkMode)
+	}
+	switch strings.ToLower(trimmed) {
+	case string(ports.ContainerNetworkNone), "host", "bridge", "default":
+		return fmt.Errorf("sandbox allowlist network mode %q must name a dedicated Docker network", networkMode)
+	}
+	if strings.Contains(trimmed, ":") || strings.ContainsAny(trimmed, "/\\") {
+		return fmt.Errorf("sandbox allowlist network mode %q must be a Docker network name", networkMode)
+	}
+	return nil
 }
 
 func isRootUser(user string) bool {

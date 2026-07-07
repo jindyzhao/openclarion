@@ -127,6 +127,7 @@ func TestParseConfigReadsManualSandboxEnv(t *testing.T) {
 		"OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=/tmp/agents",
 		`OPENCLARION_M4_SANDBOX_COMMAND_JSON=["/bin/runner","--mode","report"]`,
 		"OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=prometheus.internal:9090, topology.internal:8080",
+		"OPENCLARION_M4_SANDBOX_EGRESS_NETWORK=openclarion-sandbox-egress-prod",
 	}
 	cfg, err := parseConfig([]string{
 		"--snapshot-id", "11",
@@ -143,7 +144,8 @@ func TestParseConfigReadsManualSandboxEnv(t *testing.T) {
 		cfg.GroupIndex != 1 ||
 		cfg.CandidateID != "candidate-a" ||
 		strings.Join(cfg.Command, " ") != "/bin/runner --mode report" ||
-		len(cfg.AllowedEgress) != 2 {
+		len(cfg.AllowedEgress) != 2 ||
+		cfg.EgressNetwork != "openclarion-sandbox-egress-prod" {
 		t.Fatalf("cfg = %+v", cfg)
 	}
 }

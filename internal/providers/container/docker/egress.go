@@ -22,8 +22,8 @@ var _ EgressEnforcer = (*StaticAllowlistEnforcer)(nil)
 // allowlist network. The allowed targets use the same host[:port] contract as
 // ports.ContainerNetworkPolicy.
 func NewStaticAllowlistEnforcer(networkMode string, allowedTargets []string) (*StaticAllowlistEnforcer, error) {
-	if networkMode == "" {
-		return nil, fmt.Errorf("docker egress enforcer network mode is required")
+	if err := validateAllowlistNetworkMode(networkMode); err != nil {
+		return nil, fmt.Errorf("docker egress enforcer: %w", err)
 	}
 	normalized, err := ports.NormalizeContainerEgressTargets(allowedTargets)
 	if err != nil {

@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-06-08
+> Last updated: 2026-07-07
 > Author: jindyzhao
 > Status: private incubation
 
@@ -264,6 +264,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-07 | jindyzhao | M4 egress provider wiring landed locally: Docker sandbox allowlist mode now carries the configured dedicated network into the provider spec, rejects Docker special modes such as `host`, `bridge`, and `none`, and passes explicit create-time endpoint configuration to Docker so candidate runtime containers attach to the reviewed egress boundary. This does not select representative samples, compare report quality, record an M4 decision, or accept a runtime baseline. |
 | 2026-06-08 | jindyzhao | M2 live-proof provider compatibility landed locally: the Prometheus provider now normalizes Thanos Rule `data.Alerts` alert-list casing on `/api/v1/alerts`, and the legacy runtime Webhook path can set `OPENCLARION_IM_WEBHOOK_FORMAT=wecom` for WeCom group bot text-message delivery. Retained real-service report proof still requires a configured LLM worker and validator-checked smoke output. |
 | 2026-06-06 | jindyzhao | Alert operations live-proof handoff clarified locally: ADR-0014 and the live-proof runbook now record that M2 `make report-live-smoke` remains the first retained live-proof target before M3.1 policy-replay or scheduled-trigger proof. The runbook now names the legacy Prometheus input, optional M2 retained output path, and the requirement for validator-checked real-service artifacts before closing any live proof item. |
 | 2026-06-06 | jindyzhao | Chain A end-to-end verification aligned locally with the same live-proof order: M2 headless proof first, profile-driven policy replay proof second, and scheduled-trigger proof third. No retained external proof is claimed. |

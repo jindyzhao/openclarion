@@ -629,8 +629,19 @@ func buildCreateOptions(spec RunSpec, req ports.ContainerRunRequest) dockerclien
 			},
 			Mounts: mounts,
 		},
-		NetworkingConfig: &dockernetwork.NetworkingConfig{},
+		NetworkingConfig: networkingConfigFor(spec),
 		Image:            spec.ImageRef,
+	}
+}
+
+func networkingConfigFor(spec RunSpec) *dockernetwork.NetworkingConfig {
+	if spec.NetworkMode == "" || spec.NetworkMode == string(ports.ContainerNetworkNone) {
+		return &dockernetwork.NetworkingConfig{}
+	}
+	return &dockernetwork.NetworkingConfig{
+		EndpointsConfig: map[string]*dockernetwork.EndpointSettings{
+			spec.NetworkMode: &dockernetwork.EndpointSettings{},
+		},
 	}
 }
 
