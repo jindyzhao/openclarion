@@ -5,7 +5,7 @@
 > node has a concrete technical implementation path. Verdicts are classified
 > honestly — not everything is "proven".
 
-> Last updated: 2026-06-06
+> Last updated: 2026-07-07
 
 ## Verdict Scale
 
@@ -152,7 +152,7 @@ Temporal workflow (from Chain A)
 | B2 | Start container | `github.com/docker/docker/client` → `ContainerCreate()` + `ContainerStart()` | proven |
 | B3 | Mount evidence + config | readonly bind mounts for inputs; private writable output bind mount capped by `fsize` and Go read limit | proven |
 | B4 | Non-root + limits | `User = "nonroot"`, `Resources.Memory`, `NanoCPUs`, `SecurityOpt: ["no-new-privileges"]` | proven |
-| B5 | Egress control | Docker network isolation + per-endpoint allowlist | **feasible-with-constraint** |
+| B5 | Egress control | Docker network isolation + explicit provider endpoint binding to a dedicated allowlist network backed by an external proxy or firewall | **proven-local** |
 | B6 | Agent loads config | Agent runtime reads `/workspace/agent_config/agent.yaml` at startup | proven |
 | B7 | Agent queries data | V1-proven direct HTTP to allowed endpoints (Prometheus, K8s); post-V1: MCP-over-Streamable-HTTP | proven |
 | B8 | Agent writes output | Writes to `/workspace/out/output.json` on the only writable output mount | proven |
@@ -185,9 +185,14 @@ sandbox client on an internal network reaches `allowed.internal:8080` through a
 dual-network proxy, receives 403 for `denied.internal:8080`, and cannot bypass
 the proxy to reach the upstream network directly.
 
-**Remaining M4 task**: wire the chosen proxy/firewall boundary into the
-candidate runtime path before accepting allowlist networking as production
-enforced.
+The Docker provider now carries the chosen allowlist network as configuration,
+rejects Docker special modes such as `host`, `bridge`, and `none`, validates the
+requested targets through the injected egress enforcer, and passes an explicit
+`NetworkingConfig.EndpointsConfig` entry to Docker `ContainerCreate` so the
+candidate runtime is attached to the reviewed dedicated network. The external
+proxy or firewall still remains operator-provisioned infrastructure and must be
+represented by retained smoke evidence before an M4 decision packet can support
+acceptance.
 
 ### Chain B Additional Constraints
 
@@ -215,17 +220,19 @@ enforced.
   (`/workspace/evidence.json`, `/workspace/agent_config/`, etc.) are read-only
   bind mounts. Agent cannot write outside `/workspace/out/`.
 
-**Chain B conclusion**: all nodes proven except production wiring for B5
-(egress control), which remains feasible-with-constraint. The Docker Engine
-provider now fails closed for allowlist-mode requests unless an injected egress
-enforcer validates the provider-specific network boundary before container
-creation, rejects allowlist targets that are not exact `host[:port]` values,
-rejects long-lived or expired runtime credentials before create, and has a
-manual live Docker smoke through `make container-provider-smoke`, timeout
-cleanup proof through `make container-provider-timeout-smoke`, and output cap
-proof through `make container-provider-output-cap-smoke`. A concrete Docker
-internal-network + proxy allow/deny smoke passes locally, but candidate runtime
-egress wiring and credential issuer wiring remain separate M4 work.
+**Chain B conclusion**: B5 provider wiring is proven locally with a configured
+dedicated Docker network and create-time endpoint binding; the external
+proxy/firewall remains an operator-provisioned boundary that must be backed by
+retained smoke evidence. The Docker Engine provider now fails closed for
+allowlist-mode requests unless an injected egress enforcer validates the
+provider-specific network boundary before container creation, rejects allowlist
+targets that are not exact `host[:port]` values, rejects long-lived or expired
+runtime credentials before create, and has a manual live Docker smoke through
+`make container-provider-smoke`, timeout cleanup proof through
+`make container-provider-timeout-smoke`, and output cap proof through
+`make container-provider-output-cap-smoke`. A concrete Docker internal-network
+and proxy allow/deny smoke passes locally, but credential issuer wiring remains
+separate M4 work.
 `scripts/sandbox_m4_decision` now provides the auditable proceed/iterate/defer
 decision path once real baseline-audit, manifest-mode quality, runtime-smoke,
 and human-review evidence files exist. Runtime-smoke sources are bound to their
@@ -545,9 +552,12 @@ All three chains are technically feasible:
   evidence remains pending until those validator-checked artifacts are retained.
   The required operator configuration order is documented in
   [alert-operations-live-proof-runbook.md](alert-operations-live-proof-runbook.md).
-- **Chain B** (M4): proven except production B5 egress wiring. The Docker
-  Engine API, file-based contract, Provider live/timeout/output-cap smokes, and
-  local proxy allow/deny topology are proven.
+- **Chain B** (M4): B5 provider wiring is proven locally. The Docker Engine
+  API, file-based contract, explicit allowlist network endpoint binding,
+  Provider live/timeout/output-cap smokes, and local proxy allow/deny topology
+  are proven; production acceptance still requires retained candidate-runtime
+  evidence, representative quality comparison, human review, and the M4
+  decision packet.
 - **Chain C** (M5): locally proven through the control-plane path. C1-C8 and
   C11-C15, lifecycle audit persistence, final close notification, room
   creation, and the mocked browser diagnosis-room route are proven locally at

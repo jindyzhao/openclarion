@@ -1329,6 +1329,7 @@ func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) 
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
 		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/runner"]`,
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_NETWORK":    "openclarion-sandbox-egress-prod",
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
@@ -1338,6 +1339,25 @@ func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) 
 	}
 	if len(opts) != 4 {
 		t.Fatalf("len(opts) = %d, want 4", len(opts))
+	}
+}
+
+func TestDiagnosisActivityOptionsFromEnv_RejectsUnsafeSandboxEgressNetwork(t *testing.T) {
+	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_NETWORK":    "host",
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
+	}), nil)
+	if err == nil {
+		t.Fatal("diagnosisActivityOptionsFromEnv err = nil, want unsafe egress network error")
+	}
+	if !strings.Contains(err.Error(), "OPENCLARION_SANDBOX_EGRESS_NETWORK") &&
+		!strings.Contains(err.Error(), "dedicated Docker network") {
+		t.Fatalf("err = %v, want sandbox egress network rejection", err)
 	}
 }
 

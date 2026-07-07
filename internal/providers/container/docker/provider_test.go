@@ -305,6 +305,39 @@ func TestProviderRunUsesEgressEnforcerBeforeCreatingAllowlistContainer(t *testin
 	if engine.createOptions.HostConfig.NetworkMode != dockercontainer.NetworkMode(DefaultAllowlistNetworkMode) {
 		t.Fatalf("NetworkMode = %q, want allowlist network", engine.createOptions.HostConfig.NetworkMode)
 	}
+	if engine.createOptions.NetworkingConfig == nil ||
+		engine.createOptions.NetworkingConfig.EndpointsConfig == nil ||
+		engine.createOptions.NetworkingConfig.EndpointsConfig[DefaultAllowlistNetworkMode] == nil {
+		t.Fatalf("NetworkingConfig.EndpointsConfig = %#v, want explicit allowlist endpoint", engine.createOptions.NetworkingConfig)
+	}
+	engine.assertCalls(t, "create", "start", "wait", "copy", "remove")
+}
+
+func TestProviderRunUsesConfiguredAllowlistNetworkEndpoint(t *testing.T) {
+	req := validRequest()
+	req.Network = ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: []string{"prometheus.internal:9090"},
+	}
+	engine := newFakeEngine(tarArchive(t, "output.json", []byte(`{"summary":"ok"}`)))
+	enforcer := &recordingEgressEnforcer{}
+	provider := newTestProvider(t, engine)
+	provider.cfg.AllowlistNetworkMode = "openclarion-sandbox-egress-prod"
+	provider.egressEnforcer = enforcer
+
+	if _, err := provider.Run(context.Background(), req); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if enforcer.networkMode != "openclarion-sandbox-egress-prod" {
+		t.Fatalf("enforcer network mode = %q", enforcer.networkMode)
+	}
+	if engine.createOptions.HostConfig.NetworkMode != dockercontainer.NetworkMode("openclarion-sandbox-egress-prod") {
+		t.Fatalf("NetworkMode = %q, want configured allowlist network", engine.createOptions.HostConfig.NetworkMode)
+	}
+	if engine.createOptions.NetworkingConfig == nil ||
+		engine.createOptions.NetworkingConfig.EndpointsConfig["openclarion-sandbox-egress-prod"] == nil {
+		t.Fatalf("NetworkingConfig.EndpointsConfig = %#v, want configured allowlist endpoint", engine.createOptions.NetworkingConfig)
+	}
 	engine.assertCalls(t, "create", "start", "wait", "copy", "remove")
 }
 

@@ -73,6 +73,8 @@ same Docker `ContainerProvider` used by M5 turns:
 DATABASE_URL=postgres://... \
 OPENCLARION_M4_SANDBOX_IMAGE_REF=registry.example.com/openclarion/runtime@sha256:<64-hex-digest> \
 OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=/path/to/agents \
+OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=prometheus.internal:9090 \
+OPENCLARION_M4_SANDBOX_EGRESS_NETWORK=openclarion-sandbox-allowlist \
   make sandbox-m4-subreport-generate \
   SNAPSHOT_ID=11 \
   SCENARIO=single_alert \
@@ -86,7 +88,11 @@ digest, scenario, group index, and original snapshot payload at
 `SubReport` from `/workspace/out/output.json`, requires the candidate output to
 include the canonical snapshot ref in `evidence_refs`, and persists the sandbox
 row with an idempotency key scoped to snapshot, group, and candidate ID. The
-summary output records the persisted SubReport ID and output digest. This
+summary output records the persisted SubReport ID and output digest. When
+egress is enabled, the helper passes the configured dedicated Docker network
+through the Docker provider and the provider attaches the candidate runtime to
+that network with explicit create-time endpoint configuration after the
+egress enforcer validates the requested `host[:port]` target subset. This
 generates retained candidate rows; it does not choose representative samples,
 compare quality, perform human review, or accept a runtime candidate.
 

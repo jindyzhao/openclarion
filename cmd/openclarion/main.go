@@ -665,6 +665,7 @@ func diagnosisActivityOptionsFromEnv(
 	}
 	allowedEgress := csvValues(getenv("OPENCLARION_SANDBOX_EGRESS_ALLOWED"))
 	networkPolicy := ports.ContainerNetworkPolicy{Mode: ports.ContainerNetworkNone}
+	allowlistNetworkMode := ""
 	if len(allowedEgress) > 0 {
 		networkMode := strings.TrimSpace(getenv("OPENCLARION_SANDBOX_EGRESS_NETWORK"))
 		if networkMode == "" {
@@ -679,13 +680,15 @@ func diagnosisActivityOptionsFromEnv(
 			Mode:          ports.ContainerNetworkAllowlist,
 			AllowedEgress: allowedEgress,
 		}
+		allowlistNetworkMode = networkMode
 	}
 
 	provider, err := containerdocker.NewProviderFromEnv(containerdocker.Config{
-		ImageRef:        imageRef,
-		ReadonlyRootFS:  true,
-		NoNewPrivileges: true,
-		Command:         command,
+		ImageRef:             imageRef,
+		ReadonlyRootFS:       true,
+		NoNewPrivileges:      true,
+		Command:              command,
+		AllowlistNetworkMode: allowlistNetworkMode,
 	}, agentConfigRoot, providerOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("configure diagnosis sandbox provider: %w", err)

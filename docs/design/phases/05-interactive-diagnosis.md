@@ -294,6 +294,10 @@ changes from the proven local stack.
   `OPENCLARION_SANDBOX_WORKSPACE_ROOT`,
   `OPENCLARION_SANDBOX_EGRESS_ALLOWED`, and
   `OPENCLARION_SANDBOX_EGRESS_NETWORK` customize the sandbox runtime boundary
+  when per-turn egress is enabled. The egress network must name a dedicated
+  Docker network backed by the reviewed proxy or firewall boundary; Docker
+  special modes such as `host`, `bridge`, and `none` are rejected for
+  allowlist mode.
 - optional `OPENCLARION_AUTO_DIAGNOSIS_MAX_ROOMS_PER_TRIGGER` bounds automatic
   auto-room fan-out per alert intake or report-policy replay; it defaults to 3
   and may be raised up to 100 only when the LLM and sandbox capacity can absorb

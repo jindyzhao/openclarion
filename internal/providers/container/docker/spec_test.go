@@ -95,6 +95,24 @@ func TestBuildRunSpecAllowlistUsesDedicatedNetwork(t *testing.T) {
 	}
 }
 
+func TestBuildRunSpecAllowlistUsesConfiguredNetwork(t *testing.T) {
+	req := validRequest()
+	req.Network = ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: []string{"prometheus.internal:9090"},
+	}
+	cfg := validConfig()
+	cfg.AllowlistNetworkMode = "openclarion-sandbox-egress-prod"
+
+	spec, err := BuildRunSpec(cfg, req, validWorkspace())
+	if err != nil {
+		t.Fatalf("BuildRunSpec: %v", err)
+	}
+	if spec.NetworkMode != "openclarion-sandbox-egress-prod" {
+		t.Fatalf("NetworkMode = %q, want configured allowlist network", spec.NetworkMode)
+	}
+}
+
 func TestConfigRejectsUnsafeSecurityPosture(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -160,6 +178,26 @@ func TestConfigRejectsUnsafeSecurityPosture(t *testing.T) {
 			name:    "empty command arg",
 			mutate:  func(cfg *Config) { cfg.Command = []string{"agent", ""} },
 			wantErr: "command",
+		},
+		{
+			name:    "host allowlist network",
+			mutate:  func(cfg *Config) { cfg.AllowlistNetworkMode = "host" },
+			wantErr: "dedicated Docker network",
+		},
+		{
+			name:    "bridge allowlist network",
+			mutate:  func(cfg *Config) { cfg.AllowlistNetworkMode = "bridge" },
+			wantErr: "dedicated Docker network",
+		},
+		{
+			name:    "container namespace allowlist network",
+			mutate:  func(cfg *Config) { cfg.AllowlistNetworkMode = "container:abc123" },
+			wantErr: "Docker network name",
+		},
+		{
+			name:    "whitespace allowlist network",
+			mutate:  func(cfg *Config) { cfg.AllowlistNetworkMode = " openclarion-sandbox-allowlist " },
+			wantErr: "contains whitespace",
 		},
 	}
 

@@ -56,6 +56,7 @@ type config struct {
 	Timeout         time.Duration
 	OutputMax       int64
 	AllowedEgress   []string
+	EgressNetwork   string
 }
 
 type evidenceStore interface {
@@ -166,6 +167,7 @@ func parseConfig(args []string, environ []string) (config, error) {
 		Timeout:         time.Duration(*timeoutSeconds) * time.Second,
 		OutputMax:       *outputMax,
 		AllowedEgress:   csvValues(firstEnv(environ, "OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED", "OPENCLARION_SANDBOX_EGRESS_ALLOWED")),
+		EgressNetwork:   firstEnv(environ, "OPENCLARION_M4_SANDBOX_EGRESS_NETWORK", "OPENCLARION_SANDBOX_EGRESS_NETWORK"),
 	}
 	commandRaw := firstEnv(environ, "OPENCLARION_M4_SANDBOX_COMMAND_JSON", "OPENCLARION_SANDBOX_COMMAND_JSON")
 	command, err := parseOptionalJSONStringArray(commandRaw, "OPENCLARION_M4_SANDBOX_COMMAND_JSON")
@@ -306,8 +308,13 @@ func dockerProviderFromConfig(cfg config) (ports.ContainerProvider, func(), erro
 	if cfg.WorkspaceRoot != "" {
 		opts = append(opts, containerdocker.WithWorkspaceRoot(cfg.WorkspaceRoot))
 	}
+	networkMode := ""
 	if len(cfg.AllowedEgress) > 0 {
-		enforcer, err := containerdocker.NewStaticAllowlistEnforcer(containerdocker.DefaultAllowlistNetworkMode, cfg.AllowedEgress)
+		networkMode = strings.TrimSpace(cfg.EgressNetwork)
+		if networkMode == "" {
+			networkMode = containerdocker.DefaultAllowlistNetworkMode
+		}
+		enforcer, err := containerdocker.NewStaticAllowlistEnforcer(networkMode, cfg.AllowedEgress)
 		if err != nil {
 			cleanup()
 			return nil, nil, fmt.Errorf("configure sandbox egress enforcer: %w", err)
@@ -315,11 +322,12 @@ func dockerProviderFromConfig(cfg config) (ports.ContainerProvider, func(), erro
 		opts = append(opts, containerdocker.WithEgressEnforcer(enforcer))
 	}
 	provider, err := containerdocker.NewProvider(engine, containerdocker.Config{
-		ImageRef:        cfg.ImageRef,
-		ReadonlyRootFS:  true,
-		NoNewPrivileges: true,
-		CapDrop:         []string{containerdocker.DropAllCapabilities},
-		Command:         cloneStrings(cfg.Command),
+		ImageRef:             cfg.ImageRef,
+		ReadonlyRootFS:       true,
+		NoNewPrivileges:      true,
+		CapDrop:              []string{containerdocker.DropAllCapabilities},
+		Command:              cloneStrings(cfg.Command),
+		AllowlistNetworkMode: networkMode,
 	}, cfg.AgentConfigRoot, opts...)
 	if err != nil {
 		cleanup()
