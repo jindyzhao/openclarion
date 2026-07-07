@@ -550,6 +550,69 @@ func TestReplayPersistedWindowForReport_IDFilterLaterEventReusesExistingGroup(t 
 	}
 }
 
+func TestReplayPersistedWindowForReport_NonIDScopedLaterWindowCreatesNewGroup(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	batch := seedAlerts("Selected", 2, windowStart, 0, time.Minute, "warning")
+	if _, err := alertingest.IngestAlerts(ctx, batch, integration.factory); err != nil {
+		t.Fatalf("IngestAlerts: %v", err)
+	}
+	first, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, defaultRequest(windowStart, windowEnd))
+	if err != nil {
+		t.Fatalf("first ReplayPersistedWindowForReport: %v", err)
+	}
+	if first.Stats.GroupsSaved != 1 || first.Stats.SnapshotsSaved != 1 || len(first.Snapshots) != 1 || first.Snapshots[0].EventCount != 2 {
+		t.Fatalf("first result = %+v, want one two-event snapshot", first)
+	}
+
+	narrowStart := domain.NormalizeUTCMicro(batch[1].StartsAt)
+	req := defaultRequest(narrowStart, narrowStart.Add(time.Minute))
+	second, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, req)
+	if err != nil {
+		t.Fatalf("second ReplayPersistedWindowForReport: %v", err)
+	}
+	if second.Stats.EventsLoaded != 1 ||
+		second.Stats.GroupsBuilt != 1 ||
+		second.Stats.GroupsSaved != 1 ||
+		second.Stats.SnapshotsSaved != 1 ||
+		len(second.Snapshots) != 1 ||
+		second.Snapshots[0].EventCount != 1 {
+		t.Fatalf("second result = %+v, want new one-event group for non-ID-scoped replay", second)
+	}
+
+	groups, err := integration.client.AlertGroup.Query().
+		Order(alertgroup.ByFirstSeenAt()).
+		All(ctx)
+	if err != nil {
+		t.Fatalf("list alert groups: %v", err)
+	}
+	if len(groups) != 2 {
+		t.Fatalf("alert groups = %d, want 2", len(groups))
+	}
+	firstSeen := domain.NormalizeUTCMicro(batch[0].StartsAt)
+	if groups[0].EventCount != 2 ||
+		!groups[0].FirstSeenAt.Equal(firstSeen) ||
+		!groups[0].LastSeenAt.Equal(narrowStart) {
+		t.Fatalf("original group = event_count:%d first_seen:%s last_seen:%s, want unchanged two-event group",
+			groups[0].EventCount, groups[0].FirstSeenAt, groups[0].LastSeenAt)
+	}
+	if groups[1].EventCount != 1 ||
+		!groups[1].FirstSeenAt.Equal(narrowStart) ||
+		!groups[1].LastSeenAt.Equal(narrowStart) {
+		t.Fatalf("narrow group = event_count:%d first_seen:%s last_seen:%s, want one-event narrow-window group",
+			groups[1].EventCount, groups[1].FirstSeenAt, groups[1].LastSeenAt)
+	}
+	if got := countEvidenceSnapshots(ctx, t); got != 2 {
+		t.Fatalf("evidence_snapshot count = %d, want one snapshot per group", got)
+	}
+	if got := countEventGroupLinks(ctx, t); got != 3 {
+		t.Fatalf("alert_event_groups count = %d, want later event linked to both groups", got)
+	}
+}
+
 func TestReplayPersistedWindowForReport_ExistingGroupExpansionHonorsLimit(t *testing.T) {
 	resetDB(t)
 	ctx := context.Background()

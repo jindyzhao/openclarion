@@ -291,7 +291,6 @@ type diagnosisRoomState struct {
 	diagnosisTaskID           int64
 	chatSessionID             int64
 	inFlight                  bool
-	inFlightMessageID         string
 	seen                      map[string]struct{}
 	conversation              []diagnosisroom.ConversationTurn
 	evidenceBatches           []diagnosisRoomEvidenceContextBatch
@@ -637,7 +636,7 @@ func (s *diagnosisRoomState) validateSubmit(
 			LastActivityAt: s.lastActivityAt,
 			TurnCount:      s.turnCount,
 			InFlight:       s.inFlight,
-			SeenMessageIDs: s.submitSeenMessageIDs(),
+			SeenMessageIDs: s.seen,
 		},
 		diagnosisroom.SubmitTurnRequest{
 			MessageID:    req.MessageID,
@@ -695,13 +694,10 @@ func (s *diagnosisRoomState) submitDiagnosisRoomTurn(
 	if err != nil {
 		return SubmitDiagnosisTurnResult{}, diagnosisRoomSubmitTurnValidatorError(err)
 	}
-	messageID := strings.TrimSpace(req.MessageID)
 	s.inFlight = true
-	s.inFlightMessageID = messageID
 	s.latestError = nil
 	defer func() {
 		s.inFlight = false
-		s.inFlightMessageID = ""
 	}()
 
 	result, collectionVersion, err := s.runDiagnosisRoomTurn(
@@ -740,18 +736,6 @@ func (s *diagnosisRoomState) submitDiagnosisRoomTurn(
 		result.FollowUpTurns = followUps
 	}
 	return result, nil
-}
-
-func (s *diagnosisRoomState) submitSeenMessageIDs() map[string]struct{} {
-	if strings.TrimSpace(s.inFlightMessageID) == "" {
-		return s.seen
-	}
-	seen := make(map[string]struct{}, len(s.seen)+1)
-	for messageID := range s.seen {
-		seen[messageID] = struct{}{}
-	}
-	seen[s.inFlightMessageID] = struct{}{}
-	return seen
 }
 
 func (s *diagnosisRoomState) collectDiagnosisEvidence(

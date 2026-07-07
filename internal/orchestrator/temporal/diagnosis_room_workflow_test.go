@@ -2903,7 +2903,7 @@ func TestDiagnosisRoomWorkflow_UpdateValidatorRejectsConcurrentTurn(t *testing.T
 	assertOneUpdateSucceededAndOneRejected(t, first, concurrent, "turn already in progress")
 }
 
-func TestDiagnosisRoomWorkflow_UpdateValidatorClassifiesInFlightMessageRetry(t *testing.T) {
+func TestDiagnosisRoomWorkflow_UpdateValidatorRejectsInFlightMessageRetry(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()
 	env.SetStartTime(time.Date(2026, 5, 28, 11, 50, 0, 0, time.UTC))
@@ -2952,7 +2952,7 @@ func TestDiagnosisRoomWorkflow_UpdateValidatorClassifiesInFlightMessageRetry(t *
 	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
 	assertRoomWorkflowCompleted(t, env)
 
-	assertOneUpdateSucceededAndOneRejected(t, first, retry, "duplicate message_id")
+	assertOneUpdateSucceededAndOneRejected(t, first, retry, "turn already in progress")
 }
 
 func TestDiagnosisRoomWorkflow_DurableIdleTimerClosesRoom(t *testing.T) {

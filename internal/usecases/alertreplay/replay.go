@@ -169,11 +169,12 @@ type groupResult struct {
 }
 
 type replayExpansionScope struct {
-	windowStart time.Time
-	windowEnd   time.Time
-	filter      ports.AlertEventFilter
-	grouping    alertgrouping.Config
-	limit       int
+	windowStart            time.Time
+	windowEnd              time.Time
+	filter                 ports.AlertEventFilter
+	grouping               alertgrouping.Config
+	limit                  int
+	allowLinkedGroupLookup bool
 }
 
 // ReplayWindow runs one end-to-end replay over the configured
@@ -308,8 +309,9 @@ func ReplayPersistedWindowForReport(
 			Sources:               req.SourceFilter,
 			AlertSourceProfileIDs: req.AlertSourceProfileFilter,
 		},
-		grouping: req.Grouping,
-		limit:    req.Limit,
+		grouping:               req.Grouping,
+		limit:                  req.Limit,
+		allowLinkedGroupLookup: len(req.AlertEventIDFilter) > 0,
 	}
 
 	// Step 4: per-group pipeline.
@@ -435,7 +437,7 @@ func processGroup(
 		// Pre-check: decide saved vs refreshed vs existing.
 		eventsForSnapshot := eventsForGroup
 		draftForPersistence := draft
-		existing, foundExisting, ferr := findExistingGroupForDraft(ctx, alerts, draft, eventsForGroup)
+		existing, foundExisting, ferr := findExistingGroupForDraft(ctx, alerts, draft, eventsForGroup, scope.allowLinkedGroupLookup)
 		var persisted domain.AlertGroup
 		switch {
 		case ferr != nil:
@@ -547,6 +549,7 @@ func findExistingGroupForDraft(
 	alerts ports.AlertRepository,
 	draft domain.AlertGroup,
 	eventsForGroup []domain.AlertEvent,
+	allowLinkedGroupLookup bool,
 ) (domain.AlertGroup, bool, error) {
 	existing, err := alerts.FindGroupByNaturalKey(ctx, draft.GroupKey, draft.FirstSeenAt)
 	if err == nil {
@@ -554,6 +557,9 @@ func findExistingGroupForDraft(
 	}
 	if !errors.Is(err, domain.ErrNotFound) {
 		return domain.AlertGroup{}, false, fmt.Errorf("find group by natural key: %w", err)
+	}
+	if !allowLinkedGroupLookup {
+		return domain.AlertGroup{}, false, nil
 	}
 	existing, err = findExistingGroupByLinkedEvents(ctx, alerts, draft.GroupKey, eventsForGroup)
 	if err == nil {
