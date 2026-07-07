@@ -109,6 +109,48 @@ func TestBuilderUsesWeComFormatForWeComChannelKind(t *testing.T) {
 	}
 }
 
+func TestBuilderUsesExplicitRobotFormatForChannelKind(t *testing.T) {
+	tests := []struct {
+		name string
+		kind domain.NotificationChannelKind
+		want string
+	}{
+		{name: "dingtalk", kind: domain.NotificationChannelKindDingTalk, want: "dingtalk"},
+		{name: "feishu", kind: domain.NotificationChannelKindFeishu, want: "feishu"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			profile := domain.NotificationChannelProfile{
+				Kind:      tc.kind,
+				SecretRef: "secret/openclarion/robot-webhook-url",
+			}
+			var gotProfile domain.NotificationChannelProfile
+			var gotCredentials WebhookCredentials
+			builder := mustBuilder(t, fakeSecretResolver{values: map[string]string{
+				profile.SecretRef: "https://example.invalid/robot-hook",
+			}}, func(profile domain.NotificationChannelProfile, credentials WebhookCredentials) (ports.IMProvider, error) {
+				gotProfile = profile
+				gotCredentials = credentials
+				return fakeIMProvider{}, nil
+			})
+
+			provider, err := builder.Build(context.Background(), profile)
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if provider == nil {
+				t.Fatal("provider is nil")
+			}
+			if gotProfile.Kind != tc.kind {
+				t.Fatalf("profile.Kind = %q, want %q", gotProfile.Kind, tc.kind)
+			}
+			if gotCredentials.Format != tc.want {
+				t.Fatalf("credentials.Format = %q, want %q", gotCredentials.Format, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuilderRejectsInvalidWeComWebhookEndpoint(t *testing.T) {
 	profile := domain.NotificationChannelProfile{
 		Kind:      domain.NotificationChannelKindWeCom,

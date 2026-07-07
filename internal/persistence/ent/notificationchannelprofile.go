@@ -20,7 +20,7 @@ type NotificationChannelProfile struct {
 	ID int `json:"id,omitempty"`
 	// operator-facing unique display name
 	Name string `json:"name,omitempty"`
-	// "webhook" or "wecom"
+	// "webhook", "wecom", "dingtalk", or "feishu"
 	Kind string `json:"kind,omitempty"`
 	// deployment-managed endpoint secret reference, never the endpoint or credential value
 	SecretRef string `json:"secret_ref,omitempty"`

@@ -28,12 +28,18 @@ const (
 	// NotificationChannelKindWeCom represents an Enterprise WeChat group robot
 	// webhook endpoint resolved from a deployment-managed secret reference.
 	NotificationChannelKindWeCom NotificationChannelKind = "wecom"
+	// NotificationChannelKindDingTalk represents a DingTalk group robot
+	// webhook endpoint resolved from a deployment-managed secret reference.
+	NotificationChannelKindDingTalk NotificationChannelKind = "dingtalk"
+	// NotificationChannelKindFeishu represents a Feishu or Lark custom bot
+	// webhook endpoint resolved from a deployment-managed secret reference.
+	NotificationChannelKindFeishu NotificationChannelKind = "feishu"
 )
 
 // Valid reports whether k is a supported notification channel kind.
 func (k NotificationChannelKind) Valid() bool {
 	switch k {
-	case NotificationChannelKindWebhook, NotificationChannelKindWeCom:
+	case NotificationChannelKindWebhook, NotificationChannelKindWeCom, NotificationChannelKindDingTalk, NotificationChannelKindFeishu:
 		return true
 	}
 	return false

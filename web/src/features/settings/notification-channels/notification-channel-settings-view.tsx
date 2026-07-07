@@ -121,6 +121,8 @@ const channelKindOptions: Array<{
   label: string;
 }> = [
   { value: "wecom", label: "WeCom" },
+  { value: "dingtalk", label: "DingTalk" },
+  { value: "feishu", label: "Feishu" },
   { value: "webhook", label: "Webhook" },
 ];
 
@@ -631,7 +633,7 @@ export function NotificationChannelSettingsManager({
               >
                 <Input
                   autoComplete="off"
-                  placeholder="secret/example/ops-wecom"
+                  placeholder="secret/example/ops-webhook"
                 />
               </Form.Item>
 

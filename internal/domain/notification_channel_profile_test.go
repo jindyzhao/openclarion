@@ -153,6 +153,32 @@ func TestNewNotificationChannelProfileRejectsInvalid(t *testing.T) {
 	}
 }
 
+func TestNotificationChannelKindValidAcceptsReportWebhookKinds(t *testing.T) {
+	for _, kind := range []NotificationChannelKind{
+		NotificationChannelKindWebhook,
+		NotificationChannelKindWeCom,
+		NotificationChannelKindDingTalk,
+		NotificationChannelKindFeishu,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			got, err := NewNotificationChannelProfile(
+				"Report notifications",
+				kind,
+				"secret/openclarion/report-webhook",
+				[]NotificationDeliveryScope{NotificationDeliveryScopeReport},
+				false,
+				nil,
+			)
+			if err != nil {
+				t.Fatalf("NewNotificationChannelProfile: %v", err)
+			}
+			if got.Kind != kind {
+				t.Fatalf("Kind = %q, want %q", got.Kind, kind)
+			}
+		})
+	}
+}
+
 func TestNewNotificationChannelTestProofNormalizesInput(t *testing.T) {
 	checkedAt := time.Date(2026, 6, 22, 10, 0, 0, 123456789, time.UTC)
 	got, err := NewNotificationChannelTestProof(

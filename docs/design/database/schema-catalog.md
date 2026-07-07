@@ -253,8 +253,8 @@ runtime table:
 
 * `name` is globally UNIQUE so operators have one stable display handle per
   channel
-* `kind` stores `webhook` or `wecom`; both resolve deployment-managed endpoint
-  secrets at runtime
+* `kind` stores `webhook`, `wecom`, `dingtalk`, or `feishu`; all resolve
+  deployment-managed endpoint secrets at runtime
 * `secret_ref` stores only a deployment-managed secret reference, never an
   endpoint URL, bearer token, or credential value
 * `delivery_scopes` is JSONB for report, diagnosis-consultation, and

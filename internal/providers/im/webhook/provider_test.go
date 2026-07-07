@@ -128,6 +128,102 @@ func TestSendNotification_PostsWeComTextPayload(t *testing.T) {
 	}
 }
 
+func TestSendNotification_PostsDingTalkTextPayload(t *testing.T) {
+	var gotPayload dingTalkPayload
+	var gotIDKey, gotReportID, gotAuth, gotContentType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		gotIDKey = r.Header.Get(headerIdempotencyKey)
+		gotReportID = r.Header.Get(headerReportID)
+		gotAuth = r.Header.Get("Authorization")
+		gotContentType = r.Header.Get("Content-Type")
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errcode":0,"errmsg":"ok"}`))
+	}))
+	defer srv.Close()
+
+	p, err := NewProvider(Config{URL: srv.URL + "/notify#fragment", Format: "dingtalk"})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	delivery, err := p.SendNotification(context.Background(), validNotification())
+	if err != nil {
+		t.Fatalf("SendNotification: %v", err)
+	}
+	if gotIDKey != "" || gotReportID != "" || gotAuth != "" {
+		t.Fatalf("unexpected OpenClarion headers idempotency=%q report=%q auth=%q", gotIDKey, gotReportID, gotAuth)
+	}
+	if !strings.HasPrefix(gotContentType, "application/json") {
+		t.Fatalf("Content-Type = %q", gotContentType)
+	}
+	if gotPayload.MsgType != "text" {
+		t.Fatalf("msgtype = %q, want text", gotPayload.MsgType)
+	}
+	wantContent := "Payments degradation\nSeverity: warning\nCorrelation: window-1\nScale payments."
+	if gotPayload.Text.Content != wantContent {
+		t.Fatalf("content = %q, want %q", gotPayload.Text.Content, wantContent)
+	}
+	if delivery.ProviderMessageID != "" || delivery.Status != "delivered" {
+		t.Fatalf("delivery = %+v", delivery)
+	}
+	if string(delivery.Raw) != `{"errcode":0,"errmsg":"ok"}` {
+		t.Fatalf("delivery.Raw = %s", delivery.Raw)
+	}
+}
+
+func TestSendNotification_PostsFeishuTextPayload(t *testing.T) {
+	var gotPayload feishuPayload
+	var gotIDKey, gotReportID, gotAuth, gotContentType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		gotIDKey = r.Header.Get(headerIdempotencyKey)
+		gotReportID = r.Header.Get(headerReportID)
+		gotAuth = r.Header.Get("Authorization")
+		gotContentType = r.Header.Get("Content-Type")
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"StatusCode":0,"StatusMessage":"success","code":0,"data":{},"msg":"success"}`))
+	}))
+	defer srv.Close()
+
+	p, err := NewProvider(Config{URL: srv.URL + "/notify#fragment", Format: "feishu"})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	delivery, err := p.SendNotification(context.Background(), validNotification())
+	if err != nil {
+		t.Fatalf("SendNotification: %v", err)
+	}
+	if gotIDKey != "" || gotReportID != "" || gotAuth != "" {
+		t.Fatalf("unexpected OpenClarion headers idempotency=%q report=%q auth=%q", gotIDKey, gotReportID, gotAuth)
+	}
+	if !strings.HasPrefix(gotContentType, "application/json") {
+		t.Fatalf("Content-Type = %q", gotContentType)
+	}
+	if gotPayload.MsgType != "text" {
+		t.Fatalf("msg_type = %q, want text", gotPayload.MsgType)
+	}
+	wantContent := "Payments degradation\nSeverity: warning\nCorrelation: window-1\nScale payments."
+	if gotPayload.Content.Text != wantContent {
+		t.Fatalf("content.text = %q, want %q", gotPayload.Content.Text, wantContent)
+	}
+	if delivery.ProviderMessageID != "" || delivery.Status != "delivered" {
+		t.Fatalf("delivery = %+v", delivery)
+	}
+	if !strings.Contains(string(delivery.Raw), `"StatusCode":0`) {
+		t.Fatalf("delivery.Raw = %s", delivery.Raw)
+	}
+}
+
 func TestSendNotification_TruncatesWeComTextPayloadAtUTF8Boundary(t *testing.T) {
 	var gotPayload weComPayload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -155,8 +251,82 @@ func TestSendNotification_TruncatesWeComTextPayloadAtUTF8Boundary(t *testing.T) 
 	if !utf8.ValidString(gotPayload.Text.Content) {
 		t.Fatalf("content is not valid UTF-8")
 	}
-	if !strings.HasSuffix(gotPayload.Text.Content, weComTruncationSuffix) {
-		t.Fatalf("content suffix = %q, want truncation suffix", gotPayload.Text.Content[len(gotPayload.Text.Content)-len(weComTruncationSuffix):])
+	if !strings.HasSuffix(gotPayload.Text.Content, robotTruncationSuffix) {
+		t.Fatalf("content suffix = %q, want truncation suffix", gotPayload.Text.Content[len(gotPayload.Text.Content)-len(robotTruncationSuffix):])
+	}
+}
+
+func TestSendNotification_TruncatesRobotTextPayloadsAtUTF8Boundary(t *testing.T) {
+	tests := []struct {
+		name     string
+		format   string
+		limit    int
+		response string
+		content  func(json.RawMessage) (string, error)
+	}{
+		{
+			name:     "dingtalk",
+			format:   "dingtalk",
+			limit:    maxDingTalkTextContentBytes,
+			response: `{"errcode":0,"errmsg":"ok"}`,
+			content: func(raw json.RawMessage) (string, error) {
+				var payload dingTalkPayload
+				if err := json.Unmarshal(raw, &payload); err != nil {
+					return "", err
+				}
+				return payload.Text.Content, nil
+			},
+		},
+		{
+			name:     "feishu",
+			format:   "feishu",
+			limit:    maxFeishuTextContentBytes,
+			response: `{"code":0,"msg":"success","data":{}}`,
+			content: func(raw json.RawMessage) (string, error) {
+				var payload feishuPayload
+				if err := json.Unmarshal(raw, &payload); err != nil {
+					return "", err
+				}
+				return payload.Content.Text, nil
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotRaw json.RawMessage
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if err := json.NewDecoder(r.Body).Decode(&gotRaw); err != nil {
+					t.Fatalf("decode request: %v", err)
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.response))
+			}))
+			defer srv.Close()
+
+			p, err := NewProvider(Config{URL: srv.URL, Format: tc.format})
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			req := validNotification()
+			req.Body = strings.Repeat(string(rune(0x1F680)), tc.limit)
+			if _, err := p.SendNotification(context.Background(), req); err != nil {
+				t.Fatalf("SendNotification: %v", err)
+			}
+
+			content, err := tc.content(gotRaw)
+			if err != nil {
+				t.Fatalf("decode payload content: %v", err)
+			}
+			if len(content) > tc.limit {
+				t.Fatalf("content length = %d, want <= %d", len(content), tc.limit)
+			}
+			if !utf8.ValidString(content) {
+				t.Fatalf("content is not valid UTF-8")
+			}
+			if !strings.HasSuffix(content, robotTruncationSuffix) {
+				t.Fatalf("content suffix = %q, want truncation suffix", content[len(content)-len(robotTruncationSuffix):])
+			}
+		})
 	}
 }
 
@@ -336,6 +506,60 @@ func TestSendNotification_WeComRejectsNonzeroErrCode(t *testing.T) {
 	}
 }
 
+func TestSendNotification_RobotFormatsRejectProviderErrorCodes(t *testing.T) {
+	tests := []struct {
+		name      string
+		format    string
+		body      string
+		want      string
+		retryable bool
+	}{
+		{
+			name:   "dingtalk error",
+			format: "dingtalk",
+			body:   `{"errcode":310000,"errmsg":"keywords not in content"}`,
+			want:   "dingtalk returned errcode 310000",
+		},
+		{
+			name:   "feishu error",
+			format: "feishu",
+			body:   `{"code":9499,"msg":"Bad Request","data":{}}`,
+			want:   "feishu returned code 9499",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			p, err := NewProvider(Config{URL: srv.URL, Format: tc.format})
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			_, err = p.SendNotification(context.Background(), validNotification())
+			if err == nil {
+				t.Fatal("SendNotification err = nil, want provider error code")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want substring %q", err, tc.want)
+			}
+			var imErr *ports.IMError
+			if !errors.As(err, &imErr) {
+				t.Fatalf("err = %T %v, want *ports.IMError", err, err)
+			}
+			if imErr.StatusCode != http.StatusOK {
+				t.Fatalf("IMError.StatusCode = %d, want %d", imErr.StatusCode, http.StatusOK)
+			}
+			if imErr.Retryable != tc.retryable {
+				t.Fatalf("IMError.Retryable = %v, want %v", imErr.Retryable, tc.retryable)
+			}
+		})
+	}
+}
+
 func TestSendNotification_RejectsAmbiguousSuccessResponse(t *testing.T) {
 	tests := []struct {
 		name string
@@ -431,6 +655,83 @@ func TestSendNotification_WeComRejectsAmbiguousSuccessResponse(t *testing.T) {
 				t.Fatalf("NewProvider: %v", err)
 			}
 			_, err = p.SendNotification(context.Background(), validNotification())
+			if err == nil {
+				t.Fatal("SendNotification err = nil, want ambiguous response error")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("err = %v, want substring %q", err, tc.want)
+			}
+			var imErr *ports.IMError
+			if !errors.As(err, &imErr) {
+				t.Fatalf("err = %T %v, want *ports.IMError", err, err)
+			}
+			if imErr.StatusCode != http.StatusOK {
+				t.Fatalf("IMError.StatusCode = %d, want %d", imErr.StatusCode, http.StatusOK)
+			}
+			if imErr.Retryable {
+				t.Fatalf("IMError.Retryable = true, want false for malformed 2xx response")
+			}
+		})
+	}
+}
+
+func TestSendNotification_RobotFormatsRejectAmbiguousSuccessResponse(t *testing.T) {
+	tests := []struct {
+		name   string
+		format string
+		body   string
+		want   string
+	}{
+		{
+			name:   "dingtalk duplicate key",
+			format: "dingtalk",
+			body:   `{"errcode":0,"errcode":310000,"errmsg":"ok"}`,
+			want:   `duplicate object key "errcode"`,
+		},
+		{
+			name:   "dingtalk missing errcode",
+			format: "dingtalk",
+			body:   `{"errmsg":"ok"}`,
+			want:   "errcode must be present",
+		},
+		{
+			name:   "feishu duplicate key",
+			format: "feishu",
+			body:   `{"code":0,"code":9499,"msg":"success"}`,
+			want:   `duplicate object key "code"`,
+		},
+		{
+			name:   "feishu missing code",
+			format: "feishu",
+			body:   `{"msg":"success"}`,
+			want:   "code must be present",
+		},
+		{
+			name:   "feishu legacy status code",
+			format: "feishu",
+			body:   `{"StatusCode":0,"StatusMessage":"success"}`,
+			want:   "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer srv.Close()
+
+			p, err := NewProvider(Config{URL: srv.URL, Format: tc.format})
+			if err != nil {
+				t.Fatalf("NewProvider: %v", err)
+			}
+			_, err = p.SendNotification(context.Background(), validNotification())
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("SendNotification err = %v, want nil", err)
+				}
+				return
+			}
 			if err == nil {
 				t.Fatal("SendNotification err = nil, want ambiguous response error")
 			}
@@ -589,6 +890,24 @@ func TestNewProvider_RejectsInvalidFormatConfig(t *testing.T) {
 			cfg: Config{
 				URL:         "https://example.invalid/report-hook",
 				Format:      "wecom",
+				BearerToken: "test-bearer-value",
+			},
+			wantSubstr: "bearer token is unsupported",
+		},
+		{
+			name: "dingtalk bearer token",
+			cfg: Config{
+				URL:         "https://example.invalid/report-hook",
+				Format:      "dingtalk",
+				BearerToken: "test-bearer-value",
+			},
+			wantSubstr: "bearer token is unsupported",
+		},
+		{
+			name: "feishu bearer token",
+			cfg: Config{
+				URL:         "https://example.invalid/report-hook",
+				Format:      "feishu",
 				BearerToken: "test-bearer-value",
 			},
 			wantSubstr: "bearer token is unsupported",

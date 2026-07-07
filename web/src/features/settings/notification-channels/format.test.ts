@@ -396,7 +396,7 @@ describe("notification channel form formatting", () => {
       }),
     ).toEqual({
       detail:
-        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for generic webhook delivery.",
+        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, or Feishu delivery.",
       hasDiagnosisConsultationScope: true,
       hasDiagnosisCloseScope: true,
       hasReportScope: false,
@@ -474,6 +474,36 @@ describe("notification channel form formatting", () => {
       kindLabel: "Webhook",
       resolverEnvKey: "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON",
       secretRefExample: "secret/openclarion/ops-webhook",
+      secretConfigured: true,
+      status: "ready",
+    });
+
+    expect(
+      notificationChannelCredentialReadiness({
+        ...emptyNotificationChannelForm(),
+        kind: "dingtalk",
+        secretRef: "secret/openclarion/ops-dingtalk",
+      }),
+    ).toMatchObject({
+      expectedCredential: "DingTalk robot webhook URL",
+      kindLabel: "DingTalk",
+      label: "DingTalk credential contract selected.",
+      secretRefExample: "secret/openclarion/ops-dingtalk",
+      secretConfigured: true,
+      status: "ready",
+    });
+
+    expect(
+      notificationChannelCredentialReadiness({
+        ...emptyNotificationChannelForm(),
+        kind: "feishu",
+        secretRef: "secret/openclarion/ops-feishu",
+      }),
+    ).toMatchObject({
+      expectedCredential: "Feishu or Lark custom bot webhook URL",
+      kindLabel: "Feishu",
+      label: "Feishu credential contract selected.",
+      secretRefExample: "secret/openclarion/ops-feishu",
       secretConfigured: true,
       status: "ready",
     });

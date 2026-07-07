@@ -4934,6 +4934,8 @@ components:
       enum:
         - webhook
         - wecom
+        - dingtalk
+        - feishu
       examples:
         - webhook
         - wecom
