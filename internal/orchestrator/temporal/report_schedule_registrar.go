@@ -238,14 +238,13 @@ func (r *ReportWorkflowScheduleRegistrar) BuildCreateOptions(
 	}
 
 	scheduleID := strings.TrimSpace(schedule.TemporalScheduleID)
+	spec, err := r.scheduleSpec(schedule)
+	if err != nil {
+		return client.ScheduleOptions{}, err
+	}
 	return client.ScheduleOptions{
-		ID: scheduleID,
-		Spec: client.ScheduleSpec{
-			Intervals: []client.ScheduleIntervalSpec{{
-				Every:  schedule.Interval,
-				Offset: schedule.Offset,
-			}},
-		},
+		ID:   scheduleID,
+		Spec: spec,
 		Action: &client.ScheduleWorkflowAction{
 			ID:        scheduleLauncherWorkflowID(schedule.ID),
 			Workflow:  ReportPolicyScheduleLauncherWorkflow,
@@ -268,6 +267,49 @@ func (r *ReportWorkflowScheduleRegistrar) BuildCreateOptions(
 	}, nil
 }
 
+func (r *ReportWorkflowScheduleRegistrar) scheduleSpec(schedule domain.ReportWorkflowSchedule) (client.ScheduleSpec, error) {
+	switch schedule.Cadence {
+	case "", domain.ReportWorkflowScheduleCadenceInterval:
+		return client.ScheduleSpec{
+			Intervals: []client.ScheduleIntervalSpec{{
+				Every:  schedule.Interval,
+				Offset: schedule.Offset,
+			}},
+		}, nil
+	case domain.ReportWorkflowScheduleCadenceDaily:
+		return client.ScheduleSpec{
+			Calendars: []client.ScheduleCalendarSpec{{
+				Hour:    []client.ScheduleRange{{Start: schedule.CalendarHour}},
+				Minute:  []client.ScheduleRange{{Start: schedule.CalendarMinute}},
+				Second:  []client.ScheduleRange{{Start: 0}},
+				Comment: "OpenClarion daily report workflow schedule",
+			}},
+		}, nil
+	case domain.ReportWorkflowScheduleCadenceWeekly:
+		return client.ScheduleSpec{
+			Calendars: []client.ScheduleCalendarSpec{{
+				DayOfWeek: []client.ScheduleRange{{Start: schedule.CalendarDayOfWeek}},
+				Hour:      []client.ScheduleRange{{Start: schedule.CalendarHour}},
+				Minute:    []client.ScheduleRange{{Start: schedule.CalendarMinute}},
+				Second:    []client.ScheduleRange{{Start: 0}},
+				Comment:   "OpenClarion weekly report workflow schedule",
+			}},
+		}, nil
+	case domain.ReportWorkflowScheduleCadenceMonthly:
+		return client.ScheduleSpec{
+			Calendars: []client.ScheduleCalendarSpec{{
+				DayOfMonth: []client.ScheduleRange{{Start: schedule.CalendarDayOfMonth}},
+				Hour:       []client.ScheduleRange{{Start: schedule.CalendarHour}},
+				Minute:     []client.ScheduleRange{{Start: schedule.CalendarMinute}},
+				Second:     []client.ScheduleRange{{Start: 0}},
+				Comment:    "OpenClarion monthly report workflow schedule",
+			}},
+		}, nil
+	default:
+		return client.ScheduleSpec{}, fmt.Errorf("report workflow schedule registrar: cadence %q is unsupported: %w", schedule.Cadence, domain.ErrInvariantViolation)
+	}
+}
+
 func (r *ReportWorkflowScheduleRegistrar) validate(schedule domain.ReportWorkflowSchedule) error {
 	if schedule.ID <= 0 {
 		return fmt.Errorf("report workflow schedule registrar: schedule id must be positive: %w", domain.ErrInvariantViolation)
@@ -277,6 +319,17 @@ func (r *ReportWorkflowScheduleRegistrar) validate(schedule domain.ReportWorkflo
 	}
 	if strings.TrimSpace(schedule.TemporalScheduleID) == "" {
 		return fmt.Errorf("report workflow schedule registrar: temporal schedule id must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if !schedule.Cadence.Valid() && schedule.Cadence != "" {
+		return fmt.Errorf("report workflow schedule registrar: cadence is unsupported: %w", domain.ErrInvariantViolation)
+	}
+	if err := validateReportWorkflowScheduleCalendarFields(schedule); err != nil {
+		return err
+	}
+	if schedule.Cadence != "" &&
+		schedule.Cadence != domain.ReportWorkflowScheduleCadenceInterval &&
+		schedule.Offset != 0 {
+		return fmt.Errorf("report workflow schedule registrar: offset must be zero for calendar cadence: %w", domain.ErrInvariantViolation)
 	}
 	if schedule.Interval <= 0 {
 		return fmt.Errorf("report workflow schedule registrar: interval must be positive: %w", domain.ErrInvariantViolation)
@@ -301,6 +354,43 @@ func (r *ReportWorkflowScheduleRegistrar) validate(schedule domain.ReportWorkflo
 	}
 	if r.workflowTaskTimeout <= 0 {
 		return fmt.Errorf("report workflow schedule registrar: workflow task timeout must be positive: %w", domain.ErrInvariantViolation)
+	}
+	return nil
+}
+
+func validateReportWorkflowScheduleCalendarFields(schedule domain.ReportWorkflowSchedule) error {
+	if schedule.CalendarHour < 0 || schedule.CalendarHour > 23 {
+		return fmt.Errorf("report workflow schedule registrar: calendar hour must be between 0 and 23: %w", domain.ErrInvariantViolation)
+	}
+	if schedule.CalendarMinute < 0 || schedule.CalendarMinute > 59 {
+		return fmt.Errorf("report workflow schedule registrar: calendar minute must be between 0 and 59: %w", domain.ErrInvariantViolation)
+	}
+	switch schedule.Cadence {
+	case "", domain.ReportWorkflowScheduleCadenceInterval:
+		if schedule.CalendarHour != 0 ||
+			schedule.CalendarMinute != 0 ||
+			schedule.CalendarDayOfWeek != 0 ||
+			schedule.CalendarDayOfMonth != 0 {
+			return fmt.Errorf("report workflow schedule registrar: interval cadence must not include calendar fields: %w", domain.ErrInvariantViolation)
+		}
+	case domain.ReportWorkflowScheduleCadenceDaily:
+		if schedule.CalendarDayOfWeek != 0 || schedule.CalendarDayOfMonth != 0 {
+			return fmt.Errorf("report workflow schedule registrar: daily cadence must not include calendar day fields: %w", domain.ErrInvariantViolation)
+		}
+	case domain.ReportWorkflowScheduleCadenceWeekly:
+		if schedule.CalendarDayOfWeek < 0 || schedule.CalendarDayOfWeek > 6 {
+			return fmt.Errorf("report workflow schedule registrar: day of week must be between 0 and 6: %w", domain.ErrInvariantViolation)
+		}
+		if schedule.CalendarDayOfMonth != 0 {
+			return fmt.Errorf("report workflow schedule registrar: weekly cadence must not include day of month: %w", domain.ErrInvariantViolation)
+		}
+	case domain.ReportWorkflowScheduleCadenceMonthly:
+		if schedule.CalendarDayOfMonth < 1 || schedule.CalendarDayOfMonth > 28 {
+			return fmt.Errorf("report workflow schedule registrar: day of month must be between 1 and 28: %w", domain.ErrInvariantViolation)
+		}
+		if schedule.CalendarDayOfWeek != 0 {
+			return fmt.Errorf("report workflow schedule registrar: monthly cadence must not include day of week: %w", domain.ErrInvariantViolation)
+		}
 	}
 	return nil
 }

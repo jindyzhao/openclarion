@@ -77,6 +77,104 @@ func (_u *ReportWorkflowScheduleUpdate) SetNillableTemporalScheduleID(v *string)
 	return _u
 }
 
+// SetCadence sets the "cadence" field.
+func (_u *ReportWorkflowScheduleUpdate) SetCadence(v string) *ReportWorkflowScheduleUpdate {
+	_u.mutation.SetCadence(v)
+	return _u
+}
+
+// SetNillableCadence sets the "cadence" field if the given value is not nil.
+func (_u *ReportWorkflowScheduleUpdate) SetNillableCadence(v *string) *ReportWorkflowScheduleUpdate {
+	if v != nil {
+		_u.SetCadence(*v)
+	}
+	return _u
+}
+
+// SetCalendarHour sets the "calendar_hour" field.
+func (_u *ReportWorkflowScheduleUpdate) SetCalendarHour(v int) *ReportWorkflowScheduleUpdate {
+	_u.mutation.ResetCalendarHour()
+	_u.mutation.SetCalendarHour(v)
+	return _u
+}
+
+// SetNillableCalendarHour sets the "calendar_hour" field if the given value is not nil.
+func (_u *ReportWorkflowScheduleUpdate) SetNillableCalendarHour(v *int) *ReportWorkflowScheduleUpdate {
+	if v != nil {
+		_u.SetCalendarHour(*v)
+	}
+	return _u
+}
+
+// AddCalendarHour adds value to the "calendar_hour" field.
+func (_u *ReportWorkflowScheduleUpdate) AddCalendarHour(v int) *ReportWorkflowScheduleUpdate {
+	_u.mutation.AddCalendarHour(v)
+	return _u
+}
+
+// SetCalendarMinute sets the "calendar_minute" field.
+func (_u *ReportWorkflowScheduleUpdate) SetCalendarMinute(v int) *ReportWorkflowScheduleUpdate {
+	_u.mutation.ResetCalendarMinute()
+	_u.mutation.SetCalendarMinute(v)
+	return _u
+}
+
+// SetNillableCalendarMinute sets the "calendar_minute" field if the given value is not nil.
+func (_u *ReportWorkflowScheduleUpdate) SetNillableCalendarMinute(v *int) *ReportWorkflowScheduleUpdate {
+	if v != nil {
+		_u.SetCalendarMinute(*v)
+	}
+	return _u
+}
+
+// AddCalendarMinute adds value to the "calendar_minute" field.
+func (_u *ReportWorkflowScheduleUpdate) AddCalendarMinute(v int) *ReportWorkflowScheduleUpdate {
+	_u.mutation.AddCalendarMinute(v)
+	return _u
+}
+
+// SetCalendarDayOfWeek sets the "calendar_day_of_week" field.
+func (_u *ReportWorkflowScheduleUpdate) SetCalendarDayOfWeek(v int) *ReportWorkflowScheduleUpdate {
+	_u.mutation.ResetCalendarDayOfWeek()
+	_u.mutation.SetCalendarDayOfWeek(v)
+	return _u
+}
+
+// SetNillableCalendarDayOfWeek sets the "calendar_day_of_week" field if the given value is not nil.
+func (_u *ReportWorkflowScheduleUpdate) SetNillableCalendarDayOfWeek(v *int) *ReportWorkflowScheduleUpdate {
+	if v != nil {
+		_u.SetCalendarDayOfWeek(*v)
+	}
+	return _u
+}
+
+// AddCalendarDayOfWeek adds value to the "calendar_day_of_week" field.
+func (_u *ReportWorkflowScheduleUpdate) AddCalendarDayOfWeek(v int) *ReportWorkflowScheduleUpdate {
+	_u.mutation.AddCalendarDayOfWeek(v)
+	return _u
+}
+
+// SetCalendarDayOfMonth sets the "calendar_day_of_month" field.
+func (_u *ReportWorkflowScheduleUpdate) SetCalendarDayOfMonth(v int) *ReportWorkflowScheduleUpdate {
+	_u.mutation.ResetCalendarDayOfMonth()
+	_u.mutation.SetCalendarDayOfMonth(v)
+	return _u
+}
+
+// SetNillableCalendarDayOfMonth sets the "calendar_day_of_month" field if the given value is not nil.
+func (_u *ReportWorkflowScheduleUpdate) SetNillableCalendarDayOfMonth(v *int) *ReportWorkflowScheduleUpdate {
+	if v != nil {
+		_u.SetCalendarDayOfMonth(*v)
+	}
+	return _u
+}
+
+// AddCalendarDayOfMonth adds value to the "calendar_day_of_month" field.
+func (_u *ReportWorkflowScheduleUpdate) AddCalendarDayOfMonth(v int) *ReportWorkflowScheduleUpdate {
+	_u.mutation.AddCalendarDayOfMonth(v)
+	return _u
+}
+
 // SetIntervalNs sets the "interval_ns" field.
 func (_u *ReportWorkflowScheduleUpdate) SetIntervalNs(v int64) *ReportWorkflowScheduleUpdate {
 	_u.mutation.ResetIntervalNs()
@@ -321,6 +419,31 @@ func (_u *ReportWorkflowScheduleUpdate) check() error {
 			return &ValidationError{Name: "temporal_schedule_id", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.temporal_schedule_id": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Cadence(); ok {
+		if err := reportworkflowschedule.CadenceValidator(v); err != nil {
+			return &ValidationError{Name: "cadence", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.cadence": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CalendarHour(); ok {
+		if err := reportworkflowschedule.CalendarHourValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_hour", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_hour": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CalendarMinute(); ok {
+		if err := reportworkflowschedule.CalendarMinuteValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_minute", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_minute": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CalendarDayOfWeek(); ok {
+		if err := reportworkflowschedule.CalendarDayOfWeekValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_day_of_week", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_day_of_week": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CalendarDayOfMonth(); ok {
+		if err := reportworkflowschedule.CalendarDayOfMonthValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_day_of_month", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_day_of_month": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.IntervalNs(); ok {
 		if err := reportworkflowschedule.IntervalNsValidator(v); err != nil {
 			return &ValidationError{Name: "interval_ns", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.interval_ns": %w`, err)}
@@ -377,6 +500,33 @@ func (_u *ReportWorkflowScheduleUpdate) sqlSave(ctx context.Context) (_node int,
 	}
 	if value, ok := _u.mutation.TemporalScheduleID(); ok {
 		_spec.SetField(reportworkflowschedule.FieldTemporalScheduleID, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Cadence(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCadence, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.CalendarHour(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarHour, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCalendarHour(); ok {
+		_spec.AddField(reportworkflowschedule.FieldCalendarHour, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.CalendarMinute(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarMinute, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCalendarMinute(); ok {
+		_spec.AddField(reportworkflowschedule.FieldCalendarMinute, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.CalendarDayOfWeek(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarDayOfWeek, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCalendarDayOfWeek(); ok {
+		_spec.AddField(reportworkflowschedule.FieldCalendarDayOfWeek, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.CalendarDayOfMonth(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarDayOfMonth, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCalendarDayOfMonth(); ok {
+		_spec.AddField(reportworkflowschedule.FieldCalendarDayOfMonth, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.IntervalNs(); ok {
 		_spec.SetField(reportworkflowschedule.FieldIntervalNs, field.TypeInt64, value)
@@ -498,6 +648,104 @@ func (_u *ReportWorkflowScheduleUpdateOne) SetNillableTemporalScheduleID(v *stri
 	if v != nil {
 		_u.SetTemporalScheduleID(*v)
 	}
+	return _u
+}
+
+// SetCadence sets the "cadence" field.
+func (_u *ReportWorkflowScheduleUpdateOne) SetCadence(v string) *ReportWorkflowScheduleUpdateOne {
+	_u.mutation.SetCadence(v)
+	return _u
+}
+
+// SetNillableCadence sets the "cadence" field if the given value is not nil.
+func (_u *ReportWorkflowScheduleUpdateOne) SetNillableCadence(v *string) *ReportWorkflowScheduleUpdateOne {
+	if v != nil {
+		_u.SetCadence(*v)
+	}
+	return _u
+}
+
+// SetCalendarHour sets the "calendar_hour" field.
+func (_u *ReportWorkflowScheduleUpdateOne) SetCalendarHour(v int) *ReportWorkflowScheduleUpdateOne {
+	_u.mutation.ResetCalendarHour()
+	_u.mutation.SetCalendarHour(v)
+	return _u
+}
+
+// SetNillableCalendarHour sets the "calendar_hour" field if the given value is not nil.
+func (_u *ReportWorkflowScheduleUpdateOne) SetNillableCalendarHour(v *int) *ReportWorkflowScheduleUpdateOne {
+	if v != nil {
+		_u.SetCalendarHour(*v)
+	}
+	return _u
+}
+
+// AddCalendarHour adds value to the "calendar_hour" field.
+func (_u *ReportWorkflowScheduleUpdateOne) AddCalendarHour(v int) *ReportWorkflowScheduleUpdateOne {
+	_u.mutation.AddCalendarHour(v)
+	return _u
+}
+
+// SetCalendarMinute sets the "calendar_minute" field.
+func (_u *ReportWorkflowScheduleUpdateOne) SetCalendarMinute(v int) *ReportWorkflowScheduleUpdateOne {
+	_u.mutation.ResetCalendarMinute()
+	_u.mutation.SetCalendarMinute(v)
+	return _u
+}
+
+// SetNillableCalendarMinute sets the "calendar_minute" field if the given value is not nil.
+func (_u *ReportWorkflowScheduleUpdateOne) SetNillableCalendarMinute(v *int) *ReportWorkflowScheduleUpdateOne {
+	if v != nil {
+		_u.SetCalendarMinute(*v)
+	}
+	return _u
+}
+
+// AddCalendarMinute adds value to the "calendar_minute" field.
+func (_u *ReportWorkflowScheduleUpdateOne) AddCalendarMinute(v int) *ReportWorkflowScheduleUpdateOne {
+	_u.mutation.AddCalendarMinute(v)
+	return _u
+}
+
+// SetCalendarDayOfWeek sets the "calendar_day_of_week" field.
+func (_u *ReportWorkflowScheduleUpdateOne) SetCalendarDayOfWeek(v int) *ReportWorkflowScheduleUpdateOne {
+	_u.mutation.ResetCalendarDayOfWeek()
+	_u.mutation.SetCalendarDayOfWeek(v)
+	return _u
+}
+
+// SetNillableCalendarDayOfWeek sets the "calendar_day_of_week" field if the given value is not nil.
+func (_u *ReportWorkflowScheduleUpdateOne) SetNillableCalendarDayOfWeek(v *int) *ReportWorkflowScheduleUpdateOne {
+	if v != nil {
+		_u.SetCalendarDayOfWeek(*v)
+	}
+	return _u
+}
+
+// AddCalendarDayOfWeek adds value to the "calendar_day_of_week" field.
+func (_u *ReportWorkflowScheduleUpdateOne) AddCalendarDayOfWeek(v int) *ReportWorkflowScheduleUpdateOne {
+	_u.mutation.AddCalendarDayOfWeek(v)
+	return _u
+}
+
+// SetCalendarDayOfMonth sets the "calendar_day_of_month" field.
+func (_u *ReportWorkflowScheduleUpdateOne) SetCalendarDayOfMonth(v int) *ReportWorkflowScheduleUpdateOne {
+	_u.mutation.ResetCalendarDayOfMonth()
+	_u.mutation.SetCalendarDayOfMonth(v)
+	return _u
+}
+
+// SetNillableCalendarDayOfMonth sets the "calendar_day_of_month" field if the given value is not nil.
+func (_u *ReportWorkflowScheduleUpdateOne) SetNillableCalendarDayOfMonth(v *int) *ReportWorkflowScheduleUpdateOne {
+	if v != nil {
+		_u.SetCalendarDayOfMonth(*v)
+	}
+	return _u
+}
+
+// AddCalendarDayOfMonth adds value to the "calendar_day_of_month" field.
+func (_u *ReportWorkflowScheduleUpdateOne) AddCalendarDayOfMonth(v int) *ReportWorkflowScheduleUpdateOne {
+	_u.mutation.AddCalendarDayOfMonth(v)
 	return _u
 }
 
@@ -758,6 +1006,31 @@ func (_u *ReportWorkflowScheduleUpdateOne) check() error {
 			return &ValidationError{Name: "temporal_schedule_id", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.temporal_schedule_id": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.Cadence(); ok {
+		if err := reportworkflowschedule.CadenceValidator(v); err != nil {
+			return &ValidationError{Name: "cadence", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.cadence": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CalendarHour(); ok {
+		if err := reportworkflowschedule.CalendarHourValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_hour", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_hour": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CalendarMinute(); ok {
+		if err := reportworkflowschedule.CalendarMinuteValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_minute", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_minute": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CalendarDayOfWeek(); ok {
+		if err := reportworkflowschedule.CalendarDayOfWeekValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_day_of_week", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_day_of_week": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CalendarDayOfMonth(); ok {
+		if err := reportworkflowschedule.CalendarDayOfMonthValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_day_of_month", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_day_of_month": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.IntervalNs(); ok {
 		if err := reportworkflowschedule.IntervalNsValidator(v); err != nil {
 			return &ValidationError{Name: "interval_ns", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.interval_ns": %w`, err)}
@@ -831,6 +1104,33 @@ func (_u *ReportWorkflowScheduleUpdateOne) sqlSave(ctx context.Context) (_node *
 	}
 	if value, ok := _u.mutation.TemporalScheduleID(); ok {
 		_spec.SetField(reportworkflowschedule.FieldTemporalScheduleID, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.Cadence(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCadence, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.CalendarHour(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarHour, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCalendarHour(); ok {
+		_spec.AddField(reportworkflowschedule.FieldCalendarHour, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.CalendarMinute(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarMinute, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCalendarMinute(); ok {
+		_spec.AddField(reportworkflowschedule.FieldCalendarMinute, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.CalendarDayOfWeek(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarDayOfWeek, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCalendarDayOfWeek(); ok {
+		_spec.AddField(reportworkflowschedule.FieldCalendarDayOfWeek, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.CalendarDayOfMonth(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarDayOfMonth, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedCalendarDayOfMonth(); ok {
+		_spec.AddField(reportworkflowschedule.FieldCalendarDayOfMonth, field.TypeInt, value)
 	}
 	if value, ok := _u.mutation.IntervalNs(); ok {
 		_spec.SetField(reportworkflowschedule.FieldIntervalNs, field.TypeInt64, value)

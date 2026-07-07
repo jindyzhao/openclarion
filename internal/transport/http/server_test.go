@@ -5409,6 +5409,11 @@ func TestListReportWorkflowSchedulesReturnsSchedules(t *testing.T) {
 	}
 	if body.Items[0].IntervalSeconds != 86400 ||
 		body.Items[0].OffsetSeconds != 21600 ||
+		body.Items[0].Cadence != "interval" ||
+		body.Items[0].CalendarHour != 0 ||
+		body.Items[0].CalendarMinute != 0 ||
+		body.Items[0].CalendarDayOfWeek != 0 ||
+		body.Items[0].CalendarDayOfMonth != 0 ||
 		body.Items[0].ReplayWindowSeconds != 3600 ||
 		body.Items[0].ReplayDelaySeconds != 300 ||
 		body.Items[0].CatchupWindowSeconds != 3600 {
@@ -5439,6 +5444,7 @@ func TestCreateReportWorkflowScheduleStoresSecondsAsDurations(t *testing.T) {
 		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
 	}
 	if repo.savedReportWorkflowSchedule.ReportWorkflowPolicyID != 7 ||
+		repo.savedReportWorkflowSchedule.Cadence != domain.ReportWorkflowScheduleCadenceInterval ||
 		repo.savedReportWorkflowSchedule.Interval != 24*time.Hour ||
 		repo.savedReportWorkflowSchedule.Offset != 6*time.Hour ||
 		repo.savedReportWorkflowSchedule.ReplayWindow != time.Hour ||
@@ -5451,7 +5457,58 @@ func TestCreateReportWorkflowScheduleStoresSecondsAsDurations(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if response.TemporalScheduleID != "openclarion-report-policy-7-daily" || response.Enabled {
+	if response.TemporalScheduleID != "openclarion-report-policy-7-daily" ||
+		response.Cadence != "interval" ||
+		response.Enabled {
+		t.Fatalf("response = %+v", response)
+	}
+}
+
+func TestCreateReportWorkflowScheduleStoresCalendarCadence(t *testing.T) {
+	repo := &fakeConfigRepo{
+		reportWorkflowPolicies: []domain.ReportWorkflowPolicy{{ID: 7}},
+	}
+	body := `{
+		"name":"Weekly report window",
+		"report_workflow_policy_id":7,
+		"temporal_schedule_id":"openclarion-report-policy-7-weekly",
+		"cadence":"weekly",
+		"calendar_hour":2,
+		"calendar_minute":30,
+		"calendar_day_of_week":1,
+		"calendar_day_of_month":0,
+		"interval_seconds":604800,
+		"offset_seconds":0,
+		"replay_window_seconds":3600,
+		"replay_delay_seconds":300,
+		"replay_limit":10000,
+		"catchup_window_seconds":3600
+	}`
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/config/report-workflow-schedules", strings.NewReader(body))
+	testConfigHandler(t, &fakeUOWFactory{configRepo: repo}).ServeHTTP(rec, req)
+
+	if rec.Code != stdhttp.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rec.Code, rec.Body.String())
+	}
+	if repo.savedReportWorkflowSchedule.Cadence != domain.ReportWorkflowScheduleCadenceWeekly ||
+		repo.savedReportWorkflowSchedule.CalendarHour != 2 ||
+		repo.savedReportWorkflowSchedule.CalendarMinute != 30 ||
+		repo.savedReportWorkflowSchedule.CalendarDayOfWeek != 1 ||
+		repo.savedReportWorkflowSchedule.CalendarDayOfMonth != 0 ||
+		repo.savedReportWorkflowSchedule.Interval != 7*24*time.Hour ||
+		repo.savedReportWorkflowSchedule.Offset != 0 {
+		t.Fatalf("saved schedule = %+v", repo.savedReportWorkflowSchedule)
+	}
+	var response api.ReportWorkflowSchedule
+	if err := json.NewDecoder(rec.Body).Decode(&response); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if response.Cadence != "weekly" ||
+		response.CalendarHour != 2 ||
+		response.CalendarMinute != 30 ||
+		response.CalendarDayOfWeek != 1 ||
+		response.CalendarDayOfMonth != 0 {
 		t.Fatalf("response = %+v", response)
 	}
 }

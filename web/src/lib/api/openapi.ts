@@ -2207,15 +2207,45 @@ export interface components {
              */
             temporal_schedule_id: string;
             /**
+             * @description Schedule cadence kind. Calendar cadences use UTC calendar fields; interval preserves fixed-period behavior.
+             * @example daily
+             * @enum {string}
+             */
+            cadence: "interval" | "daily" | "weekly" | "monthly";
+            /**
+             * Format: int32
+             * @description UTC hour used by daily, weekly, and monthly calendar cadences.
+             * @example 2
+             */
+            calendar_hour: number;
+            /**
+             * Format: int32
+             * @description UTC minute used by daily, weekly, and monthly calendar cadences.
+             * @example 30
+             */
+            calendar_minute: number;
+            /**
+             * Format: int32
+             * @description UTC day of week for weekly cadence, where 0 is Sunday and 6 is Saturday. Must be 0 for other cadences.
+             * @example 1
+             */
+            calendar_day_of_week: number;
+            /**
+             * Format: int32
+             * @description UTC day of month for monthly cadence. Monthly schedules accept 1-28 so every month has a matching fire time; must be 0 for other cadences.
+             * @example 1
+             */
+            calendar_day_of_month: number;
+            /**
              * Format: int64
-             * @description Temporal interval cadence in whole seconds.
+             * @description Temporal fixed interval in whole seconds, or replay-window guard interval for calendar cadences.
              * @example 86400
              */
             interval_seconds: number;
             /**
              * Format: int64
-             * @description Temporal interval offset in whole seconds; must be less than interval_seconds.
-             * @example 21600
+             * @description Temporal interval offset in whole seconds; must be less than interval_seconds. Calendar cadences require 0 because calendar_hour/calendar_minute define the fire time.
+             * @example 0
              */
             offset_seconds: number;
             /**
@@ -2285,13 +2315,50 @@ export interface components {
              */
             temporal_schedule_id: string;
             /**
+             * @description Schedule cadence kind. Defaults to interval for backward-compatible fixed-period scheduling.
+             * @default interval
+             * @example weekly
+             * @enum {string}
+             */
+            cadence: "interval" | "daily" | "weekly" | "monthly";
+            /**
+             * Format: int32
+             * @description UTC hour used by daily, weekly, and monthly calendar cadences.
+             * @default 0
+             * @example 2
+             */
+            calendar_hour: number;
+            /**
+             * Format: int32
+             * @description UTC minute used by daily, weekly, and monthly calendar cadences.
+             * @default 0
+             * @example 30
+             */
+            calendar_minute: number;
+            /**
+             * Format: int32
+             * @description UTC day of week for weekly cadence, where 0 is Sunday and 6 is Saturday. Must be 0 for other cadences.
+             * @default 0
+             * @example 1
+             */
+            calendar_day_of_week: number;
+            /**
+             * Format: int32
+             * @description UTC day of month for monthly cadence. Monthly schedules accept 1-28 so every month has a matching fire time; must be 0 for other cadences.
+             * @default 0
+             * @example 1
+             */
+            calendar_day_of_month: number;
+            /**
              * Format: int64
+             * @description Temporal fixed interval in whole seconds, or replay-window guard interval for calendar cadences.
              * @example 86400
              */
             interval_seconds: number;
             /**
              * Format: int64
-             * @example 21600
+             * @description Temporal interval offset in whole seconds; must be less than interval_seconds. Calendar cadences require 0 because calendar_hour/calendar_minute define the fire time.
+             * @example 0
              */
             offset_seconds: number;
             /**
@@ -2324,8 +2391,13 @@ export interface components {
              *         "name": "Daily report window",
              *         "report_workflow_policy_id": 1,
              *         "temporal_schedule_id": "openclarion-report-policy-1-daily",
+             *         "cadence": "daily",
+             *         "calendar_hour": 2,
+             *         "calendar_minute": 30,
+             *         "calendar_day_of_week": 0,
+             *         "calendar_day_of_month": 0,
              *         "interval_seconds": 86400,
-             *         "offset_seconds": 21600,
+             *         "offset_seconds": 0,
              *         "replay_window_seconds": 3600,
              *         "replay_delay_seconds": 300,
              *         "replay_limit": 10000,

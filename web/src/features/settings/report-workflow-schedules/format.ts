@@ -1,5 +1,6 @@
 import type {
   ReportWorkflowSchedule,
+  ReportWorkflowScheduleCadence,
   ReportWorkflowScheduleFormState,
   ReportWorkflowScheduleWriteRequest
 } from "./types";
@@ -53,6 +54,11 @@ export function emptyReportWorkflowScheduleForm(): ReportWorkflowScheduleFormSta
     name: "",
     reportWorkflowPolicyID: null,
     temporalScheduleID: "",
+    cadence: "interval",
+    calendarHour: 0,
+    calendarMinute: 0,
+    calendarDayOfWeek: 0,
+    calendarDayOfMonth: 0,
     intervalSeconds: 86400,
     offsetSeconds: 0,
     replayWindowSeconds: 3600,
@@ -108,6 +114,11 @@ export function scheduleToFormState(schedule: ReportWorkflowSchedule): ReportWor
     name: schedule.name,
     reportWorkflowPolicyID: schedule.report_workflow_policy_id,
     temporalScheduleID: schedule.temporal_schedule_id,
+    cadence: normalizeReportWorkflowScheduleCadence(schedule.cadence),
+    calendarHour: schedule.calendar_hour,
+    calendarMinute: schedule.calendar_minute,
+    calendarDayOfWeek: schedule.calendar_day_of_week,
+    calendarDayOfMonth: schedule.calendar_day_of_month,
     intervalSeconds: schedule.interval_seconds,
     offsetSeconds: schedule.offset_seconds,
     replayWindowSeconds: schedule.replay_window_seconds,
@@ -240,11 +251,11 @@ export function reportWorkflowScheduleProofOutcome({
     {
       detail:
         timingStatus === "ready"
-          ? `Starts every ${draftDurationLabel(form.intervalSeconds)} after offset ${draftDurationLabel(form.offsetSeconds)}.`
-          : "Set a positive interval and an offset that is lower than the interval.",
+          ? scheduleCadenceDetail(form)
+          : scheduleCadenceValidationHint(form.cadence),
       status: timingStatus,
       title: "Cadence",
-      value: `Every ${draftDurationLabel(form.intervalSeconds)}`
+      value: scheduleCadenceValue(form)
     },
     {
       detail:
@@ -252,7 +263,7 @@ export function reportWorkflowScheduleProofOutcome({
           ? `Each run samples a ${draftDurationLabel(form.replayWindowSeconds)} alert window after a ${draftDurationLabel(
               form.replayDelaySeconds
             )} delay, capped at ${form.replayLimit} events.`
-          : "Replay window, delay, and limit must be valid, and the window cannot exceed the interval.",
+          : "Replay window, delay, and limit must be valid, and the window cannot exceed the cadence guard interval.",
       status: replayStatus,
       title: "Replay sample",
       value: `${draftDurationLabel(form.replayWindowSeconds)} window`
@@ -310,11 +321,19 @@ export function formStateToWriteRequest(
   if (!positiveInteger(form.reportWorkflowPolicyID)) {
     return { ok: false, message: "Select a report workflow policy." };
   }
+  const cadence = normalizeReportWorkflowScheduleCadence(form.cadence);
+  const calendarValidation = validateScheduleCalendarFields(form, cadence);
+  if (calendarValidation !== null) {
+    return { ok: false, message: calendarValidation };
+  }
   if (!positiveInteger(form.intervalSeconds) || form.intervalSeconds > maxDurationSeconds) {
     return { ok: false, message: "Interval must be between 1 and 31536000 seconds." };
   }
   if (!nonNegativeInteger(form.offsetSeconds) || form.offsetSeconds > maxDurationSeconds) {
     return { ok: false, message: "Offset must be between 0 and 31536000 seconds." };
+  }
+  if (cadence !== "interval" && form.offsetSeconds !== 0) {
+    return { ok: false, message: "Offset must be 0 for calendar cadences." };
   }
   if (form.offsetSeconds >= form.intervalSeconds) {
     return { ok: false, message: "Offset must be less than interval." };
@@ -345,6 +364,11 @@ export function formStateToWriteRequest(
       name,
       report_workflow_policy_id: form.reportWorkflowPolicyID,
       temporal_schedule_id: temporalScheduleID,
+      cadence,
+      calendar_hour: form.calendarHour ?? 0,
+      calendar_minute: form.calendarMinute ?? 0,
+      calendar_day_of_week: form.calendarDayOfWeek ?? 0,
+      calendar_day_of_month: form.calendarDayOfMonth ?? 0,
       interval_seconds: form.intervalSeconds,
       offset_seconds: form.offsetSeconds,
       replay_window_seconds: form.replayWindowSeconds,
@@ -366,9 +390,132 @@ export function reportWorkflowScheduleReplayWindowBlocker({
     return null;
   }
   if (replayWindowSeconds > intervalSeconds) {
-    return "Replay window must be less than or equal to interval to avoid overlapping scheduled replay windows.";
+    return "Replay window must be less than or equal to cadence guard interval to avoid overlapping scheduled replay windows.";
   }
   return null;
+}
+
+export function reportWorkflowScheduleCadenceDefaults(
+  cadence: ReportWorkflowScheduleCadence
+): Pick<
+  ReportWorkflowScheduleFormState,
+  "calendarDayOfMonth" | "calendarDayOfWeek" | "calendarHour" | "calendarMinute" | "intervalSeconds" | "offsetSeconds"
+> {
+  switch (cadence) {
+    case "daily":
+      return {
+        calendarDayOfMonth: 0,
+        calendarDayOfWeek: 0,
+        calendarHour: 2,
+        calendarMinute: 0,
+        intervalSeconds: 86400,
+        offsetSeconds: 0
+      };
+    case "weekly":
+      return {
+        calendarDayOfMonth: 0,
+        calendarDayOfWeek: 1,
+        calendarHour: 2,
+        calendarMinute: 0,
+        intervalSeconds: 604800,
+        offsetSeconds: 0
+      };
+    case "monthly":
+      return {
+        calendarDayOfMonth: 1,
+        calendarDayOfWeek: 0,
+        calendarHour: 2,
+        calendarMinute: 0,
+        intervalSeconds: 2419200,
+        offsetSeconds: 0
+      };
+    case "interval":
+      return {
+        calendarDayOfMonth: 0,
+        calendarDayOfWeek: 0,
+        calendarHour: 0,
+        calendarMinute: 0,
+        intervalSeconds: 86400,
+        offsetSeconds: 0
+      };
+  }
+}
+
+export function reportWorkflowScheduleCadenceLabel(cadence: ReportWorkflowScheduleCadence): string {
+  switch (cadence) {
+    case "interval":
+      return "Interval";
+    case "daily":
+      return "Daily";
+    case "weekly":
+      return "Weekly";
+    case "monthly":
+      return "Monthly";
+  }
+}
+
+export function reportWorkflowScheduleFormCadenceValue(form: ReportWorkflowScheduleFormState): string {
+  return scheduleCadenceValue(form);
+}
+
+export function reportWorkflowScheduleCadenceValue(
+  schedule: Pick<
+    ReportWorkflowSchedule,
+    | "cadence"
+    | "calendar_day_of_month"
+    | "calendar_day_of_week"
+    | "calendar_hour"
+    | "calendar_minute"
+    | "interval_seconds"
+    | "offset_seconds"
+  >
+): string {
+  return scheduleCadenceValue({
+    cadence: normalizeReportWorkflowScheduleCadence(schedule.cadence),
+    calendarDayOfMonth: schedule.calendar_day_of_month,
+    calendarDayOfWeek: schedule.calendar_day_of_week,
+    calendarHour: schedule.calendar_hour,
+    calendarMinute: schedule.calendar_minute,
+    catchupWindowSeconds: null,
+    intervalSeconds: schedule.interval_seconds,
+    name: "",
+    offsetSeconds: schedule.offset_seconds,
+    replayDelaySeconds: null,
+    replayLimit: null,
+    replayWindowSeconds: null,
+    reportWorkflowPolicyID: null,
+    temporalScheduleID: ""
+  });
+}
+
+export function reportWorkflowScheduleCadenceDetail(
+  schedule: Pick<
+    ReportWorkflowSchedule,
+    | "cadence"
+    | "calendar_day_of_month"
+    | "calendar_day_of_week"
+    | "calendar_hour"
+    | "calendar_minute"
+    | "interval_seconds"
+    | "offset_seconds"
+  >
+): string {
+  return scheduleCadenceDetail({
+    cadence: normalizeReportWorkflowScheduleCadence(schedule.cadence),
+    calendarDayOfMonth: schedule.calendar_day_of_month,
+    calendarDayOfWeek: schedule.calendar_day_of_week,
+    calendarHour: schedule.calendar_hour,
+    calendarMinute: schedule.calendar_minute,
+    catchupWindowSeconds: null,
+    intervalSeconds: schedule.interval_seconds,
+    name: "",
+    offsetSeconds: schedule.offset_seconds,
+    replayDelaySeconds: null,
+    replayLimit: null,
+    replayWindowSeconds: null,
+    reportWorkflowPolicyID: null,
+    temporalScheduleID: ""
+  });
 }
 
 const maxDurationSeconds = 31536000;
@@ -379,6 +526,65 @@ function positiveInteger(value: number | null): value is number {
 
 function nonNegativeInteger(value: number | null): value is number {
   return Number.isSafeInteger(value) && value !== null && value >= 0;
+}
+
+function normalizeReportWorkflowScheduleCadence(
+  cadence: string | null | undefined
+): ReportWorkflowScheduleCadence {
+  switch (cadence) {
+    case "daily":
+    case "weekly":
+    case "monthly":
+      return cadence;
+    case "interval":
+    default:
+      return "interval";
+  }
+}
+
+function validateScheduleCalendarFields(
+  form: ReportWorkflowScheduleFormState,
+  cadence: ReportWorkflowScheduleCadence
+): string | null {
+  if (!nonNegativeInteger(form.calendarHour) || form.calendarHour > 23) {
+    return "Calendar hour must be between 0 and 23.";
+  }
+  if (!nonNegativeInteger(form.calendarMinute) || form.calendarMinute > 59) {
+    return "Calendar minute must be between 0 and 59.";
+  }
+  switch (cadence) {
+    case "interval":
+      if (
+        form.calendarHour !== 0 ||
+        form.calendarMinute !== 0 ||
+        form.calendarDayOfWeek !== 0 ||
+        form.calendarDayOfMonth !== 0
+      ) {
+        return "Interval cadence must not include calendar fields.";
+      }
+      return null;
+    case "daily":
+      if (form.calendarDayOfWeek !== 0 || form.calendarDayOfMonth !== 0) {
+        return "Daily cadence must not include calendar day fields.";
+      }
+      return null;
+    case "weekly":
+      if (!nonNegativeInteger(form.calendarDayOfWeek) || form.calendarDayOfWeek > 6) {
+        return "Calendar day of week must be between 0 and 6.";
+      }
+      if (form.calendarDayOfMonth !== 0) {
+        return "Weekly cadence must not include calendar day of month.";
+      }
+      return null;
+    case "monthly":
+      if (!positiveInteger(form.calendarDayOfMonth) || form.calendarDayOfMonth > 28) {
+        return "Calendar day of month must be between 1 and 28.";
+      }
+      if (form.calendarDayOfWeek !== 0) {
+        return "Monthly cadence must not include calendar day of week.";
+      }
+      return null;
+  }
 }
 
 function schedulePolicyStatus(
@@ -392,8 +598,16 @@ function schedulePolicyStatus(
 }
 
 function scheduleTimingStatus(form: ReportWorkflowScheduleFormState): ScheduleDraftReadinessStatus {
+  const cadence = normalizeReportWorkflowScheduleCadence(form.cadence);
+  const calendarValidation = validateScheduleCalendarFields(form, cadence);
+  if (calendarValidation !== null) {
+    return "blocked";
+  }
   if (!positiveInteger(form.intervalSeconds) || !nonNegativeInteger(form.offsetSeconds)) {
     return "pending";
+  }
+  if (cadence !== "interval" && form.offsetSeconds !== 0) {
+    return "blocked";
   }
   return form.offsetSeconds < form.intervalSeconds ? "ready" : "blocked";
 }
@@ -429,6 +643,69 @@ function draftDurationLabel(value: number | null): string {
     return "Not set";
   }
   return formatDurationSeconds(value);
+}
+
+function scheduleCadenceValue(form: ReportWorkflowScheduleFormState): string {
+  const cadence = normalizeReportWorkflowScheduleCadence(form.cadence);
+  switch (cadence) {
+    case "interval":
+      return `Every ${draftDurationLabel(form.intervalSeconds)}`;
+    case "daily":
+      return `Daily at ${calendarTimeLabel(form)}`;
+    case "weekly":
+      return `${calendarDayOfWeekLabel(form.calendarDayOfWeek)} at ${calendarTimeLabel(form)}`;
+    case "monthly":
+      return `Day ${form.calendarDayOfMonth ?? "?"} at ${calendarTimeLabel(form)}`;
+  }
+}
+
+function scheduleCadenceDetail(form: ReportWorkflowScheduleFormState): string {
+  const cadence = normalizeReportWorkflowScheduleCadence(form.cadence);
+  if (cadence === "interval") {
+    return `Starts every ${draftDurationLabel(form.intervalSeconds)} after offset ${draftDurationLabel(form.offsetSeconds)}.`;
+  }
+  return `${reportWorkflowScheduleCadenceLabel(cadence)} UTC calendar schedule with ${draftDurationLabel(
+    form.intervalSeconds
+  )} replay guard interval.`;
+}
+
+function scheduleCadenceValidationHint(cadence: ReportWorkflowScheduleCadence): string {
+  if (cadence === "interval") {
+    return "Set a positive interval and an offset that is lower than the interval.";
+  }
+  return "Set valid UTC calendar fields, a zero offset, and a positive replay guard interval.";
+}
+
+function calendarTimeLabel(form: ReportWorkflowScheduleFormState): string {
+  return `${twoDigit(form.calendarHour)}:${twoDigit(form.calendarMinute)} UTC`;
+}
+
+function twoDigit(value: number | null): string {
+  if (!nonNegativeInteger(value)) {
+    return "--";
+  }
+  return String(value).padStart(2, "0");
+}
+
+function calendarDayOfWeekLabel(value: number | null): string {
+  switch (value) {
+    case 0:
+      return "Sunday";
+    case 1:
+      return "Monday";
+    case 2:
+      return "Tuesday";
+    case 3:
+      return "Wednesday";
+    case 4:
+      return "Thursday";
+    case 5:
+      return "Friday";
+    case 6:
+      return "Saturday";
+    default:
+      return "Weekday";
+  }
 }
 
 function aggregateScheduleReadiness(statuses: ScheduleDraftReadinessStatus[]): ScheduleDraftReadinessStatus {

@@ -20,6 +20,11 @@ describe("report workflow schedule formatting", () => {
       name: " Daily report window ",
       reportWorkflowPolicyID: 7,
       temporalScheduleID: " openclarion-report-policy-7-daily ",
+      cadence: "interval",
+      calendarHour: 0,
+      calendarMinute: 0,
+      calendarDayOfWeek: 0,
+      calendarDayOfMonth: 0,
       intervalSeconds: 86400,
       offsetSeconds: 21600,
       replayWindowSeconds: 3600,
@@ -34,6 +39,11 @@ describe("report workflow schedule formatting", () => {
         name: "Daily report window",
         report_workflow_policy_id: 7,
         temporal_schedule_id: "openclarion-report-policy-7-daily",
+        cadence: "interval",
+        calendar_hour: 0,
+        calendar_minute: 0,
+        calendar_day_of_week: 0,
+        calendar_day_of_month: 0,
         interval_seconds: 86400,
         offset_seconds: 21600,
         replay_window_seconds: 3600,
@@ -42,6 +52,50 @@ describe("report workflow schedule formatting", () => {
         catchup_window_seconds: 3600
       }
     });
+  });
+
+  it("builds calendar write requests from validated form state", () => {
+    const parsed = formStateToWriteRequest({
+      ...emptyReportWorkflowScheduleForm(),
+      name: "Weekly report window",
+      reportWorkflowPolicyID: 7,
+      temporalScheduleID: "openclarion-report-policy-7-weekly",
+      cadence: "weekly",
+      calendarHour: 2,
+      calendarMinute: 30,
+      calendarDayOfWeek: 1,
+      calendarDayOfMonth: 0,
+      intervalSeconds: 604800,
+      offsetSeconds: 0
+    });
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      value: {
+        cadence: "weekly",
+        calendar_hour: 2,
+        calendar_minute: 30,
+        calendar_day_of_week: 1,
+        calendar_day_of_month: 0,
+        interval_seconds: 604800,
+        offset_seconds: 0
+      }
+    });
+  });
+
+  it("rejects non-zero offsets for calendar cadences", () => {
+    const parsed = formStateToWriteRequest({
+      ...emptyReportWorkflowScheduleForm(),
+      name: "Weekly report window",
+      reportWorkflowPolicyID: 7,
+      temporalScheduleID: "openclarion-report-policy-7-weekly",
+      cadence: "weekly",
+      calendarDayOfWeek: 1,
+      intervalSeconds: 604800,
+      offsetSeconds: 60
+    });
+
+    expect(parsed).toEqual({ ok: false, message: "Offset must be 0 for calendar cadences." });
   });
 
   it("rejects offsets that are not less than interval", () => {
@@ -69,7 +123,7 @@ describe("report workflow schedule formatting", () => {
 
     expect(parsed).toEqual({
       ok: false,
-      message: "Replay window must be less than or equal to interval to avoid overlapping scheduled replay windows."
+      message: "Replay window must be less than or equal to cadence guard interval to avoid overlapping scheduled replay windows."
     });
   });
 
@@ -91,6 +145,11 @@ describe("report workflow schedule formatting", () => {
         name: "Daily",
         report_workflow_policy_id: 7,
         temporal_schedule_id: "schedule-1",
+        cadence: "interval",
+        calendar_hour: 0,
+        calendar_minute: 0,
+        calendar_day_of_week: 0,
+        calendar_day_of_month: 0,
         interval_seconds: 86400,
         offset_seconds: 0,
         replay_window_seconds: 3600,
@@ -107,6 +166,7 @@ describe("report workflow schedule formatting", () => {
       name: "Daily",
       reportWorkflowPolicyID: 7,
       temporalScheduleID: "schedule-1",
+      cadence: "interval",
       intervalSeconds: 86400
     });
   });
@@ -192,8 +252,8 @@ describe("report workflow schedule formatting", () => {
     });
 
     expect(readiness).toEqual({
-      blockers: ["Replay window must be less than or equal to interval to avoid overlapping scheduled replay windows."],
-      detail: "Replay window must be less than or equal to interval to avoid overlapping scheduled replay windows.",
+      blockers: ["Replay window must be less than or equal to cadence guard interval to avoid overlapping scheduled replay windows."],
+      detail: "Replay window must be less than or equal to cadence guard interval to avoid overlapping scheduled replay windows.",
       label: "Replay window overlaps interval.",
       status: "blocked"
     });
@@ -242,7 +302,7 @@ describe("report workflow schedule formatting", () => {
     });
 
     expect(readiness).toEqual({
-      detail: "Replay window must be less than or equal to interval to avoid overlapping scheduled replay windows.",
+      detail: "Replay window must be less than or equal to cadence guard interval to avoid overlapping scheduled replay windows.",
       label: "Replay window overlaps interval.",
       status: "blocked"
     });
@@ -339,6 +399,11 @@ function reportWorkflowSchedule(
     name: "Daily",
     report_workflow_policy_id: 7,
     temporal_schedule_id: "schedule-1",
+    cadence: "interval",
+    calendar_hour: 0,
+    calendar_minute: 0,
+    calendar_day_of_week: 0,
+    calendar_day_of_month: 0,
     interval_seconds: 86400,
     offset_seconds: 0,
     replay_window_seconds: 3600,

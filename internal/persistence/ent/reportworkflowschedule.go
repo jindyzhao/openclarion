@@ -23,7 +23,17 @@ type ReportWorkflowSchedule struct {
 	ReportWorkflowPolicyID int `json:"report_workflow_policy_id,omitempty"`
 	// server-owned Temporal Schedule identifier
 	TemporalScheduleID string `json:"temporal_schedule_id,omitempty"`
-	// Temporal Schedule interval duration in nanoseconds
+	// "interval" | "daily" | "weekly" | "monthly"; text, not a db enum
+	Cadence string `json:"cadence,omitempty"`
+	// UTC hour for calendar cadences; 0-23 at application layer
+	CalendarHour int `json:"calendar_hour,omitempty"`
+	// UTC minute for calendar cadences; 0-59 at application layer
+	CalendarMinute int `json:"calendar_minute,omitempty"`
+	// UTC day of week for weekly cadence; 0=Sunday through 6=Saturday
+	CalendarDayOfWeek int `json:"calendar_day_of_week,omitempty"`
+	// UTC day of month for monthly cadence; 1-28 when cadence=monthly
+	CalendarDayOfMonth int `json:"calendar_day_of_month,omitempty"`
+	// Temporal Schedule interval duration in nanoseconds, or replay guard interval for calendar cadences
 	IntervalNs int64 `json:"interval_ns,omitempty"`
 	// Temporal Schedule interval offset duration in nanoseconds
 	OffsetNs int64 `json:"offset_ns,omitempty"`
@@ -55,9 +65,9 @@ func (*ReportWorkflowSchedule) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case reportworkflowschedule.FieldEnabled:
 			values[i] = new(sql.NullBool)
-		case reportworkflowschedule.FieldID, reportworkflowschedule.FieldReportWorkflowPolicyID, reportworkflowschedule.FieldIntervalNs, reportworkflowschedule.FieldOffsetNs, reportworkflowschedule.FieldReplayWindowNs, reportworkflowschedule.FieldReplayDelayNs, reportworkflowschedule.FieldReplayLimit, reportworkflowschedule.FieldCatchupWindowNs:
+		case reportworkflowschedule.FieldID, reportworkflowschedule.FieldReportWorkflowPolicyID, reportworkflowschedule.FieldCalendarHour, reportworkflowschedule.FieldCalendarMinute, reportworkflowschedule.FieldCalendarDayOfWeek, reportworkflowschedule.FieldCalendarDayOfMonth, reportworkflowschedule.FieldIntervalNs, reportworkflowschedule.FieldOffsetNs, reportworkflowschedule.FieldReplayWindowNs, reportworkflowschedule.FieldReplayDelayNs, reportworkflowschedule.FieldReplayLimit, reportworkflowschedule.FieldCatchupWindowNs:
 			values[i] = new(sql.NullInt64)
-		case reportworkflowschedule.FieldName, reportworkflowschedule.FieldTemporalScheduleID:
+		case reportworkflowschedule.FieldName, reportworkflowschedule.FieldTemporalScheduleID, reportworkflowschedule.FieldCadence:
 			values[i] = new(sql.NullString)
 		case reportworkflowschedule.FieldEnabledAt, reportworkflowschedule.FieldDisabledAt, reportworkflowschedule.FieldCreatedAt, reportworkflowschedule.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -99,6 +109,36 @@ func (_m *ReportWorkflowSchedule) assignValues(columns []string, values []any) e
 				return fmt.Errorf("unexpected type %T for field temporal_schedule_id", values[i])
 			} else if value.Valid {
 				_m.TemporalScheduleID = value.String
+			}
+		case reportworkflowschedule.FieldCadence:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field cadence", values[i])
+			} else if value.Valid {
+				_m.Cadence = value.String
+			}
+		case reportworkflowschedule.FieldCalendarHour:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field calendar_hour", values[i])
+			} else if value.Valid {
+				_m.CalendarHour = int(value.Int64)
+			}
+		case reportworkflowschedule.FieldCalendarMinute:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field calendar_minute", values[i])
+			} else if value.Valid {
+				_m.CalendarMinute = int(value.Int64)
+			}
+		case reportworkflowschedule.FieldCalendarDayOfWeek:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field calendar_day_of_week", values[i])
+			} else if value.Valid {
+				_m.CalendarDayOfWeek = int(value.Int64)
+			}
+		case reportworkflowschedule.FieldCalendarDayOfMonth:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field calendar_day_of_month", values[i])
+			} else if value.Valid {
+				_m.CalendarDayOfMonth = int(value.Int64)
 			}
 		case reportworkflowschedule.FieldIntervalNs:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -212,6 +252,21 @@ func (_m *ReportWorkflowSchedule) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("temporal_schedule_id=")
 	builder.WriteString(_m.TemporalScheduleID)
+	builder.WriteString(", ")
+	builder.WriteString("cadence=")
+	builder.WriteString(_m.Cadence)
+	builder.WriteString(", ")
+	builder.WriteString("calendar_hour=")
+	builder.WriteString(fmt.Sprintf("%v", _m.CalendarHour))
+	builder.WriteString(", ")
+	builder.WriteString("calendar_minute=")
+	builder.WriteString(fmt.Sprintf("%v", _m.CalendarMinute))
+	builder.WriteString(", ")
+	builder.WriteString("calendar_day_of_week=")
+	builder.WriteString(fmt.Sprintf("%v", _m.CalendarDayOfWeek))
+	builder.WriteString(", ")
+	builder.WriteString("calendar_day_of_month=")
+	builder.WriteString(fmt.Sprintf("%v", _m.CalendarDayOfMonth))
 	builder.WriteString(", ")
 	builder.WriteString("interval_ns=")
 	builder.WriteString(fmt.Sprintf("%v", _m.IntervalNs))

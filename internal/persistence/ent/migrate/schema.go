@@ -832,6 +832,11 @@ var (
 		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
 		{Name: "report_workflow_policy_id", Type: field.TypeInt},
 		{Name: "temporal_schedule_id", Type: field.TypeString, Unique: true, Size: 200},
+		{Name: "cadence", Type: field.TypeString, Size: 32, Default: "interval"},
+		{Name: "calendar_hour", Type: field.TypeInt, Default: 0},
+		{Name: "calendar_minute", Type: field.TypeInt, Default: 0},
+		{Name: "calendar_day_of_week", Type: field.TypeInt, Default: 0},
+		{Name: "calendar_day_of_month", Type: field.TypeInt, Default: 0},
 		{Name: "interval_ns", Type: field.TypeInt64},
 		{Name: "offset_ns", Type: field.TypeInt64},
 		{Name: "replay_window_ns", Type: field.TypeInt64},
@@ -853,12 +858,12 @@ var (
 			{
 				Name:    "reportworkflowschedule_enabled_updated_at",
 				Unique:  false,
-				Columns: []*schema.Column{ReportWorkflowSchedulesColumns[10], ReportWorkflowSchedulesColumns[14]},
+				Columns: []*schema.Column{ReportWorkflowSchedulesColumns[15], ReportWorkflowSchedulesColumns[19]},
 			},
 			{
 				Name:    "reportworkflowschedule_report_workflow_policy_id_enabled",
 				Unique:  false,
-				Columns: []*schema.Column{ReportWorkflowSchedulesColumns[2], ReportWorkflowSchedulesColumns[10]},
+				Columns: []*schema.Column{ReportWorkflowSchedulesColumns[2], ReportWorkflowSchedulesColumns[15]},
 			},
 		},
 	}

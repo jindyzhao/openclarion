@@ -76,6 +76,92 @@ func TestReportWorkflowScheduleRegistrarBuildsCreateOptions(t *testing.T) {
 	}
 }
 
+func TestReportWorkflowScheduleRegistrarBuildsCalendarSpecs(t *testing.T) {
+	tests := []struct {
+		name               string
+		cadence            domain.ReportWorkflowScheduleCadence
+		calendarHour       int
+		calendarMinute     int
+		calendarDayOfWeek  int
+		calendarDayOfMonth int
+		guardInterval      time.Duration
+		assert             func(*testing.T, client.ScheduleCalendarSpec)
+	}{
+		{
+			name:              "weekly",
+			cadence:           domain.ReportWorkflowScheduleCadenceWeekly,
+			calendarHour:      2,
+			calendarMinute:    30,
+			calendarDayOfWeek: 1,
+			guardInterval:     7 * 24 * time.Hour,
+			assert: func(t *testing.T, spec client.ScheduleCalendarSpec) {
+				t.Helper()
+				if len(spec.DayOfWeek) != 1 || spec.DayOfWeek[0].Start != 1 {
+					t.Fatalf("DayOfWeek = %+v", spec.DayOfWeek)
+				}
+				if len(spec.DayOfMonth) != 0 {
+					t.Fatalf("DayOfMonth = %+v, want empty", spec.DayOfMonth)
+				}
+			},
+		},
+		{
+			name:               "monthly",
+			cadence:            domain.ReportWorkflowScheduleCadenceMonthly,
+			calendarHour:       4,
+			calendarMinute:     45,
+			calendarDayOfMonth: 1,
+			guardInterval:      28 * 24 * time.Hour,
+			assert: func(t *testing.T, spec client.ScheduleCalendarSpec) {
+				t.Helper()
+				if len(spec.DayOfMonth) != 1 || spec.DayOfMonth[0].Start != 1 {
+					t.Fatalf("DayOfMonth = %+v", spec.DayOfMonth)
+				}
+				if len(spec.DayOfWeek) != 0 {
+					t.Fatalf("DayOfWeek = %+v, want empty", spec.DayOfWeek)
+				}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			schedule := mustRegistrarCalendarSchedule(
+				t,
+				tc.cadence,
+				tc.calendarHour,
+				tc.calendarMinute,
+				tc.calendarDayOfWeek,
+				tc.calendarDayOfMonth,
+				tc.guardInterval,
+				true,
+			)
+			registrar := newReportWorkflowScheduleRegistrar(&recordingScheduleCreator{})
+
+			options, err := registrar.BuildCreateOptions(schedule)
+			if err != nil {
+				t.Fatalf("BuildCreateOptions: %v", err)
+			}
+			if len(options.Spec.Intervals) != 0 {
+				t.Fatalf("Intervals = %+v, want empty", options.Spec.Intervals)
+			}
+			if len(options.Spec.Calendars) != 1 {
+				t.Fatalf("Calendars = %+v", options.Spec.Calendars)
+			}
+			calendar := options.Spec.Calendars[0]
+			if len(calendar.Hour) != 1 || calendar.Hour[0].Start != tc.calendarHour {
+				t.Fatalf("Hour = %+v", calendar.Hour)
+			}
+			if len(calendar.Minute) != 1 || calendar.Minute[0].Start != tc.calendarMinute {
+				t.Fatalf("Minute = %+v", calendar.Minute)
+			}
+			if len(calendar.Second) != 1 || calendar.Second[0].Start != 0 {
+				t.Fatalf("Second = %+v", calendar.Second)
+			}
+			tc.assert(t, calendar)
+		})
+	}
+}
+
 func TestReportWorkflowScheduleRegistrarDefaultLauncherTimeoutAllowsReplayStart(t *testing.T) {
 	schedule := mustRegistrarSchedule(t, true)
 	registrar := newReportWorkflowScheduleRegistrar(&recordingScheduleCreator{})
@@ -320,6 +406,52 @@ func mustRegistrarSchedule(t *testing.T, enabled bool) domain.ReportWorkflowSche
 	)
 	if err != nil {
 		t.Fatalf("NewReportWorkflowSchedule: %v", err)
+	}
+	schedule.ID = 42
+	return schedule
+}
+
+func mustRegistrarCalendarSchedule(
+	t *testing.T,
+	cadence domain.ReportWorkflowScheduleCadence,
+	calendarHour int,
+	calendarMinute int,
+	calendarDayOfWeek int,
+	calendarDayOfMonth int,
+	guardInterval time.Duration,
+	enabled bool,
+) domain.ReportWorkflowSchedule {
+	t.Helper()
+	var enabledAt *time.Time
+	var disabledAt *time.Time
+	if enabled {
+		at := time.Date(2026, 6, 6, 8, 0, 0, 0, time.UTC)
+		enabledAt = &at
+	} else {
+		at := time.Date(2026, 6, 6, 8, 0, 0, 0, time.UTC)
+		disabledAt = &at
+	}
+	schedule, err := domain.NewReportWorkflowScheduleWithCadence(
+		"Calendar report schedule",
+		7,
+		"report-schedule-calendar",
+		cadence,
+		calendarHour,
+		calendarMinute,
+		calendarDayOfWeek,
+		calendarDayOfMonth,
+		guardInterval,
+		0,
+		2*time.Hour,
+		5*time.Minute,
+		500,
+		10*time.Minute,
+		enabled,
+		enabledAt,
+		disabledAt,
+	)
+	if err != nil {
+		t.Fatalf("NewReportWorkflowScheduleWithCadence: %v", err)
 	}
 	schedule.ID = 42
 	return schedule

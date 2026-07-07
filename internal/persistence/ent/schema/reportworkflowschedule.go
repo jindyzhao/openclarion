@@ -33,9 +33,29 @@ func (ReportWorkflowSchedule) Fields() []ent.Field {
 			NotEmpty().
 			Unique().
 			Comment("server-owned Temporal Schedule identifier"),
+		field.String("cadence").
+			MaxLen(32).
+			Default("interval").
+			Comment(`"interval" | "daily" | "weekly" | "monthly"; text, not a db enum`),
+		field.Int("calendar_hour").
+			NonNegative().
+			Default(0).
+			Comment("UTC hour for calendar cadences; 0-23 at application layer"),
+		field.Int("calendar_minute").
+			NonNegative().
+			Default(0).
+			Comment("UTC minute for calendar cadences; 0-59 at application layer"),
+		field.Int("calendar_day_of_week").
+			NonNegative().
+			Default(0).
+			Comment("UTC day of week for weekly cadence; 0=Sunday through 6=Saturday"),
+		field.Int("calendar_day_of_month").
+			NonNegative().
+			Default(0).
+			Comment("UTC day of month for monthly cadence; 1-28 when cadence=monthly"),
 		field.Int64("interval_ns").
 			Positive().
-			Comment("Temporal Schedule interval duration in nanoseconds"),
+			Comment("Temporal Schedule interval duration in nanoseconds, or replay guard interval for calendar cadences"),
 		field.Int64("offset_ns").
 			NonNegative().
 			Comment("Temporal Schedule interval offset duration in nanoseconds"),

@@ -69,6 +69,31 @@ func TemporalScheduleID(v string) predicate.ReportWorkflowSchedule {
 	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldTemporalScheduleID, v))
 }
 
+// Cadence applies equality check predicate on the "cadence" field. It's identical to CadenceEQ.
+func Cadence(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldCadence, v))
+}
+
+// CalendarHour applies equality check predicate on the "calendar_hour" field. It's identical to CalendarHourEQ.
+func CalendarHour(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldCalendarHour, v))
+}
+
+// CalendarMinute applies equality check predicate on the "calendar_minute" field. It's identical to CalendarMinuteEQ.
+func CalendarMinute(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldCalendarMinute, v))
+}
+
+// CalendarDayOfWeek applies equality check predicate on the "calendar_day_of_week" field. It's identical to CalendarDayOfWeekEQ.
+func CalendarDayOfWeek(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldCalendarDayOfWeek, v))
+}
+
+// CalendarDayOfMonth applies equality check predicate on the "calendar_day_of_month" field. It's identical to CalendarDayOfMonthEQ.
+func CalendarDayOfMonth(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldCalendarDayOfMonth, v))
+}
+
 // IntervalNs applies equality check predicate on the "interval_ns" field. It's identical to IntervalNsEQ.
 func IntervalNs(v int64) predicate.ReportWorkflowSchedule {
 	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldIntervalNs, v))
@@ -292,6 +317,231 @@ func TemporalScheduleIDEqualFold(v string) predicate.ReportWorkflowSchedule {
 // TemporalScheduleIDContainsFold applies the ContainsFold predicate on the "temporal_schedule_id" field.
 func TemporalScheduleIDContainsFold(v string) predicate.ReportWorkflowSchedule {
 	return predicate.ReportWorkflowSchedule(sql.FieldContainsFold(FieldTemporalScheduleID, v))
+}
+
+// CadenceEQ applies the EQ predicate on the "cadence" field.
+func CadenceEQ(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldCadence, v))
+}
+
+// CadenceNEQ applies the NEQ predicate on the "cadence" field.
+func CadenceNEQ(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNEQ(FieldCadence, v))
+}
+
+// CadenceIn applies the In predicate on the "cadence" field.
+func CadenceIn(vs ...string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldIn(FieldCadence, vs...))
+}
+
+// CadenceNotIn applies the NotIn predicate on the "cadence" field.
+func CadenceNotIn(vs ...string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNotIn(FieldCadence, vs...))
+}
+
+// CadenceGT applies the GT predicate on the "cadence" field.
+func CadenceGT(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldGT(FieldCadence, v))
+}
+
+// CadenceGTE applies the GTE predicate on the "cadence" field.
+func CadenceGTE(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldGTE(FieldCadence, v))
+}
+
+// CadenceLT applies the LT predicate on the "cadence" field.
+func CadenceLT(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldLT(FieldCadence, v))
+}
+
+// CadenceLTE applies the LTE predicate on the "cadence" field.
+func CadenceLTE(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldLTE(FieldCadence, v))
+}
+
+// CadenceContains applies the Contains predicate on the "cadence" field.
+func CadenceContains(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldContains(FieldCadence, v))
+}
+
+// CadenceHasPrefix applies the HasPrefix predicate on the "cadence" field.
+func CadenceHasPrefix(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldHasPrefix(FieldCadence, v))
+}
+
+// CadenceHasSuffix applies the HasSuffix predicate on the "cadence" field.
+func CadenceHasSuffix(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldHasSuffix(FieldCadence, v))
+}
+
+// CadenceEqualFold applies the EqualFold predicate on the "cadence" field.
+func CadenceEqualFold(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEqualFold(FieldCadence, v))
+}
+
+// CadenceContainsFold applies the ContainsFold predicate on the "cadence" field.
+func CadenceContainsFold(v string) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldContainsFold(FieldCadence, v))
+}
+
+// CalendarHourEQ applies the EQ predicate on the "calendar_hour" field.
+func CalendarHourEQ(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldCalendarHour, v))
+}
+
+// CalendarHourNEQ applies the NEQ predicate on the "calendar_hour" field.
+func CalendarHourNEQ(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNEQ(FieldCalendarHour, v))
+}
+
+// CalendarHourIn applies the In predicate on the "calendar_hour" field.
+func CalendarHourIn(vs ...int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldIn(FieldCalendarHour, vs...))
+}
+
+// CalendarHourNotIn applies the NotIn predicate on the "calendar_hour" field.
+func CalendarHourNotIn(vs ...int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNotIn(FieldCalendarHour, vs...))
+}
+
+// CalendarHourGT applies the GT predicate on the "calendar_hour" field.
+func CalendarHourGT(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldGT(FieldCalendarHour, v))
+}
+
+// CalendarHourGTE applies the GTE predicate on the "calendar_hour" field.
+func CalendarHourGTE(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldGTE(FieldCalendarHour, v))
+}
+
+// CalendarHourLT applies the LT predicate on the "calendar_hour" field.
+func CalendarHourLT(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldLT(FieldCalendarHour, v))
+}
+
+// CalendarHourLTE applies the LTE predicate on the "calendar_hour" field.
+func CalendarHourLTE(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldLTE(FieldCalendarHour, v))
+}
+
+// CalendarMinuteEQ applies the EQ predicate on the "calendar_minute" field.
+func CalendarMinuteEQ(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldCalendarMinute, v))
+}
+
+// CalendarMinuteNEQ applies the NEQ predicate on the "calendar_minute" field.
+func CalendarMinuteNEQ(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNEQ(FieldCalendarMinute, v))
+}
+
+// CalendarMinuteIn applies the In predicate on the "calendar_minute" field.
+func CalendarMinuteIn(vs ...int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldIn(FieldCalendarMinute, vs...))
+}
+
+// CalendarMinuteNotIn applies the NotIn predicate on the "calendar_minute" field.
+func CalendarMinuteNotIn(vs ...int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNotIn(FieldCalendarMinute, vs...))
+}
+
+// CalendarMinuteGT applies the GT predicate on the "calendar_minute" field.
+func CalendarMinuteGT(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldGT(FieldCalendarMinute, v))
+}
+
+// CalendarMinuteGTE applies the GTE predicate on the "calendar_minute" field.
+func CalendarMinuteGTE(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldGTE(FieldCalendarMinute, v))
+}
+
+// CalendarMinuteLT applies the LT predicate on the "calendar_minute" field.
+func CalendarMinuteLT(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldLT(FieldCalendarMinute, v))
+}
+
+// CalendarMinuteLTE applies the LTE predicate on the "calendar_minute" field.
+func CalendarMinuteLTE(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldLTE(FieldCalendarMinute, v))
+}
+
+// CalendarDayOfWeekEQ applies the EQ predicate on the "calendar_day_of_week" field.
+func CalendarDayOfWeekEQ(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldCalendarDayOfWeek, v))
+}
+
+// CalendarDayOfWeekNEQ applies the NEQ predicate on the "calendar_day_of_week" field.
+func CalendarDayOfWeekNEQ(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNEQ(FieldCalendarDayOfWeek, v))
+}
+
+// CalendarDayOfWeekIn applies the In predicate on the "calendar_day_of_week" field.
+func CalendarDayOfWeekIn(vs ...int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldIn(FieldCalendarDayOfWeek, vs...))
+}
+
+// CalendarDayOfWeekNotIn applies the NotIn predicate on the "calendar_day_of_week" field.
+func CalendarDayOfWeekNotIn(vs ...int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNotIn(FieldCalendarDayOfWeek, vs...))
+}
+
+// CalendarDayOfWeekGT applies the GT predicate on the "calendar_day_of_week" field.
+func CalendarDayOfWeekGT(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldGT(FieldCalendarDayOfWeek, v))
+}
+
+// CalendarDayOfWeekGTE applies the GTE predicate on the "calendar_day_of_week" field.
+func CalendarDayOfWeekGTE(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldGTE(FieldCalendarDayOfWeek, v))
+}
+
+// CalendarDayOfWeekLT applies the LT predicate on the "calendar_day_of_week" field.
+func CalendarDayOfWeekLT(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldLT(FieldCalendarDayOfWeek, v))
+}
+
+// CalendarDayOfWeekLTE applies the LTE predicate on the "calendar_day_of_week" field.
+func CalendarDayOfWeekLTE(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldLTE(FieldCalendarDayOfWeek, v))
+}
+
+// CalendarDayOfMonthEQ applies the EQ predicate on the "calendar_day_of_month" field.
+func CalendarDayOfMonthEQ(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldCalendarDayOfMonth, v))
+}
+
+// CalendarDayOfMonthNEQ applies the NEQ predicate on the "calendar_day_of_month" field.
+func CalendarDayOfMonthNEQ(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNEQ(FieldCalendarDayOfMonth, v))
+}
+
+// CalendarDayOfMonthIn applies the In predicate on the "calendar_day_of_month" field.
+func CalendarDayOfMonthIn(vs ...int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldIn(FieldCalendarDayOfMonth, vs...))
+}
+
+// CalendarDayOfMonthNotIn applies the NotIn predicate on the "calendar_day_of_month" field.
+func CalendarDayOfMonthNotIn(vs ...int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNotIn(FieldCalendarDayOfMonth, vs...))
+}
+
+// CalendarDayOfMonthGT applies the GT predicate on the "calendar_day_of_month" field.
+func CalendarDayOfMonthGT(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldGT(FieldCalendarDayOfMonth, v))
+}
+
+// CalendarDayOfMonthGTE applies the GTE predicate on the "calendar_day_of_month" field.
+func CalendarDayOfMonthGTE(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldGTE(FieldCalendarDayOfMonth, v))
+}
+
+// CalendarDayOfMonthLT applies the LT predicate on the "calendar_day_of_month" field.
+func CalendarDayOfMonthLT(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldLT(FieldCalendarDayOfMonth, v))
+}
+
+// CalendarDayOfMonthLTE applies the LTE predicate on the "calendar_day_of_month" field.
+func CalendarDayOfMonthLTE(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldLTE(FieldCalendarDayOfMonth, v))
 }
 
 // IntervalNsEQ applies the EQ predicate on the "interval_ns" field.

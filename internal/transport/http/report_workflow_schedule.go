@@ -211,6 +211,26 @@ func reportWorkflowScheduleWriteRequest(body api.ReportWorkflowScheduleWriteRequ
 	if body.ReportWorkflowPolicyID <= 0 {
 		return reportworkflowschedule.WriteRequest{}, errors.New("report_workflow_policy_id must be positive")
 	}
+	cadence := domain.ReportWorkflowScheduleCadenceInterval
+	if body.Cadence != nil {
+		cadence = domain.ReportWorkflowScheduleCadence(*body.Cadence)
+	}
+	calendarHour := int32(0)
+	if body.CalendarHour != nil {
+		calendarHour = *body.CalendarHour
+	}
+	calendarMinute := int32(0)
+	if body.CalendarMinute != nil {
+		calendarMinute = *body.CalendarMinute
+	}
+	calendarDayOfWeek := int32(0)
+	if body.CalendarDayOfWeek != nil {
+		calendarDayOfWeek = *body.CalendarDayOfWeek
+	}
+	calendarDayOfMonth := int32(0)
+	if body.CalendarDayOfMonth != nil {
+		calendarDayOfMonth = *body.CalendarDayOfMonth
+	}
 	interval, err := durationSeconds("interval_seconds", body.IntervalSeconds)
 	if err != nil {
 		return reportworkflowschedule.WriteRequest{}, err
@@ -241,6 +261,11 @@ func reportWorkflowScheduleWriteRequest(body api.ReportWorkflowScheduleWriteRequ
 		Name:                   body.Name,
 		ReportWorkflowPolicyID: domain.ReportWorkflowPolicyID(body.ReportWorkflowPolicyID),
 		TemporalScheduleID:     body.TemporalScheduleID,
+		Cadence:                cadence,
+		CalendarHour:           int(calendarHour),
+		CalendarMinute:         int(calendarMinute),
+		CalendarDayOfWeek:      int(calendarDayOfWeek),
+		CalendarDayOfMonth:     int(calendarDayOfMonth),
 		Interval:               interval,
 		Offset:                 offset,
 		ReplayWindow:           replayWindow,
@@ -339,11 +364,20 @@ func reportWorkflowScheduleResponses(schedules []domain.ReportWorkflowSchedule) 
 }
 
 func reportWorkflowScheduleResponse(schedule domain.ReportWorkflowSchedule) api.ReportWorkflowSchedule {
+	cadence := schedule.Cadence
+	if cadence == "" {
+		cadence = domain.ReportWorkflowScheduleCadenceInterval
+	}
 	return api.ReportWorkflowSchedule{
 		ID:                     int64(schedule.ID),
 		Name:                   schedule.Name,
 		ReportWorkflowPolicyID: int64(schedule.ReportWorkflowPolicyID),
 		TemporalScheduleID:     schedule.TemporalScheduleID,
+		Cadence:                string(cadence),
+		CalendarHour:           reportWorkflowScheduleCalendarFieldResponse(schedule.CalendarHour, 23),
+		CalendarMinute:         reportWorkflowScheduleCalendarFieldResponse(schedule.CalendarMinute, 59),
+		CalendarDayOfWeek:      reportWorkflowScheduleCalendarFieldResponse(schedule.CalendarDayOfWeek, 6),
+		CalendarDayOfMonth:     reportWorkflowScheduleCalendarFieldResponse(schedule.CalendarDayOfMonth, 28),
 		IntervalSeconds:        durationToSeconds(schedule.Interval),
 		OffsetSeconds:          durationToSeconds(schedule.Offset),
 		ReplayWindowSeconds:    durationToSeconds(schedule.ReplayWindow),
@@ -356,6 +390,16 @@ func reportWorkflowScheduleResponse(schedule domain.ReportWorkflowSchedule) api.
 		CreatedAt:              schedule.CreatedAt,
 		UpdatedAt:              schedule.UpdatedAt,
 	}
+}
+
+func reportWorkflowScheduleCalendarFieldResponse(value int, upperBound int32) int32 {
+	if value <= 0 {
+		return 0
+	}
+	if value > int(upperBound) {
+		return upperBound
+	}
+	return int32(value) // #nosec G115 -- value is already clamped to a small OpenAPI calendar-field range.
 }
 
 func durationToSeconds(duration time.Duration) int64 {
