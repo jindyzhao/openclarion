@@ -922,6 +922,95 @@ func TestDiagnosisRoomClient_ConfirmDiagnosisConclusionMapsApplicationRejection(
 	}
 }
 
+func TestDiagnosisRoomSubmitTurnValidatorErrorMapsApplicationRejections(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		wantType string
+	}{
+		{
+			name:     "duplicate message id",
+			err:      diagnosisroom.ErrDuplicateMessageID,
+			wantType: errTypeSubmitTurnDuplicateMessage,
+		},
+		{
+			name:     "turn in flight",
+			err:      diagnosisroom.ErrTurnInFlight,
+			wantType: errTypeSubmitTurnInFlight,
+		},
+		{
+			name:     "invariant",
+			err:      domain.ErrInvariantViolation,
+			wantType: errTypeInvariantViolation,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := diagnosisRoomSubmitTurnValidatorError(tc.err)
+			var appErr *temporalsdk.ApplicationError
+			if !errors.As(err, &appErr) || appErr.Type() != tc.wantType {
+				t.Fatalf("mapped error = %v, want ApplicationError type %s", err, tc.wantType)
+			}
+		})
+	}
+}
+
+func TestDiagnosisRoomClient_SubmitDiagnosisTurnMapsApplicationRejections(t *testing.T) {
+	tests := []struct {
+		name              string
+		errType           string
+		wantError         error
+		wantAlreadyExists bool
+	}{
+		{
+			name:              "duplicate message id",
+			errType:           errTypeSubmitTurnDuplicateMessage,
+			wantError:         diagnosisroom.ErrDuplicateMessageID,
+			wantAlreadyExists: true,
+		},
+		{
+			name:              "turn in flight",
+			errType:           errTypeSubmitTurnInFlight,
+			wantError:         diagnosisroom.ErrTurnInFlight,
+			wantAlreadyExists: true,
+		},
+		{
+			name:      "invariant",
+			errType:   errTypeInvariantViolation,
+			wantError: domain.ErrInvariantViolation,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			temporalClient := &recordingDiagnosisRoomTemporalClient{
+				updateHandle: fakeWorkflowUpdateHandle{
+					err: temporalsdk.NewApplicationError(
+						"diagnosis room submit turn rejected",
+						tc.errType,
+					),
+				},
+			}
+			roomClient := newDiagnosisRoomClient(temporalClient)
+
+			_, err := roomClient.SubmitDiagnosisTurn(context.Background(), ports.DiagnosisRoomSubmitTurnRequest{
+				SessionID:    "session-1",
+				MessageID:    "msg-1",
+				ActorSubject: "operator-1",
+				Message:      "Check the alert.",
+			})
+			if !errors.Is(err, tc.wantError) {
+				t.Fatalf("SubmitDiagnosisTurn error = %v, want %v", err, tc.wantError)
+			}
+			if tc.wantAlreadyExists && !errors.Is(err, domain.ErrAlreadyExists) {
+				t.Fatalf("SubmitDiagnosisTurn error = %v, want ErrAlreadyExists compatibility", err)
+			}
+			if !tc.wantAlreadyExists && errors.Is(err, domain.ErrAlreadyExists) {
+				t.Fatalf("SubmitDiagnosisTurn error = %v, did not want ErrAlreadyExists compatibility", err)
+			}
+		})
+	}
+}
+
 func TestDiagnosisRoomClient_Validation(t *testing.T) {
 	roomClient := newDiagnosisRoomClient(&recordingDiagnosisRoomTemporalClient{})
 	cases := []ports.DiagnosisRoomSubmitTurnRequest{

@@ -174,6 +174,12 @@ func canonicalFingerprint(labels map[string]string) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
+// EventFingerprints returns the source and canonical fingerprints used when an
+// ActiveAlert is persisted as an AlertEvent.
+func EventFingerprints(labels map[string]string) (sourceFingerprint, canonicalFingerprint string, err error) {
+	return fingerprints(labels)
+}
+
 func fingerprints(labels map[string]string) (string, string, error) {
 	b, err := canonicalLabelsJSON(labels)
 	if err != nil {

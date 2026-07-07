@@ -80,6 +80,59 @@ func TestIngestTriggersAutoDiagnosisForFiringWindow(t *testing.T) {
 	if got.AlertSourceProfileID != 7 || !got.WindowStart.Equal(wantStart) || !got.WindowEnd.Equal(wantEnd) || got.Limit != maxWebhookAlertEntries {
 		t.Fatalf("trigger request = %+v, want source=7 window=[%s,%s) limit=%d", got, wantStart, wantEnd, maxWebhookAlertEntries)
 	}
+	if len(got.AlertEventIDs) != 1 || got.AlertEventIDs[0] != 1 {
+		t.Fatalf("trigger alert event ids = %+v, want [1]", got.AlertEventIDs)
+	}
+}
+
+func TestIngestScopesAutoDiagnosisToWebhookAlertIDs(t *testing.T) {
+	factory := newWebhookTestFactory(mustAlertmanagerProfile(t, domain.AlertSourceAuthModeNone, true))
+	unrelated, err := domain.NewAlertEvent(
+		sourceName,
+		"unrelated-source-fp",
+		"unrelated-canonical-fp",
+		map[string]string{"alertname": "Unrelated", "instance": "api-0"},
+		map[string]string{"summary": "unrelated"},
+		json.RawMessage(`{"status":"firing"}`),
+		time.Date(2026, 6, 6, 2, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("NewAlertEvent: %v", err)
+	}
+	unrelated, err = unrelated.WithAlertSourceProfile(7)
+	if err != nil {
+		t.Fatalf("WithAlertSourceProfile: %v", err)
+	}
+	unrelated.ID = 99
+	factory.alerts.saved = append(factory.alerts.saved, unrelated)
+	trigger := &recordingAutoDiagnosisTrigger{
+		result: alertdiagnosis.Result{PoliciesMatched: 1},
+	}
+	service, err := NewService(factory, WithAutoDiagnosisTrigger(trigger))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	_, err = service.Ingest(context.Background(), Request{
+		ProfileID: 7,
+		Body:      json.RawMessage(wideWebhookPayload()),
+	})
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+
+	if len(trigger.requests) != 1 {
+		t.Fatalf("trigger requests = %d, want 1", len(trigger.requests))
+	}
+	gotIDs := trigger.requests[0].AlertEventIDs
+	if len(gotIDs) != 2 || gotIDs[0] != 2 || gotIDs[1] != 3 {
+		t.Fatalf("trigger alert event ids = %+v, want only webhook alert ids [2 3]", gotIDs)
+	}
+	for _, id := range gotIDs {
+		if id == unrelated.ID {
+			t.Fatalf("trigger alert event ids included unrelated event %d: %+v", unrelated.ID, gotIDs)
+		}
+	}
 }
 
 func TestIngestIgnoresSuppressedFiringAlerts(t *testing.T) {
@@ -117,6 +170,9 @@ func TestIngestIgnoresSuppressedFiringAlerts(t *testing.T) {
 	wantEnd := wantStart.Add(time.Microsecond)
 	if !got.WindowStart.Equal(wantStart) || !got.WindowEnd.Equal(wantEnd) {
 		t.Fatalf("trigger window = [%s,%s), want [%s,%s)", got.WindowStart, got.WindowEnd, wantStart, wantEnd)
+	}
+	if len(got.AlertEventIDs) != 1 || got.AlertEventIDs[0] != 1 {
+		t.Fatalf("trigger alert event ids = %+v, want [1]", got.AlertEventIDs)
 	}
 }
 
@@ -319,6 +375,40 @@ func resolvedOnlyWebhookPayload() string {
 	}`
 }
 
+func wideWebhookPayload() string {
+	return `{
+			"version":"4",
+			"groupKey":"{}:{alertname=~\"HighCPU|HighDisk\"}",
+			"truncatedAlerts":0,
+			"status":"firing",
+			"receiver":"openclarion",
+			"groupLabels":{},
+			"commonLabels":{"severity":"warning"},
+			"commonAnnotations":{},
+			"externalURL":"https://alertmanager.example",
+			"alerts":[
+				{
+					"status":"firing",
+					"labels":{"alertname":"HighCPU","instance":"api-1","severity":"warning"},
+					"annotations":{"summary":"CPU high"},
+					"startsAt":"2026-06-06T01:00:00Z",
+					"endsAt":"0001-01-01T00:00:00Z",
+					"generatorURL":"https://prometheus.example/graph",
+					"fingerprint":"abc123"
+				},
+				{
+					"status":"firing",
+					"labels":{"alertname":"HighDisk","instance":"api-2","severity":"warning"},
+					"annotations":{"summary":"Disk high"},
+					"startsAt":"2026-06-06T03:00:00Z",
+					"endsAt":"0001-01-01T00:00:00Z",
+					"generatorURL":"https://prometheus.example/graph",
+					"fingerprint":"def456"
+				}
+			]
+		}`
+}
+
 func suppressedWebhookPayload() string {
 	return `{
 		"version":"4",
@@ -503,12 +593,56 @@ func (r *fakeWebhookAlertRepo) FindEventByNaturalKey(context.Context, string, st
 	return domain.AlertEvent{}, domain.ErrNotFound
 }
 
+func (r *fakeWebhookAlertRepo) ListEventsByNaturalKeys(_ context.Context, keys []ports.AlertEventNaturalKey, limit int) ([]domain.AlertEvent, error) {
+	allowed := make(map[ports.AlertEventNaturalKey]struct{}, len(keys))
+	for _, key := range keys {
+		key.StartsAt = domain.NormalizeUTCMicro(key.StartsAt)
+		allowed[key] = struct{}{}
+	}
+	var out []domain.AlertEvent
+	for _, event := range r.saved {
+		key := ports.AlertEventNaturalKey{
+			Source:               event.Source,
+			AlertSourceProfileID: event.AlertSourceProfileID,
+			CanonicalFingerprint: event.CanonicalFingerprint,
+			StartsAt:             domain.NormalizeUTCMicro(event.StartsAt),
+		}
+		if _, ok := allowed[key]; !ok {
+			continue
+		}
+		out = append(out, event)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 func (r *fakeWebhookAlertRepo) ListEventsByStartsAtRange(context.Context, time.Time, time.Time, int) ([]domain.AlertEvent, error) {
 	return nil, nil
 }
 
-func (r *fakeWebhookAlertRepo) ListEventsByStartsAtRangeFiltered(context.Context, time.Time, time.Time, ports.AlertEventFilter, int) ([]domain.AlertEvent, error) {
-	return nil, nil
+func (r *fakeWebhookAlertRepo) ListEventsByStartsAtRangeFiltered(_ context.Context, start, end time.Time, filter ports.AlertEventFilter, limit int) ([]domain.AlertEvent, error) {
+	var out []domain.AlertEvent
+	for _, event := range r.saved {
+		if event.StartsAt.Before(start) || !event.StartsAt.Before(end) {
+			continue
+		}
+		if len(filter.IDs) > 0 && !webhookEventIDAllowed(filter.IDs, event.ID) {
+			continue
+		}
+		if len(filter.Sources) > 0 && !webhookSourceAllowed(filter.Sources, event.Source) {
+			continue
+		}
+		if len(filter.AlertSourceProfileIDs) > 0 && !webhookProfileAllowed(filter.AlertSourceProfileIDs, event.AlertSourceProfileID) {
+			continue
+		}
+		out = append(out, event)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
 }
 
 func (r *fakeWebhookAlertRepo) ListEvents(context.Context, int) ([]domain.AlertEvent, error) {
@@ -517,6 +651,33 @@ func (r *fakeWebhookAlertRepo) ListEvents(context.Context, int) ([]domain.AlertE
 
 func (r *fakeWebhookAlertRepo) ListEventsFiltered(context.Context, ports.AlertEventFilter, int) ([]domain.AlertEvent, error) {
 	return append([]domain.AlertEvent(nil), r.saved...), nil
+}
+
+func webhookEventIDAllowed(ids []domain.AlertEventID, candidate domain.AlertEventID) bool {
+	for _, id := range ids {
+		if id == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func webhookSourceAllowed(sources []string, candidate string) bool {
+	for _, source := range sources {
+		if source == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+func webhookProfileAllowed(ids []domain.AlertSourceProfileID, candidate domain.AlertSourceProfileID) bool {
+	for _, id := range ids {
+		if id == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *fakeWebhookAlertRepo) SaveGroup(context.Context, domain.AlertGroup) (domain.AlertGroup, error) {
@@ -535,11 +696,19 @@ func (r *fakeWebhookAlertRepo) FindGroupByNaturalKey(context.Context, string, ti
 	return domain.AlertGroup{}, domain.ErrNotFound
 }
 
+func (r *fakeWebhookAlertRepo) FindGroupByEventIDAndGroupKey(context.Context, domain.AlertEventID, string) (domain.AlertGroup, error) {
+	return domain.AlertGroup{}, domain.ErrNotFound
+}
+
 func (r *fakeWebhookAlertRepo) LinkEventsToGroup(context.Context, domain.AlertGroupID, []domain.AlertEventID) error {
 	return nil
 }
 
-func (r *fakeWebhookAlertRepo) ListEventIDsForGroup(context.Context, domain.AlertGroupID) ([]domain.AlertEventID, error) {
+func (r *fakeWebhookAlertRepo) ListEventsForGroupByStartsAtRangeFiltered(context.Context, domain.AlertGroupID, time.Time, time.Time, ports.AlertEventFilter, int) ([]domain.AlertEvent, error) {
+	return nil, nil
+}
+
+func (r *fakeWebhookAlertRepo) ListEventIDsForGroup(context.Context, domain.AlertGroupID, int) ([]domain.AlertEventID, error) {
 	return nil, nil
 }
 

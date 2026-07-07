@@ -122,6 +122,55 @@ func (r *alertRepo) FindEventByNaturalKey(ctx context.Context, source, canonical
 	return alertEventToDomain(row), nil
 }
 
+// ListEventsByNaturalKeys returns AlertEvents matching exact scoped natural
+// keys. The OR-of-ANDs predicate keeps the full unique key in SQL before the
+// result cap is applied.
+func (r *alertRepo) ListEventsByNaturalKeys(ctx context.Context, keys []ports.AlertEventNaturalKey, limit int) ([]domain.AlertEvent, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list events by natural keys: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	predicates := make([]predicate.AlertEvent, 0, len(keys))
+	seen := make(map[ports.AlertEventNaturalKey]struct{}, len(keys))
+	for i, key := range keys {
+		normalised, err := normaliseAlertEventNaturalKey(key)
+		if err != nil {
+			return nil, fmt.Errorf("list events by natural keys: key[%d]: %w", i, err)
+		}
+		if _, ok := seen[normalised]; ok {
+			continue
+		}
+		seen[normalised] = struct{}{}
+		predicates = append(predicates, alertevent.And(
+			alertevent.AlertSourceProfileIDEQ(int(normalised.AlertSourceProfileID)),
+			alertevent.SourceEQ(normalised.Source),
+			alertevent.CanonicalFingerprintEQ(normalised.CanonicalFingerprint),
+			alertevent.StartsAtEQ(normalised.StartsAt),
+		))
+	}
+	if len(predicates) == 0 {
+		return nil, nil
+	}
+	rows, err := r.tx.AlertEvent.Query().
+		Where(alertevent.Or(predicates...)).
+		Order(alertevent.ByStartsAt(), alertevent.ByID()).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list events by natural keys: %w", err)
+	}
+	out := make([]domain.AlertEvent, len(rows))
+	for i, row := range rows {
+		out[i] = alertEventToDomain(row)
+	}
+	return out, nil
+}
+
 // ListEventsByStartsAtRange returns AlertEvents whose StartsAt falls
 // in the half-open interval [startInclusive, endExclusive), ordered
 // by (starts_at ASC, id ASC), capped by limit.
@@ -244,6 +293,36 @@ func alertEventPredicates(filter ports.AlertEventFilter) ([]predicate.AlertEvent
 		}
 	}
 	return predicates, nil
+}
+
+func normaliseAlertEventNaturalKey(key ports.AlertEventNaturalKey) (ports.AlertEventNaturalKey, error) {
+	if key.AlertSourceProfileID < 0 {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("alert source profile id %d must be non-negative: %w", key.AlertSourceProfileID, domain.ErrInvariantViolation)
+	}
+	source := strings.TrimSpace(key.Source)
+	if source == "" {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("source must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if source != key.Source {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("source must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
+	}
+	canonical := strings.TrimSpace(key.CanonicalFingerprint)
+	if canonical == "" {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("canonical fingerprint must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	if canonical != key.CanonicalFingerprint {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("canonical fingerprint must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
+	}
+	startsAt := domain.NormalizeUTCMicro(key.StartsAt)
+	if startsAt.IsZero() {
+		return ports.AlertEventNaturalKey{}, fmt.Errorf("starts_at must be set: %w", domain.ErrInvariantViolation)
+	}
+	return ports.AlertEventNaturalKey{
+		AlertSourceProfileID: key.AlertSourceProfileID,
+		Source:               source,
+		CanonicalFingerprint: canonical,
+		StartsAt:             startsAt,
+	}, nil
 }
 
 func positiveAlertEventIDs(ids []domain.AlertEventID) []int {
@@ -406,6 +485,33 @@ func (r *alertRepo) FindGroupByNaturalKey(ctx context.Context, groupKey string, 
 	return alertGroupToDomain(row), nil
 }
 
+// FindGroupByEventIDAndGroupKey returns the earliest AlertGroup with the
+// given group_key that is already linked to eventID. The group_key predicate
+// keeps concurrent grouping configurations from sharing an event edge by
+// accident.
+func (r *alertRepo) FindGroupByEventIDAndGroupKey(ctx context.Context, eventID domain.AlertEventID, groupKey string) (domain.AlertGroup, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.AlertGroup{}, err
+	}
+	if eventID <= 0 {
+		return domain.AlertGroup{}, fmt.Errorf("find group by event id and group key: event id must be positive (got %d): %w", eventID, domain.ErrInvariantViolation)
+	}
+	if groupKey == "" {
+		return domain.AlertGroup{}, fmt.Errorf("find group by event id and group key: group_key must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	row, err := r.tx.AlertGroup.Query().
+		Where(
+			alertgroup.GroupKeyEQ(groupKey),
+			alertgroup.HasEventsWith(alertevent.IDEQ(int(eventID))),
+		).
+		Order(alertgroup.ByFirstSeenAt(), alertgroup.ByID()).
+		First(ctx)
+	if err != nil {
+		return domain.AlertGroup{}, asNotFound(err)
+	}
+	return alertGroupToDomain(row), nil
+}
+
 // LinkEventsToGroup attaches AlertEventIDs to the AlertGroup via the
 // M2N edge. Re-linking an existing pair is a no-op (Ent's
 // AddEventIDs translates to ON CONFLICT DO NOTHING for the join
@@ -442,8 +548,65 @@ func (r *alertRepo) LinkEventsToGroup(ctx context.Context, groupID domain.AlertG
 	return nil
 }
 
+// ListEventsForGroupByStartsAtRangeFiltered returns scoped events linked to
+// the AlertGroup via the M2N edge.
+func (r *alertRepo) ListEventsForGroupByStartsAtRangeFiltered(
+	ctx context.Context,
+	groupID domain.AlertGroupID,
+	startInclusive, endExclusive time.Time,
+	filter ports.AlertEventFilter,
+	limit int,
+) ([]domain.AlertEvent, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if groupID == 0 {
+		return nil, fmt.Errorf("list events for group by starts_at range: group id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if startInclusive.IsZero() {
+		return nil, fmt.Errorf("list events for group by starts_at range: start_inclusive must be set: %w", domain.ErrInvariantViolation)
+	}
+	if endExclusive.IsZero() {
+		return nil, fmt.Errorf("list events for group by starts_at range: end_exclusive must be set: %w", domain.ErrInvariantViolation)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list events for group by starts_at range: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	nStart := domain.NormalizeUTCMicro(startInclusive)
+	nEnd := domain.NormalizeUTCMicro(endExclusive)
+	if !nEnd.After(nStart) {
+		return nil, fmt.Errorf("list events for group by starts_at range: end_exclusive %s must be strictly after start_inclusive %s (after normalisation): %w", nEnd, nStart, domain.ErrInvariantViolation)
+	}
+	if _, err := r.tx.AlertGroup.Get(ctx, int(groupID)); err != nil {
+		return nil, asNotFound(err)
+	}
+	predicates, err := alertEventPredicates(filter)
+	if err != nil {
+		return nil, err
+	}
+	predicates = append(predicates,
+		alertevent.StartsAtGTE(nStart),
+		alertevent.StartsAtLT(nEnd),
+	)
+	rows, err := r.tx.AlertGroup.Query().
+		Where(alertgroup.IDEQ(int(groupID))).
+		QueryEvents().
+		Where(predicates...).
+		Order(alertevent.ByStartsAt(), alertevent.ByID()).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list events for group %d by starts_at range: %w", groupID, err)
+	}
+	out := make([]domain.AlertEvent, len(rows))
+	for i, row := range rows {
+		out[i] = alertEventToDomain(row)
+	}
+	return out, nil
+}
+
 // ListEventIDsForGroup returns the AlertEventIDs linked to the
-// AlertGroup ordered by AlertEvent.starts_at ascending.
+// AlertGroup ordered by AlertEvent.starts_at ascending and capped by limit.
 //
 // Implementation note: we cannot use Ent's IDs(ctx) shortcut here.
 // On an M2N traversal, Ent emits SELECT DISTINCT id ... ORDER BY
@@ -454,12 +617,15 @@ func (r *alertRepo) LinkEventsToGroup(ctx context.Context, groupID domain.AlertG
 // no-op anyway. Materialising the rows and projecting their IDs is
 // both correct and equivalent in cost given the bounded fan-out of
 // events per group.
-func (r *alertRepo) ListEventIDsForGroup(ctx context.Context, groupID domain.AlertGroupID) ([]domain.AlertEventID, error) {
+func (r *alertRepo) ListEventIDsForGroup(ctx context.Context, groupID domain.AlertGroupID, limit int) ([]domain.AlertEventID, error) {
 	if err := checkOpen(r.closed); err != nil {
 		return nil, err
 	}
 	if groupID == 0 {
 		return nil, fmt.Errorf("list event ids for group: group id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list event ids for group: limit %d must be > 0: %w", limit, domain.ErrInvariantViolation)
 	}
 	if _, err := r.tx.AlertGroup.Get(ctx, int(groupID)); err != nil {
 		return nil, asNotFound(err)
@@ -468,6 +634,7 @@ func (r *alertRepo) ListEventIDsForGroup(ctx context.Context, groupID domain.Ale
 		Where(alertgroup.IDEQ(int(groupID))).
 		QueryEvents().
 		Order(alertevent.ByStartsAt()).
+		Limit(limit).
 		All(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list event ids for group %d: %w", groupID, err)

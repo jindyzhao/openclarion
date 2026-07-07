@@ -59,6 +59,14 @@ func mustNewAlertGroup(t *testing.T, key string, first, last time.Time) domain.A
 	return g
 }
 
+func alertEventIDsForTest(events []domain.AlertEvent) []domain.AlertEventID {
+	ids := make([]domain.AlertEventID, len(events))
+	for i := range events {
+		ids[i] = events[i].ID
+	}
+	return ids
+}
+
 func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 	resetDB(t)
 	startsAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
@@ -103,6 +111,66 @@ func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 		_, err = uow.Alerts().FindEventByNaturalKey(ctx, "prometheus", "canon-A", startsAt)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Fatalf("FindEventByNaturalKey for profiled event = %v, want ErrNotFound", err)
+		}
+	})
+}
+
+func TestAlertRepository_ListEventsByNaturalKeysMatchesFullScopedKey(t *testing.T) {
+	resetDB(t)
+	startsAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	events := []domain.AlertEvent{
+		mustNewAlertEvent(t, "prometheus", "fp-1", "canon-A", startsAt),
+		mustNewAlertEvent(t, "prometheus", "fp-2", "canon-B", startsAt),
+		mustNewAlertEvent(t, "prometheus", "fp-3", "canon-A", startsAt.Add(time.Microsecond)),
+	}
+	for i := range events {
+		var err error
+		events[i], err = events[i].WithAlertSourceProfile(7)
+		if err != nil {
+			t.Fatalf("WithAlertSourceProfile event[%d]: %v", i, err)
+		}
+	}
+	otherProfile := mustNewAlertEvent(t, "prometheus", "fp-4", "canon-A", startsAt)
+	otherProfile, err := otherProfile.WithAlertSourceProfile(8)
+	if err != nil {
+		t.Fatalf("WithAlertSourceProfile other profile: %v", err)
+	}
+	events = append(events, otherProfile)
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for i := range events {
+			if _, err := uow.Alerts().SaveEvent(ctx, events[i]); err != nil {
+				t.Fatalf("SaveEvent[%d]: %v", i, err)
+			}
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		rows, err := uow.Alerts().ListEventsByNaturalKeys(ctx, []ports.AlertEventNaturalKey{
+			{
+				AlertSourceProfileID: 7,
+				Source:               "prometheus",
+				CanonicalFingerprint: "canon-A",
+				StartsAt:             startsAt,
+			},
+			{
+				AlertSourceProfileID: 7,
+				Source:               "prometheus",
+				CanonicalFingerprint: "canon-A",
+				StartsAt:             startsAt.Add(time.Microsecond),
+			},
+		}, 3)
+		if err != nil {
+			t.Fatalf("ListEventsByNaturalKeys: %v", err)
+		}
+		if len(rows) != 2 ||
+			rows[0].AlertSourceProfileID != 7 ||
+			rows[0].CanonicalFingerprint != "canon-A" ||
+			!rows[0].StartsAt.Equal(domain.NormalizeUTCMicro(startsAt)) ||
+			rows[1].AlertSourceProfileID != 7 ||
+			rows[1].CanonicalFingerprint != "canon-A" ||
+			!rows[1].StartsAt.Equal(domain.NormalizeUTCMicro(startsAt.Add(time.Microsecond))) {
+			t.Fatalf("rows = %+v, want only exact profile/fingerprint/start matches", rows)
 		}
 	})
 }
@@ -241,7 +309,7 @@ func TestAlertRepository_GroupAndLinkEvents(t *testing.T) {
 	})
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
-		ids, err := uow.Alerts().ListEventIDsForGroup(ctx, groupID)
+		ids, err := uow.Alerts().ListEventIDsForGroup(ctx, groupID, 10)
 		if err != nil {
 			t.Fatalf("ListEventIDsForGroup: %v", err)
 		}
@@ -252,6 +320,110 @@ func TestAlertRepository_GroupAndLinkEvents(t *testing.T) {
 		// (startsAt), then e1 (startsAt+2m).
 		if ids[0] != eventIDs[1] || ids[1] != eventIDs[0] {
 			t.Errorf("ListEventIDsForGroup order = %v, want [e0=%d, e1=%d]", ids, eventIDs[1], eventIDs[0])
+		}
+		limited, lerr := uow.Alerts().ListEventIDsForGroup(ctx, groupID, 1)
+		if lerr != nil {
+			t.Fatalf("ListEventIDsForGroup limit 1: %v", lerr)
+		}
+		if len(limited) != 1 || limited[0] != eventIDs[1] {
+			t.Fatalf("ListEventIDsForGroup limit 1 = %v, want [%d]", limited, eventIDs[1])
+		}
+	})
+}
+
+func TestAlertRepository_FindGroupByEventIDAndGroupKeyReturnsEarliestLinkedGroup(t *testing.T) {
+	resetDB(t)
+	startsAt := time.Date(2026, 5, 22, 13, 0, 0, 0, time.UTC)
+
+	var eventID domain.AlertEventID
+	var earliestGroupID domain.AlertGroupID
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		event, err := uow.Alerts().SaveEvent(ctx, mustNewAlertEvent(t, "prom", "fp-linked", "canon-linked", startsAt))
+		if err != nil {
+			t.Fatalf("SaveEvent: %v", err)
+		}
+		eventID = event.ID
+
+		earliest, err := uow.Alerts().SaveGroup(ctx, mustNewAlertGroup(t, "linked-key", startsAt, startsAt))
+		if err != nil {
+			t.Fatalf("SaveGroup earliest: %v", err)
+		}
+		earliestGroupID = earliest.ID
+		later, err := uow.Alerts().SaveGroup(ctx, mustNewAlertGroup(t, "linked-key", startsAt.Add(time.Hour), startsAt.Add(time.Hour)))
+		if err != nil {
+			t.Fatalf("SaveGroup later: %v", err)
+		}
+		otherKey, err := uow.Alerts().SaveGroup(ctx, mustNewAlertGroup(t, "other-key", startsAt, startsAt))
+		if err != nil {
+			t.Fatalf("SaveGroup other-key: %v", err)
+		}
+		for _, groupID := range []domain.AlertGroupID{later.ID, earliest.ID, otherKey.ID} {
+			if err := uow.Alerts().LinkEventsToGroup(ctx, groupID, []domain.AlertEventID{eventID}); err != nil {
+				t.Fatalf("LinkEventsToGroup %d: %v", groupID, err)
+			}
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Alerts().FindGroupByEventIDAndGroupKey(ctx, eventID, "linked-key")
+		if err != nil {
+			t.Fatalf("FindGroupByEventIDAndGroupKey: %v", err)
+		}
+		if got.ID != earliestGroupID {
+			t.Fatalf("got.ID = %d, want earliest group %d", got.ID, earliestGroupID)
+		}
+		_, err = uow.Alerts().FindGroupByEventIDAndGroupKey(ctx, eventID, "missing-key")
+		if !errors.Is(err, domain.ErrNotFound) {
+			t.Fatalf("wrong key: want ErrNotFound, got %v", err)
+		}
+	})
+}
+
+func TestAlertRepository_ListEventsForGroupByStartsAtRangeFilteredScopesLinkedEvents(t *testing.T) {
+	resetDB(t)
+	startsAt := time.Date(2026, 5, 22, 14, 0, 0, 0, time.UTC)
+
+	var groupID domain.AlertGroupID
+	var wantID domain.AlertEventID
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		group, err := uow.Alerts().SaveGroup(ctx, mustNewAlertGroup(t, "scope-key", startsAt, startsAt.Add(2*time.Hour)))
+		if err != nil {
+			t.Fatalf("SaveGroup: %v", err)
+		}
+		groupID = group.ID
+
+		prom, err := uow.Alerts().SaveEvent(ctx, mustNewAlertEvent(t, "prometheus", "fp-prom", "canon-prom", startsAt))
+		if err != nil {
+			t.Fatalf("SaveEvent prom: %v", err)
+		}
+		wantID = prom.ID
+		alertmanager, err := uow.Alerts().SaveEvent(ctx, mustNewAlertEvent(t, "alertmanager", "fp-am", "canon-am", startsAt.Add(time.Minute)))
+		if err != nil {
+			t.Fatalf("SaveEvent alertmanager: %v", err)
+		}
+		outside, err := uow.Alerts().SaveEvent(ctx, mustNewAlertEvent(t, "prometheus", "fp-out", "canon-out", startsAt.Add(2*time.Hour)))
+		if err != nil {
+			t.Fatalf("SaveEvent outside: %v", err)
+		}
+		if err := uow.Alerts().LinkEventsToGroup(ctx, groupID, []domain.AlertEventID{alertmanager.ID, outside.ID, prom.ID}); err != nil {
+			t.Fatalf("LinkEventsToGroup: %v", err)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Alerts().ListEventsForGroupByStartsAtRangeFiltered(
+			ctx,
+			groupID,
+			startsAt,
+			startsAt.Add(time.Hour),
+			ports.AlertEventFilter{Sources: []string{"prometheus"}},
+			10,
+		)
+		if err != nil {
+			t.Fatalf("ListEventsForGroupByStartsAtRangeFiltered: %v", err)
+		}
+		if len(got) != 1 || got[0].ID != wantID {
+			t.Fatalf("got event IDs = %v, want only %d", alertEventIDsForTest(got), wantID)
 		}
 	})
 }
@@ -296,7 +468,7 @@ func TestAlertRepository_ListActiveGroups_OrdersByLastSeenDesc(t *testing.T) {
 func TestAlertRepository_ListEventIDsForGroup_MissingGroupReturnsNotFound(t *testing.T) {
 	resetDB(t)
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
-		_, err := uow.Alerts().ListEventIDsForGroup(ctx, 999999)
+		_, err := uow.Alerts().ListEventIDsForGroup(ctx, 999999, 10)
 		if !errors.Is(err, domain.ErrNotFound) {
 			t.Fatalf("ListEventIDsForGroup missing group: want errors.Is ErrNotFound, got %v", err)
 		}
@@ -318,7 +490,7 @@ func TestAlertRepository_ListEventIDsForGroup_ExistingEmptyGroupReturnsEmptySlic
 	})
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
-		ids, err := uow.Alerts().ListEventIDsForGroup(ctx, groupID)
+		ids, err := uow.Alerts().ListEventIDsForGroup(ctx, groupID, 10)
 		if err != nil {
 			t.Fatalf("ListEventIDsForGroup existing empty group: %v", err)
 		}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/providers/im/wecomcallback"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -289,6 +290,52 @@ func TestHandleMessagePropagatesSubmitErrors(t *testing.T) {
 	})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("HandleMessage error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestHandleMessageTreatsDuplicateMessageIDAsSubmitted(t *testing.T) {
+	workflows := &recordingWorkflowClient{submitErr: diagnosisroom.ErrDuplicateMessageID}
+	service := newAuthorizedService(t, workflows, &recordingRoomAuthorizer{allowed: true})
+
+	result, err := service.HandleMessage(context.Background(), Request{
+		Message: wecomcallback.Message{
+			FromUserName: "operator-1",
+			MsgID:        "wecom-msg-1",
+			MsgType:      "text",
+			Content:      "diagnosis-session-1 please continue",
+		},
+	})
+	if err != nil {
+		t.Fatalf("HandleMessage: %v", err)
+	}
+	if result.Status != StatusSubmitted ||
+		result.SessionID != "diagnosis-session-1" ||
+		result.ActorSubject != "operator-1" ||
+		result.MessageID == "" {
+		t.Fatalf("result = %+v, want idempotent submitted result", result)
+	}
+	if _, called := workflows.submitSnapshot(); called != 1 {
+		t.Fatalf("SubmitDiagnosisTurn calls = %d, want 1", called)
+	}
+}
+
+func TestHandleMessageDoesNotAcknowledgeInFlightTurnAsDuplicate(t *testing.T) {
+	workflows := &recordingWorkflowClient{submitErr: diagnosisroom.ErrTurnInFlight}
+	service := newAuthorizedService(t, workflows, &recordingRoomAuthorizer{allowed: true})
+
+	_, err := service.HandleMessage(context.Background(), Request{
+		Message: wecomcallback.Message{
+			FromUserName: "operator-1",
+			MsgID:        "wecom-msg-2",
+			MsgType:      "text",
+			Content:      "diagnosis-session-1 please continue",
+		},
+	})
+	if !errors.Is(err, diagnosisroom.ErrTurnInFlight) {
+		t.Fatalf("HandleMessage error = %v, want ErrTurnInFlight", err)
+	}
+	if _, called := workflows.submitSnapshot(); called != 1 {
+		t.Fatalf("SubmitDiagnosisTurn calls = %d, want 1", called)
 	}
 }
 

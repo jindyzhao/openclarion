@@ -75,6 +75,40 @@ func TestVerifierDecryptMessageExtractsSenderAndContent(t *testing.T) {
 	}
 }
 
+func TestVerifierDecryptMessageAllowsNormalSizedEncryptedPayload(t *testing.T) {
+	key := testEncodingAESKey()
+	longContent := strings.Repeat("diagnosis context ", 80)
+	plaintext := []byte(`<xml>
+	<FromUserName><![CDATA[operator-1]]></FromUserName>
+	<CreateTime>1700000000</CreateTime>
+	<MsgType><![CDATA[text]]></MsgType>
+	<Content><![CDATA[` + longContent + `]]></Content>
+	<MsgId>10002</MsgId>
+	</xml>`)
+	encrypted := testEncryptMessage(t, key, plaintext, testReceiveID)
+	if len([]byte(encrypted)) <= 512 {
+		t.Fatalf("encrypted fixture length = %d, want above legacy token limit", len([]byte(encrypted)))
+	}
+	signature := callbackSignature(testToken, "1700000001", "nonce-2", encrypted)
+	rawXML := []byte(fmt.Sprintf(`<xml><Encrypt><![CDATA[%s]]></Encrypt></xml>`, encrypted))
+
+	verifier, err := NewVerifier(Config{
+		Token:          testToken,
+		EncodingAESKey: key,
+		ReceiveID:      testReceiveID,
+	})
+	if err != nil {
+		t.Fatalf("NewVerifier: %v", err)
+	}
+	message, err := verifier.DecryptMessage(signature, "1700000001", "nonce-2", rawXML)
+	if err != nil {
+		t.Fatalf("DecryptMessage: %v", err)
+	}
+	if message.Content != longContent {
+		t.Fatalf("message content len = %d, want %d", len(message.Content), len(longContent))
+	}
+}
+
 func TestVerifierRejectsInvalidSignatureWithoutLeakingPayload(t *testing.T) {
 	key := testEncodingAESKey()
 	plaintext := []byte(`<xml><FromUserName>operator-1</FromUserName><MsgType>text</MsgType><Content>secret-body</Content></xml>`)

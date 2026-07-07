@@ -2,6 +2,7 @@ package temporal
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	temporalsdk "go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 )
@@ -30,6 +32,9 @@ const (
 	DiagnosisRoomCloseSignal = "close"
 	// DiagnosisRoomCancelSignal cancels a room by operator/system request.
 	DiagnosisRoomCancelSignal = "cancel"
+
+	errTypeSubmitTurnDuplicateMessage = "DiagnosisRoomSubmitTurnDuplicateMessage"
+	errTypeSubmitTurnInFlight         = "DiagnosisRoomSubmitTurnInFlight"
 )
 
 const (
@@ -396,7 +401,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		workflow.UpdateHandlerOptions{
 			Validator: func(ctx workflow.Context, req SubmitDiagnosisTurnRequest) error {
 				_, _, err := state.validateSubmit(ctx, req, evidenceContextVersion)
-				return err
+				return diagnosisRoomSubmitTurnValidatorError(err)
 			},
 		},
 	); err != nil {
@@ -647,6 +652,34 @@ func (s *diagnosisRoomState) validateSubmit(
 	return decision, evidence, nil
 }
 
+func diagnosisRoomSubmitTurnValidatorError(err error) error {
+	if err == nil {
+		return nil
+	}
+	switch {
+	case errors.Is(err, diagnosisroom.ErrDuplicateMessageID):
+		return temporalsdk.NewNonRetryableApplicationError(
+			err.Error(),
+			errTypeSubmitTurnDuplicateMessage,
+			err,
+		)
+	case errors.Is(err, diagnosisroom.ErrTurnInFlight):
+		return temporalsdk.NewNonRetryableApplicationError(
+			err.Error(),
+			errTypeSubmitTurnInFlight,
+			err,
+		)
+	case errors.Is(err, domain.ErrInvariantViolation):
+		return temporalsdk.NewNonRetryableApplicationError(
+			err.Error(),
+			errTypeInvariantViolation,
+			err,
+		)
+	default:
+		return err
+	}
+}
+
 func (s *diagnosisRoomState) submitDiagnosisRoomTurn(
 	ctx workflow.Context,
 	req SubmitDiagnosisTurnRequest,
@@ -659,11 +692,13 @@ func (s *diagnosisRoomState) submitDiagnosisRoomTurn(
 ) (SubmitDiagnosisTurnResult, error) {
 	decision, turnEvidence, err := s.validateSubmit(ctx, req, evidenceContextVersion)
 	if err != nil {
-		return SubmitDiagnosisTurnResult{}, err
+		return SubmitDiagnosisTurnResult{}, diagnosisRoomSubmitTurnValidatorError(err)
 	}
 	s.inFlight = true
 	s.latestError = nil
-	defer func() { s.inFlight = false }()
+	defer func() {
+		s.inFlight = false
+	}()
 
 	result, collectionVersion, err := s.runDiagnosisRoomTurn(
 		ctx,

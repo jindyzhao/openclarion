@@ -193,11 +193,11 @@ func (c *DiagnosisRoomClient) SubmitDiagnosisTurn(ctx context.Context, req ports
 		WaitForStage: client.WorkflowUpdateStageCompleted,
 	})
 	if err != nil {
-		return ports.DiagnosisRoomSubmitTurnResult{}, fmt.Errorf("diagnosis-room client: submit turn update: %w", err)
+		return ports.DiagnosisRoomSubmitTurnResult{}, mapDiagnosisRoomSubmitTurnError("diagnosis-room client: submit turn update", err)
 	}
 	var result SubmitDiagnosisTurnResult
 	if err := handle.Get(ctx, &result); err != nil {
-		return ports.DiagnosisRoomSubmitTurnResult{}, fmt.Errorf("diagnosis-room client: get submit turn result: %w", err)
+		return ports.DiagnosisRoomSubmitTurnResult{}, mapDiagnosisRoomSubmitTurnError("diagnosis-room client: get submit turn result", err)
 	}
 	return diagnosisRoomSubmitTurnResult(result), nil
 }
@@ -306,6 +306,33 @@ func (e diagnosisRoomClientClassifiedError) Error() string {
 
 func (e diagnosisRoomClientClassifiedError) Unwrap() []error {
 	return []error{e.err, e.class}
+}
+
+func mapDiagnosisRoomSubmitTurnError(prefix string, err error) error {
+	var appErr *temporalsdk.ApplicationError
+	if errors.As(err, &appErr) {
+		switch appErr.Type() {
+		case errTypeSubmitTurnDuplicateMessage:
+			return diagnosisRoomClientClassifiedError{
+				prefix: prefix,
+				err:    err,
+				class:  errors.Join(diagnosisroom.ErrDuplicateMessageID, domain.ErrAlreadyExists),
+			}
+		case errTypeSubmitTurnInFlight:
+			return diagnosisRoomClientClassifiedError{
+				prefix: prefix,
+				err:    err,
+				class:  errors.Join(diagnosisroom.ErrTurnInFlight, domain.ErrAlreadyExists),
+			}
+		case errTypeInvariantViolation:
+			return diagnosisRoomClientClassifiedError{
+				prefix: prefix,
+				err:    err,
+				class:  domain.ErrInvariantViolation,
+			}
+		}
+	}
+	return fmt.Errorf("%s: %w", prefix, err)
 }
 
 func mapDiagnosisRoomConfirmError(prefix string, err error) error {

@@ -101,6 +101,13 @@ type AlertRepository interface {
 	// when no such row exists.
 	FindEventByNaturalKey(ctx context.Context, source, canonicalFingerprint string, startsAt time.Time) (domain.AlertEvent, error)
 
+	// ListEventsByNaturalKeys returns AlertEvents matching the exact natural keys
+	// after normalising starts_at to UTC microsecond precision. Empty keys return
+	// an empty result. Non-empty keys require limit > 0 and apply the full
+	// (alert_source_profile_id, source, canonical_fingerprint, starts_at)
+	// predicate before ordering and limiting.
+	ListEventsByNaturalKeys(ctx context.Context, keys []AlertEventNaturalKey, limit int) ([]domain.AlertEvent, error)
+
 	// ListEventsByStartsAtRange returns AlertEvents whose StartsAt
 	// falls in the half-open interval [startInclusive, endExclusive),
 	// ordered by (starts_at ASC, id ASC) for replay determinism, and
@@ -165,17 +172,34 @@ type AlertRepository interface {
 	// when needed.
 	FindGroupByNaturalKey(ctx context.Context, groupKey string, firstSeenAt time.Time) (domain.AlertGroup, error)
 
+	// FindGroupByEventIDAndGroupKey returns the earliest AlertGroup
+	// with the given group_key that is already linked to eventID, or
+	// domain.ErrNotFound. The group_key predicate is required because
+	// one AlertEvent MAY be linked to multiple AlertGroups produced by
+	// different grouping configurations. EventIDs on the returned group
+	// is left nil; callers materialise events separately when needed.
+	FindGroupByEventIDAndGroupKey(ctx context.Context, eventID domain.AlertEventID, groupKey string) (domain.AlertGroup, error)
+
 	// LinkEventsToGroup attaches the given AlertEventIDs to the
 	// AlertGroup via the M2N edge. Re-linking an existing
 	// (group, event) pair is a no-op; the operation is therefore
 	// idempotent. Empty eventIDs is a valid no-op.
 	LinkEventsToGroup(ctx context.Context, groupID domain.AlertGroupID, eventIDs []domain.AlertEventID) error
 
+	// ListEventsForGroupByStartsAtRangeFiltered returns AlertEvents linked
+	// to the AlertGroup via the M2N edge whose StartsAt falls in the
+	// half-open interval [startInclusive, endExclusive), after applying
+	// optional source/profile predicates, ordered by (starts_at ASC, id ASC)
+	// and capped by limit. Returns domain.ErrNotFound when the group is
+	// missing. limit MUST be > 0.
+	ListEventsForGroupByStartsAtRangeFiltered(ctx context.Context, groupID domain.AlertGroupID, startInclusive, endExclusive time.Time, filter AlertEventFilter, limit int) ([]domain.AlertEvent, error)
+
 	// ListEventIDsForGroup returns the AlertEventIDs linked to the
 	// AlertGroup via the M2N edge, ordered by AlertEvent.starts_at
-	// ascending. Returns an empty slice (not domain.ErrNotFound)
-	// when the group exists but has no events linked.
-	ListEventIDsForGroup(ctx context.Context, groupID domain.AlertGroupID) ([]domain.AlertEventID, error)
+	// ascending and capped by limit. Returns an empty slice (not
+	// domain.ErrNotFound) when the group exists but has no events
+	// linked. limit MUST be > 0.
+	ListEventIDsForGroup(ctx context.Context, groupID domain.AlertGroupID, limit int) ([]domain.AlertEventID, error)
 
 	// ListActiveGroups returns AlertGroups whose status == "active",
 	// ordered by last_seen_at descending. limit MUST be > 0; the
@@ -222,6 +246,16 @@ type AlertEventFilter struct {
 	IDs                   []domain.AlertEventID
 	Sources               []string
 	AlertSourceProfileIDs []domain.AlertSourceProfileID
+}
+
+// AlertEventNaturalKey is the scoped AlertEvent uniqueness key used by
+// webhook-style intake to resolve rows that were just persisted without scanning
+// unrelated events in the same timestamp window.
+type AlertEventNaturalKey struct {
+	AlertSourceProfileID domain.AlertSourceProfileID
+	Source               string
+	CanonicalFingerprint string
+	StartsAt             time.Time
 }
 
 // DiagnosisRepository covers DiagnosisTask plus append-only

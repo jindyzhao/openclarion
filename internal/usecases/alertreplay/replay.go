@@ -20,11 +20,13 @@
 // window that produces a different digest yields a NEW snapshot row;
 // the group header is refreshed in place.
 //
-// Refresh is strictly bounded: it only applies when the replayed
-// window produces the SAME (group_key, first_seen_at) natural key as
-// an existing row. A later, narrower window whose first_seen_at
-// differs is a NEW AlertGroup row by design. This boundary is what
-// keeps refresh from blurring into reopen.
+// Refresh first tries the SAME (group_key, first_seen_at) natural key
+// as an existing row. If an ID-scoped replay contains a later event
+// that is already linked to a row with the same group_key, replay
+// reuses that linked row instead of creating a duplicate group. The
+// expansion still honours the current replay window/source/profile
+// scope; AlertEventIDFilter selects the triggering/current events but
+// does not shrink an already-materialised group by itself.
 //
 // Status is intentionally not reopened: refresh does not transition
 // closed back to active. GroupsClosed is incremented only when this
@@ -37,6 +39,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
@@ -155,13 +158,23 @@ type Stats struct {
 // Stats only after WithinTx commits successfully; this keeps Stats
 // immune to half-applied tx state.
 type groupResult struct {
-	savedGroup        bool
-	refreshedGroup    bool
-	existingGroup     bool
-	savedSnapshot     bool
-	duplicateSnapshot bool
-	closedGroup       bool
-	snapshotID        domain.EvidenceSnapshotID
+	savedGroup         bool
+	refreshedGroup     bool
+	existingGroup      bool
+	savedSnapshot      bool
+	duplicateSnapshot  bool
+	closedGroup        bool
+	snapshotID         domain.EvidenceSnapshotID
+	snapshotEventCount int
+}
+
+type replayExpansionScope struct {
+	windowStart            time.Time
+	windowEnd              time.Time
+	filter                 ports.AlertEventFilter
+	grouping               alertgrouping.Config
+	limit                  int
+	allowLinkedGroupLookup bool
 }
 
 // ReplayWindow runs one end-to-end replay over the configured
@@ -289,6 +302,18 @@ func ReplayPersistedWindowForReport(
 		eventByID[matchedEvents[i].ID] = matchedEvents[i]
 	}
 
+	expansionScope := replayExpansionScope{
+		windowStart: nStart,
+		windowEnd:   nEnd,
+		filter: ports.AlertEventFilter{
+			Sources:               req.SourceFilter,
+			AlertSourceProfileIDs: req.AlertSourceProfileFilter,
+		},
+		grouping:               req.Grouping,
+		limit:                  req.Limit,
+		allowLinkedGroupLookup: len(req.AlertEventIDFilter) > 0,
+	}
+
 	// Step 4: per-group pipeline.
 	var failures []error
 	for i := range drafts {
@@ -306,7 +331,7 @@ func ReplayPersistedWindowForReport(
 			eventsForGroup = append(eventsForGroup, ev)
 		}
 
-		groupOutcome, perr := processGroup(ctx, factory, draft, eventsForGroup, req.CreatedByWorkflow)
+		groupOutcome, perr := processGroup(ctx, factory, draft, eventsForGroup, req.CreatedByWorkflow, expansionScope)
 		if perr != nil {
 			result.Stats.Failed++
 			slog.WarnContext(ctx, "alertreplay: per-group pipeline failed",
@@ -322,7 +347,7 @@ func ReplayPersistedWindowForReport(
 			result.Snapshots = append(result.Snapshots, SnapshotRef{
 				ID:         groupOutcome.snapshotID,
 				GroupIndex: i,
-				EventCount: len(draft.EventIDs),
+				EventCount: groupOutcome.snapshotEventCount,
 			})
 		}
 	}
@@ -401,6 +426,7 @@ func processGroup(
 	draft domain.AlertGroup,
 	eventsForGroup []domain.AlertEvent,
 	createdByWorkflow string,
+	scope replayExpansionScope,
 ) (groupResult, error) {
 	var result groupResult
 
@@ -409,16 +435,30 @@ func processGroup(
 		evidence := uow.Evidence()
 
 		// Pre-check: decide saved vs refreshed vs existing.
-		existing, ferr := alerts.FindGroupByNaturalKey(ctx, draft.GroupKey, draft.FirstSeenAt)
+		eventsForSnapshot := eventsForGroup
+		draftForPersistence := draft
+		existing, foundExisting, ferr := findExistingGroupForDraft(ctx, alerts, draft, eventsForGroup, scope.allowLinkedGroupLookup)
 		var persisted domain.AlertGroup
 		switch {
-		case ferr == nil:
+		case ferr != nil:
+			return ferr
+		case foundExisting:
+			expanded, xerr := existingGroupSnapshotEvents(ctx, alerts, existing.ID, eventsForGroup, scope)
+			if xerr != nil {
+				return fmt.Errorf("load existing group events: %w", xerr)
+			}
+			eventsForSnapshot = expanded
+			mergedDraft, merr := mergeDraftWithExistingGroup(existing, draft, eventsForSnapshot, scope.grouping)
+			if merr != nil {
+				return fmt.Errorf("merge existing group draft: %w", merr)
+			}
+			draftForPersistence = mergedDraft
 			// Existing row: diff mutable fields.
-			if mutableFieldsDiffer(existing, draft) {
+			if mutableFieldsDiffer(existing, draftForPersistence) {
 				merged := existing
-				merged.Severity = draft.Severity
-				merged.EventCount = draft.EventCount
-				merged.LastSeenAt = domain.NormalizeUTCMicro(draft.LastSeenAt)
+				merged.Severity = draftForPersistence.Severity
+				merged.EventCount = draftForPersistence.EventCount
+				merged.LastSeenAt = domain.NormalizeUTCMicro(draftForPersistence.LastSeenAt)
 				// Status intentionally preserved: refresh
 				// does NOT reopen a closed group.
 				updated, uerr := alerts.UpdateGroup(ctx, merged)
@@ -431,22 +471,20 @@ func processGroup(
 				persisted = existing
 				result.existingGroup = true
 			}
-		case errors.Is(ferr, domain.ErrNotFound):
+		default:
 			saved, serr := alerts.SaveGroup(ctx, draft)
 			if serr != nil {
 				return fmt.Errorf("save group: %w", serr)
 			}
 			persisted = saved
 			result.savedGroup = true
-		default:
-			return fmt.Errorf("find group by natural key: %w", ferr)
 		}
 
 		// Materialise the M2N edge. LinkEventsToGroup is
 		// idempotent on (group, event) pairs.
-		eventIDs := make([]domain.AlertEventID, len(eventsForGroup))
-		for i := range eventsForGroup {
-			eventIDs[i] = eventsForGroup[i].ID
+		eventIDs := make([]domain.AlertEventID, len(eventsForSnapshot))
+		for i := range eventsForSnapshot {
+			eventIDs[i] = eventsForSnapshot[i].ID
 		}
 		if err := alerts.LinkEventsToGroup(ctx, persisted.ID, eventIDs); err != nil {
 			return fmt.Errorf("link events to group: %w", err)
@@ -457,11 +495,11 @@ func processGroup(
 		// Re-attach the draft's EventIDs so BuildSnapshot's
 		// group-vs-events ID set check runs.
 		snapshotGroup := persisted
-		snapshotGroup.EventIDs = draft.EventIDs
+		snapshotGroup.EventIDs = eventIDs
 
 		snapshot, berr := evidencebuild.BuildSnapshot(evidencebuild.Input{
 			Group:             snapshotGroup,
-			Events:            eventsForGroup,
+			Events:            eventsForSnapshot,
 			CreatedByWorkflow: createdByWorkflow,
 		})
 		if berr != nil {
@@ -474,6 +512,7 @@ func processGroup(
 		switch {
 		case lookupErr == nil:
 			result.snapshotID = existingSnapshot.ID
+			result.snapshotEventCount = len(eventsForSnapshot)
 			result.duplicateSnapshot = true
 		case errors.Is(lookupErr, domain.ErrNotFound):
 			savedSnapshot, sErr := evidence.Save(ctx, snapshot)
@@ -481,6 +520,7 @@ func processGroup(
 				return fmt.Errorf("save snapshot: %w", sErr)
 			}
 			result.snapshotID = savedSnapshot.ID
+			result.snapshotEventCount = len(eventsForSnapshot)
 			result.savedSnapshot = true
 		default:
 			return fmt.Errorf("find snapshot by digest: %w", lookupErr)
@@ -502,6 +542,171 @@ func processGroup(
 		return groupResult{}, err
 	}
 	return result, nil
+}
+
+func findExistingGroupForDraft(
+	ctx context.Context,
+	alerts ports.AlertRepository,
+	draft domain.AlertGroup,
+	eventsForGroup []domain.AlertEvent,
+	allowLinkedGroupLookup bool,
+) (domain.AlertGroup, bool, error) {
+	existing, err := alerts.FindGroupByNaturalKey(ctx, draft.GroupKey, draft.FirstSeenAt)
+	if err == nil {
+		return existing, true, nil
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return domain.AlertGroup{}, false, fmt.Errorf("find group by natural key: %w", err)
+	}
+	if !allowLinkedGroupLookup {
+		return domain.AlertGroup{}, false, nil
+	}
+	existing, err = findExistingGroupByLinkedEvents(ctx, alerts, draft.GroupKey, eventsForGroup)
+	if err == nil {
+		return existing, true, nil
+	}
+	if errors.Is(err, domain.ErrNotFound) {
+		return domain.AlertGroup{}, false, nil
+	}
+	return domain.AlertGroup{}, false, err
+}
+
+func findExistingGroupByLinkedEvents(
+	ctx context.Context,
+	alerts ports.AlertRepository,
+	groupKey string,
+	eventsForGroup []domain.AlertEvent,
+) (domain.AlertGroup, error) {
+	var found domain.AlertGroup
+	for _, event := range eventsForGroup {
+		if event.ID <= 0 {
+			return domain.AlertGroup{}, fmt.Errorf("current alert event id %d must be positive: %w", event.ID, domain.ErrInvariantViolation)
+		}
+		candidate, err := alerts.FindGroupByEventIDAndGroupKey(ctx, event.ID, groupKey)
+		if errors.Is(err, domain.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return domain.AlertGroup{}, fmt.Errorf("find group by linked alert event %d: %w", event.ID, err)
+		}
+		if found.ID == 0 {
+			found = candidate
+			continue
+		}
+		if candidate.ID != found.ID {
+			return domain.AlertGroup{}, fmt.Errorf(
+				"draft group_key=%q maps to multiple existing groups (%d and %d): %w",
+				groupKey, found.ID, candidate.ID, domain.ErrInvariantViolation,
+			)
+		}
+	}
+	if found.ID == 0 {
+		return domain.AlertGroup{}, fmt.Errorf("find group by linked events: %w", domain.ErrNotFound)
+	}
+	return found, nil
+}
+
+func existingGroupSnapshotEvents(
+	ctx context.Context,
+	alerts ports.AlertRepository,
+	groupID domain.AlertGroupID,
+	current []domain.AlertEvent,
+	scope replayExpansionScope,
+) ([]domain.AlertEvent, error) {
+	byID := make(map[domain.AlertEventID]domain.AlertEvent, len(current))
+	seenIDs := make(map[domain.AlertEventID]struct{}, len(current))
+	for _, event := range current {
+		if event.ID <= 0 {
+			return nil, fmt.Errorf("current alert event id %d must be positive: %w", event.ID, domain.ErrInvariantViolation)
+		}
+		byID[event.ID] = event
+		seenIDs[event.ID] = struct{}{}
+	}
+	if len(seenIDs) > scope.limit {
+		return nil, fmt.Errorf(
+			"existing alert group %d expansion contains more than limit (%d) events: %w",
+			groupID, scope.limit, domain.ErrInvariantViolation,
+		)
+	}
+	linkedEvents, err := alerts.ListEventsForGroupByStartsAtRangeFiltered(
+		ctx,
+		groupID,
+		scope.windowStart,
+		scope.windowEnd,
+		scope.filter,
+		scope.limit+1,
+	)
+	if err != nil {
+		return nil, err
+	}
+	for _, event := range linkedEvents {
+		if event.ID <= 0 {
+			return nil, fmt.Errorf("linked alert event id %d must be positive: %w", event.ID, domain.ErrInvariantViolation)
+		}
+		if _, ok := seenIDs[event.ID]; ok {
+			continue
+		}
+		if len(seenIDs)+1 > scope.limit {
+			return nil, fmt.Errorf(
+				"existing alert group %d expansion contains more than limit (%d) events: %w",
+				groupID, scope.limit, domain.ErrInvariantViolation,
+			)
+		}
+		seenIDs[event.ID] = struct{}{}
+		byID[event.ID] = event
+	}
+	events := make([]domain.AlertEvent, 0, len(byID))
+	for _, event := range byID {
+		events = append(events, event)
+	}
+	sort.Slice(events, func(i, j int) bool {
+		left := domain.NormalizeUTCMicro(events[i].StartsAt)
+		right := domain.NormalizeUTCMicro(events[j].StartsAt)
+		if !left.Equal(right) {
+			return left.Before(right)
+		}
+		return events[i].ID < events[j].ID
+	})
+	return events, nil
+}
+
+func mergeDraftWithExistingGroup(
+	existing, draft domain.AlertGroup,
+	events []domain.AlertEvent,
+	grouping alertgrouping.Config,
+) (domain.AlertGroup, error) {
+	scopedDrafts, err := alertgrouping.GroupEvents(events, grouping)
+	if err != nil {
+		return domain.AlertGroup{}, err
+	}
+	if len(scopedDrafts) != 1 {
+		return domain.AlertGroup{}, fmt.Errorf(
+			"existing group %d expansion for group_key=%q produced %d scoped drafts: %w",
+			existing.ID, draft.GroupKey, len(scopedDrafts), domain.ErrInvariantViolation,
+		)
+	}
+	merged := scopedDrafts[0]
+	if merged.GroupKey != draft.GroupKey {
+		return domain.AlertGroup{}, fmt.Errorf(
+			"existing group %d expansion changed group_key from %q to %q: %w",
+			existing.ID, draft.GroupKey, merged.GroupKey, domain.ErrInvariantViolation,
+		)
+	}
+	merged.EventIDs = alertEventIDs(events)
+	merged.EventCount = len(events)
+	merged.FirstSeenAt = domain.NormalizeUTCMicro(existing.FirstSeenAt)
+	if len(existing.Dimensions) > 0 {
+		merged.Dimensions = append([]byte(nil), existing.Dimensions...)
+	}
+	return merged, nil
+}
+
+func alertEventIDs(events []domain.AlertEvent) []domain.AlertEventID {
+	ids := make([]domain.AlertEventID, len(events))
+	for i := range events {
+		ids[i] = events[i].ID
+	}
+	return ids
 }
 
 // mutableFieldsDiffer reports whether any of (Severity, EventCount,

@@ -2903,6 +2903,58 @@ func TestDiagnosisRoomWorkflow_UpdateValidatorRejectsConcurrentTurn(t *testing.T
 	assertOneUpdateSucceededAndOneRejected(t, first, concurrent, "turn already in progress")
 }
 
+func TestDiagnosisRoomWorkflow_UpdateValidatorRejectsInFlightMessageRetry(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 11, 50, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+	env.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.DiagnosisTurnActivityInput) (temporalpkg.DiagnosisTurnActivityResult, error) {
+			time.Sleep(50 * time.Millisecond)
+			message := "Assistant response for " + got.MessageID
+			return temporalpkg.DiagnosisTurnActivityResult{
+				InvocationID:        "test/" + got.MessageID,
+				AssistantMessageID:  got.MessageID + "/assistant",
+				AssistantSequence:   got.AssistantSequence,
+				AssistantMessage:    message,
+				Output:              diagnosisroom.TurnOutput{SchemaVersion: diagnosisroom.TurnOutputSchemaVersion, Message: message, Confidence: "medium", RequiresHumanReview: true, ConfidenceRationale: "Operator review is required before closing."},
+				RawOutput:           json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"` + message + `","confidence":"medium","requires_human_review":true,"confidence_rationale":"Operator review is required before closing."}`),
+				StartedAt:           time.Date(2026, 5, 28, 11, 50, 0, 0, time.UTC),
+				FinishedAt:          time.Date(2026, 5, 28, 11, 50, 1, 0, time.UTC),
+				RequiresHumanReview: true,
+				Confidence:          "medium",
+			}, nil
+		},
+		activity.RegisterOptions{Name: "RunDiagnosisTurn"},
+	)
+
+	var first, retry captureSubmitTurnUpdate
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-first",
+			first.callback(t),
+			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-1", ActorSubject: "owner-1", Message: "Start diagnosis"},
+		)
+	}, time.Millisecond)
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-retry",
+			retry.callback(t),
+			temporalpkg.SubmitDiagnosisTurnRequest{MessageID: "msg-1", ActorSubject: "owner-1", Message: "Start diagnosis"},
+		)
+	}, 2*time.Millisecond)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{Reason: "done"})
+	}, 100*time.Millisecond)
+
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
+	assertRoomWorkflowCompleted(t, env)
+
+	assertOneUpdateSucceededAndOneRejected(t, first, retry, "turn already in progress")
+}
+
 func TestDiagnosisRoomWorkflow_DurableIdleTimerClosesRoom(t *testing.T) {
 	var suite testsuite.WorkflowTestSuite
 	env := suite.NewTestWorkflowEnvironment()

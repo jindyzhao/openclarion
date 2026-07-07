@@ -149,6 +149,18 @@ func TestValidateSubmitTurnRejectsStateAndMessageViolations(t *testing.T) {
 			wantText:  "duplicate message_id",
 		},
 		{
+			name: "duplicate message id wins over in-flight state",
+			state: SessionState{
+				StartedAt:      started,
+				LastActivityAt: started,
+				InFlight:       true,
+				SeenMessageIDs: map[string]struct{}{"msg-1": {}},
+			},
+			req:       baseReq,
+			wantError: ErrDuplicateMessageID,
+			wantText:  "duplicate message_id",
+		},
+		{
 			name: "turn in progress",
 			state: SessionState{
 				StartedAt:      started,

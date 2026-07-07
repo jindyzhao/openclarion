@@ -309,12 +309,17 @@ func normalizeCallbackToken(label, raw string) (string, error) {
 }
 
 func normalizeEncryptedValue(raw string) (string, error) {
-	value, err := normalizeCallbackToken("encrypted value", raw)
-	if err != nil {
-		return "", err
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", fmt.Errorf("wecom callback: encrypted value must be non-empty")
 	}
-	if len(value) > maxEncryptedBytes {
+	if value != raw || len([]byte(value)) > maxEncryptedBytes {
 		return "", fmt.Errorf("wecom callback: encrypted value is too large")
+	}
+	if strings.ContainsFunc(value, func(r rune) bool {
+		return unicode.IsControl(r) || unicode.IsSpace(r)
+	}) {
+		return "", fmt.Errorf("wecom callback: encrypted value is invalid")
 	}
 	return value, nil
 }
