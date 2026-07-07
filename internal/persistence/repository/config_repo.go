@@ -331,6 +331,11 @@ func (r *configRepo) SaveReportWorkflowSchedule(ctx context.Context, s domain.Re
 		SetName(s.Name).
 		SetReportWorkflowPolicyID(int(s.ReportWorkflowPolicyID)).
 		SetTemporalScheduleID(s.TemporalScheduleID).
+		SetCadence(string(s.Cadence)).
+		SetCalendarHour(s.CalendarHour).
+		SetCalendarMinute(s.CalendarMinute).
+		SetCalendarDayOfWeek(s.CalendarDayOfWeek).
+		SetCalendarDayOfMonth(s.CalendarDayOfMonth).
 		SetIntervalNs(int64(s.Interval)).
 		SetOffsetNs(int64(s.Offset)).
 		SetReplayWindowNs(int64(s.ReplayWindow)).
@@ -370,6 +375,11 @@ func (r *configRepo) UpdateReportWorkflowSchedule(ctx context.Context, s domain.
 		SetName(s.Name).
 		SetReportWorkflowPolicyID(int(s.ReportWorkflowPolicyID)).
 		SetTemporalScheduleID(s.TemporalScheduleID).
+		SetCadence(string(s.Cadence)).
+		SetCalendarHour(s.CalendarHour).
+		SetCalendarMinute(s.CalendarMinute).
+		SetCalendarDayOfWeek(s.CalendarDayOfWeek).
+		SetCalendarDayOfMonth(s.CalendarDayOfMonth).
 		SetIntervalNs(int64(s.Interval)).
 		SetOffsetNs(int64(s.Offset)).
 		SetReplayWindowNs(int64(s.ReplayWindow)).

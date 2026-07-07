@@ -40,6 +40,76 @@ func (_c *ReportWorkflowScheduleCreate) SetTemporalScheduleID(v string) *ReportW
 	return _c
 }
 
+// SetCadence sets the "cadence" field.
+func (_c *ReportWorkflowScheduleCreate) SetCadence(v string) *ReportWorkflowScheduleCreate {
+	_c.mutation.SetCadence(v)
+	return _c
+}
+
+// SetNillableCadence sets the "cadence" field if the given value is not nil.
+func (_c *ReportWorkflowScheduleCreate) SetNillableCadence(v *string) *ReportWorkflowScheduleCreate {
+	if v != nil {
+		_c.SetCadence(*v)
+	}
+	return _c
+}
+
+// SetCalendarHour sets the "calendar_hour" field.
+func (_c *ReportWorkflowScheduleCreate) SetCalendarHour(v int) *ReportWorkflowScheduleCreate {
+	_c.mutation.SetCalendarHour(v)
+	return _c
+}
+
+// SetNillableCalendarHour sets the "calendar_hour" field if the given value is not nil.
+func (_c *ReportWorkflowScheduleCreate) SetNillableCalendarHour(v *int) *ReportWorkflowScheduleCreate {
+	if v != nil {
+		_c.SetCalendarHour(*v)
+	}
+	return _c
+}
+
+// SetCalendarMinute sets the "calendar_minute" field.
+func (_c *ReportWorkflowScheduleCreate) SetCalendarMinute(v int) *ReportWorkflowScheduleCreate {
+	_c.mutation.SetCalendarMinute(v)
+	return _c
+}
+
+// SetNillableCalendarMinute sets the "calendar_minute" field if the given value is not nil.
+func (_c *ReportWorkflowScheduleCreate) SetNillableCalendarMinute(v *int) *ReportWorkflowScheduleCreate {
+	if v != nil {
+		_c.SetCalendarMinute(*v)
+	}
+	return _c
+}
+
+// SetCalendarDayOfWeek sets the "calendar_day_of_week" field.
+func (_c *ReportWorkflowScheduleCreate) SetCalendarDayOfWeek(v int) *ReportWorkflowScheduleCreate {
+	_c.mutation.SetCalendarDayOfWeek(v)
+	return _c
+}
+
+// SetNillableCalendarDayOfWeek sets the "calendar_day_of_week" field if the given value is not nil.
+func (_c *ReportWorkflowScheduleCreate) SetNillableCalendarDayOfWeek(v *int) *ReportWorkflowScheduleCreate {
+	if v != nil {
+		_c.SetCalendarDayOfWeek(*v)
+	}
+	return _c
+}
+
+// SetCalendarDayOfMonth sets the "calendar_day_of_month" field.
+func (_c *ReportWorkflowScheduleCreate) SetCalendarDayOfMonth(v int) *ReportWorkflowScheduleCreate {
+	_c.mutation.SetCalendarDayOfMonth(v)
+	return _c
+}
+
+// SetNillableCalendarDayOfMonth sets the "calendar_day_of_month" field if the given value is not nil.
+func (_c *ReportWorkflowScheduleCreate) SetNillableCalendarDayOfMonth(v *int) *ReportWorkflowScheduleCreate {
+	if v != nil {
+		_c.SetCalendarDayOfMonth(*v)
+	}
+	return _c
+}
+
 // SetIntervalNs sets the "interval_ns" field.
 func (_c *ReportWorkflowScheduleCreate) SetIntervalNs(v int64) *ReportWorkflowScheduleCreate {
 	_c.mutation.SetIntervalNs(v)
@@ -181,6 +251,26 @@ func (_c *ReportWorkflowScheduleCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *ReportWorkflowScheduleCreate) defaults() {
+	if _, ok := _c.mutation.Cadence(); !ok {
+		v := reportworkflowschedule.DefaultCadence
+		_c.mutation.SetCadence(v)
+	}
+	if _, ok := _c.mutation.CalendarHour(); !ok {
+		v := reportworkflowschedule.DefaultCalendarHour
+		_c.mutation.SetCalendarHour(v)
+	}
+	if _, ok := _c.mutation.CalendarMinute(); !ok {
+		v := reportworkflowschedule.DefaultCalendarMinute
+		_c.mutation.SetCalendarMinute(v)
+	}
+	if _, ok := _c.mutation.CalendarDayOfWeek(); !ok {
+		v := reportworkflowschedule.DefaultCalendarDayOfWeek
+		_c.mutation.SetCalendarDayOfWeek(v)
+	}
+	if _, ok := _c.mutation.CalendarDayOfMonth(); !ok {
+		v := reportworkflowschedule.DefaultCalendarDayOfMonth
+		_c.mutation.SetCalendarDayOfMonth(v)
+	}
 	if _, ok := _c.mutation.Enabled(); !ok {
 		v := reportworkflowschedule.DefaultEnabled
 		_c.mutation.SetEnabled(v)
@@ -219,6 +309,46 @@ func (_c *ReportWorkflowScheduleCreate) check() error {
 	if v, ok := _c.mutation.TemporalScheduleID(); ok {
 		if err := reportworkflowschedule.TemporalScheduleIDValidator(v); err != nil {
 			return &ValidationError{Name: "temporal_schedule_id", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.temporal_schedule_id": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.Cadence(); !ok {
+		return &ValidationError{Name: "cadence", err: errors.New(`ent: missing required field "ReportWorkflowSchedule.cadence"`)}
+	}
+	if v, ok := _c.mutation.Cadence(); ok {
+		if err := reportworkflowschedule.CadenceValidator(v); err != nil {
+			return &ValidationError{Name: "cadence", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.cadence": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.CalendarHour(); !ok {
+		return &ValidationError{Name: "calendar_hour", err: errors.New(`ent: missing required field "ReportWorkflowSchedule.calendar_hour"`)}
+	}
+	if v, ok := _c.mutation.CalendarHour(); ok {
+		if err := reportworkflowschedule.CalendarHourValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_hour", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_hour": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.CalendarMinute(); !ok {
+		return &ValidationError{Name: "calendar_minute", err: errors.New(`ent: missing required field "ReportWorkflowSchedule.calendar_minute"`)}
+	}
+	if v, ok := _c.mutation.CalendarMinute(); ok {
+		if err := reportworkflowschedule.CalendarMinuteValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_minute", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_minute": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.CalendarDayOfWeek(); !ok {
+		return &ValidationError{Name: "calendar_day_of_week", err: errors.New(`ent: missing required field "ReportWorkflowSchedule.calendar_day_of_week"`)}
+	}
+	if v, ok := _c.mutation.CalendarDayOfWeek(); ok {
+		if err := reportworkflowschedule.CalendarDayOfWeekValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_day_of_week", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_day_of_week": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.CalendarDayOfMonth(); !ok {
+		return &ValidationError{Name: "calendar_day_of_month", err: errors.New(`ent: missing required field "ReportWorkflowSchedule.calendar_day_of_month"`)}
+	}
+	if v, ok := _c.mutation.CalendarDayOfMonth(); ok {
+		if err := reportworkflowschedule.CalendarDayOfMonthValidator(v); err != nil {
+			return &ValidationError{Name: "calendar_day_of_month", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowSchedule.calendar_day_of_month": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.IntervalNs(); !ok {
@@ -316,6 +446,26 @@ func (_c *ReportWorkflowScheduleCreate) createSpec() (*ReportWorkflowSchedule, *
 	if value, ok := _c.mutation.TemporalScheduleID(); ok {
 		_spec.SetField(reportworkflowschedule.FieldTemporalScheduleID, field.TypeString, value)
 		_node.TemporalScheduleID = value
+	}
+	if value, ok := _c.mutation.Cadence(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCadence, field.TypeString, value)
+		_node.Cadence = value
+	}
+	if value, ok := _c.mutation.CalendarHour(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarHour, field.TypeInt, value)
+		_node.CalendarHour = value
+	}
+	if value, ok := _c.mutation.CalendarMinute(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarMinute, field.TypeInt, value)
+		_node.CalendarMinute = value
+	}
+	if value, ok := _c.mutation.CalendarDayOfWeek(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarDayOfWeek, field.TypeInt, value)
+		_node.CalendarDayOfWeek = value
+	}
+	if value, ok := _c.mutation.CalendarDayOfMonth(); ok {
+		_spec.SetField(reportworkflowschedule.FieldCalendarDayOfMonth, field.TypeInt, value)
+		_node.CalendarDayOfMonth = value
 	}
 	if value, ok := _c.mutation.IntervalNs(); ok {
 		_spec.SetField(reportworkflowschedule.FieldIntervalNs, field.TypeInt64, value)
@@ -452,6 +602,90 @@ func (u *ReportWorkflowScheduleUpsert) SetTemporalScheduleID(v string) *ReportWo
 // UpdateTemporalScheduleID sets the "temporal_schedule_id" field to the value that was provided on create.
 func (u *ReportWorkflowScheduleUpsert) UpdateTemporalScheduleID() *ReportWorkflowScheduleUpsert {
 	u.SetExcluded(reportworkflowschedule.FieldTemporalScheduleID)
+	return u
+}
+
+// SetCadence sets the "cadence" field.
+func (u *ReportWorkflowScheduleUpsert) SetCadence(v string) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldCadence, v)
+	return u
+}
+
+// UpdateCadence sets the "cadence" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateCadence() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldCadence)
+	return u
+}
+
+// SetCalendarHour sets the "calendar_hour" field.
+func (u *ReportWorkflowScheduleUpsert) SetCalendarHour(v int) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldCalendarHour, v)
+	return u
+}
+
+// UpdateCalendarHour sets the "calendar_hour" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateCalendarHour() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldCalendarHour)
+	return u
+}
+
+// AddCalendarHour adds v to the "calendar_hour" field.
+func (u *ReportWorkflowScheduleUpsert) AddCalendarHour(v int) *ReportWorkflowScheduleUpsert {
+	u.Add(reportworkflowschedule.FieldCalendarHour, v)
+	return u
+}
+
+// SetCalendarMinute sets the "calendar_minute" field.
+func (u *ReportWorkflowScheduleUpsert) SetCalendarMinute(v int) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldCalendarMinute, v)
+	return u
+}
+
+// UpdateCalendarMinute sets the "calendar_minute" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateCalendarMinute() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldCalendarMinute)
+	return u
+}
+
+// AddCalendarMinute adds v to the "calendar_minute" field.
+func (u *ReportWorkflowScheduleUpsert) AddCalendarMinute(v int) *ReportWorkflowScheduleUpsert {
+	u.Add(reportworkflowschedule.FieldCalendarMinute, v)
+	return u
+}
+
+// SetCalendarDayOfWeek sets the "calendar_day_of_week" field.
+func (u *ReportWorkflowScheduleUpsert) SetCalendarDayOfWeek(v int) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldCalendarDayOfWeek, v)
+	return u
+}
+
+// UpdateCalendarDayOfWeek sets the "calendar_day_of_week" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateCalendarDayOfWeek() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldCalendarDayOfWeek)
+	return u
+}
+
+// AddCalendarDayOfWeek adds v to the "calendar_day_of_week" field.
+func (u *ReportWorkflowScheduleUpsert) AddCalendarDayOfWeek(v int) *ReportWorkflowScheduleUpsert {
+	u.Add(reportworkflowschedule.FieldCalendarDayOfWeek, v)
+	return u
+}
+
+// SetCalendarDayOfMonth sets the "calendar_day_of_month" field.
+func (u *ReportWorkflowScheduleUpsert) SetCalendarDayOfMonth(v int) *ReportWorkflowScheduleUpsert {
+	u.Set(reportworkflowschedule.FieldCalendarDayOfMonth, v)
+	return u
+}
+
+// UpdateCalendarDayOfMonth sets the "calendar_day_of_month" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsert) UpdateCalendarDayOfMonth() *ReportWorkflowScheduleUpsert {
+	u.SetExcluded(reportworkflowschedule.FieldCalendarDayOfMonth)
+	return u
+}
+
+// AddCalendarDayOfMonth adds v to the "calendar_day_of_month" field.
+func (u *ReportWorkflowScheduleUpsert) AddCalendarDayOfMonth(v int) *ReportWorkflowScheduleUpsert {
+	u.Add(reportworkflowschedule.FieldCalendarDayOfMonth, v)
 	return u
 }
 
@@ -714,6 +948,104 @@ func (u *ReportWorkflowScheduleUpsertOne) SetTemporalScheduleID(v string) *Repor
 func (u *ReportWorkflowScheduleUpsertOne) UpdateTemporalScheduleID() *ReportWorkflowScheduleUpsertOne {
 	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
 		s.UpdateTemporalScheduleID()
+	})
+}
+
+// SetCadence sets the "cadence" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetCadence(v string) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCadence(v)
+	})
+}
+
+// UpdateCadence sets the "cadence" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateCadence() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCadence()
+	})
+}
+
+// SetCalendarHour sets the "calendar_hour" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetCalendarHour(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCalendarHour(v)
+	})
+}
+
+// AddCalendarHour adds v to the "calendar_hour" field.
+func (u *ReportWorkflowScheduleUpsertOne) AddCalendarHour(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddCalendarHour(v)
+	})
+}
+
+// UpdateCalendarHour sets the "calendar_hour" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateCalendarHour() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCalendarHour()
+	})
+}
+
+// SetCalendarMinute sets the "calendar_minute" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetCalendarMinute(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCalendarMinute(v)
+	})
+}
+
+// AddCalendarMinute adds v to the "calendar_minute" field.
+func (u *ReportWorkflowScheduleUpsertOne) AddCalendarMinute(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddCalendarMinute(v)
+	})
+}
+
+// UpdateCalendarMinute sets the "calendar_minute" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateCalendarMinute() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCalendarMinute()
+	})
+}
+
+// SetCalendarDayOfWeek sets the "calendar_day_of_week" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetCalendarDayOfWeek(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCalendarDayOfWeek(v)
+	})
+}
+
+// AddCalendarDayOfWeek adds v to the "calendar_day_of_week" field.
+func (u *ReportWorkflowScheduleUpsertOne) AddCalendarDayOfWeek(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddCalendarDayOfWeek(v)
+	})
+}
+
+// UpdateCalendarDayOfWeek sets the "calendar_day_of_week" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateCalendarDayOfWeek() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCalendarDayOfWeek()
+	})
+}
+
+// SetCalendarDayOfMonth sets the "calendar_day_of_month" field.
+func (u *ReportWorkflowScheduleUpsertOne) SetCalendarDayOfMonth(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCalendarDayOfMonth(v)
+	})
+}
+
+// AddCalendarDayOfMonth adds v to the "calendar_day_of_month" field.
+func (u *ReportWorkflowScheduleUpsertOne) AddCalendarDayOfMonth(v int) *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddCalendarDayOfMonth(v)
+	})
+}
+
+// UpdateCalendarDayOfMonth sets the "calendar_day_of_month" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertOne) UpdateCalendarDayOfMonth() *ReportWorkflowScheduleUpsertOne {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCalendarDayOfMonth()
 	})
 }
 
@@ -1170,6 +1502,104 @@ func (u *ReportWorkflowScheduleUpsertBulk) SetTemporalScheduleID(v string) *Repo
 func (u *ReportWorkflowScheduleUpsertBulk) UpdateTemporalScheduleID() *ReportWorkflowScheduleUpsertBulk {
 	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
 		s.UpdateTemporalScheduleID()
+	})
+}
+
+// SetCadence sets the "cadence" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetCadence(v string) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCadence(v)
+	})
+}
+
+// UpdateCadence sets the "cadence" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateCadence() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCadence()
+	})
+}
+
+// SetCalendarHour sets the "calendar_hour" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetCalendarHour(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCalendarHour(v)
+	})
+}
+
+// AddCalendarHour adds v to the "calendar_hour" field.
+func (u *ReportWorkflowScheduleUpsertBulk) AddCalendarHour(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddCalendarHour(v)
+	})
+}
+
+// UpdateCalendarHour sets the "calendar_hour" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateCalendarHour() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCalendarHour()
+	})
+}
+
+// SetCalendarMinute sets the "calendar_minute" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetCalendarMinute(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCalendarMinute(v)
+	})
+}
+
+// AddCalendarMinute adds v to the "calendar_minute" field.
+func (u *ReportWorkflowScheduleUpsertBulk) AddCalendarMinute(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddCalendarMinute(v)
+	})
+}
+
+// UpdateCalendarMinute sets the "calendar_minute" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateCalendarMinute() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCalendarMinute()
+	})
+}
+
+// SetCalendarDayOfWeek sets the "calendar_day_of_week" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetCalendarDayOfWeek(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCalendarDayOfWeek(v)
+	})
+}
+
+// AddCalendarDayOfWeek adds v to the "calendar_day_of_week" field.
+func (u *ReportWorkflowScheduleUpsertBulk) AddCalendarDayOfWeek(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddCalendarDayOfWeek(v)
+	})
+}
+
+// UpdateCalendarDayOfWeek sets the "calendar_day_of_week" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateCalendarDayOfWeek() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCalendarDayOfWeek()
+	})
+}
+
+// SetCalendarDayOfMonth sets the "calendar_day_of_month" field.
+func (u *ReportWorkflowScheduleUpsertBulk) SetCalendarDayOfMonth(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.SetCalendarDayOfMonth(v)
+	})
+}
+
+// AddCalendarDayOfMonth adds v to the "calendar_day_of_month" field.
+func (u *ReportWorkflowScheduleUpsertBulk) AddCalendarDayOfMonth(v int) *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.AddCalendarDayOfMonth(v)
+	})
+}
+
+// UpdateCalendarDayOfMonth sets the "calendar_day_of_month" field to the value that was provided on create.
+func (u *ReportWorkflowScheduleUpsertBulk) UpdateCalendarDayOfMonth() *ReportWorkflowScheduleUpsertBulk {
+	return u.Update(func(s *ReportWorkflowScheduleUpsert) {
+		s.UpdateCalendarDayOfMonth()
 	})
 }
 

@@ -695,6 +695,11 @@ function reportWorkflowScheduleFixture(
   overrides: Partial<ReportWorkflowSchedule> = {},
 ): ReportWorkflowSchedule {
   return {
+    cadence: "interval",
+    calendar_day_of_month: 0,
+    calendar_day_of_week: 0,
+    calendar_hour: 0,
+    calendar_minute: 0,
     catchup_window_seconds: 600,
     created_at: "2026-06-06T02:00:00Z",
     disabled_at: null,

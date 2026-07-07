@@ -19,6 +19,16 @@ const (
 	FieldReportWorkflowPolicyID = "report_workflow_policy_id"
 	// FieldTemporalScheduleID holds the string denoting the temporal_schedule_id field in the database.
 	FieldTemporalScheduleID = "temporal_schedule_id"
+	// FieldCadence holds the string denoting the cadence field in the database.
+	FieldCadence = "cadence"
+	// FieldCalendarHour holds the string denoting the calendar_hour field in the database.
+	FieldCalendarHour = "calendar_hour"
+	// FieldCalendarMinute holds the string denoting the calendar_minute field in the database.
+	FieldCalendarMinute = "calendar_minute"
+	// FieldCalendarDayOfWeek holds the string denoting the calendar_day_of_week field in the database.
+	FieldCalendarDayOfWeek = "calendar_day_of_week"
+	// FieldCalendarDayOfMonth holds the string denoting the calendar_day_of_month field in the database.
+	FieldCalendarDayOfMonth = "calendar_day_of_month"
 	// FieldIntervalNs holds the string denoting the interval_ns field in the database.
 	FieldIntervalNs = "interval_ns"
 	// FieldOffsetNs holds the string denoting the offset_ns field in the database.
@@ -51,6 +61,11 @@ var Columns = []string{
 	FieldName,
 	FieldReportWorkflowPolicyID,
 	FieldTemporalScheduleID,
+	FieldCadence,
+	FieldCalendarHour,
+	FieldCalendarMinute,
+	FieldCalendarDayOfWeek,
+	FieldCalendarDayOfMonth,
 	FieldIntervalNs,
 	FieldOffsetNs,
 	FieldReplayWindowNs,
@@ -81,6 +96,26 @@ var (
 	ReportWorkflowPolicyIDValidator func(int) error
 	// TemporalScheduleIDValidator is a validator for the "temporal_schedule_id" field. It is called by the builders before save.
 	TemporalScheduleIDValidator func(string) error
+	// DefaultCadence holds the default value on creation for the "cadence" field.
+	DefaultCadence string
+	// CadenceValidator is a validator for the "cadence" field. It is called by the builders before save.
+	CadenceValidator func(string) error
+	// DefaultCalendarHour holds the default value on creation for the "calendar_hour" field.
+	DefaultCalendarHour int
+	// CalendarHourValidator is a validator for the "calendar_hour" field. It is called by the builders before save.
+	CalendarHourValidator func(int) error
+	// DefaultCalendarMinute holds the default value on creation for the "calendar_minute" field.
+	DefaultCalendarMinute int
+	// CalendarMinuteValidator is a validator for the "calendar_minute" field. It is called by the builders before save.
+	CalendarMinuteValidator func(int) error
+	// DefaultCalendarDayOfWeek holds the default value on creation for the "calendar_day_of_week" field.
+	DefaultCalendarDayOfWeek int
+	// CalendarDayOfWeekValidator is a validator for the "calendar_day_of_week" field. It is called by the builders before save.
+	CalendarDayOfWeekValidator func(int) error
+	// DefaultCalendarDayOfMonth holds the default value on creation for the "calendar_day_of_month" field.
+	DefaultCalendarDayOfMonth int
+	// CalendarDayOfMonthValidator is a validator for the "calendar_day_of_month" field. It is called by the builders before save.
+	CalendarDayOfMonthValidator func(int) error
 	// IntervalNsValidator is a validator for the "interval_ns" field. It is called by the builders before save.
 	IntervalNsValidator func(int64) error
 	// OffsetNsValidator is a validator for the "offset_ns" field. It is called by the builders before save.
@@ -124,6 +159,31 @@ func ByReportWorkflowPolicyID(opts ...sql.OrderTermOption) OrderOption {
 // ByTemporalScheduleID orders the results by the temporal_schedule_id field.
 func ByTemporalScheduleID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldTemporalScheduleID, opts...).ToFunc()
+}
+
+// ByCadence orders the results by the cadence field.
+func ByCadence(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCadence, opts...).ToFunc()
+}
+
+// ByCalendarHour orders the results by the calendar_hour field.
+func ByCalendarHour(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCalendarHour, opts...).ToFunc()
+}
+
+// ByCalendarMinute orders the results by the calendar_minute field.
+func ByCalendarMinute(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCalendarMinute, opts...).ToFunc()
+}
+
+// ByCalendarDayOfWeek orders the results by the calendar_day_of_week field.
+func ByCalendarDayOfWeek(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCalendarDayOfWeek, opts...).ToFunc()
+}
+
+// ByCalendarDayOfMonth orders the results by the calendar_day_of_month field.
+func ByCalendarDayOfMonth(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCalendarDayOfMonth, opts...).ToFunc()
 }
 
 // ByIntervalNs orders the results by the interval_ns field.

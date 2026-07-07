@@ -1532,40 +1532,70 @@ func init() {
 			return nil
 		}
 	}()
+	// reportworkflowscheduleDescCadence is the schema descriptor for cadence field.
+	reportworkflowscheduleDescCadence := reportworkflowscheduleFields[3].Descriptor()
+	// reportworkflowschedule.DefaultCadence holds the default value on creation for the cadence field.
+	reportworkflowschedule.DefaultCadence = reportworkflowscheduleDescCadence.Default.(string)
+	// reportworkflowschedule.CadenceValidator is a validator for the "cadence" field. It is called by the builders before save.
+	reportworkflowschedule.CadenceValidator = reportworkflowscheduleDescCadence.Validators[0].(func(string) error)
+	// reportworkflowscheduleDescCalendarHour is the schema descriptor for calendar_hour field.
+	reportworkflowscheduleDescCalendarHour := reportworkflowscheduleFields[4].Descriptor()
+	// reportworkflowschedule.DefaultCalendarHour holds the default value on creation for the calendar_hour field.
+	reportworkflowschedule.DefaultCalendarHour = reportworkflowscheduleDescCalendarHour.Default.(int)
+	// reportworkflowschedule.CalendarHourValidator is a validator for the "calendar_hour" field. It is called by the builders before save.
+	reportworkflowschedule.CalendarHourValidator = reportworkflowscheduleDescCalendarHour.Validators[0].(func(int) error)
+	// reportworkflowscheduleDescCalendarMinute is the schema descriptor for calendar_minute field.
+	reportworkflowscheduleDescCalendarMinute := reportworkflowscheduleFields[5].Descriptor()
+	// reportworkflowschedule.DefaultCalendarMinute holds the default value on creation for the calendar_minute field.
+	reportworkflowschedule.DefaultCalendarMinute = reportworkflowscheduleDescCalendarMinute.Default.(int)
+	// reportworkflowschedule.CalendarMinuteValidator is a validator for the "calendar_minute" field. It is called by the builders before save.
+	reportworkflowschedule.CalendarMinuteValidator = reportworkflowscheduleDescCalendarMinute.Validators[0].(func(int) error)
+	// reportworkflowscheduleDescCalendarDayOfWeek is the schema descriptor for calendar_day_of_week field.
+	reportworkflowscheduleDescCalendarDayOfWeek := reportworkflowscheduleFields[6].Descriptor()
+	// reportworkflowschedule.DefaultCalendarDayOfWeek holds the default value on creation for the calendar_day_of_week field.
+	reportworkflowschedule.DefaultCalendarDayOfWeek = reportworkflowscheduleDescCalendarDayOfWeek.Default.(int)
+	// reportworkflowschedule.CalendarDayOfWeekValidator is a validator for the "calendar_day_of_week" field. It is called by the builders before save.
+	reportworkflowschedule.CalendarDayOfWeekValidator = reportworkflowscheduleDescCalendarDayOfWeek.Validators[0].(func(int) error)
+	// reportworkflowscheduleDescCalendarDayOfMonth is the schema descriptor for calendar_day_of_month field.
+	reportworkflowscheduleDescCalendarDayOfMonth := reportworkflowscheduleFields[7].Descriptor()
+	// reportworkflowschedule.DefaultCalendarDayOfMonth holds the default value on creation for the calendar_day_of_month field.
+	reportworkflowschedule.DefaultCalendarDayOfMonth = reportworkflowscheduleDescCalendarDayOfMonth.Default.(int)
+	// reportworkflowschedule.CalendarDayOfMonthValidator is a validator for the "calendar_day_of_month" field. It is called by the builders before save.
+	reportworkflowschedule.CalendarDayOfMonthValidator = reportworkflowscheduleDescCalendarDayOfMonth.Validators[0].(func(int) error)
 	// reportworkflowscheduleDescIntervalNs is the schema descriptor for interval_ns field.
-	reportworkflowscheduleDescIntervalNs := reportworkflowscheduleFields[3].Descriptor()
+	reportworkflowscheduleDescIntervalNs := reportworkflowscheduleFields[8].Descriptor()
 	// reportworkflowschedule.IntervalNsValidator is a validator for the "interval_ns" field. It is called by the builders before save.
 	reportworkflowschedule.IntervalNsValidator = reportworkflowscheduleDescIntervalNs.Validators[0].(func(int64) error)
 	// reportworkflowscheduleDescOffsetNs is the schema descriptor for offset_ns field.
-	reportworkflowscheduleDescOffsetNs := reportworkflowscheduleFields[4].Descriptor()
+	reportworkflowscheduleDescOffsetNs := reportworkflowscheduleFields[9].Descriptor()
 	// reportworkflowschedule.OffsetNsValidator is a validator for the "offset_ns" field. It is called by the builders before save.
 	reportworkflowschedule.OffsetNsValidator = reportworkflowscheduleDescOffsetNs.Validators[0].(func(int64) error)
 	// reportworkflowscheduleDescReplayWindowNs is the schema descriptor for replay_window_ns field.
-	reportworkflowscheduleDescReplayWindowNs := reportworkflowscheduleFields[5].Descriptor()
+	reportworkflowscheduleDescReplayWindowNs := reportworkflowscheduleFields[10].Descriptor()
 	// reportworkflowschedule.ReplayWindowNsValidator is a validator for the "replay_window_ns" field. It is called by the builders before save.
 	reportworkflowschedule.ReplayWindowNsValidator = reportworkflowscheduleDescReplayWindowNs.Validators[0].(func(int64) error)
 	// reportworkflowscheduleDescReplayDelayNs is the schema descriptor for replay_delay_ns field.
-	reportworkflowscheduleDescReplayDelayNs := reportworkflowscheduleFields[6].Descriptor()
+	reportworkflowscheduleDescReplayDelayNs := reportworkflowscheduleFields[11].Descriptor()
 	// reportworkflowschedule.ReplayDelayNsValidator is a validator for the "replay_delay_ns" field. It is called by the builders before save.
 	reportworkflowschedule.ReplayDelayNsValidator = reportworkflowscheduleDescReplayDelayNs.Validators[0].(func(int64) error)
 	// reportworkflowscheduleDescReplayLimit is the schema descriptor for replay_limit field.
-	reportworkflowscheduleDescReplayLimit := reportworkflowscheduleFields[7].Descriptor()
+	reportworkflowscheduleDescReplayLimit := reportworkflowscheduleFields[12].Descriptor()
 	// reportworkflowschedule.ReplayLimitValidator is a validator for the "replay_limit" field. It is called by the builders before save.
 	reportworkflowschedule.ReplayLimitValidator = reportworkflowscheduleDescReplayLimit.Validators[0].(func(int) error)
 	// reportworkflowscheduleDescCatchupWindowNs is the schema descriptor for catchup_window_ns field.
-	reportworkflowscheduleDescCatchupWindowNs := reportworkflowscheduleFields[8].Descriptor()
+	reportworkflowscheduleDescCatchupWindowNs := reportworkflowscheduleFields[13].Descriptor()
 	// reportworkflowschedule.CatchupWindowNsValidator is a validator for the "catchup_window_ns" field. It is called by the builders before save.
 	reportworkflowschedule.CatchupWindowNsValidator = reportworkflowscheduleDescCatchupWindowNs.Validators[0].(func(int64) error)
 	// reportworkflowscheduleDescEnabled is the schema descriptor for enabled field.
-	reportworkflowscheduleDescEnabled := reportworkflowscheduleFields[9].Descriptor()
+	reportworkflowscheduleDescEnabled := reportworkflowscheduleFields[14].Descriptor()
 	// reportworkflowschedule.DefaultEnabled holds the default value on creation for the enabled field.
 	reportworkflowschedule.DefaultEnabled = reportworkflowscheduleDescEnabled.Default.(bool)
 	// reportworkflowscheduleDescCreatedAt is the schema descriptor for created_at field.
-	reportworkflowscheduleDescCreatedAt := reportworkflowscheduleFields[12].Descriptor()
+	reportworkflowscheduleDescCreatedAt := reportworkflowscheduleFields[17].Descriptor()
 	// reportworkflowschedule.DefaultCreatedAt holds the default value on creation for the created_at field.
 	reportworkflowschedule.DefaultCreatedAt = reportworkflowscheduleDescCreatedAt.Default.(func() time.Time)
 	// reportworkflowscheduleDescUpdatedAt is the schema descriptor for updated_at field.
-	reportworkflowscheduleDescUpdatedAt := reportworkflowscheduleFields[13].Descriptor()
+	reportworkflowscheduleDescUpdatedAt := reportworkflowscheduleFields[18].Descriptor()
 	// reportworkflowschedule.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	reportworkflowschedule.DefaultUpdatedAt = reportworkflowscheduleDescUpdatedAt.Default.(func() time.Time)
 	// reportworkflowschedule.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.

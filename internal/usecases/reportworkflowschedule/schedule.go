@@ -19,6 +19,11 @@ type WriteRequest struct {
 	Name                   string
 	ReportWorkflowPolicyID domain.ReportWorkflowPolicyID
 	TemporalScheduleID     string
+	Cadence                domain.ReportWorkflowScheduleCadence
+	CalendarHour           int
+	CalendarMinute         int
+	CalendarDayOfWeek      int
+	CalendarDayOfMonth     int
 	Interval               time.Duration
 	Offset                 time.Duration
 	ReplayWindow           time.Duration
@@ -180,10 +185,19 @@ func scheduleFromWriteRequest(
 	enabledAt *time.Time,
 	disabledAt *time.Time,
 ) (domain.ReportWorkflowSchedule, error) {
-	return domain.NewReportWorkflowSchedule(
+	cadence := req.Cadence
+	if cadence == "" {
+		cadence = domain.ReportWorkflowScheduleCadenceInterval
+	}
+	return domain.NewReportWorkflowScheduleWithCadence(
 		req.Name,
 		req.ReportWorkflowPolicyID,
 		req.TemporalScheduleID,
+		cadence,
+		req.CalendarHour,
+		req.CalendarMinute,
+		req.CalendarDayOfWeek,
+		req.CalendarDayOfMonth,
 		req.Interval,
 		req.Offset,
 		req.ReplayWindow,

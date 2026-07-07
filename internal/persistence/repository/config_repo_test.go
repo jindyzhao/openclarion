@@ -434,6 +434,11 @@ func TestConfigRepo_SaveFindUpdateAndListReportWorkflowSchedule(t *testing.T) {
 		if got.Name != "Hourly reports" ||
 			got.ReportWorkflowPolicyID != 7 ||
 			got.TemporalScheduleID != "openclarion-report-policy-7-hourly" ||
+			got.Cadence != domain.ReportWorkflowScheduleCadenceInterval ||
+			got.CalendarHour != 0 ||
+			got.CalendarMinute != 0 ||
+			got.CalendarDayOfWeek != 0 ||
+			got.CalendarDayOfMonth != 0 ||
 			got.Interval != time.Hour ||
 			got.ReplayWindow != 30*time.Minute ||
 			got.ReplayDelay != 2*time.Minute ||
@@ -448,8 +453,13 @@ func TestConfigRepo_SaveFindUpdateAndListReportWorkflowSchedule(t *testing.T) {
 	updated := saved
 	updated.Name = "Thirty minute reports"
 	updated.TemporalScheduleID = "openclarion-report-policy-7-30m"
-	updated.Interval = 30 * time.Minute
-	updated.Offset = time.Minute
+	updated.Cadence = domain.ReportWorkflowScheduleCadenceMonthly
+	updated.CalendarHour = 2
+	updated.CalendarMinute = 30
+	updated.CalendarDayOfWeek = 0
+	updated.CalendarDayOfMonth = 1
+	updated.Interval = 28 * 24 * time.Hour
+	updated.Offset = 0
 	updated.ReplayWindow = 15 * time.Minute
 	updated.ReplayLimit = 500
 	updated.Enabled = true
@@ -462,8 +472,12 @@ func TestConfigRepo_SaveFindUpdateAndListReportWorkflowSchedule(t *testing.T) {
 		}
 		if got.Name != "Thirty minute reports" ||
 			got.TemporalScheduleID != "openclarion-report-policy-7-30m" ||
-			got.Interval != 30*time.Minute ||
-			got.Offset != time.Minute ||
+			got.Cadence != domain.ReportWorkflowScheduleCadenceMonthly ||
+			got.CalendarHour != 2 ||
+			got.CalendarMinute != 30 ||
+			got.CalendarDayOfMonth != 1 ||
+			got.Interval != 28*24*time.Hour ||
+			got.Offset != 0 ||
 			!got.Enabled ||
 			got.EnabledAt == nil ||
 			got.DisabledAt != nil {

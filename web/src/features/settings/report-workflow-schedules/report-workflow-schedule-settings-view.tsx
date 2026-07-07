@@ -21,6 +21,7 @@ import {
   InputNumber,
   Row,
   Select,
+  Segmented,
   Space,
   Statistic,
   Table,
@@ -67,8 +68,13 @@ import {
 import {
   emptyReportWorkflowScheduleForm,
   formStateToWriteRequest,
+  reportWorkflowScheduleCadenceDefaults,
+  reportWorkflowScheduleCadenceDetail,
+  reportWorkflowScheduleCadenceLabel,
+  reportWorkflowScheduleCadenceValue,
   reportWorkflowScheduleDraftReadiness,
   reportWorkflowScheduleEnablementReadiness,
+  reportWorkflowScheduleFormCadenceValue,
   reportWorkflowScheduleProofOutcome,
   reportWorkflowScheduleReplayWindowBlocker,
   scheduleToFormState,
@@ -89,6 +95,28 @@ type ReportWorkflowScheduleSettingsManagerProps = {
 };
 
 const reportWorkflowSchedulesQueryKey = ["settings", "report-workflow-schedules"] as const;
+
+const cadenceOptions = [
+  { label: "Interval", value: "interval" },
+  { label: "Daily", value: "daily" },
+  { label: "Weekly", value: "weekly" },
+  { label: "Monthly", value: "monthly" }
+];
+
+const dayOfWeekOptions = [
+  { label: "Sunday", value: 0 },
+  { label: "Monday", value: 1 },
+  { label: "Tuesday", value: 2 },
+  { label: "Wednesday", value: 3 },
+  { label: "Thursday", value: 4 },
+  { label: "Friday", value: 5 },
+  { label: "Saturday", value: 6 }
+];
+
+const dayOfMonthOptions = Array.from({ length: 28 }, (_, index) => ({
+  label: String(index + 1),
+  value: index + 1
+}));
 
 type SaveScheduleVariables = {
   body: ReportWorkflowScheduleWriteRequest;
@@ -244,9 +272,10 @@ export function ReportWorkflowScheduleSettingsManager({
 
   const summary = useMemo(() => {
     const enabled = schedules.filter((schedule) => schedule.enabled).length;
-    const daily = schedules.filter((schedule) => schedule.interval_seconds === 86400).length;
+    const calendar = schedules.filter((schedule) => schedule.cadence !== "interval").length;
+    const monthly = schedules.filter((schedule) => schedule.cadence === "monthly").length;
     const policyCount = new Set(schedules.map((schedule) => schedule.report_workflow_policy_id)).size;
-    return { enabled, daily, policyCount };
+    return { calendar, enabled, monthly, policyCount };
   }, [schedules]);
 
   async function handleRefresh() {
@@ -280,6 +309,13 @@ export function ReportWorkflowScheduleSettingsManager({
     setEditingID(null);
     setLaunchNotice(null);
     setNotice({ kind: "info", message: "Schedule saved." });
+  }
+
+  function handleScheduleFormValuesChange(changedValues: Partial<ReportWorkflowScheduleFormState>) {
+    if (changedValues.cadence === undefined) {
+      return;
+    }
+    form.setFieldsValue(reportWorkflowScheduleCadenceDefaults(changedValues.cadence));
   }
 
   async function handleEnablement(schedule: ReportWorkflowSchedule, enabled: boolean) {
@@ -325,7 +361,8 @@ export function ReportWorkflowScheduleSettingsManager({
       <Row aria-label="Report workflow schedule metrics" gutter={[12, 12]}>
         <MetricCard label="Schedules" value={schedules.length} />
         <MetricCard label="Enabled" value={summary.enabled} />
-        <MetricCard label="Daily" value={summary.daily} />
+        <MetricCard label="Calendar" value={summary.calendar} />
+        <MetricCard label="Monthly" value={summary.monthly} />
         <MetricCard label="Policies" value={summary.policyCount} />
       </Row>
 
@@ -371,6 +408,7 @@ export function ReportWorkflowScheduleSettingsManager({
               initialValues={initialFormValues}
               layout="vertical"
               onFinish={handleSubmit}
+              onValuesChange={handleScheduleFormValuesChange}
             >
               <Form.Item
                 label="Name"
@@ -407,26 +445,125 @@ export function ReportWorkflowScheduleSettingsManager({
                 <Input autoComplete="off" placeholder="openclarion-report-policy-1-daily" />
               </Form.Item>
 
-              <Row gutter={12}>
-                <Col sm={12} xs={24}>
-                  <Form.Item
-                    label="Interval seconds"
-                    name="intervalSeconds"
-                    rules={[{ required: true, message: "Interval is required." }]}
-                  >
-                    <InputNumber min={1} precision={0} style={{ width: "100%" }} />
-                  </Form.Item>
-                </Col>
-                <Col sm={12} xs={24}>
-                  <Form.Item
-                    label="Offset seconds"
-                    name="offsetSeconds"
-                    rules={[{ required: true, message: "Offset is required." }]}
-                  >
-                    <InputNumber min={0} precision={0} style={{ width: "100%" }} />
-                  </Form.Item>
-                </Col>
-              </Row>
+              <Form.Item
+                label="Cadence"
+                name="cadence"
+                rules={[{ required: true, message: "Cadence is required." }]}
+              >
+                <Segmented block options={cadenceOptions} />
+              </Form.Item>
+
+              <Form.Item noStyle shouldUpdate={(previous, current) => previous.cadence !== current.cadence}>
+                {(scheduleForm) => {
+                  const cadence = scheduleForm.getFieldValue("cadence") as ReportWorkflowScheduleFormState["cadence"];
+                  if (cadence === "interval") {
+                    return (
+                      <>
+                        <Row gutter={12}>
+                          <Col sm={12} xs={24}>
+                            <Form.Item
+                              label="Interval seconds"
+                              name="intervalSeconds"
+                              rules={[{ required: true, message: "Interval is required." }]}
+                            >
+                              <InputNumber min={1} precision={0} style={{ width: "100%" }} />
+                            </Form.Item>
+                          </Col>
+                          <Col sm={12} xs={24}>
+                            <Form.Item
+                              label="Offset seconds"
+                              name="offsetSeconds"
+                              rules={[{ required: true, message: "Offset is required." }]}
+                            >
+                              <InputNumber min={0} precision={0} style={{ width: "100%" }} />
+                            </Form.Item>
+                          </Col>
+                        </Row>
+                        <Form.Item hidden name="calendarHour">
+                          <InputNumber />
+                        </Form.Item>
+                        <Form.Item hidden name="calendarMinute">
+                          <InputNumber />
+                        </Form.Item>
+                        <Form.Item hidden name="calendarDayOfWeek">
+                          <InputNumber />
+                        </Form.Item>
+                        <Form.Item hidden name="calendarDayOfMonth">
+                          <InputNumber />
+                        </Form.Item>
+                      </>
+                    );
+                  }
+                  return (
+                    <>
+                      <Row gutter={12}>
+                        <Col sm={12} xs={24}>
+                          <Form.Item
+                            label="UTC hour"
+                            name="calendarHour"
+                            rules={[{ required: true, message: "UTC hour is required." }]}
+                          >
+                            <InputNumber max={23} min={0} precision={0} style={{ width: "100%" }} />
+                          </Form.Item>
+                        </Col>
+                        <Col sm={12} xs={24}>
+                          <Form.Item
+                            label="UTC minute"
+                            name="calendarMinute"
+                            rules={[{ required: true, message: "UTC minute is required." }]}
+                          >
+                            <InputNumber max={59} min={0} precision={0} style={{ width: "100%" }} />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                      <Row gutter={12}>
+                        {cadence === "weekly" ? (
+                          <Col sm={12} xs={24}>
+                            <Form.Item
+                              label="Day of week"
+                              name="calendarDayOfWeek"
+                              rules={[{ required: true, message: "Day of week is required." }]}
+                            >
+                              <Select options={dayOfWeekOptions} />
+                            </Form.Item>
+                          </Col>
+                        ) : (
+                          <Form.Item hidden name="calendarDayOfWeek">
+                            <InputNumber />
+                          </Form.Item>
+                        )}
+                        {cadence === "monthly" ? (
+                          <Col sm={12} xs={24}>
+                            <Form.Item
+                              label="Day of month"
+                              name="calendarDayOfMonth"
+                              rules={[{ required: true, message: "Day of month is required." }]}
+                            >
+                              <Select options={dayOfMonthOptions} />
+                            </Form.Item>
+                          </Col>
+                        ) : (
+                          <Form.Item hidden name="calendarDayOfMonth">
+                            <InputNumber />
+                          </Form.Item>
+                        )}
+                        <Col sm={12} xs={24}>
+                          <Form.Item
+                            label="Replay guard seconds"
+                            name="intervalSeconds"
+                            rules={[{ required: true, message: "Replay guard is required." }]}
+                          >
+                            <InputNumber min={1} precision={0} style={{ width: "100%" }} />
+                          </Form.Item>
+                        </Col>
+                      </Row>
+                      <Form.Item hidden name="offsetSeconds">
+                        <InputNumber />
+                      </Form.Item>
+                    </>
+                  );
+                }}
+              </Form.Item>
 
               <Row gutter={12}>
                 <Col sm={12} xs={24}>
@@ -571,7 +708,7 @@ function ScheduleDraftPreview({
       label: "Policy"
     },
     {
-      children: `Every ${draftDuration(values.intervalSeconds)} / offset ${draftDuration(values.offsetSeconds)}`,
+      children: reportWorkflowScheduleFormCadenceValue(normalizeScheduleFormValues(values)),
       key: "cadence",
       label: "Cadence"
     },
@@ -641,6 +778,11 @@ function normalizeScheduleFormValues(
     name: values.name ?? defaults.name,
     reportWorkflowPolicyID: values.reportWorkflowPolicyID ?? defaults.reportWorkflowPolicyID,
     temporalScheduleID: values.temporalScheduleID ?? defaults.temporalScheduleID,
+    cadence: values.cadence ?? defaults.cadence,
+    calendarHour: values.calendarHour ?? defaults.calendarHour,
+    calendarMinute: values.calendarMinute ?? defaults.calendarMinute,
+    calendarDayOfWeek: values.calendarDayOfWeek ?? defaults.calendarDayOfWeek,
+    calendarDayOfMonth: values.calendarDayOfMonth ?? defaults.calendarDayOfMonth,
     intervalSeconds: values.intervalSeconds ?? defaults.intervalSeconds,
     offsetSeconds: values.offsetSeconds ?? defaults.offsetSeconds,
     replayWindowSeconds: values.replayWindowSeconds ?? defaults.replayWindowSeconds,
@@ -788,8 +930,13 @@ function ReportWorkflowScheduleTable({
       title: "Cadence",
       render: (_, schedule) => (
         <Space direction="vertical" size={2}>
-          <Tag color="blue">{formatDurationSeconds(schedule.interval_seconds)}</Tag>
-          <Typography.Text type="secondary">offset {formatDurationSeconds(schedule.offset_seconds)}</Typography.Text>
+          <Space size={6} wrap>
+            <Tag color={schedule.cadence === "interval" ? "blue" : "purple"}>
+              {reportWorkflowScheduleCadenceLabel(schedule.cadence)}
+            </Tag>
+            <Typography.Text>{reportWorkflowScheduleCadenceValue(schedule)}</Typography.Text>
+          </Space>
+          <Typography.Text type="secondary">{reportWorkflowScheduleCadenceDetail(schedule)}</Typography.Text>
         </Space>
       )
     },

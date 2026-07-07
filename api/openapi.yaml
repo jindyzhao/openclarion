@@ -1604,8 +1604,13 @@ paths:
                         name: Daily report window
                         report_workflow_policy_id: 1
                         temporal_schedule_id: openclarion-report-policy-1-daily
+                        cadence: daily
+                        calendar_hour: 2
+                        calendar_minute: 30
+                        calendar_day_of_week: 0
+                        calendar_day_of_month: 0
                         interval_seconds: 86400
-                        offset_seconds: 21600
+                        offset_seconds: 0
                         replay_window_seconds: 3600
                         replay_delay_seconds: 300
                         replay_limit: 10000
@@ -1654,8 +1659,13 @@ paths:
                   name: Daily report window
                   report_workflow_policy_id: 1
                   temporal_schedule_id: openclarion-report-policy-1-daily
+                  cadence: daily
+                  calendar_hour: 2
+                  calendar_minute: 30
+                  calendar_day_of_week: 0
+                  calendar_day_of_month: 0
                   interval_seconds: 86400
-                  offset_seconds: 21600
+                  offset_seconds: 0
                   replay_window_seconds: 3600
                   replay_delay_seconds: 300
                   replay_limit: 10000
@@ -1674,8 +1684,13 @@ paths:
                     name: Daily report window
                     report_workflow_policy_id: 1
                     temporal_schedule_id: openclarion-report-policy-1-daily
+                    cadence: daily
+                    calendar_hour: 2
+                    calendar_minute: 30
+                    calendar_day_of_week: 0
+                    calendar_day_of_month: 0
                     interval_seconds: 86400
-                    offset_seconds: 21600
+                    offset_seconds: 0
                     replay_window_seconds: 3600
                     replay_delay_seconds: 300
                     replay_limit: 10000
@@ -1748,8 +1763,13 @@ paths:
                     name: Daily report window
                     report_workflow_policy_id: 1
                     temporal_schedule_id: openclarion-report-policy-1-daily
+                    cadence: daily
+                    calendar_hour: 2
+                    calendar_minute: 30
+                    calendar_day_of_week: 0
+                    calendar_day_of_month: 0
                     interval_seconds: 86400
-                    offset_seconds: 21600
+                    offset_seconds: 0
                     replay_window_seconds: 3600
                     replay_delay_seconds: 300
                     replay_limit: 10000
@@ -1800,6 +1820,11 @@ paths:
                   name: Six-hour report window
                   report_workflow_policy_id: 1
                   temporal_schedule_id: openclarion-report-policy-1-6h
+                  cadence: interval
+                  calendar_hour: 0
+                  calendar_minute: 0
+                  calendar_day_of_week: 0
+                  calendar_day_of_month: 0
                   interval_seconds: 21600
                   offset_seconds: 0
                   replay_window_seconds: 3600
@@ -1820,6 +1845,11 @@ paths:
                     name: Six-hour report window
                     report_workflow_policy_id: 1
                     temporal_schedule_id: openclarion-report-policy-1-6h
+                    cadence: interval
+                    calendar_hour: 0
+                    calendar_minute: 0
+                    calendar_day_of_week: 0
+                    calendar_day_of_month: 0
                     interval_seconds: 21600
                     offset_seconds: 0
                     replay_window_seconds: 3600
@@ -1894,8 +1924,13 @@ paths:
                     name: Daily report window
                     report_workflow_policy_id: 1
                     temporal_schedule_id: openclarion-report-policy-1-daily
+                    cadence: daily
+                    calendar_hour: 2
+                    calendar_minute: 30
+                    calendar_day_of_week: 0
+                    calendar_day_of_month: 0
                     interval_seconds: 86400
-                    offset_seconds: 21600
+                    offset_seconds: 0
                     replay_window_seconds: 3600
                     replay_delay_seconds: 300
                     replay_limit: 10000
@@ -1958,8 +1993,13 @@ paths:
                     name: Daily report window
                     report_workflow_policy_id: 1
                     temporal_schedule_id: openclarion-report-policy-1-daily
+                    cadence: daily
+                    calendar_hour: 2
+                    calendar_minute: 30
+                    calendar_day_of_week: 0
+                    calendar_day_of_month: 0
                     interval_seconds: 86400
-                    offset_seconds: 21600
+                    offset_seconds: 0
                     replay_window_seconds: 3600
                     replay_delay_seconds: 300
                     replay_limit: 10000
@@ -6296,12 +6336,54 @@ components:
           description: Stable Temporal Schedule identifier used by runtime schedule synchronization.
           examples:
             - openclarion-report-policy-1-daily
+        cadence:
+          type: string
+          description: Schedule cadence kind. Calendar cadences use UTC calendar fields; interval preserves fixed-period behavior.
+          enum:
+            - interval
+            - daily
+            - weekly
+            - monthly
+          examples:
+            - daily
+        calendar_hour:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 23
+          description: UTC hour used by daily, weekly, and monthly calendar cadences.
+          examples:
+            - 2
+        calendar_minute:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 59
+          description: UTC minute used by daily, weekly, and monthly calendar cadences.
+          examples:
+            - 30
+        calendar_day_of_week:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 6
+          description: UTC day of week for weekly cadence, where 0 is Sunday and 6 is Saturday. Must be 0 for other cadences.
+          examples:
+            - 1
+        calendar_day_of_month:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 28
+          description: UTC day of month for monthly cadence. Monthly schedules accept 1-28 so every month has a matching fire time; must be 0 for other cadences.
+          examples:
+            - 1
         interval_seconds:
           type: integer
           format: int64
           minimum: 1
           maximum: 31536000
-          description: Temporal interval cadence in whole seconds.
+          description: Temporal fixed interval in whole seconds, or replay-window guard interval for calendar cadences.
           examples:
             - 86400
         offset_seconds:
@@ -6309,9 +6391,9 @@ components:
           format: int64
           minimum: 0
           maximum: 31536000
-          description: Temporal interval offset in whole seconds; must be less than interval_seconds.
+          description: Temporal interval offset in whole seconds; must be less than interval_seconds. Calendar cadences require 0 because calendar_hour/calendar_minute define the fire time.
           examples:
-            - 21600
+            - 0
         replay_window_seconds:
           type: integer
           format: int64
@@ -6380,6 +6462,11 @@ components:
         - name
         - report_workflow_policy_id
         - temporal_schedule_id
+        - cadence
+        - calendar_hour
+        - calendar_minute
+        - calendar_day_of_week
+        - calendar_day_of_month
         - interval_seconds
         - offset_seconds
         - replay_window_seconds
@@ -6414,11 +6501,59 @@ components:
           description: Submitted Temporal Schedule identifier; must not contain whitespace or control characters.
           examples:
             - openclarion-report-policy-1-daily
+        cadence:
+          type: string
+          description: Schedule cadence kind. Defaults to interval for backward-compatible fixed-period scheduling.
+          enum:
+            - interval
+            - daily
+            - weekly
+            - monthly
+          default: interval
+          examples:
+            - weekly
+        calendar_hour:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 23
+          default: 0
+          description: UTC hour used by daily, weekly, and monthly calendar cadences.
+          examples:
+            - 2
+        calendar_minute:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 59
+          default: 0
+          description: UTC minute used by daily, weekly, and monthly calendar cadences.
+          examples:
+            - 30
+        calendar_day_of_week:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 6
+          default: 0
+          description: UTC day of week for weekly cadence, where 0 is Sunday and 6 is Saturday. Must be 0 for other cadences.
+          examples:
+            - 1
+        calendar_day_of_month:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 28
+          default: 0
+          description: UTC day of month for monthly cadence. Monthly schedules accept 1-28 so every month has a matching fire time; must be 0 for other cadences.
+          examples:
+            - 1
         interval_seconds:
           type: integer
           format: int64
           minimum: 1
           maximum: 31536000
+          description: Temporal fixed interval in whole seconds, or replay-window guard interval for calendar cadences.
           examples:
             - 86400
         offset_seconds:
@@ -6426,8 +6561,9 @@ components:
           format: int64
           minimum: 0
           maximum: 31536000
+          description: Temporal interval offset in whole seconds; must be less than interval_seconds. Calendar cadences require 0 because calendar_hour/calendar_minute define the fire time.
           examples:
-            - 21600
+            - 0
         replay_window_seconds:
           type: integer
           format: int64
@@ -6479,8 +6615,13 @@ components:
                 name: Daily report window
                 report_workflow_policy_id: 1
                 temporal_schedule_id: openclarion-report-policy-1-daily
+                cadence: daily
+                calendar_hour: 2
+                calendar_minute: 30
+                calendar_day_of_week: 0
+                calendar_day_of_month: 0
                 interval_seconds: 86400
-                offset_seconds: 21600
+                offset_seconds: 0
                 replay_window_seconds: 3600
                 replay_delay_seconds: 300
                 replay_limit: 10000

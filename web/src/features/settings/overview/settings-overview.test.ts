@@ -3605,6 +3605,11 @@ function workflowPolicy({
 
 function workflowSchedule(): ReportWorkflowSchedule {
   return {
+    cadence: "interval",
+    calendar_day_of_month: 0,
+    calendar_day_of_week: 0,
+    calendar_hour: 0,
+    calendar_minute: 0,
     catchup_window_seconds: 3600,
     created_at: timestamp,
     disabled_at: null,

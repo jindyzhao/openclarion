@@ -27,6 +27,31 @@ func TestServiceCreateStoresDisabledDraftAndValidatesPolicyBinding(t *testing.T)
 	}
 }
 
+func TestServiceCreateStoresCalendarCadence(t *testing.T) {
+	repo := newFakeConfigRepo()
+	repo.reportPolicies[7] = defaultPolicy(false)
+	svc := mustService(t, repo)
+
+	req := defaultWriteRequest()
+	req.Cadence = domain.ReportWorkflowScheduleCadenceMonthly
+	req.CalendarHour = 2
+	req.CalendarMinute = 30
+	req.CalendarDayOfMonth = 1
+	req.Interval = 28 * 24 * time.Hour
+
+	saved, err := svc.Create(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if saved.Cadence != domain.ReportWorkflowScheduleCadenceMonthly ||
+		saved.CalendarHour != 2 ||
+		saved.CalendarMinute != 30 ||
+		saved.CalendarDayOfMonth != 1 ||
+		repo.savedSchedule.Cadence != domain.ReportWorkflowScheduleCadenceMonthly {
+		t.Fatalf("saved schedule = %+v repo=%+v", saved, repo.savedSchedule)
+	}
+}
+
 func TestServiceCreateRejectsMissingPolicy(t *testing.T) {
 	repo := newFakeConfigRepo()
 	svc := mustService(t, repo)

@@ -27,6 +27,7 @@ func TestNewReportWorkflowScheduleValidatesAndTrims(t *testing.T) {
 	if schedule.Name != "Hourly reports" ||
 		schedule.ReportWorkflowPolicyID != 7 ||
 		schedule.TemporalScheduleID != "openclarion-report-policy-7-hourly" ||
+		schedule.Cadence != ReportWorkflowScheduleCadenceInterval ||
 		schedule.Interval != time.Hour ||
 		schedule.Offset != 5*time.Minute ||
 		schedule.ReplayWindow != 30*time.Minute ||
@@ -35,6 +36,77 @@ func TestNewReportWorkflowScheduleValidatesAndTrims(t *testing.T) {
 		schedule.CatchupWindow != 10*time.Minute ||
 		schedule.Enabled {
 		t.Fatalf("schedule = %+v", schedule)
+	}
+}
+
+func TestNewReportWorkflowScheduleWithCadenceAcceptsCalendarCadences(t *testing.T) {
+	tests := []struct {
+		name               string
+		cadence            ReportWorkflowScheduleCadence
+		calendarHour       int
+		calendarMinute     int
+		calendarDayOfWeek  int
+		calendarDayOfMonth int
+		guardInterval      time.Duration
+	}{
+		{
+			name:           "daily",
+			cadence:        ReportWorkflowScheduleCadenceDaily,
+			calendarHour:   2,
+			calendarMinute: 30,
+			guardInterval:  24 * time.Hour,
+		},
+		{
+			name:              "weekly",
+			cadence:           ReportWorkflowScheduleCadenceWeekly,
+			calendarHour:      3,
+			calendarMinute:    15,
+			calendarDayOfWeek: 1,
+			guardInterval:     7 * 24 * time.Hour,
+		},
+		{
+			name:               "monthly",
+			cadence:            ReportWorkflowScheduleCadenceMonthly,
+			calendarHour:       4,
+			calendarMinute:     45,
+			calendarDayOfMonth: 1,
+			guardInterval:      28 * 24 * time.Hour,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			schedule, err := NewReportWorkflowScheduleWithCadence(
+				"Calendar reports",
+				ReportWorkflowPolicyID(7),
+				"openclarion-report-policy-7-calendar",
+				tc.cadence,
+				tc.calendarHour,
+				tc.calendarMinute,
+				tc.calendarDayOfWeek,
+				tc.calendarDayOfMonth,
+				tc.guardInterval,
+				0,
+				time.Hour,
+				2*time.Minute,
+				1000,
+				10*time.Minute,
+				false,
+				nil,
+				nil,
+			)
+			if err != nil {
+				t.Fatalf("NewReportWorkflowScheduleWithCadence: %v", err)
+			}
+			if schedule.Cadence != tc.cadence ||
+				schedule.CalendarHour != tc.calendarHour ||
+				schedule.CalendarMinute != tc.calendarMinute ||
+				schedule.CalendarDayOfWeek != tc.calendarDayOfWeek ||
+				schedule.CalendarDayOfMonth != tc.calendarDayOfMonth ||
+				schedule.Offset != 0 {
+				t.Fatalf("schedule = %+v", schedule)
+			}
+		})
 	}
 }
 
@@ -71,6 +143,88 @@ func TestNewReportWorkflowScheduleRejectsInvalidInputs(t *testing.T) {
 				args.name,
 				args.policyID,
 				args.temporalID,
+				args.interval,
+				args.offset,
+				args.replayWindow,
+				args.replayDelay,
+				args.replayLimit,
+				args.catchupWindow,
+				args.enabled,
+				args.enabledAt,
+				args.disabledAt,
+			)
+			if !errors.Is(err, ErrInvariantViolation) {
+				t.Fatalf("err = %v, want ErrInvariantViolation", err)
+			}
+		})
+	}
+}
+
+func TestNewReportWorkflowScheduleWithCadenceRejectsInvalidCalendarInputs(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*reportWorkflowScheduleArgs)
+	}{
+		{name: "unsupported_cadence", edit: func(a *reportWorkflowScheduleArgs) { a.cadence = ReportWorkflowScheduleCadence("yearly") }},
+		{name: "bad_hour", edit: func(a *reportWorkflowScheduleArgs) { a.calendarHour = 24 }},
+		{name: "bad_minute", edit: func(a *reportWorkflowScheduleArgs) { a.calendarMinute = 60 }},
+		{name: "interval_with_calendar_hour", edit: func(a *reportWorkflowScheduleArgs) { a.calendarHour = 2 }},
+		{name: "daily_with_day_of_week", edit: func(a *reportWorkflowScheduleArgs) {
+			a.cadence = ReportWorkflowScheduleCadenceDaily
+			a.calendarDayOfWeek = 1
+			a.interval = 24 * time.Hour
+		}},
+		{name: "weekly_bad_day", edit: func(a *reportWorkflowScheduleArgs) {
+			a.cadence = ReportWorkflowScheduleCadenceWeekly
+			a.calendarDayOfWeek = 7
+			a.interval = 7 * 24 * time.Hour
+		}},
+		{name: "weekly_with_day_of_month", edit: func(a *reportWorkflowScheduleArgs) {
+			a.cadence = ReportWorkflowScheduleCadenceWeekly
+			a.calendarDayOfWeek = 1
+			a.calendarDayOfMonth = 1
+			a.interval = 7 * 24 * time.Hour
+		}},
+		{name: "monthly_zero_day", edit: func(a *reportWorkflowScheduleArgs) {
+			a.cadence = ReportWorkflowScheduleCadenceMonthly
+			a.interval = 28 * 24 * time.Hour
+		}},
+		{name: "monthly_day_29", edit: func(a *reportWorkflowScheduleArgs) {
+			a.cadence = ReportWorkflowScheduleCadenceMonthly
+			a.calendarDayOfMonth = 29
+			a.interval = 28 * 24 * time.Hour
+		}},
+		{name: "monthly_with_day_of_week", edit: func(a *reportWorkflowScheduleArgs) {
+			a.cadence = ReportWorkflowScheduleCadenceMonthly
+			a.calendarDayOfWeek = 1
+			a.calendarDayOfMonth = 1
+			a.interval = 28 * 24 * time.Hour
+		}},
+		{name: "calendar_offset", edit: func(a *reportWorkflowScheduleArgs) {
+			a.cadence = ReportWorkflowScheduleCadenceDaily
+			a.offset = time.Minute
+			a.interval = 24 * time.Hour
+		}},
+		{name: "calendar_replay_exceeds_guard", edit: func(a *reportWorkflowScheduleArgs) {
+			a.cadence = ReportWorkflowScheduleCadenceDaily
+			a.interval = time.Hour
+			a.replayWindow = 2 * time.Hour
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := defaultReportWorkflowScheduleArgs()
+			tc.edit(&args)
+			_, err := NewReportWorkflowScheduleWithCadence(
+				args.name,
+				args.policyID,
+				args.temporalID,
+				args.cadence,
+				args.calendarHour,
+				args.calendarMinute,
+				args.calendarDayOfWeek,
+				args.calendarDayOfMonth,
 				args.interval,
 				args.offset,
 				args.replayWindow,
@@ -154,18 +308,23 @@ func mustReportWorkflowSchedule(t *testing.T) ReportWorkflowSchedule {
 }
 
 type reportWorkflowScheduleArgs struct {
-	name          string
-	policyID      ReportWorkflowPolicyID
-	temporalID    string
-	interval      time.Duration
-	offset        time.Duration
-	replayWindow  time.Duration
-	replayDelay   time.Duration
-	replayLimit   int
-	catchupWindow time.Duration
-	enabled       bool
-	enabledAt     *time.Time
-	disabledAt    *time.Time
+	name               string
+	policyID           ReportWorkflowPolicyID
+	temporalID         string
+	cadence            ReportWorkflowScheduleCadence
+	calendarHour       int
+	calendarMinute     int
+	calendarDayOfWeek  int
+	calendarDayOfMonth int
+	interval           time.Duration
+	offset             time.Duration
+	replayWindow       time.Duration
+	replayDelay        time.Duration
+	replayLimit        int
+	catchupWindow      time.Duration
+	enabled            bool
+	enabledAt          *time.Time
+	disabledAt         *time.Time
 }
 
 func defaultReportWorkflowScheduleArgs() reportWorkflowScheduleArgs {
@@ -173,6 +332,7 @@ func defaultReportWorkflowScheduleArgs() reportWorkflowScheduleArgs {
 		name:          "Hourly reports",
 		policyID:      7,
 		temporalID:    "openclarion-report-policy-7-hourly",
+		cadence:       ReportWorkflowScheduleCadenceInterval,
 		interval:      time.Hour,
 		offset:        0,
 		replayWindow:  30 * time.Minute,

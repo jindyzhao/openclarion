@@ -20145,6 +20145,15 @@ type ReportWorkflowScheduleMutation struct {
 	report_workflow_policy_id    *int
 	addreport_workflow_policy_id *int
 	temporal_schedule_id         *string
+	cadence                      *string
+	calendar_hour                *int
+	addcalendar_hour             *int
+	calendar_minute              *int
+	addcalendar_minute           *int
+	calendar_day_of_week         *int
+	addcalendar_day_of_week      *int
+	calendar_day_of_month        *int
+	addcalendar_day_of_month     *int
 	interval_ns                  *int64
 	addinterval_ns               *int64
 	offset_ns                    *int64
@@ -20392,6 +20401,266 @@ func (m *ReportWorkflowScheduleMutation) OldTemporalScheduleID(ctx context.Conte
 // ResetTemporalScheduleID resets all changes to the "temporal_schedule_id" field.
 func (m *ReportWorkflowScheduleMutation) ResetTemporalScheduleID() {
 	m.temporal_schedule_id = nil
+}
+
+// SetCadence sets the "cadence" field.
+func (m *ReportWorkflowScheduleMutation) SetCadence(s string) {
+	m.cadence = &s
+}
+
+// Cadence returns the value of the "cadence" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) Cadence() (r string, exists bool) {
+	v := m.cadence
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCadence returns the old "cadence" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldCadence(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCadence is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCadence requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCadence: %w", err)
+	}
+	return oldValue.Cadence, nil
+}
+
+// ResetCadence resets all changes to the "cadence" field.
+func (m *ReportWorkflowScheduleMutation) ResetCadence() {
+	m.cadence = nil
+}
+
+// SetCalendarHour sets the "calendar_hour" field.
+func (m *ReportWorkflowScheduleMutation) SetCalendarHour(i int) {
+	m.calendar_hour = &i
+	m.addcalendar_hour = nil
+}
+
+// CalendarHour returns the value of the "calendar_hour" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) CalendarHour() (r int, exists bool) {
+	v := m.calendar_hour
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCalendarHour returns the old "calendar_hour" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldCalendarHour(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCalendarHour is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCalendarHour requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCalendarHour: %w", err)
+	}
+	return oldValue.CalendarHour, nil
+}
+
+// AddCalendarHour adds i to the "calendar_hour" field.
+func (m *ReportWorkflowScheduleMutation) AddCalendarHour(i int) {
+	if m.addcalendar_hour != nil {
+		*m.addcalendar_hour += i
+	} else {
+		m.addcalendar_hour = &i
+	}
+}
+
+// AddedCalendarHour returns the value that was added to the "calendar_hour" field in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedCalendarHour() (r int, exists bool) {
+	v := m.addcalendar_hour
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCalendarHour resets all changes to the "calendar_hour" field.
+func (m *ReportWorkflowScheduleMutation) ResetCalendarHour() {
+	m.calendar_hour = nil
+	m.addcalendar_hour = nil
+}
+
+// SetCalendarMinute sets the "calendar_minute" field.
+func (m *ReportWorkflowScheduleMutation) SetCalendarMinute(i int) {
+	m.calendar_minute = &i
+	m.addcalendar_minute = nil
+}
+
+// CalendarMinute returns the value of the "calendar_minute" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) CalendarMinute() (r int, exists bool) {
+	v := m.calendar_minute
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCalendarMinute returns the old "calendar_minute" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldCalendarMinute(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCalendarMinute is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCalendarMinute requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCalendarMinute: %w", err)
+	}
+	return oldValue.CalendarMinute, nil
+}
+
+// AddCalendarMinute adds i to the "calendar_minute" field.
+func (m *ReportWorkflowScheduleMutation) AddCalendarMinute(i int) {
+	if m.addcalendar_minute != nil {
+		*m.addcalendar_minute += i
+	} else {
+		m.addcalendar_minute = &i
+	}
+}
+
+// AddedCalendarMinute returns the value that was added to the "calendar_minute" field in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedCalendarMinute() (r int, exists bool) {
+	v := m.addcalendar_minute
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCalendarMinute resets all changes to the "calendar_minute" field.
+func (m *ReportWorkflowScheduleMutation) ResetCalendarMinute() {
+	m.calendar_minute = nil
+	m.addcalendar_minute = nil
+}
+
+// SetCalendarDayOfWeek sets the "calendar_day_of_week" field.
+func (m *ReportWorkflowScheduleMutation) SetCalendarDayOfWeek(i int) {
+	m.calendar_day_of_week = &i
+	m.addcalendar_day_of_week = nil
+}
+
+// CalendarDayOfWeek returns the value of the "calendar_day_of_week" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) CalendarDayOfWeek() (r int, exists bool) {
+	v := m.calendar_day_of_week
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCalendarDayOfWeek returns the old "calendar_day_of_week" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldCalendarDayOfWeek(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCalendarDayOfWeek is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCalendarDayOfWeek requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCalendarDayOfWeek: %w", err)
+	}
+	return oldValue.CalendarDayOfWeek, nil
+}
+
+// AddCalendarDayOfWeek adds i to the "calendar_day_of_week" field.
+func (m *ReportWorkflowScheduleMutation) AddCalendarDayOfWeek(i int) {
+	if m.addcalendar_day_of_week != nil {
+		*m.addcalendar_day_of_week += i
+	} else {
+		m.addcalendar_day_of_week = &i
+	}
+}
+
+// AddedCalendarDayOfWeek returns the value that was added to the "calendar_day_of_week" field in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedCalendarDayOfWeek() (r int, exists bool) {
+	v := m.addcalendar_day_of_week
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCalendarDayOfWeek resets all changes to the "calendar_day_of_week" field.
+func (m *ReportWorkflowScheduleMutation) ResetCalendarDayOfWeek() {
+	m.calendar_day_of_week = nil
+	m.addcalendar_day_of_week = nil
+}
+
+// SetCalendarDayOfMonth sets the "calendar_day_of_month" field.
+func (m *ReportWorkflowScheduleMutation) SetCalendarDayOfMonth(i int) {
+	m.calendar_day_of_month = &i
+	m.addcalendar_day_of_month = nil
+}
+
+// CalendarDayOfMonth returns the value of the "calendar_day_of_month" field in the mutation.
+func (m *ReportWorkflowScheduleMutation) CalendarDayOfMonth() (r int, exists bool) {
+	v := m.calendar_day_of_month
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCalendarDayOfMonth returns the old "calendar_day_of_month" field's value of the ReportWorkflowSchedule entity.
+// If the ReportWorkflowSchedule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ReportWorkflowScheduleMutation) OldCalendarDayOfMonth(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCalendarDayOfMonth is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCalendarDayOfMonth requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCalendarDayOfMonth: %w", err)
+	}
+	return oldValue.CalendarDayOfMonth, nil
+}
+
+// AddCalendarDayOfMonth adds i to the "calendar_day_of_month" field.
+func (m *ReportWorkflowScheduleMutation) AddCalendarDayOfMonth(i int) {
+	if m.addcalendar_day_of_month != nil {
+		*m.addcalendar_day_of_month += i
+	} else {
+		m.addcalendar_day_of_month = &i
+	}
+}
+
+// AddedCalendarDayOfMonth returns the value that was added to the "calendar_day_of_month" field in this mutation.
+func (m *ReportWorkflowScheduleMutation) AddedCalendarDayOfMonth() (r int, exists bool) {
+	v := m.addcalendar_day_of_month
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetCalendarDayOfMonth resets all changes to the "calendar_day_of_month" field.
+func (m *ReportWorkflowScheduleMutation) ResetCalendarDayOfMonth() {
+	m.calendar_day_of_month = nil
+	m.addcalendar_day_of_month = nil
 }
 
 // SetIntervalNs sets the "interval_ns" field.
@@ -20970,7 +21239,7 @@ func (m *ReportWorkflowScheduleMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ReportWorkflowScheduleMutation) Fields() []string {
-	fields := make([]string, 0, 14)
+	fields := make([]string, 0, 19)
 	if m.name != nil {
 		fields = append(fields, reportworkflowschedule.FieldName)
 	}
@@ -20979,6 +21248,21 @@ func (m *ReportWorkflowScheduleMutation) Fields() []string {
 	}
 	if m.temporal_schedule_id != nil {
 		fields = append(fields, reportworkflowschedule.FieldTemporalScheduleID)
+	}
+	if m.cadence != nil {
+		fields = append(fields, reportworkflowschedule.FieldCadence)
+	}
+	if m.calendar_hour != nil {
+		fields = append(fields, reportworkflowschedule.FieldCalendarHour)
+	}
+	if m.calendar_minute != nil {
+		fields = append(fields, reportworkflowschedule.FieldCalendarMinute)
+	}
+	if m.calendar_day_of_week != nil {
+		fields = append(fields, reportworkflowschedule.FieldCalendarDayOfWeek)
+	}
+	if m.calendar_day_of_month != nil {
+		fields = append(fields, reportworkflowschedule.FieldCalendarDayOfMonth)
 	}
 	if m.interval_ns != nil {
 		fields = append(fields, reportworkflowschedule.FieldIntervalNs)
@@ -21027,6 +21311,16 @@ func (m *ReportWorkflowScheduleMutation) Field(name string) (ent.Value, bool) {
 		return m.ReportWorkflowPolicyID()
 	case reportworkflowschedule.FieldTemporalScheduleID:
 		return m.TemporalScheduleID()
+	case reportworkflowschedule.FieldCadence:
+		return m.Cadence()
+	case reportworkflowschedule.FieldCalendarHour:
+		return m.CalendarHour()
+	case reportworkflowschedule.FieldCalendarMinute:
+		return m.CalendarMinute()
+	case reportworkflowschedule.FieldCalendarDayOfWeek:
+		return m.CalendarDayOfWeek()
+	case reportworkflowschedule.FieldCalendarDayOfMonth:
+		return m.CalendarDayOfMonth()
 	case reportworkflowschedule.FieldIntervalNs:
 		return m.IntervalNs()
 	case reportworkflowschedule.FieldOffsetNs:
@@ -21064,6 +21358,16 @@ func (m *ReportWorkflowScheduleMutation) OldField(ctx context.Context, name stri
 		return m.OldReportWorkflowPolicyID(ctx)
 	case reportworkflowschedule.FieldTemporalScheduleID:
 		return m.OldTemporalScheduleID(ctx)
+	case reportworkflowschedule.FieldCadence:
+		return m.OldCadence(ctx)
+	case reportworkflowschedule.FieldCalendarHour:
+		return m.OldCalendarHour(ctx)
+	case reportworkflowschedule.FieldCalendarMinute:
+		return m.OldCalendarMinute(ctx)
+	case reportworkflowschedule.FieldCalendarDayOfWeek:
+		return m.OldCalendarDayOfWeek(ctx)
+	case reportworkflowschedule.FieldCalendarDayOfMonth:
+		return m.OldCalendarDayOfMonth(ctx)
 	case reportworkflowschedule.FieldIntervalNs:
 		return m.OldIntervalNs(ctx)
 	case reportworkflowschedule.FieldOffsetNs:
@@ -21115,6 +21419,41 @@ func (m *ReportWorkflowScheduleMutation) SetField(name string, value ent.Value) 
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetTemporalScheduleID(v)
+		return nil
+	case reportworkflowschedule.FieldCadence:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCadence(v)
+		return nil
+	case reportworkflowschedule.FieldCalendarHour:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCalendarHour(v)
+		return nil
+	case reportworkflowschedule.FieldCalendarMinute:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCalendarMinute(v)
+		return nil
+	case reportworkflowschedule.FieldCalendarDayOfWeek:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCalendarDayOfWeek(v)
+		return nil
+	case reportworkflowschedule.FieldCalendarDayOfMonth:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCalendarDayOfMonth(v)
 		return nil
 	case reportworkflowschedule.FieldIntervalNs:
 		v, ok := value.(int64)
@@ -21204,6 +21543,18 @@ func (m *ReportWorkflowScheduleMutation) AddedFields() []string {
 	if m.addreport_workflow_policy_id != nil {
 		fields = append(fields, reportworkflowschedule.FieldReportWorkflowPolicyID)
 	}
+	if m.addcalendar_hour != nil {
+		fields = append(fields, reportworkflowschedule.FieldCalendarHour)
+	}
+	if m.addcalendar_minute != nil {
+		fields = append(fields, reportworkflowschedule.FieldCalendarMinute)
+	}
+	if m.addcalendar_day_of_week != nil {
+		fields = append(fields, reportworkflowschedule.FieldCalendarDayOfWeek)
+	}
+	if m.addcalendar_day_of_month != nil {
+		fields = append(fields, reportworkflowschedule.FieldCalendarDayOfMonth)
+	}
 	if m.addinterval_ns != nil {
 		fields = append(fields, reportworkflowschedule.FieldIntervalNs)
 	}
@@ -21232,6 +21583,14 @@ func (m *ReportWorkflowScheduleMutation) AddedField(name string) (ent.Value, boo
 	switch name {
 	case reportworkflowschedule.FieldReportWorkflowPolicyID:
 		return m.AddedReportWorkflowPolicyID()
+	case reportworkflowschedule.FieldCalendarHour:
+		return m.AddedCalendarHour()
+	case reportworkflowschedule.FieldCalendarMinute:
+		return m.AddedCalendarMinute()
+	case reportworkflowschedule.FieldCalendarDayOfWeek:
+		return m.AddedCalendarDayOfWeek()
+	case reportworkflowschedule.FieldCalendarDayOfMonth:
+		return m.AddedCalendarDayOfMonth()
 	case reportworkflowschedule.FieldIntervalNs:
 		return m.AddedIntervalNs()
 	case reportworkflowschedule.FieldOffsetNs:
@@ -21259,6 +21618,34 @@ func (m *ReportWorkflowScheduleMutation) AddField(name string, value ent.Value) 
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddReportWorkflowPolicyID(v)
+		return nil
+	case reportworkflowschedule.FieldCalendarHour:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCalendarHour(v)
+		return nil
+	case reportworkflowschedule.FieldCalendarMinute:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCalendarMinute(v)
+		return nil
+	case reportworkflowschedule.FieldCalendarDayOfWeek:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCalendarDayOfWeek(v)
+		return nil
+	case reportworkflowschedule.FieldCalendarDayOfMonth:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddCalendarDayOfMonth(v)
 		return nil
 	case reportworkflowschedule.FieldIntervalNs:
 		v, ok := value.(int64)
@@ -21352,6 +21739,21 @@ func (m *ReportWorkflowScheduleMutation) ResetField(name string) error {
 		return nil
 	case reportworkflowschedule.FieldTemporalScheduleID:
 		m.ResetTemporalScheduleID()
+		return nil
+	case reportworkflowschedule.FieldCadence:
+		m.ResetCadence()
+		return nil
+	case reportworkflowschedule.FieldCalendarHour:
+		m.ResetCalendarHour()
+		return nil
+	case reportworkflowschedule.FieldCalendarMinute:
+		m.ResetCalendarMinute()
+		return nil
+	case reportworkflowschedule.FieldCalendarDayOfWeek:
+		m.ResetCalendarDayOfWeek()
+		return nil
+	case reportworkflowschedule.FieldCalendarDayOfMonth:
+		m.ResetCalendarDayOfMonth()
 		return nil
 	case reportworkflowschedule.FieldIntervalNs:
 		m.ResetIntervalNs()
