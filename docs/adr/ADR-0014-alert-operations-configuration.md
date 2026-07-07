@@ -267,18 +267,22 @@ start Temporal workflows, send notifications, persist `AlertGroup` or
 Notification channel profiles use a dedicated profile for delivery target
 metadata. A profile stores name, adapter kind, `secret_ref`, delivery scopes,
 enabled state, and labels. Create, replace, list, and get operations must not
-store endpoint URLs, resolve secrets, construct a Webhook IM provider, send
+store endpoint URLs, resolve secrets, construct an IM provider, send
 notifications, or replace the existing environment-variable
 `OPENCLARION_IM_WEBHOOK_URL` runtime path. Report workflow policies may bind an
 optional report notification channel profile ID as configuration metadata.
 Report notification Activities may resolve that bound ID through a configured
-backend secret resolver and construct the Webhook IM provider at runtime. If no
-profile is bound, the existing `OPENCLARION_IM_WEBHOOK_URL` path remains the
-fallback for legacy or unbound report notifications; that fallback may set
-`OPENCLARION_IM_WEBHOOK_FORMAT=wecom`, `dingtalk`, `feishu`, or `slack` when
-the endpoint expects a supported robot / incoming-webhook text envelope instead
-of the default OpenClarion Webhook JSON. Workflow code carries only the
-immutable profile ID and never resolves secrets or providers.
+backend secret resolver and construct the Webhook or Email IM provider at
+runtime. If no profile is bound, the existing `OPENCLARION_IM_WEBHOOK_URL` path
+remains the fallback for legacy or unbound report notifications; that fallback
+may set `OPENCLARION_IM_WEBHOOK_FORMAT=wecom`, `dingtalk`, `feishu`, or `slack`
+when the endpoint expects a supported robot / incoming-webhook text envelope
+instead of the default OpenClarion Webhook JSON. Profile-backed `email`
+channels resolve SMTP URL secrets with `from` and `to` query parameters through
+`OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON`; legacy unbound email
+delivery is intentionally not configured through `OPENCLARION_IM_WEBHOOK_*`.
+Workflow code carries only the immutable profile ID and never resolves secrets
+or providers.
 
 The operations configuration hygiene gate is part of this boundary. It scans
 the alert-operations configuration surface for non-placeholder HTTP(S) hosts,
@@ -488,3 +492,4 @@ durable state in the overview.
 | 2026-06-06 | jindyzhao | Added declarative operator configuration graph and upstream API stability notes for Prometheus and Alertmanager adapters |
 | 2026-06-06 | jindyzhao | Added frontend settings overview boundary for the declarative configuration graph without browser-owned workflow or credential state |
 | 2026-06-08 | jindyzhao | Added Thanos Rule alert-list casing normalization and WeCom legacy webhook format boundary for live-proof provider compatibility |
+| 2026-07-08 | jindyzhao | Added profile-backed SMTP Email notification-channel boundary for report delivery without changing the legacy Webhook env path |

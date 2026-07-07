@@ -253,7 +253,7 @@ runtime table:
 
 * `name` is globally UNIQUE so operators have one stable display handle per
   channel
-* `kind` stores `webhook`, `wecom`, `dingtalk`, `feishu`, or `slack`; all
+* `kind` stores `webhook`, `wecom`, `dingtalk`, `feishu`, `slack`, or `email`; all
   resolve deployment-managed endpoint secrets at runtime
 * `secret_ref` stores only a deployment-managed secret reference, never an
   endpoint URL, bearer token, or credential value

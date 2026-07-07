@@ -343,7 +343,7 @@ export function notificationChannelDeliveryReadiness(
   ) {
     return {
       detail:
-        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, Feishu, or Slack delivery.",
+        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, Feishu, Slack, or Email delivery.",
       hasDiagnosisConsultationScope,
       hasDiagnosisCloseScope,
       hasReportScope,
@@ -468,6 +468,18 @@ export function notificationChannelCredentialReadiness(
       expectedCredential,
       kindLabel,
       label: "Slack credential contract selected.",
+      resolverEnvKey: notificationChannelSecretResolverEnvKey,
+      secretRefExample,
+      secretConfigured,
+      status: "ready",
+    };
+  }
+  if (form.kind === "email") {
+    return {
+      detail: `Backend tests resolve this secret reference through ${notificationChannelSecretResolverEnvKey} and require one SMTP URL with from and to query parameters.`,
+      expectedCredential,
+      kindLabel,
+      label: "Email credential contract selected.",
       resolverEnvKey: notificationChannelSecretResolverEnvKey,
       secretRefExample,
       secretConfigured,
@@ -1219,6 +1231,8 @@ function notificationChannelKindLabel(
       return "Feishu";
     case "slack":
       return "Slack";
+    case "email":
+      return "Email";
     case "webhook":
       return "Webhook";
   }
@@ -1236,6 +1250,8 @@ function notificationChannelExpectedCredential(
       return "Feishu or Lark custom bot webhook URL";
     case "slack":
       return "Slack incoming webhook URL";
+    case "email":
+      return "SMTP URL with from/to recipients";
     case "webhook":
       return "HTTP webhook URL";
   }
@@ -1253,6 +1269,8 @@ function notificationChannelSecretRefExample(
       return "secret/openclarion/ops-feishu";
     case "slack":
       return "secret/openclarion/ops-slack";
+    case "email":
+      return "secret/openclarion/ops-email";
     case "webhook":
       return "secret/openclarion/ops-webhook";
   }

@@ -152,6 +152,56 @@ func TestBuilderUsesExplicitRobotFormatForChannelKind(t *testing.T) {
 	}
 }
 
+func TestBuilderUsesEmailFactoryForEmailChannelKind(t *testing.T) {
+	profile := domain.NotificationChannelProfile{
+		Kind:      domain.NotificationChannelKindEmail,
+		SecretRef: "secret/openclarion/report-email-url",
+	}
+	var gotProfile domain.NotificationChannelProfile
+	var gotCredentials EmailCredentials
+	builder := mustBuilderWithEmailFactory(
+		t,
+		fakeSecretResolver{values: map[string]string{
+			profile.SecretRef: "smtp://smtp.example.test?from=alerts%40example.test&to=ops%40example.test&starttls=disabled",
+		}},
+		nil,
+		func(profile domain.NotificationChannelProfile, credentials EmailCredentials) (ports.IMProvider, error) {
+			gotProfile = profile
+			gotCredentials = credentials
+			return fakeIMProvider{}, nil
+		},
+	)
+
+	provider, err := builder.Build(context.Background(), profile)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if provider == nil {
+		t.Fatal("provider is nil")
+	}
+	if gotProfile.Kind != domain.NotificationChannelKindEmail {
+		t.Fatalf("profile.Kind = %q, want email", gotProfile.Kind)
+	}
+	if gotCredentials.URL != "smtp://smtp.example.test?from=alerts%40example.test&to=ops%40example.test&starttls=disabled" {
+		t.Fatalf("credentials.URL = %q", gotCredentials.URL)
+	}
+}
+
+func TestBuilderRejectsEmailWithoutFactory(t *testing.T) {
+	profile := domain.NotificationChannelProfile{
+		Kind:      domain.NotificationChannelKindEmail,
+		SecretRef: "secret/openclarion/report-email-url",
+	}
+	builder := mustBuilder(t, fakeSecretResolver{values: map[string]string{
+		profile.SecretRef: "smtp://smtp.example.test?from=alerts%40example.test&to=ops%40example.test&starttls=disabled",
+	}}, nil)
+
+	_, err := builder.Build(context.Background(), profile)
+	if !errors.Is(err, ErrUnsupportedKind) {
+		t.Fatalf("err = %v, want ErrUnsupportedKind", err)
+	}
+}
+
 func TestBuilderRejectsInvalidWeComWebhookEndpoint(t *testing.T) {
 	profile := domain.NotificationChannelProfile{
 		Kind:      domain.NotificationChannelKindWeCom,
@@ -406,7 +456,7 @@ func TestResolverMapsProviderBuildFailuresToInvariantViolation(t *testing.T) {
 			name: "unsupported_kind",
 			profile: func() domain.NotificationChannelProfile {
 				profile := base
-				profile.Kind = domain.NotificationChannelKind("email")
+				profile.Kind = domain.NotificationChannelKind("pagerduty")
 				return profile
 			}(),
 			builder: mustBuilder(t, fakeSecretResolver{}, nil),
@@ -530,6 +580,11 @@ func TestResolverRejectsMissingProfile(t *testing.T) {
 
 func mustBuilder(t *testing.T, resolver ports.SecretResolver, factory WebhookFactory) *Builder {
 	t.Helper()
+	return mustBuilderWithEmailFactory(t, resolver, factory, nil)
+}
+
+func mustBuilderWithEmailFactory(t *testing.T, resolver ports.SecretResolver, factory WebhookFactory, emailFactory EmailFactory) *Builder {
+	t.Helper()
 	if factory == nil {
 		factory = func(domain.NotificationChannelProfile, WebhookCredentials) (ports.IMProvider, error) {
 			return fakeIMProvider{}, nil
@@ -538,6 +593,9 @@ func mustBuilder(t *testing.T, resolver ports.SecretResolver, factory WebhookFac
 	opts := []Option{}
 	if resolver != nil {
 		opts = append(opts, WithSecretResolver(resolver))
+	}
+	if emailFactory != nil {
+		opts = append(opts, WithEmailFactory(emailFactory))
 	}
 	builder, err := NewBuilder(factory, opts...)
 	if err != nil {

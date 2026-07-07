@@ -40,6 +40,7 @@ import (
 	authstatic "github.com/openclarion/openclarion/internal/providers/auth/static"
 	containerdocker "github.com/openclarion/openclarion/internal/providers/container/docker"
 	directoryiam "github.com/openclarion/openclarion/internal/providers/directory/iam"
+	imemail "github.com/openclarion/openclarion/internal/providers/im/email"
 	imwebhook "github.com/openclarion/openclarion/internal/providers/im/webhook"
 	"github.com/openclarion/openclarion/internal/providers/im/wecomcallback"
 	openaillm "github.com/openclarion/openclarion/internal/providers/llm/openai"
@@ -496,19 +497,10 @@ func reportActivityOptionsFromEnv(
 		if uowFactory == nil {
 			return nil, fmt.Errorf("%s requires a unit of work factory", notificationChannelSecretRefsEnv)
 		}
-		webhookFactory := func(
-			_ domain.NotificationChannelProfile,
-			credentials notificationchannelprovider.WebhookCredentials,
-		) (ports.IMProvider, error) {
-			return imwebhook.NewProvider(imwebhook.Config{
-				URL:        credentials.URL,
-				Format:     credentials.Format,
-				HTTPClient: outboundHTTPClient(httpTracing, 10*time.Second),
-			})
-		}
 		builder, err := notificationchannelprovider.NewBuilder(
-			webhookFactory,
+			notificationChannelWebhookFactory(httpTracing),
 			notificationchannelprovider.WithSecretResolver(notificationChannelSecretResolver),
+			notificationchannelprovider.WithEmailFactory(notificationChannelEmailFactory()),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("configure notification channel provider builder: %w", err)
@@ -518,7 +510,7 @@ func reportActivityOptionsFromEnv(
 			return nil, fmt.Errorf("configure notification channel provider resolver: %w", err)
 		}
 		opts = append(opts, temporalpkg.WithNotificationChannelProviderResolver(resolver))
-		logger.Info("configured notification channel provider resolver", "provider", "webhook")
+		logger.Info("configured notification channel provider resolver", "provider", "webhook,email")
 	}
 
 	if !llmConfigured || (!imConfigured && notificationChannelSecretResolver == nil) {
@@ -596,6 +588,30 @@ func reportIMProviderFromEnv(
 		format = "generic"
 	}
 	return provider, strings.ToLower(format), true, nil
+}
+
+func notificationChannelWebhookFactory(
+	httpTracing *observabilitytracing.HTTPTracing,
+) notificationchannelprovider.WebhookFactory {
+	return func(
+		_ domain.NotificationChannelProfile,
+		credentials notificationchannelprovider.WebhookCredentials,
+	) (ports.IMProvider, error) {
+		return imwebhook.NewProvider(imwebhook.Config{
+			URL:        credentials.URL,
+			Format:     credentials.Format,
+			HTTPClient: outboundHTTPClient(httpTracing, 10*time.Second),
+		})
+	}
+}
+
+func notificationChannelEmailFactory() notificationchannelprovider.EmailFactory {
+	return func(
+		_ domain.NotificationChannelProfile,
+		credentials notificationchannelprovider.EmailCredentials,
+	) (ports.IMProvider, error) {
+		return imemail.NewProviderFromURL(credentials.URL)
+	}
 }
 
 func diagnosisActivityOptionsFromEnv(
@@ -856,17 +872,9 @@ func httpServerOptionsFromEnv(
 	if err != nil {
 		return nil, nil, err
 	}
-	notificationWebhookFactory := func(
-		_ domain.NotificationChannelProfile,
-		credentials notificationchannelprovider.WebhookCredentials,
-	) (ports.IMProvider, error) {
-		return imwebhook.NewProvider(imwebhook.Config{
-			URL:        credentials.URL,
-			Format:     credentials.Format,
-			HTTPClient: outboundHTTPClient(httpTracing, 10*time.Second),
-		})
+	notificationBuilderOptions := []notificationchannelprovider.Option{
+		notificationchannelprovider.WithEmailFactory(notificationChannelEmailFactory()),
 	}
-	notificationBuilderOptions := []notificationchannelprovider.Option{}
 	if notificationChannelSecretResolver != nil {
 		notificationBuilderOptions = append(
 			notificationBuilderOptions,
@@ -874,7 +882,7 @@ func httpServerOptionsFromEnv(
 		)
 	}
 	notificationProviderBuilder, err := notificationchannelprovider.NewBuilder(
-		notificationWebhookFactory,
+		notificationChannelWebhookFactory(httpTracing),
 		notificationBuilderOptions...,
 	)
 	if err != nil {
@@ -913,7 +921,7 @@ func httpServerOptionsFromEnv(
 			reportNotificationOptions,
 			reportnotification.WithNotificationChannelProviderResolver(notificationProviderResolver),
 		)
-		logger.Info("configured report notification retry provider resolver", "provider", "webhook")
+		logger.Info("configured report notification retry provider resolver", "provider", "webhook,email")
 	}
 	if len(reportNotificationOptions) > 0 {
 		reportNotifier, err := reportnotification.NewService(uowFactory, reportNotificationOptions...)
@@ -934,7 +942,7 @@ func httpServerOptionsFromEnv(
 			return nil, nil, fmt.Errorf("configure diagnosis notification retry service: %w", err)
 		}
 		opts = append(opts, transporthttp.WithDiagnosisRoomNotificationRetrier(diagnosisNotificationRetrier))
-		logger.Info("configured diagnosis notification retry provider resolver", "provider", "webhook")
+		logger.Info("configured diagnosis notification retry provider resolver", "provider", "webhook,email")
 	} else {
 		logger.Warn("diagnosis notification retry is disabled; configure OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON to enable manual diagnosis-room notification retries")
 	}

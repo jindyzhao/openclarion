@@ -124,6 +124,7 @@ const channelKindOptions: Array<{
   { value: "dingtalk", label: "DingTalk" },
   { value: "feishu", label: "Feishu" },
   { value: "slack", label: "Slack" },
+  { value: "email", label: "Email" },
   { value: "webhook", label: "Webhook" },
 ];
 

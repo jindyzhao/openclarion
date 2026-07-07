@@ -43,13 +43,24 @@ type WebhookCredentials struct {
 	Format string
 }
 
+// EmailCredentials carries resolved SMTP URL material. It intentionally stays
+// outside persisted profile rows and OpenAPI responses.
+type EmailCredentials struct {
+	URL string
+}
+
 // WebhookFactory constructs a webhook-backed IMProvider from a stored profile
 // plus resolved credentials.
 type WebhookFactory func(domain.NotificationChannelProfile, WebhookCredentials) (ports.IMProvider, error)
 
+// EmailFactory constructs an SMTP email IMProvider from a stored profile plus
+// resolved credentials.
+type EmailFactory func(domain.NotificationChannelProfile, EmailCredentials) (ports.IMProvider, error)
+
 // Builder maps a notification channel profile to a concrete IMProvider.
 type Builder struct {
 	webhookFactory WebhookFactory
+	emailFactory   EmailFactory
 	secretResolver ports.SecretResolver
 }
 
@@ -60,6 +71,13 @@ type Option func(*Builder)
 func WithSecretResolver(resolver ports.SecretResolver) Option {
 	return func(b *Builder) {
 		b.secretResolver = resolver
+	}
+}
+
+// WithEmailFactory enables profile-backed email notification channels.
+func WithEmailFactory(factory EmailFactory) Option {
+	return func(b *Builder) {
+		b.emailFactory = factory
 	}
 }
 
@@ -97,6 +115,22 @@ func (b *Builder) Build(ctx context.Context, profile domain.NotificationChannelP
 			return nil, fmt.Errorf("notification channel provider: webhook factory returned nil provider: %w", domain.ErrInvariantViolation)
 		}
 		return provider, nil
+	case domain.NotificationChannelKindEmail:
+		if b.emailFactory == nil {
+			return nil, ErrUnsupportedKind
+		}
+		credentials, err := b.resolveEmailCredentials(ctx, profile)
+		if err != nil {
+			return nil, err
+		}
+		provider, err := b.emailFactory(profile, credentials)
+		if err != nil {
+			return nil, fmt.Errorf("notification channel provider: email provider could not be constructed from stored profile: %w", domain.ErrInvariantViolation)
+		}
+		if provider == nil {
+			return nil, fmt.Errorf("notification channel provider: email factory returned nil provider: %w", domain.ErrInvariantViolation)
+		}
+		return provider, nil
 	default:
 		return nil, ErrUnsupportedKind
 	}
@@ -123,6 +157,23 @@ func (b *Builder) resolveWebhookCredentials(ctx context.Context, profile domain.
 		URL:    secret.Value,
 		Format: notificationWebhookFormat(profile.Kind, secret.Value),
 	}, nil
+}
+
+func (b *Builder) resolveEmailCredentials(ctx context.Context, profile domain.NotificationChannelProfile) (EmailCredentials, error) {
+	if b.secretResolver == nil {
+		return EmailCredentials{}, ErrSecretResolverUnavailable
+	}
+	secret, err := b.secretResolver.ResolveSecret(ctx, profile.SecretRef)
+	if err != nil {
+		if errors.Is(err, ports.ErrSecretNotFound) {
+			return EmailCredentials{}, ErrSecretNotFound
+		}
+		return EmailCredentials{}, ErrSecretResolveFailed
+	}
+	if secret.Value == "" || containsControlOrSpace(secret.Value) {
+		return EmailCredentials{}, ErrCredentialUnusable
+	}
+	return EmailCredentials{URL: secret.Value}, nil
 }
 
 // Resolver loads persisted notification channel profiles and resolves them into

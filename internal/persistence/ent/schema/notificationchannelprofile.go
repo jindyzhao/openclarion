@@ -32,7 +32,7 @@ func (NotificationChannelProfile) Fields() []ent.Field {
 		field.String("kind").
 			MaxLen(32).
 			Default("webhook").
-			Comment(`"webhook", "wecom", "dingtalk", "feishu", or "slack"`),
+			Comment(`"webhook", "wecom", "dingtalk", "feishu", "slack", or "email"`),
 		field.String("secret_ref").
 			MaxLen(256).
 			NotEmpty().

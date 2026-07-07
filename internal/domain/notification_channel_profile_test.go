@@ -75,7 +75,7 @@ func TestNewNotificationChannelProfileRejectsInvalid(t *testing.T) {
 		{
 			name: "unsupported kind",
 			edit: func() (NotificationChannelProfile, error) {
-				return NewNotificationChannelProfile("name", "email", "secret/ref", []NotificationDeliveryScope{NotificationDeliveryScopeReport}, false, nil)
+				return NewNotificationChannelProfile("name", "pagerduty", "secret/ref", []NotificationDeliveryScope{NotificationDeliveryScopeReport}, false, nil)
 			},
 		},
 		{
@@ -160,6 +160,7 @@ func TestNotificationChannelKindValidAcceptsReportWebhookKinds(t *testing.T) {
 		NotificationChannelKindDingTalk,
 		NotificationChannelKindFeishu,
 		NotificationChannelKindSlack,
+		NotificationChannelKindEmail,
 	} {
 		t.Run(string(kind), func(t *testing.T) {
 			got, err := NewNotificationChannelProfile(

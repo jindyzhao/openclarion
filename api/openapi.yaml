@@ -4937,6 +4937,14 @@ components:
         - dingtalk
         - feishu
         - slack
+        - email
+      x-oapi-codegen-enum-varnames:
+        - Webhook
+        - Wecom
+        - Dingtalk
+        - Feishu
+        - Slack
+        - NotificationChannelEmail
       examples:
         - webhook
         - wecom

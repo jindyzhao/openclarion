@@ -1299,7 +1299,7 @@ export interface components {
          * @example wecom
          * @enum {string}
          */
-        NotificationChannelKind: "webhook" | "wecom" | "dingtalk" | "feishu" | "slack";
+        NotificationChannelKind: "webhook" | "wecom" | "dingtalk" | "feishu" | "slack" | "email";
         /**
          * @description Notification flow that may use a channel once workflow binding is implemented.
          * @example report

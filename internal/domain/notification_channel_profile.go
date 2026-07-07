@@ -37,12 +37,15 @@ const (
 	// NotificationChannelKindSlack represents a Slack incoming webhook endpoint
 	// resolved from a deployment-managed secret reference.
 	NotificationChannelKindSlack NotificationChannelKind = "slack"
+	// NotificationChannelKindEmail represents an SMTP email endpoint resolved
+	// from a deployment-managed secret reference.
+	NotificationChannelKindEmail NotificationChannelKind = "email"
 )
 
 // Valid reports whether k is a supported notification channel kind.
 func (k NotificationChannelKind) Valid() bool {
 	switch k {
-	case NotificationChannelKindWebhook, NotificationChannelKindWeCom, NotificationChannelKindDingTalk, NotificationChannelKindFeishu, NotificationChannelKindSlack:
+	case NotificationChannelKindWebhook, NotificationChannelKindWeCom, NotificationChannelKindDingTalk, NotificationChannelKindFeishu, NotificationChannelKindSlack, NotificationChannelKindEmail:
 		return true
 	}
 	return false
