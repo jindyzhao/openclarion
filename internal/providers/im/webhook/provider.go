@@ -33,10 +33,12 @@ const (
 	formatWeCom    = "wecom"
 	formatDingTalk = "dingtalk"
 	formatFeishu   = "feishu"
+	formatSlack    = "slack"
 
 	maxWeComTextContentBytes    = 2048
 	maxDingTalkTextContentBytes = 2048
 	maxFeishuTextContentBytes   = 18 * 1024
+	maxSlackTextContentBytes    = 4000
 	robotTruncationSuffix       = "\n[truncated]"
 )
 
@@ -72,7 +74,7 @@ func NewProvider(cfg Config) (*Provider, error) {
 		return nil, err
 	}
 	bearerToken := strings.TrimSpace(cfg.BearerToken)
-	if robotWebhookFormat(format) && bearerToken != "" {
+	if webhookFormatDisallowsBearer(format) && bearerToken != "" {
 		return nil, fmt.Errorf("webhook im: bearer token is unsupported for %s format", format)
 	}
 	client := cfg.HTTPClient
@@ -104,6 +106,8 @@ func (p *Provider) SendNotification(ctx context.Context, req ports.IMNotificatio
 		return p.sendDingTalkNotification(ctx, req)
 	case formatFeishu:
 		return p.sendFeishuNotification(ctx, req)
+	case formatSlack:
+		return p.sendSlackNotification(ctx, req)
 	}
 	payload := webhookPayload{
 		IdempotencyKey:        req.IdempotencyKey,
@@ -217,6 +221,17 @@ func (p *Provider) sendFeishuNotification(ctx context.Context, req ports.IMNotif
 	return p.sendRobotPayload(ctx, "feishu", raw, deliveryFromFeishuResponse)
 }
 
+func (p *Provider) sendSlackNotification(ctx context.Context, req ports.IMNotification) (ports.IMDelivery, error) {
+	payload := slackPayload{
+		Text: notificationTextContent(req, maxSlackTextContentBytes),
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ports.IMDelivery{}, fmt.Errorf("webhook im: marshal slack payload: %w", err)
+	}
+	return p.sendRobotPayload(ctx, "slack", raw, deliveryFromSlackResponse)
+}
+
 func (p *Provider) sendRobotPayload(
 	ctx context.Context,
 	providerName string,
@@ -317,16 +332,16 @@ func normalizeFormat(raw string) (string, error) {
 	switch format {
 	case "", formatGeneric:
 		return formatGeneric, nil
-	case formatWeCom, formatDingTalk, formatFeishu:
+	case formatWeCom, formatDingTalk, formatFeishu, formatSlack:
 		return format, nil
 	default:
 		return "", fmt.Errorf("webhook im: unsupported format %q", format)
 	}
 }
 
-func robotWebhookFormat(format string) bool {
+func webhookFormatDisallowsBearer(format string) bool {
 	switch format {
-	case formatWeCom, formatDingTalk, formatFeishu:
+	case formatWeCom, formatDingTalk, formatFeishu, formatSlack:
 		return true
 	default:
 		return false
@@ -455,6 +470,10 @@ type feishuResponse struct {
 	Msg           string `json:"msg"`
 	StatusCode    *int   `json:"StatusCode"`
 	StatusMessage string `json:"StatusMessage"`
+}
+
+type slackPayload struct {
+	Text string `json:"text"`
 }
 
 func notificationTextContent(req ports.IMNotification, maxBytes int) string {
@@ -593,5 +612,20 @@ func deliveryFromFeishuResponse(raw []byte) (ports.IMDelivery, error) {
 	return ports.IMDelivery{
 		Status: "delivered",
 		Raw:    rawCopy,
+	}, nil
+}
+
+func deliveryFromSlackResponse(raw []byte) (ports.IMDelivery, error) {
+	trimmed := bytes.TrimSpace(raw)
+	if !bytes.Equal(trimmed, []byte("ok")) {
+		message := "webhook im: slack response body must be ok"
+		if len(trimmed) > 0 {
+			message = fmt.Sprintf("webhook im: slack returned %q", string(trimmed))
+		}
+		return ports.IMDelivery{}, &ports.IMError{Message: message}
+	}
+	return ports.IMDelivery{
+		Status: "delivered",
+		Raw:    json.RawMessage(`{"body":"ok"}`),
 	}, nil
 }

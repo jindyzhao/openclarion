@@ -69,7 +69,7 @@ deferred.
 4. Generate `SubReport` and `FinalReport` through `LLMProvider` (OpenAI-
    compatible API, no agent runtime dependency).
 5. Persist evidence and reports in PostgreSQL.
-6. Send reports through Webhook provider (Email and Slack as stretch goals).
+6. Send reports through Webhook provider (Email as a stretch goal).
 
 ## Provider Implementation Schedule
 

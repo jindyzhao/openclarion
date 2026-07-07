@@ -117,6 +117,7 @@ func TestBuilderUsesExplicitRobotFormatForChannelKind(t *testing.T) {
 	}{
 		{name: "dingtalk", kind: domain.NotificationChannelKindDingTalk, want: "dingtalk"},
 		{name: "feishu", kind: domain.NotificationChannelKindFeishu, want: "feishu"},
+		{name: "slack", kind: domain.NotificationChannelKindSlack, want: "slack"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

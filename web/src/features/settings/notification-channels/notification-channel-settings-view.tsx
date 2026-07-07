@@ -123,6 +123,7 @@ const channelKindOptions: Array<{
   { value: "wecom", label: "WeCom" },
   { value: "dingtalk", label: "DingTalk" },
   { value: "feishu", label: "Feishu" },
+  { value: "slack", label: "Slack" },
   { value: "webhook", label: "Webhook" },
 ];
 

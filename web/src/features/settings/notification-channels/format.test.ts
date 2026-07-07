@@ -396,7 +396,7 @@ describe("notification channel form formatting", () => {
       }),
     ).toEqual({
       detail:
-        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, or Feishu delivery.",
+        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, Feishu, or Slack delivery.",
       hasDiagnosisConsultationScope: true,
       hasDiagnosisCloseScope: true,
       hasReportScope: false,
@@ -504,6 +504,21 @@ describe("notification channel form formatting", () => {
       kindLabel: "Feishu",
       label: "Feishu credential contract selected.",
       secretRefExample: "secret/openclarion/ops-feishu",
+      secretConfigured: true,
+      status: "ready",
+    });
+
+    expect(
+      notificationChannelCredentialReadiness({
+        ...emptyNotificationChannelForm(),
+        kind: "slack",
+        secretRef: "secret/openclarion/ops-slack",
+      }),
+    ).toMatchObject({
+      expectedCredential: "Slack incoming webhook URL",
+      kindLabel: "Slack",
+      label: "Slack credential contract selected.",
+      secretRefExample: "secret/openclarion/ops-slack",
       secretConfigured: true,
       status: "ready",
     });

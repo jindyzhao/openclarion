@@ -84,7 +84,7 @@ func (b *Builder) Build(ctx context.Context, profile domain.NotificationChannelP
 		return nil, fmt.Errorf("notification channel provider: builder must be non-nil: %w", domain.ErrInvariantViolation)
 	}
 	switch profile.Kind {
-	case domain.NotificationChannelKindWebhook, domain.NotificationChannelKindWeCom, domain.NotificationChannelKindDingTalk, domain.NotificationChannelKindFeishu:
+	case domain.NotificationChannelKindWebhook, domain.NotificationChannelKindWeCom, domain.NotificationChannelKindDingTalk, domain.NotificationChannelKindFeishu, domain.NotificationChannelKindSlack:
 		credentials, err := b.resolveWebhookCredentials(ctx, profile)
 		if err != nil {
 			return nil, err
@@ -269,6 +269,8 @@ func notificationWebhookFormat(kind domain.NotificationChannelKind, raw string) 
 		return "dingtalk"
 	case domain.NotificationChannelKindFeishu:
 		return "feishu"
+	case domain.NotificationChannelKindSlack:
+		return "slack"
 	default:
 		return inferredWebhookFormat(raw)
 	}

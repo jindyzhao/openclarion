@@ -159,6 +159,7 @@ func TestNotificationChannelKindValidAcceptsReportWebhookKinds(t *testing.T) {
 		NotificationChannelKindWeCom,
 		NotificationChannelKindDingTalk,
 		NotificationChannelKindFeishu,
+		NotificationChannelKindSlack,
 	} {
 		t.Run(string(kind), func(t *testing.T) {
 			got, err := NewNotificationChannelProfile(

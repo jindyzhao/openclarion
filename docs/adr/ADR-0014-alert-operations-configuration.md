@@ -275,10 +275,10 @@ Report notification Activities may resolve that bound ID through a configured
 backend secret resolver and construct the Webhook IM provider at runtime. If no
 profile is bound, the existing `OPENCLARION_IM_WEBHOOK_URL` path remains the
 fallback for legacy or unbound report notifications; that fallback may set
-`OPENCLARION_IM_WEBHOOK_FORMAT=wecom` when the endpoint is a WeCom group bot
-that expects the text-message envelope instead of the default OpenClarion
-Webhook JSON. Workflow code carries only the immutable profile ID and never
-resolves secrets or providers.
+`OPENCLARION_IM_WEBHOOK_FORMAT=wecom`, `dingtalk`, `feishu`, or `slack` when
+the endpoint expects a supported robot / incoming-webhook text envelope instead
+of the default OpenClarion Webhook JSON. Workflow code carries only the
+immutable profile ID and never resolves secrets or providers.
 
 The operations configuration hygiene gate is part of this boundary. It scans
 the alert-operations configuration surface for non-placeholder HTTP(S) hosts,

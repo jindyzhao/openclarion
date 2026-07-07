@@ -67,13 +67,13 @@
 | Trigger | deployment requirements demand orchestrated multi-tenant sandboxes |
 | Target | post-V1 |
 
-### D9: Email and Slack IMProvider Implementations
+### D9: Email IMProvider Implementation
 
 | Field | Value |
 |-------|-------|
 | Status | open |
 | Decided | 2026-05-19 |
-| Reason | M2 ships Webhook IMProvider only. Email and Slack are valuable but not on the V1 critical path. |
+| Reason | Slack incoming webhook support now rides the Webhook IMProvider. Email remains valuable but not on the V1 critical path. |
 | Trigger | first deployment with operational notification preferences |
 | Target | post-V1 |
 

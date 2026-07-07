@@ -258,12 +258,14 @@ sessions, leader-tier approval, streaming partial responses.
       stable
 - [ ] scheduled weekly and monthly reports
 - [ ] multi-tenant operations
-- [ ] Email and Slack IM providers (upgrade from Webhook)
+- [x] Slack IM provider (incoming webhook format)
+- [ ] Email IM provider (upgrade from Webhook)
 
 ## Changelog
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-08 | jindyzhao | Slack incoming-webhook IM format landed locally: Webhook-backed notification delivery can now send Slack `text` payloads through legacy env format selection or profile-backed `slack` channel kinds. Email delivery remains a separate future provider item, and diagnosis consultation/close delivery remains scoped to Enterprise WeChat. |
 | 2026-07-08 | jindyzhao | DingTalk and Feishu IM provider formats landed locally: Webhook-backed notification delivery can now send DingTalk text robot payloads and Feishu/Lark custom-bot text payloads through legacy env format selection or profile-backed `dingtalk` / `feishu` channel kinds. These report-delivery channel kinds still keep diagnosis consultation and close delivery scoped to Enterprise WeChat. |
 | 2026-07-07 | jindyzhao | M4 egress provider wiring landed locally: Docker sandbox allowlist mode now carries the configured dedicated network into the provider spec, rejects Docker special modes such as `host`, `bridge`, and `none`, and passes explicit create-time endpoint configuration to Docker so candidate runtime containers attach to the reviewed egress boundary. This does not select representative samples, compare report quality, record an M4 decision, or accept a runtime baseline. |
 | 2026-06-08 | jindyzhao | M2 live-proof provider compatibility landed locally: the Prometheus provider now normalizes Thanos Rule `data.Alerts` alert-list casing on `/api/v1/alerts`, and the legacy runtime Webhook path can set `OPENCLARION_IM_WEBHOOK_FORMAT=wecom` for WeCom group bot text-message delivery. Retained real-service report proof still requires a configured LLM worker and validator-checked smoke output. |

@@ -224,6 +224,51 @@ func TestSendNotification_PostsFeishuTextPayload(t *testing.T) {
 	}
 }
 
+func TestSendNotification_PostsSlackTextPayload(t *testing.T) {
+	var gotPayload slackPayload
+	var gotIDKey, gotReportID, gotAuth, gotContentType string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method = %s, want POST", r.Method)
+		}
+		gotIDKey = r.Header.Get(headerIdempotencyKey)
+		gotReportID = r.Header.Get(headerReportID)
+		gotAuth = r.Header.Get("Authorization")
+		gotContentType = r.Header.Get("Content-Type")
+		if err := json.NewDecoder(r.Body).Decode(&gotPayload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	p, err := NewProvider(Config{URL: srv.URL + "/notify#fragment", Format: "slack"})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	delivery, err := p.SendNotification(context.Background(), validNotification())
+	if err != nil {
+		t.Fatalf("SendNotification: %v", err)
+	}
+	if gotIDKey != "" || gotReportID != "" || gotAuth != "" {
+		t.Fatalf("unexpected OpenClarion headers idempotency=%q report=%q auth=%q", gotIDKey, gotReportID, gotAuth)
+	}
+	if !strings.HasPrefix(gotContentType, "application/json") {
+		t.Fatalf("Content-Type = %q", gotContentType)
+	}
+	wantContent := "Payments degradation\nSeverity: warning\nCorrelation: window-1\nScale payments."
+	if gotPayload.Text != wantContent {
+		t.Fatalf("text = %q, want %q", gotPayload.Text, wantContent)
+	}
+	if delivery.ProviderMessageID != "" || delivery.Status != "delivered" {
+		t.Fatalf("delivery = %+v", delivery)
+	}
+	if string(delivery.Raw) != `{"body":"ok"}` {
+		t.Fatalf("delivery.Raw = %s", delivery.Raw)
+	}
+}
+
 func TestSendNotification_TruncatesWeComTextPayloadAtUTF8Boundary(t *testing.T) {
 	var gotPayload weComPayload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -288,6 +333,19 @@ func TestSendNotification_TruncatesRobotTextPayloadsAtUTF8Boundary(t *testing.T)
 					return "", err
 				}
 				return payload.Content.Text, nil
+			},
+		},
+		{
+			name:     "slack",
+			format:   "slack",
+			limit:    maxSlackTextContentBytes,
+			response: `ok`,
+			content: func(raw json.RawMessage) (string, error) {
+				var payload slackPayload
+				if err := json.Unmarshal(raw, &payload); err != nil {
+					return "", err
+				}
+				return payload.Text, nil
 			},
 		},
 	}
@@ -525,6 +583,12 @@ func TestSendNotification_RobotFormatsRejectProviderErrorCodes(t *testing.T) {
 			format: "feishu",
 			body:   `{"code":9499,"msg":"Bad Request","data":{}}`,
 			want:   "feishu returned code 9499",
+		},
+		{
+			name:   "slack error",
+			format: "slack",
+			body:   `invalid_payload`,
+			want:   "slack returned",
 		},
 	}
 	for _, tc := range tests {
@@ -882,7 +946,7 @@ func TestNewProvider_RejectsInvalidFormatConfig(t *testing.T) {
 	}{
 		{
 			name:       "unsupported format",
-			cfg:        Config{URL: "https://example.invalid/report-hook", Format: "slack"},
+			cfg:        Config{URL: "https://example.invalid/report-hook", Format: "msteams"},
 			wantSubstr: "unsupported format",
 		},
 		{
@@ -908,6 +972,15 @@ func TestNewProvider_RejectsInvalidFormatConfig(t *testing.T) {
 			cfg: Config{
 				URL:         "https://example.invalid/report-hook",
 				Format:      "feishu",
+				BearerToken: "test-bearer-value",
+			},
+			wantSubstr: "bearer token is unsupported",
+		},
+		{
+			name: "slack bearer token",
+			cfg: Config{
+				URL:         "https://example.invalid/report-hook",
+				Format:      "slack",
 				BearerToken: "test-bearer-value",
 			},
 			wantSubstr: "bearer token is unsupported",

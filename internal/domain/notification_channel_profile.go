@@ -34,12 +34,15 @@ const (
 	// NotificationChannelKindFeishu represents a Feishu or Lark custom bot
 	// webhook endpoint resolved from a deployment-managed secret reference.
 	NotificationChannelKindFeishu NotificationChannelKind = "feishu"
+	// NotificationChannelKindSlack represents a Slack incoming webhook endpoint
+	// resolved from a deployment-managed secret reference.
+	NotificationChannelKindSlack NotificationChannelKind = "slack"
 )
 
 // Valid reports whether k is a supported notification channel kind.
 func (k NotificationChannelKind) Valid() bool {
 	switch k {
-	case NotificationChannelKindWebhook, NotificationChannelKindWeCom, NotificationChannelKindDingTalk, NotificationChannelKindFeishu:
+	case NotificationChannelKindWebhook, NotificationChannelKindWeCom, NotificationChannelKindDingTalk, NotificationChannelKindFeishu, NotificationChannelKindSlack:
 		return true
 	}
 	return false

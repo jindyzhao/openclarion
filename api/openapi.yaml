@@ -4936,6 +4936,7 @@ components:
         - wecom
         - dingtalk
         - feishu
+        - slack
       examples:
         - webhook
         - wecom

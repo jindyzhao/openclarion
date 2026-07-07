@@ -343,7 +343,7 @@ export function notificationChannelDeliveryReadiness(
   ) {
     return {
       detail:
-        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, or Feishu delivery.",
+        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, Feishu, or Slack delivery.",
       hasDiagnosisConsultationScope,
       hasDiagnosisCloseScope,
       hasReportScope,
@@ -456,6 +456,18 @@ export function notificationChannelCredentialReadiness(
       expectedCredential,
       kindLabel,
       label: "Feishu credential contract selected.",
+      resolverEnvKey: notificationChannelSecretResolverEnvKey,
+      secretRefExample,
+      secretConfigured,
+      status: "ready",
+    };
+  }
+  if (form.kind === "slack") {
+    return {
+      detail: `Backend tests resolve this secret reference through ${notificationChannelSecretResolverEnvKey} and require one Slack incoming webhook endpoint.`,
+      expectedCredential,
+      kindLabel,
+      label: "Slack credential contract selected.",
       resolverEnvKey: notificationChannelSecretResolverEnvKey,
       secretRefExample,
       secretConfigured,
@@ -1205,6 +1217,8 @@ function notificationChannelKindLabel(
       return "DingTalk";
     case "feishu":
       return "Feishu";
+    case "slack":
+      return "Slack";
     case "webhook":
       return "Webhook";
   }
@@ -1220,6 +1234,8 @@ function notificationChannelExpectedCredential(
       return "DingTalk robot webhook URL";
     case "feishu":
       return "Feishu or Lark custom bot webhook URL";
+    case "slack":
+      return "Slack incoming webhook URL";
     case "webhook":
       return "HTTP webhook URL";
   }
@@ -1235,6 +1251,8 @@ function notificationChannelSecretRefExample(
       return "secret/openclarion/ops-dingtalk";
     case "feishu":
       return "secret/openclarion/ops-feishu";
+    case "slack":
+      return "secret/openclarion/ops-slack";
     case "webhook":
       return "secret/openclarion/ops-webhook";
   }
