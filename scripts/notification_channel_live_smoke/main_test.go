@@ -140,6 +140,58 @@ func TestRunEnforcesExpectedKind(t *testing.T) {
 	}
 }
 
+func TestRunAcceptsExpandedExpectedKinds(t *testing.T) {
+	now := time.Date(2026, 6, 20, 4, 2, 15, 0, time.UTC)
+	previousNow := nowUTC
+	nowUTC = func() time.Time { return now }
+	t.Cleanup(func() { nowUTC = previousNow })
+
+	for _, kind := range []api.NotificationChannelKind{
+		api.Dingtalk,
+		api.Feishu,
+		api.Slack,
+		api.NotificationChannelEmail,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				writeTestResult(t, w, api.NotificationChannelTestResult{
+					ChannelID:     7,
+					Kind:          kind,
+					Status:        api.NotificationChannelTestStatusSuccess,
+					ReasonCode:    api.NotificationChannelTestReasonCodeOk,
+					Message:       "Notification channel test delivery succeeded.",
+					ContentKind:   stringPtr("transport_sample"),
+					ContentSha256: stringPtr(strings.Repeat("a", 64)),
+					CheckedAt:     now,
+				})
+			}))
+			defer server.Close()
+
+			output := filepath.Join(t.TempDir(), "proof.json")
+			err := run([]string{
+				"--api-base-url", server.URL,
+				"--channel-id", "7",
+				"--expected-kind", string(kind),
+				"--output", output,
+			}, server.Client())
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			raw, err := os.ReadFile(output) // #nosec G304 -- test reads the proof path it created under t.TempDir.
+			if err != nil {
+				t.Fatalf("read proof: %v", err)
+			}
+			var out proof
+			if err := strictjson.Unmarshal(raw, &out); err != nil {
+				t.Fatalf("decode proof: %v", err)
+			}
+			if out.Request.ExpectedKind != string(kind) || out.Result.Kind != kind {
+				t.Fatalf("proof = %+v, want kind %s", out, kind)
+			}
+		})
+	}
+}
+
 func TestRunDefaultsExpectedKindForDiagnosisContent(t *testing.T) {
 	now := time.Date(2026, 6, 20, 4, 2, 30, 0, time.UTC)
 	previousNow := nowUTC

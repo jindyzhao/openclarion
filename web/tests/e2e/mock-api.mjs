@@ -2950,7 +2950,7 @@ function notificationChannelFromBody(
   const scopes = Array.isArray(body.delivery_scopes)
     ? body.delivery_scopes.map(String)
     : [];
-  const kind = body.kind === "wecom" ? "wecom" : "webhook";
+  const kind = notificationChannelKindFromBody(body.kind);
   if (
     kind !== "wecom" &&
     scopes.some(
@@ -2988,6 +2988,14 @@ function notificationChannelFromBody(
     created_at: createdAt,
     updated_at: now,
   };
+}
+
+function notificationChannelKindFromBody(value) {
+  return ["webhook", "wecom", "dingtalk", "feishu", "slack", "email"].includes(
+    value,
+  )
+    ? value
+    : "webhook";
 }
 
 function notificationChannelTestResultsFromBody(channelID, kind, value) {

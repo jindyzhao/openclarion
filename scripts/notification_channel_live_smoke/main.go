@@ -142,7 +142,7 @@ func parseArgs(args []string) (config, error) {
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&cfg.apiBaseURL, "api-base-url", "", "OpenClarion API base URL")
 	fs.Int64Var(&cfg.channelID, "channel-id", 0, "notification channel profile ID to test")
-	fs.StringVar(&expectedKind, "expected-kind", "", "optional expected channel kind: webhook or wecom; diagnosis samples imply wecom")
+	fs.StringVar(&expectedKind, "expected-kind", "", "optional expected channel kind: webhook, wecom, dingtalk, feishu, slack, or email; diagnosis samples imply wecom")
 	fs.StringVar(&expectedContentKind, "expected-content-kind", "", "optional expected test content kind: transport_sample, ai_diagnosis_sample, or diagnosis_close_sample")
 	fs.StringVar(&expectedContentKinds, "expected-content-kinds", "", "optional comma-separated expected test content kinds")
 	fs.BoolVar(&cfg.requireAIProof, "require-ai-proof", false, "require both Enterprise WeChat AI diagnosis and diagnosis close sample tests")
@@ -174,12 +174,12 @@ func parseArgs(args []string) (config, error) {
 		return config{}, fmt.Errorf("--channel-id must be positive")
 	}
 	expectedKind = strings.ToLower(strings.TrimSpace(expectedKind))
-	switch api.NotificationChannelKind(expectedKind) {
-	case "":
-	case api.Webhook, api.Wecom:
-		cfg.expectedKind = api.NotificationChannelKind(expectedKind)
-	default:
-		return config{}, fmt.Errorf("--expected-kind must be webhook or wecom when set")
+	if expectedKind != "" {
+		kind := api.NotificationChannelKind(expectedKind)
+		if !validNotificationChannelKind(kind) {
+			return config{}, fmt.Errorf("--expected-kind must be webhook, wecom, dingtalk, feishu, slack, or email when set")
+		}
+		cfg.expectedKind = kind
 	}
 	if cfg.requireAIProof && (strings.TrimSpace(expectedContentKind) != "" || strings.TrimSpace(expectedContentKinds) != "") {
 		return config{}, fmt.Errorf("--require-ai-proof cannot be combined with --expected-content-kind or --expected-content-kinds")
@@ -539,11 +539,8 @@ func validateRequest(req proofRequest, checkedAt time.Time) error {
 	if checkedAt.IsZero() {
 		return fmt.Errorf("checked_at must be valid")
 	}
-	switch api.NotificationChannelKind(req.ExpectedKind) {
-	case "":
-	case api.Webhook, api.Wecom:
-	default:
-		return fmt.Errorf("request.expected_kind must be webhook or wecom when set")
+	if req.ExpectedKind != "" && !validNotificationChannelKind(api.NotificationChannelKind(req.ExpectedKind)) {
+		return fmt.Errorf("request.expected_kind must be webhook, wecom, dingtalk, feishu, slack, or email when set")
 	}
 	if req.ExpectedContentKind != "" && !validContentKind(req.ExpectedContentKind) {
 		return fmt.Errorf("request.expected_content_kind is unsupported")
@@ -636,9 +633,7 @@ func validateResult(result api.NotificationChannelTestResult, requireSuccess boo
 	if result.ChannelID <= 0 {
 		return fmt.Errorf("result.channel_id must be positive")
 	}
-	switch result.Kind {
-	case api.Webhook, api.Wecom:
-	default:
+	if !validNotificationChannelKind(result.Kind) {
 		return fmt.Errorf("result.kind is unsupported")
 	}
 	switch result.Status {
@@ -729,6 +724,15 @@ func validateOptionalSingleLine(field, value string, maxBytes int) error {
 func validContentKind(value string) bool {
 	switch value {
 	case "transport_sample", "ai_diagnosis_sample", "diagnosis_close_sample":
+		return true
+	default:
+		return false
+	}
+}
+
+func validNotificationChannelKind(kind api.NotificationChannelKind) bool {
+	switch kind {
+	case api.Webhook, api.Wecom, api.Dingtalk, api.Feishu, api.Slack, api.NotificationChannelEmail:
 		return true
 	default:
 		return false

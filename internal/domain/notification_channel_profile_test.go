@@ -75,7 +75,7 @@ func TestNewNotificationChannelProfileRejectsInvalid(t *testing.T) {
 		{
 			name: "unsupported kind",
 			edit: func() (NotificationChannelProfile, error) {
-				return NewNotificationChannelProfile("name", "email", "secret/ref", []NotificationDeliveryScope{NotificationDeliveryScopeReport}, false, nil)
+				return NewNotificationChannelProfile("name", "pagerduty", "secret/ref", []NotificationDeliveryScope{NotificationDeliveryScopeReport}, false, nil)
 			},
 		},
 		{
@@ -94,6 +94,18 @@ func TestNewNotificationChannelProfileRejectsInvalid(t *testing.T) {
 			name: "secret endpoint url",
 			edit: func() (NotificationChannelProfile, error) {
 				return NewNotificationChannelProfile("name", NotificationChannelKindWeCom, "https://qyapi.example.test/cgi-bin/webhook/send?key=secret", []NotificationDeliveryScope{NotificationDeliveryScopeReport}, false, nil)
+			},
+		},
+		{
+			name: "secret smtp url",
+			edit: func() (NotificationChannelProfile, error) {
+				return NewNotificationChannelProfile("name", NotificationChannelKindEmail, "smtp://smtp.example.test:587?from=alerts%40example.test&to=ops%40example.test", []NotificationDeliveryScope{NotificationDeliveryScopeReport}, false, nil)
+			},
+		},
+		{
+			name: "secret smtps url",
+			edit: func() (NotificationChannelProfile, error) {
+				return NewNotificationChannelProfile("name", NotificationChannelKindEmail, "smtps://smtp.example.test?from=alerts%40example.test&to=ops%40example.test", []NotificationDeliveryScope{NotificationDeliveryScopeReport}, false, nil)
 			},
 		},
 		{
@@ -148,6 +160,34 @@ func TestNewNotificationChannelProfileRejectsInvalid(t *testing.T) {
 			}
 			if !errors.Is(err, ErrInvariantViolation) {
 				t.Fatalf("err = %v, want ErrInvariantViolation", err)
+			}
+		})
+	}
+}
+
+func TestNotificationChannelKindValidAcceptsReportWebhookKinds(t *testing.T) {
+	for _, kind := range []NotificationChannelKind{
+		NotificationChannelKindWebhook,
+		NotificationChannelKindWeCom,
+		NotificationChannelKindDingTalk,
+		NotificationChannelKindFeishu,
+		NotificationChannelKindSlack,
+		NotificationChannelKindEmail,
+	} {
+		t.Run(string(kind), func(t *testing.T) {
+			got, err := NewNotificationChannelProfile(
+				"Report notifications",
+				kind,
+				"secret/openclarion/report-webhook",
+				[]NotificationDeliveryScope{NotificationDeliveryScopeReport},
+				false,
+				nil,
+			)
+			if err != nil {
+				t.Fatalf("NewNotificationChannelProfile: %v", err)
+			}
+			if got.Kind != kind {
+				t.Fatalf("Kind = %q, want %q", got.Kind, kind)
 			}
 		})
 	}

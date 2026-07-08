@@ -5,7 +5,7 @@
 > prevents deferred items from being silently lost and prevents past
 > discussions from being re-litigated without new information.
 
-> Last updated: 2026-05-30
+> Last updated: 2026-07-08
 
 ## How To Use This File
 
@@ -67,16 +67,6 @@
 | Trigger | deployment requirements demand orchestrated multi-tenant sandboxes |
 | Target | post-V1 |
 
-### D9: Email and Slack IMProvider Implementations
-
-| Field | Value |
-|-------|-------|
-| Status | open |
-| Decided | 2026-05-19 |
-| Reason | M2 ships Webhook IMProvider only. Email and Slack are valuable but not on the V1 critical path. |
-| Trigger | first deployment with operational notification preferences |
-| Target | post-V1 |
-
 ### D10: Phase Checklist File Split
 
 | Field | Value |
@@ -123,6 +113,16 @@
 | Trigger | Closed by M3 OpenTelemetry HTTP tracing first import. |
 | Target | M3 (OpenTelemetry Go) |
 
+### D9: Email IMProvider Implementation
+
+| Field | Value |
+|-------|-------|
+| Status | closed |
+| Decided | 2026-05-19 |
+| Reason | Profile-backed SMTP Email notification channels now resolve deployment-managed SMTP URL secrets for report-scoped delivery. |
+| Trigger | closed after profile-backed Email provider support landed |
+| Target | landed |
+
 ### D11: Legacy Forbidden-Imports Bash Deletion
 
 | Field | Value |
@@ -143,6 +143,7 @@
 | 2026-05-25 | jindyzhao | D6 Temporal SDK portion closed at M1-PR3: `go.temporal.io/sdk v1.44.0` pinned via first-import rule. Only OTel remains open for M3. |
 | 2026-05-27 | jindyzhao | Add D11 for W3-2b: legacy forbidden-imports bash deletion is deferred until the two-week analyzer equivalence window completes. |
 | 2026-05-27 | jindyzhao | Close D11 after revising the plan to permit immediate retirement on rigorous local equivalence proof; analyzer tests now pin the retired legacy deny-list and cover red/green fixtures. |
+| 2026-07-08 | jindyzhao | Close D9 after profile-backed SMTP Email notification channels landed for report-scoped delivery. |
 | 2026-05-28 | jindyzhao | D6 closed: M3 OpenTelemetry HTTP tracing first import pins `go.opentelemetry.io/otel v1.44.0`, `go.opentelemetry.io/otel/sdk v1.44.0`, OTLP HTTP trace exporter `v1.44.0`, and `otelhttp v0.68.0`; collector smoke and broader tracing coverage are tracked as M3 implementation work, not dependency-pin deferral. |
 | 2026-05-30 | jindyzhao | D2 closed after re-evaluation: the generated `ServerInterface` handler surface remains small and covered by endpoint tests, so a handwritten strict adapter would add maintenance cost without proven V1 value. |
 | 2026-05-30 | jindyzhao | D10 re-evaluated after M2/M5 growth: keep the single delivery checklist for now and replace the expired M2-review trigger with concrete size, ownership, and reviewer-friction triggers. |

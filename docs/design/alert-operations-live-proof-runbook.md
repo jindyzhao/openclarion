@@ -190,7 +190,7 @@ state.
 | Output retention | `REPORT_POLICY_LIVE_SMOKE_OUTPUT` or `REPORT_SCHEDULE_LIVE_SMOKE_OUTPUT` pointing at a new local JSON proof path |
 | Worker LLM | `OPENCLARION_LLM_MODEL` plus the deployment's `OPENCLARION_LLM_*` provider settings, unless an externally managed worker is already verified |
 | Alert source secrets | `OPENCLARION_ALERT_SOURCE_SECRET_REFS_JSON` when configured profiles need bearer tokens |
-| Notification delivery | `OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON` for profile-bound delivery, or `OPENCLARION_IM_WEBHOOK_URL` for legacy unbound delivery; set `OPENCLARION_IM_WEBHOOK_FORMAT=wecom` for legacy WeCom group bot endpoints. Explicit `wecom` channel profiles require an HTTPS Enterprise WeChat group bot endpoint with only one `key` query parameter. |
+| Notification delivery | `OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON` for profile-bound delivery, or `OPENCLARION_IM_WEBHOOK_URL` for legacy unbound delivery; set `OPENCLARION_IM_WEBHOOK_FORMAT=wecom`, `dingtalk`, `feishu`, or `slack` for supported robot / incoming-webhook endpoints. Explicit `wecom` channel profiles require an HTTPS Enterprise WeChat group bot endpoint with only one `key` query parameter. Explicit `email` channel profiles resolve an SMTP URL secret such as `smtp://smtp.example.test?from=alerts%40example.test&to=ops%40example.test`; legacy unbound email delivery is not configured through `OPENCLARION_IM_WEBHOOK_*`. |
 | Worker assertion | `REPORT_LIVE_SMOKE_ASSUME_WORKER_READY=1` only after the operator has verified the worker already has the required LLM and notification wiring |
 
 ## Proof Commands

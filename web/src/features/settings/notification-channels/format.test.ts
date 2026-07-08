@@ -327,6 +327,19 @@ describe("notification channel form formatting", () => {
       ok: false,
       message: "Secret reference must not be an endpoint URL.",
     });
+
+    expect(
+      formStateToWriteRequest({
+        ...emptyNotificationChannelForm(),
+        kind: "email",
+        name: "Direct SMTP endpoint",
+        secretRef:
+          "smtps://smtp.example.test?from=alerts%40example.test&to=ops%40example.test",
+      }),
+    ).toEqual({
+      ok: false,
+      message: "Secret reference must not be an endpoint URL.",
+    });
   });
 
   it("maps persisted channels back to edit form state", () => {
@@ -396,7 +409,7 @@ describe("notification channel form formatting", () => {
       }),
     ).toEqual({
       detail:
-        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for generic webhook delivery.",
+        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, Feishu, Slack, or Email delivery.",
       hasDiagnosisConsultationScope: true,
       hasDiagnosisCloseScope: true,
       hasReportScope: false,
@@ -479,6 +492,66 @@ describe("notification channel form formatting", () => {
     });
 
     expect(
+      notificationChannelCredentialReadiness({
+        ...emptyNotificationChannelForm(),
+        kind: "dingtalk",
+        secretRef: "secret/openclarion/ops-dingtalk",
+      }),
+    ).toMatchObject({
+      expectedCredential: "DingTalk robot webhook URL",
+      kindLabel: "DingTalk",
+      label: "DingTalk credential contract selected.",
+      secretRefExample: "secret/openclarion/ops-dingtalk",
+      secretConfigured: true,
+      status: "ready",
+    });
+
+    expect(
+      notificationChannelCredentialReadiness({
+        ...emptyNotificationChannelForm(),
+        kind: "feishu",
+        secretRef: "secret/openclarion/ops-feishu",
+      }),
+    ).toMatchObject({
+      expectedCredential: "Feishu or Lark custom bot webhook URL",
+      kindLabel: "Feishu",
+      label: "Feishu credential contract selected.",
+      secretRefExample: "secret/openclarion/ops-feishu",
+      secretConfigured: true,
+      status: "ready",
+    });
+
+    expect(
+      notificationChannelCredentialReadiness({
+        ...emptyNotificationChannelForm(),
+        kind: "slack",
+        secretRef: "secret/openclarion/ops-slack",
+      }),
+    ).toMatchObject({
+      expectedCredential: "Slack incoming webhook URL",
+      kindLabel: "Slack",
+      label: "Slack credential contract selected.",
+      secretRefExample: "secret/openclarion/ops-slack",
+      secretConfigured: true,
+      status: "ready",
+    });
+
+    expect(
+      notificationChannelCredentialReadiness({
+        ...emptyNotificationChannelForm(),
+        kind: "email",
+        secretRef: "secret/openclarion/ops-email",
+      }),
+    ).toMatchObject({
+      expectedCredential: "SMTP URL with from/to recipients",
+      kindLabel: "Email",
+      label: "Email credential contract selected.",
+      secretRefExample: "secret/openclarion/ops-email",
+      secretConfigured: true,
+      status: "ready",
+    });
+
+    expect(
       notificationChannelCredentialReadiness(emptyNotificationChannelForm()),
     ).toMatchObject({
       expectedCredential: "HTTP webhook URL",
@@ -503,6 +576,22 @@ describe("notification channel form formatting", () => {
       label: "Endpoint URL cannot be stored as a secret reference.",
       resolverEnvKey: "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON",
       secretRefExample: "secret/openclarion/ops-wecom",
+      secretConfigured: true,
+      status: "blocked",
+    });
+
+    expect(
+      notificationChannelCredentialReadiness({
+        ...emptyNotificationChannelForm(),
+        kind: "email",
+        secretRef:
+          "smtp://smtp.example.test?from=alerts%40example.test&to=ops%40example.test",
+      }),
+    ).toMatchObject({
+      expectedCredential: "SMTP URL with from/to recipients",
+      kindLabel: "Email",
+      label: "Endpoint URL cannot be stored as a secret reference.",
+      secretRefExample: "secret/openclarion/ops-email",
       secretConfigured: true,
       status: "blocked",
     });

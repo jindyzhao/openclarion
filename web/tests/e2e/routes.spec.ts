@@ -2528,4 +2528,24 @@ test("notification channel settings route lists and creates channels", async ({
   await expect(incidentRow).toContainText("diagnosis_consultation");
   await expect(incidentRow).toContainText("diagnosis_close");
   await expect(incidentRow).toContainText("Enabled");
+
+  await page.getByLabel("Name").fill("Incident Slack");
+  await settingsForm
+    .locator(".ant-form-item")
+    .filter({ hasText: /^Kind/ })
+    .locator(".ant-segmented-item")
+    .filter({ hasText: /^Slack$/ })
+    .click();
+  await page.getByLabel("Secret reference").fill("secret/example/ops-slack");
+  await settingsForm.getByLabel("Diagnosis consultation").uncheck();
+  await settingsForm.getByLabel("Diagnosis close").uncheck();
+  await settingsForm.getByLabel("Reports").check();
+  await settingsForm.getByRole("button", { name: "Save Channel" }).click();
+
+  await expect(
+    page.getByRole("status").filter({ hasText: "Channel saved." }),
+  ).toBeVisible();
+  const slackRow = page.getByRole("row", { name: /Incident Slack/ });
+  await expect(slackRow).toContainText("slack");
+  await expect(slackRow).toContainText("secret/example/ops-slack");
 });

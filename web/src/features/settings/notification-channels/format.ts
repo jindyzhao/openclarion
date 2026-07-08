@@ -343,7 +343,7 @@ export function notificationChannelDeliveryReadiness(
   ) {
     return {
       detail:
-        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for generic webhook delivery.",
+        "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, Feishu, Slack, or Email delivery.",
       hasDiagnosisConsultationScope,
       hasDiagnosisCloseScope,
       hasReportScope,
@@ -400,10 +400,7 @@ export function notificationChannelCredentialReadiness(
   const secretConfigured = secretRef !== "";
   const kindLabel = notificationChannelKindLabel(form.kind);
   const secretRefExample = notificationChannelSecretRefExample(form.kind);
-  const expectedCredential =
-    form.kind === "wecom"
-      ? "Enterprise WeChat robot webhook URL"
-      : "HTTP webhook URL";
+  const expectedCredential = notificationChannelExpectedCredential(form.kind);
   if (!secretConfigured) {
     return {
       detail: `Select a deployment-managed secret reference before testing the channel, then map it in ${notificationChannelSecretResolverEnvKey}.`,
@@ -435,6 +432,54 @@ export function notificationChannelCredentialReadiness(
       expectedCredential,
       kindLabel,
       label: "WeCom credential contract selected.",
+      resolverEnvKey: notificationChannelSecretResolverEnvKey,
+      secretRefExample,
+      secretConfigured,
+      status: "ready",
+    };
+  }
+  if (form.kind === "dingtalk") {
+    return {
+      detail: `Backend tests resolve this secret reference through ${notificationChannelSecretResolverEnvKey} and require one DingTalk robot webhook endpoint.`,
+      expectedCredential,
+      kindLabel,
+      label: "DingTalk credential contract selected.",
+      resolverEnvKey: notificationChannelSecretResolverEnvKey,
+      secretRefExample,
+      secretConfigured,
+      status: "ready",
+    };
+  }
+  if (form.kind === "feishu") {
+    return {
+      detail: `Backend tests resolve this secret reference through ${notificationChannelSecretResolverEnvKey} and require one Feishu or Lark custom bot webhook endpoint.`,
+      expectedCredential,
+      kindLabel,
+      label: "Feishu credential contract selected.",
+      resolverEnvKey: notificationChannelSecretResolverEnvKey,
+      secretRefExample,
+      secretConfigured,
+      status: "ready",
+    };
+  }
+  if (form.kind === "slack") {
+    return {
+      detail: `Backend tests resolve this secret reference through ${notificationChannelSecretResolverEnvKey} and require one Slack incoming webhook endpoint.`,
+      expectedCredential,
+      kindLabel,
+      label: "Slack credential contract selected.",
+      resolverEnvKey: notificationChannelSecretResolverEnvKey,
+      secretRefExample,
+      secretConfigured,
+      status: "ready",
+    };
+  }
+  if (form.kind === "email") {
+    return {
+      detail: `Backend tests resolve this secret reference through ${notificationChannelSecretResolverEnvKey} and require one SMTP URL with from and to query parameters.`,
+      expectedCredential,
+      kindLabel,
+      label: "Email credential contract selected.",
       resolverEnvKey: notificationChannelSecretResolverEnvKey,
       secretRefExample,
       secretConfigured,
@@ -1180,8 +1225,35 @@ function notificationChannelKindLabel(
   switch (kind) {
     case "wecom":
       return "WeCom";
+    case "dingtalk":
+      return "DingTalk";
+    case "feishu":
+      return "Feishu";
+    case "slack":
+      return "Slack";
+    case "email":
+      return "Email";
     case "webhook":
       return "Webhook";
+  }
+}
+
+function notificationChannelExpectedCredential(
+  kind: NotificationChannelFormState["kind"],
+): string {
+  switch (kind) {
+    case "wecom":
+      return "Enterprise WeChat robot webhook URL";
+    case "dingtalk":
+      return "DingTalk robot webhook URL";
+    case "feishu":
+      return "Feishu or Lark custom bot webhook URL";
+    case "slack":
+      return "Slack incoming webhook URL";
+    case "email":
+      return "SMTP URL with from/to recipients";
+    case "webhook":
+      return "HTTP webhook URL";
   }
 }
 
@@ -1191,6 +1263,14 @@ function notificationChannelSecretRefExample(
   switch (kind) {
     case "wecom":
       return "secret/openclarion/ops-wecom";
+    case "dingtalk":
+      return "secret/openclarion/ops-dingtalk";
+    case "feishu":
+      return "secret/openclarion/ops-feishu";
+    case "slack":
+      return "secret/openclarion/ops-slack";
+    case "email":
+      return "secret/openclarion/ops-email";
     case "webhook":
       return "secret/openclarion/ops-webhook";
   }
@@ -1199,7 +1279,12 @@ function notificationChannelSecretRefExample(
 function notificationSecretRefLooksLikeEndpointURL(secretRef: string): boolean {
   try {
     const parsed = new URL(secretRef);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
+    return (
+      parsed.protocol === "http:" ||
+      parsed.protocol === "https:" ||
+      parsed.protocol === "smtp:" ||
+      parsed.protocol === "smtps:"
+    );
   } catch {
     return false;
   }

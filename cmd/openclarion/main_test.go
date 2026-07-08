@@ -309,7 +309,7 @@ func TestReportActivityOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
 			name: "unsupported webhook format",
 			env: map[string]string{
 				"OPENCLARION_IM_WEBHOOK_URL":    "https://example.invalid/report-hook",
-				"OPENCLARION_IM_WEBHOOK_FORMAT": "slack",
+				"OPENCLARION_IM_WEBHOOK_FORMAT": "msteams",
 			},
 			wantSubstr: "unsupported format",
 		},

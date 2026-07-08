@@ -28,12 +28,24 @@ const (
 	// NotificationChannelKindWeCom represents an Enterprise WeChat group robot
 	// webhook endpoint resolved from a deployment-managed secret reference.
 	NotificationChannelKindWeCom NotificationChannelKind = "wecom"
+	// NotificationChannelKindDingTalk represents a DingTalk group robot
+	// webhook endpoint resolved from a deployment-managed secret reference.
+	NotificationChannelKindDingTalk NotificationChannelKind = "dingtalk"
+	// NotificationChannelKindFeishu represents a Feishu or Lark custom bot
+	// webhook endpoint resolved from a deployment-managed secret reference.
+	NotificationChannelKindFeishu NotificationChannelKind = "feishu"
+	// NotificationChannelKindSlack represents a Slack incoming webhook endpoint
+	// resolved from a deployment-managed secret reference.
+	NotificationChannelKindSlack NotificationChannelKind = "slack"
+	// NotificationChannelKindEmail represents an SMTP email endpoint resolved
+	// from a deployment-managed secret reference.
+	NotificationChannelKindEmail NotificationChannelKind = "email"
 )
 
 // Valid reports whether k is a supported notification channel kind.
 func (k NotificationChannelKind) Valid() bool {
 	switch k {
-	case NotificationChannelKindWebhook, NotificationChannelKindWeCom:
+	case NotificationChannelKindWebhook, NotificationChannelKindWeCom, NotificationChannelKindDingTalk, NotificationChannelKindFeishu, NotificationChannelKindSlack, NotificationChannelKindEmail:
 		return true
 	}
 	return false
@@ -345,7 +357,7 @@ func notificationSecretRefLooksLikeEndpointURL(secretRef string) bool {
 		return false
 	}
 	switch strings.ToLower(parsed.Scheme) {
-	case "http", "https":
+	case "http", "https", "smtp", "smtps":
 		return true
 	default:
 		return false
