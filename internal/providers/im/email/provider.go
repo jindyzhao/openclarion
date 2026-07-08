@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"net/url"
 	"strings"
 	"time"
@@ -236,7 +237,7 @@ func (p *Provider) SendNotification(ctx context.Context, req ports.IMNotificatio
 		}
 		return ports.IMDelivery{}, &ports.IMError{
 			Message:   fmt.Sprintf("email im: send notification failed: %v", err),
-			Retryable: true,
+			Retryable: emailSendErrorRetryable(err),
 		}
 	}
 	raw, _ := json.Marshal(map[string]any{
@@ -500,6 +501,21 @@ func (s smtpSender) SendEmail(ctx context.Context, req SendRequest) error {
 		return err
 	}
 	return client.Quit()
+}
+
+func emailSendErrorRetryable(err error) bool {
+	var protoErr *textproto.Error
+	if errors.As(err, &protoErr) {
+		return protoErr.Code >= 400 && protoErr.Code < 500
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return true
+	}
+	return true
 }
 
 func dialSMTP(ctx context.Context, req SendRequest) (net.Conn, error) {

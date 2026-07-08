@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/mail"
+	"net/textproto"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -182,6 +184,44 @@ func TestSendNotificationPropagatesIMError(t *testing.T) {
 	_, err := provider.SendNotification(context.Background(), validNotification())
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("err = %v, want %v", err, wantErr)
+	}
+}
+
+func TestSendNotificationClassifiesSMTPStatusErrors(t *testing.T) {
+	tests := []struct {
+		name      string
+		code      int
+		retryable bool
+	}{
+		{name: "temporary server reject", code: 421, retryable: true},
+		{name: "auth reject", code: 535, retryable: false},
+		{name: "recipient reject", code: 550, retryable: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			provider := mustProvider(t, Config{
+				ServerAddr: "smtp.example.test:25",
+				ServerName: "smtp.example.test",
+				From:       mail.Address{Address: "alerts@example.test"},
+				To:         []mail.Address{{Address: "ops@example.test"}},
+				TLSMode:    tlsModeNone,
+				Sender: recordingSenderFunc(func(context.Context, SendRequest) error {
+					return fmt.Errorf("smtp command failed: %w", &textproto.Error{Code: tc.code, Msg: "smtp fixture"})
+				}),
+			})
+
+			_, err := provider.SendNotification(context.Background(), validNotification())
+			if err == nil {
+				t.Fatal("SendNotification err = nil, want SMTP status error")
+			}
+			var imErr *ports.IMError
+			if !errors.As(err, &imErr) {
+				t.Fatalf("err = %T %v, want *ports.IMError", err, err)
+			}
+			if imErr.Retryable != tc.retryable {
+				t.Fatalf("IMError.Retryable = %v, want %v", imErr.Retryable, tc.retryable)
+			}
+		})
 	}
 }
 

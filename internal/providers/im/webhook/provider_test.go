@@ -579,10 +579,24 @@ func TestSendNotification_RobotFormatsRejectProviderErrorCodes(t *testing.T) {
 			want:   "dingtalk returned errcode 310000",
 		},
 		{
+			name:      "dingtalk rate limited",
+			format:    "dingtalk",
+			body:      `{"errcode":130101,"errmsg":"send too fast, exceed 20 times per minute"}`,
+			want:      "dingtalk returned errcode 130101",
+			retryable: true,
+		},
+		{
 			name:   "feishu error",
 			format: "feishu",
 			body:   `{"code":9499,"msg":"Bad Request","data":{}}`,
 			want:   "feishu returned code 9499",
+		},
+		{
+			name:      "feishu rate limited",
+			format:    "feishu",
+			body:      `{"code":9499,"msg":"too many request","data":{}}`,
+			want:      "feishu returned code 9499",
+			retryable: true,
 		},
 		{
 			name:   "slack error",

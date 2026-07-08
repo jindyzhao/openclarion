@@ -506,10 +506,10 @@ func alertOperationsLiveInputsReadiness(env envMap) targetReadiness {
 		}
 	}
 	if envPresent(env, "OPENCLARION_IM_WEBHOOK_FORMAT") &&
-		!oneOf(strings.ToLower(strings.TrimSpace(env["OPENCLARION_IM_WEBHOOK_FORMAT"])), "generic", "wecom") {
+		!oneOf(strings.ToLower(strings.TrimSpace(env["OPENCLARION_IM_WEBHOOK_FORMAT"])), "generic", "wecom", "dingtalk", "feishu", "slack") {
 		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
 			Name:   "OPENCLARION_IM_WEBHOOK_FORMAT",
-			Reason: "must be generic or wecom when set",
+			Reason: "must be generic, wecom, dingtalk, feishu, or slack when set",
 		})
 	}
 	return finalize(target)
@@ -574,7 +574,7 @@ func notificationChannelLiveSmokeReadiness(env envMap) targetReadiness {
 		if envPresent(env, name) && !validNotificationChannelKind(env[name]) {
 			target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
 				Name:   name,
-				Reason: "must be webhook or wecom when set",
+				Reason: "must be webhook, wecom, dingtalk, feishu, slack, or email when set",
 			})
 		}
 	}
@@ -2797,7 +2797,7 @@ func validReadinessBearerToken(raw string) bool {
 }
 
 func validNotificationChannelKind(raw string) bool {
-	return oneOf(strings.ToLower(strings.TrimSpace(raw)), "webhook", "wecom")
+	return oneOf(strings.ToLower(strings.TrimSpace(raw)), "webhook", "wecom", "dingtalk", "feishu", "slack", "email")
 }
 
 func validNotificationChannelContentKind(raw string) bool {

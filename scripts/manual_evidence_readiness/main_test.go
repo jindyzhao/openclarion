@@ -76,6 +76,32 @@ func TestRunAlertOperationsLiveInputsReadyWithoutValues(t *testing.T) {
 	}
 }
 
+func TestRunAlertOperationsLiveInputsAcceptsWebhookFormats(t *testing.T) {
+	for _, format := range []string{"generic", "wecom", "dingtalk", "feishu", "slack"} {
+		t.Run(format, func(t *testing.T) {
+			var stdout bytes.Buffer
+			err := run([]string{"--target", "alert-operations-live-inputs"}, []string{
+				"OPENCLARION_PROMETHEUS_URL=https://thanos-query.example.test",
+				"OPENCLARION_LLM_MODEL=example-llm-model",
+				"OPENCLARION_IM_WEBHOOK_URL=https://webhook.example.test/notify",
+				"OPENCLARION_IM_WEBHOOK_FORMAT=" + format,
+			}, &stdout)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			out := decodeOutput(t, stdout.Bytes())
+			target := targetByName(t, out, "alert-operations-live-inputs")
+			if target.Status != "ready" {
+				t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+			}
+			if len(target.MissingEnv) != 0 || len(target.InvalidEnv) != 0 {
+				t.Fatalf("target has unexpected blockers: %#v", target)
+			}
+		})
+	}
+}
+
 func TestRunReportsReadyNotificationChannelLiveSmoke(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
@@ -130,6 +156,35 @@ func TestRunReportsReadyNotificationChannelLiveSmokeWithLiveAlias(t *testing.T) 
 	}
 	if strings.Contains(stdout.String(), "api.example.test") {
 		t.Fatalf("output leaked notification channel alias value: %s", stdout.String())
+	}
+}
+
+func TestRunReportsReadyNotificationChannelLiveSmokeWithExpandedKinds(t *testing.T) {
+	for _, kind := range []string{"dingtalk", "feishu", "slack", "email"} {
+		t.Run(kind, func(t *testing.T) {
+			var stdout bytes.Buffer
+			err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
+				"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+				"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_PROFILE_ID=2",
+				"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_KIND=" + kind,
+				"OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND=transport_sample",
+			}, &stdout)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			out := decodeOutput(t, stdout.Bytes())
+			target := targetByName(t, out, "notification-channel-live-smoke")
+			if target.Status != "ready" {
+				t.Fatalf("target status = %q, want ready: %#v", target.Status, target)
+			}
+			if len(target.MissingEnv) != 0 || len(target.UnsatisfiedAlternatives) != 0 || len(target.InvalidEnv) != 0 {
+				t.Fatalf("target has unexpected blockers: %#v", target)
+			}
+			if strings.Contains(stdout.String(), "api.example.test") {
+				t.Fatalf("output leaked notification channel value: %s", stdout.String())
+			}
+		})
 	}
 }
 
@@ -651,7 +706,7 @@ func TestRunRejectsBadAlertOperationsLiveInputsWithoutLeakingValues(t *testing.T
 		"OPENCLARION_LLM_API_KEY=placeholder key with spaces",
 		"OPENCLARION_LLM_MODEL= example-llm-model",
 		"OPENCLARION_IM_WEBHOOK_URL=https://operator:secret@wecom-webhook.example.test/cgi-bin/webhook/send?key=placeholder-webhook-key",
-		"OPENCLARION_IM_WEBHOOK_FORMAT=slack",
+		"OPENCLARION_IM_WEBHOOK_FORMAT=pager",
 	}, &stdout)
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -687,7 +742,7 @@ func TestRunRejectsBadAlertOperationsLiveInputsWithoutLeakingValues(t *testing.T
 		"example-llm-model",
 		"wecom-webhook.example.test",
 		"placeholder-webhook-key",
-		"slack",
+		"pager",
 	} {
 		if strings.Contains(stdout.String(), secret) {
 			t.Fatalf("output leaked invalid live input value %q: %s", secret, stdout.String())

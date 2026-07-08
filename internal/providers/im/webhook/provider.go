@@ -568,7 +568,10 @@ func deliveryFromDingTalkResponse(raw []byte) (ports.IMDelivery, error) {
 		if errMsg := strings.TrimSpace(out.ErrMsg); errMsg != "" {
 			message = message + ": " + errMsg
 		}
-		return ports.IMDelivery{}, &ports.IMError{Message: message}
+		return ports.IMDelivery{}, &ports.IMError{
+			Message:   message,
+			Retryable: dingTalkResponseRetryable(*out.ErrCode, out.ErrMsg),
+		}
 	}
 	rawCopy := make(json.RawMessage, len(trimmed))
 	copy(rawCopy, trimmed)
@@ -604,8 +607,13 @@ func deliveryFromFeishuResponse(raw []byte) (ports.IMDelivery, error) {
 		message := fmt.Sprintf("webhook im: feishu returned code %d", *code)
 		if msg := strings.TrimSpace(out.Msg); msg != "" {
 			message = message + ": " + msg
+		} else if statusMessage := strings.TrimSpace(out.StatusMessage); statusMessage != "" {
+			message = message + ": " + statusMessage
 		}
-		return ports.IMDelivery{}, &ports.IMError{Message: message}
+		return ports.IMDelivery{}, &ports.IMError{
+			Message:   message,
+			Retryable: feishuResponseRetryable(*code, out.Msg, out.StatusMessage),
+		}
 	}
 	rawCopy := make(json.RawMessage, len(trimmed))
 	copy(rawCopy, trimmed)
@@ -628,4 +636,22 @@ func deliveryFromSlackResponse(raw []byte) (ports.IMDelivery, error) {
 		Status: "delivered",
 		Raw:    json.RawMessage(`{"body":"ok"}`),
 	}, nil
+}
+
+func dingTalkResponseRetryable(code int, message string) bool {
+	return code == 130101 || strings.Contains(strings.ToLower(message), "send too fast")
+}
+
+func feishuResponseRetryable(code int, messages ...string) bool {
+	if code != 9499 {
+		return false
+	}
+	for _, message := range messages {
+		normalized := strings.ToLower(strings.TrimSpace(message))
+		if strings.Contains(normalized, "too many request") ||
+			strings.Contains(normalized, "rate limit") {
+			return true
+		}
+	}
+	return false
 }
