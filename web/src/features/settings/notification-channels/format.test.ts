@@ -327,6 +327,19 @@ describe("notification channel form formatting", () => {
       ok: false,
       message: "Secret reference must not be an endpoint URL.",
     });
+
+    expect(
+      formStateToWriteRequest({
+        ...emptyNotificationChannelForm(),
+        kind: "email",
+        name: "Direct SMTP endpoint",
+        secretRef:
+          "smtps://smtp.example.test?from=alerts%40example.test&to=ops%40example.test",
+      }),
+    ).toEqual({
+      ok: false,
+      message: "Secret reference must not be an endpoint URL.",
+    });
   });
 
   it("maps persisted channels back to edit form state", () => {
@@ -563,6 +576,22 @@ describe("notification channel form formatting", () => {
       label: "Endpoint URL cannot be stored as a secret reference.",
       resolverEnvKey: "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON",
       secretRefExample: "secret/openclarion/ops-wecom",
+      secretConfigured: true,
+      status: "blocked",
+    });
+
+    expect(
+      notificationChannelCredentialReadiness({
+        ...emptyNotificationChannelForm(),
+        kind: "email",
+        secretRef:
+          "smtp://smtp.example.test?from=alerts%40example.test&to=ops%40example.test",
+      }),
+    ).toMatchObject({
+      expectedCredential: "SMTP URL with from/to recipients",
+      kindLabel: "Email",
+      label: "Endpoint URL cannot be stored as a secret reference.",
+      secretRefExample: "secret/openclarion/ops-email",
       secretConfigured: true,
       status: "blocked",
     });

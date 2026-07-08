@@ -102,6 +102,38 @@ func TestRunAlertOperationsLiveInputsAcceptsWebhookFormats(t *testing.T) {
 	}
 }
 
+func TestRunAlertOperationsLiveInputsRejectsRobotBearerTokens(t *testing.T) {
+	for _, format := range []string{"wecom", "dingtalk", "feishu", "slack"} {
+		t.Run(format, func(t *testing.T) {
+			var stdout bytes.Buffer
+			err := run([]string{"--target", "alert-operations-live-inputs"}, []string{
+				"OPENCLARION_PROMETHEUS_URL=https://thanos-query.example.test",
+				"OPENCLARION_LLM_MODEL=example-llm-model",
+				"OPENCLARION_IM_WEBHOOK_URL=https://webhook.example.test/notify",
+				"OPENCLARION_IM_WEBHOOK_FORMAT=" + format,
+				"OPENCLARION_IM_WEBHOOK_BEARER_TOKEN=secret-bearer-token",
+			}, &stdout)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			out := decodeOutput(t, stdout.Bytes())
+			target := targetByName(t, out, "alert-operations-live-inputs")
+			if target.Status != "blocked" {
+				t.Fatalf("target status = %q, want blocked: %#v", target.Status, target)
+			}
+			if !invalidEnvByName(target.InvalidEnv, "OPENCLARION_IM_WEBHOOK_BEARER_TOKEN") {
+				t.Fatalf("invalid env = %#v, want OPENCLARION_IM_WEBHOOK_BEARER_TOKEN", target.InvalidEnv)
+			}
+			for _, secret := range []string{"webhook.example.test", "secret-bearer-token"} {
+				if strings.Contains(stdout.String(), secret) {
+					t.Fatalf("output leaked robot bearer value %q: %s", secret, stdout.String())
+				}
+			}
+		})
+	}
+}
+
 func TestRunReportsReadyNotificationChannelLiveSmoke(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
@@ -515,14 +547,45 @@ func TestRunRejectsNotificationChannelAIProofConflictsWithoutLeakingValues(t *te
 	}
 }
 
-func TestRunRejectsGenericWebhookForDiagnosisNotificationSmoke(t *testing.T) {
+func TestRunRejectsNonWeComForDiagnosisNotificationSmoke(t *testing.T) {
+	for _, kind := range []string{"webhook", "dingtalk", "feishu", "slack", "email"} {
+		t.Run(kind, func(t *testing.T) {
+			var stdout bytes.Buffer
+			err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
+				"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
+				"NOTIFICATION_CHANNEL_PROFILE_ID=2",
+				"NOTIFICATION_CHANNEL_EXPECTED_KIND=" + kind,
+				"NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND=ai_diagnosis_sample",
+				"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+			}, &stdout)
+			if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+
+			out := decodeOutput(t, stdout.Bytes())
+			target := targetByName(t, out, "notification-channel-live-smoke")
+			if target.Status != "blocked" {
+				t.Fatalf("target status = %q, want blocked", target.Status)
+			}
+			if !invalidEnvByName(target.InvalidEnv, "NOTIFICATION_CHANNEL_EXPECTED_KIND") {
+				t.Fatalf("invalid env = %#v, want NOTIFICATION_CHANNEL_EXPECTED_KIND", target.InvalidEnv)
+			}
+			for _, secret := range []string{"api.example.test", "secret-token"} {
+				if strings.Contains(stdout.String(), secret) {
+					t.Fatalf("output leaked diagnosis notification value %q: %s", secret, stdout.String())
+				}
+			}
+		})
+	}
+}
+
+func TestRunRejectsNonWeComForNotificationChannelAIProof(t *testing.T) {
 	var stdout bytes.Buffer
 	err := run([]string{"--target", "notification-channel-live-smoke"}, []string{
 		"OPENCLARION_LIVE_API_BASE_URL=https://api.example.test",
 		"NOTIFICATION_CHANNEL_PROFILE_ID=2",
-		"NOTIFICATION_CHANNEL_EXPECTED_KIND=webhook",
-		"NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND=ai_diagnosis_sample",
-		"OPENCLARION_LIVE_BEARER_TOKEN=Bearer secret-token",
+		"NOTIFICATION_CHANNEL_EXPECTED_KIND=slack",
+		"NOTIFICATION_CHANNEL_REQUIRE_AI_PROOF=true",
 	}, &stdout)
 	if err != nil {
 		t.Fatalf("run: %v", err)
@@ -536,10 +599,8 @@ func TestRunRejectsGenericWebhookForDiagnosisNotificationSmoke(t *testing.T) {
 	if !invalidEnvByName(target.InvalidEnv, "NOTIFICATION_CHANNEL_EXPECTED_KIND") {
 		t.Fatalf("invalid env = %#v, want NOTIFICATION_CHANNEL_EXPECTED_KIND", target.InvalidEnv)
 	}
-	for _, secret := range []string{"api.example.test", "secret-token"} {
-		if strings.Contains(stdout.String(), secret) {
-			t.Fatalf("output leaked diagnosis notification value %q: %s", secret, stdout.String())
-		}
+	if strings.Contains(stdout.String(), "api.example.test") {
+		t.Fatalf("output leaked notification channel AI proof value: %s", stdout.String())
 	}
 }
 

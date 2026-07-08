@@ -1279,7 +1279,12 @@ function notificationChannelSecretRefExample(
 function notificationSecretRefLooksLikeEndpointURL(secretRef: string): boolean {
   try {
     const parsed = new URL(secretRef);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
+    return (
+      parsed.protocol === "http:" ||
+      parsed.protocol === "https:" ||
+      parsed.protocol === "smtp:" ||
+      parsed.protocol === "smtps:"
+    );
   } catch {
     return false;
   }

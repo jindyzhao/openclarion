@@ -512,6 +512,13 @@ func alertOperationsLiveInputsReadiness(env envMap) targetReadiness {
 			Reason: "must be generic, wecom, dingtalk, feishu, or slack when set",
 		})
 	}
+	if envPresent(env, "OPENCLARION_IM_WEBHOOK_BEARER_TOKEN") &&
+		readinessWebhookFormatDisallowsBearer(env["OPENCLARION_IM_WEBHOOK_FORMAT"]) {
+		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
+			Name:   "OPENCLARION_IM_WEBHOOK_BEARER_TOKEN",
+			Reason: "must not be set when OPENCLARION_IM_WEBHOOK_FORMAT is wecom, dingtalk, feishu, or slack",
+		})
+	}
 	return finalize(target)
 }
 
@@ -675,19 +682,19 @@ func notificationChannelLiveSmokeReadiness(env envMap) targetReadiness {
 	expectedKind := notificationChannelExpectedValue(env, "NOTIFICATION_CHANNEL_EXPECTED_KIND", "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_KIND")
 	expectedContentKind := notificationChannelExpectedValue(env, "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND", "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND")
 	expectedContentKinds := notificationChannelExpectedValues(env, "NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS", "OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KINDS")
-	if diagnosisNotificationTestContentKind(expectedContentKind) && expectedKind == "webhook" {
+	if diagnosisNotificationTestContentKind(expectedContentKind) && expectedKind != "" && expectedKind != "wecom" {
 		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
 			Name:   "NOTIFICATION_CHANNEL_EXPECTED_KIND",
 			Reason: "must be wecom when diagnosis notification content is expected",
 		})
 	}
-	if anyDiagnosisNotificationTestContentKind(expectedContentKinds) && expectedKind == "webhook" {
+	if anyDiagnosisNotificationTestContentKind(expectedContentKinds) && expectedKind != "" && expectedKind != "wecom" {
 		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
 			Name:   "NOTIFICATION_CHANNEL_EXPECTED_KIND",
 			Reason: "must be wecom when diagnosis notification content is expected",
 		})
 	}
-	if notificationChannelAIProofRequired(env) && expectedKind == "webhook" {
+	if notificationChannelAIProofRequired(env) && expectedKind != "" && expectedKind != "wecom" {
 		target.InvalidEnv = append(target.InvalidEnv, invalidEnv{
 			Name:   "NOTIFICATION_CHANNEL_EXPECTED_KIND",
 			Reason: "must be wecom when AI proof is required",
@@ -2798,6 +2805,10 @@ func validReadinessBearerToken(raw string) bool {
 
 func validNotificationChannelKind(raw string) bool {
 	return oneOf(strings.ToLower(strings.TrimSpace(raw)), "webhook", "wecom", "dingtalk", "feishu", "slack", "email")
+}
+
+func readinessWebhookFormatDisallowsBearer(raw string) bool {
+	return oneOf(strings.ToLower(strings.TrimSpace(raw)), "wecom", "dingtalk", "feishu", "slack")
 }
 
 func validNotificationChannelContentKind(raw string) bool {
