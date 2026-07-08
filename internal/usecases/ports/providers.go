@@ -115,6 +115,67 @@ type MetricsProvider interface {
 	QueryMetricRange(ctx context.Context, req MetricRangeQueryRequest) (MetricQueryResult, error)
 }
 
+// CMDBLookupRequest identifies the alert context used to enrich evidence with
+// ownership and topology data. The request intentionally stays alert-label
+// based for V1 so usecases can pass already-frozen alert metadata without
+// importing a vendor CMDB model.
+type CMDBLookupRequest struct {
+	Labels map[string]string
+}
+
+// CMDBOwner is one provider-neutral owner projection for a matched resource.
+// Subject is the stable identity key when the upstream CMDB has one; Team and
+// Role are display/classification fields only.
+type CMDBOwner struct {
+	Subject string
+	Team    string
+	Role    string
+}
+
+// CMDBTopologyLink is one adjacent topology edge for the matched resource.
+// Relation values are provider-defined but should be stable within one
+// deployment, for example "depends_on" or "owned_by".
+type CMDBTopologyLink struct {
+	Relation   string
+	TargetID   string
+	TargetKind string
+	TargetName string
+}
+
+// CMDBResource is the provider-neutral ownership/topology projection returned
+// by CMDBProvider implementations. Attributes carries sanitized labels that can
+// help later evidence rendering without exposing upstream raw payloads.
+type CMDBResource struct {
+	ID         string
+	Kind       string
+	Name       string
+	Owners     []CMDBOwner
+	Topology   []CMDBTopologyLink
+	Attributes map[string]string
+}
+
+// CMDBLookupResult returns at most one resource match. Found=false is a normal
+// "no enrichment available" outcome, not a provider failure.
+type CMDBLookupResult struct {
+	Found    bool
+	Resource CMDBResource
+}
+
+// CMDBProvider enriches alert evidence with ownership and topology context.
+//
+// Responsibilities:
+//   - map frozen alert labels to one provider-neutral CMDBResource;
+//   - return sanitized owner/topology projections only;
+//   - treat no match as Found=false instead of an error.
+//
+// Non-responsibilities:
+//   - mutating evidence snapshots;
+//   - calling metrics or notification systems;
+//   - returning raw upstream payloads, credentials, or endpoints.
+type CMDBProvider interface {
+	LookupResource(ctx context.Context, req CMDBLookupRequest) (CMDBLookupResult, error)
+}
+
 // DirectoryListRequest configures one bounded page request against an upstream
 // identity directory. UpdatedAfter is advisory: providers may ignore it when
 // their upstream API does not support incremental listing.
