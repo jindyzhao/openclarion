@@ -120,9 +120,10 @@ if [[ -n "$expected_kind" ]]; then
   expected_kind="${expected_kind#"${expected_kind%%[![:space:]]*}"}"
   expected_kind="${expected_kind%"${expected_kind##*[![:space:]]}"}"
   expected_kind="${expected_kind,,}"
-  if [[ "$expected_kind" != "webhook" && "$expected_kind" != "wecom" ]]; then
-    fail "Notification channel expected kind must be webhook or wecom"
-  fi
+  case "$expected_kind" in
+    webhook|wecom|dingtalk|feishu|slack|email) ;;
+    *) fail "Notification channel expected kind must be webhook, wecom, dingtalk, feishu, slack, or email" ;;
+  esac
 fi
 
 expected_content_kind="${NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND:-${OPENCLARION_LIVE_NOTIFICATION_CHANNEL_EXPECTED_CONTENT_KIND:-}}"

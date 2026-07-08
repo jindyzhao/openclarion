@@ -357,7 +357,7 @@ func notificationSecretRefLooksLikeEndpointURL(secretRef string) bool {
 		return false
 	}
 	switch strings.ToLower(parsed.Scheme) {
-	case "http", "https":
+	case "http", "https", "smtp", "smtps":
 		return true
 	default:
 		return false

@@ -236,7 +236,7 @@ func (p *Provider) SendNotification(ctx context.Context, req ports.IMNotificatio
 			return ports.IMDelivery{}, imErr
 		}
 		return ports.IMDelivery{}, &ports.IMError{
-			Message:   fmt.Sprintf("email im: send notification failed: %v", err),
+			Message:   "email im: send notification failed",
 			Retryable: emailSendErrorRetryable(err),
 		}
 	}

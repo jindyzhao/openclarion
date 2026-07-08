@@ -97,6 +97,18 @@ func TestNewNotificationChannelProfileRejectsInvalid(t *testing.T) {
 			},
 		},
 		{
+			name: "secret smtp url",
+			edit: func() (NotificationChannelProfile, error) {
+				return NewNotificationChannelProfile("name", NotificationChannelKindEmail, "smtp://smtp.example.test:587?from=alerts%40example.test&to=ops%40example.test", []NotificationDeliveryScope{NotificationDeliveryScopeReport}, false, nil)
+			},
+		},
+		{
+			name: "secret smtps url",
+			edit: func() (NotificationChannelProfile, error) {
+				return NewNotificationChannelProfile("name", NotificationChannelKindEmail, "smtps://smtp.example.test?from=alerts%40example.test&to=ops%40example.test", []NotificationDeliveryScope{NotificationDeliveryScopeReport}, false, nil)
+			},
+		},
+		{
 			name: "empty scopes",
 			edit: func() (NotificationChannelProfile, error) {
 				return NewNotificationChannelProfile("name", NotificationChannelKindWebhook, "secret/ref", nil, false, nil)

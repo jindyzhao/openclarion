@@ -206,7 +206,7 @@ func TestSendNotificationClassifiesSMTPStatusErrors(t *testing.T) {
 				To:         []mail.Address{{Address: "ops@example.test"}},
 				TLSMode:    tlsModeNone,
 				Sender: recordingSenderFunc(func(context.Context, SendRequest) error {
-					return fmt.Errorf("smtp command failed: %w", &textproto.Error{Code: tc.code, Msg: "smtp fixture"})
+					return fmt.Errorf("smtp command failed: %w", &textproto.Error{Code: tc.code, Msg: "smtp fixture from smtp.example.test"})
 				}),
 			})
 
@@ -220,6 +220,14 @@ func TestSendNotificationClassifiesSMTPStatusErrors(t *testing.T) {
 			}
 			if imErr.Retryable != tc.retryable {
 				t.Fatalf("IMError.Retryable = %v, want %v", imErr.Retryable, tc.retryable)
+			}
+			if imErr.Message != "email im: send notification failed" {
+				t.Fatalf("IMError.Message = %q, want sanitized send failure", imErr.Message)
+			}
+			for _, leaked := range []string{"smtp.example.test", "smtp fixture", fmt.Sprintf("%d", tc.code)} {
+				if strings.Contains(err.Error(), leaked) {
+					t.Fatalf("IMError leaked SMTP detail %q in %q", leaked, err.Error())
+				}
 			}
 		})
 	}
