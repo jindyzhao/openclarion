@@ -6,7 +6,7 @@
 |------|------------|----------|
 | Go | Go 1.25+ (toolchain pinned in `go.mod` at M0) | 2026-05-19 |
 | Custom analyzer tooling | `golangci-lint v2.12.2` plus `tools/openclarion-linter` `golang.org/x/tools v0.44.0`; the versions must match exactly because `make go-lint` builds a custom golangci-lint module plugin | 2026-05-30 |
-| CI configuration parsing | `go.yaml.in/yaml/v3 v3.0.4` (direct require since repository-owned Go checkers parse workflow, golangci-lint, OpenAPI, and Dependabot YAML with known-field validation where supported) | 2026-05-30 |
+| YAML parsing | `go.yaml.in/yaml/v3 v3.0.4` (direct require since repository-owned Go checkers parse workflow, golangci-lint, OpenAPI, and Dependabot YAML with known-field validation where supported, and the static CMDB provider parses operator-authored local YAML config behind duplicate-key, alias, and unknown-field rejection) | 2026-07-08 |
 | Go module manifest parsing | `golang.org/x/mod v0.35.0` (direct require since `scripts/agent_runtime_policy_check` parses `go.mod` require/replace entries structurally for the `make forbidden-agent-runtime` control-plane runtime boundary) | 2026-05-30 |
 | HTTP | std `net/http` (Go 1.22+ enhanced routing) | 2026-05-19 |
 | WebSocket transport | `github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674` (direct require since `internal/transport/http` upgrades authenticated diagnosis-room connections with explicit same-origin checks and `httptest`/Dialer coverage) | 2026-05-28 |

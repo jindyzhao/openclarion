@@ -1,6 +1,6 @@
 module github.com/openclarion/openclarion/tools/openclarion-linter
 
-go 1.25.11
+go 1.25.12
 
 require (
 	github.com/golangci/plugin-module-register v0.1.2

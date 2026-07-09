@@ -1,6 +1,6 @@
 module github.com/openclarion/openclarion
 
-go 1.25.11
+go 1.25.12
 
 tool (
 	entgo.io/ent/cmd/ent
