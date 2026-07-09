@@ -8,19 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strings"
-	"unicode"
 
 	"go.yaml.in/yaml/v3"
 
+	"github.com/openclarion/openclarion/internal/providers/cmdb/internal/cmdbnorm"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
 const (
-	maxRecords        = 1000
-	maxMatchLabels    = 32
-	maxStringBytes    = 256
-	maxAttributePairs = 64
+	maxRecords     = 1000
+	maxMatchLabels = cmdbnorm.MaxMatchLabels
 )
 
 // Record maps a non-empty set of alert labels to one sanitized CMDB resource.
@@ -82,7 +79,7 @@ func (p *Provider) LookupResource(ctx context.Context, req ports.CMDBLookupReque
 	if p == nil {
 		return ports.CMDBLookupResult{}, fmt.Errorf("static cmdb: provider is not configured")
 	}
-	labels := cloneStringMap(req.Labels)
+	labels := cmdbnorm.CloneStringMap(req.Labels)
 	matched := -1
 	for i := range p.records {
 		if selectorMatches(p.records[i].MatchLabels, labels) {
@@ -97,184 +94,20 @@ func (p *Provider) LookupResource(ctx context.Context, req ports.CMDBLookupReque
 	}
 	return ports.CMDBLookupResult{
 		Found:    true,
-		Resource: cloneResource(p.records[matched].Resource),
+		Resource: cmdbnorm.CloneResource(p.records[matched].Resource),
 	}, nil
 }
 
 func normalizeRecord(record Record) (Record, error) {
-	labels, err := normalizeLabelMap(record.MatchLabels, true)
+	labels, err := cmdbnorm.NormalizeLabelMap(record.MatchLabels, true)
 	if err != nil {
 		return Record{}, err
 	}
-	resource, err := normalizeResource(record.Resource)
+	resource, err := cmdbnorm.NormalizeResource(record.Resource)
 	if err != nil {
 		return Record{}, err
 	}
 	return Record{MatchLabels: labels, Resource: resource}, nil
-}
-
-func normalizeResource(resource ports.CMDBResource) (ports.CMDBResource, error) {
-	id, err := normalizeRequiredString("resource id", resource.ID)
-	if err != nil {
-		return ports.CMDBResource{}, err
-	}
-	kind, err := normalizeRequiredString("resource kind", resource.Kind)
-	if err != nil {
-		return ports.CMDBResource{}, err
-	}
-	name, err := normalizeRequiredString("resource name", resource.Name)
-	if err != nil {
-		return ports.CMDBResource{}, err
-	}
-	owners, err := normalizeOwners(resource.Owners)
-	if err != nil {
-		return ports.CMDBResource{}, err
-	}
-	topology, err := normalizeTopology(resource.Topology)
-	if err != nil {
-		return ports.CMDBResource{}, err
-	}
-	attributes, err := normalizeAttributes(resource.Attributes)
-	if err != nil {
-		return ports.CMDBResource{}, err
-	}
-	if len(owners) == 0 && len(topology) == 0 && len(attributes) == 0 {
-		return ports.CMDBResource{}, fmt.Errorf("resource must include owners, topology, or attributes")
-	}
-	return ports.CMDBResource{
-		ID:         id,
-		Kind:       kind,
-		Name:       name,
-		Owners:     owners,
-		Topology:   topology,
-		Attributes: attributes,
-	}, nil
-}
-
-func normalizeOwners(in []ports.CMDBOwner) ([]ports.CMDBOwner, error) {
-	out := make([]ports.CMDBOwner, len(in))
-	for i, owner := range in {
-		subject, err := normalizeOptionalString("owner subject", owner.Subject)
-		if err != nil {
-			return nil, fmt.Errorf("owner[%d]: %w", i, err)
-		}
-		team, err := normalizeOptionalString("owner team", owner.Team)
-		if err != nil {
-			return nil, fmt.Errorf("owner[%d]: %w", i, err)
-		}
-		role, err := normalizeOptionalString("owner role", owner.Role)
-		if err != nil {
-			return nil, fmt.Errorf("owner[%d]: %w", i, err)
-		}
-		if subject == "" && team == "" {
-			return nil, fmt.Errorf("owner[%d]: subject or team must be non-empty", i)
-		}
-		out[i] = ports.CMDBOwner{Subject: subject, Team: team, Role: role}
-	}
-	return out, nil
-}
-
-func normalizeTopology(in []ports.CMDBTopologyLink) ([]ports.CMDBTopologyLink, error) {
-	out := make([]ports.CMDBTopologyLink, len(in))
-	for i, link := range in {
-		relation, err := normalizeRequiredString("topology relation", link.Relation)
-		if err != nil {
-			return nil, fmt.Errorf("topology[%d]: %w", i, err)
-		}
-		targetID, err := normalizeRequiredString("topology target id", link.TargetID)
-		if err != nil {
-			return nil, fmt.Errorf("topology[%d]: %w", i, err)
-		}
-		targetKind, err := normalizeRequiredString("topology target kind", link.TargetKind)
-		if err != nil {
-			return nil, fmt.Errorf("topology[%d]: %w", i, err)
-		}
-		targetName, err := normalizeOptionalString("topology target name", link.TargetName)
-		if err != nil {
-			return nil, fmt.Errorf("topology[%d]: %w", i, err)
-		}
-		out[i] = ports.CMDBTopologyLink{
-			Relation:   relation,
-			TargetID:   targetID,
-			TargetKind: targetKind,
-			TargetName: targetName,
-		}
-	}
-	return out, nil
-}
-
-func normalizeAttributes(in map[string]string) (map[string]string, error) {
-	if len(in) == 0 {
-		return nil, nil
-	}
-	if len(in) > maxAttributePairs {
-		return nil, fmt.Errorf("attributes exceed %d entries", maxAttributePairs)
-	}
-	out := make(map[string]string, len(in))
-	for key, value := range in {
-		k, err := normalizeRequiredString("attribute key", key)
-		if err != nil {
-			return nil, err
-		}
-		v, err := normalizeRequiredString("attribute value", value)
-		if err != nil {
-			return nil, err
-		}
-		out[k] = v
-	}
-	return out, nil
-}
-
-func normalizeLabelMap(in map[string]string, requireNonEmpty bool) (map[string]string, error) {
-	if len(in) == 0 {
-		if requireNonEmpty {
-			return nil, fmt.Errorf("match_labels must be non-empty")
-		}
-		return nil, nil
-	}
-	if len(in) > maxMatchLabels {
-		return nil, fmt.Errorf("label map exceeds %d entries", maxMatchLabels)
-	}
-	out := make(map[string]string, len(in))
-	for key, value := range in {
-		k, err := normalizeRequiredString("label key", key)
-		if err != nil {
-			return nil, err
-		}
-		v, err := normalizeRequiredString("label value", value)
-		if err != nil {
-			return nil, err
-		}
-		out[k] = v
-	}
-	return out, nil
-}
-
-func normalizeRequiredString(field, value string) (string, error) {
-	value, err := normalizeOptionalString(field, value)
-	if err != nil {
-		return "", err
-	}
-	if value == "" {
-		return "", fmt.Errorf("%s must be non-empty", field)
-	}
-	return value, nil
-}
-
-func normalizeOptionalString(field, value string) (string, error) {
-	trimmed := strings.TrimSpace(value)
-	if trimmed != value {
-		return "", fmt.Errorf("%s must not contain leading or trailing whitespace", field)
-	}
-	if len(value) > maxStringBytes {
-		return "", fmt.Errorf("%s exceeds %d bytes", field, maxStringBytes)
-	}
-	for _, r := range value {
-		if unicode.IsControl(r) {
-			return "", fmt.Errorf("%s must not contain control characters", field)
-		}
-	}
-	return value, nil
 }
 
 func rejectOverlappingSelectors(records []Record) error {
@@ -304,28 +137,6 @@ func selectorMatches(selector, labels map[string]string) bool {
 		}
 	}
 	return true
-}
-
-func cloneResource(in ports.CMDBResource) ports.CMDBResource {
-	return ports.CMDBResource{
-		ID:         in.ID,
-		Kind:       in.Kind,
-		Name:       in.Name,
-		Owners:     append([]ports.CMDBOwner(nil), in.Owners...),
-		Topology:   append([]ports.CMDBTopologyLink(nil), in.Topology...),
-		Attributes: cloneStringMap(in.Attributes),
-	}
-}
-
-func cloneStringMap(in map[string]string) map[string]string {
-	if in == nil {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
 }
 
 type yamlConfig struct {
@@ -361,14 +172,14 @@ type yamlTopologyLink struct {
 
 func (r yamlRecord) toRecord() Record {
 	return Record{
-		MatchLabels: cloneStringMap(r.MatchLabels),
+		MatchLabels: cmdbnorm.CloneStringMap(r.MatchLabels),
 		Resource: ports.CMDBResource{
 			ID:         r.Resource.ID,
 			Kind:       r.Resource.Kind,
 			Name:       r.Resource.Name,
 			Owners:     yamlOwnersToPorts(r.Resource.Owners),
 			Topology:   yamlTopologyToPorts(r.Resource.Topology),
-			Attributes: cloneStringMap(r.Resource.Attributes),
+			Attributes: cmdbnorm.CloneStringMap(r.Resource.Attributes),
 		},
 	}
 }
