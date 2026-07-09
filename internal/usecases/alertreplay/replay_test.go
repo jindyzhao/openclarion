@@ -15,6 +15,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
+	cmdbfake "github.com/openclarion/openclarion/internal/providers/cmdb/fake"
 	"github.com/openclarion/openclarion/internal/providers/metrics/fake"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
@@ -340,6 +341,121 @@ func TestReplayPersistedWindowForReport_BuildsSnapshotsWithoutProviderIngest(t *
 	}
 }
 
+func TestReplayWindow_IncludesCMDBEnrichmentInSnapshot(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	batch := seedAlerts("AlertA", 1, windowStart, 0, time.Minute, "warning")
+	provider := fake.New(batch)
+	cmdbProvider := cmdbfake.New(ports.CMDBLookupResult{
+		Found: true,
+		Resource: ports.CMDBResource{
+			ID:   "service/checkout",
+			Kind: "service",
+			Name: "Checkout",
+			Owners: []ports.CMDBOwner{
+				{Subject: "team-checkout", Team: "Checkout", Role: "primary"},
+			},
+			Topology: []ports.CMDBTopologyLink{
+				{Relation: "depends_on", TargetID: "database/postgres", TargetKind: "database", TargetName: "PostgreSQL"},
+			},
+			Attributes: map[string]string{"tier": "checkout"},
+		},
+	})
+	req := defaultRequest(windowStart, windowEnd)
+	req.CMDBProvider = cmdbProvider
+
+	result, err := alertreplay.ReplayWindowForReport(ctx, provider, integration.factory, req)
+	if err != nil {
+		t.Fatalf("ReplayWindowForReport: %v", err)
+	}
+	if result.Stats.GroupsBuilt != 1 || result.Stats.SnapshotsSaved != 1 || result.Stats.Failed != 0 {
+		t.Fatalf("stats = %+v, want one successful enriched snapshot", result.Stats)
+	}
+
+	requests := cmdbProvider.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("cmdb requests len = %d, want 1", len(requests))
+	}
+	if requests[0].Labels["alertname"] != "AlertA" || requests[0].Labels["instance"] != "AlertA-0" {
+		t.Fatalf("cmdb lookup labels = %+v", requests[0].Labels)
+	}
+
+	snapshot, err := integration.client.EvidenceSnapshot.Query().Only(ctx)
+	if err != nil {
+		t.Fatalf("load evidence snapshot: %v", err)
+	}
+	var payload struct {
+		CMDB *struct {
+			Matches []struct {
+				EventID  int64 `json:"event_id"`
+				Resource struct {
+					ID     string `json:"id"`
+					Kind   string `json:"kind"`
+					Name   string `json:"name"`
+					Owners []struct {
+						Subject string `json:"subject"`
+					} `json:"owners"`
+					Topology []struct {
+						TargetID string `json:"target_id"`
+					} `json:"topology"`
+					Attributes map[string]string `json:"attributes"`
+				} `json:"resource"`
+			} `json:"matches"`
+		} `json:"cmdb"`
+	}
+	if err := json.Unmarshal(snapshot.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal snapshot payload: %v", err)
+	}
+	if payload.CMDB == nil || len(payload.CMDB.Matches) != 1 {
+		t.Fatalf("payload cmdb = %+v, want one match", payload.CMDB)
+	}
+	match := payload.CMDB.Matches[0]
+	if match.EventID == 0 ||
+		match.Resource.ID != "service/checkout" ||
+		match.Resource.Kind != "service" ||
+		match.Resource.Name != "Checkout" ||
+		match.Resource.Owners[0].Subject != "team-checkout" ||
+		match.Resource.Topology[0].TargetID != "database/postgres" ||
+		match.Resource.Attributes["tier"] != "checkout" {
+		t.Fatalf("cmdb match = %+v", match)
+	}
+}
+
+func TestReplayWindow_CMDBErrorFailsGroupWithoutSnapshot(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	batch := seedAlerts("AlertA", 1, windowStart, 0, time.Minute, "warning")
+	provider := fake.New(batch)
+	req := defaultRequest(windowStart, windowEnd)
+	req.CMDBProvider = cmdbfake.NewError(errors.New("cmdb unavailable"))
+
+	stats, err := alertreplay.ReplayWindow(ctx, provider, integration.factory, req)
+	if err == nil {
+		t.Fatal("ReplayWindow err = nil, want cmdb error")
+	}
+	if !strings.Contains(err.Error(), "cmdb lookup for event") {
+		t.Fatalf("ReplayWindow err = %v, want cmdb lookup context", err)
+	}
+	if stats.EventsLoaded != 1 || stats.GroupsBuilt != 1 || stats.Failed != 1 || stats.SnapshotsSaved != 0 {
+		t.Fatalf("stats = %+v, want one failed group and no snapshots", stats)
+	}
+	if got := countAlertEvents(ctx, t); got != 1 {
+		t.Fatalf("alert_event count = %d, want ingested event retained", got)
+	}
+	if got := countAlertGroups(ctx, t); got != 0 {
+		t.Fatalf("alert_group count = %d, want no group transaction after cmdb failure", got)
+	}
+	if got := countEvidenceSnapshots(ctx, t); got != 0 {
+		t.Fatalf("evidence_snapshot count = %d, want 0", got)
+	}
+}
+
 // TestReplayWindow_OutOfWindowEventsExcluded: IngestOnce persists
 // every alert the provider returns, including those before the
 // replay window. ReplayWindow's Step 2 must filter them out so
@@ -494,6 +610,87 @@ func TestReplayPersistedWindowForReport_IDFilterDoesNotShrinkExistingGroup(t *te
 	}
 	if got := countEventGroupLinks(ctx, t); got != 2 {
 		t.Fatalf("alert_event_groups count = %d, want both original events still linked", got)
+	}
+}
+
+func TestReplayPersistedWindowForReport_CMDBLookupCoversExpandedExistingGroup(t *testing.T) {
+	resetDB(t)
+	ctx := context.Background()
+
+	windowStart := seedTime
+	windowEnd := seedTime.Add(time.Hour)
+	batch := seedAlerts("Selected", 2, windowStart, 0, time.Minute, "warning")
+	if _, err := alertingest.IngestAlerts(ctx, batch, integration.factory); err != nil {
+		t.Fatalf("IngestAlerts: %v", err)
+	}
+	first, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, defaultRequest(windowStart, windowEnd))
+	if err != nil {
+		t.Fatalf("first ReplayPersistedWindowForReport: %v", err)
+	}
+	if first.Stats.SnapshotsSaved != 1 || len(first.Snapshots) != 1 || first.Snapshots[0].EventCount != 2 {
+		t.Fatalf("first result = %+v, want one two-event snapshot", first)
+	}
+
+	events, err := integration.client.AlertEvent.Query().
+		Order(alertevent.ByID()).
+		All(ctx)
+	if err != nil {
+		t.Fatalf("list alert events: %v", err)
+	}
+	if len(events) != 2 {
+		t.Fatalf("events = %d, want 2", len(events))
+	}
+	cmdbProvider := cmdbfake.New(ports.CMDBLookupResult{
+		Found: true,
+		Resource: ports.CMDBResource{
+			ID:         "service/selected",
+			Kind:       "service",
+			Name:       "Selected",
+			Attributes: map[string]string{"tier": "critical"},
+		},
+	})
+	req := defaultRequest(windowStart, windowEnd)
+	req.AlertEventIDFilter = []domain.AlertEventID{domain.AlertEventID(events[0].ID)}
+	req.CMDBProvider = cmdbProvider
+	second, err := alertreplay.ReplayPersistedWindowForReport(ctx, integration.factory, req)
+	if err != nil {
+		t.Fatalf("second ReplayPersistedWindowForReport: %v", err)
+	}
+	if second.Stats.EventsLoaded != 1 ||
+		second.Stats.GroupsBuilt != 1 ||
+		second.Stats.GroupsExisting != 1 ||
+		second.Stats.SnapshotsSaved != 1 ||
+		len(second.Snapshots) != 1 ||
+		second.Snapshots[0].EventCount != 2 {
+		t.Fatalf("second result = %+v, want enriched snapshot over expanded two-event group", second)
+	}
+
+	requests := cmdbProvider.Requests()
+	if len(requests) != 2 {
+		t.Fatalf("cmdb requests = %d, want one for each event in expanded group", len(requests))
+	}
+	if requests[0].Labels["instance"] != "Selected-0" || requests[1].Labels["instance"] != "Selected-1" {
+		t.Fatalf("cmdb request labels = %+v, want both existing group events", requests)
+	}
+
+	snapshot, err := integration.client.EvidenceSnapshot.Get(ctx, int(second.Snapshots[0].ID))
+	if err != nil {
+		t.Fatalf("get enriched evidence snapshot: %v", err)
+	}
+	var payload struct {
+		CMDB struct {
+			Matches []struct {
+				EventID int64 `json:"event_id"`
+			} `json:"matches"`
+		} `json:"cmdb"`
+	}
+	if err := json.Unmarshal(snapshot.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal enriched snapshot payload: %v", err)
+	}
+	if len(payload.CMDB.Matches) != 2 ||
+		payload.CMDB.Matches[0].EventID != int64(events[0].ID) ||
+		payload.CMDB.Matches[1].EventID != int64(events[1].ID) {
+		t.Fatalf("cmdb matches = %+v, want both expanded event IDs", payload.CMDB.Matches)
 	}
 }
 

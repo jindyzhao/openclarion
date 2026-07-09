@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
 // --------------- test helpers ---------------
@@ -58,6 +59,21 @@ func validInput() Input {
 		Group:             validGroup(),
 		Events:            validEvents(),
 		CreatedByWorkflow: "diagnosis-workflow-1",
+	}
+}
+
+func validCMDBResource() ports.CMDBResource {
+	return ports.CMDBResource{
+		ID:   "service/checkout",
+		Kind: "service",
+		Name: "Checkout",
+		Owners: []ports.CMDBOwner{
+			{Subject: "team-checkout", Team: "Checkout", Role: "primary"},
+		},
+		Topology: []ports.CMDBTopologyLink{
+			{Relation: "depends_on", TargetID: "database/postgres", TargetKind: "database", TargetName: "PostgreSQL"},
+		},
+		Attributes: map[string]string{"tier": "checkout"},
 	}
 }
 
@@ -570,6 +586,185 @@ func TestBuildSnapshot_ProvenanceAndStatus(t *testing.T) {
 	}
 	if len(prov.Core.Inputs) != 2 || prov.Core.Inputs[0] != "alert_group" || prov.Core.Inputs[1] != "alert_events" {
 		t.Errorf("provenance inputs = %v, want [alert_group, alert_events]", prov.Core.Inputs)
+	}
+}
+
+func TestBuildSnapshot_IncludesCMDBMatchesWhenProvided(t *testing.T) {
+	in := validInput()
+	in.CMDBMatches = []CMDBMatch{
+		{
+			EventID:  in.Events[1].ID,
+			Resource: validCMDBResource(),
+		},
+	}
+	snap, err := BuildSnapshot(in)
+	if err != nil {
+		t.Fatalf("BuildSnapshot: %v", err)
+	}
+
+	var p snapshotPayload
+	if err := json.Unmarshal(snap.Payload, &p); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if p.CMDB == nil {
+		t.Fatal("payload cmdb = nil, want section")
+	}
+	if len(p.CMDB.Matches) != 1 {
+		t.Fatalf("cmdb matches len = %d, want 1", len(p.CMDB.Matches))
+	}
+	match := p.CMDB.Matches[0]
+	if match.EventID != int64(in.Events[1].ID) {
+		t.Fatalf("cmdb event_id = %d, want %d", match.EventID, in.Events[1].ID)
+	}
+	if match.Resource.ID != "service/checkout" ||
+		match.Resource.Owners[0].Subject != "team-checkout" ||
+		match.Resource.Topology[0].TargetID != "database/postgres" ||
+		match.Resource.Attributes["tier"] != "checkout" {
+		t.Fatalf("cmdb resource = %+v", match.Resource)
+	}
+
+	var prov provenancePayload
+	if err := json.Unmarshal(snap.Provenance, &prov); err != nil {
+		t.Fatalf("unmarshal provenance: %v", err)
+	}
+	if len(prov.Core.Inputs) != 3 || prov.Core.Inputs[2] != "cmdb_lookup" {
+		t.Fatalf("provenance inputs = %v, want cmdb_lookup appended", prov.Core.Inputs)
+	}
+}
+
+func TestBuildSnapshot_CMDBMatchesAffectDigestDeterministically(t *testing.T) {
+	base := validInput()
+	baseSnap, err := BuildSnapshot(base)
+	if err != nil {
+		t.Fatalf("base BuildSnapshot: %v", err)
+	}
+
+	withCMDB := validInput()
+	withCMDB.CMDBMatches = []CMDBMatch{
+		{EventID: withCMDB.Events[1].ID, Resource: validCMDBResource()},
+		{EventID: withCMDB.Events[0].ID, Resource: validCMDBResource()},
+	}
+	snap1, err := BuildSnapshot(withCMDB)
+	if err != nil {
+		t.Fatalf("cmdb run 1: %v", err)
+	}
+
+	reordered := validInput()
+	reordered.CMDBMatches = []CMDBMatch{
+		{EventID: reordered.Events[0].ID, Resource: validCMDBResource()},
+		{EventID: reordered.Events[1].ID, Resource: validCMDBResource()},
+	}
+	snap2, err := BuildSnapshot(reordered)
+	if err != nil {
+		t.Fatalf("cmdb run 2: %v", err)
+	}
+
+	if baseSnap.Digest == snap1.Digest {
+		t.Fatal("cmdb enrichment should change payload digest")
+	}
+	if snap1.Digest != snap2.Digest {
+		t.Fatalf("cmdb match order changed digest:\n  run1=%s\n  run2=%s", snap1.Digest, snap2.Digest)
+	}
+	if string(snap1.Payload) != string(snap2.Payload) {
+		t.Fatal("cmdb match order changed payload")
+	}
+}
+
+func TestBuildSnapshot_EmptyCMDBMatchesRecordsLookupAttempt(t *testing.T) {
+	in := validInput()
+	in.CMDBMatches = []CMDBMatch{}
+	snap, err := BuildSnapshot(in)
+	if err != nil {
+		t.Fatalf("BuildSnapshot: %v", err)
+	}
+
+	var p snapshotPayload
+	if err := json.Unmarshal(snap.Payload, &p); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if p.CMDB == nil || len(p.CMDB.Matches) != 0 {
+		t.Fatalf("cmdb = %+v, want empty matches section", p.CMDB)
+	}
+
+	var prov provenancePayload
+	if err := json.Unmarshal(snap.Provenance, &prov); err != nil {
+		t.Fatalf("unmarshal provenance: %v", err)
+	}
+	if len(prov.Core.Inputs) != 3 || prov.Core.Inputs[2] != "cmdb_lookup" {
+		t.Fatalf("provenance inputs = %v, want cmdb_lookup appended", prov.Core.Inputs)
+	}
+}
+
+func TestBuildSnapshot_InvalidCMDBMatches(t *testing.T) {
+	tests := []struct {
+		name string
+		edit func(*Input)
+		want string
+	}{
+		{
+			name: "unknown event",
+			edit: func(in *Input) {
+				in.CMDBMatches = []CMDBMatch{{EventID: 999, Resource: validCMDBResource()}}
+			},
+			want: "not found in events",
+		},
+		{
+			name: "duplicate event",
+			edit: func(in *Input) {
+				in.CMDBMatches = []CMDBMatch{
+					{EventID: in.Events[0].ID, Resource: validCMDBResource()},
+					{EventID: in.Events[0].ID, Resource: validCMDBResource()},
+				}
+			},
+			want: "duplicate cmdb match",
+		},
+		{
+			name: "invalid resource",
+			edit: func(in *Input) {
+				resource := validCMDBResource()
+				resource.ID = ""
+				in.CMDBMatches = []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}
+			},
+			want: "id must be non-empty",
+		},
+		{
+			name: "untrimmed resource",
+			edit: func(in *Input) {
+				resource := validCMDBResource()
+				resource.Name = " Checkout "
+				in.CMDBMatches = []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}
+			},
+			want: "name must not include leading or trailing whitespace",
+		},
+		{
+			name: "owner role without identity",
+			edit: func(in *Input) {
+				resource := validCMDBResource()
+				resource.Owners = []ports.CMDBOwner{{Role: "primary"}}
+				in.CMDBMatches = []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}
+			},
+			want: "must include subject or team",
+		},
+		{
+			name: "empty attribute value",
+			edit: func(in *Input) {
+				resource := validCMDBResource()
+				resource.Attributes = map[string]string{"tier": ""}
+				in.CMDBMatches = []CMDBMatch{{EventID: in.Events[0].ID, Resource: resource}}
+			},
+			want: "attribute[tier] must be non-empty",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			in := validInput()
+			tt.edit(&in)
+			_, err := BuildSnapshot(in)
+			mustBeInvariantViolation(t, err)
+			if !contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 

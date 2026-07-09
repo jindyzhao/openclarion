@@ -76,7 +76,11 @@ type Request struct {
 	SourceFilter             []string
 	AlertSourceProfileFilter []domain.AlertSourceProfileID
 	CreatedByWorkflow        string
-	Limit                    int
+	// CMDBProvider is optional. When configured, replay looks up each grouped
+	// event's labels before opening the per-group transaction and embeds any
+	// matches in the EvidenceSnapshot payload.
+	CMDBProvider ports.CMDBProvider
+	Limit        int
 }
 
 // Result is the replay output needed by downstream report dispatch.
@@ -331,7 +335,32 @@ func ReplayPersistedWindowForReport(
 			eventsForGroup = append(eventsForGroup, ev)
 		}
 
-		groupOutcome, perr := processGroup(ctx, factory, draft, eventsForGroup, req.CreatedByWorkflow, expansionScope)
+		eventsForCMDB := eventsForGroup
+		if req.CMDBProvider != nil {
+			expanded, xerr := snapshotEventsForCMDBLookup(ctx, factory, draft, eventsForGroup, expansionScope)
+			if xerr != nil {
+				result.Stats.Failed++
+				slog.WarnContext(ctx, "alertreplay: cmdb enrichment failed",
+					slog.String("group_key", draft.GroupKey),
+					slog.Any("error", xerr),
+				)
+				failures = append(failures, xerr)
+				continue
+			}
+			eventsForCMDB = expanded
+		}
+		cmdbMatches, cerr := lookupCMDBMatches(ctx, req.CMDBProvider, eventsForCMDB)
+		if cerr != nil {
+			result.Stats.Failed++
+			slog.WarnContext(ctx, "alertreplay: cmdb enrichment failed",
+				slog.String("group_key", draft.GroupKey),
+				slog.Any("error", cerr),
+			)
+			failures = append(failures, cerr)
+			continue
+		}
+
+		groupOutcome, perr := processGroup(ctx, factory, draft, eventsForGroup, req.CreatedByWorkflow, cmdbMatches, expansionScope)
 		if perr != nil {
 			result.Stats.Failed++
 			slog.WarnContext(ctx, "alertreplay: per-group pipeline failed",
@@ -426,6 +455,7 @@ func processGroup(
 	draft domain.AlertGroup,
 	eventsForGroup []domain.AlertEvent,
 	createdByWorkflow string,
+	cmdbMatches []evidencebuild.CMDBMatch,
 	scope replayExpansionScope,
 ) (groupResult, error) {
 	var result groupResult
@@ -501,6 +531,7 @@ func processGroup(
 			Group:             snapshotGroup,
 			Events:            eventsForSnapshot,
 			CreatedByWorkflow: createdByWorkflow,
+			CMDBMatches:       cmdbMatches,
 		})
 		if berr != nil {
 			return fmt.Errorf("build snapshot: %w", berr)
@@ -542,6 +573,78 @@ func processGroup(
 		return groupResult{}, err
 	}
 	return result, nil
+}
+
+func snapshotEventsForCMDBLookup(
+	ctx context.Context,
+	factory ports.UnitOfWorkFactory,
+	draft domain.AlertGroup,
+	eventsForGroup []domain.AlertEvent,
+	scope replayExpansionScope,
+) ([]domain.AlertEvent, error) {
+	eventsForLookup := eventsForGroup
+	if err := factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		alerts := uow.Alerts()
+		existing, foundExisting, err := findExistingGroupForDraft(ctx, alerts, draft, eventsForGroup, scope.allowLinkedGroupLookup)
+		if err != nil {
+			return err
+		}
+		if !foundExisting {
+			return nil
+		}
+		expanded, err := existingGroupSnapshotEvents(ctx, alerts, existing.ID, eventsForGroup, scope)
+		if err != nil {
+			return fmt.Errorf("load existing group events for cmdb lookup: %w", err)
+		}
+		eventsForLookup = expanded
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("alertreplay: prepare cmdb lookup events: %w", err)
+	}
+	return eventsForLookup, nil
+}
+
+func lookupCMDBMatches(
+	ctx context.Context,
+	provider ports.CMDBProvider,
+	events []domain.AlertEvent,
+) ([]evidencebuild.CMDBMatch, error) {
+	if provider == nil {
+		return nil, nil
+	}
+	sorted := append([]domain.AlertEvent(nil), events...)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].ID < sorted[j].ID
+	})
+	matches := make([]evidencebuild.CMDBMatch, 0, len(sorted))
+	for i := range sorted {
+		event := sorted[i]
+		result, err := provider.LookupResource(ctx, ports.CMDBLookupRequest{
+			Labels: cloneStringMap(event.Labels),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("alertreplay: cmdb lookup for event %d: %w", event.ID, err)
+		}
+		if !result.Found {
+			continue
+		}
+		matches = append(matches, evidencebuild.CMDBMatch{
+			EventID:  event.ID,
+			Resource: result.Resource,
+		})
+	}
+	return matches, nil
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func findExistingGroupForDraft(
