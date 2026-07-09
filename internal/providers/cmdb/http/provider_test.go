@@ -141,6 +141,21 @@ func TestLookupResourceRejectsInvalidResponses(t *testing.T) {
 			want: "trailing JSON values",
 		},
 		{
+			name: "missing found",
+			body: `{}`,
+			want: "response must include found",
+		},
+		{
+			name: "null response",
+			body: `null`,
+			want: "response must include found",
+		},
+		{
+			name: "null found",
+			body: `{"found": null}`,
+			want: "response must include found",
+		},
+		{
 			name: "found without resource",
 			body: `{"found": true}`,
 			want: "found=true response must include resource",

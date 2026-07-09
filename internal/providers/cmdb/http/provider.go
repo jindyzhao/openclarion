@@ -107,7 +107,7 @@ type lookupRequest struct {
 }
 
 type lookupResponse struct {
-	Found    bool              `json:"found"`
+	Found    *bool             `json:"found"`
 	Resource *resourceResponse `json:"resource,omitempty"`
 }
 
@@ -203,7 +203,10 @@ func decodeLookupResponse(raw []byte) (ports.CMDBLookupResult, error) {
 	} else if !errors.Is(err, io.EOF) {
 		return ports.CMDBLookupResult{}, fmt.Errorf("http cmdb: decode response trailer: %w", err)
 	}
-	if !decoded.Found {
+	if decoded.Found == nil {
+		return ports.CMDBLookupResult{}, fmt.Errorf("http cmdb: response must include found")
+	}
+	if !*decoded.Found {
 		if decoded.Resource != nil {
 			return ports.CMDBLookupResult{}, fmt.Errorf("http cmdb: found=false response must not include resource")
 		}
