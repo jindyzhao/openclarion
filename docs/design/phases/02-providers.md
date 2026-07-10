@@ -10,7 +10,7 @@ Implement default and fake providers for local development and workflow tests.
 |----------|----------------|
 | MetricsProvider | Prometheus alerts |
 | AlertSource adapter | Alertmanager contract placeholder |
-| CMDBProvider | static YAML and generic HTTP adapter |
+| CMDBProvider | static YAML, generic HTTP, and NetBox 4.5.2+ adapter |
 | IMProvider | Email, Webhook, Slack |
 | AuthProvider | local development auth, OIDC later |
 | ApprovalProvider | no-op and manual approval |
@@ -101,6 +101,50 @@ invalid resource projections, non-2xx statuses, and request failures are
 rejected. Redirects are not followed, and transport errors do not expose the
 configured request URL. A lookup failure fails only the affected replay group;
 provider I/O does not run inside the group write transaction.
+
+## NetBox CMDB Runtime Contract
+
+The direct NetBox adapter is mutually exclusive with the generic HTTP adapter.
+Set both `OPENCLARION_CMDB_NETBOX_URL` and
+`OPENCLARION_CMDB_NETBOX_LOOKUP_LABEL` to enable it. The URL may identify the
+deployment root or its `/api` root. Optional settings are:
+
+- `OPENCLARION_CMDB_NETBOX_API_TOKEN`
+- `OPENCLARION_CMDB_NETBOX_TOKEN_SCHEME=auto|bearer|token` (default: `auto`)
+- `OPENCLARION_CMDB_NETBOX_LOOKUP_FILTER` (default: `name`)
+- `OPENCLARION_CMDB_NETBOX_OBJECT_TYPE=auto|device|virtual_machine`
+  (default: `auto`)
+- `OPENCLARION_CMDB_NETBOX_ATTRIBUTE_CUSTOM_FIELDS` as a comma-separated
+  allowlist of at most 32 scalar custom fields
+- `OPENCLARION_CMDB_NETBOX_TIMEOUT_SECONDS` as a positive integer
+  (default: 10)
+
+In automatic token mode, NetBox v2 tokens beginning with `nbt_` use Bearer
+authentication. Other tokens use the legacy `Token` scheme; operators can set
+the scheme explicitly during migrations. Anonymous reads remain possible when
+the NetBox deployment permits them and no token is configured.
+
+The configured alert label value is sent as one NetBox filter query. A missing
+label is a normal no-match and performs no request. Device and virtual-machine
+lookups request at most two rows and accept exactly zero or one. `auto` searches
+both collections and rejects a cross-type match rather than choosing one
+silently. Contact assignments are capped at 32 and map to owners. Site,
+location, rack, cluster, and VM host references map to stable topology links.
+Standard role, tenant, platform, status, primary IP, and tag fields map to
+sanitized `netbox.*` attributes. `custom_fields` is not requested when the
+allowlist is empty; when configured, only allowlisted string, number, or boolean
+values are retained as `netbox.custom.*` attributes.
+
+The adapter requires NetBox release 4.5.2 or newer within the 4.x series. This
+floor is required for the `fields` response projection used to bound and
+allowlist mapped data. NetBox normally publishes only major and minor values in
+the `API-Version` header, so a present header is checked for a compatible 4.5+
+API while unsupported patch releases fail their `fields` requests. The adapter
+caps every response at 2 MiB, rejects duplicate JSON keys, trailing JSON values,
+malformed pagination, ambiguous results, invalid mapped identifiers, redirects,
+and non-2xx statuses. Transport errors omit the request URL so alert-label
+values cannot leak through logs. Unknown response metadata remains ignored for
+NetBox forward compatibility.
 
 ## Provider Rules
 

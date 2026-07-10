@@ -113,7 +113,7 @@ func TestCMDBProviderFromEnv_ConfiguresHTTPProvider(t *testing.T) {
 	defer server.Close()
 
 	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
-	provider, configured, err := cmdbProviderFromEnv(mapGetenv(map[string]string{
+	provider, providerKind, err := cmdbProviderFromEnv(mapGetenv(map[string]string{
 		cmdbHTTPURLEnv:         server.URL + "/lookup",
 		cmdbHTTPBearerTokenEnv: "test-cmdb-token",
 		cmdbHTTPTimeoutEnv:     "2",
@@ -121,8 +121,8 @@ func TestCMDBProviderFromEnv_ConfiguresHTTPProvider(t *testing.T) {
 	if err != nil {
 		t.Fatalf("cmdbProviderFromEnv: %v", err)
 	}
-	if !configured || provider == nil {
-		t.Fatalf("configured = %v, provider = %T, want configured provider", configured, provider)
+	if providerKind != "http" || provider == nil {
+		t.Fatalf("provider kind = %q, provider = %T, want HTTP provider", providerKind, provider)
 	}
 	result, err := provider.LookupResource(context.Background(), ports.CMDBLookupRequest{
 		Labels: map[string]string{"service": "payments"},
@@ -139,10 +139,71 @@ func TestCMDBProviderFromEnv_ConfiguresHTTPProvider(t *testing.T) {
 	}
 }
 
+func TestCMDBProviderFromEnv_ConfiguresNetBoxProvider(t *testing.T) {
+	type capturedRequest struct {
+		path   string
+		auth   string
+		filter string
+	}
+	requests := make(chan capturedRequest, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- capturedRequest{
+			path:   r.URL.Path,
+			auth:   r.Header.Get("Authorization"),
+			filter: r.URL.Query().Get("cf_openclarion_service"),
+		}
+		w.Header().Set("API-Version", "4.6")
+		switch r.URL.Path {
+		case "/api/dcim/devices/":
+			_, _ = w.Write([]byte(`{"count":1,"results":[{"id":42,"name":"payments-01","custom_fields":{"criticality":"high"}}]}`))
+		case "/api/tenancy/contact-assignments/":
+			_, _ = w.Write([]byte(`{"count":0,"results":[]}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	provider, providerKind, err := cmdbProviderFromEnv(mapGetenv(map[string]string{
+		cmdbNetBoxURLEnv:          server.URL,
+		cmdbNetBoxAPITokenEnv:     "nbt_test-key.test-value",
+		cmdbNetBoxLookupLabelEnv:  "service",
+		cmdbNetBoxLookupFilterEnv: "cf_openclarion_service",
+		cmdbNetBoxObjectTypeEnv:   "device",
+		cmdbNetBoxCustomFieldsEnv: "criticality",
+		cmdbNetBoxHTTPTimeoutEnv:  "2",
+	}), nil)
+	if err != nil {
+		t.Fatalf("cmdbProviderFromEnv: %v", err)
+	}
+	if providerKind != "netbox" || provider == nil {
+		t.Fatalf("provider kind = %q, provider = %T, want NetBox provider", providerKind, provider)
+	}
+	result, err := provider.LookupResource(context.Background(), ports.CMDBLookupRequest{
+		Labels: map[string]string{"service": "payments"},
+	})
+	if err != nil {
+		t.Fatalf("LookupResource: %v", err)
+	}
+	if !result.Found || result.Resource.ID != "netbox:dcim.device:42" || result.Resource.Attributes["netbox.custom.criticality"] != "high" {
+		t.Fatalf("result = %+v, want mapped NetBox device", result)
+	}
+	for i, wantPath := range []string{"/api/dcim/devices/", "/api/tenancy/contact-assignments/"} {
+		got := <-requests
+		if got.path != wantPath || got.auth != "Bearer nbt_test-key.test-value" {
+			t.Fatalf("request[%d] = %+v, want path %q and Bearer auth", i, got, wantPath)
+		}
+		if i == 0 && got.filter != "payments" {
+			t.Fatalf("device lookup filter = %q, want payments", got.filter)
+		}
+	}
+}
+
 func TestCMDBProviderFromEnv_OptionalAndPartialConfiguration(t *testing.T) {
-	provider, configured, err := cmdbProviderFromEnv(mapGetenv(nil), nil)
-	if err != nil || configured || provider != nil {
-		t.Fatalf("unconfigured result = (%T, %v, %v), want nil, false, nil", provider, configured, err)
+	provider, providerKind, err := cmdbProviderFromEnv(mapGetenv(nil), nil)
+	if err != nil || providerKind != "" || provider != nil {
+		t.Fatalf("unconfigured result = (%T, %q, %v), want nil, empty kind, nil", provider, providerKind, err)
 	}
 
 	tests := []struct {
@@ -180,12 +241,54 @@ func TestCMDBProviderFromEnv_OptionalAndPartialConfiguration(t *testing.T) {
 			},
 			wantSubstr: "URL scheme must be http or https",
 		},
+		{
+			name: "NetBox token without URL",
+			env: map[string]string{
+				// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+				cmdbNetBoxAPITokenEnv: "nbt_test-key.test-value",
+			},
+			wantSubstr: cmdbNetBoxURLEnv,
+		},
+		{
+			name: "NetBox URL without lookup label",
+			env: map[string]string{
+				cmdbNetBoxURLEnv: "https://netbox.example.invalid",
+			},
+			wantSubstr: cmdbNetBoxLookupLabelEnv,
+		},
+		{
+			name: "invalid NetBox timeout",
+			env: map[string]string{
+				cmdbNetBoxURLEnv:         "https://netbox.example.invalid",
+				cmdbNetBoxLookupLabelEnv: "instance",
+				cmdbNetBoxHTTPTimeoutEnv: "0",
+			},
+			wantSubstr: cmdbNetBoxHTTPTimeoutEnv,
+		},
+		{
+			name: "duplicate NetBox custom field",
+			env: map[string]string{
+				cmdbNetBoxURLEnv:          "https://netbox.example.invalid",
+				cmdbNetBoxLookupLabelEnv:  "instance",
+				cmdbNetBoxCustomFieldsEnv: "owner,owner",
+			},
+			wantSubstr: "is duplicated",
+		},
+		{
+			name: "mutually exclusive providers",
+			env: map[string]string{
+				cmdbHTTPURLEnv:           "https://cmdb.example.invalid/lookup",
+				cmdbNetBoxURLEnv:         "https://netbox.example.invalid",
+				cmdbNetBoxLookupLabelEnv: "instance",
+			},
+			wantSubstr: "mutually exclusive",
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			provider, configured, err := cmdbProviderFromEnv(mapGetenv(tc.env), nil)
-			if !configured || provider != nil || err == nil || !strings.Contains(err.Error(), tc.wantSubstr) {
-				t.Fatalf("result = (%T, %v, %v), want configured error containing %q", provider, configured, err, tc.wantSubstr)
+			provider, providerKind, err := cmdbProviderFromEnv(mapGetenv(tc.env), nil)
+			if provider != nil || providerKind != "" || err == nil || !strings.Contains(err.Error(), tc.wantSubstr) {
+				t.Fatalf("result = (%T, %q, %v), want error containing %q", provider, providerKind, err, tc.wantSubstr)
 			}
 		})
 	}
