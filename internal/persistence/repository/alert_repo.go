@@ -74,18 +74,45 @@ func (r *alertRepo) UpdateEventResolution(ctx context.Context, e domain.AlertEve
 	if e.ID == 0 {
 		return domain.AlertEvent{}, fmt.Errorf("update event resolution: id must be non-zero: %w", domain.ErrInvariantViolation)
 	}
-	builder := r.tx.AlertEvent.UpdateOneID(int(e.ID)).
-		SetStatus(string(e.Status))
-	if e.EndsAt != nil {
-		builder = builder.SetEndsAt(*e.EndsAt)
-	} else {
-		builder = builder.ClearEndsAt()
+	if e.Status != domain.AlertStatusResolved || e.EndsAt == nil {
+		return domain.AlertEvent{}, fmt.Errorf("update event resolution: resolved status and ends_at are required: %w", domain.ErrInvariantViolation)
 	}
+	endsAt := domain.NormalizeUTCMicro(*e.EndsAt)
+	if endsAt.IsZero() {
+		return domain.AlertEvent{}, fmt.Errorf("update event resolution: ends_at must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	// Compare against the persisted start time because the port contract ignores
+	// every caller-supplied field except ID, status, and ends_at.
+	builder := r.tx.AlertEvent.UpdateOneID(int(e.ID)).
+		Where(
+			alertevent.StatusEQ(string(domain.AlertStatusFiring)),
+			alertevent.StartsAtLTE(endsAt),
+		).
+		SetStatus(string(domain.AlertStatusResolved)).
+		SetEndsAt(endsAt)
 	saved, err := builder.Save(ctx)
+	if err == nil {
+		return alertEventToDomain(saved), nil
+	}
+	if !ent.IsNotFound(err) {
+		return domain.AlertEvent{}, err
+	}
+
+	current, err := r.tx.AlertEvent.Get(ctx, int(e.ID))
 	if err != nil {
 		return domain.AlertEvent{}, asNotFound(err)
 	}
-	return alertEventToDomain(saved), nil
+	currentDomain := alertEventToDomain(current)
+	if currentDomain.Status == domain.AlertStatusResolved &&
+		currentDomain.EndsAt != nil &&
+		currentDomain.EndsAt.Equal(endsAt) {
+		return currentDomain, nil
+	}
+	return domain.AlertEvent{}, fmt.Errorf(
+		"update event resolution: event %d no longer has a compatible firing state: %w",
+		e.ID,
+		domain.ErrInvariantViolation,
+	)
 }
 
 // FindEventByID returns the AlertEvent or domain.ErrNotFound.

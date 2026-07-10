@@ -6918,7 +6918,8 @@ func TestIngestAlertmanagerWebhook_AcceptsPayload(t *testing.T) {
 	ingestor := &fakeAlertmanagerWebhookIngestor{
 		result: alertmanagerwebhook.Result{
 			ProfileID:         7,
-			Received:          2,
+			Received:          5,
+			Resolved:          1,
 			SkippedResolved:   1,
 			SkippedSuppressed: 2,
 			TruncatedAlerts:   0,
@@ -6964,7 +6965,7 @@ func TestIngestAlertmanagerWebhook_AcceptsPayload(t *testing.T) {
 	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if body.SourceID != 7 || body.Received != 2 || body.SkippedResolved != 1 || body.SkippedSuppressed != 2 || body.Ingested.Saved != 1 {
+	if body.SourceID != 7 || body.Received != 5 || body.Resolved != 1 || body.SkippedResolved != 1 || body.SkippedSuppressed != 2 || body.Ingested.Saved != 1 {
 		t.Fatalf("response = %+v", body)
 	}
 	if body.AutoDiagnosis == nil ||

@@ -452,7 +452,7 @@ paths:
     post:
       operationId: ingestAlertmanagerWebhook
       summary: Ingest an Alertmanager webhook payload
-      description: Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts as AlertEvent rows, skips resolved alerts, starts automatic diagnosis rooms for enabled auto_room policies, and returns sanitized ingest and auto-diagnosis counters without starting report workflows.
+      description: Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts, applies resolved entries to matching AlertEvent rows, starts automatic diagnosis rooms only for firing alerts under enabled auto_room policies, and returns sanitized counters without starting report workflows.
       tags:
         - alerts
       parameters:
@@ -493,7 +493,7 @@ paths:
                       fingerprint: abc123
       responses:
         "202":
-          description: Webhook payload was accepted and firing alerts were ingested
+          description: Webhook payload was accepted and alert lifecycle entries were ingested
           content:
             application/json:
               schema:
@@ -502,7 +502,8 @@ paths:
                 accepted:
                   value:
                     source_id: 2
-                    received: 2
+                    received: 3
+                    resolved: 1
                     skipped_resolved: 1
                     skipped_suppressed: 0
                     truncated_alerts: 0
@@ -8514,6 +8515,7 @@ components:
         endsAt:
           type: string
           format: date-time
+          description: Required and non-zero when status is resolved; ignored for firing ingestion.
           examples:
             - "0001-01-01T00:00:00Z"
         generatorURL:
@@ -8526,21 +8528,21 @@ components:
             - abc123
         silencedBy:
           type: array
-          description: Optional Alertmanager API suppression references; alerts with entries here are ignored by webhook ingestion.
+          description: Optional Alertmanager API suppression references; firing alerts with entries here are ignored by webhook ingestion.
           items:
             type: string
           examples:
             - - silence-1
         inhibitedBy:
           type: array
-          description: Optional Alertmanager API inhibition references; alerts with entries here are ignored by webhook ingestion.
+          description: Optional Alertmanager API inhibition references; firing alerts with entries here are ignored by webhook ingestion.
           items:
             type: string
           examples:
             - - inhibit-1
         mutedBy:
           type: array
-          description: Optional Alertmanager API mute references; alerts with entries here are ignored by webhook ingestion.
+          description: Optional Alertmanager API mute references; firing alerts with entries here are ignored by webhook ingestion.
           items:
             type: string
           examples:
@@ -8565,9 +8567,16 @@ components:
           format: int64
           examples:
             - 2
+        resolved:
+          type: integer
+          format: int64
+          description: Resolved entries applied to matching AlertEvent rows, including idempotent repeated deliveries.
+          examples:
+            - 1
         skipped_resolved:
           type: integer
           format: int64
+          description: Resolved entries skipped because no matching persisted firing AlertEvent exists.
           examples:
             - 1
         skipped_suppressed:
@@ -8612,6 +8621,7 @@ components:
       required:
         - source_id
         - received
+        - resolved
         - skipped_resolved
         - skipped_suppressed
         - truncated_alerts

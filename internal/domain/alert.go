@@ -130,11 +130,19 @@ func (a AlertEvent) Resolve(endsAt time.Time) (AlertEvent, error) {
 	if normalised.Before(a.StartsAt) {
 		return AlertEvent{}, fmt.Errorf("alert event: ends_at %s precedes starts_at %s: %w", normalised, a.StartsAt, ErrInvariantViolation)
 	}
-	if a.Status == AlertStatusResolved && a.EndsAt != nil {
+	switch a.Status {
+	case AlertStatusFiring:
+		// Continue with the one allowed lifecycle transition below.
+	case AlertStatusResolved:
+		if a.EndsAt == nil {
+			return AlertEvent{}, fmt.Errorf("alert event: resolved status requires ends_at: %w", ErrInvariantViolation)
+		}
 		if a.EndsAt.Equal(normalised) {
 			return a, nil
 		}
 		return AlertEvent{}, fmt.Errorf("alert event: ends_at is immutable once set (%s -> %s): %w", *a.EndsAt, normalised, ErrInvariantViolation)
+	default:
+		return AlertEvent{}, fmt.Errorf("alert event: cannot resolve from status %q: %w", a.Status, ErrInvariantViolation)
 	}
 	a.Status = AlertStatusResolved
 	a.EndsAt = &normalised

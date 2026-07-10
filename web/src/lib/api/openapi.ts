@@ -123,7 +123,7 @@ export interface paths {
         put?: never;
         /**
          * Ingest an Alertmanager webhook payload
-         * @description Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts as AlertEvent rows, skips resolved alerts, starts automatic diagnosis rooms for enabled auto_room policies, and returns sanitized ingest and auto-diagnosis counters without starting report workflows.
+         * @description Accepts a version 4 Alertmanager webhook receiver payload for an enabled Alertmanager alert-source profile, persists firing alerts, applies resolved entries to matching AlertEvent rows, starts automatic diagnosis rooms only for firing alerts under enabled auto_room policies, and returns sanitized counters without starting report workflows.
          */
         post: operations["ingestAlertmanagerWebhook"];
         delete?: never;
@@ -3767,6 +3767,7 @@ export interface components {
             startsAt: string;
             /**
              * Format: date-time
+             * @description Required and non-zero when status is resolved; ignored for firing ingestion.
              * @example 0001-01-01T00:00:00Z
              */
             endsAt?: string;
@@ -3775,21 +3776,21 @@ export interface components {
             /** @example abc123 */
             fingerprint?: string;
             /**
-             * @description Optional Alertmanager API suppression references; alerts with entries here are ignored by webhook ingestion.
+             * @description Optional Alertmanager API suppression references; firing alerts with entries here are ignored by webhook ingestion.
              * @example [
              *       "silence-1"
              *     ]
              */
             silencedBy?: string[];
             /**
-             * @description Optional Alertmanager API inhibition references; alerts with entries here are ignored by webhook ingestion.
+             * @description Optional Alertmanager API inhibition references; firing alerts with entries here are ignored by webhook ingestion.
              * @example [
              *       "inhibit-1"
              *     ]
              */
             inhibitedBy?: string[];
             /**
-             * @description Optional Alertmanager API mute references; alerts with entries here are ignored by webhook ingestion.
+             * @description Optional Alertmanager API mute references; firing alerts with entries here are ignored by webhook ingestion.
              * @example [
              *       "mute-1"
              *     ]
@@ -3810,6 +3811,13 @@ export interface components {
             received: number;
             /**
              * Format: int64
+             * @description Resolved entries applied to matching AlertEvent rows, including idempotent repeated deliveries.
+             * @example 1
+             */
+            resolved: number;
+            /**
+             * Format: int64
+             * @description Resolved entries skipped because no matching persisted firing AlertEvent exists.
              * @example 1
              */
             skipped_resolved: number;
@@ -4841,7 +4849,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Webhook payload was accepted and firing alerts were ingested */
+            /** @description Webhook payload was accepted and alert lifecycle entries were ingested */
             202: {
                 headers: {
                     [name: string]: unknown;

@@ -158,6 +158,26 @@ func TestAlertEvent_Resolve(t *testing.T) {
 			t.Fatalf("err = %v, want ErrInvariantViolation", err)
 		}
 	})
+
+	t.Run("resolved status without ends_at is invariant violation", func(t *testing.T) {
+		t.Parallel()
+		invalid := base
+		invalid.Status = AlertStatusResolved
+		_, err := invalid.Resolve(endsAt)
+		if !errors.Is(err, ErrInvariantViolation) {
+			t.Fatalf("err = %v, want ErrInvariantViolation", err)
+		}
+	})
+
+	t.Run("unknown source status is invariant violation", func(t *testing.T) {
+		t.Parallel()
+		invalid := base
+		invalid.Status = AlertStatus("unknown")
+		_, err := invalid.Resolve(endsAt)
+		if !errors.Is(err, ErrInvariantViolation) {
+			t.Fatalf("err = %v, want ErrInvariantViolation", err)
+		}
+	})
 }
 
 func TestNewAlertGroup(t *testing.T) {

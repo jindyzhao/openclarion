@@ -254,8 +254,24 @@ func TestAlertRepository_UpdateEventResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
+	beforeStart := resolved
+	invalidEndsAt := startsAt.Add(-time.Minute)
+	beforeStart.StartsAt = time.Time{}
+	beforeStart.EndsAt = &invalidEndsAt
+	err = integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, updateErr := uow.Alerts().UpdateEventResolution(ctx, beforeStart)
+		return updateErr
+	})
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("before-start UpdateEventResolution err = %v, want ErrInvariantViolation", err)
+	}
+
+	// Non-mutable fields are ignored by the repository contract.
+	resolved.StartsAt = time.Time{}
+	var updated domain.AlertEvent
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
-		updated, uerr := uow.Alerts().UpdateEventResolution(ctx, resolved)
+		var uerr error
+		updated, uerr = uow.Alerts().UpdateEventResolution(ctx, resolved)
 		if uerr != nil {
 			t.Fatalf("UpdateEventResolution: %v", uerr)
 		}
@@ -264,6 +280,93 @@ func TestAlertRepository_UpdateEventResolution(t *testing.T) {
 		}
 		if updated.EndsAt == nil || !updated.EndsAt.Equal(domain.NormalizeUTCMicro(endsAt)) {
 			t.Errorf("updated.EndsAt = %v, want %v", updated.EndsAt, endsAt)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		repeated, uerr := uow.Alerts().UpdateEventResolution(ctx, resolved)
+		if uerr != nil {
+			t.Fatalf("repeated UpdateEventResolution: %v", uerr)
+		}
+		if repeated.EndsAt == nil || !repeated.EndsAt.Equal(endsAt) {
+			t.Fatalf("repeated EndsAt = %v, want %v", repeated.EndsAt, endsAt)
+		}
+	})
+
+	conflicting, err := saved.Resolve(endsAt.Add(time.Minute))
+	if err != nil {
+		t.Fatalf("Resolve conflicting candidate: %v", err)
+	}
+	err = integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, updateErr := uow.Alerts().UpdateEventResolution(ctx, conflicting)
+		return updateErr
+	})
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("conflicting UpdateEventResolution err = %v, want ErrInvariantViolation", err)
+	}
+	if updated.EndsAt == nil || !updated.EndsAt.Equal(endsAt) {
+		t.Fatalf("initial updated EndsAt = %v, want %v", updated.EndsAt, endsAt)
+	}
+}
+
+func TestAlertRepository_UpdateEventResolutionConcurrentConflict(t *testing.T) {
+	resetDB(t)
+	startsAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
+	var saved domain.AlertEvent
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		var err error
+		saved, err = uow.Alerts().SaveEvent(ctx, mustNewAlertEvent(t, "prometheus", "fp-race", "canon-race", startsAt))
+		if err != nil {
+			t.Fatalf("SaveEvent: %v", err)
+		}
+	})
+
+	type updateResult struct {
+		endsAt time.Time
+		err    error
+	}
+	results := make(chan updateResult, 2)
+	start := make(chan struct{})
+	for _, endsAt := range []time.Time{startsAt.Add(time.Minute), startsAt.Add(2 * time.Minute)} {
+		candidate, err := saved.Resolve(endsAt)
+		if err != nil {
+			t.Fatalf("Resolve candidate: %v", err)
+		}
+		go func() {
+			<-start
+			updateErr := integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+				_, err := uow.Alerts().UpdateEventResolution(ctx, candidate)
+				return err
+			})
+			results <- updateResult{endsAt: endsAt, err: updateErr}
+		}()
+	}
+	close(start)
+
+	var winningEnd time.Time
+	var successes, conflicts int
+	for range 2 {
+		result := <-results
+		switch {
+		case result.err == nil:
+			successes++
+			winningEnd = result.endsAt
+		case errors.Is(result.err, domain.ErrInvariantViolation):
+			conflicts++
+		default:
+			t.Fatalf("concurrent UpdateEventResolution err = %v", result.err)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("concurrent results successes=%d conflicts=%d, want 1/1", successes, conflicts)
+	}
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		stored, err := uow.Alerts().FindEventByID(ctx, saved.ID)
+		if err != nil {
+			t.Fatalf("FindEventByID: %v", err)
+		}
+		if stored.EndsAt == nil || !stored.EndsAt.Equal(winningEnd) {
+			t.Fatalf("stored EndsAt = %v, want winning %s", stored.EndsAt, winningEnd)
 		}
 	})
 }

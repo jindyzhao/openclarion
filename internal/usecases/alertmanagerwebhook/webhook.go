@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"maps"
 	"strings"
 	"time"
 
@@ -52,6 +54,7 @@ type Request struct {
 type Result struct {
 	ProfileID         domain.AlertSourceProfileID
 	Received          int
+	Resolved          int
 	SkippedResolved   int
 	SkippedSuppressed int
 	TruncatedAlerts   int
@@ -60,8 +63,8 @@ type Result struct {
 }
 
 // Service validates the bound alert source profile, checks inbound
-// authorization when required, parses the webhook payload, and persists firing
-// alerts through alertingest.
+// authorization when required, parses the webhook payload, persists firing
+// alerts through alertingest, and applies matching resolution transitions.
 type Service struct {
 	uowFactory           ports.UnitOfWorkFactory
 	secretResolver       ports.SecretResolver
@@ -133,16 +136,18 @@ func (s *Service) Ingest(ctx context.Context, req Request) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
-	stats, err := alertingest.IngestAlerts(ctx, decoded.alerts, s.uowFactory)
+	stats, ingestErr := alertingest.IngestAlerts(ctx, decoded.alerts, s.uowFactory)
+	resolved, skippedResolved, resolveErr := s.resolveAlerts(ctx, req.ProfileID, decoded.resolutions)
 	result := Result{
 		ProfileID:         req.ProfileID,
 		Received:          decoded.received,
-		SkippedResolved:   decoded.skippedResolved,
+		Resolved:          resolved,
+		SkippedResolved:   skippedResolved,
 		SkippedSuppressed: decoded.skippedSuppressed,
 		TruncatedAlerts:   decoded.truncatedAlerts,
 		Ingested:          stats,
 	}
-	if err != nil {
+	if err := errors.Join(ingestErr, resolveErr); err != nil {
 		return result, err
 	}
 	if s.autoDiagnosisTrigger != nil && !decoded.windowStart.IsZero() && !decoded.windowEnd.IsZero() {
@@ -163,6 +168,93 @@ func (s *Service) Ingest(ctx context.Context, req Request) (Result, error) {
 		}
 	}
 	return result, nil
+}
+
+type resolvedAlert struct {
+	labels   map[string]string
+	startsAt time.Time
+	endsAt   time.Time
+}
+
+func (s *Service) resolveAlerts(
+	ctx context.Context,
+	profileID domain.AlertSourceProfileID,
+	alerts []resolvedAlert,
+) (resolved int, skipped int, err error) {
+	var failures []error
+	for i, alert := range alerts {
+		found, resolveErr := s.resolveAlert(ctx, profileID, alert)
+		switch {
+		case resolveErr != nil:
+			_, canonicalFingerprint, fingerprintErr := alertingest.EventFingerprints(alert.labels)
+			if fingerprintErr != nil {
+				canonicalFingerprint = "<unavailable>"
+			}
+			logArgs := []any{
+				slog.Int64("alert_source_profile_id", int64(profileID)),
+				slog.Int("alert_index", i),
+				slog.Time("starts_at", alert.startsAt),
+				slog.String("canonical_fingerprint", canonicalFingerprint),
+				slog.Any("error", resolveErr),
+			}
+			if fingerprintErr != nil {
+				logArgs = append(logArgs, slog.Any("canonical_fingerprint_error", fingerprintErr))
+			}
+			slog.WarnContext(ctx, "alertmanager webhook: resolution update failed", logArgs...)
+			failures = append(failures, resolveErr)
+		case found:
+			resolved++
+		default:
+			skipped++
+		}
+	}
+	return resolved, skipped, errors.Join(failures...)
+}
+
+func (s *Service) resolveAlert(
+	ctx context.Context,
+	profileID domain.AlertSourceProfileID,
+	alert resolvedAlert,
+) (bool, error) {
+	_, canonicalFingerprint, err := alertingest.EventFingerprints(alert.labels)
+	if err != nil {
+		return false, fmt.Errorf("alertmanager webhook: build resolution fingerprint: %w", err)
+	}
+	key := ports.AlertEventNaturalKey{
+		Source:               sourceName,
+		AlertSourceProfileID: profileID,
+		CanonicalFingerprint: canonicalFingerprint,
+		StartsAt:             alert.startsAt,
+	}
+	found := false
+	err = s.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		events, err := uow.Alerts().ListEventsByNaturalKeys(ctx, []ports.AlertEventNaturalKey{key}, 2)
+		if err != nil {
+			return err
+		}
+		if len(events) == 0 {
+			return nil
+		}
+		if len(events) != 1 {
+			return fmt.Errorf("alertmanager webhook: resolution natural key matched %d events: %w", len(events), domain.ErrInvariantViolation)
+		}
+		found = true
+		event := events[0]
+		wasResolved := event.Status == domain.AlertStatusResolved
+		resolvedEvent, err := event.Resolve(alert.endsAt)
+		if err != nil {
+			return err
+		}
+		if wasResolved {
+			return nil
+		}
+		_, err = uow.Alerts().UpdateEventResolution(ctx, resolvedEvent)
+		return err
+	})
+	if err != nil {
+		return found, fmt.Errorf("alertmanager webhook: resolve alert: %w", err)
+	}
+	return found, nil
 }
 
 func (s *Service) resolveWebhookAlertEventIDs(ctx context.Context, alerts []ports.ActiveAlert) ([]domain.AlertEventID, error) {
@@ -276,12 +368,12 @@ func (s *Service) authorize(ctx context.Context, profile domain.AlertSourceProfi
 
 type decodedPayload struct {
 	received          int
-	skippedResolved   int
 	skippedSuppressed int
 	truncatedAlerts   int
 	windowStart       time.Time
 	windowEnd         time.Time
 	alerts            []ports.ActiveAlert
+	resolutions       []resolvedAlert
 }
 
 type webhookPayload struct {
@@ -366,7 +458,22 @@ func decodePayload(raw json.RawMessage, profileID domain.AlertSourceProfileID) (
 				RawPayload:           append(json.RawMessage(nil), encoded...),
 			})
 		case statusResolved:
-			decoded.skippedResolved++
+			if alert.StartsAt.IsZero() {
+				return decodedPayload{}, fmt.Errorf("startsAt must be set for resolved alert: %w", domain.ErrInvariantViolation)
+			}
+			if alert.EndsAt.IsZero() {
+				return decodedPayload{}, fmt.Errorf("endsAt must be set for resolved alert: %w", domain.ErrInvariantViolation)
+			}
+			startsAt := domain.NormalizeUTCMicro(alert.StartsAt)
+			endsAt := domain.NormalizeUTCMicro(alert.EndsAt)
+			if endsAt.Before(startsAt) {
+				return decodedPayload{}, fmt.Errorf("endsAt must not precede startsAt for resolved alert: %w", domain.ErrInvariantViolation)
+			}
+			decoded.resolutions = append(decoded.resolutions, resolvedAlert{
+				labels:   maps.Clone(*alert.Labels),
+				startsAt: startsAt,
+				endsAt:   endsAt,
+			})
 		default:
 			return decodedPayload{}, fmt.Errorf("status %q is unsupported: %w", alert.Status, domain.ErrInvariantViolation)
 		}

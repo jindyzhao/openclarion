@@ -127,8 +127,8 @@ operations surface without changing the alert-first product positioning.
 - [x] report workflow policy impact preview with binding readiness and bounded
       recent-alert grouping impact
 - [x] explicit policy-driven report replay endpoint and frontend row action
-- [x] profile-bound Alertmanager webhook intake for firing alert ingestion
-      without workflow starts
+- [x] profile-bound Alertmanager webhook intake for firing ingestion and
+      idempotent resolved lifecycle updates without workflow starts
 - [x] profile-driven report policy live-smoke harness and readiness preflight
       for retained external proof
 - [ ] retained profile-driven live external proof with real alert source,
@@ -156,8 +156,9 @@ profile, test it with sanitized feedback, preview grouping behavior, bind a
 report workflow policy to an alert source, grouping policy, and optional report
 notification channel, test the notification channel with sanitized feedback,
 preview policy impact without provider I/O or workflow starts, enable the
-policy, ingest Alertmanager webhook firing alerts through an enabled
-Alertmanager profile without starting workflows, trigger an explicit
+policy, ingest Alertmanager webhook firing alerts and matching resolved
+transitions through an enabled Alertmanager profile without starting workflows,
+trigger an explicit
 policy-driven replay, configure persisted report workflow schedule metadata
 without starting workflows from the browser, have the server map enabled
 schedules into Temporal Schedule registration options, retain
@@ -265,6 +266,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-10 | jindyzhao | Alertmanager webhook lifecycle ingestion now applies resolved entries to matching profile-scoped `AlertEvent` natural keys, preserves immutable resolution timestamps under repeated or concurrent delivery, reports unmatched resolutions without synthesizing history, and keeps automatic diagnosis firing-only. |
 | 2026-07-10 | jindyzhao | Scheduled weekly/monthly reports were marked complete after re-review: persisted report workflow schedules already support UTC daily, weekly, and monthly calendar cadences through domain validation, generated API contracts, Ent persistence, frontend settings formatting, and Temporal Schedule calendar-spec registration. Retained live scheduled-trigger proof remains separate. |
 | 2026-07-10 | jindyzhao | NetBox CMDB provider landed locally: read-only NetBox 4.5.2+ device and virtual-machine lookups within the 4.x series enforce a single match, project contact assignments and topology into EvidenceSnapshots, retain only explicitly allowlisted scalar custom fields, support v2 Bearer and legacy v1 Token authentication, and use mutually exclusive fail-fast runtime configuration across all CMDB-enabled replay paths. |
 | 2026-07-10 | jindyzhao | Generic CMDB runtime wiring landed locally: `cmd/openclarion` now validates optional HTTP CMDB environment settings and injects the provider into every production replay path that builds EvidenceSnapshots, including legacy HTTP/CLI triggers, profile-driven manual and scheduled replay, and Alertmanager automatic diagnosis. NetBox-specific API mapping remains separate future scope. |
