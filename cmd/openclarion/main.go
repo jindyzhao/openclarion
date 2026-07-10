@@ -39,6 +39,7 @@ import (
 	authoidc "github.com/openclarion/openclarion/internal/providers/auth/oidc"
 	authstatic "github.com/openclarion/openclarion/internal/providers/auth/static"
 	httpcmdb "github.com/openclarion/openclarion/internal/providers/cmdb/http"
+	netboxcmdb "github.com/openclarion/openclarion/internal/providers/cmdb/netbox"
 	containerdocker "github.com/openclarion/openclarion/internal/providers/container/docker"
 	directoryiam "github.com/openclarion/openclarion/internal/providers/directory/iam"
 	imemail "github.com/openclarion/openclarion/internal/providers/im/email"
@@ -83,9 +84,19 @@ const (
 	autoDiagnosisMaxRoomsPerTriggerEnv = "OPENCLARION_AUTO_DIAGNOSIS_MAX_ROOMS_PER_TRIGGER"
 	cmdbHTTPURLEnv                     = "OPENCLARION_CMDB_HTTP_URL"
 	// #nosec G101 -- environment variable name only; values are read at runtime.
-	cmdbHTTPBearerTokenEnv = "OPENCLARION_CMDB_HTTP_BEARER_TOKEN"
-	cmdbHTTPTimeoutEnv     = "OPENCLARION_CMDB_HTTP_TIMEOUT_SECONDS"
-	diagnosisAuthModeEnv   = "OPENCLARION_DIAGNOSIS_AUTH_MODE"
+	cmdbHTTPBearerTokenEnv    = "OPENCLARION_CMDB_HTTP_BEARER_TOKEN"
+	cmdbHTTPTimeoutEnv        = "OPENCLARION_CMDB_HTTP_TIMEOUT_SECONDS"
+	cmdbNetBoxURLEnv          = "OPENCLARION_CMDB_NETBOX_URL"
+	cmdbNetBoxLookupLabelEnv  = "OPENCLARION_CMDB_NETBOX_LOOKUP_LABEL"
+	cmdbNetBoxLookupFilterEnv = "OPENCLARION_CMDB_NETBOX_LOOKUP_FILTER"
+	cmdbNetBoxObjectTypeEnv   = "OPENCLARION_CMDB_NETBOX_OBJECT_TYPE"
+	cmdbNetBoxCustomFieldsEnv = "OPENCLARION_CMDB_NETBOX_ATTRIBUTE_CUSTOM_FIELDS"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	cmdbNetBoxTokenSchemeEnv = "OPENCLARION_CMDB_NETBOX_TOKEN_SCHEME"
+	cmdbNetBoxHTTPTimeoutEnv = "OPENCLARION_CMDB_NETBOX_TIMEOUT_SECONDS"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	cmdbNetBoxAPITokenEnv = "OPENCLARION_CMDB_NETBOX_API_TOKEN"
+	diagnosisAuthModeEnv  = "OPENCLARION_DIAGNOSIS_AUTH_MODE"
 	// #nosec G101 -- environment variable name only; values are read at runtime.
 	diagnosisStaticBearerTokenEnv = "OPENCLARION_DIAGNOSIS_STATIC_BEARER_TOKEN"
 	diagnosisStaticSubjectEnv     = "OPENCLARION_DIAGNOSIS_STATIC_SUBJECT"
@@ -458,7 +469,7 @@ func reportActivityOptionsFromEnv(
 	httpTracing *observabilitytracing.HTTPTracing,
 ) ([]temporalpkg.ActivityOption, error) {
 	var opts []temporalpkg.ActivityOption
-	cmdbProvider, cmdbConfigured, err := cmdbProviderFromEnv(getenv, httpTracing)
+	cmdbProvider, cmdbProviderKind, err := cmdbProviderFromEnv(getenv, httpTracing)
 	if err != nil {
 		return nil, err
 	}
@@ -570,8 +581,8 @@ func reportActivityOptionsFromEnv(
 		}
 		opts = append(opts, temporalpkg.WithReportPolicyReplayer(policyReplayer))
 		logger.Info("configured scheduled report policy replayer", "providers", "profile")
-		if cmdbConfigured {
-			logger.Info("configured scheduled replay CMDB enrichment", "provider", "http")
+		if cmdbProviderKind != "" {
+			logger.Info("configured scheduled replay CMDB enrichment", "provider", cmdbProviderKind)
 		}
 	}
 	return opts, nil
@@ -580,17 +591,38 @@ func reportActivityOptionsFromEnv(
 func cmdbProviderFromEnv(
 	getenv getenvFunc,
 	httpTracing *observabilitytracing.HTTPTracing,
-) (ports.CMDBProvider, bool, error) {
-	if getenv == nil || !anyEnv(getenv, cmdbHTTPURLEnv, cmdbHTTPBearerTokenEnv, cmdbHTTPTimeoutEnv) {
-		return nil, false, nil
+) (ports.CMDBProvider, string, error) {
+	if getenv == nil {
+		return nil, "", nil
 	}
+	httpConfigured := anyEnv(getenv, cmdbHTTPURLEnv, cmdbHTTPBearerTokenEnv, cmdbHTTPTimeoutEnv)
+	netBoxConfigured := anyEnv(getenv,
+		cmdbNetBoxURLEnv,
+		cmdbNetBoxAPITokenEnv,
+		cmdbNetBoxTokenSchemeEnv,
+		cmdbNetBoxLookupLabelEnv,
+		cmdbNetBoxLookupFilterEnv,
+		cmdbNetBoxObjectTypeEnv,
+		cmdbNetBoxCustomFieldsEnv,
+		cmdbNetBoxHTTPTimeoutEnv,
+	)
+	if httpConfigured && netBoxConfigured {
+		return nil, "", fmt.Errorf("HTTP and NetBox CMDB provider configuration are mutually exclusive")
+	}
+	if !httpConfigured && !netBoxConfigured {
+		return nil, "", nil
+	}
+	if netBoxConfigured {
+		return netBoxCMDBProviderFromEnv(getenv, httpTracing)
+	}
+
 	endpoint := strings.TrimSpace(getenv(cmdbHTTPURLEnv))
 	if endpoint == "" {
-		return nil, true, fmt.Errorf("%s is required when configuring the HTTP CMDB provider", cmdbHTTPURLEnv)
+		return nil, "", fmt.Errorf("%s is required when configuring the HTTP CMDB provider", cmdbHTTPURLEnv)
 	}
 	timeout, err := positiveDurationSecondsFromEnv(getenv, cmdbHTTPTimeoutEnv, defaultCMDBHTTPTimeout)
 	if err != nil {
-		return nil, true, err
+		return nil, "", err
 	}
 	provider, err := httpcmdb.NewProvider(httpcmdb.Config{
 		URL:         endpoint,
@@ -598,9 +630,41 @@ func cmdbProviderFromEnv(
 		HTTPClient:  outboundHTTPClient(httpTracing, timeout),
 	})
 	if err != nil {
-		return nil, true, fmt.Errorf("configure HTTP CMDB provider: %w", err)
+		return nil, "", fmt.Errorf("configure HTTP CMDB provider: %w", err)
 	}
-	return provider, true, nil
+	return provider, "http", nil
+}
+
+func netBoxCMDBProviderFromEnv(
+	getenv getenvFunc,
+	httpTracing *observabilitytracing.HTTPTracing,
+) (ports.CMDBProvider, string, error) {
+	baseURL := strings.TrimSpace(getenv(cmdbNetBoxURLEnv))
+	if baseURL == "" {
+		return nil, "", fmt.Errorf("%s is required when configuring the NetBox CMDB provider", cmdbNetBoxURLEnv)
+	}
+	lookupLabel := getenv(cmdbNetBoxLookupLabelEnv)
+	if strings.TrimSpace(lookupLabel) == "" {
+		return nil, "", fmt.Errorf("%s is required when configuring the NetBox CMDB provider", cmdbNetBoxLookupLabelEnv)
+	}
+	timeout, err := positiveDurationSecondsFromEnv(getenv, cmdbNetBoxHTTPTimeoutEnv, defaultCMDBHTTPTimeout)
+	if err != nil {
+		return nil, "", err
+	}
+	provider, err := netboxcmdb.NewProvider(netboxcmdb.Config{
+		BaseURL:               baseURL,
+		APIToken:              getenv(cmdbNetBoxAPITokenEnv),
+		TokenScheme:           netboxcmdb.TokenScheme(getenv(cmdbNetBoxTokenSchemeEnv)),
+		LookupLabel:           lookupLabel,
+		LookupFilter:          getenv(cmdbNetBoxLookupFilterEnv),
+		ObjectType:            netboxcmdb.ObjectType(getenv(cmdbNetBoxObjectTypeEnv)),
+		AttributeCustomFields: optionalCSVValues(getenv(cmdbNetBoxCustomFieldsEnv)),
+		HTTPClient:            outboundHTTPClient(httpTracing, timeout),
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("configure NetBox CMDB provider: %w", err)
+	}
+	return provider, "netbox", nil
 }
 
 func reportIMProviderFromEnv(
@@ -846,7 +910,7 @@ func httpServerOptionsFromEnv(
 	if err != nil {
 		return nil, nil, err
 	}
-	cmdbProvider, cmdbConfigured, err := cmdbProviderFromEnv(getenv, httpTracing)
+	cmdbProvider, cmdbProviderKind, err := cmdbProviderFromEnv(getenv, httpTracing)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1067,8 +1131,8 @@ func httpServerOptionsFromEnv(
 		logger.Info("configured report HTTP trigger", "provider", "prometheus")
 		opts = append(opts, transporthttp.WithReportReplayTrigger(service))
 	}
-	if cmdbConfigured {
-		logger.Info("configured HTTP replay CMDB enrichment", "provider", "http")
+	if cmdbProviderKind != "" {
+		logger.Info("configured HTTP replay CMDB enrichment", "provider", cmdbProviderKind)
 	}
 
 	diagnosisOpts, err := diagnosisServerOptionsFromEnv(

@@ -253,7 +253,7 @@ sessions, leader-tier approval, streaming partial responses.
 - [ ] pgvector retrieval (RAG)
 - [ ] Kubernetes Job ContainerProvider
 - [x] DingTalk and Feishu IM providers
-- [ ] NetBox CMDB provider
+- [x] NetBox CMDB provider
 - [ ] signal-capable provider extension track after alert-analysis MVP proves
       stable
 - [ ] scheduled weekly and monthly reports
@@ -265,6 +265,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-10 | jindyzhao | NetBox CMDB provider landed locally: read-only NetBox 4.5.2+ device and virtual-machine lookups within the 4.x series enforce a single match, project contact assignments and topology into EvidenceSnapshots, retain only explicitly allowlisted scalar custom fields, support v2 Bearer and legacy v1 Token authentication, and use mutually exclusive fail-fast runtime configuration across all CMDB-enabled replay paths. |
 | 2026-07-10 | jindyzhao | Generic CMDB runtime wiring landed locally: `cmd/openclarion` now validates optional HTTP CMDB environment settings and injects the provider into every production replay path that builds EvidenceSnapshots, including legacy HTTP/CLI triggers, profile-driven manual and scheduled replay, and Alertmanager automatic diagnosis. NetBox-specific API mapping remains separate future scope. |
 | 2026-07-08 | jindyzhao | SMTP Email IM provider landed locally: profile-backed notification channels can now use `email` kind secrets with compact SMTP URLs for report-scoped plain-text delivery and channel tests. Legacy unbound delivery remains Webhook-only, and diagnosis consultation/close delivery remains scoped to Enterprise WeChat. |
 | 2026-07-08 | jindyzhao | Slack incoming-webhook IM format landed locally: Webhook-backed notification delivery can now send Slack `text` payloads through legacy env format selection or profile-backed `slack` channel kinds. Diagnosis consultation/close delivery remains scoped to Enterprise WeChat. |
