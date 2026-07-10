@@ -99,6 +99,98 @@ func TestReportActivityOptionsFromEnv_ConfiguresScheduledPolicyReplayer(t *testi
 	}
 }
 
+func TestCMDBProviderFromEnv_ConfiguresHTTPProvider(t *testing.T) {
+	type capturedRequest struct {
+		path string
+		auth string
+	}
+	requests := make(chan capturedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests <- capturedRequest{path: r.URL.Path, auth: r.Header.Get("Authorization")}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"found":false}`))
+	}))
+	defer server.Close()
+
+	// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+	provider, configured, err := cmdbProviderFromEnv(mapGetenv(map[string]string{
+		cmdbHTTPURLEnv:         server.URL + "/lookup",
+		cmdbHTTPBearerTokenEnv: "test-cmdb-token",
+		cmdbHTTPTimeoutEnv:     "2",
+	}), nil)
+	if err != nil {
+		t.Fatalf("cmdbProviderFromEnv: %v", err)
+	}
+	if !configured || provider == nil {
+		t.Fatalf("configured = %v, provider = %T, want configured provider", configured, provider)
+	}
+	result, err := provider.LookupResource(context.Background(), ports.CMDBLookupRequest{
+		Labels: map[string]string{"service": "payments"},
+	})
+	if err != nil {
+		t.Fatalf("LookupResource: %v", err)
+	}
+	if result.Found {
+		t.Fatalf("result = %+v, want normal no-match", result)
+	}
+	got := <-requests
+	if got.path != "/lookup" || got.auth != "Bearer test-cmdb-token" {
+		t.Fatalf("request = %+v, want lookup path and bearer auth", got)
+	}
+}
+
+func TestCMDBProviderFromEnv_OptionalAndPartialConfiguration(t *testing.T) {
+	provider, configured, err := cmdbProviderFromEnv(mapGetenv(nil), nil)
+	if err != nil || configured || provider != nil {
+		t.Fatalf("unconfigured result = (%T, %v, %v), want nil, false, nil", provider, configured, err)
+	}
+
+	tests := []struct {
+		name       string
+		env        map[string]string
+		wantSubstr string
+	}{
+		{
+			name: "bearer token without URL",
+			env: map[string]string{
+				// #nosec G101 -- test-only env fixture uses a non-secret placeholder value.
+				cmdbHTTPBearerTokenEnv: "test-cmdb-token",
+			},
+			wantSubstr: cmdbHTTPURLEnv,
+		},
+		{
+			name: "timeout without URL",
+			env: map[string]string{
+				cmdbHTTPTimeoutEnv: "5",
+			},
+			wantSubstr: cmdbHTTPURLEnv,
+		},
+		{
+			name: "invalid timeout",
+			env: map[string]string{
+				cmdbHTTPURLEnv:     "https://cmdb.example.invalid/lookup",
+				cmdbHTTPTimeoutEnv: "0",
+			},
+			wantSubstr: cmdbHTTPTimeoutEnv,
+		},
+		{
+			name: "invalid URL",
+			env: map[string]string{
+				cmdbHTTPURLEnv: "file:///tmp/cmdb.json",
+			},
+			wantSubstr: "URL scheme must be http or https",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			provider, configured, err := cmdbProviderFromEnv(mapGetenv(tc.env), nil)
+			if !configured || provider != nil || err == nil || !strings.Contains(err.Error(), tc.wantSubstr) {
+				t.Fatalf("result = (%T, %v, %v), want configured error containing %q", provider, configured, err, tc.wantSubstr)
+			}
+		})
+	}
+}
+
 func TestTemporalTaskQueueFromEnv(t *testing.T) {
 	tests := []struct {
 		name       string

@@ -22,6 +22,8 @@ Implement default and fake providers for local development and workflow tests.
 Provider interfaces remain compile-time Go contracts. Operator-facing
 configuration is separate product state, described by
 [ADR-0014](../../adr/ADR-0014-alert-operations-configuration.md).
+Provider capability and dependency boundaries follow
+[ADR-0003](../../adr/ADR-0003-provider-extension-interfaces.md).
 
 The provider phase now has two responsibilities:
 
@@ -33,6 +35,72 @@ Prometheus is the first implemented alert source adapter. Alertmanager must
 land as its own adapter with contract tests and fake coverage before product
 documentation or UI can claim Alertmanager support. Both adapters must translate
 upstream payloads into the same `ActiveAlert` / `AlertEvent` path.
+
+## Generic HTTP CMDB Runtime Contract
+
+CMDB enrichment is disabled when all three runtime variables are absent. Set
+`OPENCLARION_CMDB_HTTP_URL` to enable it, with optional
+`OPENCLARION_CMDB_HTTP_BEARER_TOKEN` and a positive integer
+`OPENCLARION_CMDB_HTTP_TIMEOUT_SECONDS` (default: 10). A token or timeout without
+the URL is rejected at process startup.
+
+The configured endpoint receives one context-bound `POST` per grouped alert
+event. Requests use `application/json`; bearer authentication is added only
+when configured:
+
+```json
+{
+  "labels": {
+    "alertname": "HighErrorRate",
+    "service": "payments"
+  }
+}
+```
+
+A normal no-match response must omit `resource`:
+
+```json
+{
+  "found": false
+}
+```
+
+A match returns one sanitized provider-neutral resource projection:
+
+```json
+{
+  "found": true,
+  "resource": {
+    "id": "service:payments",
+    "kind": "service",
+    "name": "payments",
+    "owners": [
+      {
+        "subject": "team-payments",
+        "team": "Payments",
+        "role": "primary"
+      }
+    ],
+    "topology": [
+      {
+        "relation": "depends_on",
+        "target_id": "database:ledger",
+        "target_kind": "database",
+        "target_name": "ledger"
+      }
+    ],
+    "attributes": {
+      "tier": "critical"
+    }
+  }
+}
+```
+
+Unknown fields, duplicate JSON keys, trailing JSON values, oversized responses,
+invalid resource projections, non-2xx statuses, and request failures are
+rejected. Redirects are not followed, and transport errors do not expose the
+configured request URL. A lookup failure fails only the affected replay group;
+provider I/O does not run inside the group write transaction.
 
 ## Provider Rules
 

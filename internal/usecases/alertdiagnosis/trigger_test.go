@@ -44,6 +44,7 @@ func TestTriggerStartsRoomsOnlyForAutoRoomPolicies(t *testing.T) {
 	}
 	starter := &recordingRoomStarter{}
 	var replayRequests []alertreplay.Request
+	cmdbProvider := &noopCMDBProvider{}
 	service, err := NewService(
 		factory,
 		starter,
@@ -54,6 +55,7 @@ func TestTriggerStartsRoomsOnlyForAutoRoomPolicies(t *testing.T) {
 				Snapshots: []alertreplay.SnapshotRef{{ID: snapshot.ID, GroupIndex: 0, EventCount: 2}},
 			}, nil
 		}),
+		WithCMDBProvider(cmdbProvider),
 	)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
@@ -78,6 +80,9 @@ func TestTriggerStartsRoomsOnlyForAutoRoomPolicies(t *testing.T) {
 		t.Fatalf("replay requests = %d, want 1", len(replayRequests))
 	}
 	gotReplay := replayRequests[0]
+	if gotReplay.CMDBProvider != cmdbProvider {
+		t.Fatalf("CMDBProvider = %T, want configured provider", gotReplay.CMDBProvider)
+	}
 	if gotReplay.CreatedByWorkflow != CreatedByWorkflow ||
 		gotReplay.Limit != 100 ||
 		gotReplay.Grouping.SeverityKey != "severity" ||
@@ -120,6 +125,12 @@ func TestTriggerStartsRoomsOnlyForAutoRoomPolicies(t *testing.T) {
 		result.Rooms[0].Workflow.WorkflowID == "" {
 		t.Fatalf("room result = %+v", result.Rooms[0])
 	}
+}
+
+type noopCMDBProvider struct{}
+
+func (*noopCMDBProvider) LookupResource(context.Context, ports.CMDBLookupRequest) (ports.CMDBLookupResult, error) {
+	return ports.CMDBLookupResult{}, nil
 }
 
 func TestTriggerMountsAvailableDiagnosisTools(t *testing.T) {

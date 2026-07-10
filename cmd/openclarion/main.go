@@ -38,6 +38,7 @@ import (
 	authldap "github.com/openclarion/openclarion/internal/providers/auth/ldap"
 	authoidc "github.com/openclarion/openclarion/internal/providers/auth/oidc"
 	authstatic "github.com/openclarion/openclarion/internal/providers/auth/static"
+	httpcmdb "github.com/openclarion/openclarion/internal/providers/cmdb/http"
 	containerdocker "github.com/openclarion/openclarion/internal/providers/container/docker"
 	directoryiam "github.com/openclarion/openclarion/internal/providers/directory/iam"
 	imemail "github.com/openclarion/openclarion/internal/providers/im/email"
@@ -80,7 +81,11 @@ const (
 	// #nosec G101 -- environment variable name only; values are read at runtime.
 	notificationChannelSecretRefsEnv   = "OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON"
 	autoDiagnosisMaxRoomsPerTriggerEnv = "OPENCLARION_AUTO_DIAGNOSIS_MAX_ROOMS_PER_TRIGGER"
-	diagnosisAuthModeEnv               = "OPENCLARION_DIAGNOSIS_AUTH_MODE"
+	cmdbHTTPURLEnv                     = "OPENCLARION_CMDB_HTTP_URL"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	cmdbHTTPBearerTokenEnv = "OPENCLARION_CMDB_HTTP_BEARER_TOKEN"
+	cmdbHTTPTimeoutEnv     = "OPENCLARION_CMDB_HTTP_TIMEOUT_SECONDS"
+	diagnosisAuthModeEnv   = "OPENCLARION_DIAGNOSIS_AUTH_MODE"
 	// #nosec G101 -- environment variable name only; values are read at runtime.
 	diagnosisStaticBearerTokenEnv = "OPENCLARION_DIAGNOSIS_STATIC_BEARER_TOKEN"
 	diagnosisStaticSubjectEnv     = "OPENCLARION_DIAGNOSIS_STATIC_SUBJECT"
@@ -146,6 +151,7 @@ const (
 	maxDiagnosisRoomListCLILimit            = 500
 	defaultReportReplayCLIWait              = 20 * time.Minute
 	defaultReportLLMHTTPTimeout             = 260 * time.Second
+	defaultCMDBHTTPTimeout                  = 10 * time.Second
 	defaultReportScheduleLiveSmokeWait      = 30 * time.Minute
 	defaultReportScheduleLiveSmokePoll      = 5 * time.Second
 	minIAMDirectorySyncInterval             = time.Minute
@@ -452,6 +458,10 @@ func reportActivityOptionsFromEnv(
 	httpTracing *observabilitytracing.HTTPTracing,
 ) ([]temporalpkg.ActivityOption, error) {
 	var opts []temporalpkg.ActivityOption
+	cmdbProvider, cmdbConfigured, err := cmdbProviderFromEnv(getenv, httpTracing)
+	if err != nil {
+		return nil, err
+	}
 
 	llmConfigured := anyEnv(getenv,
 		"OPENCLARION_LLM_MODEL",
@@ -537,10 +547,16 @@ func reportActivityOptionsFromEnv(
 			return nil, fmt.Errorf("configure scheduled report policy provider builder: %w", err)
 		}
 		policyReplayerOptions := []reportpolicytrigger.Option{}
+		if cmdbProvider != nil {
+			policyReplayerOptions = append(policyReplayerOptions, reportpolicytrigger.WithCMDBProvider(cmdbProvider))
+		}
 		if diagnosisStarter != nil {
 			autoDiagnosisOptions, triggerErr := autoDiagnosisOptionsFromEnv(getenv)
 			if triggerErr != nil {
 				return nil, triggerErr
+			}
+			if cmdbProvider != nil {
+				autoDiagnosisOptions = append(autoDiagnosisOptions, alertdiagnosis.WithCMDBProvider(cmdbProvider))
 			}
 			autoDiagnosisTrigger, triggerErr := alertdiagnosis.NewService(uowFactory, diagnosisStarter, autoDiagnosisOptions...)
 			if triggerErr != nil {
@@ -554,8 +570,37 @@ func reportActivityOptionsFromEnv(
 		}
 		opts = append(opts, temporalpkg.WithReportPolicyReplayer(policyReplayer))
 		logger.Info("configured scheduled report policy replayer", "providers", "profile")
+		if cmdbConfigured {
+			logger.Info("configured scheduled replay CMDB enrichment", "provider", "http")
+		}
 	}
 	return opts, nil
+}
+
+func cmdbProviderFromEnv(
+	getenv getenvFunc,
+	httpTracing *observabilitytracing.HTTPTracing,
+) (ports.CMDBProvider, bool, error) {
+	if getenv == nil || !anyEnv(getenv, cmdbHTTPURLEnv, cmdbHTTPBearerTokenEnv, cmdbHTTPTimeoutEnv) {
+		return nil, false, nil
+	}
+	endpoint := strings.TrimSpace(getenv(cmdbHTTPURLEnv))
+	if endpoint == "" {
+		return nil, true, fmt.Errorf("%s is required when configuring the HTTP CMDB provider", cmdbHTTPURLEnv)
+	}
+	timeout, err := positiveDurationSecondsFromEnv(getenv, cmdbHTTPTimeoutEnv, defaultCMDBHTTPTimeout)
+	if err != nil {
+		return nil, true, err
+	}
+	provider, err := httpcmdb.NewProvider(httpcmdb.Config{
+		URL:         endpoint,
+		BearerToken: strings.TrimSpace(getenv(cmdbHTTPBearerTokenEnv)),
+		HTTPClient:  outboundHTTPClient(httpTracing, timeout),
+	})
+	if err != nil {
+		return nil, true, fmt.Errorf("configure HTTP CMDB provider: %w", err)
+	}
+	return provider, true, nil
 }
 
 func reportIMProviderFromEnv(
@@ -801,6 +846,10 @@ func httpServerOptionsFromEnv(
 	if err != nil {
 		return nil, nil, err
 	}
+	cmdbProvider, cmdbConfigured, err := cmdbProviderFromEnv(getenv, httpTracing)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	rbacAuthorizer, err := rbacusecase.NewService(uowFactory)
 	if err != nil {
@@ -854,6 +903,9 @@ func httpServerOptionsFromEnv(
 		autoDiagnosisOptions, optionsErr := autoDiagnosisOptionsFromEnv(getenv)
 		if optionsErr != nil {
 			return nil, nil, optionsErr
+		}
+		if cmdbProvider != nil {
+			autoDiagnosisOptions = append(autoDiagnosisOptions, alertdiagnosis.WithCMDBProvider(cmdbProvider))
 		}
 		autoDiagnosisTrigger, triggerErr = alertdiagnosis.NewService(uowFactory, diagnosisStarter, autoDiagnosisOptions...)
 		if triggerErr != nil {
@@ -958,6 +1010,9 @@ func httpServerOptionsFromEnv(
 		return nil, nil, fmt.Errorf("configure alert source provider builder: %w", err)
 	}
 	policyTriggerOptions := []reportpolicytrigger.Option{}
+	if cmdbProvider != nil {
+		policyTriggerOptions = append(policyTriggerOptions, reportpolicytrigger.WithCMDBProvider(cmdbProvider))
+	}
 	if autoDiagnosisTrigger != nil {
 		policyTriggerOptions = append(policyTriggerOptions, reportpolicytrigger.WithAutoDiagnosisTrigger(autoDiagnosisTrigger))
 	}
@@ -1001,12 +1056,19 @@ func httpServerOptionsFromEnv(
 		if err != nil {
 			return nil, nil, fmt.Errorf("configure report HTTP trigger metrics provider: %w", err)
 		}
-		service, err := reporttrigger.NewService(provider, uowFactory, starter)
+		reportTriggerOptions := []reporttrigger.Option{}
+		if cmdbProvider != nil {
+			reportTriggerOptions = append(reportTriggerOptions, reporttrigger.WithCMDBProvider(cmdbProvider))
+		}
+		service, err := reporttrigger.NewService(provider, uowFactory, starter, reportTriggerOptions...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("configure report HTTP trigger service: %w", err)
 		}
 		logger.Info("configured report HTTP trigger", "provider", "prometheus")
 		opts = append(opts, transporthttp.WithReportReplayTrigger(service))
+	}
+	if cmdbConfigured {
+		logger.Info("configured HTTP replay CMDB enrichment", "provider", "http")
 	}
 
 	diagnosisOpts, err := diagnosisServerOptionsFromEnv(
@@ -2276,6 +2338,10 @@ func runReportReplayCLI(
 			logger.Warn("shutdown OpenTelemetry tracing", "error", err)
 		}
 	}()
+	cmdbProvider, _, err := cmdbProviderFromEnv(getenv, httpTracing)
+	if err != nil {
+		return err
+	}
 	temporalInterceptors, err := temporalClientInterceptors(httpTracing)
 	if err != nil {
 		return err
@@ -2310,7 +2376,11 @@ func runReportReplayCLI(
 	if err != nil {
 		return fmt.Errorf("configure report CLI metrics provider: %w", err)
 	}
-	service, err := reporttrigger.NewService(provider, repository.NewFactory(entClient), starter)
+	reportTriggerOptions := []reporttrigger.Option{}
+	if cmdbProvider != nil {
+		reportTriggerOptions = append(reportTriggerOptions, reporttrigger.WithCMDBProvider(cmdbProvider))
+	}
+	service, err := reporttrigger.NewService(provider, repository.NewFactory(entClient), starter, reportTriggerOptions...)
 	if err != nil {
 		return fmt.Errorf("configure report CLI trigger service: %w", err)
 	}
@@ -2357,6 +2427,10 @@ func runReportPolicyReplayCLI(
 			logger.Warn("shutdown OpenTelemetry tracing", "error", err)
 		}
 	}()
+	cmdbProvider, _, err := cmdbProviderFromEnv(getenv, httpTracing)
+	if err != nil {
+		return err
+	}
 	temporalInterceptors, err := temporalClientInterceptors(httpTracing)
 	if err != nil {
 		return err
@@ -2403,15 +2477,24 @@ func runReportPolicyReplayCLI(
 	if err != nil {
 		return err
 	}
+	if cmdbProvider != nil {
+		autoDiagnosisOptions = append(autoDiagnosisOptions, alertdiagnosis.WithCMDBProvider(cmdbProvider))
+	}
 	autoDiagnosisTrigger, err := alertdiagnosis.NewService(uowFactory, diagnosisStarter, autoDiagnosisOptions...)
 	if err != nil {
 		return fmt.Errorf("configure report policy CLI auto diagnosis trigger: %w", err)
+	}
+	policyTriggerOptions := []reportpolicytrigger.Option{
+		reportpolicytrigger.WithAutoDiagnosisTrigger(autoDiagnosisTrigger),
+	}
+	if cmdbProvider != nil {
+		policyTriggerOptions = append(policyTriggerOptions, reportpolicytrigger.WithCMDBProvider(cmdbProvider))
 	}
 	service, err := reportpolicytrigger.NewService(
 		uowFactory,
 		starter,
 		alertSourceProviders,
-		reportpolicytrigger.WithAutoDiagnosisTrigger(autoDiagnosisTrigger),
+		policyTriggerOptions...,
 	)
 	if err != nil {
 		return fmt.Errorf("configure report policy CLI trigger service: %w", err)

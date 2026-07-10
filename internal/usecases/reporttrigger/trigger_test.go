@@ -237,9 +237,18 @@ func TestReplayAndStartRejectsNilStarterBeforeReplay(t *testing.T) {
 }
 
 func TestNewServiceValidation(t *testing.T) {
-	_, err := NewService(noopMetricsProvider{}, noopFactory{}, noopStarter{})
+	cmdbProvider := &noopCMDBProvider{}
+	service, err := NewService(
+		noopMetricsProvider{},
+		noopFactory{},
+		noopStarter{},
+		WithCMDBProvider(cmdbProvider),
+	)
 	if err != nil {
 		t.Fatalf("NewService valid deps: %v", err)
+	}
+	if service.cmdbProvider != cmdbProvider {
+		t.Fatalf("cmdbProvider = %T, want configured provider", service.cmdbProvider)
 	}
 
 	cases := []struct {
@@ -266,6 +275,12 @@ func TestNewServiceValidation(t *testing.T) {
 }
 
 type noopMetricsProvider struct{}
+
+type noopCMDBProvider struct{}
+
+func (*noopCMDBProvider) LookupResource(context.Context, ports.CMDBLookupRequest) (ports.CMDBLookupResult, error) {
+	return ports.CMDBLookupResult{}, nil
+}
 
 func (noopMetricsProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {
 	return nil, nil

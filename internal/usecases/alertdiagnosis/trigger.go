@@ -75,6 +75,7 @@ type Service struct {
 	uowFactory         ports.UnitOfWorkFactory
 	starter            ports.DiagnosisRoomWorkflowStarter
 	replay             PersistedWindowReplayer
+	cmdbProvider       ports.CMDBProvider
 	maxRoomsPerTrigger int
 }
 
@@ -86,6 +87,16 @@ func WithPersistedWindowReplayer(replay PersistedWindowReplayer) Option {
 	return func(s *Service) {
 		if replay != nil {
 			s.replay = replay
+		}
+	}
+}
+
+// WithCMDBProvider enables optional ownership and topology enrichment for
+// EvidenceSnapshots produced from persisted alert intake.
+func WithCMDBProvider(provider ports.CMDBProvider) Option {
+	return func(s *Service) {
+		if provider != nil {
+			s.cmdbProvider = provider
 		}
 	}
 }
@@ -159,6 +170,7 @@ func (s *Service) Trigger(ctx context.Context, req Request) (Result, error) {
 			AlertSourceProfileFilter: []domain.AlertSourceProfileID{req.AlertSourceProfileID},
 			CreatedByWorkflow:        CreatedByWorkflow,
 			Limit:                    req.Limit,
+			CMDBProvider:             s.cmdbProvider,
 		})
 		if err != nil {
 			return result, err

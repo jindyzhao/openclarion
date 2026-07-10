@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-07-09
+> Last updated: 2026-07-10
 > Author: jindyzhao
 > Status: private incubation
 
@@ -265,6 +265,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-10 | jindyzhao | Generic CMDB runtime wiring landed locally: `cmd/openclarion` now validates optional HTTP CMDB environment settings and injects the provider into every production replay path that builds EvidenceSnapshots, including legacy HTTP/CLI triggers, profile-driven manual and scheduled replay, and Alertmanager automatic diagnosis. NetBox-specific API mapping remains separate future scope. |
 | 2026-07-08 | jindyzhao | SMTP Email IM provider landed locally: profile-backed notification channels can now use `email` kind secrets with compact SMTP URLs for report-scoped plain-text delivery and channel tests. Legacy unbound delivery remains Webhook-only, and diagnosis consultation/close delivery remains scoped to Enterprise WeChat. |
 | 2026-07-08 | jindyzhao | Slack incoming-webhook IM format landed locally: Webhook-backed notification delivery can now send Slack `text` payloads through legacy env format selection or profile-backed `slack` channel kinds. Diagnosis consultation/close delivery remains scoped to Enterprise WeChat. |
 | 2026-07-08 | jindyzhao | DingTalk and Feishu IM provider formats landed locally: Webhook-backed notification delivery can now send DingTalk text robot payloads and Feishu/Lark custom-bot text payloads through legacy env format selection or profile-backed `dingtalk` / `feishu` channel kinds. These report-delivery channel kinds still keep diagnosis consultation and close delivery scoped to Enterprise WeChat. |

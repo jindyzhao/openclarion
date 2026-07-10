@@ -54,7 +54,7 @@ func NewProvider(cfg Config) (*Provider, error) {
 	return &Provider{
 		endpoint:    endpoint,
 		bearerToken: strings.TrimSpace(cfg.BearerToken),
-		httpClient:  client,
+		httpClient:  withoutRedirects(client),
 	}, nil
 }
 
@@ -85,7 +85,7 @@ func (p *Provider) LookupResource(ctx context.Context, req ports.CMDBLookupReque
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
-		return ports.CMDBLookupResult{}, fmt.Errorf("http cmdb: lookup request failed: %w", err)
+		return ports.CMDBLookupResult{}, fmt.Errorf("http cmdb: lookup request failed: %w", sanitizeRequestError(err))
 	}
 	defer resp.Body.Close()
 	rawBody, err := readBoundedBody(resp.Body)
@@ -151,6 +151,22 @@ func normalizeEndpoint(raw string) (string, error) {
 		return "", fmt.Errorf("http cmdb: URL must not include query or fragment")
 	}
 	return parsed.String(), nil
+}
+
+func withoutRedirects(client *http.Client) *http.Client {
+	copyClient := *client
+	copyClient.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &copyClient
+}
+
+func sanitizeRequestError(err error) error {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) && urlErr.Err != nil {
+		return urlErr.Err
+	}
+	return err
 }
 
 func normalizeLookupLabels(in map[string]string) (map[string]string, error) {
