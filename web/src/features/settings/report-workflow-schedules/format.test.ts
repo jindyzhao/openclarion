@@ -55,7 +55,7 @@ describe("report workflow schedule formatting", () => {
   });
 
   it("builds calendar write requests from validated form state", () => {
-    const parsed = formStateToWriteRequest({
+    const weekly = formStateToWriteRequest({
       ...emptyReportWorkflowScheduleForm(),
       name: "Weekly report window",
       reportWorkflowPolicyID: 7,
@@ -69,7 +69,7 @@ describe("report workflow schedule formatting", () => {
       offsetSeconds: 0
     });
 
-    expect(parsed).toMatchObject({
+    expect(weekly).toMatchObject({
       ok: true,
       value: {
         cadence: "weekly",
@@ -78,6 +78,33 @@ describe("report workflow schedule formatting", () => {
         calendar_day_of_week: 1,
         calendar_day_of_month: 0,
         interval_seconds: 604800,
+        offset_seconds: 0
+      }
+    });
+
+    const monthly = formStateToWriteRequest({
+      ...emptyReportWorkflowScheduleForm(),
+      name: "Monthly report window",
+      reportWorkflowPolicyID: 7,
+      temporalScheduleID: "openclarion-report-policy-7-monthly",
+      cadence: "monthly",
+      calendarHour: 4,
+      calendarMinute: 45,
+      calendarDayOfWeek: 0,
+      calendarDayOfMonth: 1,
+      intervalSeconds: 2419200,
+      offsetSeconds: 0
+    });
+
+    expect(monthly).toMatchObject({
+      ok: true,
+      value: {
+        cadence: "monthly",
+        calendar_hour: 4,
+        calendar_minute: 45,
+        calendar_day_of_week: 0,
+        calendar_day_of_month: 1,
+        interval_seconds: 2419200,
         offset_seconds: 0
       }
     });
