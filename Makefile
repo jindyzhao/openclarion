@@ -138,7 +138,8 @@ NPM ?= npm
 PR_BUDGET ?= 15m
 PR_BUDGET_MODE ?= enforce
 ifeq ($(CI),true)
-PLAYWRIGHT_INSTALL ?= npx playwright install-deps chrome
+# ubuntu-24.04 provides the branded Chrome used by the Playwright channel.
+PLAYWRIGHT_INSTALL ?= test -x /opt/google/chrome/chrome
 PLAYWRIGHT_SMOKE_ENV ?= OPENCLARION_PLAYWRIGHT_CHANNEL=chrome
 else
 PLAYWRIGHT_INSTALL ?= npx playwright install --with-deps --only-shell chromium
@@ -163,7 +164,9 @@ help: ## Show this help
 pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
 	@go run ./scripts/pr_budget --budget "$(PR_BUDGET)" --mode "$(PR_BUDGET_MODE)" -- $(MAKE) ci
 
-ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test file-mode-check file-mode-check-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test branch-protection-check branch-protection-check-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan operations-config-hygiene operations-config-hygiene-test govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-quality-compare-test sandbox-m4-decision-test sandbox-m4-evidence-packet-test diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Full CI bundle (must mirror GitHub Actions)
+# Focused Go test targets remain granular workflow entrypoints. Their test sets
+# are strict subsets of go-test, so the local aggregate executes them once.
+ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test file-mode-check file-mode-check-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test branch-protection-check branch-protection-check-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan operations-config-hygiene operations-config-hygiene-test govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build sandbox-baseline-audit go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Coverage-equivalent local CI bundle
 	@echo ""
 	@echo "[ci] all gates passed."
 
