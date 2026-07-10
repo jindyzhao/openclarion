@@ -256,7 +256,7 @@ sessions, leader-tier approval, streaming partial responses.
 - [x] NetBox CMDB provider
 - [ ] signal-capable provider extension track after alert-analysis MVP proves
       stable
-- [ ] scheduled weekly and monthly reports
+- [x] scheduled weekly and monthly reports
 - [ ] multi-tenant operations
 - [x] Slack IM provider (incoming webhook format)
 - [x] Email IM provider (SMTP profile format)
@@ -265,6 +265,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-10 | jindyzhao | Scheduled weekly/monthly reports were marked complete after re-review: persisted report workflow schedules already support UTC daily, weekly, and monthly calendar cadences through domain validation, generated API contracts, Ent persistence, frontend settings formatting, and Temporal Schedule calendar-spec registration. Retained live scheduled-trigger proof remains separate. |
 | 2026-07-10 | jindyzhao | NetBox CMDB provider landed locally: read-only NetBox 4.5.2+ device and virtual-machine lookups within the 4.x series enforce a single match, project contact assignments and topology into EvidenceSnapshots, retain only explicitly allowlisted scalar custom fields, support v2 Bearer and legacy v1 Token authentication, and use mutually exclusive fail-fast runtime configuration across all CMDB-enabled replay paths. |
 | 2026-07-10 | jindyzhao | Generic CMDB runtime wiring landed locally: `cmd/openclarion` now validates optional HTTP CMDB environment settings and injects the provider into every production replay path that builds EvidenceSnapshots, including legacy HTTP/CLI triggers, profile-driven manual and scheduled replay, and Alertmanager automatic diagnosis. NetBox-specific API mapping remains separate future scope. |
 | 2026-07-08 | jindyzhao | SMTP Email IM provider landed locally: profile-backed notification channels can now use `email` kind secrets with compact SMTP URLs for report-scoped plain-text delivery and channel tests. Legacy unbound delivery remains Webhook-only, and diagnosis consultation/close delivery remains scoped to Enterprise WeChat. |

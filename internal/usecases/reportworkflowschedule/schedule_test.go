@@ -28,27 +28,54 @@ func TestServiceCreateStoresDisabledDraftAndValidatesPolicyBinding(t *testing.T)
 }
 
 func TestServiceCreateStoresCalendarCadence(t *testing.T) {
-	repo := newFakeConfigRepo()
-	repo.reportPolicies[7] = defaultPolicy(false)
-	svc := mustService(t, repo)
-
-	req := defaultWriteRequest()
-	req.Cadence = domain.ReportWorkflowScheduleCadenceMonthly
-	req.CalendarHour = 2
-	req.CalendarMinute = 30
-	req.CalendarDayOfMonth = 1
-	req.Interval = 28 * 24 * time.Hour
-
-	saved, err := svc.Create(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Create: %v", err)
+	tests := []struct {
+		name               string
+		cadence            domain.ReportWorkflowScheduleCadence
+		calendarDayOfWeek  int
+		calendarDayOfMonth int
+		interval           time.Duration
+	}{
+		{
+			name:              "weekly",
+			cadence:           domain.ReportWorkflowScheduleCadenceWeekly,
+			calendarDayOfWeek: 1,
+			interval:          7 * 24 * time.Hour,
+		},
+		{
+			name:               "monthly",
+			cadence:            domain.ReportWorkflowScheduleCadenceMonthly,
+			calendarDayOfMonth: 1,
+			interval:           28 * 24 * time.Hour,
+		},
 	}
-	if saved.Cadence != domain.ReportWorkflowScheduleCadenceMonthly ||
-		saved.CalendarHour != 2 ||
-		saved.CalendarMinute != 30 ||
-		saved.CalendarDayOfMonth != 1 ||
-		repo.savedSchedule.Cadence != domain.ReportWorkflowScheduleCadenceMonthly {
-		t.Fatalf("saved schedule = %+v repo=%+v", saved, repo.savedSchedule)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newFakeConfigRepo()
+			repo.reportPolicies[7] = defaultPolicy(false)
+			svc := mustService(t, repo)
+
+			req := defaultWriteRequest()
+			req.Cadence = tc.cadence
+			req.CalendarHour = 2
+			req.CalendarMinute = 30
+			req.CalendarDayOfWeek = tc.calendarDayOfWeek
+			req.CalendarDayOfMonth = tc.calendarDayOfMonth
+			req.Interval = tc.interval
+
+			saved, err := svc.Create(context.Background(), req)
+			if err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			if saved.Cadence != tc.cadence ||
+				saved.CalendarHour != 2 ||
+				saved.CalendarMinute != 30 ||
+				saved.CalendarDayOfWeek != tc.calendarDayOfWeek ||
+				saved.CalendarDayOfMonth != tc.calendarDayOfMonth ||
+				repo.savedSchedule.Cadence != tc.cadence {
+				t.Fatalf("saved schedule = %+v repo=%+v", saved, repo.savedSchedule)
+			}
+		})
 	}
 }
 

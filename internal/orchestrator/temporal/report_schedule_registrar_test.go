@@ -88,6 +88,22 @@ func TestReportWorkflowScheduleRegistrarBuildsCalendarSpecs(t *testing.T) {
 		assert             func(*testing.T, client.ScheduleCalendarSpec)
 	}{
 		{
+			name:           "daily",
+			cadence:        domain.ReportWorkflowScheduleCadenceDaily,
+			calendarHour:   1,
+			calendarMinute: 15,
+			guardInterval:  24 * time.Hour,
+			assert: func(t *testing.T, spec client.ScheduleCalendarSpec) {
+				t.Helper()
+				if len(spec.DayOfWeek) != 0 {
+					t.Fatalf("DayOfWeek = %+v, want empty", spec.DayOfWeek)
+				}
+				if len(spec.DayOfMonth) != 0 {
+					t.Fatalf("DayOfMonth = %+v, want empty", spec.DayOfMonth)
+				}
+			},
+		},
+		{
 			name:              "weekly",
 			cadence:           domain.ReportWorkflowScheduleCadenceWeekly,
 			calendarHour:      2,
@@ -143,6 +159,9 @@ func TestReportWorkflowScheduleRegistrarBuildsCalendarSpecs(t *testing.T) {
 			}
 			if len(options.Spec.Intervals) != 0 {
 				t.Fatalf("Intervals = %+v, want empty", options.Spec.Intervals)
+			}
+			if options.Spec.TimeZoneName != "UTC" {
+				t.Fatalf("TimeZoneName = %q, want UTC", options.Spec.TimeZoneName)
 			}
 			if len(options.Spec.Calendars) != 1 {
 				t.Fatalf("Calendars = %+v", options.Spec.Calendars)

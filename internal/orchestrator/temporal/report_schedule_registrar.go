@@ -278,6 +278,7 @@ func (r *ReportWorkflowScheduleRegistrar) scheduleSpec(schedule domain.ReportWor
 		}, nil
 	case domain.ReportWorkflowScheduleCadenceDaily:
 		return client.ScheduleSpec{
+			TimeZoneName: time.UTC.String(),
 			Calendars: []client.ScheduleCalendarSpec{{
 				Hour:    []client.ScheduleRange{{Start: schedule.CalendarHour}},
 				Minute:  []client.ScheduleRange{{Start: schedule.CalendarMinute}},
@@ -287,6 +288,7 @@ func (r *ReportWorkflowScheduleRegistrar) scheduleSpec(schedule domain.ReportWor
 		}, nil
 	case domain.ReportWorkflowScheduleCadenceWeekly:
 		return client.ScheduleSpec{
+			TimeZoneName: time.UTC.String(),
 			Calendars: []client.ScheduleCalendarSpec{{
 				DayOfWeek: []client.ScheduleRange{{Start: schedule.CalendarDayOfWeek}},
 				Hour:      []client.ScheduleRange{{Start: schedule.CalendarHour}},
@@ -297,6 +299,7 @@ func (r *ReportWorkflowScheduleRegistrar) scheduleSpec(schedule domain.ReportWor
 		}, nil
 	case domain.ReportWorkflowScheduleCadenceMonthly:
 		return client.ScheduleSpec{
+			TimeZoneName: time.UTC.String(),
 			Calendars: []client.ScheduleCalendarSpec{{
 				DayOfMonth: []client.ScheduleRange{{Start: schedule.CalendarDayOfMonth}},
 				Hour:       []client.ScheduleRange{{Start: schedule.CalendarHour}},
