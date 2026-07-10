@@ -59,6 +59,7 @@ func alertmanagerWebhookIngestResponse(result alertmanagerwebhook.Result) api.Al
 	response := api.AlertmanagerWebhookIngestResponse{
 		SourceID:          int64(result.ProfileID),
 		Received:          int64(result.Received),
+		Resolved:          int64(result.Resolved),
 		SkippedResolved:   int64(result.SkippedResolved),
 		SkippedSuppressed: int64(result.SkippedSuppressed),
 		TruncatedAlerts:   int64(result.TruncatedAlerts),

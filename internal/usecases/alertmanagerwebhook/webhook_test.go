@@ -4,15 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
+	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
-func TestIngestPersistsFiringAlertsAndSkipsResolved(t *testing.T) {
+func TestIngestPersistsFiringAlertsAndSkipsUnmatchedResolved(t *testing.T) {
 	factory := newWebhookTestFactory(mustAlertmanagerProfile(t, domain.AlertSourceAuthModeNone, true))
 	service, err := NewService(factory)
 	if err != nil {
@@ -26,7 +28,7 @@ func TestIngestPersistsFiringAlertsAndSkipsResolved(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ingest: %v", err)
 	}
-	if result.ProfileID != 7 || result.Received != 2 || result.SkippedResolved != 1 || result.SkippedSuppressed != 0 || result.TruncatedAlerts != 1 {
+	if result.ProfileID != 7 || result.Received != 2 || result.Resolved != 0 || result.SkippedResolved != 1 || result.SkippedSuppressed != 0 || result.TruncatedAlerts != 1 {
 		t.Fatalf("result counters = %+v", result)
 	}
 	if result.Ingested.Total != 1 || result.Ingested.Saved != 1 {
@@ -47,6 +49,99 @@ func TestIngestPersistsFiringAlertsAndSkipsResolved(t *testing.T) {
 	}
 	if !json.Valid(saved.RawPayload) {
 		t.Fatalf("raw payload is not valid JSON: %s", saved.RawPayload)
+	}
+}
+
+func TestIngestResolvesMatchingAlertIdempotently(t *testing.T) {
+	factory := newWebhookTestFactory(mustAlertmanagerProfile(t, domain.AlertSourceAuthModeNone, true))
+	startsAt := time.Date(2026, 6, 6, 0, 30, 0, 0, time.UTC)
+	seedWebhookFiringEvent(t, factory, 7, map[string]string{
+		"alertname": "HighMemory",
+		"instance":  "api-2",
+	}, startsAt)
+	trigger := &recordingAutoDiagnosisTrigger{}
+	service, err := NewService(factory, WithAutoDiagnosisTrigger(trigger))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		result, ingestErr := service.Ingest(context.Background(), Request{
+			ProfileID: 7,
+			Body:      json.RawMessage(resolvedOnlyWebhookPayload()),
+		})
+		if ingestErr != nil {
+			t.Fatalf("Ingest attempt %d: %v", attempt, ingestErr)
+		}
+		if result.Resolved != 1 || result.SkippedResolved != 0 || result.Ingested.Total != 0 {
+			t.Fatalf("attempt %d result = %+v", attempt, result)
+		}
+	}
+
+	if len(factory.alerts.saved) != 1 {
+		t.Fatalf("saved events = %d, want 1", len(factory.alerts.saved))
+	}
+	resolved := factory.alerts.saved[0]
+	wantEndsAt := time.Date(2026, 6, 6, 1, 30, 0, 0, time.UTC)
+	if resolved.Status != domain.AlertStatusResolved || resolved.EndsAt == nil || !resolved.EndsAt.Equal(wantEndsAt) {
+		t.Fatalf("resolved event = %+v, want ends_at %s", resolved, wantEndsAt)
+	}
+	if len(trigger.requests) != 0 {
+		t.Fatalf("auto diagnosis requests = %d, want 0", len(trigger.requests))
+	}
+}
+
+func TestIngestRejectsConflictingResolutionTimestamp(t *testing.T) {
+	factory := newWebhookTestFactory(mustAlertmanagerProfile(t, domain.AlertSourceAuthModeNone, true))
+	seedWebhookFiringEvent(t, factory, 7, map[string]string{
+		"alertname": "HighMemory",
+		"instance":  "api-2",
+	}, time.Date(2026, 6, 6, 0, 30, 0, 0, time.UTC))
+	service, err := NewService(factory)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	if _, err := service.Ingest(context.Background(), Request{
+		ProfileID: 7,
+		Body:      json.RawMessage(resolvedOnlyWebhookPayload()),
+	}); err != nil {
+		t.Fatalf("initial Ingest: %v", err)
+	}
+
+	conflicting := strings.Replace(resolvedOnlyWebhookPayload(), "2026-06-06T01:30:00Z", "2026-06-06T01:31:00Z", 1)
+	_, err = service.Ingest(context.Background(), Request{ProfileID: 7, Body: json.RawMessage(conflicting)})
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("conflicting Ingest err = %v, want ErrInvariantViolation", err)
+	}
+	wantEndsAt := time.Date(2026, 6, 6, 1, 30, 0, 0, time.UTC)
+	if got := factory.alerts.saved[0].EndsAt; got == nil || !got.Equal(wantEndsAt) {
+		t.Fatalf("stored ends_at = %v, want immutable %s", got, wantEndsAt)
+	}
+}
+
+func TestIngestDoesNotResolveAnotherSourceProfile(t *testing.T) {
+	factory := newWebhookTestFactory(mustAlertmanagerProfile(t, domain.AlertSourceAuthModeNone, true))
+	seedWebhookFiringEvent(t, factory, 8, map[string]string{
+		"alertname": "HighMemory",
+		"instance":  "api-2",
+	}, time.Date(2026, 6, 6, 0, 30, 0, 0, time.UTC))
+	service, err := NewService(factory)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.Ingest(context.Background(), Request{
+		ProfileID: 7,
+		Body:      json.RawMessage(resolvedOnlyWebhookPayload()),
+	})
+	if err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+	if result.Resolved != 0 || result.SkippedResolved != 1 {
+		t.Fatalf("result = %+v, want profile-scoped skip", result)
+	}
+	if factory.alerts.saved[0].Status != domain.AlertStatusFiring || factory.alerts.saved[0].EndsAt != nil {
+		t.Fatalf("other-profile event was mutated: %+v", factory.alerts.saved[0])
 	}
 }
 
@@ -304,6 +399,18 @@ func TestDecodePayloadRejectsInvalidJSONShapes(t *testing.T) {
 			name: "missing_firing_start",
 			body: `{"version":"4","status":"firing","alerts":[{"status":"firing","labels":{},"annotations":{}}]}`,
 		},
+		{
+			name: "missing_resolved_start",
+			body: `{"version":"4","status":"resolved","alerts":[{"status":"resolved","labels":{},"annotations":{},"endsAt":"2026-06-06T01:00:00Z"}]}`,
+		},
+		{
+			name: "missing_resolved_end",
+			body: `{"version":"4","status":"resolved","alerts":[{"status":"resolved","labels":{},"annotations":{},"startsAt":"2026-06-06T01:00:00Z"}]}`,
+		},
+		{
+			name: "resolved_end_precedes_start",
+			body: `{"version":"4","status":"resolved","alerts":[{"status":"resolved","labels":{},"annotations":{},"startsAt":"2026-06-06T01:00:00Z","endsAt":"2026-06-06T00:59:59Z"}]}`,
+		},
 	}
 
 	for _, tc := range tests {
@@ -373,6 +480,41 @@ func resolvedOnlyWebhookPayload() string {
 			}
 		]
 	}`
+}
+
+func seedWebhookFiringEvent(
+	t *testing.T,
+	factory *webhookTestFactory,
+	profileID domain.AlertSourceProfileID,
+	labels map[string]string,
+	startsAt time.Time,
+) domain.AlertEvent {
+	t.Helper()
+	sourceFingerprint, canonicalFingerprint, err := alertingest.EventFingerprints(labels)
+	if err != nil {
+		t.Fatalf("EventFingerprints: %v", err)
+	}
+	event, err := domain.NewAlertEvent(
+		sourceName,
+		sourceFingerprint,
+		canonicalFingerprint,
+		labels,
+		map[string]string{},
+		nil,
+		startsAt,
+	)
+	if err != nil {
+		t.Fatalf("NewAlertEvent: %v", err)
+	}
+	event, err = event.WithAlertSourceProfile(profileID)
+	if err != nil {
+		t.Fatalf("WithAlertSourceProfile: %v", err)
+	}
+	saved, err := factory.alerts.SaveEvent(context.Background(), event)
+	if err != nil {
+		t.Fatalf("SaveEvent: %v", err)
+	}
+	return saved
 }
 
 func wideWebhookPayload() string {
@@ -581,7 +723,20 @@ func (r *fakeWebhookAlertRepo) SaveEvent(_ context.Context, e domain.AlertEvent)
 	return e, nil
 }
 
-func (r *fakeWebhookAlertRepo) UpdateEventResolution(context.Context, domain.AlertEvent) (domain.AlertEvent, error) {
+func (r *fakeWebhookAlertRepo) UpdateEventResolution(_ context.Context, event domain.AlertEvent) (domain.AlertEvent, error) {
+	for i := range r.saved {
+		if r.saved[i].ID != event.ID {
+			continue
+		}
+		r.saved[i].Status = event.Status
+		if event.EndsAt == nil {
+			r.saved[i].EndsAt = nil
+		} else {
+			endsAt := *event.EndsAt
+			r.saved[i].EndsAt = &endsAt
+		}
+		return r.saved[i], nil
+	}
 	return domain.AlertEvent{}, domain.ErrNotFound
 }
 
