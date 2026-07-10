@@ -47,6 +47,7 @@ func TestReplayAndStartResolvesPolicyBindings(t *testing.T) {
 	}
 
 	var captured reporttrigger.Request
+	cmdbProvider := &noopCMDBProvider{}
 	service, err := NewService(
 		factory,
 		fakeReportStarter{},
@@ -64,6 +65,7 @@ func TestReplayAndStartResolvesPolicyBindings(t *testing.T) {
 			captured = req
 			return reporttrigger.Result{Started: true, Workflow: ports.WorkflowHandle{WorkflowID: "wf-1", RunID: "run-1"}}, nil
 		}),
+		WithCMDBProvider(cmdbProvider),
 	)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
@@ -83,6 +85,9 @@ func TestReplayAndStartResolvesPolicyBindings(t *testing.T) {
 	}
 	if captured.Replay.CreatedByWorkflow != CreatedByWorkflow {
 		t.Fatalf("CreatedByWorkflow = %q, want %q", captured.Replay.CreatedByWorkflow, CreatedByWorkflow)
+	}
+	if captured.Replay.CMDBProvider != cmdbProvider {
+		t.Fatalf("CMDBProvider = %T, want configured provider", captured.Replay.CMDBProvider)
 	}
 	if captured.Replay.Limit != 25 ||
 		!captured.Replay.WindowStart.Equal(replayWindowStart) ||
@@ -386,6 +391,12 @@ func newTestPolicyTriggerService(
 		t.Fatalf("NewService: %v", err)
 	}
 	return service
+}
+
+type noopCMDBProvider struct{}
+
+func (*noopCMDBProvider) LookupResource(context.Context, ports.CMDBLookupRequest) (ports.CMDBLookupResult, error) {
+	return ports.CMDBLookupResult{}, nil
 }
 
 func mustAlertSourceProfile(

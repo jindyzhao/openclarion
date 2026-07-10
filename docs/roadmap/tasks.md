@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-07-08
+> Last updated: 2026-07-10
 > Author: jindyzhao
 > Status: private incubation
 
@@ -265,6 +265,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-10 | jindyzhao | Generic CMDB runtime wiring landed locally: `cmd/openclarion` now validates optional HTTP CMDB environment settings and injects the provider into every production replay path that builds EvidenceSnapshots, including legacy HTTP/CLI triggers, profile-driven manual and scheduled replay, and Alertmanager automatic diagnosis. NetBox-specific API mapping remains separate future scope. |
 | 2026-07-08 | jindyzhao | SMTP Email IM provider landed locally: profile-backed notification channels can now use `email` kind secrets with compact SMTP URLs for report-scoped plain-text delivery and channel tests. Legacy unbound delivery remains Webhook-only, and diagnosis consultation/close delivery remains scoped to Enterprise WeChat. |
 | 2026-07-08 | jindyzhao | Slack incoming-webhook IM format landed locally: Webhook-backed notification delivery can now send Slack `text` payloads through legacy env format selection or profile-backed `slack` channel kinds. Diagnosis consultation/close delivery remains scoped to Enterprise WeChat. |
 | 2026-07-08 | jindyzhao | DingTalk and Feishu IM provider formats landed locally: Webhook-backed notification delivery can now send DingTalk text robot payloads and Feishu/Lark custom-bot text payloads through legacy env format selection or profile-backed `dingtalk` / `feishu` channel kinds. These report-delivery channel kinds still keep diagnosis consultation and close delivery scoped to Enterprise WeChat. |
@@ -578,3 +579,4 @@ sessions, leader-tier approval, streaming partial responses.
 | 2026-06-04 | jindyzhao | M4 runtime baseline decision hardening landed locally: loopback or `localhost` registry runtime candidates now remain valid local smoke evidence but force `defer` in `scripts/sandbox_m4_decision`, and retained evidence packets reject hand-edited `proceed` outputs with loopback runtime refs. This keeps the custom thin runner handoff useful without accepting an ephemeral local registry image as the publishable M4 runtime baseline. |
 | 2026-06-04 | jindyzhao | M4 sandbox SubReport generation bridge landed locally: `make sandbox-m4-subreport-generate` loads a persisted `EvidenceSnapshot`, wraps its payload with `snapshot:<id>` binding metadata, runs the configured digest-pinned sandbox candidate through the existing Docker `ContainerProvider`, validates the candidate `output.json` through the production SubReport parser, requires the canonical snapshot ref in `evidence_refs`, and persists an idempotent sandbox SubReport row for later quality sample export. This creates real candidate report rows without accepting runtime quality or adding a CI gate; representative direct-vs-sandbox comparison and the recorded M4 decision remain pending. |
 | 2026-06-06 | jindyzhao | M5 diagnosis-room frontend boundary aligned locally with the standardized console architecture: `/diagnosis-room` now uses Ant Design controls, ticket issuance goes through the same-origin `/api/diagnosis/ws-ticket` BFF route, the route forwards only the bearer `Authorization` header plus generated-contract request body to the Go API, and Playwright smoke/live harnesses obtain the WebSocket endpoint from deployment configuration instead of a browser API-base field. Real-stack browser evidence remains pending for final live acceptance. |
+| 2026-07-09 | jindyzhao | CMDB EvidenceSnapshot enrichment landed locally: `alertreplay.Request` can carry an optional `CMDBProvider`, replay performs per-event label lookups outside the per-group DB transaction, and `evidencebuild.BuildSnapshot` records deterministic `cmdb.matches` payload entries plus `cmdb_lookup` provenance when lookups are attempted. Runtime provider configuration and NetBox-specific integration remain follow-up scope. |

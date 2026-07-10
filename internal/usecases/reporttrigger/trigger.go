@@ -37,9 +37,23 @@ type Result struct {
 // Service owns the dependencies needed to replay alerts and start
 // report workflows.
 type Service struct {
-	provider ports.MetricsProvider
-	factory  ports.UnitOfWorkFactory
-	starter  ports.ReportWorkflowStarter
+	provider     ports.MetricsProvider
+	cmdbProvider ports.CMDBProvider
+	factory      ports.UnitOfWorkFactory
+	starter      ports.ReportWorkflowStarter
+}
+
+// Option customizes Service construction.
+type Option func(*Service)
+
+// WithCMDBProvider enables optional ownership and topology enrichment for
+// EvidenceSnapshots produced by replay.
+func WithCMDBProvider(provider ports.CMDBProvider) Option {
+	return func(s *Service) {
+		if provider != nil {
+			s.cmdbProvider = provider
+		}
+	}
 }
 
 // NewService builds a report trigger service with explicit port
@@ -48,6 +62,7 @@ func NewService(
 	provider ports.MetricsProvider,
 	factory ports.UnitOfWorkFactory,
 	starter ports.ReportWorkflowStarter,
+	opts ...Option,
 ) (*Service, error) {
 	if provider == nil {
 		return nil, fmt.Errorf("report trigger: provider must be non-nil: %w", domain.ErrInvariantViolation)
@@ -58,7 +73,13 @@ func NewService(
 	if starter == nil {
 		return nil, fmt.Errorf("report trigger: starter must be non-nil: %w", domain.ErrInvariantViolation)
 	}
-	return &Service{provider: provider, factory: factory, starter: starter}, nil
+	service := &Service{provider: provider, factory: factory, starter: starter}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(service)
+		}
+	}
+	return service, nil
 }
 
 // ReplayAndStart replays one alert window through the service's
@@ -66,6 +87,9 @@ func NewService(
 func (s *Service) ReplayAndStart(ctx context.Context, req Request) (Result, error) {
 	if s == nil {
 		return Result{}, fmt.Errorf("report trigger: service must be non-nil: %w", domain.ErrInvariantViolation)
+	}
+	if s.cmdbProvider != nil {
+		req.Replay.CMDBProvider = s.cmdbProvider
 	}
 	return ReplayAndStart(ctx, s.provider, s.factory, s.starter, req)
 }

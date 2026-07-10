@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -207,6 +208,58 @@ func TestLookupResourceReturnsHTTPStatusError(t *testing.T) {
 	}
 }
 
+func TestLookupResourceRejectsRedirects(t *testing.T) {
+	var followed atomic.Bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/lookup":
+			http.Redirect(w, r, "/target", http.StatusTemporaryRedirect)
+		case "/target":
+			followed.Store(true)
+			_, _ = io.WriteString(w, `{"found":false}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	provider, err := NewProvider(Config{
+		URL:         srv.URL + "/lookup",
+		BearerToken: testHeaderValue,
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	_, err = provider.LookupResource(context.Background(), ports.CMDBLookupRequest{})
+	if err == nil || !strings.Contains(err.Error(), "HTTP 307") {
+		t.Fatalf("LookupResource err = %v, want HTTP 307 rejection", err)
+	}
+	if followed.Load() {
+		t.Fatal("redirect target was called; bearer-authenticated CMDB requests must not follow redirects")
+	}
+}
+
+func TestLookupResourceSanitizesRequestURLFromErrors(t *testing.T) {
+	const endpoint = "https://cmdb.internal.example/private/lookup"
+	provider, err := NewProvider(Config{
+		URL: endpoint,
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("dial backend failed")
+		})},
+	})
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+
+	_, err = provider.LookupResource(context.Background(), ports.CMDBLookupRequest{})
+	if err == nil || !strings.Contains(err.Error(), "dial backend failed") {
+		t.Fatalf("LookupResource err = %v, want sanitized transport failure", err)
+	}
+	if strings.Contains(err.Error(), endpoint) || strings.Contains(err.Error(), "cmdb.internal.example") {
+		t.Fatalf("LookupResource err = %q, want endpoint removed", err)
+	}
+}
+
 func TestLookupResourceRejectsInvalidLookupLabels(t *testing.T) {
 	labels := map[string]string{}
 	for i := 0; i < maxRequestLabels+1; i++ {
@@ -267,4 +320,10 @@ func newHTTPTestProvider(t *testing.T, body string, status int) *Provider {
 		t.Fatalf("NewProvider: %v", err)
 	}
 	return provider
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
 }

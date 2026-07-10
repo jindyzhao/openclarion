@@ -13,9 +13,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
 // Input holds the data required to build an EvidenceSnapshot.
@@ -23,6 +25,16 @@ type Input struct {
 	Group             domain.AlertGroup
 	Events            []domain.AlertEvent
 	CreatedByWorkflow string // optional; empty allowed
+	// CMDBMatches is nil when no CMDB lookup was performed. A non-nil empty
+	// slice records that enrichment was attempted but no event matched.
+	CMDBMatches []CMDBMatch
+}
+
+// CMDBMatch binds one provider-neutral CMDB resource to the event labels that
+// produced it. A snapshot may contain at most one match for each event.
+type CMDBMatch struct {
+	EventID  domain.AlertEventID
+	Resource ports.CMDBResource
 }
 
 // BuildSnapshot constructs a deterministic EvidenceSnapshot from the
@@ -35,13 +47,13 @@ func BuildSnapshot(in Input) (domain.EvidenceSnapshot, error) {
 		return domain.EvidenceSnapshot{}, err
 	}
 
-	payload, err := buildPayload(in.Group, in.Events)
+	payload, err := buildPayload(in.Group, in.Events, in.CMDBMatches)
 	if err != nil {
 		return domain.EvidenceSnapshot{}, fmt.Errorf("evidence build: payload construction: %w", err)
 	}
 
 	digest := computeDigest(payload)
-	provenance := buildProvenance()
+	provenance := buildProvenance(in.CMDBMatches != nil)
 
 	return domain.NewEvidenceSnapshot(
 		in.Group.ID,
@@ -170,6 +182,100 @@ func validateInput(in Input) error {
 		}
 	}
 
+	if err := validateCMDBMatches(in.CMDBMatches, eventIDSet); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateCMDBMatches(matches []CMDBMatch, eventIDSet map[domain.AlertEventID]struct{}) error {
+	if matches == nil {
+		return nil
+	}
+	seen := make(map[domain.AlertEventID]struct{}, len(matches))
+	for i := range matches {
+		match := matches[i]
+		if match.EventID == 0 {
+			return fmt.Errorf("evidence build: cmdb match[%d] event_id must be non-zero: %w", i, domain.ErrInvariantViolation)
+		}
+		if _, ok := eventIDSet[match.EventID]; !ok {
+			return fmt.Errorf("evidence build: cmdb match[%d] event_id %d not found in events: %w", i, match.EventID, domain.ErrInvariantViolation)
+		}
+		if _, dup := seen[match.EventID]; dup {
+			return fmt.Errorf("evidence build: duplicate cmdb match for event_id %d: %w", match.EventID, domain.ErrInvariantViolation)
+		}
+		seen[match.EventID] = struct{}{}
+		if err := validateCMDBResource(match.Resource); err != nil {
+			return fmt.Errorf("evidence build: cmdb match[%d] resource: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func validateCMDBResource(resource ports.CMDBResource) error {
+	if err := requireTrimmedNonEmpty("id", resource.ID); err != nil {
+		return err
+	}
+	if err := requireTrimmedNonEmpty("kind", resource.Kind); err != nil {
+		return err
+	}
+	if err := requireTrimmedNonEmpty("name", resource.Name); err != nil {
+		return err
+	}
+	if len(resource.Owners) == 0 && len(resource.Topology) == 0 && len(resource.Attributes) == 0 {
+		return fmt.Errorf("must include owners, topology, or attributes: %w", domain.ErrInvariantViolation)
+	}
+	for i, owner := range resource.Owners {
+		if err := rejectUntrimmedOptional(fmt.Sprintf("owner[%d].subject", i), owner.Subject); err != nil {
+			return err
+		}
+		if err := rejectUntrimmedOptional(fmt.Sprintf("owner[%d].team", i), owner.Team); err != nil {
+			return err
+		}
+		if err := rejectUntrimmedOptional(fmt.Sprintf("owner[%d].role", i), owner.Role); err != nil {
+			return err
+		}
+		if strings.TrimSpace(owner.Subject) == "" && strings.TrimSpace(owner.Team) == "" {
+			return fmt.Errorf("owner[%d] must include subject or team: %w", i, domain.ErrInvariantViolation)
+		}
+	}
+	for i, edge := range resource.Topology {
+		if err := requireTrimmedNonEmpty(fmt.Sprintf("topology[%d].relation", i), edge.Relation); err != nil {
+			return err
+		}
+		if err := requireTrimmedNonEmpty(fmt.Sprintf("topology[%d].target_id", i), edge.TargetID); err != nil {
+			return err
+		}
+		if err := requireTrimmedNonEmpty(fmt.Sprintf("topology[%d].target_kind", i), edge.TargetKind); err != nil {
+			return err
+		}
+		if err := rejectUntrimmedOptional(fmt.Sprintf("topology[%d].target_name", i), edge.TargetName); err != nil {
+			return err
+		}
+	}
+	for k, v := range resource.Attributes {
+		if err := requireTrimmedNonEmpty("attribute key", k); err != nil {
+			return err
+		}
+		if err := requireTrimmedNonEmpty(fmt.Sprintf("attribute[%s]", k), v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func requireTrimmedNonEmpty(field string, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s must be non-empty: %w", field, domain.ErrInvariantViolation)
+	}
+	return rejectUntrimmedOptional(field, value)
+}
+
+func rejectUntrimmedOptional(field string, value string) error {
+	if strings.TrimSpace(value) != value {
+		return fmt.Errorf("%s must not include leading or trailing whitespace: %w", field, domain.ErrInvariantViolation)
+	}
 	return nil
 }
 
@@ -195,6 +301,7 @@ type snapshotPayload struct {
 	SchemaVersion string         `json:"schema_version"`
 	Group         payloadGroup   `json:"group"`
 	Events        []payloadEvent `json:"events"`
+	CMDB          *payloadCMDB   `json:"cmdb,omitempty"`
 }
 
 type payloadGroup struct {
@@ -221,9 +328,40 @@ type payloadEvent struct {
 	RawPayload           *json.RawMessage  `json:"raw_payload"`
 }
 
+type payloadCMDB struct {
+	Matches []payloadCMDBMatch `json:"matches"`
+}
+
+type payloadCMDBMatch struct {
+	EventID  int64               `json:"event_id"`
+	Resource payloadCMDBResource `json:"resource"`
+}
+
+type payloadCMDBResource struct {
+	ID         string                    `json:"id"`
+	Kind       string                    `json:"kind"`
+	Name       string                    `json:"name"`
+	Owners     []payloadCMDBOwner        `json:"owners"`
+	Topology   []payloadCMDBTopologyLink `json:"topology"`
+	Attributes map[string]string         `json:"attributes"`
+}
+
+type payloadCMDBOwner struct {
+	Subject string `json:"subject"`
+	Team    string `json:"team"`
+	Role    string `json:"role"`
+}
+
+type payloadCMDBTopologyLink struct {
+	Relation   string `json:"relation"`
+	TargetID   string `json:"target_id"`
+	TargetKind string `json:"target_kind"`
+	TargetName string `json:"target_name"`
+}
+
 const timeFormat = "2006-01-02T15:04:05.999999Z07:00"
 
-func buildPayload(group domain.AlertGroup, events []domain.AlertEvent) ([]byte, error) {
+func buildPayload(group domain.AlertGroup, events []domain.AlertEvent, cmdbMatches []CMDBMatch) ([]byte, error) {
 	// Sort events deterministically: (StartsAt asc, ID asc).
 	sorted := make([]domain.AlertEvent, len(events))
 	copy(sorted, events)
@@ -296,8 +434,86 @@ func buildPayload(group domain.AlertGroup, events []domain.AlertEvent) ([]byte, 
 		Group:         pg,
 		Events:        pe,
 	}
+	if cmdbMatches != nil {
+		p.CMDB = &payloadCMDB{Matches: buildPayloadCMDBMatches(cmdbMatches)}
+	}
 
 	return json.Marshal(p)
+}
+
+func buildPayloadCMDBMatches(matches []CMDBMatch) []payloadCMDBMatch {
+	sorted := append([]CMDBMatch(nil), matches...)
+	sort.Slice(sorted, func(i, j int) bool {
+		if sorted[i].EventID != sorted[j].EventID {
+			return sorted[i].EventID < sorted[j].EventID
+		}
+		return sorted[i].Resource.ID < sorted[j].Resource.ID
+	})
+	out := make([]payloadCMDBMatch, len(sorted))
+	for i := range sorted {
+		out[i] = payloadCMDBMatch{
+			EventID:  int64(sorted[i].EventID),
+			Resource: buildPayloadCMDBResource(sorted[i].Resource),
+		}
+	}
+	return out
+}
+
+func buildPayloadCMDBResource(resource ports.CMDBResource) payloadCMDBResource {
+	return payloadCMDBResource{
+		ID:         resource.ID,
+		Kind:       resource.Kind,
+		Name:       resource.Name,
+		Owners:     buildPayloadCMDBOwners(resource.Owners),
+		Topology:   buildPayloadCMDBTopology(resource.Topology),
+		Attributes: cloneStringMap(resource.Attributes),
+	}
+}
+
+func buildPayloadCMDBOwners(owners []ports.CMDBOwner) []payloadCMDBOwner {
+	out := make([]payloadCMDBOwner, len(owners))
+	for i := range owners {
+		out[i] = payloadCMDBOwner{
+			Subject: owners[i].Subject,
+			Team:    owners[i].Team,
+			Role:    owners[i].Role,
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Subject != out[j].Subject {
+			return out[i].Subject < out[j].Subject
+		}
+		if out[i].Team != out[j].Team {
+			return out[i].Team < out[j].Team
+		}
+		return out[i].Role < out[j].Role
+	})
+	return out
+}
+
+func buildPayloadCMDBTopology(links []ports.CMDBTopologyLink) []payloadCMDBTopologyLink {
+	out := make([]payloadCMDBTopologyLink, len(links))
+	for i := range links {
+		out[i] = payloadCMDBTopologyLink{
+			Relation:   links[i].Relation,
+			TargetID:   links[i].TargetID,
+			TargetKind: links[i].TargetKind,
+			TargetName: links[i].TargetName,
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Relation != out[j].Relation {
+			return out[i].Relation < out[j].Relation
+		}
+		if out[i].TargetID != out[j].TargetID {
+			return out[i].TargetID < out[j].TargetID
+		}
+		if out[i].TargetKind != out[j].TargetKind {
+			return out[i].TargetKind < out[j].TargetKind
+		}
+		return out[i].TargetName < out[j].TargetName
+	})
+	return out
 }
 
 // --------------- helpers ---------------
@@ -317,11 +533,15 @@ type provenanceCore struct {
 	Inputs []string `json:"inputs"`
 }
 
-func buildProvenance() json.RawMessage {
+func buildProvenance(includeCMDB bool) json.RawMessage {
+	inputs := []string{"alert_group", "alert_events"}
+	if includeCMDB {
+		inputs = append(inputs, "cmdb_lookup")
+	}
 	p := provenancePayload{
 		Core: provenanceCore{
 			Status: "ok",
-			Inputs: []string{"alert_group", "alert_events"},
+			Inputs: inputs,
 		},
 	}
 	b, _ := json.Marshal(p) // typed struct -- cannot fail

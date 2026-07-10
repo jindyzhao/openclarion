@@ -66,6 +66,7 @@ type Service struct {
 	uowFactory     ports.UnitOfWorkFactory
 	starter        ports.ReportWorkflowStarter
 	providers      *alertsourceprovider.Builder
+	cmdbProvider   ports.CMDBProvider
 	replayAndStart ReplayAndStartFunc
 	autoDiagnosis  AutoDiagnosisTrigger
 }
@@ -88,6 +89,16 @@ func WithAutoDiagnosisTrigger(trigger AutoDiagnosisTrigger) Option {
 	return func(s *Service) {
 		if trigger != nil {
 			s.autoDiagnosis = trigger
+		}
+	}
+}
+
+// WithCMDBProvider enables optional ownership and topology enrichment for
+// EvidenceSnapshots produced by policy-driven replay.
+func WithCMDBProvider(provider ports.CMDBProvider) Option {
+	return func(s *Service) {
+		if provider != nil {
+			s.cmdbProvider = provider
 		}
 	}
 }
@@ -160,6 +171,7 @@ func (s *Service) ReplayAndStartDetailed(ctx context.Context, req Request) (Resu
 			AlertSourceProfileFilter: []domain.AlertSourceProfileID{binding.source.ID},
 			CreatedByWorkflow:        createdByWorkflow(req),
 			Limit:                    req.Limit,
+			CMDBProvider:             s.cmdbProvider,
 		},
 		CorrelationKey:                     correlationKey(req),
 		WorkflowID:                         strings.TrimSpace(req.WorkflowID),
