@@ -1,4 +1,3 @@
-import { ReportShell } from "@/features/reports/report-shell";
 import { fetchAlertSourceProfiles } from "@/features/settings/alert-sources/api";
 import { fetchDiagnosisToolTemplates } from "@/features/settings/diagnosis-tool-templates/api";
 import {
@@ -47,7 +46,7 @@ export default async function DirectoryRBACSettingsPage() {
   const assignmentCount = assignments.ok ? assignments.data.items.length : 0;
 
   return (
-    <ReportShell current="directory-rbac">
+    <>
       <section className="page-heading">
         <div>
           <h1>Directory & RBAC</h1>
@@ -70,6 +69,6 @@ export default async function DirectoryRBACSettingsPage() {
         workflowPoliciesResult={workflowPolicies}
         workflowSchedulesResult={workflowSchedules}
       />
-    </ReportShell>
+    </>
   );
 }

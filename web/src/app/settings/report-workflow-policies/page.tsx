@@ -1,4 +1,3 @@
-import { ReportShell } from "@/features/reports/report-shell";
 import { fetchAlertSourceProfiles } from "@/features/settings/alert-sources/api";
 import { fetchDiagnosisToolTemplates } from "@/features/settings/diagnosis-tool-templates/api";
 import { fetchGroupingPolicies } from "@/features/settings/grouping-policies/api";
@@ -39,7 +38,7 @@ export default async function ReportWorkflowPolicySettingsPage({
   const count = result.ok ? result.data.items.length : 0;
 
   return (
-    <ReportShell current="workflow">
+    <>
       <section className="page-heading">
         <div>
           <h1>Workflow Policies</h1>
@@ -57,6 +56,6 @@ export default async function ReportWorkflowPolicySettingsPage({
         notificationChannelsResult={notificationChannelsResult}
         result={result}
       />
-    </ReportShell>
+    </>
   );
 }

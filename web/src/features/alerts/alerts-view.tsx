@@ -18,7 +18,6 @@ import {
 } from "@/features/diagnosis-room/notification-content-proof";
 import { diagnosisRoomLinkHref } from "@/features/diagnosis-room/url-state";
 import { reportReplayProofTrace } from "@/features/report-replay/proof-trace";
-import { ReportShell } from "@/features/reports/report-shell";
 import { formatDateTime } from "@/features/reports/format";
 import { refreshDirectoryUsers } from "@/features/settings/directory-rbac/client-api";
 import { directoryUserSubjectIndex } from "@/features/settings/directory-rbac/format";
@@ -94,7 +93,7 @@ export function AlertsView({ alertsResult }: AlertsViewProps) {
   });
 
   return (
-    <ReportShell current="alerts">
+    <>
       <section className="page-heading">
         <div>
           <h1>Alerts</h1>
@@ -126,7 +125,7 @@ export function AlertsView({ alertsResult }: AlertsViewProps) {
           replayingAlertID={replayMutation.isPending ? replayMutation.variables?.id ?? null : null}
         />
       ) : null}
-    </ReportShell>
+    </>
   );
 }
 

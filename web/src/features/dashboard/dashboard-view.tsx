@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { Route } from "next";
 
 import type {
   DiagnosisHandoffListResponse,
@@ -7,8 +8,10 @@ import type {
   DiagnosisRoomSummary
 } from "@/features/diagnosis-room/api";
 import type { AlertEventSummary } from "@/features/alerts/api";
-import { diagnosisRoomNextStep } from "@/features/diagnosis-room/next-step";
-import { ReportShell } from "@/features/reports/report-shell";
+import {
+  diagnosisRoomNextStep,
+  latestFailedDiagnosisRoomNotification
+} from "@/features/diagnosis-room/next-step";
 import { formatDateTime } from "@/features/reports/format";
 import { notificationChannelEditHref } from "@/features/settings/notification-channels/format";
 import type { ApiResult } from "@/lib/api/client";
@@ -24,7 +27,7 @@ type DashboardViewProps = {
 
 export function DashboardView({ handoffsResult, result, roomsResult }: DashboardViewProps) {
   return (
-    <ReportShell current="dashboard">
+    <>
       <div className="page-heading">
         <div>
           <h1>Dashboard</h1>
@@ -37,7 +40,7 @@ export function DashboardView({ handoffsResult, result, roomsResult }: Dashboard
 
       {!result.ok ? <ErrorNotice message={result.error.message} status={result.error.status} /> : null}
       {result.ok ? <Summary dashboard={result.data} handoffsResult={handoffsResult} roomsResult={roomsResult} /> : null}
-    </ReportShell>
+    </>
   );
 }
 
@@ -51,55 +54,51 @@ function Summary({
   roomsResult: ApiResult<DiagnosisRoomListResponse>;
 }) {
   return (
-    <div className="stack">
-      <section className="metric-grid" aria-label="Dashboard metrics">
-        <MetricCard label="Firing alerts" value={formatCount(dashboard.alerts.firing)} />
-        <MetricCard label="Recent alerts" value={formatCount(dashboard.alerts.total_recent)} />
-        <MetricCard label="Report success" value={formatSuccessRate(dashboard.reports.success_rate)} />
-        <MetricCard label="Recent reports" value={formatCount(dashboard.reports.total_recent)} />
+    <div className="overview-stack">
+      <section className="overview-metrics" aria-label="Dashboard metrics">
+        <MetricCard href="/alerts" label="Firing alerts" value={formatCount(dashboard.alerts.firing)} />
+        <MetricCard href="/alerts" label="Recent alerts" value={formatCount(dashboard.alerts.total_recent)} />
+        <MetricCard href="/reports" label="Report success" value={formatSuccessRate(dashboard.reports.success_rate)} />
+        <MetricCard href="/reports" label="Recent reports" value={formatCount(dashboard.reports.total_recent)} />
       </section>
 
-      <div className="dashboard-grid">
+      <div className="overview-primary-grid">
         <section className="panel">
-          <div className="panel-header">
-            <h2>Alert State</h2>
+          <div className="panel-header dashboard-panel-header">
+            <h2>Operational Health</h2>
+            <Link className="status-line" href="/alerts">
+              Inspect alerts
+            </Link>
           </div>
-          <div className="panel-body">
-            <dl className="stat-list">
-              <Stat label="Firing" value={dashboard.alerts.firing} />
-              <Stat label="Resolved" value={dashboard.alerts.resolved} />
-            </dl>
+          <div className="overview-health-groups">
+            <div className="overview-health-group">
+              <h3>Alert State</h3>
+              <dl className="stat-list">
+                <Stat label="Firing" value={dashboard.alerts.firing} />
+                <Stat label="Resolved" value={dashboard.alerts.resolved} />
+              </dl>
+            </div>
+            <div className="overview-health-group">
+              <h3>Report Delivery</h3>
+              <dl className="stat-list">
+                <Stat label="Delivered" value={dashboard.reports.delivered} />
+                <Stat label="Failed" value={dashboard.reports.failed} />
+                <Stat label="Pending" value={dashboard.reports.pending} />
+                <Stat label="No delivery row" value={dashboard.reports.missing_delivery} />
+              </dl>
+            </div>
+            <div className="overview-health-group">
+              <h3>Report Severity</h3>
+              <dl className="stat-list">
+                <Stat label="Critical" value={dashboard.reports.severity.critical} />
+                <Stat label="Warning" value={dashboard.reports.severity.warning} />
+                <Stat label="Info" value={dashboard.reports.severity.info} />
+              </dl>
+            </div>
           </div>
         </section>
 
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Report Delivery</h2>
-          </div>
-          <div className="panel-body">
-            <dl className="stat-list">
-              <Stat label="Delivered" value={dashboard.reports.delivered} />
-              <Stat label="Failed" value={dashboard.reports.failed} />
-              <Stat label="Pending" value={dashboard.reports.pending} />
-              <Stat label="No delivery row" value={dashboard.reports.missing_delivery} />
-            </dl>
-          </div>
-        </section>
-
-        <section className="panel">
-          <div className="panel-header">
-            <h2>Report Severity</h2>
-          </div>
-          <div className="panel-body">
-            <dl className="stat-list">
-              <Stat label="Critical" value={dashboard.reports.severity.critical} />
-              <Stat label="Warning" value={dashboard.reports.severity.warning} />
-              <Stat label="Info" value={dashboard.reports.severity.info} />
-            </dl>
-          </div>
-        </section>
-
-        <section className="panel">
+        <section className="panel overview-handoff-panel">
           <div className="panel-header dashboard-panel-header">
             <h2>AI Handoff Backlog</h2>
             <Link className="status-line" href="/alerts">
@@ -110,19 +109,19 @@ function Summary({
             <AIHandoffBacklog result={handoffsResult} stats={dashboard.diagnosis} />
           </div>
         </section>
-
-        <section className="panel dashboard-wide-panel">
-          <div className="panel-header dashboard-panel-header">
-            <h2>AI Diagnosis Rooms</h2>
-            <Link className="status-line" href="/diagnosis-room">
-              View all
-            </Link>
-          </div>
-          <div className="panel-body">
-            <DiagnosisRoomList result={roomsResult} />
-          </div>
-        </section>
       </div>
+
+      <section className="panel overview-diagnosis-panel">
+        <div className="panel-header dashboard-panel-header">
+          <h2>AI Diagnosis Rooms</h2>
+          <Link className="status-line" href="/diagnosis-room">
+            Open work queue
+          </Link>
+        </div>
+        <div className="panel-body">
+          <DiagnosisRoomList result={roomsResult} />
+        </div>
+      </section>
     </div>
   );
 }
@@ -303,7 +302,7 @@ function DashboardRoomNotification({ room }: { room: DiagnosisRoomSummary }) {
   );
 }
 
-function diagnosisRoomHealth(rooms: DiagnosisRoomSummary[]) {
+export function diagnosisRoomHealth(rooms: DiagnosisRoomSummary[]) {
   return rooms.reduce(
     (counts, room) => {
       const step = diagnosisRoomNextStep(room);
@@ -320,11 +319,6 @@ function diagnosisRoomHealth(rooms: DiagnosisRoomSummary[]) {
 function latestDiagnosisRoomNotification(room: DiagnosisRoomSummary): DiagnosisRoomNotificationTimelineEntry | null {
   const timeline = room.notification_timeline ?? [];
   return timeline.length > 0 ? timeline[timeline.length - 1] ?? null : null;
-}
-
-function latestFailedDiagnosisRoomNotification(room: DiagnosisRoomSummary): DiagnosisRoomNotificationTimelineEntry | null {
-  const notification = latestDiagnosisRoomNotification(room);
-  return notification && notificationFailed(notification.provider_status) ? notification : null;
 }
 
 function notificationFailed(status: string): boolean {
@@ -436,12 +430,12 @@ function confidencePillClass(confidence: string) {
   }
 }
 
-function MetricCard({ label, value }: { label: string; value: string }) {
+function MetricCard({ href, label, value }: { href: Route; label: string; value: string }) {
   return (
-    <section className="metric-card">
+    <Link className="overview-metric" href={href}>
       <div className="metric-value">{value}</div>
       <div className="metric-label">{label}</div>
-    </section>
+    </Link>
   );
 }
 

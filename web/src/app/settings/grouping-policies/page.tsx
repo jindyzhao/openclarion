@@ -1,4 +1,3 @@
-import { ReportShell } from "@/features/reports/report-shell";
 import { fetchGroupingPolicies } from "@/features/settings/grouping-policies/api";
 import {
   groupingPolicyLaunchIntentFromSearchParams,
@@ -23,7 +22,7 @@ export default async function GroupingPolicySettingsPage({
   const count = result.ok ? result.data.items.length : 0;
 
   return (
-    <ReportShell current="grouping">
+    <>
       <section className="page-heading">
         <div>
           <h1>Grouping Policies</h1>
@@ -37,6 +36,6 @@ export default async function GroupingPolicySettingsPage({
         launchIntent={launchIntent}
         result={result}
       />
-    </ReportShell>
+    </>
   );
 }

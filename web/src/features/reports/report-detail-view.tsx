@@ -51,7 +51,6 @@ import {
   type ReportDecisionRecord,
 } from "./report-decision-records";
 import { reportDiagnosisReviewReturnNotice } from "./report-return-notice";
-import { ReportShell } from "./report-shell";
 import { notificationChannelEditHref } from "@/features/settings/notification-channels/format";
 import type { ApiResult, FinalReportDetail } from "./types";
 
@@ -90,7 +89,7 @@ export function ReportDetailView({
   roomsResult
 }: ReportDetailViewProps) {
   return (
-    <ReportShell current="reports">
+    <>
       <div className="page-heading">
         <div>
           <h1>{result.ok ? result.data.title : `Report ${reportId}`}</h1>
@@ -118,7 +117,7 @@ export function ReportDetailView({
           roomsResult={roomsResult}
         />
       ) : null}
-    </ReportShell>
+    </>
   );
 }
 

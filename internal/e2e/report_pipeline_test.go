@@ -235,6 +235,10 @@ func startE2EDatabase(ctx context.Context, t *testing.T) (ports.UnitOfWorkFactor
 }
 
 func e2eHTTPHandler(factory ports.UnitOfWorkFactory, trigger *reporttrigger.Service) http.Handler {
+	return e2eHTTPHandlerWithOptions(factory, transporthttp.WithReportReplayTrigger(trigger))
+}
+
+func e2eHTTPHandlerWithOptions(factory ports.UnitOfWorkFactory, opts ...transporthttp.ServerOption) http.Handler {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	authProvider := authfake.New(map[string][]authfake.Result{
 		"Bearer e2e-token": {{
@@ -244,12 +248,15 @@ func e2eHTTPHandler(factory ports.UnitOfWorkFactory, trigger *reporttrigger.Serv
 			},
 		}},
 	})
+	serverOptions := []transporthttp.ServerOption{
+		transporthttp.WithDiagnosisAuth(authProvider, diagnosisauth.Service{}, nil, "static"),
+		transporthttp.WithLocalRBACBootstrapAdminSubjects([]string{"e2e-operator"}),
+	}
+	serverOptions = append(serverOptions, opts...)
 	server := transporthttp.NewServer(
 		logger,
 		factory,
-		transporthttp.WithReportReplayTrigger(trigger),
-		transporthttp.WithDiagnosisAuth(authProvider, diagnosisauth.Service{}, nil, "static"),
-		transporthttp.WithLocalRBACBootstrapAdminSubjects([]string{"e2e-operator"}),
+		serverOptions...,
 	)
 	return api.HandlerWithOptions(server, api.StdHTTPServerOptions{
 		ErrorHandlerFunc: transporthttp.OpenAPIErrorHandler(logger),
@@ -308,7 +315,9 @@ func newE2ELLMServer(t *testing.T) *httptest.Server {
 			} `json:"response_format"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatalf("decode llm request: %v", err)
+			t.Errorf("decode llm request: %v", err)
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
 		}
 
 		schemaName := ""
@@ -323,7 +332,8 @@ func newE2ELLMServer(t *testing.T) *httptest.Server {
 		case reportdraft.FinalReportSchemaID:
 			writeChatCompletion(t, w, e2eFinalReportJSON)
 		default:
-			t.Fatalf("unexpected llm schema name %q", schemaName)
+			t.Errorf("unexpected llm schema name %q", schemaName)
+			http.Error(w, "unexpected schema", http.StatusBadRequest)
 		}
 	}))
 }
@@ -332,7 +342,9 @@ func writeChatCompletion(t *testing.T, w http.ResponseWriter, content string) {
 	t.Helper()
 	var compacted bytes.Buffer
 	if err := json.Compact(&compacted, []byte(content)); err != nil {
-		t.Fatalf("compact llm content: %v", err)
+		t.Errorf("compact llm content: %v", err)
+		http.Error(w, "invalid fixture", http.StatusInternalServerError)
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	resp := map[string]any{
@@ -345,7 +357,7 @@ func writeChatCompletion(t *testing.T, w http.ResponseWriter, content string) {
 		},
 	}
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		t.Fatalf("write llm response: %v", err)
+		t.Errorf("write llm response: %v", err)
 	}
 }
 
@@ -356,14 +368,18 @@ type recordingWebhookServer struct {
 }
 
 type recordedWebhookRequest struct {
-	IdempotencyKey string `json:"idempotency_key"`
-	FinalReportID  int64  `json:"final_report_id"`
-	CorrelationKey string `json:"correlation_key"`
-	Title          string `json:"title"`
-	Body           string `json:"body"`
-	Severity       string `json:"severity"`
-	HeaderKey      string
-	HeaderReportID string
+	IdempotencyKey        string `json:"idempotency_key"`
+	FinalReportID         int64  `json:"final_report_id"`
+	DiagnosisTaskID       int64  `json:"diagnosis_task_id"`
+	NotificationChannelID int64  `json:"notification_channel_id"`
+	CorrelationKey        string `json:"correlation_key"`
+	Title                 string `json:"title"`
+	Body                  string `json:"body"`
+	Severity              string `json:"severity"`
+	HeaderKey             string
+	HeaderReportID        string
+	HeaderDiagnosisTaskID string
+	HeaderChannelID       string
 }
 
 func newRecordingWebhookServer(t *testing.T) *recordingWebhookServer {
@@ -371,16 +387,32 @@ func newRecordingWebhookServer(t *testing.T) *recordingWebhookServer {
 	rec := &recordingWebhookServer{}
 	rec.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
-			t.Fatalf("webhook method = %s, want POST", r.Method)
+			t.Errorf("webhook method = %s, want POST", r.Method)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
 		}
 		var req recordedWebhookRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatalf("decode webhook request: %v", err)
+			t.Errorf("decode webhook request: %v", err)
+			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
 		}
 		req.HeaderKey = r.Header.Get("X-OpenClarion-Idempotency-Key")
 		req.HeaderReportID = r.Header.Get("X-OpenClarion-Final-Report-Id")
-		if req.HeaderKey != req.IdempotencyKey || req.HeaderReportID != fmt.Sprintf("%d", req.FinalReportID) {
-			t.Fatalf("webhook headers = key:%q report:%q body:%+v", req.HeaderKey, req.HeaderReportID, req)
+		req.HeaderDiagnosisTaskID = r.Header.Get("X-OpenClarion-Diagnosis-Task-Id")
+		req.HeaderChannelID = r.Header.Get("X-OpenClarion-Notification-Channel-Id")
+		if req.HeaderKey != req.IdempotencyKey ||
+			req.HeaderReportID != optionalWebhookIDHeader(req.FinalReportID) ||
+			req.HeaderDiagnosisTaskID != optionalWebhookIDHeader(req.DiagnosisTaskID) ||
+			req.HeaderChannelID != optionalWebhookIDHeader(req.NotificationChannelID) {
+			t.Errorf(
+				"webhook headers = key:%q report:%q diagnosis:%q channel:%q body:%+v",
+				req.HeaderKey,
+				req.HeaderReportID,
+				req.HeaderDiagnosisTaskID,
+				req.HeaderChannelID,
+				req,
+			)
 		}
 
 		rec.mu.Lock()
@@ -391,6 +423,13 @@ func newRecordingWebhookServer(t *testing.T) *recordingWebhookServer {
 		_, _ = w.Write([]byte(`{"message_id":"msg-e2e","status":"accepted"}`))
 	}))
 	return rec
+}
+
+func optionalWebhookIDHeader(id int64) string {
+	if id == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d", id)
 }
 
 func (s *recordingWebhookServer) Requests() []recordedWebhookRequest {

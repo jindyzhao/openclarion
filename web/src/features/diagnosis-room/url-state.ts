@@ -59,6 +59,22 @@ export type DiagnosisRoomOneShotURLInput = DiagnosisRoomURLInput & {
   weComAutoLogin?: boolean;
 };
 
+export function boundedURLTextValue(
+  raw: string | null | undefined,
+  maxLength: number,
+): string | undefined {
+  const value = raw?.trim();
+  if (
+    value === undefined ||
+    value === "" ||
+    value.length > maxLength ||
+    /[\u0000-\u001f\u007f]/u.test(value)
+  ) {
+    return undefined;
+  }
+  return value;
+}
+
 export function diagnosisRoomWeComReturnTo({
   pathname,
   search,

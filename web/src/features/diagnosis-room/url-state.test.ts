@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  boundedURLTextValue,
   diagnosisRoomWeComAuthErrorSearchParam,
   diagnosisRoomWeComAutoLoginSearchParam,
   diagnosisRoomWeComLaunchContextSearchParam,
@@ -12,6 +13,16 @@ import {
 } from "./url-state";
 
 describe("diagnosis room URL state", () => {
+  it("normalizes bounded URL text values", () => {
+    expect(boundedURLTextValue("  diagnosis-session-1  ", 128)).toBe(
+      "diagnosis-session-1",
+    );
+    expect(boundedURLTextValue(undefined, 128)).toBeUndefined();
+    expect(boundedURLTextValue("   ", 128)).toBeUndefined();
+    expect(boundedURLTextValue("a".repeat(129), 128)).toBeUndefined();
+    expect(boundedURLTextValue("session\n1", 128)).toBeUndefined();
+  });
+
   it("builds diagnosis room links with stable query ordering", () => {
     expect(
       diagnosisRoomLinkHref({

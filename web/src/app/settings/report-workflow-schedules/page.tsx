@@ -1,4 +1,3 @@
-import { ReportShell } from "@/features/reports/report-shell";
 import { fetchReportWorkflowPolicies } from "@/features/settings/report-workflow-policies/api";
 import { fetchReportWorkflowSchedules } from "@/features/settings/report-workflow-schedules/api";
 import {
@@ -27,7 +26,7 @@ export default async function ReportWorkflowScheduleSettingsPage({
   const count = result.ok ? result.data.items.length : 0;
 
   return (
-    <ReportShell current="schedules">
+    <>
       <section className="page-heading">
         <div>
           <h1>Workflow Schedules</h1>
@@ -42,6 +41,6 @@ export default async function ReportWorkflowScheduleSettingsPage({
         reportWorkflowPoliciesResult={reportWorkflowPoliciesResult}
         result={result}
       />
-    </ReportShell>
+    </>
   );
 }

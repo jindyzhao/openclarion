@@ -5,6 +5,7 @@ import {
   type DiagnosisHandoffListResponse,
 } from "@/features/diagnosis-room/api";
 import { DiagnosisRoomView, type DiagnosisAlertContext } from "@/features/diagnosis-room/diagnosis-room-view";
+import { boundedURLTextValue } from "@/features/diagnosis-room/url-state";
 import type { RequestJSONOptions } from "@/lib/api/client";
 import { diagnosisBackendRequestOptionsFromIncomingHeaders } from "@/lib/api/server-authorization";
 
@@ -17,6 +18,7 @@ type DiagnosisRoomPageProps = {
 export default async function DiagnosisRoomPage({ searchParams }: DiagnosisRoomPageProps) {
   const params = await searchParams;
   const evidenceSnapshotID = positiveIntegerSearchParam(params.evidence_snapshot_id);
+  const sessionID = boundedURLTextValue(firstSearchParam(params.session_id), 128);
   const backendRequestOptions =
     await diagnosisBackendRequestOptionsFromIncomingHeaders();
   const [recentRoomsResult, handoffsResult] = await Promise.all([
@@ -36,6 +38,8 @@ export default async function DiagnosisRoomPage({ searchParams }: DiagnosisRoomP
     <DiagnosisRoomView
       alertContext={alertContext}
       handoffsResult={handoffsResult}
+      initialEvidenceSnapshotID={evidenceSnapshotID}
+      initialSessionID={sessionID}
       recentRoomsResult={recentRoomsResult}
     />
   );
@@ -92,4 +96,10 @@ function positiveIntegerSearchParam(value: string | string[] | undefined): numbe
   }
   const parsed = Number(raw);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function firstSearchParam(
+  value: string | string[] | undefined,
+): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }

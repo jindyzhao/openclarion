@@ -1,4 +1,3 @@
-import { ReportShell } from "@/features/reports/report-shell";
 import { fetchAlertSourceProfiles } from "@/features/settings/alert-sources/api";
 import { AlertSourceSettingsManager } from "@/features/settings/alert-sources/alert-source-settings-view";
 import {
@@ -23,7 +22,7 @@ export default async function AlertSourceSettingsPage({
   const count = result.ok ? result.data.items.length : 0;
 
   return (
-    <ReportShell current="sources">
+    <>
       <section className="page-heading">
         <div>
           <h1>Alert Sources</h1>
@@ -37,6 +36,6 @@ export default async function AlertSourceSettingsPage({
         launchIntent={launchIntent}
         result={result}
       />
-    </ReportShell>
+    </>
   );
 }
