@@ -8,7 +8,10 @@ import type {
   DiagnosisRoomSummary
 } from "@/features/diagnosis-room/api";
 import type { AlertEventSummary } from "@/features/alerts/api";
-import { diagnosisRoomNextStep } from "@/features/diagnosis-room/next-step";
+import {
+  diagnosisRoomNextStep,
+  latestFailedDiagnosisRoomNotification
+} from "@/features/diagnosis-room/next-step";
 import { formatDateTime } from "@/features/reports/format";
 import { notificationChannelEditHref } from "@/features/settings/notification-channels/format";
 import type { ApiResult } from "@/lib/api/client";
@@ -299,7 +302,7 @@ function DashboardRoomNotification({ room }: { room: DiagnosisRoomSummary }) {
   );
 }
 
-function diagnosisRoomHealth(rooms: DiagnosisRoomSummary[]) {
+export function diagnosisRoomHealth(rooms: DiagnosisRoomSummary[]) {
   return rooms.reduce(
     (counts, room) => {
       const step = diagnosisRoomNextStep(room);
@@ -316,11 +319,6 @@ function diagnosisRoomHealth(rooms: DiagnosisRoomSummary[]) {
 function latestDiagnosisRoomNotification(room: DiagnosisRoomSummary): DiagnosisRoomNotificationTimelineEntry | null {
   const timeline = room.notification_timeline ?? [];
   return timeline.length > 0 ? timeline[timeline.length - 1] ?? null : null;
-}
-
-function latestFailedDiagnosisRoomNotification(room: DiagnosisRoomSummary): DiagnosisRoomNotificationTimelineEntry | null {
-  const notification = latestDiagnosisRoomNotification(room);
-  return notification && notificationFailed(notification.provider_status) ? notification : null;
 }
 
 function notificationFailed(status: string): boolean {

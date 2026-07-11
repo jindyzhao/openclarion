@@ -241,7 +241,9 @@ function diagnosisRoomQueueCounts(rooms: DiagnosisRoomSummary[]) {
   );
 }
 
-function latestFailedDiagnosisRoomNotification(room: DiagnosisRoomSummary) {
+export function latestFailedDiagnosisRoomNotification(
+  room: DiagnosisRoomSummary,
+) {
   const timeline = room.notification_timeline ?? [];
   for (let index = timeline.length - 1; index >= 0; index -= 1) {
     const entry = timeline[index];
