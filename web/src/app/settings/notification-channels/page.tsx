@@ -1,4 +1,3 @@
-import { ReportShell } from "@/features/reports/report-shell";
 import { fetchNotificationChannelProfiles } from "@/features/settings/notification-channels/api";
 import {
   notificationChannelEditIDFromSearchParams,
@@ -28,7 +27,7 @@ export default async function NotificationChannelSettingsPage({
   const count = result.ok ? result.data.items.length : 0;
 
   return (
-    <ReportShell current="channels">
+    <>
       <section className="page-heading">
         <div>
           <h1>Notification Channels</h1>
@@ -44,6 +43,6 @@ export default async function NotificationChannelSettingsPage({
         result={result}
         workflowReturn={workflowReturn}
       />
-    </ReportShell>
+    </>
   );
 }

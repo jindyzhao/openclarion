@@ -346,6 +346,22 @@ test("report routes render list, detail, and evidence traceability", async ({
   });
   await expect(reportLink).toBeVisible();
 
+  const reportSearch = page.getByLabel("Search reports");
+  await reportSearch.fill("missing report");
+  await expect(page.getByText("No reports match these filters.")).toBeVisible();
+  await reportSearch.fill("checkout latency");
+  await expect(reportLink).toBeVisible();
+
+  const severityFilter = page
+    .getByLabel("Filter reports by severity")
+    .first();
+  await severityFilter.click();
+  await page.getByTitle("Info").click();
+  await expect(page.getByText("No reports match these filters.")).toBeVisible();
+  await severityFilter.click();
+  await page.getByTitle("Warning").click();
+  await expect(reportLink).toBeVisible();
+
   await reportLink.click();
   await expect(page).toHaveURL(/\/reports\/101$/);
   await expect(

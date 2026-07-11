@@ -50,7 +50,6 @@ import {
 } from "react";
 
 import { formatDateTime } from "@/features/reports/format";
-import { ReportShell } from "@/features/reports/report-shell";
 import { refreshDiagnosisToolTemplates } from "@/features/settings/diagnosis-tool-templates/client-api";
 import type {
   DiagnosisToolKind,
@@ -270,6 +269,7 @@ import {
 } from "./rbac-capabilities";
 import { diagnosisOIDCLoginHref } from "./oidc-login";
 import {
+  boundedURLTextValue,
   diagnosisRoomAnchorHref,
   diagnosisRoomWeComAutoLoginSearchParam,
   diagnosisRoomWeComAuthErrorSearchParam,
@@ -568,6 +568,7 @@ function DiagnosisBrowserSessionActions({
   });
   return (
     <Alert
+      className="diagnosis-browser-session-alert"
       action={
         <Space wrap>
           {activeSession === null ? (
@@ -698,6 +699,7 @@ function DiagnosisWeComLoginActions({
     );
   return (
     <Alert
+      className="diagnosis-browser-session-alert"
       action={
         <Space wrap>
           {activeSession === null ? (
@@ -1084,12 +1086,20 @@ type DiagnosisRoomOIDCAuthError =
 type DiagnosisRoomViewProps = {
   alertContext?: DiagnosisAlertContext;
   handoffsResult?: ApiResult<DiagnosisHandoffListResponse>;
+  initialEvidenceSnapshotID?: number;
+  initialSessionID?: string;
   recentRoomsResult?: ApiResult<DiagnosisRoomListResponse>;
 };
 
 type DiagnosisHandoffBacklogItem =
   DiagnosisHandoffListResponse["items"][number];
 type DiagnosisWorkQueueFilter = DiagnosisRoomQueueFilter | "handoffs";
+type DiagnosisWorkbenchSection =
+  | "queue"
+  | "setup"
+  | "room"
+  | "insight"
+  | "conversation";
 
 export type DiagnosisAlertContext = {
   alert: AlertEventSummary;
@@ -1109,6 +1119,8 @@ class DiagnosisActionError extends Error {
 export function DiagnosisRoomView({
   alertContext,
   handoffsResult,
+  initialEvidenceSnapshotID,
+  initialSessionID,
   recentRoomsResult,
 }: DiagnosisRoomViewProps) {
   const { message } = AntdApp.useApp();
@@ -1135,6 +1147,9 @@ export function DiagnosisRoomView({
   const permissionsPanelRef = useRef<HTMLDivElement | null>(null);
   const reviewQueuePanelRef = useRef<HTMLElement | null>(null);
   const roomSelectionPanelRef = useRef<HTMLDivElement | null>(null);
+  const roomStatePanelRef = useRef<HTMLDivElement | null>(null);
+  const insightPanelRef = useRef<HTMLDivElement | null>(null);
+  const conversationPanelRef = useRef<HTMLDivElement | null>(null);
   const supplementalEvidencePanelRef = useRef<HTMLDivElement | null>(null);
   const [createForm] = Form.useForm<CreateRoomFormValues>();
   const [connectionForm] = Form.useForm<ConnectionFormValues>();
@@ -1184,6 +1199,20 @@ export function DiagnosisRoomView({
     staleTime: 30_000,
   });
   const [status, setStatus] = useState<DiagnosisConnectionStatus>("idle");
+  const [workbenchSection, setWorkbenchSection] =
+    useState<DiagnosisWorkbenchSection>(() => {
+      if (initialSessionID || searchParams.get("session_id")?.trim()) {
+        return "room";
+      }
+      if (
+        alertContext ||
+        initialEvidenceSnapshotID !== undefined ||
+        searchParams.get("evidence_snapshot_id")?.trim()
+      ) {
+        return "setup";
+      }
+      return "queue";
+    });
   const [socketOpen, setSocketOpen] = useState(false);
   const [readySubject, setReadySubject] = useState("");
   const [localTurnInFlight, setLocalTurnInFlight] = useState(false);
@@ -1837,14 +1866,27 @@ export function DiagnosisRoomView({
     turnInFlight,
   });
 
+  function scrollToWorkbenchSection<T extends HTMLElement>(
+    section: DiagnosisWorkbenchSection,
+    target: RefObject<T | null>,
+  ) {
+    setWorkbenchSection(section);
+    window.requestAnimationFrame(() => {
+      target.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   useEffect(() => {
     if (!connected || pendingConnectionReturnRef.current !== "review_queue") {
       return;
     }
     pendingConnectionReturnRef.current = null;
-    reviewQueuePanelRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
+    setWorkbenchSection("insight");
+    window.requestAnimationFrame(() => {
+      reviewQueuePanelRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
     });
   }, [connected]);
 
@@ -3027,9 +3069,12 @@ export function DiagnosisRoomView({
     setClearedURLFollowUpKey(null);
     supplementalEvidenceForm.resetFields();
     composerForm.resetFields();
-    supplementalEvidencePanelRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
+    setWorkbenchSection("conversation");
+    window.requestAnimationFrame(() => {
+      supplementalEvidencePanelRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
     });
     pushLog(
       "info",
@@ -3039,9 +3084,12 @@ export function DiagnosisRoomView({
   }
 
   function handleReviewEvidenceTasks() {
-    reviewQueuePanelRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
+    setWorkbenchSection("insight");
+    window.requestAnimationFrame(() => {
+      reviewQueuePanelRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
     });
   }
 
@@ -3065,10 +3113,7 @@ export function DiagnosisRoomView({
       }
       setConnectionSessionID(targetSessionID);
     }
-    connectionPanelRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
+    scrollToWorkbenchSection("setup", connectionPanelRef);
   }
 
   function handleUseEvidencePlan(request: DiagnosisEvidenceRequest) {
@@ -3288,6 +3333,10 @@ export function DiagnosisRoomView({
     connectionForm.setFieldValue("sessionID", room.session_id);
     createForm.setFieldValue("evidenceSnapshotID", room.evidence_snapshot_id);
     replaceRoomURL(room.session_id, room.evidence_snapshot_id);
+    scrollToWorkbenchSection(
+      room.room_status === "closed" ? "room" : "setup",
+      room.room_status === "closed" ? roomStatePanelRef : connectionPanelRef,
+    );
     pushLog("info", `Selected ${room.session_id}.`);
     message.info("Diagnosis room selected.");
   }
@@ -3302,10 +3351,7 @@ export function DiagnosisRoomView({
     if (pageContext.suggestedPrompt !== "") {
       composerForm.setFieldValue("message", pageContext.suggestedPrompt);
     }
-    createRoomPanelRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
+    scrollToWorkbenchSection("setup", createRoomPanelRef);
     pushLog("info", "Prepared alert snapshot for diagnosis room creation.");
     message.info(
       "Enter authorization credentials to create the diagnosis room.",
@@ -3326,10 +3372,7 @@ export function DiagnosisRoomView({
         }),
       );
     }
-    createRoomPanelRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
+    scrollToWorkbenchSection("setup", createRoomPanelRef);
     pushLog(
       "info",
       `Prepared handoff snapshot #${evidenceSnapshotID} for diagnosis room creation.`,
@@ -3349,10 +3392,7 @@ export function DiagnosisRoomView({
       return;
     }
     createForm.setFieldValue("evidenceSnapshotID", room.evidence_snapshot_id);
-    createRoomPanelRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
+    scrollToWorkbenchSection("setup", createRoomPanelRef);
     pushLog(
       "info",
       `Prepared replacement room from evidence snapshot #${room.evidence_snapshot_id}.`,
@@ -3573,10 +3613,7 @@ export function DiagnosisRoomView({
         ? handleConfirmConclusion
         : retainedConclusionNeedsDeliveryReview
           ? () =>
-              notificationTimelinePanelRef.current?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              })
+              scrollToWorkbenchSection("room", notificationTimelinePanelRef)
           : handleReviewEvidenceTasks,
       title: canConfirmConclusion
         ? "Confirm and retain the AI conclusion."
@@ -3622,11 +3659,11 @@ export function DiagnosisRoomView({
       ),
       label: currentActorSubject ? "Review identity" : "Authenticate",
       onClick: () =>
-        (connectionPanelRef.current ?? createRoomPanelRef.current)?.scrollIntoView(
-          {
-            behavior: "smooth",
-            block: "start",
-          },
+        scrollToWorkbenchSection(
+          "setup",
+          connectionPanelRef.current !== null
+            ? connectionPanelRef
+            : createRoomPanelRef,
         ),
       title: currentActorSubject
         ? "Open authentication and session controls."
@@ -3636,10 +3673,7 @@ export function DiagnosisRoomView({
       icon: <SafetyCertificateOutlined />,
       label: "Review permissions",
       onClick: () =>
-        permissionsPanelRef.current?.scrollIntoView({
-          behavior: "smooth",
-          block: "start",
-        }),
+        scrollToWorkbenchSection("room", permissionsPanelRef),
       title: "Open selected-room permission details.",
     },
     room: {
@@ -3647,11 +3681,7 @@ export function DiagnosisRoomView({
       label: selectedSessionID.trim() === "" ? "Select room" : "Refresh room",
       onClick:
         selectedSessionID.trim() === ""
-          ? () =>
-              roomSelectionPanelRef.current?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              })
+          ? () => scrollToWorkbenchSection("queue", roomSelectionPanelRef)
           : handleQueryState,
       title:
         selectedSessionID.trim() === ""
@@ -3659,13 +3689,31 @@ export function DiagnosisRoomView({
           : "Refresh the selected room state.",
     },
   };
+  function handleWorkbenchSectionChange(section: DiagnosisWorkbenchSection) {
+    switch (section) {
+      case "queue":
+        scrollToWorkbenchSection(section, roomSelectionPanelRef);
+        return;
+      case "setup":
+        scrollToWorkbenchSection(section, createRoomPanelRef);
+        return;
+      case "room":
+        scrollToWorkbenchSection(section, roomStatePanelRef);
+        return;
+      case "insight":
+        scrollToWorkbenchSection(section, insightPanelRef);
+        return;
+      case "conversation":
+        scrollToWorkbenchSection(section, conversationPanelRef);
+    }
+  }
   const confirmedReportReturnHref =
     selectedRoomState?.final_conclusion?.confirmed_by && pageContext.backHref
       ? diagnosisReportReturnHref(pageContext.backHref, "confirmed")
       : undefined;
 
   return (
-    <ReportShell current="diagnosis">
+    <>
       <section className="page-heading">
         <div>
           <h1>Diagnosis Room</h1>
@@ -3777,6 +3825,28 @@ export function DiagnosisRoomView({
         />
       ) : null}
 
+      <nav aria-label="Diagnosis workspace sections" className="diagnosis-workbench-nav">
+        <Segmented
+          aria-label="Diagnosis workspace section"
+          onChange={(value) =>
+            handleWorkbenchSectionChange(value as DiagnosisWorkbenchSection)
+          }
+          options={[
+            { label: "Queue", value: "queue" },
+            { label: "Setup", value: "setup" },
+            { label: "State", value: "room" },
+            { label: "Evidence", value: "insight" },
+            { label: "Chat", value: "conversation" },
+          ]}
+          value={workbenchSection}
+        />
+        <Typography.Text className="diagnosis-workbench-context" type="secondary">
+          {selectedSessionID.trim() === ""
+            ? "No room selected"
+            : selectedSessionID}
+        </Typography.Text>
+      </nav>
+
       <div ref={roomSelectionPanelRef}>
         <DiagnosisWorkQueuePanel
           filter={workQueueFilter}
@@ -3877,8 +3947,10 @@ export function DiagnosisRoomView({
             <Form<CreateRoomFormValues>
               form={createForm}
               initialValues={{
-                authMode: "session",
+                authMode: pageContext.authMode ?? "session",
                 bearerToken: "",
+                evidenceSnapshotID:
+                  pageContext.evidenceSnapshotID ?? initialEvidenceSnapshotID,
                 ldapPassword: "",
                 ldapUsername: "",
               }}
@@ -4178,32 +4250,32 @@ export function DiagnosisRoomView({
             title="Connection"
           >
             <Form<ConnectionFormValues>
-            form={connectionForm}
-            initialValues={{
-              authMode: "session",
-              bearerToken: "",
-              ldapPassword: "",
-              ldapUsername: "",
-              sessionID: "",
-            }}
-            layout="vertical"
-            onFinish={handleConnect}
-            onValuesChange={(changedValues) => {
-              if (
-                typeof (changedValues as Partial<ConnectionFormValues>)
-                  .sessionID === "string"
-              ) {
-                setConnectionSessionID(
-                  (changedValues as Partial<ConnectionFormValues>).sessionID ??
-                    "",
-                );
-                resetSelectedRoomRuntimeState();
-              }
-              if (diagnosisAuthInputFieldsChanged(changedValues)) {
-                clearAuthCheckForContext("connection");
-              }
-            }}
-          >
+              form={connectionForm}
+              initialValues={{
+                authMode: pageContext.authMode ?? "session",
+                bearerToken: "",
+                ldapPassword: "",
+                ldapUsername: "",
+                sessionID: pageContext.sessionID ?? initialSessionID ?? "",
+              }}
+              layout="vertical"
+              onFinish={handleConnect}
+              onValuesChange={(changedValues) => {
+                if (
+                  typeof (changedValues as Partial<ConnectionFormValues>)
+                    .sessionID === "string"
+                ) {
+                  setConnectionSessionID(
+                    (changedValues as Partial<ConnectionFormValues>)
+                      .sessionID ?? "",
+                  );
+                  resetSelectedRoomRuntimeState();
+                }
+                if (diagnosisAuthInputFieldsChanged(changedValues)) {
+                  clearAuthCheckForContext("connection");
+                }
+              }}
+            >
             <Form.Item
               label="Session ID"
               name="sessionID"
@@ -4387,10 +4459,11 @@ export function DiagnosisRoomView({
           </Card>
         </div>
 
-        <Card
-          aria-label="Room state"
-          className="settings-overview-card"
-          extra={
+        <div className="diagnosis-room-state-section" ref={roomStatePanelRef}>
+          <Card
+            aria-label="Room state"
+            className="settings-overview-card"
+            extra={
             <TooltipAction
               disabled={!canConfirmConclusion}
               title={
@@ -4407,9 +4480,9 @@ export function DiagnosisRoomView({
                 Confirm Conclusion
               </Button>
             </TooltipAction>
-          }
-          title="Room State"
-        >
+            }
+            title="Room State"
+          >
           <DiagnosisWorkflowReadinessPanel
             actions={workflowReadinessActions}
             items={workflowReadinessItems}
@@ -4499,10 +4572,7 @@ export function DiagnosisRoomView({
                 void invalidateDiagnosisRoomQueries(selectedRoomSummary.session_id)
               }
               onReviewDelivery={() =>
-                notificationTimelinePanelRef.current?.scrollIntoView({
-                  behavior: "smooth",
-                  block: "start",
-                })
+                scrollToWorkbenchSection("room", notificationTimelinePanelRef)
               }
               refreshingDeliveryProof={
                 selectedExactRoomSummary !== undefined
@@ -4522,12 +4592,14 @@ export function DiagnosisRoomView({
               room={selectedRoomSummary}
             />
           </div>
-        </Card>
+          </Card>
+        </div>
       </div>
 
-      <Card
-        className="diagnosis-room-panel settings-overview-card"
-        extra={
+      <div className="diagnosis-workbench-section" ref={insightPanelRef}>
+        <Card
+          className="diagnosis-room-panel settings-overview-card"
+          extra={
           selectedLatestInsight ? (
             <Space className="diagnosis-insight-meta" size={[6, 6]} wrap>
               <Tag color={confidenceColor(selectedLatestInsight.confidence)}>
@@ -4551,14 +4623,14 @@ export function DiagnosisRoomView({
               ) : null}
             </Space>
           ) : null
-        }
-        title={
+          }
+          title={
           <Space className="diagnosis-insight-title" size={8}>
             <BulbOutlined />
             <span>Consultation Insight</span>
           </Space>
-        }
-      >
+          }
+        >
         {selectedLatestInsight ? (
           <>
             <Descriptions
@@ -4681,17 +4753,19 @@ export function DiagnosisRoomView({
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
         )}
-      </Card>
+        </Card>
+      </div>
 
-      <Card
-        className="diagnosis-room-panel settings-overview-card"
-        extra={
+      <div className="diagnosis-workbench-section" ref={conversationPanelRef}>
+        <Card
+          className="diagnosis-room-panel settings-overview-card"
+          extra={
           <Typography.Text type="secondary">
             {transcript.length} message(s)
           </Typography.Text>
-        }
-        title="Transcript"
-      >
+          }
+          title="Transcript"
+        >
         {transcript.length === 0 ? (
           <Empty
             description="No transcript messages"
@@ -4848,7 +4922,8 @@ export function DiagnosisRoomView({
             ) : null}
           </Space>
         </Form>
-      </Card>
+        </Card>
+      </div>
 
       {log.length > 0 ? (
         <Card className="settings-overview-card" title="Events">
@@ -4867,7 +4942,7 @@ export function DiagnosisRoomView({
           />
         </Card>
       ) : null}
-    </ReportShell>
+    </>
   );
 }
 
@@ -5115,13 +5190,13 @@ function KeyValueSummary({
       {entries.length === 0 ? (
         <Typography.Text type="secondary">{emptyText}</Typography.Text>
       ) : (
-        <Space size={[6, 6]} wrap>
+        <div className="diagnosis-alert-context-values">
           {entries.map(([key, value]) => (
             <Tag className="diagnosis-alert-context-tag" key={key}>
               {key}: {value}
             </Tag>
           ))}
-        </Space>
+        </div>
       )}
     </section>
   );
@@ -6841,7 +6916,7 @@ function DiagnosisWorkQueuePanel({
   );
   return (
     <Card
-      className="diagnosis-room-panel settings-overview-card"
+      className="diagnosis-room-panel diagnosis-work-queue-panel settings-overview-card"
       title="Diagnosis Work Queue"
     >
       <Segmented
@@ -11441,19 +11516,7 @@ function boundedTextSearchParam(
   name: string,
   maxLength: number,
 ): string | undefined {
-  const raw = searchParams.get(name);
-  if (raw === null) {
-    return undefined;
-  }
-  const value = raw.trim();
-  if (
-    value === "" ||
-    value.length > maxLength ||
-    /[\u0000-\u001f\u007f]/u.test(value)
-  ) {
-    return undefined;
-  }
-  return value;
+  return boundedURLTextValue(searchParams.get(name), maxLength);
 }
 
 function positiveIntegerSearchParam(

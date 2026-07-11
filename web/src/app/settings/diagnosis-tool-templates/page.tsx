@@ -1,4 +1,3 @@
-import { ReportShell } from "@/features/reports/report-shell";
 import { fetchAlertSourceProfiles } from "@/features/settings/alert-sources/api";
 import { fetchDiagnosisToolTemplates } from "@/features/settings/diagnosis-tool-templates/api";
 import { DiagnosisToolTemplateSettingsManager } from "@/features/settings/diagnosis-tool-templates/diagnosis-tool-template-settings-view";
@@ -27,7 +26,7 @@ export default async function DiagnosisToolTemplateSettingsPage({
   const count = result.ok ? result.data.items.length : 0;
 
   return (
-    <ReportShell current="tools">
+    <>
       <section className="page-heading">
         <div>
           <h1>Diagnosis Tools</h1>
@@ -42,6 +41,6 @@ export default async function DiagnosisToolTemplateSettingsPage({
         launchIntent={launchIntent}
         result={result}
       />
-    </ReportShell>
+    </>
   );
 }

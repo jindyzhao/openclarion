@@ -1,4 +1,3 @@
-import { ReportShell } from "@/features/reports/report-shell";
 import { fetchAlerts } from "@/features/alerts/api";
 import { fetchAlertSourceProfiles } from "@/features/settings/alert-sources/api";
 import {
@@ -74,7 +73,7 @@ export default async function SettingsPage() {
   );
 
   return (
-    <ReportShell current="settings">
+    <>
       <section className="page-heading">
         <div>
           <h1>Settings</h1>
@@ -113,6 +112,6 @@ export default async function SettingsPage() {
         }
         rbacAssignments={rbacAssignments.ok ? rbacAssignments.data.items : []}
       />
-    </ReportShell>
+    </>
   );
 }
