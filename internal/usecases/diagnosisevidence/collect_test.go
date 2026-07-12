@@ -239,6 +239,28 @@ func TestServiceCollectMetricQueryUsesTemplateQuery(t *testing.T) {
 	}
 }
 
+func TestServiceCollectMetricQueryReportsMissingProviderCapability(t *testing.T) {
+	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
+	repo := newFakeConfigRepo()
+	repo.templates[9] = metricQueryTemplate("up")
+	repo.alertSources[1] = alertSourceProfile(domain.AlertSourceKindPrometheus)
+	svc := mustServiceWithProvider(t, repo, alertOnlyProvider{}, now)
+
+	got, err := svc.Collect(context.Background(), Request{Requests: []diagnosisroom.EvidenceRequest{{
+		TemplateID: 9,
+		Tool:       domain.DiagnosisToolKindMetricQuery,
+		Reason:     "Need current health.",
+		Query:      "up",
+	}}})
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	item := got.Items[0]
+	if item.Status != StatusUnsupported || item.ReasonCode != ReasonProviderCapability {
+		t.Fatalf("item = %+v", item)
+	}
+}
+
 func TestServiceCollectMetricQueryAllowsParameterizedTemplateQuery(t *testing.T) {
 	now := time.Date(2026, 6, 17, 10, 0, 0, 0, time.UTC)
 	repo := newFakeConfigRepo()
@@ -462,13 +484,20 @@ func TestServiceCollectSanitizesProviderFailures(t *testing.T) {
 
 func mustService(t *testing.T, repo *fakeConfigRepo, provider *fakeMetricsProvider, now time.Time) *Service {
 	t.Helper()
+	return mustServiceWithProvider(t, repo, provider, now)
+}
+
+func mustServiceWithProvider(t *testing.T, repo *fakeConfigRepo, provider ports.ActiveAlertProvider, now time.Time) *Service {
+	t.Helper()
 	builder, err := alertsourceprovider.NewBuilder(
-		func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.MetricsProvider, error) {
-			return provider, nil
+		alertsourceprovider.ProviderFactories{
+			domain.AlertSourceKindPrometheus: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+				return provider, nil
+			},
+			domain.AlertSourceKindAlertmanager: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+				return provider, nil
+			},
 		},
-		alertsourceprovider.WithAlertmanagerFactory(func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.MetricsProvider, error) {
-			return provider, nil
-		}),
 	)
 	if err != nil {
 		t.Fatalf("NewBuilder: %v", err)
@@ -478,6 +507,12 @@ func mustService(t *testing.T, repo *fakeConfigRepo, provider *fakeMetricsProvid
 		t.Fatalf("NewService: %v", err)
 	}
 	return svc
+}
+
+type alertOnlyProvider struct{}
+
+func (alertOnlyProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {
+	return nil, nil
 }
 
 func activeAlertsTemplate(

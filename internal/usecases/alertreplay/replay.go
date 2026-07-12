@@ -1,11 +1,11 @@
 // Package alertreplay drives the M1 "alert window replay harness":
-// it queries the upstream MetricsProvider once, persists the result
+// it queries the upstream ActiveAlertProvider once, persists the result
 // as AlertEvents (delegating to alertingest.IngestOnce), then re-reads
 // the half-open window [WindowStart, WindowEnd) from the database and
 // runs grouping + evidence-snapshot building over that slice.
 //
 // ReplayWindow is an application/usecase orchestrator: it depends on
-// MetricsProvider and UnitOfWorkFactory ports, but never on the
+// ActiveAlertProvider and UnitOfWorkFactory ports, but never on the
 // generated Ent client, pgx, or the Temporal SDK.
 //
 // # Closed -> refresh tension (D7)
@@ -207,7 +207,7 @@ type replayExpansionScope struct {
 // returns (stats, errors.Join(...)) so callers see every reason.
 func ReplayWindow(
 	ctx context.Context,
-	provider ports.MetricsProvider,
+	provider ports.ActiveAlertProvider,
 	factory ports.UnitOfWorkFactory,
 	req Request,
 ) (Stats, error) {
@@ -221,7 +221,7 @@ func ReplayWindow(
 // existing counter-only callers keep comparable Stats values.
 func ReplayWindowForReport(
 	ctx context.Context,
-	provider ports.MetricsProvider,
+	provider ports.ActiveAlertProvider,
 	factory ports.UnitOfWorkFactory,
 	req Request,
 ) (Result, error) {
@@ -392,7 +392,7 @@ func ReplayPersistedWindowForReport(
 // match without parsing the message. Range comparison happens after
 // normalisation so a sub-microsecond gap that the normaliser erases
 // does not slip past as a "valid" window.
-func validateRequest(provider ports.MetricsProvider, factory ports.UnitOfWorkFactory, req Request) error {
+func validateRequest(provider ports.ActiveAlertProvider, factory ports.UnitOfWorkFactory, req Request) error {
 	if provider == nil {
 		return fmt.Errorf("alertreplay: provider must be non-nil: %w", domain.ErrInvariantViolation)
 	}

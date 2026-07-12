@@ -13,14 +13,16 @@ import (
 func TestBuilderBuildsPrometheusProviderWithoutCredentials(t *testing.T) {
 	profile := mustProviderProfile(t, domain.AlertSourceKindPrometheus, domain.AlertSourceAuthModeNone)
 	provider := fakeMetricsProvider{alerts: []ports.ActiveAlert{{Source: "prometheus"}}}
-	builder, err := NewBuilder(func(got domain.AlertSourceProfile, credentials Credentials) (ports.MetricsProvider, error) {
-		if got.ID != profile.ID {
-			t.Fatalf("profile ID = %d, want %d", got.ID, profile.ID)
-		}
-		if credentials.BearerToken != "" {
-			t.Fatalf("BearerToken = %q, want empty", credentials.BearerToken)
-		}
-		return provider, nil
+	builder, err := NewBuilder(ProviderFactories{
+		domain.AlertSourceKindPrometheus: func(got domain.AlertSourceProfile, credentials Credentials) (ports.ActiveAlertProvider, error) {
+			if got.ID != profile.ID {
+				t.Fatalf("profile ID = %d, want %d", got.ID, profile.ID)
+			}
+			if credentials.BearerToken != "" {
+				t.Fatalf("BearerToken = %q, want empty", credentials.BearerToken)
+			}
+			return provider, nil
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewBuilder: %v", err)
@@ -37,38 +39,45 @@ func TestBuilderBuildsPrometheusProviderWithoutCredentials(t *testing.T) {
 	if len(alerts) != 1 || alerts[0].AlertSourceProfileID != profile.ID {
 		t.Fatalf("alerts = %+v, want source profile %d", alerts, profile.ID)
 	}
+	if _, ok := got.(ports.MetricQueryProvider); !ok {
+		t.Fatal("profile wrapper dropped metric query capability")
+	}
 }
 
 func TestBuilderBuildsAlertmanagerProviderWithBearerCredentials(t *testing.T) {
 	profile := mustProviderProfile(t, domain.AlertSourceKindAlertmanager, domain.AlertSourceAuthModeBearer)
 	builder, err := NewBuilder(
-		func(domain.AlertSourceProfile, Credentials) (ports.MetricsProvider, error) {
-			t.Fatal("prometheus factory should not be called for Alertmanager")
-			return nil, nil
+		ProviderFactories{
+			domain.AlertSourceKindAlertmanager: func(got domain.AlertSourceProfile, credentials Credentials) (ports.ActiveAlertProvider, error) {
+				if got.Kind != domain.AlertSourceKindAlertmanager {
+					t.Fatalf("kind = %q, want alertmanager", got.Kind)
+				}
+				if credentials.BearerToken != "resolved-token" {
+					t.Fatalf("BearerToken = %q, want resolved-token", credentials.BearerToken)
+				}
+				return fakeAlertProvider{}, nil
+			},
 		},
-		WithAlertmanagerFactory(func(got domain.AlertSourceProfile, credentials Credentials) (ports.MetricsProvider, error) {
-			if got.Kind != domain.AlertSourceKindAlertmanager {
-				t.Fatalf("kind = %q, want alertmanager", got.Kind)
-			}
-			if credentials.BearerToken != "resolved-token" {
-				t.Fatalf("BearerToken = %q, want resolved-token", credentials.BearerToken)
-			}
-			return fakeMetricsProvider{}, nil
-		}),
 		WithSecretResolver(fakeSecretResolver{values: map[string]string{profile.SecretRef: "resolved-token"}}),
 	)
 	if err != nil {
 		t.Fatalf("NewBuilder: %v", err)
 	}
 
-	if _, err := builder.Build(context.Background(), profile); err != nil {
+	provider, err := builder.Build(context.Background(), profile)
+	if err != nil {
 		t.Fatalf("Build: %v", err)
+	}
+	if _, ok := provider.(ports.MetricQueryProvider); ok {
+		t.Fatal("alert-only provider incorrectly exposes metric query capability")
 	}
 }
 
 func TestBuilderRejectsUnsupportedKindAndNilProvider(t *testing.T) {
-	builder, err := NewBuilder(func(domain.AlertSourceProfile, Credentials) (ports.MetricsProvider, error) {
-		return nil, nil
+	builder, err := NewBuilder(ProviderFactories{
+		domain.AlertSourceKindPrometheus: func(domain.AlertSourceProfile, Credentials) (ports.ActiveAlertProvider, error) {
+			return nil, nil
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewBuilder: %v", err)
@@ -128,9 +137,39 @@ func TestResolveCredentialsReturnsBearerToken(t *testing.T) {
 	}
 }
 
-func TestNewBuilderRequiresPrometheusFactory(t *testing.T) {
+func TestNewBuilderValidatesFactoryRegistry(t *testing.T) {
 	if _, err := NewBuilder(nil); !errors.Is(err, domain.ErrInvariantViolation) {
-		t.Fatalf("NewBuilder err = %v, want ErrInvariantViolation", err)
+		t.Fatalf("empty registry err = %v, want ErrInvariantViolation", err)
+	}
+	if _, err := NewBuilder(ProviderFactories{
+		domain.AlertSourceKindPrometheus: nil,
+	}); !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("nil factory err = %v, want ErrInvariantViolation", err)
+	}
+	if _, err := NewBuilder(ProviderFactories{
+		domain.AlertSourceKind("custom"): func(domain.AlertSourceProfile, Credentials) (ports.ActiveAlertProvider, error) {
+			return fakeAlertProvider{}, nil
+		},
+	}); !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("invalid kind err = %v, want ErrInvariantViolation", err)
+	}
+}
+
+func TestNewBuilderClonesFactoryRegistry(t *testing.T) {
+	profile := mustProviderProfile(t, domain.AlertSourceKindPrometheus, domain.AlertSourceAuthModeNone)
+	factories := ProviderFactories{
+		domain.AlertSourceKindPrometheus: func(domain.AlertSourceProfile, Credentials) (ports.ActiveAlertProvider, error) {
+			return fakeAlertProvider{}, nil
+		},
+	}
+	builder, err := NewBuilder(factories)
+	if err != nil {
+		t.Fatalf("NewBuilder: %v", err)
+	}
+	delete(factories, domain.AlertSourceKindPrometheus)
+
+	if _, err := builder.Build(context.Background(), profile); err != nil {
+		t.Fatalf("Build after caller registry mutation: %v", err)
 	}
 }
 
@@ -162,6 +201,12 @@ func mustProviderProfile(
 
 type fakeMetricsProvider struct {
 	alerts []ports.ActiveAlert
+}
+
+type fakeAlertProvider struct{}
+
+func (fakeAlertProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {
+	return nil, nil
 }
 
 func (p fakeMetricsProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {

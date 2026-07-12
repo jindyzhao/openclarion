@@ -50,6 +50,7 @@ const (
 	ReasonSourceDisabled         ReasonCode = "source_disabled"
 	ReasonSourceKindMismatch     ReasonCode = "source_kind_mismatch"
 	ReasonProviderUnavailable    ReasonCode = "provider_unavailable"
+	ReasonProviderCapability     ReasonCode = "provider_capability_unavailable"
 	ReasonProviderFailed         ReasonCode = "provider_failed"
 	ReasonCollectionTimedOut     ReasonCode = "collection_timed_out"
 	ReasonInvalidRequest         ReasonCode = "invalid_request"
@@ -204,9 +205,17 @@ func (s *Service) collectOne(ctx context.Context, req diagnosisroom.EvidenceRequ
 	case domain.DiagnosisToolKindActiveAlerts:
 		return s.collectActiveAlerts(ctx, provider, plan, item), nil
 	case domain.DiagnosisToolKindMetricQuery:
-		return s.collectMetric(ctx, provider, plan, item), nil
+		metricProvider, ok := provider.(ports.MetricQueryProvider)
+		if !ok {
+			return missingMetricCapability(plan, item), nil
+		}
+		return s.collectMetric(ctx, metricProvider, plan, item), nil
 	case domain.DiagnosisToolKindMetricRangeQuery:
-		return s.collectMetricRange(ctx, provider, plan, item), nil
+		metricProvider, ok := provider.(ports.MetricQueryProvider)
+		if !ok {
+			return missingMetricCapability(plan, item), nil
+		}
+		return s.collectMetricRange(ctx, metricProvider, plan, item), nil
 	default:
 		item = plan.apply(item)
 		item.Status = StatusUnsupported
@@ -216,7 +225,7 @@ func (s *Service) collectOne(ctx context.Context, req diagnosisroom.EvidenceRequ
 	}
 }
 
-func (s *Service) buildProvider(ctx context.Context, profile domain.AlertSourceProfile) (ports.MetricsProvider, bool) {
+func (s *Service) buildProvider(ctx context.Context, profile domain.AlertSourceProfile) (ports.ActiveAlertProvider, bool) {
 	provider, err := s.providers.Build(ctx, profile)
 	if err != nil {
 		return nil, false
@@ -226,7 +235,7 @@ func (s *Service) buildProvider(ctx context.Context, profile domain.AlertSourceP
 
 func (s *Service) collectActiveAlerts(
 	ctx context.Context,
-	provider ports.MetricsProvider,
+	provider ports.ActiveAlertProvider,
 	plan resolvedPlan,
 	item Item,
 ) Item {
@@ -257,7 +266,7 @@ func (s *Service) collectActiveAlerts(
 
 func (s *Service) collectMetric(
 	ctx context.Context,
-	provider ports.MetricsProvider,
+	provider ports.MetricQueryProvider,
 	plan resolvedPlan,
 	item Item,
 ) Item {
@@ -292,7 +301,7 @@ func (s *Service) collectMetric(
 
 func (s *Service) collectMetricRange(
 	ctx context.Context,
-	provider ports.MetricsProvider,
+	provider ports.MetricQueryProvider,
 	plan resolvedPlan,
 	item Item,
 ) Item {
@@ -326,6 +335,14 @@ func (s *Service) collectMetricRange(
 	item.Message = "Metric range collection succeeded."
 	item.ObservedMetricSeries = metricSeriesCount(result)
 	item.MetricResult = cloneMetricResult(limitMetricResult(result, plan.limit))
+	return item
+}
+
+func missingMetricCapability(plan resolvedPlan, item Item) Item {
+	item = plan.apply(item)
+	item.Status = StatusUnsupported
+	item.ReasonCode = ReasonProviderCapability
+	item.Message = "Alert source adapter does not provide metric query capability."
 	return item
 }
 

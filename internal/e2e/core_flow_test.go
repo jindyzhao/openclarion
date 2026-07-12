@@ -358,18 +358,18 @@ func seedE2ECoreConfiguration(
 func newE2EAlertSourceProviderBuilder(t *testing.T) *alertsourceprovider.Builder {
 	t.Helper()
 	builder, err := alertsourceprovider.NewBuilder(
-		func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.MetricsProvider, error) {
-			return nil, fmt.Errorf("unexpected Prometheus provider construction")
-		},
-		alertsourceprovider.WithAlertmanagerFactory(
-			func(profile domain.AlertSourceProfile, credentials alertsourceprovider.Credentials) (ports.MetricsProvider, error) {
+		alertsourceprovider.ProviderFactories{
+			domain.AlertSourceKindPrometheus: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+				return nil, fmt.Errorf("unexpected Prometheus provider construction")
+			},
+			domain.AlertSourceKindAlertmanager: func(profile domain.AlertSourceProfile, credentials alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
 				opts := []metricsalertmanager.Option{}
 				if credentials.BearerToken != "" {
 					opts = append(opts, metricsalertmanager.WithBearer(credentials.BearerToken))
 				}
 				return metricsalertmanager.NewProvider(profile.BaseURL, opts...)
 			},
-		),
+		},
 	)
 	if err != nil {
 		t.Fatalf("New alert source provider builder: %v", err)

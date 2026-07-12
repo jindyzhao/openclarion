@@ -37,19 +37,12 @@ type ReasonCode string
 const (
 	ReasonOK                     ReasonCode = "ok"
 	ReasonUnsupportedKind        ReasonCode = "unsupported_kind"
+	ReasonCapabilityUnavailable  ReasonCode = "capability_unavailable"
 	ReasonCredentialsUnavailable ReasonCode = "credentials_unavailable"
 	ReasonUpstreamUnreachable    ReasonCode = "upstream_unreachable"
 	ReasonUpstreamError          ReasonCode = "upstream_error"
 	ReasonInvalidProfile         ReasonCode = "invalid_profile"
 )
-
-// ProviderCredentials contains resolved credentials for one provider call.
-type ProviderCredentials = alertsourceprovider.Credentials
-
-// MetricsProviderFactory builds a provider from a stored alert source profile
-// plus backend-resolved credentials. Implementations must not return providers
-// that expose credential values in error text returned to this package.
-type MetricsProviderFactory = alertsourceprovider.MetricsProviderFactory
 
 // Clock supplies the check timestamp. It is injected so usecase code never
 // reads wall-clock time directly.
@@ -69,11 +62,9 @@ type Result struct {
 
 // Service coordinates provider construction and sanitized connectivity checks.
 type Service struct {
-	prometheusFactory   MetricsProviderFactory
-	alertmanagerFactory MetricsProviderFactory
-	secretResolver      ports.SecretResolver
-	clock               Clock
-	timeout             time.Duration
+	providers *alertsourceprovider.Builder
+	clock     Clock
+	timeout   time.Duration
 }
 
 // Option customizes Service construction.
@@ -97,32 +88,14 @@ func WithTimeout(timeout time.Duration) Option {
 	}
 }
 
-// WithAlertmanagerFactory enables Alertmanager connection tests.
-func WithAlertmanagerFactory(factory MetricsProviderFactory) Option {
-	return func(s *Service) {
-		if factory != nil {
-			s.alertmanagerFactory = factory
-		}
-	}
-}
-
-// WithSecretResolver enables bearer-backed connection tests.
-func WithSecretResolver(resolver ports.SecretResolver) Option {
-	return func(s *Service) {
-		if resolver != nil {
-			s.secretResolver = resolver
-		}
-	}
-}
-
 // NewService builds an alert source connection-test service.
-func NewService(prometheusFactory MetricsProviderFactory, opts ...Option) (*Service, error) {
-	if prometheusFactory == nil {
-		return nil, fmt.Errorf("alert source check: prometheus factory is required: %w", domain.ErrInvariantViolation)
+func NewService(providers *alertsourceprovider.Builder, opts ...Option) (*Service, error) {
+	if providers == nil {
+		return nil, fmt.Errorf("alert source check: provider builder is required: %w", domain.ErrInvariantViolation)
 	}
 	service := &Service{
-		prometheusFactory: prometheusFactory,
-		timeout:           DefaultTimeout,
+		providers: providers,
+		timeout:   DefaultTimeout,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -137,7 +110,7 @@ func NewService(prometheusFactory MetricsProviderFactory, opts ...Option) (*Serv
 
 // TestAlertSourceConnection performs one sanitized connection test for profile.
 func (s *Service) TestAlertSourceConnection(ctx context.Context, profile domain.AlertSourceProfile) (Result, error) {
-	if s == nil || s.prometheusFactory == nil || s.clock == nil {
+	if s == nil || s.providers == nil || s.clock == nil {
 		return Result{}, fmt.Errorf("alert source check: service is not configured: %w", domain.ErrInvariantViolation)
 	}
 	result := Result{
@@ -153,81 +126,65 @@ func (s *Service) TestAlertSourceConnection(ctx context.Context, profile domain.
 	if profile.ID <= 0 || !profile.Kind.Valid() || !profile.AuthMode.Valid() {
 		return result, nil
 	}
-	switch profile.Kind {
-	case domain.AlertSourceKindPrometheus:
-		credentials, credentialResult, ok := s.resolveCredentials(ctx, profile, result)
-		if !ok {
-			return credentialResult, nil
-		}
-		return s.testPrometheusProvider(ctx, profile, result, credentials), nil
-	case domain.AlertSourceKindAlertmanager:
-		if s.alertmanagerFactory == nil {
-			result.Status = StatusUnsupported
-			result.ReasonCode = ReasonUnsupportedKind
-			result.Message = "Alertmanager connection tests require the Alertmanager adapter."
-			return result, nil
-		}
-		credentials, credentialResult, ok := s.resolveCredentials(ctx, profile, result)
-		if !ok {
-			return credentialResult, nil
-		}
-		return s.testProvider(ctx, profile, result, s.alertmanagerFactory, credentials, "Alertmanager"), nil
-	default:
-		result.Status = StatusUnsupported
-		result.ReasonCode = ReasonUnsupportedKind
-		result.Message = "Alert source kind is not supported by connection tests."
+	provider, err := s.providers.Build(ctx, profile)
+	if err != nil {
+		return providerBuildFailure(result, err), nil
+	}
+	displayName := alertSourceDisplayName(profile)
+	result = s.testActiveAlertListing(ctx, result, provider, displayName)
+	if result.Status != StatusSuccess {
 		return result, nil
 	}
+	if !prometheusMetricProbeRequired(profile) {
+		result.Message = displayName + " alert listing succeeded."
+		return result, nil
+	}
+	metricProvider, ok := provider.(ports.MetricQueryProvider)
+	if !ok {
+		result.Status = StatusUnsupported
+		result.ReasonCode = ReasonCapabilityUnavailable
+		result.Message = displayName + " adapter does not provide metric query capability."
+		return result, nil
+	}
+	return s.testMetricQuery(ctx, result, metricProvider, displayName), nil
 }
 
-func (s *Service) resolveCredentials(
-	ctx context.Context,
-	profile domain.AlertSourceProfile,
-	result Result,
-) (ProviderCredentials, Result, bool) {
-	credentials, err := alertsourceprovider.ResolveCredentials(ctx, s.secretResolver, profile)
-	if err == nil {
-		return credentials, result, true
-	}
-	result.Status = StatusBlocked
-	result.ReasonCode = ReasonCredentialsUnavailable
+func providerBuildFailure(result Result, err error) Result {
 	switch {
+	case errors.Is(err, alertsourceprovider.ErrUnsupportedKind):
+		result.Status = StatusUnsupported
+		result.ReasonCode = ReasonUnsupportedKind
+		result.Message = "Alert source kind is not supported by the configured adapters."
 	case errors.Is(err, alertsourceprovider.ErrSecretResolverUnavailable):
 		result.Status = StatusBlocked
 		result.ReasonCode = ReasonCredentialsUnavailable
 		result.Message = "Secret-backed connection tests require a server-side secret resolver."
 	case errors.Is(err, alertsourceprovider.ErrSecretNotFound):
+		result.Status = StatusBlocked
+		result.ReasonCode = ReasonCredentialsUnavailable
 		result.Message = "Secret reference is not available to the server-side resolver."
 	case errors.Is(err, alertsourceprovider.ErrSecretResolveFailed):
+		result.Status = StatusBlocked
+		result.ReasonCode = ReasonCredentialsUnavailable
 		result.Message = "Secret reference could not be resolved by the server-side resolver."
 	case errors.Is(err, alertsourceprovider.ErrCredentialUnusable):
+		result.Status = StatusBlocked
+		result.ReasonCode = ReasonCredentialsUnavailable
 		result.Message = "Secret reference resolved to an unusable credential."
 	default:
-		result.Message = "Secret reference could not be resolved by the server-side resolver."
+		result.Status = StatusFailed
+		result.ReasonCode = ReasonInvalidProfile
+		result.Message = "Alert source provider could not be constructed from the stored profile."
 	}
-	return ProviderCredentials{}, result, false
+	return result
 }
 
-func (s *Service) testPrometheusProvider(
+func (s *Service) testMetricQuery(
 	ctx context.Context,
-	profile domain.AlertSourceProfile,
 	result Result,
-	credentials ProviderCredentials,
+	provider ports.MetricQueryProvider,
+	displayName string,
 ) Result {
-	displayName := prometheusConnectionDisplayName(profile)
-	provider, result, ok := s.buildProvider(profile, result, s.prometheusFactory, credentials, displayName)
-	if !ok {
-		return result
-	}
-	result = s.testActiveAlertListing(ctx, result, provider, displayName)
-	if result.Status != StatusSuccess {
-		return result
-	}
-	if !prometheusMetricProbeRequired(profile) {
-		result.Message = displayName + " alert listing succeeded."
-		return result
-	}
-
 	checkCtx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
 	_, err := provider.QueryMetric(checkCtx, ports.MetricQueryRequest{
@@ -252,14 +209,22 @@ func (s *Service) testPrometheusProvider(
 }
 
 func prometheusMetricProbeRequired(profile domain.AlertSourceProfile) bool {
-	return !prometheusProfileSourceLabelIs(profile, "thanos-rule")
+	return profile.Kind == domain.AlertSourceKindPrometheus &&
+		!prometheusProfileSourceLabelIs(profile, "thanos-rule")
 }
 
-func prometheusConnectionDisplayName(profile domain.AlertSourceProfile) string {
+func alertSourceDisplayName(profile domain.AlertSourceProfile) string {
 	if prometheusProfileSourceLabelIs(profile, "thanos-rule") {
 		return "Thanos Rule"
 	}
-	return "Prometheus"
+	switch profile.Kind {
+	case domain.AlertSourceKindPrometheus:
+		return "Prometheus"
+	case domain.AlertSourceKindAlertmanager:
+		return "Alertmanager"
+	default:
+		return "Alert source"
+	}
 }
 
 func prometheusProfileSourceLabelIs(profile domain.AlertSourceProfile, want string) bool {
@@ -269,48 +234,10 @@ func prometheusProfileSourceLabelIs(profile domain.AlertSourceProfile, want stri
 	return strings.EqualFold(strings.TrimSpace(profile.Labels["source"]), want)
 }
 
-func (s *Service) testProvider(
-	ctx context.Context,
-	profile domain.AlertSourceProfile,
-	result Result,
-	factory MetricsProviderFactory,
-	credentials ProviderCredentials,
-	displayName string,
-) Result {
-	provider, result, ok := s.buildProvider(profile, result, factory, credentials, displayName)
-	if !ok {
-		return result
-	}
-	return s.testActiveAlertListing(ctx, result, provider, displayName)
-}
-
-func (s *Service) buildProvider(
-	profile domain.AlertSourceProfile,
-	result Result,
-	factory MetricsProviderFactory,
-	credentials ProviderCredentials,
-	displayName string,
-) (ports.MetricsProvider, Result, bool) {
-	provider, err := factory(profile, credentials)
-	if err != nil {
-		result.Status = StatusFailed
-		result.ReasonCode = ReasonInvalidProfile
-		result.Message = displayName + " provider could not be constructed from the stored profile."
-		return nil, result, false
-	}
-	if provider == nil {
-		result.Status = StatusFailed
-		result.ReasonCode = ReasonInvalidProfile
-		result.Message = displayName + " provider is not configured."
-		return nil, result, false
-	}
-	return provider, result, true
-}
-
 func (s *Service) testActiveAlertListing(
 	ctx context.Context,
 	result Result,
-	provider ports.MetricsProvider,
+	provider ports.ActiveAlertProvider,
 	displayName string,
 ) Result {
 	checkCtx, cancel := context.WithTimeout(ctx, s.timeout)

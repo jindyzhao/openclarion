@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/alertsourceprovider"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -20,7 +21,7 @@ func TestServicePrometheusNoAuthSuccess(t *testing.T) {
 			{Source: "prometheus"},
 		},
 	}
-	service := newTestService(t, func(profile domain.AlertSourceProfile, credentials ProviderCredentials) (ports.MetricsProvider, error) {
+	service := newTestService(t, func(profile domain.AlertSourceProfile, credentials alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
 		if profile.BaseURL != "https://prometheus.example.test" {
 			t.Fatalf("profile base URL = %q", profile.BaseURL)
 		}
@@ -60,7 +61,7 @@ func TestServiceThanosRuleSkipsMetricProbe(t *testing.T) {
 			{Source: "prometheus"},
 		},
 	}
-	service := newTestService(t, func(profile domain.AlertSourceProfile, credentials ProviderCredentials) (ports.MetricsProvider, error) {
+	service := newTestService(t, func(profile domain.AlertSourceProfile, credentials alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
 		if profile.Kind != domain.AlertSourceKindPrometheus {
 			t.Fatalf("profile kind = %q, want prometheus", profile.Kind)
 		}
@@ -89,19 +90,21 @@ func TestServiceThanosRuleSkipsMetricProbe(t *testing.T) {
 }
 
 func TestServicePrometheusBearerUsesSecretResolver(t *testing.T) {
-	service := newTestService(t, func(profile domain.AlertSourceProfile, credentials ProviderCredentials) (ports.MetricsProvider, error) {
-		if profile.SecretRef != "secret/openclarion/prometheus-bearer" {
-			t.Fatalf("SecretRef = %q", profile.SecretRef)
-		}
-		if credentials.BearerToken != "resolved-bearer-token" {
-			t.Fatalf("BearerToken = %q", credentials.BearerToken)
-		}
-		return fakeMetricsProvider{
-			alerts: []ports.ActiveAlert{{Source: "prometheus"}},
-		}, nil
-	}, WithSecretResolver(fakeSecretResolver{
+	service := newTestServiceWithBuilder(t, alertsourceprovider.ProviderFactories{
+		domain.AlertSourceKindPrometheus: func(profile domain.AlertSourceProfile, credentials alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+			if profile.SecretRef != "secret/openclarion/prometheus-bearer" {
+				t.Fatalf("SecretRef = %q", profile.SecretRef)
+			}
+			if credentials.BearerToken != "resolved-bearer-token" {
+				t.Fatalf("BearerToken = %q", credentials.BearerToken)
+			}
+			return fakeMetricsProvider{
+				alerts: []ports.ActiveAlert{{Source: "prometheus"}},
+			}, nil
+		},
+	}, fakeSecretResolver{
 		secrets: map[string]string{"secret/openclarion/prometheus-bearer": "resolved-bearer-token"},
-	}))
+	})
 
 	result, err := service.TestAlertSourceConnection(context.Background(), mustProfile(t, 2, domain.AlertSourceKindPrometheus, domain.AlertSourceAuthModeBearer))
 	if err != nil {
@@ -116,7 +119,7 @@ func TestServicePrometheusBearerUsesSecretResolver(t *testing.T) {
 }
 
 func TestServiceBlocksBearerWithoutSecretResolver(t *testing.T) {
-	service := newTestService(t, func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error) {
+	service := newTestService(t, func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
 		t.Fatal("factory should not be called for bearer profiles without secret resolver")
 		return nil, nil
 	})
@@ -131,10 +134,12 @@ func TestServiceBlocksBearerWithoutSecretResolver(t *testing.T) {
 }
 
 func TestServiceBlocksBearerWhenSecretIsUnavailable(t *testing.T) {
-	service := newTestService(t, func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error) {
-		t.Fatal("factory should not be called when secret resolution fails")
-		return nil, nil
-	}, WithSecretResolver(fakeSecretResolver{}))
+	service := newTestServiceWithBuilder(t, alertsourceprovider.ProviderFactories{
+		domain.AlertSourceKindPrometheus: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+			t.Fatal("factory should not be called when secret resolution fails")
+			return nil, nil
+		},
+	}, fakeSecretResolver{})
 
 	result, err := service.TestAlertSourceConnection(context.Background(), mustProfile(t, 3, domain.AlertSourceKindPrometheus, domain.AlertSourceAuthModeBearer))
 	if err != nil {
@@ -149,7 +154,7 @@ func TestServiceBlocksBearerWhenSecretIsUnavailable(t *testing.T) {
 }
 
 func TestServiceReturnsUnsupportedForAlertmanagerWithoutFactory(t *testing.T) {
-	service := newTestService(t, func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error) {
+	service := newTestService(t, func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
 		t.Fatal("factory should not be called for unsupported profile kinds")
 		return nil, nil
 	})
@@ -174,20 +179,18 @@ func TestServiceAlertmanagerNoAuthSuccess(t *testing.T) {
 		{Source: "alertmanager"},
 		{Source: "alertmanager"},
 	}}
-	service := newTestService(t,
-		func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error) {
-			t.Fatal("prometheus factory should not be called for Alertmanager")
-			return nil, nil
-		},
-		WithAlertmanagerFactory(func(profile domain.AlertSourceProfile, credentials ProviderCredentials) (ports.MetricsProvider, error) {
-			if profile.Kind != domain.AlertSourceKindAlertmanager {
-				t.Fatalf("kind = %q", profile.Kind)
-			}
-			if credentials.BearerToken != "" {
-				t.Fatalf("BearerToken = %q, want empty", credentials.BearerToken)
-			}
-			return provider, nil
-		}),
+	service := newTestServiceWithBuilder(t,
+		alertsourceprovider.ProviderFactories{
+			domain.AlertSourceKindAlertmanager: func(profile domain.AlertSourceProfile, credentials alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+				if profile.Kind != domain.AlertSourceKindAlertmanager {
+					t.Fatalf("kind = %q", profile.Kind)
+				}
+				if credentials.BearerToken != "" {
+					t.Fatalf("BearerToken = %q, want empty", credentials.BearerToken)
+				}
+				return provider, nil
+			},
+		}, nil,
 	)
 
 	result, err := service.TestAlertSourceConnection(context.Background(), mustProfile(t, 4, domain.AlertSourceKindAlertmanager, domain.AlertSourceAuthModeNone))
@@ -207,17 +210,17 @@ func TestServiceSanitizesFactoryAndProviderErrors(t *testing.T) {
 	rawEndpoint := "https://operator:token@prometheus.example.test"
 	tests := []struct {
 		name    string
-		factory MetricsProviderFactory
+		factory alertsourceprovider.ProviderFactory
 	}{
 		{
 			name: "factory",
-			factory: func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error) {
+			factory: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
 				return nil, errors.New(rawEndpoint)
 			},
 		},
 		{
 			name: "provider",
-			factory: func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error) {
+			factory: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
 				return fakeMetricsProvider{err: errors.New(rawEndpoint)}, nil
 			},
 		},
@@ -242,7 +245,7 @@ func TestServiceSanitizesFactoryAndProviderErrors(t *testing.T) {
 func TestServicePrometheusMetricProbeFailureIsSanitized(t *testing.T) {
 	// #nosec G101 -- test-only credential-bearing URL fixture verifies sanitization.
 	rawEndpoint := "https://operator:token@prometheus.example.test/api/v1/query"
-	service := newTestService(t, func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error) {
+	service := newTestService(t, func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
 		return metricProbeFailureProvider{err: errors.New(rawEndpoint)}, nil
 	})
 
@@ -258,8 +261,25 @@ func TestServicePrometheusMetricProbeFailureIsSanitized(t *testing.T) {
 	}
 }
 
+func TestServiceReportsMissingPrometheusMetricCapability(t *testing.T) {
+	service := newTestService(t, func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+		return alertOnlyProvider{}, nil
+	})
+
+	result, err := service.TestAlertSourceConnection(
+		context.Background(),
+		mustProfile(t, 8, domain.AlertSourceKindPrometheus, domain.AlertSourceAuthModeNone),
+	)
+	if err != nil {
+		t.Fatalf("TestAlertSourceConnection: %v", err)
+	}
+	if result.Status != StatusUnsupported || result.ReasonCode != ReasonCapabilityUnavailable {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 func TestServiceTimeoutIsSanitized(t *testing.T) {
-	service := newTestService(t, func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error) {
+	service := newTestService(t, func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
 		return blockingMetricsProvider{}, nil
 	}, WithTimeout(time.Millisecond))
 
@@ -276,17 +296,43 @@ func TestNewServiceValidation(t *testing.T) {
 	if _, err := NewService(nil, WithClock(func() time.Time { return fixedCheckedAt })); err == nil {
 		t.Fatal("NewService with nil factory: want error")
 	}
-	if _, err := NewService(func(domain.AlertSourceProfile, ProviderCredentials) (ports.MetricsProvider, error) {
-		return fakeMetricsProvider{}, nil
-	}); err == nil {
+	builder, err := alertsourceprovider.NewBuilder(alertsourceprovider.ProviderFactories{
+		domain.AlertSourceKindPrometheus: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+			return fakeMetricsProvider{}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewBuilder: %v", err)
+	}
+	if _, err := NewService(builder); err == nil {
 		t.Fatal("NewService without clock: want error")
 	}
 }
 
-func newTestService(t *testing.T, factory MetricsProviderFactory, opts ...Option) *Service {
+func newTestService(t *testing.T, factory alertsourceprovider.ProviderFactory, opts ...Option) *Service {
 	t.Helper()
+	return newTestServiceWithBuilder(t, alertsourceprovider.ProviderFactories{
+		domain.AlertSourceKindPrometheus: factory,
+	}, nil, opts...)
+}
+
+func newTestServiceWithBuilder(
+	t *testing.T,
+	factories alertsourceprovider.ProviderFactories,
+	resolver ports.SecretResolver,
+	opts ...Option,
+) *Service {
+	t.Helper()
+	builderOpts := []alertsourceprovider.Option{}
+	if resolver != nil {
+		builderOpts = append(builderOpts, alertsourceprovider.WithSecretResolver(resolver))
+	}
+	builder, err := alertsourceprovider.NewBuilder(factories, builderOpts...)
+	if err != nil {
+		t.Fatalf("NewBuilder: %v", err)
+	}
 	opts = append([]Option{WithClock(func() time.Time { return fixedCheckedAt })}, opts...)
-	service, err := NewService(factory, opts...)
+	service, err := NewService(builder, opts...)
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
 	}
@@ -336,6 +382,12 @@ func mustThanosRuleProfile(t *testing.T, id domain.AlertSourceProfileID) domain.
 type fakeMetricsProvider struct {
 	alerts []ports.ActiveAlert
 	err    error
+}
+
+type alertOnlyProvider struct{}
+
+func (alertOnlyProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {
+	return nil, nil
 }
 
 func (p fakeMetricsProvider) ListActiveAlerts(context.Context) ([]ports.ActiveAlert, error) {

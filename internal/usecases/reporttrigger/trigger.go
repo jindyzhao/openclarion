@@ -37,7 +37,7 @@ type Result struct {
 // Service owns the dependencies needed to replay alerts and start
 // report workflows.
 type Service struct {
-	provider     ports.MetricsProvider
+	provider     ports.ActiveAlertProvider
 	cmdbProvider ports.CMDBProvider
 	factory      ports.UnitOfWorkFactory
 	starter      ports.ReportWorkflowStarter
@@ -59,7 +59,7 @@ func WithCMDBProvider(provider ports.CMDBProvider) Option {
 // NewService builds a report trigger service with explicit port
 // dependencies.
 func NewService(
-	provider ports.MetricsProvider,
+	provider ports.ActiveAlertProvider,
 	factory ports.UnitOfWorkFactory,
 	starter ports.ReportWorkflowStarter,
 	opts ...Option,
@@ -98,7 +98,7 @@ func (s *Service) ReplayAndStart(ctx context.Context, req Request) (Result, erro
 // when replay produced at least one EvidenceSnapshot.
 func ReplayAndStart(
 	ctx context.Context,
-	provider ports.MetricsProvider,
+	provider ports.ActiveAlertProvider,
 	factory ports.UnitOfWorkFactory,
 	starter ports.ReportWorkflowStarter,
 	req Request,

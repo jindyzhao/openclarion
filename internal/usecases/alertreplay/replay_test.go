@@ -1319,7 +1319,7 @@ func TestReplayWindow_RequestValidationRejected(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		provider ports.MetricsProvider
+		provider ports.ActiveAlertProvider
 		factory  ports.UnitOfWorkFactory
 		req      alertreplay.Request
 	}{

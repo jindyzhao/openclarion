@@ -546,14 +546,11 @@ func reportActivityOptionsFromEnv(
 		if err != nil {
 			return nil, err
 		}
-		prometheusProfileFactory, alertmanagerProfileFactory := alertSourceMetricsProviderFactories(httpTracing)
-		providerBuilderOptions := []alertsourceprovider.Option{
-			alertsourceprovider.WithAlertmanagerFactory(alertmanagerProfileFactory),
-		}
+		var providerBuilderOptions []alertsourceprovider.Option
 		if secretResolver != nil {
 			providerBuilderOptions = append(providerBuilderOptions, alertsourceprovider.WithSecretResolver(secretResolver))
 		}
-		alertSourceProviders, err := alertsourceprovider.NewBuilder(prometheusProfileFactory, providerBuilderOptions...)
+		alertSourceProviders, err := alertsourceprovider.NewBuilder(alertSourceProviderFactories(httpTracing), providerBuilderOptions...)
 		if err != nil {
 			return nil, fmt.Errorf("configure scheduled report policy provider builder: %w", err)
 		}
@@ -741,14 +738,11 @@ func diagnosisActivityOptionsFromEnv(
 	if err != nil {
 		return nil, err
 	}
-	prometheusProfileFactory, alertmanagerProfileFactory := alertSourceMetricsProviderFactories(httpTracing)
-	providerBuilderOptions := []alertsourceprovider.Option{
-		alertsourceprovider.WithAlertmanagerFactory(alertmanagerProfileFactory),
-	}
+	var providerBuilderOptions []alertsourceprovider.Option
 	if secretResolver != nil {
 		providerBuilderOptions = append(providerBuilderOptions, alertsourceprovider.WithSecretResolver(secretResolver))
 	}
-	alertSourceProviders, err := alertsourceprovider.NewBuilder(prometheusProfileFactory, providerBuilderOptions...)
+	alertSourceProviders, err := alertsourceprovider.NewBuilder(alertSourceProviderFactories(httpTracing), providerBuilderOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("configure diagnosis evidence provider builder: %w", err)
 	}
@@ -940,17 +934,16 @@ func httpServerOptionsFromEnv(
 	if err != nil {
 		return nil, nil, err
 	}
-	prometheusProfileFactory, alertmanagerProfileFactory := alertSourceMetricsProviderFactories(httpTracing)
-	alertSourceCheckOptions := []alertsourcecheck.Option{
-		alertsourcecheck.WithClock(func() time.Time { return time.Now().UTC() }),
-		alertsourcecheck.WithAlertmanagerFactory(alertmanagerProfileFactory),
-	}
+	var providerBuilderOptions []alertsourceprovider.Option
 	if secretResolver != nil {
-		alertSourceCheckOptions = append(alertSourceCheckOptions, alertsourcecheck.WithSecretResolver(secretResolver))
+		providerBuilderOptions = append(providerBuilderOptions, alertsourceprovider.WithSecretResolver(secretResolver))
 	}
-	alertSourceTester, err := alertsourcecheck.NewService(
-		prometheusProfileFactory,
-		alertSourceCheckOptions...,
+	alertSourceProviders, err := alertsourceprovider.NewBuilder(alertSourceProviderFactories(httpTracing), providerBuilderOptions...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configure alert source provider builder: %w", err)
+	}
+	alertSourceTester, err := alertsourcecheck.NewService(alertSourceProviders,
+		alertsourcecheck.WithClock(func() time.Time { return time.Now().UTC() }),
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure alert source connection tester: %w", err)
@@ -1063,16 +1056,6 @@ func httpServerOptionsFromEnv(
 		logger.Warn("diagnosis notification retry is disabled; configure OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON to enable manual diagnosis-room notification retries")
 	}
 
-	providerBuilderOptions := []alertsourceprovider.Option{
-		alertsourceprovider.WithAlertmanagerFactory(alertmanagerProfileFactory),
-	}
-	if secretResolver != nil {
-		providerBuilderOptions = append(providerBuilderOptions, alertsourceprovider.WithSecretResolver(secretResolver))
-	}
-	alertSourceProviders, err := alertsourceprovider.NewBuilder(prometheusProfileFactory, providerBuilderOptions...)
-	if err != nil {
-		return nil, nil, fmt.Errorf("configure alert source provider builder: %w", err)
-	}
 	policyTriggerOptions := []reportpolicytrigger.Option{}
 	if cmdbProvider != nil {
 		policyTriggerOptions = append(policyTriggerOptions, reportpolicytrigger.WithCMDBProvider(cmdbProvider))
@@ -1334,13 +1317,13 @@ func runPeriodicDirectorySync(
 	}
 }
 
-func alertSourceMetricsProviderFactories(
+func alertSourceProviderFactories(
 	httpTracing *observabilitytracing.HTTPTracing,
-) (alertsourceprovider.MetricsProviderFactory, alertsourceprovider.MetricsProviderFactory) {
+) alertsourceprovider.ProviderFactories {
 	prometheusProfileFactory := func(
 		profile domain.AlertSourceProfile,
 		credentials alertsourceprovider.Credentials,
-	) (ports.MetricsProvider, error) {
+	) (ports.ActiveAlertProvider, error) {
 		providerOpts := []metricsprometheus.Option{
 			metricsprometheus.WithRoundTripperDecorator(outboundTransportDecorator(httpTracing)),
 		}
@@ -1352,7 +1335,7 @@ func alertSourceMetricsProviderFactories(
 	alertmanagerProfileFactory := func(
 		profile domain.AlertSourceProfile,
 		credentials alertsourceprovider.Credentials,
-	) (ports.MetricsProvider, error) {
+	) (ports.ActiveAlertProvider, error) {
 		providerOpts := []metricsalertmanager.Option{
 			metricsalertmanager.WithRoundTripperDecorator(outboundTransportDecorator(httpTracing)),
 		}
@@ -1361,7 +1344,10 @@ func alertSourceMetricsProviderFactories(
 		}
 		return metricsalertmanager.NewProvider(profile.BaseURL, providerOpts...)
 	}
-	return prometheusProfileFactory, alertmanagerProfileFactory
+	return alertsourceprovider.ProviderFactories{
+		domain.AlertSourceKindPrometheus:   prometheusProfileFactory,
+		domain.AlertSourceKindAlertmanager: alertmanagerProfileFactory,
+	}
 }
 
 type reportWorkflowScheduleReconciler interface {
@@ -2525,14 +2511,11 @@ func runReportPolicyReplayCLI(
 	if err != nil {
 		return err
 	}
-	prometheusProfileFactory, alertmanagerProfileFactory := alertSourceMetricsProviderFactories(httpTracing)
-	providerBuilderOptions := []alertsourceprovider.Option{
-		alertsourceprovider.WithAlertmanagerFactory(alertmanagerProfileFactory),
-	}
+	var providerBuilderOptions []alertsourceprovider.Option
 	if secretResolver != nil {
 		providerBuilderOptions = append(providerBuilderOptions, alertsourceprovider.WithSecretResolver(secretResolver))
 	}
-	alertSourceProviders, err := alertsourceprovider.NewBuilder(prometheusProfileFactory, providerBuilderOptions...)
+	alertSourceProviders, err := alertsourceprovider.NewBuilder(alertSourceProviderFactories(httpTracing), providerBuilderOptions...)
 	if err != nil {
 		return fmt.Errorf("configure report policy CLI provider builder: %w", err)
 	}

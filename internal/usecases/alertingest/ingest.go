@@ -1,5 +1,5 @@
 // Package alertingest persists upstream alert batches as domain.AlertEvent
-// rows. IngestOnce queries a MetricsProvider first; IngestAlerts accepts an
+// rows. IngestOnce queries an ActiveAlertProvider first; IngestAlerts accepts an
 // already-materialized push-style batch such as an Alertmanager webhook.
 package alertingest
 
@@ -59,7 +59,7 @@ type Stats struct {
 //
 // Concurrency: not safe for concurrent invocation against the same
 // UnitOfWorkFactory.
-func IngestOnce(ctx context.Context, provider ports.MetricsProvider, factory ports.UnitOfWorkFactory) (Stats, error) {
+func IngestOnce(ctx context.Context, provider ports.ActiveAlertProvider, factory ports.UnitOfWorkFactory) (Stats, error) {
 	alerts, err := provider.ListActiveAlerts(ctx)
 	if err != nil {
 		return Stats{}, fmt.Errorf("list active alerts: %w", err)

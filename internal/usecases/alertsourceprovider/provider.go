@@ -36,29 +36,24 @@ type Credentials struct {
 	BearerToken string
 }
 
-// MetricsProviderFactory builds a provider from a stored alert source profile
-// plus backend-resolved credentials.
-type MetricsProviderFactory func(domain.AlertSourceProfile, Credentials) (ports.MetricsProvider, error)
+// ProviderFactory builds the minimum active-alert capability from a stored
+// source profile plus backend-resolved credentials. Factories may return a
+// provider that also implements ports.MetricQueryProvider.
+type ProviderFactory func(domain.AlertSourceProfile, Credentials) (ports.ActiveAlertProvider, error)
+
+// ProviderFactories maps persisted source kinds to their runtime adapters.
+// New source kinds extend this registry without changing Builder.Build.
+type ProviderFactories map[domain.AlertSourceKind]ProviderFactory
 
 // Builder coordinates profile-kind routing and server-side credential
 // resolution for runtime provider construction.
 type Builder struct {
-	prometheusFactory   MetricsProviderFactory
-	alertmanagerFactory MetricsProviderFactory
-	secretResolver      ports.SecretResolver
+	factories      ProviderFactories
+	secretResolver ports.SecretResolver
 }
 
 // Option customizes Builder construction.
 type Option func(*Builder)
-
-// WithAlertmanagerFactory enables Alertmanager provider construction.
-func WithAlertmanagerFactory(factory MetricsProviderFactory) Option {
-	return func(b *Builder) {
-		if factory != nil {
-			b.alertmanagerFactory = factory
-		}
-	}
-}
 
 // WithSecretResolver enables bearer-backed profile construction.
 func WithSecretResolver(resolver ports.SecretResolver) Option {
@@ -69,12 +64,23 @@ func WithSecretResolver(resolver ports.SecretResolver) Option {
 	}
 }
 
-// NewBuilder constructs an alert source provider builder.
-func NewBuilder(prometheusFactory MetricsProviderFactory, opts ...Option) (*Builder, error) {
-	if prometheusFactory == nil {
-		return nil, fmt.Errorf("alert source provider: prometheus factory is required: %w", domain.ErrInvariantViolation)
+// NewBuilder constructs an alert source provider builder from a cloned,
+// validated factory registry.
+func NewBuilder(factories ProviderFactories, opts ...Option) (*Builder, error) {
+	if len(factories) == 0 {
+		return nil, fmt.Errorf("alert source provider: at least one factory is required: %w", domain.ErrInvariantViolation)
 	}
-	builder := &Builder{prometheusFactory: prometheusFactory}
+	cloned := make(ProviderFactories, len(factories))
+	for kind, factory := range factories {
+		if !kind.Valid() {
+			return nil, fmt.Errorf("alert source provider: factory kind %q is unsupported: %w", kind, domain.ErrInvariantViolation)
+		}
+		if factory == nil {
+			return nil, fmt.Errorf("alert source provider: factory for kind %q is nil: %w", kind, domain.ErrInvariantViolation)
+		}
+		cloned[kind] = factory
+	}
+	builder := &Builder{factories: cloned}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(builder)
@@ -84,26 +90,17 @@ func NewBuilder(prometheusFactory MetricsProviderFactory, opts ...Option) (*Buil
 }
 
 // Build resolves credentials and constructs a runtime provider for profile.
-func (b *Builder) Build(ctx context.Context, profile domain.AlertSourceProfile) (ports.MetricsProvider, error) {
-	if b == nil || b.prometheusFactory == nil {
+func (b *Builder) Build(ctx context.Context, profile domain.AlertSourceProfile) (ports.ActiveAlertProvider, error) {
+	if b == nil || len(b.factories) == 0 {
 		return nil, fmt.Errorf("alert source provider: builder is not configured: %w", domain.ErrInvariantViolation)
+	}
+	factory, ok := b.factories[profile.Kind]
+	if !ok {
+		return nil, ErrUnsupportedKind
 	}
 	credentials, err := ResolveCredentials(ctx, b.secretResolver, profile)
 	if err != nil {
 		return nil, err
-	}
-
-	var factory MetricsProviderFactory
-	switch profile.Kind {
-	case domain.AlertSourceKindPrometheus:
-		factory = b.prometheusFactory
-	case domain.AlertSourceKindAlertmanager:
-		factory = b.alertmanagerFactory
-	default:
-		return nil, ErrUnsupportedKind
-	}
-	if factory == nil {
-		return nil, ErrUnsupportedKind
 	}
 	provider, err := factory(profile, credentials)
 	if err != nil {
@@ -112,16 +109,26 @@ func (b *Builder) Build(ctx context.Context, profile domain.AlertSourceProfile) 
 	if provider == nil {
 		return nil, fmt.Errorf("alert source provider: factory returned nil provider: %w", domain.ErrInvariantViolation)
 	}
-	return sourceProfileProvider{
+	activeProvider := sourceProfileProvider{
 		profileID: profile.ID,
 		inner:     provider,
+	}
+	metricProvider, ok := provider.(ports.MetricQueryProvider)
+	if !ok {
+		return activeProvider, nil
+	}
+	return sourceProfileMetricsProvider{
+		ActiveAlertProvider: activeProvider,
+		metricProvider:      metricProvider,
 	}, nil
 }
 
 type sourceProfileProvider struct {
 	profileID domain.AlertSourceProfileID
-	inner     ports.MetricsProvider
+	inner     ports.ActiveAlertProvider
 }
+
+var _ ports.ActiveAlertProvider = sourceProfileProvider{}
 
 func (p sourceProfileProvider) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, error) {
 	alerts, err := p.inner.ListActiveAlerts(ctx)
@@ -135,12 +142,19 @@ func (p sourceProfileProvider) ListActiveAlerts(ctx context.Context) ([]ports.Ac
 	return out, nil
 }
 
-func (p sourceProfileProvider) QueryMetric(ctx context.Context, req ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
-	return p.inner.QueryMetric(ctx, req)
+type sourceProfileMetricsProvider struct {
+	ports.ActiveAlertProvider
+	metricProvider ports.MetricQueryProvider
 }
 
-func (p sourceProfileProvider) QueryMetricRange(ctx context.Context, req ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
-	return p.inner.QueryMetricRange(ctx, req)
+var _ ports.MetricsProvider = sourceProfileMetricsProvider{}
+
+func (p sourceProfileMetricsProvider) QueryMetric(ctx context.Context, req ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
+	return p.metricProvider.QueryMetric(ctx, req)
+}
+
+func (p sourceProfileMetricsProvider) QueryMetricRange(ctx context.Context, req ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
+	return p.metricProvider.QueryMetricRange(ctx, req)
 }
 
 // ResolveCredentials resolves server-side credentials for a stored alert
