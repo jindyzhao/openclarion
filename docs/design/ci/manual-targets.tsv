@@ -32,3 +32,4 @@ container-provider-smoke	manual M4 Docker Provider smoke; requires a real local 
 container-provider-timeout-smoke	manual M4 Docker Provider timeout smoke; requires a real local Docker daemon
 container-provider-output-cap-smoke	manual M4 Docker Provider output-cap smoke; requires a real local Docker daemon
 egress-allowdeny-smoke	manual M4 egress proxy smoke; requires mutable Docker networks and upstream containers
+local-egress-proxy-build	manual local sandbox egress proxy image build; requires a local Docker daemon and Go toolchain

@@ -682,7 +682,7 @@ frontend-checks: frontend-install ci-frontend-typecheck ci-frontend-lint ci-fron
 # See ADR-0001 (PostgreSQL single source of truth) and
 # docs/design/database/migrations.md.
 
-.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness alert-consultation-setup diagnosis-auth-live-smoke notification-channel-live-smoke alertmanager-auto-diagnosis-live-smoke report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke sandbox-m4-runtime-smoke-artifacts diagnosis-dev-oidc-issuer stage5-local-worker-check stage5-local-worker
+.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness alert-consultation-setup diagnosis-auth-live-smoke notification-channel-live-smoke alertmanager-auto-diagnosis-live-smoke report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke local-egress-proxy-build sandbox-m4-runtime-smoke-artifacts diagnosis-dev-oidc-issuer stage5-local-worker-check stage5-local-worker
 
 ent-generate: ## Regenerate ent client + entity code from schemas under internal/persistence/ent/schema
 	@go generate $(ENT_PKG)/...
@@ -765,6 +765,9 @@ container-provider-output-cap-smoke: ## Manual M4 smoke: Docker-backed Container
 
 egress-allowdeny-smoke: ## Manual M4 smoke: Docker internal network + proxy allows listed egress and denies bypass/unlisted targets
 	@bash scripts/run_egress_allowdeny_smoke.sh
+
+local-egress-proxy-build: ## Manual local sandbox egress proxy image build; requires Docker and Go
+	@bash scripts/build_local_egress_proxy.sh
 
 sandbox-m4-runtime-smoke-artifacts: ## Manual M4 smoke bundle: retain canonical runtime-smoke artifacts for review evidence
 	@bash scripts/run_sandbox_m4_runtime_smoke_artifacts.sh

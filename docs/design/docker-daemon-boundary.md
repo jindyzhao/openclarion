@@ -3,7 +3,8 @@
 OpenClarion's current product direction remains intelligent alert analysis.
 This document only scopes the M4/M5 sandbox runtime boundary: how the Go
 control plane is allowed to reach Docker Engine when it creates short-lived
-agent containers.
+agent containers. The sandbox file, network, and lifecycle contract originates
+in [ADR-0013](../adr/ADR-0013-per-turn-container-invocation.md).
 
 ## V1 Boundary
 
@@ -36,6 +37,11 @@ For the V1 host-socket mode:
   images, not in the Go control plane.
 - Keep sandbox egress fail-closed unless the configured egress enforcer proves
   the allowlist boundary.
+- Run the bundled allowlist proxy only on an operator-owned internal Docker
+  network without a published host port. It is not an authenticated shared
+  forward proxy.
+- Keep allowlisted DNS names under trusted operator or provider ownership;
+  exact hostname matching does not protect a target whose DNS is compromised.
 
 If a remote Docker daemon is required, the only accepted direction is a
 TLS-verified endpoint with client authentication. Docker's own daemon-access
@@ -77,6 +83,10 @@ Documented and test-covered now:
   `make container-provider-output-cap-smoke`.
 - Concrete Docker internal-network + proxy allow/deny smoke through
   `make egress-allowdeny-smoke`.
+- Bundled exact `host[:port]` HTTP/CONNECT proxy, packaged as a non-root scratch
+  image through `make local-egress-proxy-build`; focused tests cover allowed and
+  denied targets, CONNECT tunneling, hop-by-hop header removal, health checks,
+  and malformed configuration.
 - Local custom thin runner candidate proof through
   `make custom-thin-runner-smoke`, using a digest-pinned localhost-registry
   image reference through both runtime and Provider harnesses.
