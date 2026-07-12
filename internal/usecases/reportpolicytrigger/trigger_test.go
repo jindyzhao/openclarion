@@ -29,14 +29,16 @@ func TestReplayAndStartResolvesPolicyBindings(t *testing.T) {
 		policies:  map[domain.ReportWorkflowPolicyID]domain.ReportWorkflowPolicy{policy.ID: policy},
 	}}
 	providers, err := alertsourceprovider.NewBuilder(
-		func(profile domain.AlertSourceProfile, credentials alertsourceprovider.Credentials) (ports.MetricsProvider, error) {
-			if profile.ID != source.ID {
-				t.Fatalf("profile ID = %d, want %d", profile.ID, source.ID)
-			}
-			if credentials.BearerToken != "resolved-token" {
-				t.Fatalf("BearerToken = %q, want resolved token", credentials.BearerToken)
-			}
-			return fakeMetricsProvider{}, nil
+		alertsourceprovider.ProviderFactories{
+			domain.AlertSourceKindPrometheus: func(profile domain.AlertSourceProfile, credentials alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+				if profile.ID != source.ID {
+					t.Fatalf("profile ID = %d, want %d", profile.ID, source.ID)
+				}
+				if credentials.BearerToken != "resolved-token" {
+					t.Fatalf("BearerToken = %q, want resolved token", credentials.BearerToken)
+				}
+				return fakeMetricsProvider{}, nil
+			},
 		},
 		alertsourceprovider.WithSecretResolver(fakeSecretResolver{
 			values: map[string]string{source.SecretRef: "resolved-token"},
@@ -54,7 +56,7 @@ func TestReplayAndStartResolvesPolicyBindings(t *testing.T) {
 		providers,
 		WithReplayAndStart(func(
 			_ context.Context,
-			provider ports.MetricsProvider,
+			provider ports.ActiveAlertProvider,
 			gotFactory ports.UnitOfWorkFactory,
 			starter ports.ReportWorkflowStarter,
 			req reporttrigger.Request,
@@ -138,11 +140,14 @@ func TestReplayAndStartStartsAutoDiagnosisForAutoRoomPolicy(t *testing.T) {
 		},
 	}
 	var captured reporttrigger.Request
-	providers, err := alertsourceprovider.NewBuilder(func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.MetricsProvider, error) {
-		return fakeMetricsProvider{}, nil
-	}, alertsourceprovider.WithAlertmanagerFactory(func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.MetricsProvider, error) {
-		return fakeMetricsProvider{}, nil
-	}))
+	providers, err := alertsourceprovider.NewBuilder(alertsourceprovider.ProviderFactories{
+		domain.AlertSourceKindPrometheus: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+			return fakeMetricsProvider{}, nil
+		},
+		domain.AlertSourceKindAlertmanager: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+			return fakeMetricsProvider{}, nil
+		},
+	})
 	if err != nil {
 		t.Fatalf("NewBuilder: %v", err)
 	}
@@ -156,7 +161,7 @@ func TestReplayAndStartStartsAutoDiagnosisForAutoRoomPolicy(t *testing.T) {
 		providers,
 		WithReplayAndStart(func(
 			_ context.Context,
-			_ ports.MetricsProvider,
+			_ ports.ActiveAlertProvider,
 			_ ports.UnitOfWorkFactory,
 			_ ports.ReportWorkflowStarter,
 			req reporttrigger.Request,
@@ -364,8 +369,10 @@ func newTestPolicyTriggerService(
 	onReplay func(*testing.T, reporttrigger.Request),
 ) *Service {
 	t.Helper()
-	providers, err := alertsourceprovider.NewBuilder(func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.MetricsProvider, error) {
-		return fakeMetricsProvider{}, nil
+	providers, err := alertsourceprovider.NewBuilder(alertsourceprovider.ProviderFactories{
+		domain.AlertSourceKindPrometheus: func(domain.AlertSourceProfile, alertsourceprovider.Credentials) (ports.ActiveAlertProvider, error) {
+			return fakeMetricsProvider{}, nil
+		},
 	})
 	if err != nil {
 		t.Fatalf("NewBuilder: %v", err)
@@ -376,7 +383,7 @@ func newTestPolicyTriggerService(
 		providers,
 		WithReplayAndStart(func(
 			_ context.Context,
-			_ ports.MetricsProvider,
+			_ ports.ActiveAlertProvider,
 			_ ports.UnitOfWorkFactory,
 			_ ports.ReportWorkflowStarter,
 			req reporttrigger.Request,

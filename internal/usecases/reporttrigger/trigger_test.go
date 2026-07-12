@@ -253,7 +253,7 @@ func TestNewServiceValidation(t *testing.T) {
 
 	cases := []struct {
 		name     string
-		provider ports.MetricsProvider
+		provider ports.ActiveAlertProvider
 		factory  ports.UnitOfWorkFactory
 		starter  ports.ReportWorkflowStarter
 	}{

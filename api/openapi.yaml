@@ -4747,6 +4747,7 @@ components:
       enum:
         - ok
         - unsupported_kind
+        - capability_unavailable
         - credentials_unavailable
         - upstream_unreachable
         - upstream_error

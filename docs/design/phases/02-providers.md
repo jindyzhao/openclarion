@@ -8,8 +8,8 @@ Implement default and fake providers for local development and workflow tests.
 
 | Provider | Default target |
 |----------|----------------|
-| MetricsProvider | Prometheus alerts |
-| AlertSource adapter | Alertmanager contract placeholder |
+| ActiveAlertProvider | Prometheus and Alertmanager active alerts |
+| MetricQueryProvider | optional Prometheus-compatible metric queries |
 | CMDBProvider | static YAML, generic HTTP, and NetBox 4.5.2+ adapter |
 | IMProvider | Email, Webhook, Slack |
 | AuthProvider | local development auth, OIDC later |
@@ -31,10 +31,10 @@ The provider phase now has two responsibilities:
 - expose alert source connection metadata through backend-owned profiles rather
   than hard-coded frontend constants or customer endpoints in tests
 
-Prometheus is the first implemented alert source adapter. Alertmanager must
-land as its own adapter with contract tests and fake coverage before product
-documentation or UI can claim Alertmanager support. Both adapters must translate
-upstream payloads into the same `ActiveAlert` / `AlertEvent` path.
+Prometheus and Alertmanager translate upstream payloads into the same
+`ActiveAlert` / `AlertEvent` path. The source builder uses a validated
+kind-to-factory registry: every adapter supplies `ActiveAlertProvider`, while
+only Prometheus-compatible adapters supply `MetricQueryProvider`.
 
 ## Generic HTTP CMDB Runtime Contract
 

@@ -1,4 +1,4 @@
-// Package alertmanager provides a MetricsProvider implementation backed by the
+// Package alertmanager provides an ActiveAlertProvider backed by the
 // Alertmanager HTTP API v2 (/api/v2/alerts).
 package alertmanager
 
@@ -23,7 +23,7 @@ const (
 	maxResponseBodyBytes = 4 << 20
 )
 
-// Provider is the Alertmanager-backed MetricsProvider.
+// Provider is the Alertmanager-backed active-alert provider.
 type Provider struct {
 	client *http.Client
 	alerts string
@@ -31,7 +31,7 @@ type Provider struct {
 }
 
 // Compile-time assertion that *Provider satisfies the port.
-var _ ports.MetricsProvider = (*Provider)(nil)
+var _ ports.ActiveAlertProvider = (*Provider)(nil)
 
 type providerConfig struct {
 	bearerToken           string
@@ -212,18 +212,6 @@ func (p *Provider) ListActiveAlerts(ctx context.Context) ([]ports.ActiveAlert, e
 		})
 	}
 	return out, nil
-}
-
-// QueryMetric is unsupported for Alertmanager-backed sources. Diagnosis tool
-// templates validate this before collection, but the method keeps the provider
-// contract explicit for direct callers.
-func (p *Provider) QueryMetric(context.Context, ports.MetricQueryRequest) (ports.MetricQueryResult, error) {
-	return ports.MetricQueryResult{}, fmt.Errorf("alertmanager: metric query unsupported")
-}
-
-// QueryMetricRange is unsupported for Alertmanager-backed sources.
-func (p *Provider) QueryMetricRange(context.Context, ports.MetricRangeQueryRequest) (ports.MetricQueryResult, error) {
-	return ports.MetricQueryResult{}, fmt.Errorf("alertmanager: metric range query unsupported")
 }
 
 type gettableAlert struct {

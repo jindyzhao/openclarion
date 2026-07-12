@@ -41,7 +41,7 @@ type Request struct {
 // without running alert replay persistence.
 type ReplayAndStartFunc func(
 	ctx context.Context,
-	provider ports.MetricsProvider,
+	provider ports.ActiveAlertProvider,
 	factory ports.UnitOfWorkFactory,
 	starter ports.ReportWorkflowStarter,
 	req reporttrigger.Request,

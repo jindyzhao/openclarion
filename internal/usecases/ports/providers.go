@@ -87,10 +87,10 @@ type MetricQueryResult struct {
 	Warnings   []string
 }
 
-// MetricsProvider is the upstream alert source contract. Each call
-// to ListActiveAlerts independently queries the upstream system and
-// returns the currently-firing alerts; the provider MUST NOT carry
-// across-call state that affects the returned set.
+// ActiveAlertProvider is the minimum upstream alert source capability. Each
+// call independently queries the upstream system and returns the
+// currently-firing alerts; the provider MUST NOT carry across-call state that
+// affects the returned set.
 //
 // Layering rules:
 //
@@ -109,10 +109,25 @@ type MetricQueryResult struct {
 // "inactive", etc.) so the DTO never carries alerts the domain
 // model would reject. Consumers MAY assume every returned alert is
 // firing.
-type MetricsProvider interface {
+type ActiveAlertProvider interface {
 	ListActiveAlerts(ctx context.Context) ([]ActiveAlert, error)
+}
+
+// MetricQueryProvider is an optional alert-source capability for bounded
+// instant and range metric queries. Alert-only sources intentionally do not
+// implement it; consumers discover the capability with a two-result type
+// assertion before issuing metric queries.
+type MetricQueryProvider interface {
 	QueryMetric(ctx context.Context, req MetricQueryRequest) (MetricQueryResult, error)
 	QueryMetricRange(ctx context.Context, req MetricRangeQueryRequest) (MetricQueryResult, error)
+}
+
+// MetricsProvider composes active-alert listing with metric querying for
+// Prometheus-compatible sources. Consumers that only need alert state should
+// depend on ActiveAlertProvider so alert-only adapters remain valid.
+type MetricsProvider interface {
+	ActiveAlertProvider
+	MetricQueryProvider
 }
 
 // CMDBLookupRequest identifies the alert context used to enrich evidence with

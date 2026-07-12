@@ -3012,6 +3012,17 @@ func TestAlertSourceProfileConnectionTestReturnsSanitizedResult(t *testing.T) {
 	}
 }
 
+func TestAlertSourceConnectionTestResponsePreservesCapabilityReason(t *testing.T) {
+	result := alertsourcecheck.Result{
+		ReasonCode: alertsourcecheck.ReasonCapabilityUnavailable,
+	}
+
+	response := alertSourceConnectionTestResponse(result)
+	if response.ReasonCode != api.AlertSourceConnectionTestReasonCodeCapabilityUnavailable {
+		t.Fatalf("reason code = %q, want capability_unavailable", response.ReasonCode)
+	}
+}
+
 func TestAlertSourceProfileConnectionTestRejectsUnconfiguredAndMissingProfiles(t *testing.T) {
 	tests := []struct {
 		name       string

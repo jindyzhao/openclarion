@@ -52,9 +52,12 @@ calls with explicit timeouts, retry policies, and idempotent writes.
 
 ## Future Provider Examples
 
-The current provider set stays focused on alerts:
+The current provider set stays focused on alerts and follows the capability
+boundary in
+[ADR-0003](../adr/ADR-0003-provider-extension-interfaces.md):
 
-- `MetricsProvider`
+- `ActiveAlertProvider` as the minimum alert-source capability
+- optional `MetricQueryProvider` for Prometheus-compatible metric evidence
 - alert source adapters such as Prometheus and Alertmanager
 - `CMDBProvider`
 - `LLMProvider`

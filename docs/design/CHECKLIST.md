@@ -51,7 +51,8 @@
 
 ### M1-PR2 onward
 
-- [x] MetricsProvider interface and Prometheus implementation compile
+- [x] `ActiveAlertProvider` / `MetricQueryProvider` interfaces and Prometheus
+      implementation compile ([ADR-0003](../adr/ADR-0003-provider-extension-interfaces.md))
 - [x] fake providers support workflow tests
 - [x] active alerts can be read
 - [x] alert windows can be replayed
