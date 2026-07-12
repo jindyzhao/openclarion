@@ -19,9 +19,10 @@ import (
 )
 
 const (
-	defaultDialTimeout           = 10 * time.Second
-	defaultResponseHeaderTimeout = 30 * time.Second
-	defaultMaxRequestDuration    = 5 * time.Minute
+	defaultDialTimeout                  = 10 * time.Second
+	defaultResponseHeaderTimeout        = 30 * time.Second
+	defaultMaxRequestDuration           = 5 * time.Minute
+	defaultMaxResponseHeaderBytes int64 = 32 * 1024
 )
 
 var hopByHopHeaders = []string{
@@ -38,10 +39,11 @@ var hopByHopHeaders = []string{
 
 // Config controls one allowlist proxy handler.
 type Config struct {
-	AllowedTargets        []string
-	DialTimeout           time.Duration
-	ResponseHeaderTimeout time.Duration
-	MaxRequestDuration    time.Duration
+	AllowedTargets         []string
+	DialTimeout            time.Duration
+	ResponseHeaderTimeout  time.Duration
+	MaxRequestDuration     time.Duration
+	MaxResponseHeaderBytes int64
 }
 
 // Handler is an HTTP forward proxy with an exact outbound target allowlist.
@@ -67,8 +69,14 @@ func NewHandler(cfg Config) (*Handler, error) {
 	if cfg.MaxRequestDuration == 0 {
 		cfg.MaxRequestDuration = defaultMaxRequestDuration
 	}
+	if cfg.MaxResponseHeaderBytes == 0 {
+		cfg.MaxResponseHeaderBytes = defaultMaxResponseHeaderBytes
+	}
 	if cfg.DialTimeout < 0 || cfg.ResponseHeaderTimeout < 0 || cfg.MaxRequestDuration < 0 {
 		return nil, fmt.Errorf("egress proxy timeouts must be positive")
+	}
+	if cfg.MaxResponseHeaderBytes < 0 {
+		return nil, fmt.Errorf("egress proxy max response header bytes must be positive")
 	}
 
 	allowed := make(map[string]struct{}, len(allowedTargets))
@@ -81,6 +89,7 @@ func NewHandler(cfg Config) (*Handler, error) {
 	transport.DisableCompression = true
 	transport.DialContext = dialer.DialContext
 	transport.ResponseHeaderTimeout = cfg.ResponseHeaderTimeout
+	transport.MaxResponseHeaderBytes = cfg.MaxResponseHeaderBytes
 	transport.ForceAttemptHTTP2 = false
 
 	return &Handler{
@@ -208,8 +217,12 @@ func (h *Handler) serveHTTPForward(w http.ResponseWriter, r *http.Request) {
 	out := r.Clone(r.Context())
 	out.RequestURI = ""
 	out.Host = out.URL.Host
+	out.Close = false
 	out.Header = r.Header.Clone()
 	removeHopByHopHeaders(out.Header)
+	if _, ok := out.Header["User-Agent"]; !ok {
+		out.Header.Set("User-Agent", "")
+	}
 	resp, err := h.transport.RoundTrip(out)
 	if err != nil {
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)

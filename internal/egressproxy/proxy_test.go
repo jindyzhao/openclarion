@@ -17,8 +17,12 @@ func TestHandlerAllowsHTTPAndDeniesUnlistedTarget(t *testing.T) {
 	upstreamHosts := make(chan string, 1)
 	upstreamViolations := make(chan string, 1)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Proxy-Authorization") != "" || r.Header.Get("X-Hop") != "" || r.Header.Get("Accept-Encoding") != "" {
-			upstreamViolations <- "proxy-only or transport-injected headers reached upstream"
+		if r.Header.Get("Proxy-Authorization") != "" ||
+			r.Header.Get("X-Hop") != "" ||
+			r.Header.Get("Accept-Encoding") != "" ||
+			r.Header.Get("User-Agent") != "" ||
+			r.Close {
+			upstreamViolations <- "downstream-only or transport-injected request state reached upstream"
 			http.Error(w, "invalid forwarded headers", http.StatusInternalServerError)
 			return
 		}
@@ -36,8 +40,10 @@ func TestHandlerAllowsHTTPAndDeniesUnlistedTarget(t *testing.T) {
 		t.Fatalf("NewRequest: %v", err)
 	}
 	req.Header.Set("Proxy-Authorization", "secret")
-	req.Header.Set("Connection", "X-Hop")
+	req.Header.Set("Connection", "X-Hop, User-Agent")
 	req.Header.Set("X-Hop", "remove-me")
+	req.Header.Set("User-Agent", "")
+	req.Close = true
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("allowed request: %v", err)
@@ -128,6 +134,9 @@ func TestHandlerHealthAndConfigurationValidation(t *testing.T) {
 	if _, err := NewHandler(Config{AllowedTargets: []string{"api.example.test:443"}, DialTimeout: -time.Second}); err == nil {
 		t.Fatal("NewHandler negative timeout err = nil, want rejection")
 	}
+	if _, err := NewHandler(Config{AllowedTargets: []string{"api.example.test:443"}, MaxResponseHeaderBytes: -1}); err == nil {
+		t.Fatal("NewHandler negative max response header bytes err = nil, want rejection")
+	}
 }
 
 func TestRemoveHopByHopHeadersUsesEveryConnectionValue(t *testing.T) {
@@ -174,9 +183,40 @@ func TestHandlerBoundsAndClearsDownstreamWriteDeadline(t *testing.T) {
 	}
 }
 
+func TestHandlerBoundsUpstreamResponseHeaders(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Oversized", strings.Repeat("x", 2*1024))
+		_, _ = io.WriteString(w, "must not be forwarded")
+	}))
+	defer upstream.Close()
+	upstreamURL := mustURL(t, upstream.URL)
+	proxy := newTestProxyWithConfig(t, Config{
+		AllowedTargets:         []string{upstreamURL.Host},
+		MaxRequestDuration:     2 * time.Second,
+		MaxResponseHeaderBytes: 1024,
+	})
+	defer proxy.Close()
+
+	client := proxyClient(t, proxy.URL, nil)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatalf("request through proxy: %v", err)
+	}
+	assertBody(t, response, http.StatusBadGateway, "upstream unavailable")
+}
+
 func newTestProxy(t *testing.T, allowed []string) *httptest.Server {
 	t.Helper()
-	handler, err := NewHandler(Config{AllowedTargets: allowed, MaxRequestDuration: 2 * time.Second})
+	return newTestProxyWithConfig(t, Config{AllowedTargets: allowed, MaxRequestDuration: 2 * time.Second})
+}
+
+func newTestProxyWithConfig(t *testing.T, cfg Config) *httptest.Server {
+	t.Helper()
+	handler, err := NewHandler(cfg)
 	if err != nil {
 		t.Fatalf("NewHandler: %v", err)
 	}
