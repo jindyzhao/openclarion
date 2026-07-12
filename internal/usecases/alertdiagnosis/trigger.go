@@ -147,7 +147,8 @@ func (s *Service) Trigger(ctx context.Context, req Request) (Result, error) {
 	if s == nil || s.uowFactory == nil || s.starter == nil || s.replay == nil {
 		return result, fmt.Errorf("alert diagnosis: service is not configured: %w", domain.ErrInvariantViolation)
 	}
-	if err := validateRequest(req); err != nil {
+	window, err := validateRequest(req)
+	if err != nil {
 		return result, err
 	}
 
@@ -162,8 +163,8 @@ func (s *Service) Trigger(ctx context.Context, req Request) (Result, error) {
 
 	for _, binding := range bindings {
 		replay, err := s.replay(ctx, s.uowFactory, alertreplay.Request{
-			WindowStart:              req.WindowStart,
-			WindowEnd:                req.WindowEnd,
+			WindowStart:              window.StartInclusive(),
+			WindowEnd:                window.EndExclusive(),
 			Grouping:                 groupingConfig(binding.grouping),
 			AlertEventIDFilter:       append([]domain.AlertEventID(nil), req.AlertEventIDs...),
 			SourceFilter:             append([]string(nil), binding.grouping.SourceFilter...),
@@ -380,30 +381,23 @@ func AutoRoomInitialMessage(
 	)
 }
 
-func validateRequest(req Request) error {
+func validateRequest(req Request) (domain.AlertWindow, error) {
 	if req.AlertSourceProfileID <= 0 {
-		return fmt.Errorf("alert diagnosis: alert_source_profile_id must be positive: %w", domain.ErrInvariantViolation)
+		return domain.AlertWindow{}, fmt.Errorf("alert diagnosis: alert_source_profile_id must be positive: %w", domain.ErrInvariantViolation)
 	}
-	if req.WindowStart.IsZero() {
-		return fmt.Errorf("alert diagnosis: window_start must be set: %w", domain.ErrInvariantViolation)
-	}
-	if req.WindowEnd.IsZero() {
-		return fmt.Errorf("alert diagnosis: window_end must be set: %w", domain.ErrInvariantViolation)
-	}
-	start := domain.NormalizeUTCMicro(req.WindowStart)
-	end := domain.NormalizeUTCMicro(req.WindowEnd)
-	if !end.After(start) {
-		return fmt.Errorf("alert diagnosis: window_end must be after window_start: %w", domain.ErrInvariantViolation)
+	window, err := domain.NewAlertWindow(req.WindowStart, req.WindowEnd)
+	if err != nil {
+		return domain.AlertWindow{}, fmt.Errorf("alert diagnosis: replay window: %w", err)
 	}
 	if req.Limit <= 0 {
-		return fmt.Errorf("alert diagnosis: limit must be > 0: %w", domain.ErrInvariantViolation)
+		return domain.AlertWindow{}, fmt.Errorf("alert diagnosis: limit must be > 0: %w", domain.ErrInvariantViolation)
 	}
 	for _, id := range req.AlertEventIDs {
 		if id <= 0 {
-			return fmt.Errorf("alert diagnosis: alert_event_ids must contain positive ids: %w", domain.ErrInvariantViolation)
+			return domain.AlertWindow{}, fmt.Errorf("alert diagnosis: alert_event_ids must contain positive ids: %w", domain.ErrInvariantViolation)
 		}
 	}
-	return nil
+	return window, nil
 }
 
 func validateStartRoomsRequest(req StartRoomsRequest) error {

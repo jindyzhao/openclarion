@@ -173,8 +173,7 @@ type groupResult struct {
 }
 
 type replayExpansionScope struct {
-	windowStart            time.Time
-	windowEnd              time.Time
+	window                 domain.AlertWindow
 	filter                 ports.AlertEventFilter
 	grouping               alertgrouping.Config
 	limit                  int
@@ -252,19 +251,18 @@ func ReplayPersistedWindowForReport(
 	req Request,
 ) (Result, error) {
 	var result Result
-	if err := validatePersistedWindowRequest(factory, req); err != nil {
+	window, err := validatePersistedWindowRequest(factory, req)
+	if err != nil {
 		return result, err
 	}
 
 	// Step 1 for persisted windows: short read tx for the filtered window.
 	var events []domain.AlertEvent
-	nStart := domain.NormalizeUTCMicro(req.WindowStart)
-	nEnd := domain.NormalizeUTCMicro(req.WindowEnd)
 	if err := factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
 		rows, lerr := uow.Alerts().ListEventsByStartsAtRangeFiltered(
 			ctx,
-			nStart,
-			nEnd,
+			window.StartInclusive(),
+			window.EndExclusive(),
 			ports.AlertEventFilter{
 				IDs:                   req.AlertEventIDFilter,
 				Sources:               req.SourceFilter,
@@ -307,8 +305,7 @@ func ReplayPersistedWindowForReport(
 	}
 
 	expansionScope := replayExpansionScope{
-		windowStart: nStart,
-		windowEnd:   nEnd,
+		window: window,
 		filter: ports.AlertEventFilter{
 			Sources:               req.SourceFilter,
 			AlertSourceProfileIDs: req.AlertSourceProfileFilter,
@@ -396,46 +393,37 @@ func validateRequest(provider ports.ActiveAlertProvider, factory ports.UnitOfWor
 	if provider == nil {
 		return fmt.Errorf("alertreplay: provider must be non-nil: %w", domain.ErrInvariantViolation)
 	}
-	return validatePersistedWindowRequest(factory, req)
+	_, err := validatePersistedWindowRequest(factory, req)
+	return err
 }
 
-func validatePersistedWindowRequest(factory ports.UnitOfWorkFactory, req Request) error {
+func validatePersistedWindowRequest(factory ports.UnitOfWorkFactory, req Request) (domain.AlertWindow, error) {
 	if factory == nil {
-		return fmt.Errorf("alertreplay: factory must be non-nil: %w", domain.ErrInvariantViolation)
+		return domain.AlertWindow{}, fmt.Errorf("alertreplay: factory must be non-nil: %w", domain.ErrInvariantViolation)
 	}
-	if req.WindowStart.IsZero() {
-		return fmt.Errorf("alertreplay: WindowStart must be set: %w", domain.ErrInvariantViolation)
-	}
-	if req.WindowEnd.IsZero() {
-		return fmt.Errorf("alertreplay: WindowEnd must be set: %w", domain.ErrInvariantViolation)
-	}
-	nStart := domain.NormalizeUTCMicro(req.WindowStart)
-	nEnd := domain.NormalizeUTCMicro(req.WindowEnd)
-	if !nEnd.After(nStart) {
-		return fmt.Errorf(
-			"alertreplay: WindowEnd %s must be strictly after WindowStart %s after normalisation: %w",
-			nEnd, nStart, domain.ErrInvariantViolation,
-		)
+	window, err := domain.NewAlertWindow(req.WindowStart, req.WindowEnd)
+	if err != nil {
+		return domain.AlertWindow{}, fmt.Errorf("alertreplay: replay window: %w", err)
 	}
 	if req.Limit <= 0 {
-		return fmt.Errorf("alertreplay: Limit %d must be > 0: %w", req.Limit, domain.ErrInvariantViolation)
+		return domain.AlertWindow{}, fmt.Errorf("alertreplay: Limit %d must be > 0: %w", req.Limit, domain.ErrInvariantViolation)
 	}
 	if req.Limit >= math.MaxInt {
 		// Limit+1 would overflow; the safety valve relies on a
 		// well-defined upper bound.
-		return fmt.Errorf("alertreplay: Limit %d must be < math.MaxInt: %w", req.Limit, domain.ErrInvariantViolation)
+		return domain.AlertWindow{}, fmt.Errorf("alertreplay: Limit %d must be < math.MaxInt: %w", req.Limit, domain.ErrInvariantViolation)
 	}
 	for _, id := range req.AlertEventIDFilter {
 		if id <= 0 {
-			return fmt.Errorf("alertreplay: alert event id filter contains non-positive id %d: %w", id, domain.ErrInvariantViolation)
+			return domain.AlertWindow{}, fmt.Errorf("alertreplay: alert event id filter contains non-positive id %d: %w", id, domain.ErrInvariantViolation)
 		}
 	}
 	for _, id := range req.AlertSourceProfileFilter {
 		if id < 0 {
-			return fmt.Errorf("alertreplay: alert source profile filter contains negative id %d: %w", id, domain.ErrInvariantViolation)
+			return domain.AlertWindow{}, fmt.Errorf("alertreplay: alert source profile filter contains negative id %d: %w", id, domain.ErrInvariantViolation)
 		}
 	}
-	return nil
+	return window, nil
 }
 
 // processGroup runs the per-draft pipeline inside its own
@@ -734,8 +722,8 @@ func existingGroupSnapshotEvents(
 	linkedEvents, err := alerts.ListEventsForGroupByStartsAtRangeFiltered(
 		ctx,
 		groupID,
-		scope.windowStart,
-		scope.windowEnd,
+		scope.window.StartInclusive(),
+		scope.window.EndExclusive(),
 		scope.filter,
 		scope.limit+1,
 	)

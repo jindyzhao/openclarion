@@ -191,12 +191,15 @@ func correlationKeyForRequest(req Request) (string, error) {
 	if correlationKey != "" {
 		return correlationKey, nil
 	}
-	start := domain.NormalizeUTCMicro(req.Replay.WindowStart)
-	end := domain.NormalizeUTCMicro(req.Replay.WindowEnd)
-	if start.IsZero() || end.IsZero() || !end.After(start) {
-		return "", fmt.Errorf("report trigger: replay window must be valid when correlation key is omitted: %w", domain.ErrInvariantViolation)
+	window, err := domain.NewAlertWindow(req.Replay.WindowStart, req.Replay.WindowEnd)
+	if err != nil {
+		return "", fmt.Errorf("report trigger: replay window must be valid when correlation key is omitted: %w", err)
 	}
-	components := []string{"alert-replay", start.Format(time.RFC3339Nano), end.Format(time.RFC3339Nano)}
+	components := []string{
+		"alert-replay",
+		window.StartInclusive().Format(time.RFC3339Nano),
+		window.EndExclusive().Format(time.RFC3339Nano),
+	}
 	if len(req.Replay.AlertEventIDFilter) > 0 {
 		ids := append([]domain.AlertEventID(nil), req.Replay.AlertEventIDFilter...)
 		sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })

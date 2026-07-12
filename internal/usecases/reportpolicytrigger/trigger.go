@@ -149,7 +149,8 @@ func (s *Service) ReplayAndStartDetailed(ctx context.Context, req Request) (Resu
 	if s == nil {
 		return Result{}, fmt.Errorf("report policy trigger: service must be non-nil: %w", domain.ErrInvariantViolation)
 	}
-	if err := validateRequest(req); err != nil {
+	window, err := validateRequest(req)
+	if err != nil {
 		return Result{}, err
 	}
 
@@ -164,8 +165,8 @@ func (s *Service) ReplayAndStartDetailed(ctx context.Context, req Request) (Resu
 
 	triggerReq := reporttrigger.Request{
 		Replay: alertreplay.Request{
-			WindowStart:              req.WindowStart,
-			WindowEnd:                req.WindowEnd,
+			WindowStart:              window.StartInclusive(),
+			WindowEnd:                window.EndExclusive(),
 			Grouping:                 groupingConfig(binding.grouping),
 			SourceFilter:             append([]string(nil), binding.grouping.SourceFilter...),
 			AlertSourceProfileFilter: []domain.AlertSourceProfileID{binding.source.ID},
@@ -173,7 +174,7 @@ func (s *Service) ReplayAndStartDetailed(ctx context.Context, req Request) (Resu
 			Limit:                    req.Limit,
 			CMDBProvider:             s.cmdbProvider,
 		},
-		CorrelationKey:                     correlationKey(req),
+		CorrelationKey:                     correlationKey(req, window),
 		WorkflowID:                         strings.TrimSpace(req.WorkflowID),
 		Scenario:                           reportprompt.Scenario(binding.policy.ReportScenario),
 		ReportNotificationChannelProfileID: binding.policy.ReportNotificationChannelProfileID,
@@ -270,25 +271,18 @@ func (s *Service) loadBinding(ctx context.Context, policyID domain.ReportWorkflo
 	return binding, nil
 }
 
-func validateRequest(req Request) error {
+func validateRequest(req Request) (domain.AlertWindow, error) {
 	if req.PolicyID <= 0 {
-		return fmt.Errorf("report policy trigger: policy_id must be positive: %w", domain.ErrInvariantViolation)
+		return domain.AlertWindow{}, fmt.Errorf("report policy trigger: policy_id must be positive: %w", domain.ErrInvariantViolation)
 	}
-	if req.WindowStart.IsZero() {
-		return fmt.Errorf("report policy trigger: window_start must be set: %w", domain.ErrInvariantViolation)
-	}
-	if req.WindowEnd.IsZero() {
-		return fmt.Errorf("report policy trigger: window_end must be set: %w", domain.ErrInvariantViolation)
-	}
-	start := domain.NormalizeUTCMicro(req.WindowStart)
-	end := domain.NormalizeUTCMicro(req.WindowEnd)
-	if !end.After(start) {
-		return fmt.Errorf("report policy trigger: window_end must be after window_start: %w", domain.ErrInvariantViolation)
+	window, err := domain.NewAlertWindow(req.WindowStart, req.WindowEnd)
+	if err != nil {
+		return domain.AlertWindow{}, fmt.Errorf("report policy trigger: replay window: %w", err)
 	}
 	if req.Limit <= 0 {
-		return fmt.Errorf("report policy trigger: limit must be > 0: %w", domain.ErrInvariantViolation)
+		return domain.AlertWindow{}, fmt.Errorf("report policy trigger: limit must be > 0: %w", domain.ErrInvariantViolation)
 	}
-	return nil
+	return window, nil
 }
 
 func groupingConfig(policy domain.GroupingPolicy) alertgrouping.Config {
@@ -298,17 +292,15 @@ func groupingConfig(policy domain.GroupingPolicy) alertgrouping.Config {
 	}
 }
 
-func correlationKey(req Request) string {
+func correlationKey(req Request, window domain.AlertWindow) string {
 	if value := strings.TrimSpace(req.CorrelationKey); value != "" {
 		return value
 	}
-	start := domain.NormalizeUTCMicro(req.WindowStart)
-	end := domain.NormalizeUTCMicro(req.WindowEnd)
 	return fmt.Sprintf(
 		"report-workflow-policy:%d:%s:%s",
 		req.PolicyID,
-		start.Format(time.RFC3339Nano),
-		end.Format(time.RFC3339Nano),
+		window.StartInclusive().Format(time.RFC3339Nano),
+		window.EndExclusive().Format(time.RFC3339Nano),
 	)
 }
 

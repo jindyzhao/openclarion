@@ -211,6 +211,14 @@ func TestBuildStartRequestValidation(t *testing.T) {
 			replay: validReplay,
 			req:    Request{},
 		},
+		{
+			name:   "missing_correlation_with_collapsed_window",
+			replay: validReplay,
+			req: Request{Replay: alertreplay.Request{
+				WindowStart: time.Date(2026, 5, 26, 12, 0, 0, 500, time.UTC),
+				WindowEnd:   time.Date(2026, 5, 26, 12, 0, 0, 800, time.UTC),
+			}},
+		},
 	}
 
 	for _, tc := range cases {

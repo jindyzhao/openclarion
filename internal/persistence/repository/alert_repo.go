@@ -204,10 +204,10 @@ func (r *alertRepo) ListEventsByNaturalKeys(ctx context.Context, keys []ports.Al
 //
 // The half-open interval is what callers (notably the replay harness)
 // need so adjacent windows do not double-count boundary events. Both
-// bounds are normalised via domain.NormalizeUTCMicro before the
-// predicate is built so the comparison happens at the same precision
-// as the persisted column. We reject zero bounds, non-positive limit,
-// and a non-strictly-after end bound here as boundary self-defence:
+// bounds are validated and normalized through domain.NewAlertWindow before
+// the predicate is built so the comparison happens at the same precision as
+// the persisted column. We reject invalid bounds and non-positive limits here
+// as boundary self-defence:
 // the same constraints are validated by the usecase layer, but a
 // repository invariant violation is a bug regardless of who called us.
 func (r *alertRepo) ListEventsByStartsAtRange(ctx context.Context, startInclusive, endExclusive time.Time, limit int) ([]domain.AlertEvent, error) {
@@ -220,31 +220,20 @@ func (r *alertRepo) ListEventsByStartsAtRangeFiltered(ctx context.Context, start
 	if err := checkOpen(r.closed); err != nil {
 		return nil, err
 	}
-	if startInclusive.IsZero() {
-		return nil, fmt.Errorf("list events by starts_at range: start_inclusive must be set: %w", domain.ErrInvariantViolation)
-	}
-	if endExclusive.IsZero() {
-		return nil, fmt.Errorf("list events by starts_at range: end_exclusive must be set: %w", domain.ErrInvariantViolation)
+	window, err := domain.NewAlertWindow(startInclusive, endExclusive)
+	if err != nil {
+		return nil, fmt.Errorf("list events by starts_at range: %w", err)
 	}
 	if limit <= 0 {
 		return nil, fmt.Errorf("list events by starts_at range: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
-	}
-	nStart := domain.NormalizeUTCMicro(startInclusive)
-	nEnd := domain.NormalizeUTCMicro(endExclusive)
-	// Compare on the normalised values so that sub-microsecond
-	// differences in the raw inputs (which are erased by
-	// NormalizeUTCMicro) cannot smuggle through an effectively-empty
-	// or inverted window.
-	if !nEnd.After(nStart) {
-		return nil, fmt.Errorf("list events by starts_at range: end_exclusive %s must be strictly after start_inclusive %s (after normalisation): %w", nEnd, nStart, domain.ErrInvariantViolation)
 	}
 	predicates, err := alertEventPredicates(filter)
 	if err != nil {
 		return nil, err
 	}
 	predicates = append(predicates,
-		alertevent.StartsAtGTE(nStart),
-		alertevent.StartsAtLT(nEnd),
+		alertevent.StartsAtGTE(window.StartInclusive()),
+		alertevent.StartsAtLT(window.EndExclusive()),
 	)
 	rows, err := r.tx.AlertEvent.Query().
 		Where(predicates...).
@@ -590,19 +579,12 @@ func (r *alertRepo) ListEventsForGroupByStartsAtRangeFiltered(
 	if groupID == 0 {
 		return nil, fmt.Errorf("list events for group by starts_at range: group id must be non-zero: %w", domain.ErrInvariantViolation)
 	}
-	if startInclusive.IsZero() {
-		return nil, fmt.Errorf("list events for group by starts_at range: start_inclusive must be set: %w", domain.ErrInvariantViolation)
-	}
-	if endExclusive.IsZero() {
-		return nil, fmt.Errorf("list events for group by starts_at range: end_exclusive must be set: %w", domain.ErrInvariantViolation)
+	window, err := domain.NewAlertWindow(startInclusive, endExclusive)
+	if err != nil {
+		return nil, fmt.Errorf("list events for group by starts_at range: %w", err)
 	}
 	if limit <= 0 {
 		return nil, fmt.Errorf("list events for group by starts_at range: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
-	}
-	nStart := domain.NormalizeUTCMicro(startInclusive)
-	nEnd := domain.NormalizeUTCMicro(endExclusive)
-	if !nEnd.After(nStart) {
-		return nil, fmt.Errorf("list events for group by starts_at range: end_exclusive %s must be strictly after start_inclusive %s (after normalisation): %w", nEnd, nStart, domain.ErrInvariantViolation)
 	}
 	if _, err := r.tx.AlertGroup.Get(ctx, int(groupID)); err != nil {
 		return nil, asNotFound(err)
@@ -612,8 +594,8 @@ func (r *alertRepo) ListEventsForGroupByStartsAtRangeFiltered(
 		return nil, err
 	}
 	predicates = append(predicates,
-		alertevent.StartsAtGTE(nStart),
-		alertevent.StartsAtLT(nEnd),
+		alertevent.StartsAtGTE(window.StartInclusive()),
+		alertevent.StartsAtLT(window.EndExclusive()),
 	)
 	rows, err := r.tx.AlertGroup.Query().
 		Where(alertgroup.IDEQ(int(groupID))).

@@ -35,15 +35,16 @@ func (a *Activities) RunScheduledReportPolicyReplay(
 		return ScheduledReportPolicyReplayActivityResult{}, temporalsdk.NewNonRetryableApplicationError(
 			"run-scheduled-report-policy-replay: report policy replayer is not configured", errTypeInvalidInput, nil)
 	}
-	if err := validateScheduledReplayActivityInput(req); err != nil {
+	window, err := validateScheduledReplayActivityInput(req)
+	if err != nil {
 		return ScheduledReportPolicyReplayActivityResult{}, temporalsdk.NewNonRetryableApplicationError(
 			"run-scheduled-report-policy-replay: "+err.Error(), errTypeInvalidInput, nil)
 	}
 
 	result, err := a.reportPolicyReplayer.ReplayAndStart(ctx, reportpolicytrigger.Request{
 		PolicyID:          domain.ReportWorkflowPolicyID(req.ReportWorkflowPolicyID),
-		WindowStart:       req.WindowStart,
-		WindowEnd:         req.WindowEnd,
+		WindowStart:       window.StartInclusive(),
+		WindowEnd:         window.EndExclusive(),
 		Limit:             req.ReplayLimit,
 		CorrelationKey:    strings.TrimSpace(req.CorrelationKey),
 		WorkflowID:        strings.TrimSpace(req.WorkflowID),
@@ -58,8 +59,8 @@ func (a *Activities) RunScheduledReportPolicyReplay(
 		ReportWorkflowPolicyID:     req.ReportWorkflowPolicyID,
 		TemporalScheduleID:         strings.TrimSpace(req.TemporalScheduleID),
 		FireTime:                   req.FireTime,
-		WindowStart:                req.WindowStart,
-		WindowEnd:                  req.WindowEnd,
+		WindowStart:                window.StartInclusive(),
+		WindowEnd:                  window.EndExclusive(),
 		CorrelationKey:             strings.TrimSpace(req.CorrelationKey),
 		WorkflowID:                 strings.TrimSpace(req.WorkflowID),
 		EventsLoaded:               result.Replay.Stats.EventsLoaded,
@@ -70,33 +71,28 @@ func (a *Activities) RunScheduledReportPolicyReplay(
 	}, nil
 }
 
-func validateScheduledReplayActivityInput(req ScheduledReportPolicyReplayActivityInput) error {
+func validateScheduledReplayActivityInput(req ScheduledReportPolicyReplayActivityInput) (domain.AlertWindow, error) {
 	if req.ScheduleID <= 0 {
-		return fmt.Errorf("schedule_id must be positive")
+		return domain.AlertWindow{}, fmt.Errorf("schedule_id must be positive")
 	}
 	if req.ReportWorkflowPolicyID <= 0 {
-		return fmt.Errorf("report_workflow_policy_id must be positive")
+		return domain.AlertWindow{}, fmt.Errorf("report_workflow_policy_id must be positive")
 	}
 	if strings.TrimSpace(req.TemporalScheduleID) == "" {
-		return fmt.Errorf("temporal_schedule_id must be non-empty")
+		return domain.AlertWindow{}, fmt.Errorf("temporal_schedule_id must be non-empty")
 	}
-	if req.WindowStart.IsZero() {
-		return fmt.Errorf("window_start must be set")
-	}
-	if req.WindowEnd.IsZero() {
-		return fmt.Errorf("window_end must be set")
-	}
-	if !req.WindowEnd.After(req.WindowStart) {
-		return fmt.Errorf("window_end must be after window_start")
+	window, err := domain.NewAlertWindow(req.WindowStart, req.WindowEnd)
+	if err != nil {
+		return domain.AlertWindow{}, fmt.Errorf("replay window: %w", err)
 	}
 	if req.ReplayLimit <= 0 {
-		return fmt.Errorf("replay_limit must be positive")
+		return domain.AlertWindow{}, fmt.Errorf("replay_limit must be positive")
 	}
 	if strings.TrimSpace(req.CorrelationKey) == "" {
-		return fmt.Errorf("correlation_key must be non-empty")
+		return domain.AlertWindow{}, fmt.Errorf("correlation_key must be non-empty")
 	}
 	if strings.TrimSpace(req.WorkflowID) == "" {
-		return fmt.Errorf("workflow_id must be non-empty")
+		return domain.AlertWindow{}, fmt.Errorf("workflow_id must be non-empty")
 	}
-	return nil
+	return window, nil
 }
