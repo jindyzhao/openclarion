@@ -248,6 +248,7 @@ make container-provider-smoke # manual M4 Docker Provider.Run smoke; requires Do
 make container-provider-timeout-smoke # manual M4 Docker Provider timeout cleanup smoke; requires Docker
 make container-provider-output-cap-smoke # manual M4 Docker Provider output cap smoke; requires Docker
 make egress-allowdeny-smoke # manual M4 egress proxy allow/deny smoke; requires Docker
+make local-egress-proxy-build # manual local sandbox egress proxy image build; requires Docker and Go
 make agent-runtime-smoke # manual M4 candidate image smoke; requires digest-pinned image
 make custom-thin-runner-smoke # manual M4 local custom runner candidate smoke; requires Docker
 make alert-consultation-setup # manual M5 Alertmanager + Enterprise WeChat auto-room setup; requires real services
