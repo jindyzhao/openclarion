@@ -1172,7 +1172,7 @@ export interface components {
          * @example ok
          * @enum {string}
          */
-        AlertSourceConnectionTestReasonCode: "ok" | "unsupported_kind" | "credentials_unavailable" | "upstream_unreachable" | "upstream_error" | "invalid_profile";
+        AlertSourceConnectionTestReasonCode: "ok" | "unsupported_kind" | "capability_unavailable" | "credentials_unavailable" | "upstream_unreachable" | "upstream_error" | "invalid_profile";
         /**
          * @description Operator labels for environment, ownership, or routing metadata.
          * @example {
