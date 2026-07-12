@@ -126,6 +126,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveConnect(w, r)
 		return
 	}
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		deadline = time.Now().Add(h.maxRequestDuration)
+	}
+	controller := http.NewResponseController(w)
+	if err := controller.SetWriteDeadline(deadline); err != nil {
+		http.Error(w, "proxy unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	defer func() {
+		_ = controller.SetWriteDeadline(time.Time{})
+	}()
 	h.serveHTTPForward(w, r)
 }
 
@@ -152,7 +164,10 @@ func (h *Handler) serveConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	defer downstream.Close()
 	defer upstream.Close()
-	deadline := time.Now().Add(h.maxRequestDuration)
+	deadline, ok := r.Context().Deadline()
+	if !ok {
+		deadline = time.Now().Add(h.maxRequestDuration)
+	}
 	_ = downstream.SetDeadline(deadline)
 	_ = upstream.SetDeadline(deadline)
 	if _, err := buffered.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
@@ -235,9 +250,11 @@ func canonicalTarget(raw, defaultPort string) (string, error) {
 }
 
 func removeHopByHopHeaders(header http.Header) {
-	for _, name := range strings.Split(header.Get("Connection"), ",") {
-		if name = strings.TrimSpace(name); name != "" {
-			header.Del(name)
+	for _, value := range header.Values("Connection") {
+		for _, name := range strings.Split(value, ",") {
+			if name = strings.TrimSpace(name); name != "" {
+				header.Del(name)
+			}
 		}
 	}
 	for _, name := range hopByHopHeaders {

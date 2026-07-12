@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -52,7 +54,7 @@ func TestHandlerAllowsHTTPAndDeniesUnlistedTarget(t *testing.T) {
 	defer handler.Close()
 	spoofedHostRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
 	spoofedHostRequest.Host = "unlisted-virtual-host.example.test"
-	recorder := httptest.NewRecorder()
+	recorder := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
 	handler.ServeHTTP(recorder, spoofedHostRequest)
 	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "allowed") {
 		t.Fatalf("spoofed Host response = %d %q, want 200 containing %q", recorder.Code, recorder.Body.String(), "allowed")
@@ -128,6 +130,50 @@ func TestHandlerHealthAndConfigurationValidation(t *testing.T) {
 	}
 }
 
+func TestRemoveHopByHopHeadersUsesEveryConnectionValue(t *testing.T) {
+	header := http.Header{}
+	header.Add("Connection", "keep-alive, X-First-Hop")
+	header.Add("Connection", "X-Second-Hop")
+	header.Set("Keep-Alive", "timeout=5")
+	header.Set("X-First-Hop", "remove-me")
+	header.Set("X-Second-Hop", "remove-me-too")
+
+	removeHopByHopHeaders(header)
+	for _, name := range []string{"Connection", "Keep-Alive", "X-First-Hop", "X-Second-Hop"} {
+		if got := header.Get(name); got != "" {
+			t.Fatalf("header %s = %q, want removal", name, got)
+		}
+	}
+}
+
+func TestHandlerBoundsAndClearsDownstreamWriteDeadline(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "response body")
+	}))
+	defer upstream.Close()
+	upstreamURL := mustURL(t, upstream.URL)
+	handler, err := NewHandler(Config{
+		AllowedTargets:     []string{upstreamURL.Host},
+		MaxRequestDuration: 100 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	defer handler.Close()
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	writer := newDeadlineBlockingWriter()
+
+	started := time.Now()
+	handler.ServeHTTP(writer, request)
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("ServeHTTP elapsed = %s, want bounded downstream write", elapsed)
+	}
+	deadlines := writer.deadlineHistory()
+	if len(deadlines) < 2 || deadlines[0].IsZero() || !deadlines[len(deadlines)-1].IsZero() {
+		t.Fatalf("write deadlines = %v, want non-zero deadline followed by clear", deadlines)
+	}
+}
+
 func newTestProxy(t *testing.T, allowed []string) *httptest.Server {
 	t.Helper()
 	handler, err := NewHandler(Config{AllowedTargets: allowed, MaxRequestDuration: 2 * time.Second})
@@ -169,4 +215,59 @@ func assertBody(t *testing.T, resp *http.Response, wantStatus int, wantBody stri
 	if resp.StatusCode != wantStatus || !strings.Contains(string(raw), wantBody) {
 		t.Fatalf("response = %d %q, want %d containing %q", resp.StatusCode, raw, wantStatus, wantBody)
 	}
+}
+
+type deadlineBlockingWriter struct {
+	mu        sync.Mutex
+	header    http.Header
+	deadline  time.Time
+	deadlines []time.Time
+}
+
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+}
+
+func (*deadlineRecorder) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+func newDeadlineBlockingWriter() *deadlineBlockingWriter {
+	return &deadlineBlockingWriter{header: make(http.Header)}
+}
+
+func (w *deadlineBlockingWriter) Header() http.Header {
+	return w.header
+}
+
+func (*deadlineBlockingWriter) WriteHeader(int) {}
+
+func (w *deadlineBlockingWriter) Write([]byte) (int, error) {
+	w.mu.Lock()
+	deadline := w.deadline
+	w.mu.Unlock()
+	if deadline.IsZero() {
+		time.Sleep(2 * time.Second)
+		return 0, os.ErrDeadlineExceeded
+	}
+	if delay := time.Until(deadline); delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		<-timer.C
+	}
+	return 0, os.ErrDeadlineExceeded
+}
+
+func (w *deadlineBlockingWriter) SetWriteDeadline(deadline time.Time) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.deadline = deadline
+	w.deadlines = append(w.deadlines, deadline)
+	return nil
+}
+
+func (w *deadlineBlockingWriter) deadlineHistory() []time.Time {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]time.Time(nil), w.deadlines...)
 }
