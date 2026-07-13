@@ -122,4 +122,7 @@ run_go_licenses "." "github.com/openclarion/openclarion" \
 run_go_licenses "tools/openclarion-linter" "github.com/openclarion/openclarion/tools/openclarion-linter" \
   ./...
 
+run_go_licenses "scripts/diagnosis_assistant_runner" "github.com/openclarion/openclarion" \
+  ./...
+
 echo "[go-licenses] OK (allowed: $allowed)"

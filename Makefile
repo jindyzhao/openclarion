@@ -132,7 +132,7 @@ GOLANGCI_LINT_VERSION ?= v2.12.2
 OASDIFF_VERSION ?= v1.11.7
 GOLANGCI_LINT := $(CURDIR)/bin/golangci-lint
 CUSTOM_GOLANGCI_LINT := $(CURDIR)/bin/custom-gcl
-GO_MODULE_DIRS := . tools/openclarion-linter
+GO_MODULE_DIRS := . tools/openclarion-linter scripts/diagnosis_assistant_runner
 GO_CHECK_PACKAGES := ./api/... ./cmd/... ./internal/... ./scripts/...
 NPM ?= npm
 PR_BUDGET ?= 15m
@@ -166,7 +166,7 @@ pr: ## Run the workflow-equivalent PR validation bundle with a wall-clock budget
 
 # Focused Go test targets remain granular workflow entrypoints. Their test sets
 # are strict subsets of go-test, so the local aggregate executes them once.
-ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test file-mode-check file-mode-check-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test branch-protection-check branch-protection-check-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan operations-config-hygiene operations-config-hygiene-test govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build sandbox-baseline-audit go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Coverage-equivalent local CI bundle
+ci: workflow-parity actionlint docs-hygiene forbidden adr-check links-check markdownlint doc-claims-check gate-hardening-check text-file-hygiene text-file-hygiene-test file-mode-check file-mode-check-test manual-target-isolation comment-debt-check comment-debt-check-test deferred-followups-check deferred-followups-check-test pr-template-check pr-template-check-test issue-template-check issue-template-check-test go-toolchain-check go-toolchain-check-test shell-syntax-check yaml-syntax-check allowlist-discipline allowlist-discipline-test branch-protection-check branch-protection-check-test dependabot-policy-check dependabot-policy-check-test workflow-change-guard-test linear-history-check-test pr-file-count-check-test pr-impact-reference-check-test pr-budget-test repo-size-check repo-size-check-test generated-headers generate-fresh secrets-scan operations-config-hygiene operations-config-hygiene-test govulncheck go-licenses-check osv-scan go-lint testcontainers-contract go-vet go-build diagnosis-agent-runtime-check sandbox-baseline-audit go-test go-coverage openapi-lint openapi-fresh openapi-breaking openapi-fingerprint ent-fresh atlas-drift frontend-checks ## Coverage-equivalent local CI bundle
 	@echo ""
 	@echo "[ci] all gates passed."
 
@@ -403,7 +403,7 @@ osv-scan: ## Detect known vulnerabilities in npm package-lock files
 # Go gates (activated at M0 bootstrap)
 # ---------------------------------------------------------------------------
 
-.PHONY: generated-headers generate generate-fresh go-vet go-build openclarion-release-build openclarion-service-image-build openclarion-service-image-push go-test go-coverage temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-image-audit sandbox-m4-baseline-audit sandbox-quality-compare-test sandbox-m4-subreport-generate sandbox-m4-quality-sample-export sandbox-m4-quality-manifest-prepare sandbox-m4-quality-compare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke diagnosis-live-convergence-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
+.PHONY: generated-headers generate generate-fresh go-vet go-build openclarion-release-build openclarion-service-image-build openclarion-service-image-push go-test go-coverage diagnosis-agent-runtime-check temporal-workflow-tests report-live-smoke-output-test sandbox-security agent-tool-scripts-test sandbox-baseline-audit sandbox-image-audit sandbox-m4-baseline-audit sandbox-quality-compare-test sandbox-m4-subreport-generate sandbox-m4-quality-sample-export sandbox-m4-quality-manifest-prepare sandbox-m4-quality-compare sandbox-m4-decision-test sandbox-m4-decision sandbox-m4-review-evidence-template sandbox-m4-evidence-packet-test sandbox-m4-evidence-packet sandbox-m4-evidence-packet-verify diagnosis-room-policy-test diagnosis-room-workflow-test diagnosis-auth-test diagnosis-chat-persistence-test diagnosis-live-smoke-output-test go-lint openclarion-linter-test testcontainers-contract openapi-lint openapi-fresh openapi-breaking openapi-fingerprint go-checks openapi-checks frontend-install ci-frontend-typecheck ci-frontend-lint ci-frontend-unit ci-frontend-build ci-frontend-smoke diagnosis-live-browser-smoke diagnosis-live-convergence-smoke ci-frontend-deadcode ci-frontend-audit openapi-ts-fresh frontend-checks
 
 generated-headers: ## Validate generated files carry generator headers
 	@bash scripts/check_generated_headers.sh
@@ -444,6 +444,13 @@ openclarion-service-image-push: ## Manual deployment helper: push service image 
 
 go-test: ## Run all tests
 	@go test -race -count=1 $(GO_CHECK_PACKAGES)
+
+diagnosis-agent-runtime-check: ## Validate the isolated Eino-backed diagnosis runtime module
+	@env GOWORK=off go -C scripts/diagnosis_assistant_runner vet ./...
+	@env GOWORK=off go -C scripts/diagnosis_assistant_runner test -race -count=1 ./...
+	@tmp_dir="$$(mktemp -d -t openclarion-diagnosis-agent-check.XXXXXX)"; \
+		trap 'rm -rf "$$tmp_dir"' EXIT; \
+		env GOWORK=off go -C scripts/diagnosis_assistant_runner build -trimpath -o "$$tmp_dir/diagnosis-assistant-runner" .
 
 go-coverage: ## Enforce handwritten Go package coverage floor
 	@bash scripts/check_go_coverage.sh
@@ -601,7 +608,7 @@ diagnosis-chat-persistence-test: ## Run focused M5 ChatSession/ChatTurn persiste
 diagnosis-live-smoke-output-test: ## Run focused M5 live smoke proof validator tests
 	@go test -race -count=1 ./scripts/diagnosis_live_smoke_output ./scripts/diagnosis_live_convergence_smoke_output
 
-go-checks: generate go-vet go-build go-test ## Combined Go validation gate
+go-checks: generate go-vet go-build go-test diagnosis-agent-runtime-check ## Combined Go validation gate
 
 openapi-lint: ## Lint OpenAPI spec with vacuum (mandatory gate)
 	@bash scripts/check_openapi_lint.sh
@@ -682,7 +689,7 @@ frontend-checks: frontend-install ci-frontend-typecheck ci-frontend-lint ci-fron
 # See ADR-0001 (PostgreSQL single source of truth) and
 # docs/design/database/migrations.md.
 
-.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness alert-consultation-setup diagnosis-auth-live-smoke notification-channel-live-smoke alertmanager-auto-diagnosis-live-smoke report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke local-egress-proxy-build sandbox-m4-runtime-smoke-artifacts diagnosis-dev-oidc-issuer stage5-local-worker-check stage5-local-worker
+.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness alert-consultation-setup diagnosis-auth-live-smoke notification-channel-live-smoke alertmanager-auto-diagnosis-live-smoke report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke local-egress-proxy-build sandbox-m4-runtime-smoke-artifacts diagnosis-assistant-runner-build diagnosis-dev-oidc-issuer stage5-local-worker-check stage5-local-worker
 
 ent-generate: ## Regenerate ent client + entity code from schemas under internal/persistence/ent/schema
 	@go generate $(ENT_PKG)/...
@@ -742,6 +749,9 @@ report-schedule-live-smoke: ## Manual M3.1 scheduled-trigger proof: Temporal Sch
 
 agent-runtime-smoke: ## Manual M4 smoke: candidate sandbox image satisfies ADR-0013 file I/O and security posture
 	@bash scripts/run_agent_runtime_smoke.sh
+
+diagnosis-assistant-runner-build: ## Build the local Eino diagnosis runner image and print its immutable ref
+	@bash scripts/build_diagnosis_assistant_runner.sh
 
 custom-thin-runner-smoke: ## Manual M4 smoke: build local custom thin runner candidate and prove it through both runtime harnesses
 	@bash scripts/run_custom_thin_runner_smoke.sh

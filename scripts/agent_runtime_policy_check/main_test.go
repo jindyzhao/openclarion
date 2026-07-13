@@ -63,6 +63,12 @@ func TestRejectsCommonFrameworkDependencies(t *testing.T) {
 			body:     `{"dependencies":{"@mastra/core":"1.0.0"}}`,
 			want:     []string{"@mastra/", "must not add agent runtime dependency"},
 		},
+		{
+			name:     "eino dependency outside sandbox runtime",
+			manifest: "go.mod",
+			body:     "module example.test/openclarion\n\ngo 1.25.10\n\nrequire github.com/cloudwego/eino v0.9.12\n",
+			want:     []string{"github.com/cloudwego/eino", "outside the accepted sandbox runtime module"},
+		},
 	}
 
 	for _, tc := range tests {
@@ -124,6 +130,12 @@ func TestRejectsControlPlaneRuntimeNames(t *testing.T) {
 			body: "export const runtimeFamily = \"agno\";\n",
 			want: "must not hard-code agent runtime family '\"agno\"'",
 		},
+		{
+			name: "eino import outside sandbox runtime",
+			file: "cmd/openclarion/main.go",
+			body: "package main\n\nimport _ \"github.com/cloudwego/eino/adk\"\n\nfunc main() {}\n",
+			want: "must not hard-code agent runtime family 'github.com/cloudwego/eino'",
+		},
 	}
 
 	for _, tc := range tests {
@@ -174,6 +186,49 @@ func TestAllowsCandidateNamesInTests(t *testing.T) {
 	}
 	if !strings.Contains(out, "[forbidden-agent-runtime] OK") {
 		t.Fatalf("policy check output = %q, want OK", out)
+	}
+}
+
+func TestAllowsAcceptedSandboxRuntimeDependencyAndSource(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"scripts/diagnosis_assistant_runner/go.mod":  "module example.test/openclarion/runtime/diagnosis-assistant\n\ngo 1.25.10\n\nrequire github.com/cloudwego/eino v0.9.12\n",
+		"scripts/diagnosis_assistant_runner/main.go": "package main\n\nimport _ \"github.com/cloudwego/eino/adk\"\n\nfunc main() {}\n",
+	})
+
+	out, err := runCheck(t, root)
+	if err != nil {
+		t.Fatalf("policy check failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "[forbidden-agent-runtime] OK") {
+		t.Fatalf("policy check output = %q, want OK", out)
+	}
+}
+
+func TestRejectsOtherRuntimeFamiliesInsideAcceptedSandboxRuntime(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"scripts/diagnosis_assistant_runner/go.mod":  "module example.test/openclarion/runtime/diagnosis-assistant\n\ngo 1.25.12\n\nrequire github.com/tmc/langchaingo v0.1.13\n",
+		"scripts/diagnosis_assistant_runner/main.go": "package main\n\nconst fallbackRuntime = \"openclaw\"\n",
+	})
+
+	out, err := runCheck(t, root)
+	if err == nil {
+		t.Fatalf("policy check passed unexpectedly:\n%s", out)
+	}
+	for _, want := range []string{"langchain", "openclaw", "agent runtime policy violation"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("policy check output = %q, want substring %q", out, want)
+		}
+	}
+}
+
+func TestRejectsEinoFromLookalikeSandboxRuntimePath(t *testing.T) {
+	root := writeRepo(t, map[string]string{
+		"scripts/diagnosis_assistant_runner_extra/go.mod": "module example.test/lookalike\n\ngo 1.25.12\n\nrequire github.com/cloudwego/eino v0.9.12\n",
+	})
+
+	out, err := runCheck(t, root)
+	if err == nil || !strings.Contains(out, "outside the accepted sandbox runtime module") {
+		t.Fatalf("policy check error = %v, output = %q", err, out)
 	}
 }
 
@@ -229,6 +284,20 @@ func TestRejectsWeakPolicyRows(t *testing.T) {
 			name:   "invalid exact pattern",
 			policy: "manifest\t\"agno\ncode\t`agno`\n",
 			want:   "invalid exact-match pattern",
+		},
+		{
+			name: "non exact sandbox allow",
+			policy: "manifest\tgithub.com/cloudwego/eino\n" +
+				"code\tgithub.com/cloudwego/eino\n" +
+				"sandbox-allow\tgithub.com/cloudwego/eino\n",
+			want: "must be an exact module path",
+		},
+		{
+			name: "sandbox allow missing deny scopes",
+			policy: "manifest\tacme-agent\n" +
+				"code\tacme-agent\n" +
+				"sandbox-allow\t\"github.com/cloudwego/eino\"\n",
+			want: "must also exist in manifest and code scopes",
 		},
 	}
 

@@ -92,9 +92,9 @@ OpenClarion product
 - **Provider extension seams**: Metrics, alert-source, CMDB, IM, Auth,
   Approval, Container, and LLM integrations are interfaces, not hard-coded
   systems.
-- **Agent as a sandboxed worker**: Candidate agent runtimes are evaluated as
-  black-box sandbox adapters behind strict tool, network, timeout, and output
-  boundaries before any baseline is accepted.
+- **Agent as a sandboxed worker**: The M5 diagnosis runner embeds pinned Eino
+  in an isolated module behind strict file, tool, network, timeout, and output
+  boundaries; the Go control plane retains durable state and policy ownership.
 - **Contract-first API**: OpenAPI 3.1 is the canonical API contract.
 - **Frontend in the monorepo**: the web console lives under `web/` so API,
   generated types, backend, and UI changes stay atomic.
@@ -108,7 +108,7 @@ OpenClarion product
 | Workflow | Temporal Go SDK |
 | API | OpenAPI 3.1, `oapi-codegen-exp` |
 | Frontend | React 19, Next.js 16, generated API types |
-| AI runtime | Headless LLMProvider first; sandboxed runtime selected by M4 gate later |
+| AI runtime | Headless LLMProvider plus an isolated Eino `v0.9.12` diagnosis runner; production sandbox wiring remains explicit |
 | Observability | OpenTelemetry, Prometheus metrics |
 | CI | license, DCO, lint, tests, API generation, docs checks, no non-English literals outside approved paths |
 

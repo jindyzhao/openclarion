@@ -30,13 +30,18 @@ go-license-allow: Apache-2.0, BSD-3-Clause, MIT; owner: CI maintainers; reviewed
 	if err != nil {
 		t.Fatalf("read calls: %v", err)
 	}
-	calls := string(callsRaw)
-	for _, want := range []string{
-		"run github.com/google/go-licenses@v1.6.0 check --include_tests --ignore=github.com/openclarion/openclarion --allowed_licenses=Apache-2.0,BSD-3-Clause,MIT ./cmd/openclarion ./api/... ./internal/... ./scripts/...",
-		"run github.com/google/go-licenses@v1.6.0 check --include_tests --ignore=github.com/openclarion/openclarion/tools/openclarion-linter --allowed_licenses=Apache-2.0,BSD-3-Clause,MIT ./...",
-	} {
-		if !strings.Contains(calls, want) {
-			t.Fatalf("calls = %q, want %q", calls, want)
+	calls := strings.Split(strings.TrimSpace(string(callsRaw)), "\n")
+	wants := []string{
+		root + "|run github.com/google/go-licenses@v1.6.0 check --include_tests --ignore=github.com/openclarion/openclarion --allowed_licenses=Apache-2.0,BSD-3-Clause,MIT ./cmd/openclarion ./api/... ./internal/... ./scripts/...",
+		filepath.Join(root, "tools/openclarion-linter") + "|run github.com/google/go-licenses@v1.6.0 check --include_tests --ignore=github.com/openclarion/openclarion/tools/openclarion-linter --allowed_licenses=Apache-2.0,BSD-3-Clause,MIT ./...",
+		filepath.Join(root, "scripts/diagnosis_assistant_runner") + "|run github.com/google/go-licenses@v1.6.0 check --include_tests --ignore=github.com/openclarion/openclarion --allowed_licenses=Apache-2.0,BSD-3-Clause,MIT ./...",
+	}
+	if len(calls) != len(wants) {
+		t.Fatalf("calls = %q, want %d calls", calls, len(wants))
+	}
+	for index, want := range wants {
+		if calls[index] != want {
+			t.Fatalf("calls[%d] = %q, want %q", index, calls[index], want)
 		}
 	}
 }
@@ -247,6 +252,7 @@ func newGoLicensesFixture(t *testing.T) string {
 	goLicensesWriteFile(t, root, "scripts/check_go_licenses.sh", goLicensesScript(t), 0o750)
 	goLicensesWriteFile(t, root, "go.mod", "module github.com/openclarion/openclarion\n", 0o644)
 	goLicensesWriteFile(t, root, "tools/openclarion-linter/go.mod", "module github.com/openclarion/openclarion/tools/openclarion-linter\n", 0o644)
+	goLicensesWriteFile(t, root, "scripts/diagnosis_assistant_runner/go.mod", "module github.com/openclarion/openclarion/runtime/diagnosis-assistant\n", 0o644)
 	goLicensesWriteFile(t, root, "cmd/openclarion/.keep", "", 0o644)
 	goLicensesWriteFile(t, root, "api/.keep", "", 0o644)
 	goLicensesWriteFile(t, root, "internal/.keep", "", 0o644)
@@ -267,7 +273,7 @@ func goLicensesScript(t *testing.T) string {
 func fakeGoLicensesGo() string {
 	return `#!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >>"${GO_LICENSES_CALLS:?}"
+printf '%s|%s\n' "$PWD" "$*" >>"${GO_LICENSES_CALLS:?}"
 if [[ "${GO_LICENSES_FAKE_FAIL:-}" == "1" ]]; then
   echo "simulated go-licenses failure" >&2
   exit 42

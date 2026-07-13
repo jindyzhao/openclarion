@@ -114,8 +114,8 @@
 
 - [x] ContainerProvider interface exists
 - [x] Docker sandbox security spec validation gate exists
-- [x] agent runtime selection gate exists before OpenClaw/Hermes/custom runner
-  adoption
+- [x] agent runtime selection gate records Eino for the isolated M5 runner and
+  keeps alternative frameworks behind the same sandbox evidence boundary
 - [x] manual runtime adapter smoke harness exists (`make agent-runtime-smoke`)
 - [x] Docker Provider live execution smoke exists (`make container-provider-smoke`)
 - [x] Docker Provider timeout cleanup smoke exists (`make container-provider-timeout-smoke`)
@@ -197,6 +197,8 @@
 - [x] per-turn `RunDiagnosisTurn` Activity calls `ContainerProvider.Run` and
   accepts only schema-valid diagnosis-turn output
   (`make diagnosis-room-workflow-test`)
+- [x] isolated Eino diagnosis runner replays mounted multi-turn history and
+  emits one strict diagnosis-turn output (`make diagnosis-agent-runtime-check`)
 - [x] DiagnosisRoomWorkflow creates/reuses ChatSession and persists accepted
   user+assistant ChatTurn pairs idempotently
   (`make diagnosis-room-workflow-test`)

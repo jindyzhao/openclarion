@@ -2,29 +2,33 @@
 
 ## Status
 
-M4 decision gate. Last reviewed: 2026-05-29.
+M4 decision gate and selected M5 runner implementation. Last reviewed:
+2026-07-13.
 
 ## Purpose
 
 M4 and M5 need an agent runtime inside the sandbox image, but the Go control
 plane must not grow a home-built agent framework by accident. This gate defines
-what must be proven before OpenClarion accepts any sandbox agent runtime.
-OpenClaw, Hermes Agent, and the custom thin runner are current evaluation
-examples, not platform bindings.
+what must be proven before OpenClarion accepts any sandbox agent runtime. Eino
+is selected for the M5 runner implementation; OpenClaw, Hermes Agent, and the
+custom thin runner remain comparison points rather than platform bindings.
 
 OpenClarion's product direction remains intelligent alert analysis. Runtime
 selection is an implementation boundary for alert evidence analysis and
 diagnosis turns; it is not a repositioning into a generic agent platform.
 
-The current decision is **adapter-first**:
+The current decision is **Eino-backed adapter-first**:
 
-- keep `ContainerProvider` and ADR-0013 file paths as the stable boundary
-- evaluate candidate runtimes inside the sandbox image, not as Go control-plane
-  dependencies
+- keep `ContainerProvider` and the
+  [ADR-0013 file contract](../adr/ADR-0013-per-turn-container-invocation.md)
+  as the stable boundary
+- pin CloudWeGo Eino `v0.9.12` inside the isolated diagnosis runner for the
+  Agent lifecycle, message mapping, bounded iteration, and cancellation
+- keep Eino out of the root Go module and control-plane service binary
 - do not implement a custom planner, memory layer, multi-agent router, or tool
-  approval system in Go
-- allow a custom runner only as a thin adapter if framework candidates fail the
-  sandbox contract
+  approval system
+- keep Temporal/PostgreSQL as the durable conversation owner and disable
+  framework checkpoint/session persistence
 
 ## Non-Negotiable Contract
 
@@ -46,16 +50,17 @@ M4/M5 baseline:
 
 ## Candidate Examples
 
-These notes come from the 2026-05-28 Context7 review and are not acceptance
-proof. Each candidate still needs a real sandbox smoke before selection, and
-new candidates can be evaluated by adding evidence instead of changing
-control-plane code.
+These notes began with the 2026-05-28 Context7 review. Eino was reviewed again
+through Context7 and the pinned `v0.9.12` source on 2026-07-13. New candidates
+can be evaluated by adding evidence without changing the control-plane
+contract.
 
 | Candidate | Fit | Integration Questions |
 |-----------|-----|-----------------------|
-| OpenClaw | Strong built-in gateway/runtime concepts: embedded agent runs, sessions, tools, approvals, and agent harness selection. | Can the embedded run path operate in a short-lived container without an always-on Gateway? Can channel/gateway tools be disabled? Can session files live under tmpfs or readonly-safe workspace paths? Can output be forced to our JSON file contract without relying on streaming events? |
-| Hermes Agent | Strong one-shot CLI surface: `hermes chat -q`, provider/model selection, toolsets, skills, session resume, and Docker gateway mode. | Can memory/session persistence be disabled or scoped to tmpfs? Can dangerous terminal/browser/write tools be denied by default? Can it produce strict JSON at a known file path and terminate cleanly on SIGTERM? |
-| Custom thin runner | Highest control over file contract, security posture, and deterministic output. | Must stay thin. It may read files, call an LLM/tool endpoint, and normalize output, but must not grow planning, memory, approval, skill marketplace, or multi-agent orchestration without a new decision. |
+| Eino `v0.9.12` | **Selected for M5 implementation.** Native Go ADK with bounded ChatModelAgent iterations, context cancellation, middleware boundaries, and Apache-2.0 licensing. It embeds in a short-lived process without an always-on gateway. | OpenClarion supplies prior messages on every invocation, registers no V1 tools, and retains provider, validation, persistence, and approval policy outside Eino. |
+| OpenClaw | Deferred. Its gateway, channel, session, and tool surfaces are larger than the accepted one-turn sandbox boundary. | Reconsider only if a future requirement cannot remain in OpenClarion's control plane. |
+| Hermes Agent | Deferred. Its bundled memory, skills, and broad toolsets create more deny-by-default work than the embedded Go path. | Reconsider only if the selected runner fails representative diagnosis quality or lifecycle evidence. |
+| Custom Agent loop | Rejected for M5. It would duplicate lifecycle and future tool-call behavior maintained by Eino. | Keep only protocol adapters, validation, security projection, and file I/O around the framework. |
 
 ## Selection Procedure
 
@@ -72,15 +77,40 @@ Before M4 acceptance, run each candidate through the same smoke:
 7. Verify any required LLM/tool credentials are short-lived and not logged.
 8. Compare the resulting report against the M2 direct LLM baseline.
 
-The first candidate that passes the security/lifecycle contract and produces an
-acceptable quality delta can become the M4/M5 baseline. Candidate names are
-operator-supplied evidence IDs, not code-defined enums; OpenClaw, Hermes Agent,
-and the custom thin runner are current evaluation examples. If no external
-framework candidate passes, OpenClarion may keep a custom thin adapter as the
-V1 baseline and record the deferred candidates as post-V1 follow-up evidence.
-No runtime family is a product default or control-plane branch until a retained
-M4 decision packet accepts a digest-pinned candidate and the governance policy
-is updated intentionally.
+Eino `v0.9.12` is the selected framework for the M5 runner implementation.
+The pinned-source review covered `adk/chatmodel.go`, `adk/runner.go`,
+`adk/react.go`, and
+`schema/stream.go`; the isolated module is included in tests, vulnerability
+scanning, license checks, and Dependabot. This selection does not accept Eino
+as the M4 report-enhancement quality baseline. M4 still requires its retained
+decision packet and representative direct-versus-sandbox evidence.
+
+## Bundled Diagnosis Runner
+
+`scripts/diagnosis_assistant_runner` is an isolated Go module that maps the
+mounted evidence, prior transcript, and latest user message into one Eino
+ChatModelAgent invocation. It uses the existing OpenAI-compatible provider,
+strict diagnosis schema, idempotency key, and bounded validation retry, then
+writes only schema-valid `/workspace/out/output.json`.
+
+V1 registers no Eino tools, framework persistence, multi-agent router, or
+custom Agent loop. Inputs are direct regular files with explicit size limits;
+output publication refuses existing files and uses an exclusive temporary file
+inside the output root. The tracked safe prompt is
+`config/agents/diagnosis-assistant/instructions.md`.
+
+Run the module checks with `make diagnosis-agent-runtime-check`. Build the
+non-root `scratch` image and print its local immutable reference with:
+
+```bash
+make diagnosis-assistant-runner-build
+```
+
+The image includes a CA bundle and generated third-party license material. The
+build helper uses a temporary loopback registry to resolve a real repository
+digest; a repo-local digest-ref output must be ignored and cannot overlap a
+tracked path. ContainerProvider, Temporal, WebSocket, and browser integration
+remain separate follow-up concerns and are not claimed by this runner batch.
 
 ## Manual Smoke Harness
 
