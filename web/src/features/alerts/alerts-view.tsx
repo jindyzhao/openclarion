@@ -18,6 +18,7 @@ import {
 } from "@/features/diagnosis-room/notification-content-proof";
 import { diagnosisRoomLinkHref } from "@/features/diagnosis-room/url-state";
 import { reportReplayProofTrace } from "@/features/report-replay/proof-trace";
+import { autoDiagnosisConfirmedSnapshotCount } from "@/features/report-replay/replay-response";
 import { formatDateTime } from "@/features/reports/format";
 import { refreshDirectoryUsers } from "@/features/settings/directory-rbac/client-api";
 import { directoryUserSubjectIndex } from "@/features/settings/directory-rbac/format";
@@ -961,7 +962,7 @@ type AlertReplayProofNextAction = {
   type: "info" | "warning";
 };
 
-function replayProofNextAction(result: ReportReplayTriggerResponse): AlertReplayProofNextAction {
+export function replayProofNextAction(result: ReportReplayTriggerResponse): AlertReplayProofNextAction {
   if (!result.started) {
     return {
       actionLabel: "Review replay setup",
@@ -973,6 +974,7 @@ function replayProofNextAction(result: ReportReplayTriggerResponse): AlertReplay
   }
 
   const autoDiagnosis = result.auto_diagnosis;
+  const confirmed = autoDiagnosis ? autoDiagnosisConfirmedSnapshotCount(autoDiagnosis) : 0;
   const room = autoDiagnosis?.rooms?.[0] ?? null;
   if (autoDiagnosis && autoDiagnosis.rooms_started > 0 && room) {
     return {
@@ -982,6 +984,21 @@ function replayProofNextAction(result: ReportReplayTriggerResponse): AlertReplay
       kind: "room",
       label: "Review room notification timeline",
       type: "warning"
+    };
+  }
+  if (
+    autoDiagnosis &&
+    autoDiagnosis.rooms_started === 0 &&
+    autoDiagnosis.rooms_skipped === 0 &&
+    confirmed > 0
+  ) {
+    return {
+      actionLabel: "Open reports",
+      detail: `${pluralizeCount(confirmed, "snapshot")} already ${confirmed === 1 ? "has" : "have"} a human-confirmed conclusion, so no new diagnosis room or manual AI handoff is required.`,
+      href: "/reports" as Route,
+      kind: "report",
+      label: "Review report delivery",
+      type: "info"
     };
   }
 
@@ -1062,17 +1079,29 @@ function alertReplayRequest(alert: AlertEventSummary): ReportReplayTriggerReques
   };
 }
 
-function replayAcceptedMessage(result: ReportReplayTriggerResponse): string {
+export function replayAcceptedMessage(result: ReportReplayTriggerResponse): string {
   if (result.snapshots.length === 0) {
     return "Replay completed with no evidence snapshots.";
   }
   const snapshotSummary = `${pluralizeCount(result.snapshots.length, "evidence snapshot")}`;
   const autoDiagnosis = result.auto_diagnosis;
+  const confirmed = autoDiagnosis ? autoDiagnosisConfirmedSnapshotCount(autoDiagnosis) : 0;
   if (autoDiagnosis && autoDiagnosis.rooms_started > 0) {
     return `Replay accepted with ${snapshotSummary}; AI diagnosis started ${pluralizeCount(
       autoDiagnosis.rooms_started,
       "room"
     )}.`;
+  }
+  if (
+    autoDiagnosis &&
+    autoDiagnosis.rooms_started === 0 &&
+    autoDiagnosis.rooms_skipped === 0 &&
+    confirmed > 0
+  ) {
+    return `Replay accepted with ${snapshotSummary}; ${pluralizeCount(
+      confirmed,
+      "snapshot"
+    )} already ${confirmed === 1 ? "has" : "have"} a human-confirmed conclusion, so no new diagnosis room was started.`;
   }
   if (autoDiagnosis && autoDiagnosis.policies_matched > 0) {
     return `Replay accepted with ${snapshotSummary}; AI diagnosis matched ${pluralizeCount(

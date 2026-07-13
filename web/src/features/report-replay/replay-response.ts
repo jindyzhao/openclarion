@@ -11,6 +11,17 @@ type AutoDiagnosisSummary =
 type AutoDiagnosisRoom =
   components["schemas"]["AlertmanagerWebhookAutoDiagnosisRoom"];
 
+export function autoDiagnosisConfirmedSnapshotCount(
+  autoDiagnosis: AutoDiagnosisSummary,
+): number {
+  return Math.max(
+    0,
+    autoDiagnosis.snapshots -
+      autoDiagnosis.rooms_started -
+      autoDiagnosis.rooms_skipped,
+  );
+}
+
 export function normalizedReportReplayTriggerResponse(
   value: unknown,
 ): ReportReplayTriggerResponse | null {
@@ -40,6 +51,20 @@ export function normalizedReportReplayTriggerResponse(
   }
   if (started && snapshots.length > 0 && (workflowID === "" || runID === "")) {
     return null;
+  }
+  if (autoDiagnosis !== undefined) {
+    const snapshotIDs = new Set(snapshots.map((snapshot) => snapshot.id));
+    if (
+      autoDiagnosis.snapshots !== snapshots.length ||
+      (autoDiagnosis.rooms?.some(
+        (room) => !snapshotIDs.has(room.evidence_snapshot_id),
+      ) ?? false) ||
+      autoDiagnosis.skipped_snapshot_ids.some(
+        (snapshotID) => !snapshotIDs.has(snapshotID),
+      )
+    ) {
+      return null;
+    }
   }
   return {
     ...(autoDiagnosis === undefined
@@ -141,7 +166,17 @@ function normalizedAutoDiagnosisSummary(
     return null;
   }
   const rooms = normalizedArray(value.rooms ?? [], normalizedAutoDiagnosisRoom);
-  if (rooms === null || rooms.length !== value.rooms_started) {
+  const skippedSnapshotIDs = normalizedArray(
+    value.skipped_snapshot_ids,
+    normalizedPositiveInteger,
+  );
+  if (
+    rooms === null ||
+    rooms.length !== value.rooms_started ||
+    skippedSnapshotIDs === null ||
+    skippedSnapshotIDs.length !== value.rooms_skipped ||
+    value.rooms_started + value.rooms_skipped > value.snapshots
+  ) {
     return null;
   }
   return {
@@ -149,6 +184,7 @@ function normalizedAutoDiagnosisSummary(
     rooms,
     rooms_skipped: value.rooms_skipped,
     rooms_started: value.rooms_started,
+    skipped_snapshot_ids: skippedSnapshotIDs,
     snapshots: value.snapshots,
   };
 }
@@ -199,6 +235,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isPositiveInteger(value: unknown): value is number {
   return isNonNegativeInteger(value) && value > 0;
+}
+
+function normalizedPositiveInteger(value: unknown): number | null {
+  return isPositiveInteger(value) ? value : null;
 }
 
 function isNonNegativeInteger(value: unknown): value is number {

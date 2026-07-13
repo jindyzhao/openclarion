@@ -12,14 +12,15 @@ describe("report replay response normalization", () => {
           snapshots: 1,
           rooms_started: 1,
           rooms_skipped: 0,
+          skipped_snapshot_ids: [],
           rooms: [
             {
               policy_id: 7,
-              evidence_snapshot_id: 17,
-              session_id: "diagnosis-session-auto-p7-s17",
-              initial_message_id: "diagnosis-auto-initial-p7-s17",
-              workflow_id: "diagnosis-room-diagnosis-session-auto-p7-s17",
-              run_id: "run-17",
+              evidence_snapshot_id: 9002,
+              session_id: "diagnosis-session-auto-p7-s9002",
+              initial_message_id: "diagnosis-auto-initial-p7-s9002",
+              workflow_id: "diagnosis-room-diagnosis-session-auto-p7-s9002",
+              run_id: "run-9002",
             },
           ],
         },
@@ -29,7 +30,7 @@ describe("report replay response normalization", () => {
         rooms_started: 1,
         rooms: [
           {
-            session_id: "diagnosis-session-auto-p7-s17",
+            session_id: "diagnosis-session-auto-p7-s9002",
           },
         ],
       },
@@ -74,7 +75,56 @@ describe("report replay response normalization", () => {
           snapshots: 1,
           rooms_started: 1,
           rooms_skipped: 0,
+          skipped_snapshot_ids: [],
           rooms: [],
+        },
+      }),
+    ).toBeNull();
+    expect(
+      normalizedReportReplayTriggerResponse({
+        ...validReplayResponse(),
+        auto_diagnosis: {
+          policies_matched: 1,
+          snapshots: 1,
+          rooms_started: 0,
+          rooms_skipped: 1,
+          skipped_snapshot_ids: [18],
+          rooms: [],
+        },
+      }),
+    ).toBeNull();
+    expect(
+      normalizedReportReplayTriggerResponse({
+        ...validReplayResponse(),
+        auto_diagnosis: {
+          policies_matched: 1,
+          snapshots: 2,
+          rooms_started: 0,
+          rooms_skipped: 1,
+          skipped_snapshot_ids: [],
+          rooms: [],
+        },
+      }),
+    ).toBeNull();
+    expect(
+      normalizedReportReplayTriggerResponse({
+        ...validReplayResponse(),
+        auto_diagnosis: {
+          policies_matched: 1,
+          snapshots: 1,
+          rooms_started: 1,
+          rooms_skipped: 1,
+          skipped_snapshot_ids: [18],
+          rooms: [
+            {
+              policy_id: 7,
+              evidence_snapshot_id: 17,
+              session_id: "diagnosis-session-auto-p7-s17",
+              initial_message_id: "diagnosis-auto-initial-p7-s17",
+              workflow_id: "diagnosis-room-diagnosis-session-auto-p7-s17",
+              run_id: "run-17",
+            },
+          ],
         },
       }),
     ).toBeNull();

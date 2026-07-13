@@ -517,6 +517,7 @@ paths:
                       snapshots: 1
                       rooms_started: 1
                       rooms_skipped: 0
+                      skipped_snapshot_ids: []
         "400":
           description: Webhook request or payload is invalid
           content:
@@ -8640,7 +8641,7 @@ components:
         snapshots:
           type: integer
           format: int64
-          description: Evidence snapshots produced or reused for automatic diagnosis.
+          description: Evidence snapshots evaluated for automatic diagnosis. The remainder after rooms_started and rooms_skipped already had valid human-confirmed conclusions.
           examples:
             - 1
         rooms_started:
@@ -8655,6 +8656,15 @@ components:
           description: Evidence snapshots intentionally left without an automatic diagnosis room in this trigger because the runtime safety cap was reached.
           examples:
             - 0
+        skipped_snapshot_ids:
+          type: array
+          description: EvidenceSnapshot IDs counted by rooms_skipped, in trigger input order. The array length always equals rooms_skipped.
+          items:
+            type: integer
+            format: int64
+            minimum: 1
+          examples:
+            - []
         rooms:
           type: array
           description: Diagnosis rooms accepted for automatic consultation, with only navigation-safe identifiers.
@@ -8665,6 +8675,7 @@ components:
         - snapshots
         - rooms_started
         - rooms_skipped
+        - skipped_snapshot_ids
       additionalProperties: false
     AlertmanagerWebhookAutoDiagnosisRoom:
       type: object

@@ -6937,7 +6937,11 @@ func TestIngestAlertmanagerWebhook_AcceptsPayload(t *testing.T) {
 			Ingested:          alertingest.Stats{Total: 1, Saved: 1},
 			AutoDiagnosis: &alertdiagnosis.Result{
 				PoliciesMatched: 1,
-				Snapshots:       []alertreplay.SnapshotRef{{ID: 17, GroupIndex: 0, EventCount: 1}},
+				Snapshots: []alertreplay.SnapshotRef{
+					{ID: 17, GroupIndex: 0, EventCount: 1},
+					{ID: 18, GroupIndex: 1, EventCount: 1},
+				},
+				SkippedSnapshots: []alertreplay.SnapshotRef{{ID: 18, GroupIndex: 1, EventCount: 1}},
 				Rooms: []alertdiagnosis.RoomStart{{
 					PolicyID:           3,
 					EvidenceSnapshotID: 17,
@@ -6981,8 +6985,11 @@ func TestIngestAlertmanagerWebhook_AcceptsPayload(t *testing.T) {
 	}
 	if body.AutoDiagnosis == nil ||
 		body.AutoDiagnosis.PoliciesMatched != 1 ||
-		body.AutoDiagnosis.Snapshots != 1 ||
-		body.AutoDiagnosis.RoomsStarted != 1 {
+		body.AutoDiagnosis.Snapshots != 2 ||
+		body.AutoDiagnosis.RoomsStarted != 1 ||
+		body.AutoDiagnosis.RoomsSkipped != 1 ||
+		len(body.AutoDiagnosis.SkippedSnapshotIds) != 1 ||
+		body.AutoDiagnosis.SkippedSnapshotIds[0] != 18 {
 		t.Fatalf("auto diagnosis response = %+v", body.AutoDiagnosis)
 	}
 	if len(body.AutoDiagnosis.Rooms) != 1 ||
@@ -7284,7 +7291,9 @@ func TestTriggerReportWorkflowPolicyReplayIncludesAutoDiagnosisSummary(t *testin
 	if resp.AutoDiagnosis == nil ||
 		resp.AutoDiagnosis.PoliciesMatched != 1 ||
 		resp.AutoDiagnosis.Snapshots != 1 ||
-		resp.AutoDiagnosis.RoomsStarted != 1 {
+		resp.AutoDiagnosis.RoomsStarted != 1 ||
+		resp.AutoDiagnosis.RoomsSkipped != 0 ||
+		len(resp.AutoDiagnosis.SkippedSnapshotIds) != 0 {
 		t.Fatalf("auto diagnosis response = %+v", resp.AutoDiagnosis)
 	}
 	if len(resp.AutoDiagnosis.Rooms) != 1 ||

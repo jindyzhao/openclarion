@@ -258,6 +258,16 @@ type AlertEventNaturalKey struct {
 	StartsAt             time.Time
 }
 
+// DiagnosisSnapshotHistory contains the bounded recent diagnosis history for
+// one EvidenceSnapshot. LatestEvents contains at most one event for each
+// requested (task_id, kind) pair. Tasks is empty when TasksTruncated is true.
+type DiagnosisSnapshotHistory struct {
+	EvidenceSnapshotID domain.EvidenceSnapshotID
+	Tasks              []domain.DiagnosisTask
+	LatestEvents       []domain.DiagnosisTaskEvent
+	TasksTruncated     bool
+}
+
 // DiagnosisRepository covers DiagnosisTask plus append-only
 // DiagnosisTaskEvent lifecycle logs and the M5 diagnosis-room
 // ChatSession / ChatTurn transcript boundary.
@@ -287,6 +297,17 @@ type DiagnosisRepository interface {
 	// one EvidenceSnapshot, ordered by (created_at DESC, id DESC),
 	// capped by limit. limit MUST be > 0.
 	ListTasksByEvidenceSnapshot(ctx context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]domain.DiagnosisTask, error)
+
+	// ListSnapshotHistories returns one bounded history for each distinct
+	// EvidenceSnapshot ID, preserving first-seen input order. taskLimit MUST be
+	// positive and every event kind MUST be canonical non-empty text.
+	// Implementations batch storage reads.
+	ListSnapshotHistories(
+		ctx context.Context,
+		snapshotIDs []domain.EvidenceSnapshotID,
+		taskLimit int,
+		eventKinds []string,
+	) ([]DiagnosisSnapshotHistory, error)
 
 	// AppendEvent appends a lifecycle event to the task. When
 	// DedupeKey is set, a duplicate (task_id, dedupe_key) returns

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -307,6 +308,113 @@ func TestDiagnosisRepository_ListTasksByEvidenceSnapshot(t *testing.T) {
 			})
 			if !errors.Is(err, domain.ErrInvariantViolation) {
 				t.Fatalf("ListTasksByEvidenceSnapshot error = %v, want ErrInvariantViolation", err)
+			}
+		})
+	}
+}
+
+func TestDiagnosisRepository_ListSnapshotHistories(t *testing.T) {
+	resetDB(t)
+	snapAID := makeSnapshotForDiagnosis(t, "history-a")
+	snapBID := makeSnapshotForDiagnosis(t, "history-b")
+	snapEmptyID := makeSnapshotForDiagnosis(t, "history-empty")
+
+	var taskB domain.DiagnosisTask
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for i := 1; i <= 2; i++ {
+			if _, err := uow.Diagnosis().SaveTask(ctx, mustNewTask(
+				t,
+				snapAID,
+				fmt.Sprintf("wf-history-a%d", i),
+				fmt.Sprintf("run-history-a%d", i),
+			)); err != nil {
+				t.Fatalf("SaveTask snapshot A %d: %v", i, err)
+			}
+		}
+		var err error
+		taskB, err = uow.Diagnosis().SaveTask(ctx, mustNewTask(t, snapBID, "wf-history-b", "run-history-b"))
+		if err != nil {
+			t.Fatalf("SaveTask snapshot B: %v", err)
+		}
+	})
+
+	base := time.Date(2026, 7, 13, 1, 0, 0, 0, time.UTC)
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for _, spec := range []struct {
+			kind string
+			body string
+			when time.Time
+		}{
+			{kind: "target", body: `{"sequence":2}`, when: base.Add(2 * time.Minute)},
+			{kind: "other", body: `{"sequence":3}`, when: base.Add(3 * time.Minute)},
+			{kind: "target", body: `{"sequence":1}`, when: base.Add(time.Minute)},
+		} {
+			event, err := domain.NewDiagnosisTaskEvent(taskB.ID, spec.kind, json.RawMessage(spec.body), nil, spec.when)
+			if err != nil {
+				t.Fatalf("NewDiagnosisTaskEvent %s: %v", spec.kind, err)
+			}
+			if _, err := uow.Diagnosis().AppendEvent(ctx, event); err != nil {
+				t.Fatalf("AppendEvent %s: %v", spec.kind, err)
+			}
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		histories, err := uow.Diagnosis().ListSnapshotHistories(
+			ctx,
+			[]domain.EvidenceSnapshotID{snapBID, snapAID, snapBID, snapEmptyID},
+			1,
+			[]string{"target", "other", "target"},
+		)
+		if err != nil {
+			t.Fatalf("ListSnapshotHistories: %v", err)
+		}
+		if len(histories) != 3 ||
+			histories[0].EvidenceSnapshotID != snapBID ||
+			histories[1].EvidenceSnapshotID != snapAID ||
+			histories[2].EvidenceSnapshotID != snapEmptyID {
+			t.Fatalf("history order = %+v, want B, A, empty with duplicate removed", histories)
+		}
+		if len(histories[0].Tasks) != 1 || histories[0].Tasks[0].ID != taskB.ID || histories[0].TasksTruncated {
+			t.Fatalf("snapshot B history = %+v, want one complete task", histories[0])
+		}
+		if len(histories[0].LatestEvents) != 2 {
+			t.Fatalf("snapshot B latest events = %+v, want one event per requested kind", histories[0].LatestEvents)
+		}
+		latestByKind := make(map[string]domain.DiagnosisTaskEvent, len(histories[0].LatestEvents))
+		for _, event := range histories[0].LatestEvents {
+			latestByKind[event.Kind] = event
+		}
+		if !latestByKind["target"].OccurredAt.Equal(base.Add(2*time.Minute)) ||
+			!latestByKind["other"].OccurredAt.Equal(base.Add(3*time.Minute)) {
+			t.Fatalf("latest events = %+v, want latest occurred_at for each kind", latestByKind)
+		}
+		if !histories[1].TasksTruncated || len(histories[1].Tasks) != 0 || len(histories[1].LatestEvents) != 0 {
+			t.Fatalf("snapshot A history = %+v, want explicit truncation without partial data", histories[1])
+		}
+		if histories[2].TasksTruncated || len(histories[2].Tasks) != 0 || len(histories[2].LatestEvents) != 0 {
+			t.Fatalf("empty snapshot history = %+v, want complete empty history", histories[2])
+		}
+	})
+
+	for _, tc := range []struct {
+		name  string
+		ids   []domain.EvidenceSnapshotID
+		limit int
+		kinds []string
+	}{
+		{name: "zero snapshot", ids: []domain.EvidenceSnapshotID{0}, limit: 1, kinds: []string{"target"}},
+		{name: "zero limit", ids: []domain.EvidenceSnapshotID{snapAID}, limit: 0, kinds: []string{"target"}},
+		{name: "blank kind", ids: []domain.EvidenceSnapshotID{snapAID}, limit: 1, kinds: []string{" "}},
+		{name: "non canonical kind", ids: []domain.EvidenceSnapshotID{snapAID}, limit: 1, kinds: []string{" target"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+				_, err := uow.Diagnosis().ListSnapshotHistories(ctx, tc.ids, tc.limit, tc.kinds)
+				return err
+			})
+			if !errors.Is(err, domain.ErrInvariantViolation) {
+				t.Fatalf("ListSnapshotHistories error = %v, want ErrInvariantViolation", err)
 			}
 		})
 	}
