@@ -4,11 +4,13 @@ package alertdiagnosis
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosiscontext"
@@ -28,6 +30,12 @@ const (
 	DefaultMaxRoomsPerTrigger = 3
 	// MaxRoomsPerTriggerLimit is the largest accepted operator override.
 	MaxRoomsPerTriggerLimit = 100
+
+	diagnosisRoomClosedEventKind      = "diagnosis_room.closed"
+	diagnosisRoomHumanConfirmedReason = "human_confirmed"
+	diagnosisRoomCloseVersion         = "diagnosis-room-close.v1"
+	confirmedDiagnosisTaskScanLimit   = 100
+	confirmedDiagnosisAvailableStatus = "available"
 )
 
 // Request identifies one already-ingested alert window eligible for automatic
@@ -178,14 +186,17 @@ func (s *Service) Trigger(ctx context.Context, req Request) (Result, error) {
 		}
 		result.Snapshots = append(result.Snapshots, replay.Snapshots...)
 
-		selected, skipped := s.roomStartSnapshots(replay.Snapshots, s.maxRoomsPerTrigger-len(result.Rooms))
+		rooms, skipped, err := s.startRooms(
+			ctx,
+			binding.policy,
+			req.AlertSourceProfileID,
+			replay.Snapshots,
+			s.maxRoomsPerTrigger-len(result.Rooms),
+		)
 		result.RoomsSkipped += skipped
-		for _, snapshotRef := range selected {
-			started, err := s.startRoom(ctx, binding.policy, req.AlertSourceProfileID, snapshotRef.ID)
-			if err != nil {
-				return result, err
-			}
-			result.Rooms = append(result.Rooms, started)
+		result.Rooms = append(result.Rooms, rooms...)
+		if err != nil {
+			return result, err
 		}
 	}
 	return result, nil
@@ -208,14 +219,17 @@ func (s *Service) StartRooms(ctx context.Context, req StartRoomsRequest) (Result
 	result.PoliciesMatched = 1
 	result.Snapshots = cloneSnapshotRefs(req.Snapshots)
 
-	selected, skipped := s.roomStartSnapshots(req.Snapshots, s.maxRoomsPerTrigger)
+	rooms, skipped, err := s.startRooms(
+		ctx,
+		req.Policy,
+		req.AlertSourceProfileID,
+		req.Snapshots,
+		s.maxRoomsPerTrigger,
+	)
 	result.RoomsSkipped = skipped
-	for _, snapshotRef := range selected {
-		started, err := s.startRoom(ctx, req.Policy, req.AlertSourceProfileID, snapshotRef.ID)
-		if err != nil {
-			return result, err
-		}
-		result.Rooms = append(result.Rooms, started)
+	result.Rooms = rooms
+	if err != nil {
+		return result, err
 	}
 	return result, nil
 }
@@ -227,14 +241,146 @@ func validateMaxRoomsPerTrigger(limit int) error {
 	return nil
 }
 
-func (s *Service) roomStartSnapshots(snapshots []alertreplay.SnapshotRef, capacity int) ([]alertreplay.SnapshotRef, int) {
+func (s *Service) startRooms(
+	ctx context.Context,
+	policy domain.ReportWorkflowPolicy,
+	sourceID domain.AlertSourceProfileID,
+	snapshots []alertreplay.SnapshotRef,
+	capacity int,
+) ([]RoomStart, int, error) {
 	if capacity <= 0 {
-		return nil, len(snapshots)
+		return nil, len(snapshots), nil
 	}
-	if len(snapshots) <= capacity {
-		return snapshots, 0
+	rooms := make([]RoomStart, 0, min(len(snapshots), capacity))
+	skipped := 0
+	for index, snapshotRef := range snapshots {
+		if len(rooms) >= capacity {
+			skipped += len(snapshots) - index
+			break
+		}
+		confirmed, err := s.hasConfirmedDiagnosis(ctx, snapshotRef.ID)
+		if err != nil {
+			return rooms, skipped, err
+		}
+		if confirmed {
+			skipped++
+			continue
+		}
+		started, err := s.startRoom(ctx, policy, sourceID, snapshotRef.ID)
+		if err != nil {
+			return rooms, skipped, err
+		}
+		rooms = append(rooms, started)
 	}
-	return snapshots[:capacity], len(snapshots) - capacity
+	return rooms, skipped, nil
+}
+
+type confirmedDiagnosisClosedEventPayload struct {
+	Kind               string `json:"kind"`
+	DiagnosisTaskID    int64  `json:"diagnosis_task_id"`
+	EvidenceSnapshotID int64  `json:"evidence_snapshot_id"`
+	CloseReason        string `json:"close_reason"`
+	ConclusionVersion  string `json:"conclusion_version"`
+	FinalConclusion    *struct {
+		Status             string `json:"status"`
+		EvidenceSnapshotID int64  `json:"evidence_snapshot_id"`
+		ConclusionVersion  string `json:"conclusion_version"`
+		ConfirmedBy        string `json:"confirmed_by"`
+		Content            string `json:"content"`
+	} `json:"final_conclusion"`
+}
+
+func (s *Service) hasConfirmedDiagnosis(ctx context.Context, snapshotID domain.EvidenceSnapshotID) (bool, error) {
+	confirmed := false
+	err := s.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		tasks, err := uow.Diagnosis().ListTasksByEvidenceSnapshot(ctx, snapshotID, confirmedDiagnosisTaskScanLimit+1)
+		if err != nil {
+			return err
+		}
+		truncated := len(tasks) > confirmedDiagnosisTaskScanLimit
+		for _, task := range tasks {
+			if task.ID <= 0 || task.EvidenceSnapshotID != snapshotID || !task.Status.Valid() {
+				return fmt.Errorf("diagnosis task %d is invalid for snapshot %d: %w", task.ID, snapshotID, domain.ErrInvariantViolation)
+			}
+			if task.Status != domain.DiagnosisStatusSucceeded {
+				continue
+			}
+			events, err := uow.Diagnosis().ListEventsByTaskAndKind(ctx, task.ID, diagnosisRoomClosedEventKind, 1)
+			if err != nil {
+				return err
+			}
+			if len(events) == 0 {
+				continue
+			}
+			isConfirmed, err := confirmedDiagnosisClosedEvent(events[0], task)
+			if err != nil {
+				return err
+			}
+			if isConfirmed {
+				confirmed = true
+				return nil
+			}
+		}
+		if truncated {
+			return fmt.Errorf(
+				"confirmed diagnosis lookup for snapshot %d exceeded %d recent tasks: %w",
+				snapshotID,
+				confirmedDiagnosisTaskScanLimit,
+				domain.ErrInvariantViolation,
+			)
+		}
+		return nil
+	})
+	if err != nil {
+		return false, fmt.Errorf("alert diagnosis: inspect confirmed diagnosis for snapshot %d: %w", snapshotID, err)
+	}
+	return confirmed, nil
+}
+
+func confirmedDiagnosisClosedEvent(event domain.DiagnosisTaskEvent, task domain.DiagnosisTask) (bool, error) {
+	if event.ID <= 0 ||
+		event.Kind != diagnosisRoomClosedEventKind ||
+		event.TaskID != task.ID ||
+		len(event.Payload) == 0 {
+		return false, fmt.Errorf("confirmed diagnosis close event identity is incomplete: %w", domain.ErrInvariantViolation)
+	}
+	if err := strictjson.RejectDuplicateObjectKeys(event.Payload); err != nil {
+		return false, fmt.Errorf("confirmed diagnosis close event %d payload is ambiguous: %w: %w", event.ID, err, domain.ErrInvariantViolation)
+	}
+	var payload confirmedDiagnosisClosedEventPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		return false, fmt.Errorf("confirmed diagnosis close event %d payload: %w: %w", event.ID, err, domain.ErrInvariantViolation)
+	}
+	if payload.Kind != diagnosisRoomClosedEventKind ||
+		payload.DiagnosisTaskID != int64(task.ID) ||
+		payload.EvidenceSnapshotID != int64(task.EvidenceSnapshotID) ||
+		payload.ConclusionVersion != diagnosisRoomCloseVersion {
+		return false, fmt.Errorf("confirmed diagnosis close event %d payload identity mismatch: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	closeReason := strings.TrimSpace(payload.CloseReason)
+	if closeReason == "" || closeReason != payload.CloseReason {
+		return false, fmt.Errorf("confirmed diagnosis close event %d has an invalid close_reason: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	if closeReason != diagnosisRoomHumanConfirmedReason {
+		return false, nil
+	}
+	if payload.FinalConclusion == nil || payload.FinalConclusion.Status != confirmedDiagnosisAvailableStatus {
+		return false, fmt.Errorf("confirmed diagnosis close event %d has no available conclusion: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	if payload.FinalConclusion.ConclusionVersion != diagnosisRoomCloseVersion {
+		return false, fmt.Errorf("confirmed diagnosis close event %d conclusion version mismatch: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	if payload.FinalConclusion.EvidenceSnapshotID != int64(task.EvidenceSnapshotID) {
+		return false, fmt.Errorf("confirmed diagnosis close event %d conclusion snapshot mismatch: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	confirmedBy := strings.TrimSpace(payload.FinalConclusion.ConfirmedBy)
+	if confirmedBy == "" || confirmedBy != payload.FinalConclusion.ConfirmedBy {
+		return false, fmt.Errorf("confirmed diagnosis close event %d has an invalid confirmed_by: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	if strings.TrimSpace(payload.FinalConclusion.Content) == "" {
+		return false, fmt.Errorf("confirmed diagnosis close event %d has empty conclusion content: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	return true, nil
 }
 
 type binding struct {

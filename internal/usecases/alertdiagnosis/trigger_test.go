@@ -441,6 +441,216 @@ func TestStartRoomsUsesExistingSnapshotsWithoutReplay(t *testing.T) {
 	}
 }
 
+func TestStartRoomsSkipsConfirmedSnapshotWithoutConsumingRoomCapacity(t *testing.T) {
+	ctx := context.Background()
+	sourceID := domain.AlertSourceProfileID(7)
+	autoPolicy := mustReportWorkflowPolicy(t, 13, sourceID, domain.DiagnosisFollowUpModeAutoRoom)
+	confirmedSnapshot := triggerSnapshot(77)
+	userClosedSnapshot := triggerSnapshot(78)
+	capacitySnapshot := triggerSnapshot(79)
+	confirmedTask := domain.DiagnosisTask{
+		ID:                 1001,
+		EvidenceSnapshotID: confirmedSnapshot.ID,
+		Status:             domain.DiagnosisStatusSucceeded,
+	}
+	userClosedTask := domain.DiagnosisTask{
+		ID:                 1002,
+		EvidenceSnapshotID: userClosedSnapshot.ID,
+		Status:             domain.DiagnosisStatusSucceeded,
+	}
+	factory := &fakeTriggerFactory{
+		config: &fakeTriggerConfigRepo{},
+		evidence: &fakeTriggerEvidenceRepo{snapshots: map[domain.EvidenceSnapshotID]domain.EvidenceSnapshot{
+			confirmedSnapshot.ID:  confirmedSnapshot,
+			userClosedSnapshot.ID: userClosedSnapshot,
+			capacitySnapshot.ID:   capacitySnapshot,
+		}},
+		diagnosis: &fakeTriggerDiagnosisRepo{
+			tasks: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{
+				confirmedSnapshot.ID:  {confirmedTask},
+				userClosedSnapshot.ID: {userClosedTask},
+			},
+			events: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+				confirmedTask.ID: {
+					diagnosisRoomClosedEventKind: {
+						triggerClosedEvent(t, confirmedTask, diagnosisRoomHumanConfirmedReason, "operator-1"),
+					},
+				},
+				userClosedTask.ID: {
+					diagnosisRoomClosedEventKind: {
+						triggerClosedEvent(t, userClosedTask, "user_done", ""),
+					},
+				},
+			},
+		},
+	}
+	starter := &recordingRoomStarter{}
+	service, err := NewService(factory, starter, WithMaxRoomsPerTrigger(1))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.StartRooms(ctx, StartRoomsRequest{
+		AlertSourceProfileID: sourceID,
+		Policy:               autoPolicy,
+		Snapshots: []alertreplay.SnapshotRef{
+			{ID: confirmedSnapshot.ID, GroupIndex: 0, EventCount: 1},
+			{ID: userClosedSnapshot.ID, GroupIndex: 1, EventCount: 1},
+			{ID: capacitySnapshot.ID, GroupIndex: 2, EventCount: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartRooms: %v", err)
+	}
+	if len(result.Rooms) != 1 ||
+		result.Rooms[0].EvidenceSnapshotID != userClosedSnapshot.ID ||
+		result.RoomsSkipped != 2 {
+		t.Fatalf("result = %+v, want confirmed skip, one user-closed start, and one capacity skip", result)
+	}
+	if len(starter.requests) != 1 || starter.requests[0].EvidenceSnapshotID != userClosedSnapshot.ID {
+		t.Fatalf("starter requests = %+v, want only the unconfirmed snapshot", starter.requests)
+	}
+}
+
+func TestStartRoomsRejectsAmbiguousConfirmedCloseEvent(t *testing.T) {
+	ctx := context.Background()
+	sourceID := domain.AlertSourceProfileID(7)
+	autoPolicy := mustReportWorkflowPolicy(t, 13, sourceID, domain.DiagnosisFollowUpModeAutoRoom)
+	snapshot := triggerSnapshot(77)
+	task := domain.DiagnosisTask{ID: 1001, EvidenceSnapshotID: snapshot.ID, Status: domain.DiagnosisStatusSucceeded}
+	factory := &fakeTriggerFactory{
+		config:   &fakeTriggerConfigRepo{},
+		evidence: &fakeTriggerEvidenceRepo{snapshots: map[domain.EvidenceSnapshotID]domain.EvidenceSnapshot{snapshot.ID: snapshot}},
+		diagnosis: &fakeTriggerDiagnosisRepo{
+			tasks: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{snapshot.ID: {task}},
+			events: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+				task.ID: {
+					diagnosisRoomClosedEventKind: {{
+						ID:      2001,
+						TaskID:  task.ID,
+						Kind:    diagnosisRoomClosedEventKind,
+						Payload: json.RawMessage(`{"kind":"diagnosis_room.closed","kind":"diagnosis_room.closed"}`),
+					}},
+				},
+			},
+		},
+	}
+	starter := &recordingRoomStarter{}
+	service, err := NewService(factory, starter)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	_, err = service.StartRooms(ctx, StartRoomsRequest{
+		AlertSourceProfileID: sourceID,
+		Policy:               autoPolicy,
+		Snapshots:            []alertreplay.SnapshotRef{{ID: snapshot.ID, GroupIndex: 0, EventCount: 1}},
+	})
+	if !errors.Is(err, domain.ErrInvariantViolation) || !strings.Contains(err.Error(), "ambiguous") {
+		t.Fatalf("StartRooms error = %v, want ambiguous invariant violation", err)
+	}
+	if len(starter.requests) != 0 {
+		t.Fatalf("starter requests = %d, want 0", len(starter.requests))
+	}
+}
+
+func TestStartRoomsFailsClosedWhenConfirmedDiagnosisHistoryIsTruncated(t *testing.T) {
+	ctx := context.Background()
+	sourceID := domain.AlertSourceProfileID(7)
+	autoPolicy := mustReportWorkflowPolicy(t, 13, sourceID, domain.DiagnosisFollowUpModeAutoRoom)
+	snapshot := triggerSnapshot(77)
+	tasks := make([]domain.DiagnosisTask, confirmedDiagnosisTaskScanLimit+1)
+	for i := range tasks {
+		tasks[i] = domain.DiagnosisTask{
+			ID:                 domain.DiagnosisTaskID(i + 1),
+			EvidenceSnapshotID: snapshot.ID,
+			Status:             domain.DiagnosisStatusRunning,
+		}
+	}
+	factory := &fakeTriggerFactory{
+		config:    &fakeTriggerConfigRepo{},
+		evidence:  &fakeTriggerEvidenceRepo{snapshots: map[domain.EvidenceSnapshotID]domain.EvidenceSnapshot{snapshot.ID: snapshot}},
+		diagnosis: &fakeTriggerDiagnosisRepo{tasks: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{snapshot.ID: tasks}},
+	}
+	starter := &recordingRoomStarter{}
+	service, err := NewService(factory, starter)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	_, err = service.StartRooms(ctx, StartRoomsRequest{
+		AlertSourceProfileID: sourceID,
+		Policy:               autoPolicy,
+		Snapshots:            []alertreplay.SnapshotRef{{ID: snapshot.ID, GroupIndex: 0, EventCount: 1}},
+	})
+	if !errors.Is(err, domain.ErrInvariantViolation) || !strings.Contains(err.Error(), "exceeded 100 recent tasks") {
+		t.Fatalf("StartRooms error = %v, want truncated-history invariant violation", err)
+	}
+	if len(starter.requests) != 0 {
+		t.Fatalf("starter requests = %d, want 0", len(starter.requests))
+	}
+}
+
+func TestConfirmedDiagnosisClosedEventValidation(t *testing.T) {
+	task := domain.DiagnosisTask{ID: 1001, EvidenceSnapshotID: 77, Status: domain.DiagnosisStatusSucceeded}
+	valid := triggerClosedEvent(t, task, diagnosisRoomHumanConfirmedReason, "operator-1")
+	confirmed, err := confirmedDiagnosisClosedEvent(valid, task)
+	if err != nil || !confirmed {
+		t.Fatalf("confirmedDiagnosisClosedEvent valid = %v, %v; want true, nil", confirmed, err)
+	}
+
+	userClosed := triggerClosedEvent(t, task, "user_done", "")
+	confirmed, err = confirmedDiagnosisClosedEvent(userClosed, task)
+	if err != nil || confirmed {
+		t.Fatalf("confirmedDiagnosisClosedEvent user close = %v, %v; want false, nil", confirmed, err)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{
+			name: "conclusion snapshot mismatch",
+			mutate: func(payload map[string]any) {
+				payload["final_conclusion"].(map[string]any)["evidence_snapshot_id"] = float64(78)
+			},
+		},
+		{
+			name: "close version mismatch",
+			mutate: func(payload map[string]any) {
+				payload["conclusion_version"] = "diagnosis-room-close.v2"
+			},
+		},
+		{
+			name: "conclusion version mismatch",
+			mutate: func(payload map[string]any) {
+				payload["final_conclusion"].(map[string]any)["conclusion_version"] = "diagnosis-room-close.v2"
+			},
+		},
+		{
+			name: "empty conclusion",
+			mutate: func(payload map[string]any) {
+				payload["final_conclusion"].(map[string]any)["content"] = " "
+			},
+		},
+		{
+			name: "non canonical confirmer",
+			mutate: func(payload map[string]any) {
+				payload["final_conclusion"].(map[string]any)["confirmed_by"] = " operator-1 "
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := mutateTriggerClosedEvent(t, valid, tt.mutate)
+			_, err := confirmedDiagnosisClosedEvent(event, task)
+			if !errors.Is(err, domain.ErrInvariantViolation) {
+				t.Fatalf("confirmedDiagnosisClosedEvent error = %v, want ErrInvariantViolation", err)
+			}
+		})
+	}
+}
+
 func TestStartRoomsRejectsAutoRoomPolicyWithoutNotificationChannel(t *testing.T) {
 	ctx := context.Background()
 	sourceID := domain.AlertSourceProfileID(7)
@@ -919,6 +1129,69 @@ func autoRoomNotificationProof(
 	}
 }
 
+func triggerSnapshot(id domain.EvidenceSnapshotID) domain.EvidenceSnapshot {
+	return domain.EvidenceSnapshot{
+		ID:                id,
+		AlertGroupID:      domain.AlertGroupID(id),
+		Digest:            "trigger-test-digest",
+		Payload:           json.RawMessage(`{"schema_version":"test"}`),
+		Provenance:        json.RawMessage(`{}`),
+		Status:            domain.SnapshotStatusComplete,
+		CreatedByWorkflow: CreatedByWorkflow,
+	}
+}
+
+func triggerClosedEvent(
+	t *testing.T,
+	task domain.DiagnosisTask,
+	closeReason string,
+	confirmedBy string,
+) domain.DiagnosisTaskEvent {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"kind":                 diagnosisRoomClosedEventKind,
+		"diagnosis_task_id":    int64(task.ID),
+		"evidence_snapshot_id": int64(task.EvidenceSnapshotID),
+		"close_reason":         closeReason,
+		"conclusion_version":   diagnosisRoomCloseVersion,
+		"final_conclusion": map[string]any{
+			"status":               confirmedDiagnosisAvailableStatus,
+			"evidence_snapshot_id": int64(task.EvidenceSnapshotID),
+			"conclusion_version":   diagnosisRoomCloseVersion,
+			"confirmed_by":         confirmedBy,
+			"content":              "Confirmed diagnosis conclusion.",
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal diagnosis close event: %v", err)
+	}
+	return domain.DiagnosisTaskEvent{
+		ID:      domain.DiagnosisTaskEventID(int64(task.ID) + 1000),
+		TaskID:  task.ID,
+		Kind:    diagnosisRoomClosedEventKind,
+		Payload: payload,
+	}
+}
+
+func mutateTriggerClosedEvent(
+	t *testing.T,
+	event domain.DiagnosisTaskEvent,
+	mutate func(map[string]any),
+) domain.DiagnosisTaskEvent {
+	t.Helper()
+	var payload map[string]any
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		t.Fatalf("unmarshal diagnosis close event: %v", err)
+	}
+	mutate(payload)
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal mutated diagnosis close event: %v", err)
+	}
+	event.Payload = encoded
+	return event
+}
+
 type recordingRoomStarter struct {
 	requests []ports.DiagnosisRoomStartRequest
 }
@@ -935,32 +1208,72 @@ func (s *recordingRoomStarter) StartDiagnosisRoom(_ context.Context, req ports.D
 }
 
 type fakeTriggerFactory struct {
-	config   *fakeTriggerConfigRepo
-	evidence *fakeTriggerEvidenceRepo
+	config    *fakeTriggerConfigRepo
+	evidence  *fakeTriggerEvidenceRepo
+	diagnosis *fakeTriggerDiagnosisRepo
 }
 
 func (f *fakeTriggerFactory) Begin(context.Context) (ports.UnitOfWork, error) {
-	return &fakeTriggerUOW{config: f.config, evidence: f.evidence}, nil
+	return &fakeTriggerUOW{config: f.config, evidence: f.evidence, diagnosis: f.diagnosisRepo()}, nil
 }
 
 func (f *fakeTriggerFactory) WithinTx(ctx context.Context, fn func(context.Context, ports.UnitOfWork) error) error {
-	return fn(ctx, &fakeTriggerUOW{config: f.config, evidence: f.evidence})
+	return fn(ctx, &fakeTriggerUOW{config: f.config, evidence: f.evidence, diagnosis: f.diagnosisRepo()})
+}
+
+func (f *fakeTriggerFactory) diagnosisRepo() *fakeTriggerDiagnosisRepo {
+	if f.diagnosis == nil {
+		return &fakeTriggerDiagnosisRepo{}
+	}
+	return f.diagnosis
 }
 
 type fakeTriggerUOW struct {
-	config   *fakeTriggerConfigRepo
-	evidence *fakeTriggerEvidenceRepo
+	config    *fakeTriggerConfigRepo
+	evidence  *fakeTriggerEvidenceRepo
+	diagnosis *fakeTriggerDiagnosisRepo
 }
 
 func (u *fakeTriggerUOW) Alerts() ports.AlertRepository         { return nil }
 func (u *fakeTriggerUOW) Evidence() ports.EvidenceRepository    { return u.evidence }
-func (u *fakeTriggerUOW) Diagnosis() ports.DiagnosisRepository  { return nil }
+func (u *fakeTriggerUOW) Diagnosis() ports.DiagnosisRepository  { return u.diagnosis }
 func (u *fakeTriggerUOW) Reports() ports.ReportRepository       { return nil }
 func (u *fakeTriggerUOW) Config() ports.ConfigurationRepository { return u.config }
 func (u *fakeTriggerUOW) Directory() ports.DirectoryRepository  { return nil }
 func (u *fakeTriggerUOW) RBAC() ports.RBACRepository            { return nil }
 func (u *fakeTriggerUOW) Commit(context.Context) error          { return nil }
 func (u *fakeTriggerUOW) Rollback(context.Context) error        { return nil }
+
+type fakeTriggerDiagnosisRepo struct {
+	ports.DiagnosisRepository
+	tasks  map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
+	events map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
+}
+
+func (r *fakeTriggerDiagnosisRepo) ListTasksByEvidenceSnapshot(
+	_ context.Context,
+	snapshotID domain.EvidenceSnapshotID,
+	limit int,
+) ([]domain.DiagnosisTask, error) {
+	items := r.tasks[snapshotID]
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return append([]domain.DiagnosisTask(nil), items...), nil
+}
+
+func (r *fakeTriggerDiagnosisRepo) ListEventsByTaskAndKind(
+	_ context.Context,
+	taskID domain.DiagnosisTaskID,
+	kind string,
+	limit int,
+) ([]domain.DiagnosisTaskEvent, error) {
+	items := r.events[taskID][kind]
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return append([]domain.DiagnosisTaskEvent(nil), items...), nil
+}
 
 type fakeTriggerConfigRepo struct {
 	ports.ConfigurationRepository
