@@ -16,6 +16,7 @@ import (
 
 	dockerstdcopy "github.com/moby/moby/api/pkg/stdcopy"
 	dockercontainer "github.com/moby/moby/api/types/container"
+	dockernetwork "github.com/moby/moby/api/types/network"
 	dockerclient "github.com/moby/moby/client"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -105,6 +106,168 @@ func TestProviderRunInjectsShortLivedCredentialsIntoContainerEnv(t *testing.T) {
 		t.Fatalf("Env = %v, want %v", got, want)
 	}
 	engine.assertCalls(t, "create", "start", "wait", "copy", "remove")
+}
+
+func TestProviderRunRejectsUnsafeAllowlistNetworkBeforeCreate(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*fakeEngine)
+		wantErr string
+	}{
+		{
+			name: "external network",
+			mutate: func(engine *fakeEngine) {
+				engine.networkInternal = false
+			},
+			wantErr: "must be internal",
+		},
+		{
+			name: "name mismatch",
+			mutate: func(engine *fakeEngine) {
+				engine.networkName = "unexpected-network"
+			},
+			wantErr: "network name",
+		},
+		{
+			name: "ingress network",
+			mutate: func(engine *fakeEngine) {
+				engine.networkIngress = true
+			},
+			wantErr: "must not be ingress or config-only",
+		},
+		{
+			name: "config-only network",
+			mutate: func(engine *fakeEngine) {
+				engine.networkConfigOnly = true
+			},
+			wantErr: "must not be ingress or config-only",
+		},
+		{
+			name: "inspect failure",
+			mutate: func(engine *fakeEngine) {
+				engine.networkInspectErr = errors.New("network unavailable")
+			},
+			wantErr: "inspect allowlist network",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := validRequest()
+			req.Network = ports.ContainerNetworkPolicy{
+				Mode:          ports.ContainerNetworkAllowlist,
+				AllowedEgress: []string{"prometheus.internal:9090"},
+			}
+			engine := newFakeEngine(tarArchive(t, "output.json", []byte(`{"summary":"ok"}`)))
+			tt.mutate(engine)
+			provider := newTestProvider(t, engine)
+			provider.egressEnforcer = &recordingEgressEnforcer{}
+
+			_, err := provider.Run(context.Background(), req)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Run err = %v, want %q", err, tt.wantErr)
+			}
+			engine.assertCalls(t, "inspect")
+		})
+	}
+}
+
+func TestProviderCheckEgressReadinessCreatesSecureProbeAndRemoves(t *testing.T) {
+	engine := newFakeEngine(nil)
+	provider := newTestProvider(t, engine)
+	enforcer := &recordingEgressEnforcer{}
+	provider.egressEnforcer = enforcer
+	policy := ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: []string{"LLM.EXAMPLE.INVALID:443"},
+	}
+
+	if err := provider.CheckEgressReadiness(
+		t.Context(),
+		"https://llm.example.invalid/v1",
+		policy,
+	); err != nil {
+		t.Fatalf("CheckEgressReadiness: %v", err)
+	}
+	if enforcer.calls != 1 || enforcer.networkMode != DefaultAllowlistNetworkMode {
+		t.Fatalf("egress enforcer calls = %d, network = %q", enforcer.calls, enforcer.networkMode)
+	}
+	create := engine.createOptions
+	if create.Config == nil || create.HostConfig == nil || create.NetworkingConfig == nil {
+		t.Fatalf("readiness create options incomplete: %#v", create)
+	}
+	if create.Image != pinnedImage || create.Config.User != DefaultUser {
+		t.Fatalf("readiness image/user = %q/%q", create.Image, create.Config.User)
+	}
+	if len(create.Config.Entrypoint) != 0 || strings.Join(create.Config.Cmd, ",") != egressReadinessCommand {
+		t.Fatalf("readiness entrypoint/cmd = %v/%v", create.Config.Entrypoint, create.Config.Cmd)
+	}
+	wantEnv := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":   "https://llm.example.invalid/v1",
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":   "llm.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL": testEgressProxyURL,
+	}
+	if len(create.Config.Env) != len(wantEnv) {
+		t.Fatalf("readiness env = %v", create.Config.Env)
+	}
+	for _, entry := range create.Config.Env {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok || wantEnv[name] != value {
+			t.Fatalf("unexpected readiness env entry %q", entry)
+		}
+	}
+	if len(create.HostConfig.Mounts) != 0 || !create.HostConfig.ReadonlyRootfs || create.HostConfig.Privileged {
+		t.Fatalf("readiness mounts/security = %v/%+v", create.HostConfig.Mounts, create.HostConfig)
+	}
+	if create.HostConfig.NetworkMode != dockercontainer.NetworkMode(DefaultAllowlistNetworkMode) ||
+		create.Config.NetworkDisabled {
+		t.Fatalf("readiness network = %q disabled=%t", create.HostConfig.NetworkMode, create.Config.NetworkDisabled)
+	}
+	if create.HostConfig.Resources.PidsLimit == nil ||
+		*create.HostConfig.Resources.PidsLimit != egressReadinessPidsLimit ||
+		create.HostConfig.Resources.Memory != egressReadinessMemory {
+		t.Fatalf("readiness resources = %+v", create.HostConfig.Resources)
+	}
+	endpoint := create.NetworkingConfig.EndpointsConfig[DefaultAllowlistNetworkMode]
+	if endpoint == nil {
+		t.Fatalf("readiness endpoint config = %+v", create.NetworkingConfig.EndpointsConfig)
+	}
+	engine.assertCalls(t, "inspect", "create", "start", "wait", "remove")
+}
+
+func TestProviderCheckEgressReadinessRejectsCustomCommand(t *testing.T) {
+	engine := newFakeEngine(nil)
+	provider := newTestProvider(t, engine)
+	provider.cfg.Command = []string{"/custom-runner"}
+
+	err := provider.CheckEgressReadiness(t.Context(), "https://llm.example.invalid/v1", ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: []string{"llm.example.invalid:443"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "configure the runner as the image ENTRYPOINT") {
+		t.Fatalf("CheckEgressReadiness err = %v, want custom command rejection", err)
+	}
+	engine.assertCalls(t)
+}
+
+func TestProviderCheckEgressReadinessRemovesFailedProbe(t *testing.T) {
+	engine := newFakeEngine(nil)
+	engine.exitCode = 1
+	provider := newTestProvider(t, engine)
+	provider.egressEnforcer = &recordingEgressEnforcer{}
+
+	err := provider.CheckEgressReadiness(t.Context(), "https://llm.example.invalid/v1", ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: []string{"llm.example.invalid:443"},
+	})
+	if err == nil {
+		t.Fatal("CheckEgressReadiness err = nil, want failed probe")
+	}
+	var exitErr *ports.ContainerExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode != 1 {
+		t.Fatalf("CheckEgressReadiness err = %T/%v, want exit code 1", err, err)
+	}
+	engine.assertCalls(t, "inspect", "create", "start", "wait", "logs", "remove")
 }
 
 func TestProviderRunRejectsInvalidCredentialLifetimeBeforeCreate(t *testing.T) {
@@ -310,7 +473,8 @@ func TestProviderRunUsesEgressEnforcerBeforeCreatingAllowlistContainer(t *testin
 		engine.createOptions.NetworkingConfig.EndpointsConfig[DefaultAllowlistNetworkMode] == nil {
 		t.Fatalf("NetworkingConfig.EndpointsConfig = %#v, want explicit allowlist endpoint", engine.createOptions.NetworkingConfig)
 	}
-	engine.assertCalls(t, "create", "start", "wait", "copy", "remove")
+	assertProxyEnv(t, engine.createOptions.Config.Env, testEgressProxyURL)
+	engine.assertCalls(t, "inspect", "create", "start", "wait", "copy", "remove")
 }
 
 func TestProviderRunUsesConfiguredAllowlistNetworkEndpoint(t *testing.T) {
@@ -338,7 +502,7 @@ func TestProviderRunUsesConfiguredAllowlistNetworkEndpoint(t *testing.T) {
 		engine.createOptions.NetworkingConfig.EndpointsConfig["openclarion-sandbox-egress-prod"] == nil {
 		t.Fatalf("NetworkingConfig.EndpointsConfig = %#v, want configured allowlist endpoint", engine.createOptions.NetworkingConfig)
 	}
-	engine.assertCalls(t, "create", "start", "wait", "copy", "remove")
+	engine.assertCalls(t, "inspect", "create", "start", "wait", "copy", "remove")
 }
 
 func TestProviderRunDoesNotCreateWhenEgressEnforcerRejects(t *testing.T) {
@@ -550,18 +714,23 @@ func TestReadOutputArchiveRejectsTarInsecurePathError(t *testing.T) {
 }
 
 type fakeEngine struct {
-	t             *testing.T
-	outputArchive io.ReadCloser
-	blockWait     bool
-	exitCode      int64
-	stopErr       error
-	copyErr       error
-	logErr        error
-	logStream     io.ReadCloser
-	createOptions dockerclient.ContainerCreateOptions
-	waitOptions   dockerclient.ContainerWaitOptions
-	evidence      string
-	calls         []string
+	t                 *testing.T
+	outputArchive     io.ReadCloser
+	blockWait         bool
+	exitCode          int64
+	stopErr           error
+	copyErr           error
+	logErr            error
+	logStream         io.ReadCloser
+	networkInspectErr error
+	networkName       string
+	networkInternal   bool
+	networkIngress    bool
+	networkConfigOnly bool
+	createOptions     dockerclient.ContainerCreateOptions
+	waitOptions       dockerclient.ContainerWaitOptions
+	evidence          string
+	calls             []string
 }
 
 type recordingEgressEnforcer struct {
@@ -578,8 +747,48 @@ func (e *recordingEgressEnforcer) Validate(_ context.Context, policy ports.Conta
 	return e.err
 }
 
+func assertProxyEnv(t *testing.T, env []string, proxyURL string) {
+	t.Helper()
+	want := map[string]string{
+		"HTTP_PROXY": proxyURL, "HTTPS_PROXY": proxyURL,
+		"http_proxy": proxyURL, "https_proxy": proxyURL,
+		"ALL_PROXY": "", "NO_PROXY": "", "all_proxy": "", "no_proxy": "",
+	}
+	got := make(map[string]string, len(env))
+	for _, entry := range env {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			t.Fatalf("invalid env entry %q", entry)
+		}
+		got[name] = value
+	}
+	for name, value := range want {
+		gotValue, exists := got[name]
+		if !exists || gotValue != value {
+			t.Fatalf("%s = %q (present=%t), want %q (env=%v)", name, gotValue, exists, value, env)
+		}
+	}
+}
+
 func newFakeEngine(output io.ReadCloser) *fakeEngine {
-	return &fakeEngine{outputArchive: output}
+	return &fakeEngine{outputArchive: output, networkInternal: true}
+}
+
+func (f *fakeEngine) NetworkInspect(_ context.Context, networkID string, _ dockerclient.NetworkInspectOptions) (dockerclient.NetworkInspectResult, error) {
+	f.calls = append(f.calls, "inspect")
+	if f.networkInspectErr != nil {
+		return dockerclient.NetworkInspectResult{}, f.networkInspectErr
+	}
+	name := f.networkName
+	if name == "" {
+		name = networkID
+	}
+	return dockerclient.NetworkInspectResult{Network: dockernetwork.Inspect{Network: dockernetwork.Network{
+		Name:       name,
+		Internal:   f.networkInternal,
+		Ingress:    f.networkIngress,
+		ConfigOnly: f.networkConfigOnly,
+	}}}, nil
 }
 
 func (f *fakeEngine) ContainerCreate(_ context.Context, options dockerclient.ContainerCreateOptions) (dockerclient.ContainerCreateResult, error) {

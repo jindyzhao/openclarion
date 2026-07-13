@@ -37,6 +37,10 @@ const (
 	dockerLogFrameHeaderBytes = 8
 	sandboxInputFileMode      = 0o644
 	sandboxOutputDirMode      = 0o777
+	egressReadinessTimeout    = 10 * time.Second
+	egressReadinessMemory     = 128 * 1024 * 1024
+	egressReadinessPidsLimit  = 64
+	egressReadinessCommand    = "readiness"
 	labelComponent            = "openclarion.component"
 	labelInvocationID         = "openclarion.invocation_id"
 	labelAgentName            = "openclarion.agent_name"
@@ -46,6 +50,7 @@ const (
 // Tests use a fake implementation so cleanup, timeout, and output-copy
 // semantics stay covered without requiring a local Docker daemon.
 type EngineClient interface {
+	NetworkInspect(ctx context.Context, networkID string, options dockerclient.NetworkInspectOptions) (dockerclient.NetworkInspectResult, error)
 	ContainerCreate(ctx context.Context, options dockerclient.ContainerCreateOptions) (dockerclient.ContainerCreateResult, error)
 	ContainerStart(ctx context.Context, containerID string, options dockerclient.ContainerStartOptions) (dockerclient.ContainerStartResult, error)
 	ContainerWait(ctx context.Context, containerID string, options dockerclient.ContainerWaitOptions) dockerclient.ContainerWaitResult
@@ -137,6 +142,79 @@ func NewProviderFromEnv(cfg Config, agentConfigRoot string, opts ...ProviderOpti
 		return nil, err
 	}
 	return NewProvider(engine, cfg, agentConfigRoot, opts...)
+}
+
+// CheckEgressReadiness starts the configured diagnosis image on the same
+// internal network as real turns and requires its readiness command to verify
+// the live proxy allowlist fingerprint before the control plane starts serving.
+func (p *Provider) CheckEgressReadiness(
+	ctx context.Context,
+	llmBaseURL string,
+	policy ports.ContainerNetworkPolicy,
+) (err error) {
+	if p == nil {
+		return fmt.Errorf("docker provider is nil")
+	}
+	if ctx == nil {
+		return fmt.Errorf("docker readiness context is required")
+	}
+	if len(p.cfg.Command) > 0 {
+		return fmt.Errorf("docker egress readiness does not support a custom command; configure the runner as the image ENTRYPOINT")
+	}
+	if policy.EffectiveMode() != ports.ContainerNetworkAllowlist {
+		return fmt.Errorf("docker egress readiness requires network mode %q", ports.ContainerNetworkAllowlist)
+	}
+	if err := ports.ValidateContainerEgressURL(llmBaseURL, policy.AllowedEgress); err != nil {
+		return fmt.Errorf("docker egress readiness LLM target: %w", err)
+	}
+	allowed, err := ports.NormalizeContainerEgressTargets(policy.AllowedEgress)
+	if err != nil {
+		return fmt.Errorf("docker egress readiness allowlist: %w", err)
+	}
+	if p.cfg.EgressProxyURL == "" {
+		return fmt.Errorf("docker egress readiness proxy URL is required")
+	}
+
+	probeCtx, cancel := context.WithTimeout(ctx, egressReadinessTimeout)
+	defer cancel()
+	if err := p.validateEgress(probeCtx, policy, p.cfg.AllowlistNetworkMode); err != nil {
+		return err
+	}
+
+	create, err := p.engine.ContainerCreate(
+		probeCtx,
+		buildEgressReadinessCreateOptions(p.cfg, llmBaseURL, allowed),
+	)
+	if err != nil {
+		return fmt.Errorf("docker egress readiness container create: %w", err)
+	}
+	if create.ID == "" {
+		return fmt.Errorf("docker egress readiness container create returned empty id")
+	}
+	defer func() {
+		err = errors.Join(err, p.removeContainer(create.ID))
+	}()
+	if _, err := p.engine.ContainerStart(probeCtx, create.ID, dockerclient.ContainerStartOptions{}); err != nil {
+		return fmt.Errorf("docker egress readiness container start %s: %w", create.ID, err)
+	}
+	wait := p.engine.ContainerWait(probeCtx, create.ID, dockerclient.ContainerWaitOptions{
+		Condition: dockercontainer.WaitConditionNotRunning,
+	})
+	response, err := p.waitForExit(probeCtx, create.ID, wait)
+	if err != nil {
+		return fmt.Errorf("docker egress readiness: %w", err)
+	}
+	if response.Error != nil && response.Error.Message != "" {
+		return fmt.Errorf("docker egress readiness container %s wait error: %s", create.ID, response.Error.Message)
+	}
+	if response.StatusCode != 0 {
+		return &ports.ContainerExitError{
+			RuntimeID:  create.ID,
+			ExitCode:   int(response.StatusCode),
+			Diagnostic: p.failureLogDiagnostic(create.ID),
+		}
+	}
+	return nil
 }
 
 // Run prepares readonly input files, starts a sandbox container, waits for
@@ -234,6 +312,19 @@ func (p *Provider) validateEgress(ctx context.Context, policy ports.ContainerNet
 	}
 	if err := p.egressEnforcer.Validate(ctx, policy, networkMode); err != nil {
 		return fmt.Errorf("docker provider egress allowlist is not enforced: %w", err)
+	}
+	network, err := p.engine.NetworkInspect(ctx, networkMode, dockerclient.NetworkInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("docker provider inspect allowlist network %q: %w", networkMode, err)
+	}
+	if network.Network.Name != networkMode {
+		return fmt.Errorf("docker provider allowlist network name = %q, want %q", network.Network.Name, networkMode)
+	}
+	if !network.Network.Internal {
+		return fmt.Errorf("docker provider allowlist network %q must be internal", networkMode)
+	}
+	if network.Network.Ingress || network.Network.ConfigOnly {
+		return fmt.Errorf("docker provider allowlist network %q must not be ingress or config-only", networkMode)
 	}
 	return nil
 }
@@ -598,7 +689,7 @@ func buildCreateOptions(spec RunSpec, req ports.ContainerRunRequest) dockerclien
 		Config: &dockercontainer.Config{
 			User:            spec.User,
 			Cmd:             cloneStringSlice(spec.Command),
-			Env:             credentialEnv(req.Credentials),
+			Env:             runtimeEnv(spec, req.Credentials),
 			WorkingDir:      spec.WorkingDir,
 			NetworkDisabled: networkDisabled,
 			Labels: map[string]string{
@@ -634,6 +725,51 @@ func buildCreateOptions(spec RunSpec, req ports.ContainerRunRequest) dockerclien
 	}
 }
 
+func buildEgressReadinessCreateOptions(
+	cfg Config,
+	llmBaseURL string,
+	allowed []string,
+) dockerclient.ContainerCreateOptions {
+	pidsLimit := int64(egressReadinessPidsLimit)
+	networkMode := cfg.AllowlistNetworkMode
+	return dockerclient.ContainerCreateOptions{
+		Config: &dockercontainer.Config{
+			User: cfg.User,
+			Cmd:  []string{egressReadinessCommand},
+			Env: []string{
+				"OPENCLARION_DIAGNOSIS_LLM_BASE_URL=" + llmBaseURL,
+				"OPENCLARION_SANDBOX_EGRESS_ALLOWED=" + strings.Join(allowed, ","),
+				"OPENCLARION_SANDBOX_EGRESS_PROXY_URL=" + cfg.EgressProxyURL,
+			},
+			Labels: map[string]string{
+				labelComponent: "agent-sandbox-readiness",
+			},
+			Tty:       false,
+			OpenStdin: false,
+		},
+		HostConfig: &dockercontainer.HostConfig{
+			NetworkMode:    dockercontainer.NetworkMode(networkMode),
+			Privileged:     false,
+			ReadonlyRootfs: true,
+			SecurityOpt:    []string{NoNewPrivilegesSecurityOpt},
+			CapDrop:        []string{DropAllCapabilities},
+			AutoRemove:     false,
+			RestartPolicy:  dockercontainer.RestartPolicy{},
+			Resources: dockercontainer.Resources{
+				Memory:    egressReadinessMemory,
+				NanoCPUs:  cfg.NanoCPUs,
+				PidsLimit: &pidsLimit,
+			},
+		},
+		NetworkingConfig: &dockernetwork.NetworkingConfig{
+			EndpointsConfig: map[string]*dockernetwork.EndpointSettings{
+				networkMode: {},
+			},
+		},
+		Image: cfg.ImageRef,
+	}
+}
+
 func networkingConfigFor(spec RunSpec) *dockernetwork.NetworkingConfig {
 	if spec.NetworkMode == "" || spec.NetworkMode == string(ports.ContainerNetworkNone) {
 		return &dockernetwork.NetworkingConfig{}
@@ -654,6 +790,23 @@ func credentialEnv(credentials []ports.ContainerCredential) []string {
 		out = append(out, credential.Name+"="+credential.Value)
 	}
 	return out
+}
+
+func runtimeEnv(spec RunSpec, credentials []ports.ContainerCredential) []string {
+	out := credentialEnv(credentials)
+	if spec.EgressProxyURL == "" {
+		return out
+	}
+	return append(out,
+		"HTTP_PROXY="+spec.EgressProxyURL,
+		"HTTPS_PROXY="+spec.EgressProxyURL,
+		"ALL_PROXY=",
+		"NO_PROXY=",
+		"http_proxy="+spec.EgressProxyURL,
+		"https_proxy="+spec.EgressProxyURL,
+		"all_proxy=",
+		"no_proxy=",
+	)
 }
 
 func readOutputArchive(reader io.Reader, outputPath string, outputMax int64) (json.RawMessage, error) {

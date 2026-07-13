@@ -173,6 +173,7 @@ export OPENCLARION_SANDBOX_IMAGE_REF
 export OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT
 export OPENCLARION_SANDBOX_EGRESS_ALLOWED
 export OPENCLARION_SANDBOX_EGRESS_NETWORK
+export OPENCLARION_SANDBOX_EGRESS_PROXY_URL
 export OPENCLARION_LLM_BASE_URL
 export OPENCLARION_LLM_API_KEY
 export OPENCLARION_LLM_MODEL
@@ -250,6 +251,10 @@ require_env OPENCLARION_SANDBOX_IMAGE_REF
 require_env OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT
 require_env OPENCLARION_SANDBOX_EGRESS_ALLOWED
 require_env OPENCLARION_SANDBOX_EGRESS_NETWORK
+require_env OPENCLARION_SANDBOX_EGRESS_PROXY_URL
+if [[ -n "${OPENCLARION_SANDBOX_COMMAND_JSON:-}" ]]; then
+  fail "OPENCLARION_SANDBOX_COMMAND_JSON is not supported with diagnosis sandbox egress readiness; configure the runner as the image ENTRYPOINT"
+fi
 if [[ -z "${OPENCLARION_IM_WEBHOOK_URL:-}" && -z "${OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON:-}" ]]; then
   missing+=("OPENCLARION_IM_WEBHOOK_URL or OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON")
 fi
@@ -361,14 +366,34 @@ fi
 if ! command -v docker >/dev/null 2>&1; then
   fail "docker must be available before starting a Stage 5 sandbox-capable worker"
 fi
-if ! docker network inspect "$OPENCLARION_SANDBOX_EGRESS_NETWORK" >/dev/null 2>&1; then
+sandbox_egress_network_state="$(
+  docker network inspect "$OPENCLARION_SANDBOX_EGRESS_NETWORK" \
+    --format '{{.Name}}|{{.Internal}}|{{.Ingress}}|{{.ConfigOnly}}' 2>/dev/null
+)" || \
   fail "OPENCLARION_SANDBOX_EGRESS_NETWORK must name an existing Docker network for Stage 5 sandbox egress"
+expected_sandbox_egress_network_state="${OPENCLARION_SANDBOX_EGRESS_NETWORK}|true|false|false"
+if [[ "$sandbox_egress_network_state" != "$expected_sandbox_egress_network_state" ]]; then
+  fail "OPENCLARION_SANDBOX_EGRESS_NETWORK must name the exact internal, non-ingress, non-config-only Docker network"
 fi
 if ! docker image inspect "$OPENCLARION_SANDBOX_IMAGE_REF" >/dev/null 2>&1; then
   echo "[stage5-local-worker] pulling digest-pinned sandbox image..." >&2
   if ! docker pull "$OPENCLARION_SANDBOX_IMAGE_REF" >/dev/null 2>&1; then
     fail "OPENCLARION_SANDBOX_IMAGE_REF must be present locally or pullable by Docker before starting a Stage 5 sandbox-capable worker"
   fi
+fi
+if ! docker run --rm \
+  --network "$OPENCLARION_SANDBOX_EGRESS_NETWORK" \
+  --read-only \
+  --cap-drop ALL \
+  --security-opt no-new-privileges \
+  --user 65532:65532 \
+  --memory 128m \
+  --pids-limit 64 \
+  -e OPENCLARION_DIAGNOSIS_LLM_BASE_URL \
+  -e OPENCLARION_SANDBOX_EGRESS_ALLOWED \
+  -e OPENCLARION_SANDBOX_EGRESS_PROXY_URL \
+  "$OPENCLARION_SANDBOX_IMAGE_REF" readiness >/dev/null 2>&1; then
+  fail "diagnosis sandbox readiness probe failed; verify the LLM allowlist and sandbox egress proxy health"
 fi
 
 if [[ -n "$check_only" ]]; then

@@ -37,6 +37,8 @@ type auditProbe struct {
 	run  func() error
 }
 
+const baselineEgressProxyURL = "http://openclarion-egress-proxy:18080"
+
 func main() {
 	if err := runWithArgs(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "[sandbox-baseline-audit] %v\n", err)
@@ -180,6 +182,9 @@ func checkBatchNetworkNoneSpec() error {
 	if spec.NetworkMode != "none" {
 		return fmt.Errorf("network mode = %q, want none", spec.NetworkMode)
 	}
+	if spec.EgressProxyURL != "" {
+		return fmt.Errorf("network-none proxy URL = %q, want empty", spec.EgressProxyURL)
+	}
 	if err := requireReadonlyMount(spec, ports.SandboxEvidencePath); err != nil {
 		return err
 	}
@@ -264,6 +269,9 @@ func checkAllowlistEnforcerSubset() error {
 	if spec.NetworkMode != dockerprovider.DefaultAllowlistNetworkMode {
 		return fmt.Errorf("allowlist network = %q, want %q", spec.NetworkMode, dockerprovider.DefaultAllowlistNetworkMode)
 	}
+	if spec.EgressProxyURL != baselineEgressProxyURL {
+		return fmt.Errorf("allowlist proxy URL = %q, want %q", spec.EgressProxyURL, baselineEgressProxyURL)
+	}
 	enforcer, err := dockerprovider.NewStaticAllowlistEnforcer(dockerprovider.DefaultAllowlistNetworkMode, []string{
 		"prometheus.internal:9090",
 		"api.openai.com:443",
@@ -345,6 +353,7 @@ func baselineConfig() dockerprovider.Config {
 		User:            dockerprovider.DefaultUser,
 		ReadonlyRootFS:  true,
 		NoNewPrivileges: true,
+		EgressProxyURL:  baselineEgressProxyURL,
 	}
 }
 

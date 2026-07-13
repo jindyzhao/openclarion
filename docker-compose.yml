@@ -13,7 +13,9 @@
 #     that policy is enforced by a separate CI gate introduced at M4.
 #
 # Usage:
-#   docker compose up -d          # start all services
+#   docker compose up -d          # start PostgreSQL and Temporal
+#   docker compose --profile sandbox-egress up -d --wait
+#                                # also start the isolated sandbox proxy
 #   docker compose down -v        # stop and remove volumes
 #   docker compose logs temporal  # view temporal logs
 #
@@ -22,7 +24,7 @@
 #       docker compose up -d --wait
 #
 # Prerequisites:
-#   Docker Engine 24+ with Compose V2
+#   Docker Engine 24+ with Docker Compose 2.33.1+ (`gw_priority` support)
 
 services:
   postgres:
@@ -103,5 +105,41 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  openclarion-egress-proxy:
+    image: "${OPENCLARION_LOCAL_EGRESS_PROXY_IMAGE:-openclarion/local-egress-proxy:dev}"
+    pull_policy: never
+    profiles: ["sandbox-egress"]
+    environment:
+      OPENCLARION_EGRESS_PROXY_ALLOWED: "${OPENCLARION_SANDBOX_EGRESS_ALLOWED:-}"
+      OPENCLARION_EGRESS_PROXY_LISTEN_ADDR: ":18080"
+    expose:
+      - "18080"
+    user: "65532:65532"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 64m
+    cpus: 0.50
+    networks:
+      default:
+        gw_priority: 1
+      sandbox-egress:
+        aliases:
+          - openclarion-egress-proxy
+    healthcheck:
+      test: ["CMD", "/openclarion-egress-proxy", "healthcheck", "http://127.0.0.1:18080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+
+networks:
+  sandbox-egress:
+    name: "${OPENCLARION_SANDBOX_EGRESS_NETWORK:-openclarion-sandbox-allowlist}"
+    internal: true

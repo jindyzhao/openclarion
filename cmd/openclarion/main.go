@@ -74,6 +74,13 @@ import (
 
 type getenvFunc func(string) string
 
+type diagnosisSandboxReadinessChecker func(
+	context.Context,
+	*containerdocker.Provider,
+	string,
+	ports.ContainerNetworkPolicy,
+) error
+
 const (
 	temporalTaskQueueEnv = "OPENCLARION_TEMPORAL_TASK_QUEUE"
 	publicBaseURLEnv     = "OPENCLARION_PUBLIC_BASE_URL"
@@ -149,6 +156,7 @@ const (
 	diagnosisWeComCallbackEncodingAESKeyEnv = "OPENCLARION_WECOM_CALLBACK_ENCODING_AES_KEY"
 	diagnosisWeComCallbackReceiveIDEnv      = "OPENCLARION_WECOM_CALLBACK_RECEIVE_ID"
 	reportLLMHTTPTimeoutSecondsEnv          = "OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS"
+	sandboxEgressProxyURLEnv                = "OPENCLARION_SANDBOX_EGRESS_PROXY_URL"
 	reportReplayCLICommand                  = "report-replay"
 	reportPolicyReplayCLICommand            = "report-policy-replay"
 	reportScheduleLiveSmokeCLICommand       = "report-schedule-live-smoke"
@@ -331,7 +339,13 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	diagnosisActivityOptions, err := diagnosisActivityOptionsFromEnv(logger, os.Getenv, httpTracing)
+	diagnosisActivityOptions, err := diagnosisActivityOptionsFromEnv(
+		ctx,
+		logger,
+		os.Getenv,
+		httpTracing,
+		checkDiagnosisSandboxReadiness,
+	)
 	if err != nil {
 		return err
 	}
@@ -721,9 +735,11 @@ func notificationChannelEmailFactory() notificationchannelprovider.EmailFactory 
 }
 
 func diagnosisActivityOptionsFromEnv(
+	ctx context.Context,
 	logger *slog.Logger,
 	getenv getenvFunc,
 	httpTracing *observabilitytracing.HTTPTracing,
+	readinessChecker diagnosisSandboxReadinessChecker,
 ) ([]temporalpkg.ActivityOption, error) {
 	var opts []temporalpkg.ActivityOption
 	publicBaseURL, err := publicBaseURLFromEnv(getenv)
@@ -755,6 +771,7 @@ func diagnosisActivityOptionsFromEnv(
 		"OPENCLARION_SANDBOX_WORKSPACE_ROOT",
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED",
 		"OPENCLARION_SANDBOX_EGRESS_NETWORK",
+		sandboxEgressProxyURLEnv,
 	)
 	if !sandboxConfigured {
 		logger.Warn("diagnosis sandbox provider is not configured; diagnosis-room turns require OPENCLARION_SANDBOX_IMAGE_REF and OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT before live use")
@@ -773,6 +790,9 @@ func diagnosisActivityOptionsFromEnv(
 	if err != nil {
 		return nil, err
 	}
+	if len(command) > 0 {
+		return nil, fmt.Errorf("OPENCLARION_SANDBOX_COMMAND_JSON is not supported with diagnosis sandbox egress readiness; configure the runner as the image ENTRYPOINT")
+	}
 	containerCredentials, err := diagnosisContainerCredentialsFromEnv(getenv)
 	if err != nil {
 		return nil, err
@@ -783,23 +803,29 @@ func diagnosisActivityOptionsFromEnv(
 		providerOpts = append(providerOpts, containerdocker.WithWorkspaceRoot(workspaceRoot))
 	}
 	allowedEgress := csvValues(getenv("OPENCLARION_SANDBOX_EGRESS_ALLOWED"))
-	networkPolicy := ports.ContainerNetworkPolicy{Mode: ports.ContainerNetworkNone}
-	allowlistNetworkMode := ""
-	if len(allowedEgress) > 0 {
-		networkMode := strings.TrimSpace(getenv("OPENCLARION_SANDBOX_EGRESS_NETWORK"))
-		if networkMode == "" {
-			networkMode = containerdocker.DefaultAllowlistNetworkMode
-		}
-		enforcer, err := containerdocker.NewStaticAllowlistEnforcer(networkMode, allowedEgress)
-		if err != nil {
-			return nil, fmt.Errorf("configure sandbox egress enforcer: %w", err)
-		}
-		providerOpts = append(providerOpts, containerdocker.WithEgressEnforcer(enforcer))
-		networkPolicy = ports.ContainerNetworkPolicy{
-			Mode:          ports.ContainerNetworkAllowlist,
-			AllowedEgress: allowedEgress,
-		}
-		allowlistNetworkMode = networkMode
+	if len(allowedEgress) == 0 {
+		return nil, fmt.Errorf("OPENCLARION_SANDBOX_EGRESS_ALLOWED is required when configuring the diagnosis sandbox provider")
+	}
+	egressProxyURL := strings.TrimSpace(getenv(sandboxEgressProxyURLEnv))
+	if egressProxyURL == "" {
+		return nil, fmt.Errorf("%s is required when configuring the diagnosis sandbox provider", sandboxEgressProxyURLEnv)
+	}
+	llmBaseURL := getenv("OPENCLARION_DIAGNOSIS_LLM_BASE_URL")
+	if err := validateSandboxEgressCoversURL(llmBaseURL, allowedEgress); err != nil {
+		return nil, err
+	}
+	networkMode := strings.TrimSpace(getenv("OPENCLARION_SANDBOX_EGRESS_NETWORK"))
+	if networkMode == "" {
+		networkMode = containerdocker.DefaultAllowlistNetworkMode
+	}
+	enforcer, err := containerdocker.NewStaticAllowlistEnforcer(networkMode, allowedEgress)
+	if err != nil {
+		return nil, fmt.Errorf("configure sandbox egress enforcer: %w", err)
+	}
+	providerOpts = append(providerOpts, containerdocker.WithEgressEnforcer(enforcer))
+	networkPolicy := ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: allowedEgress,
 	}
 
 	provider, err := containerdocker.NewProviderFromEnv(containerdocker.Config{
@@ -807,10 +833,17 @@ func diagnosisActivityOptionsFromEnv(
 		ReadonlyRootFS:       true,
 		NoNewPrivileges:      true,
 		Command:              command,
-		AllowlistNetworkMode: allowlistNetworkMode,
+		AllowlistNetworkMode: networkMode,
+		EgressProxyURL:       egressProxyURL,
 	}, agentConfigRoot, providerOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("configure diagnosis sandbox provider: %w", err)
+	}
+	if readinessChecker == nil {
+		return nil, fmt.Errorf("diagnosis sandbox readiness checker is required")
+	}
+	if err := readinessChecker(ctx, provider, llmBaseURL, networkPolicy); err != nil {
+		return nil, fmt.Errorf("verify diagnosis sandbox readiness: %w", err)
 	}
 	logger.Info("configured diagnosis sandbox provider", "provider", "docker")
 	opts = append(opts,
@@ -819,6 +852,25 @@ func diagnosisActivityOptionsFromEnv(
 		temporalpkg.WithContainerNetworkPolicy(networkPolicy),
 	)
 	return opts, nil
+}
+
+func checkDiagnosisSandboxReadiness(
+	ctx context.Context,
+	provider *containerdocker.Provider,
+	llmBaseURL string,
+	policy ports.ContainerNetworkPolicy,
+) error {
+	return provider.CheckEgressReadiness(ctx, llmBaseURL, policy)
+}
+
+func validateSandboxEgressCoversURL(rawURL string, allowedTargets []string) error {
+	if err := ports.ValidateContainerEgressURL(rawURL, allowedTargets); err != nil {
+		return fmt.Errorf(
+			"validate OPENCLARION_DIAGNOSIS_LLM_BASE_URL against OPENCLARION_SANDBOX_EGRESS_ALLOWED: %w",
+			err,
+		)
+	}
+	return nil
 }
 
 func publicBaseURLFromEnv(getenv getenvFunc) (*url.URL, error) {

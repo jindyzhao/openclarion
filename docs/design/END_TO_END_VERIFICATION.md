@@ -5,7 +5,7 @@
 > node has a concrete technical implementation path. Verdicts are classified
 > honestly — not everything is "proven".
 
-> Last updated: 2026-07-07
+> Last updated: 2026-07-13
 
 ## Verdict Scale
 
@@ -152,7 +152,7 @@ Temporal workflow (from Chain A)
 | B2 | Start container | `github.com/docker/docker/client` → `ContainerCreate()` + `ContainerStart()` | proven |
 | B3 | Mount evidence + config | readonly bind mounts for inputs; private writable output bind mount capped by `fsize` and Go read limit | proven |
 | B4 | Non-root + limits | `User = "nonroot"`, `Resources.Memory`, `NanoCPUs`, `SecurityOpt: ["no-new-privileges"]` | proven |
-| B5 | Egress control | Docker network isolation + explicit provider endpoint binding to a dedicated allowlist network backed by an external proxy or firewall | **proven-local** |
+| B5 | Egress control | Docker internal network + bundled dual-network exact-target HTTP/CONNECT proxy + provider-owned proxy environment | **proven-local** |
 | B6 | Agent loads config | Agent runtime reads `/workspace/agent_config/agent.yaml` at startup | proven |
 | B7 | Agent queries data | V1-proven direct HTTP to allowed endpoints (Prometheus, K8s); post-V1: MCP-over-Streamable-HTTP | proven |
 | B8 | Agent writes output | Writes to `/workspace/out/output.json` on the only writable output mount | proven |
@@ -171,28 +171,39 @@ Docker can isolate containers (`--network=none`, internal networks), but
 | K8s NetworkPolicy | If deployed on K8s, CiliumNetworkPolicy can do L7 filtering | K8s-only; not applicable to bare Docker |
 | DNS-based + firewall | Resolve allowed domains, block everything else | domain-level; needs DNS sidecar |
 
-**V1 direction**: default remains network-none. Allowlist mode uses a dedicated
-Docker network plus an external egress proxy or firewall boundary. The
-provider-neutral contract now accepts only exact `host[:port]` targets, and the
-Docker `StaticAllowlistEnforcer` can reject requests that are not a subset of
-an externally provisioned allowlist. Note: if LLM API is public SaaS
-(e.g. api.openai.com), IP-based allowlists are fragile because SaaS IPs rotate.
-For SaaS LLM targets, egress proxy (Envoy/Squid with domain allowlist) is
-recommended even in V1.
+**V1 implementation**: default remains network-none for offline runtimes.
+Diagnosis runtime allowlist mode uses the Compose-managed internal
+`openclarion-sandbox-allowlist` network and bundled
+`openclarion-egress-proxy`. The proxy is dual-homed, but sandbox containers
+join only the internal network. The provider-neutral contract accepts only
+exact `host:port` targets, while the proxy enforces those targets for HTTP
+forwarding and HTTPS CONNECT. This local Compose topology requires Docker
+Compose 2.33.1 or later because its external default route is selected with
+`gw_priority`.
 
 `make egress-allowdeny-smoke` proves this topology locally with Docker: a
 sandbox client on an internal network reaches `allowed.internal:8080` through a
 dual-network proxy, receives 403 for `denied.internal:8080`, and cannot bypass
 the proxy to reach the upstream network directly.
 
-The Docker provider now carries the chosen allowlist network as configuration,
-rejects Docker special modes such as `host`, `bridge`, and `none`, validates the
-requested targets through the injected egress enforcer, and passes an explicit
-`NetworkingConfig.EndpointsConfig` entry to Docker `ContainerCreate` so the
-candidate runtime is attached to the reviewed dedicated network. The external
-proxy or firewall still remains operator-provisioned infrastructure and must be
-represented by retained smoke evidence before an M4 decision packet can support
-acceptance.
+The Docker provider carries the chosen allowlist network and credential-free
+proxy URL as configuration, rejects Docker special modes such as `host`,
+`bridge`, and `none`, validates the requested targets through the injected
+egress enforcer, and passes an explicit `NetworkingConfig.EndpointsConfig`
+entry to Docker `ContainerCreate`. Before create, it inspects the selected
+network and requires the exact configured name, `Internal=true`, and a
+non-ingress, non-config-only network. It owns upper- and lower-case HTTP proxy
+variables, clears bypass variables, and rejects credentials that attempt to
+override them. Worker startup verifies that the configured diagnosis LLM
+target is covered by the allowlist, inspects the internal network, and runs the
+configured diagnosis image on that network before accepting the configuration.
+The Stage 5 readiness command performs the same preflight before launching the
+worker. Both paths invoke `readiness` through the configured image's exec-form
+`ENTRYPOINT`; egress-enabled command overrides fail before Docker create. Both
+paths validate the proxy readiness endpoint with a canonical
+SHA-256 fingerprint, so the running proxy must have loaded the complete
+expected allowlist without exposing its targets or sending a business request
+to the LLM.
 
 ### Chain B Additional Constraints
 
@@ -205,7 +216,8 @@ acceptance.
   and credentials whose expiry exceeds the effective container timeout
   immediately before `ContainerCreate()`, then injects accepted credentials via
   environment variables. Errors name the credential but never include the
-  credential value. Credential issuance/rotation remains runtime wiring.
+  credential value. Diagnosis runtime wiring materializes each credential's
+  invocation-scoped expiry before container creation.
 - **Docker daemon privilege**: ContainerProvider requires access to Docker
   socket. V1 permits a local host socket only as a control-plane boundary;
   agent containers must never receive the socket as a mount. Remote Docker
@@ -221,18 +233,16 @@ acceptance.
   bind mounts. Agent cannot write outside `/workspace/out/`.
 
 **Chain B conclusion**: B5 provider wiring is proven locally with a configured
-dedicated Docker network and create-time endpoint binding; the external
-proxy/firewall remains an operator-provisioned boundary that must be backed by
-retained smoke evidence. The Docker Engine provider now fails closed for
-allowlist-mode requests unless an injected egress enforcer validates the
-provider-specific network boundary before container creation, rejects allowlist
-targets that are not exact `host[:port]` values, rejects long-lived or expired
-runtime credentials before create, and has a manual live Docker smoke through
+internal Docker network, bundled dual-network proxy, runtime network inspection,
+and create-time endpoint binding. The Docker Engine provider fails closed unless
+the egress enforcer, internal network, proxy URL, and target coverage are valid,
+rejects non-exact, local, or unspecified allowlist targets, rejects long-lived,
+expired, or proxy-overriding runtime credentials before create, and has a
+manual live Docker smoke through
 `make container-provider-smoke`, timeout cleanup proof through
 `make container-provider-timeout-smoke`, and output cap proof through
 `make container-provider-output-cap-smoke`. A concrete Docker internal-network
-and proxy allow/deny smoke passes locally, but credential issuer wiring remains
-separate M4 work.
+and proxy allow/deny smoke passes locally.
 `scripts/sandbox_m4_decision` now provides the auditable proceed/iterate/defer
 decision path once real baseline-audit, manifest-mode quality, runtime-smoke,
 and human-review evidence files exist. Runtime-smoke sources are bound to their
@@ -514,7 +524,7 @@ the WS handler and Temporal worker are colocated or separate.
 | Node | Verdict | Key Constraint |
 |------|---------|----------------|
 | A6 | feasible-with-constraint | provider-capability dependent; strict preferred, JSON mode + validation fallback |
-| B5 | feasible-with-constraint | requires egress proxy or iptables design; Docker isolation alone is insufficient |
+| B5 | proven-local | bundled dual-network proxy plus internal sandbox network blocks direct bypass |
 | C2 | proven-local | WS ticket model (short-lived, single-use); no JWT in query string; authenticated submit/query relay proven locally |
 | C9 | feasible-with-constraint | byte/token budget enforced at workflow level; truncate or reject on exceed |
 | C13 | proven-local | Temporal Update primary path wired to WebSocket relay; Query handles reconnect state |
@@ -527,7 +537,7 @@ the WS handler and Temporal worker are colocated or separate.
 | Risk | Category | Chain | V1 Mitigation |
 |------|----------|-------|---------------|
 | LLM structured output compatibility | engineering | A6 | two-tier strategy (strict + fallback); provider capability detection |
-| Egress allowlist enforcement | engineering | B5 | Docker internal net + host iptables; egress proxy design before M4 |
+| Egress allowlist enforcement | engineering | B5 | bundled exact-target proxy, internal sandbox network, provider-owned proxy environment |
 | Per-turn container startup latency | UX | C7-C10 | ~1-3s acceptable for V1; post-V1: persistent container with HTTP endpoint |
 | Conversation context exceeds budget | engineering | C9 | enforce budget before container mount; truncate oldest turns |
 | WS auth token exposure | security | C2 | ticket model (30s TTL, single-use, not in logs) |
@@ -554,10 +564,9 @@ All three chains are technically feasible:
   [alert-operations-live-proof-runbook.md](alert-operations-live-proof-runbook.md).
 - **Chain B** (M4): B5 provider wiring is proven locally. The Docker Engine
   API, file-based contract, explicit allowlist network endpoint binding,
-  Provider live/timeout/output-cap smokes, and local proxy allow/deny topology
-  are proven; production acceptance still requires retained candidate-runtime
-  evidence, representative quality comparison, human review, and the M4
-  decision packet.
+  provider-owned proxy variables, Provider live/timeout/output-cap smokes, and
+  local proxy allow/deny topology are proven. The optional M4 report-enhancer
+  acceptance still requires its separate quality and review decision.
 - **Chain C** (M5): locally proven through the control-plane path. C1-C8 and
   C11-C15, lifecycle audit persistence, final close notification, room
   creation, and the mocked browser diagnosis-room route are proven locally at

@@ -31,7 +31,7 @@ func TestContainerRunRequestValidateAcceptsM5TurnFilesAndAllowlist(t *testing.T)
 	req.Message = json.RawMessage(`{"role":"user","content":"what changed?"}`)
 	req.Network = ContainerNetworkPolicy{
 		Mode:          ContainerNetworkAllowlist,
-		AllowedEgress: []string{"prometheus.internal:9090", "api.openai.com"},
+		AllowedEgress: []string{"prometheus.internal:9090", "api.openai.com:443"},
 	}
 	if err := req.Validate(); err != nil {
 		t.Fatalf("Validate: %v", err)
@@ -39,13 +39,154 @@ func TestContainerRunRequestValidateAcceptsM5TurnFilesAndAllowlist(t *testing.T)
 }
 
 func TestNormalizeContainerEgressTargets(t *testing.T) {
-	got, err := NormalizeContainerEgressTargets([]string{"Prometheus.Internal:9090", "api.openai.com"})
+	got, err := NormalizeContainerEgressTargets([]string{"Prometheus.Internal:9090", "api.openai.com:443"})
 	if err != nil {
 		t.Fatalf("NormalizeContainerEgressTargets: %v", err)
 	}
-	want := []string{"prometheus.internal:9090", "api.openai.com"}
+	want := []string{"prometheus.internal:9090", "api.openai.com:443"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("NormalizeContainerEgressTargets = %v, want %v", got, want)
+	}
+}
+
+func TestContainerEgressAllowlistFingerprintIsOrderIndependent(t *testing.T) {
+	first, err := ContainerEgressAllowlistFingerprint([]string{
+		"metrics.example.invalid:9090",
+		"llm.example.invalid:443",
+	})
+	if err != nil {
+		t.Fatalf("ContainerEgressAllowlistFingerprint first: %v", err)
+	}
+	second, err := ContainerEgressAllowlistFingerprint([]string{
+		"LLM.EXAMPLE.INVALID:443",
+		"metrics.example.invalid:9090",
+	})
+	if err != nil {
+		t.Fatalf("ContainerEgressAllowlistFingerprint second: %v", err)
+	}
+	if first != second || len(first) != 64 {
+		t.Fatalf("fingerprints = %q and %q, want matching SHA-256 values", first, second)
+	}
+	different, err := ContainerEgressAllowlistFingerprint([]string{"other.example.invalid:443"})
+	if err != nil {
+		t.Fatalf("ContainerEgressAllowlistFingerprint different: %v", err)
+	}
+	if different == first {
+		t.Fatal("different allowlists produced the same fingerprint")
+	}
+}
+
+func TestNormalizeContainerEgressProxyURL(t *testing.T) {
+	got, err := NormalizeContainerEgressProxyURL("http://Proxy.Example.Invalid:18080/")
+	if err != nil {
+		t.Fatalf("NormalizeContainerEgressProxyURL: %v", err)
+	}
+	if want := "http://proxy.example.invalid:18080"; got != want {
+		t.Fatalf("NormalizeContainerEgressProxyURL = %q, want %q", got, want)
+	}
+
+	tests := []struct {
+		name    string
+		rawURL  string
+		wantErr string
+	}{
+		{name: "empty query", rawURL: "http://proxy.example.invalid?", wantErr: "query or fragment"},
+		{name: "missing port", rawURL: "http://proxy.example.invalid", wantErr: "explicit port"},
+		{name: "localhost", rawURL: "http://localhost:18080", wantErr: "loopback or unspecified"},
+		// #nosec G101 -- test-only credential-bearing URL verifies redaction.
+		{name: "userinfo", rawURL: "http://operator:secret@proxy.example.invalid", wantErr: "userinfo"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NormalizeContainerEgressProxyURL(tt.rawURL)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("NormalizeContainerEgressProxyURL error = %v, want containing %q", err, tt.wantErr)
+			}
+			if strings.Contains(err.Error(), "operator") || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("NormalizeContainerEgressProxyURL leaked userinfo: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateContainerEgressURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawURL  string
+		allowed []string
+		wantErr string
+	}{
+		{
+			name:    "default https port by explicit target",
+			rawURL:  "https://llm.example.invalid/v1",
+			allowed: []string{"LLM.EXAMPLE.INVALID:443"},
+		},
+		{
+			name:    "explicit non-default port",
+			rawURL:  "http://llm.example.invalid:8080/v1",
+			allowed: []string{"llm.example.invalid:8080"},
+		},
+		{
+			name:    "bare allowlist host",
+			rawURL:  "https://llm.example.invalid/v1",
+			allowed: []string{"llm.example.invalid"},
+			wantErr: "explicit port",
+		},
+		{
+			name:    "wrong port",
+			rawURL:  "https://llm.example.invalid:8443/v1",
+			allowed: []string{"llm.example.invalid:443"},
+			wantErr: "host must be listed",
+		},
+		{
+			name:    "localhost",
+			rawURL:  "http://localhost:11434/v1",
+			allowed: []string{"localhost:11434"},
+			wantErr: "localhost, loopback, or unspecified",
+		},
+		{
+			name:    "loopback IP",
+			rawURL:  "http://127.0.0.1:11434/v1",
+			allowed: []string{"127.0.0.1:11434"},
+			wantErr: "localhost, loopback, or unspecified",
+		},
+		{
+			name:    "unspecified IP",
+			rawURL:  "http://0.0.0.0:11434/v1",
+			allowed: []string{"0.0.0.0:11434"},
+			wantErr: "localhost, loopback, or unspecified",
+		},
+		// #nosec G101 -- test-only credential-bearing URL verifies rejection.
+		{
+			name:    "userinfo",
+			rawURL:  "https://user:secret@llm.example.invalid/v1",
+			allowed: []string{"llm.example.invalid:443"},
+			wantErr: "without userinfo",
+		},
+		{
+			name:    "surrounding whitespace",
+			rawURL:  " https://llm.example.invalid/v1",
+			allowed: []string{"llm.example.invalid:443"},
+			wantErr: "surrounding whitespace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateContainerEgressURL(tt.rawURL, tt.allowed)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateContainerEgressURL: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ValidateContainerEgressURL err = %v, want %q", err, tt.wantErr)
+			}
+			if strings.Contains(err.Error(), "secret") {
+				t.Fatalf("error leaked URL credential: %v", err)
+			}
+		})
 	}
 }
 
@@ -151,11 +292,25 @@ func TestContainerRunRequestValidateRejectsInvalidInputs(t *testing.T) {
 			wantErr: "whitespace",
 		},
 		{
+			name: "egress target without port",
+			mutate: func(req *ContainerRunRequest) {
+				req.Network = ContainerNetworkPolicy{Mode: ContainerNetworkAllowlist, AllowedEgress: []string{"prometheus.internal"}}
+			},
+			wantErr: "explicit port",
+		},
+		{
+			name: "egress target is localhost",
+			mutate: func(req *ContainerRunRequest) {
+				req.Network = ContainerNetworkPolicy{Mode: ContainerNetworkAllowlist, AllowedEgress: []string{"localhost:11434"}}
+			},
+			wantErr: "localhost, loopback, or unspecified",
+		},
+		{
 			name: "egress target with path",
 			mutate: func(req *ContainerRunRequest) {
 				req.Network = ContainerNetworkPolicy{Mode: ContainerNetworkAllowlist, AllowedEgress: []string{"prometheus.internal:9090/api/v1/query"}}
 			},
-			wantErr: "host[:port]",
+			wantErr: "host:port",
 		},
 		{
 			name: "egress target invalid port",

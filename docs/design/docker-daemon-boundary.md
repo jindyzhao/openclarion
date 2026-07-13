@@ -40,6 +40,11 @@ For the V1 host-socket mode:
 - Run the bundled allowlist proxy only on an operator-owned internal Docker
   network without a published host port. It is not an authenticated shared
   forward proxy.
+- Attach sandbox containers only to that internal network. The proxy is the
+  only service that also joins a network with external connectivity.
+- Let the Docker provider own upper- and lower-case HTTP proxy variables,
+  clear bypass variables, and reject runtime credentials that attempt to
+  override those names.
 - Keep allowlisted DNS names under trusted operator or provider ownership;
   exact hostname matching does not protect a target whose DNS is compromised.
 
@@ -53,6 +58,8 @@ References:
 
 - [Docker: Protect the Docker daemon socket](https://docs.docker.com/engine/security/protect-access/)
 - [Docker: Configure remote access for Docker daemon](https://docs.docker.com/engine/daemon/remote-access/)
+- [Docker: Configure proxy settings](https://docs.docker.com/engine/cli/proxy/)
+- [Docker Compose: Networking](https://docs.docker.com/compose/how-tos/networking/)
 
 ## Post-V1 Direction
 
@@ -83,17 +90,26 @@ Documented and test-covered now:
   `make container-provider-output-cap-smoke`.
 - Concrete Docker internal-network + proxy allow/deny smoke through
   `make egress-allowdeny-smoke`.
-- Bundled exact `host[:port]` HTTP/CONNECT proxy, packaged as a non-root scratch
+- Bundled exact `host:port` HTTP/CONNECT proxy, packaged as a non-root scratch
   image through `make local-egress-proxy-build`; focused tests cover allowed and
   denied targets, CONNECT tunneling, hop-by-hop header removal, health checks,
   and malformed configuration.
+- Compose `sandbox-egress` profile with an externally isolated sandbox network,
+  a dual-network proxy without a published host port, and local-only image
+  pull policy.
+- Docker provider fail-closed proxy URL validation, proxy environment
+  injection, bypass-variable clearing, credential override rejection, and
+  diagnosis LLM target coverage validation before worker startup. Startup
+  launches the diagnosis image on the selected internal network and verifies
+  the live proxy allowlist fingerprint before accepting the configuration.
+  Each allowlist invocation also inspects that network before create and
+  requires the exact configured name, `Internal=true`, and a non-ingress,
+  non-config-only runtime network.
 - Local custom thin runner candidate proof through
   `make custom-thin-runner-smoke`, using a digest-pinned localhost-registry
   image reference through both runtime and Provider harnesses.
 
 Still pending:
 
-- Live Docker daemon proof using a real OpenClaw or Hermes Agent framework
-  candidate image.
-- Production egress proxy/firewall wiring into the accepted candidate runtime.
+- Full Docker provider-path proof using the bundled Eino diagnosis runner.
 - Rootless Docker or dedicated sandbox host proof for post-V1.

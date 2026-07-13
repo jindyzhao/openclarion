@@ -290,14 +290,16 @@ changes from the proven local stack.
 - `OPENCLARION_SANDBOX_IMAGE_REF` and
   `OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT` enable the Docker-backed
   `ContainerProvider` for per-turn `RunDiagnosisTurn` Activities
-- optional `OPENCLARION_SANDBOX_COMMAND_JSON`,
-  `OPENCLARION_SANDBOX_WORKSPACE_ROOT`,
+- optional `OPENCLARION_SANDBOX_WORKSPACE_ROOT`,
   `OPENCLARION_SANDBOX_EGRESS_ALLOWED`, and
   `OPENCLARION_SANDBOX_EGRESS_NETWORK` customize the sandbox runtime boundary
   when per-turn egress is enabled. The egress network must name a dedicated
   Docker network backed by the reviewed proxy or firewall boundary; Docker
   special modes such as `host`, `bridge`, and `none` are rejected for
-  allowlist mode.
+  allowlist mode. Egress-enabled images must expose their runner through an
+  exec-form image `ENTRYPOINT` and implement the `readiness` subcommand;
+  `OPENCLARION_SANDBOX_COMMAND_JSON` overrides are rejected because they cannot
+  preserve a portable image-level readiness contract.
 - optional `OPENCLARION_AUTO_DIAGNOSIS_MAX_ROOMS_PER_TRIGGER` bounds automatic
   auto-room fan-out per alert intake or report-policy replay; it defaults to 3
   and may be raised up to 100 only when the LLM and sandbox capacity can absorb

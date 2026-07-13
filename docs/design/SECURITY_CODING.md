@@ -39,8 +39,9 @@ compression is out of scope for V1 short-conversation diagnosis.
 - **Egress control**: container network must restrict outbound traffic to an
   explicit allowlist. SaaS endpoints with rotating IPs require a domain-based
   egress proxy (Envoy/Squid), not IP-based iptables rules. Allowlist targets
-  must be exact `host[:port]` entries; URLs, paths, wildcards, whitespace,
-  invalid ports, and duplicate entries are rejected before runtime allocation.
+  must be exact `host:port` entries; URLs, paths, wildcards, whitespace,
+  localhost/loopback/unspecified hosts, invalid ports, and duplicate entries
+  are rejected before runtime allocation.
 
 ## WebSocket Authentication
 

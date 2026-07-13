@@ -19,7 +19,7 @@ type StaticAllowlistEnforcer struct {
 var _ EgressEnforcer = (*StaticAllowlistEnforcer)(nil)
 
 // NewStaticAllowlistEnforcer creates an enforcer for an externally configured
-// allowlist network. The allowed targets use the same host[:port] contract as
+// allowlist network. The allowed targets use the same host:port contract as
 // ports.ContainerNetworkPolicy.
 func NewStaticAllowlistEnforcer(networkMode string, allowedTargets []string) (*StaticAllowlistEnforcer, error) {
 	if err := validateAllowlistNetworkMode(networkMode); err != nil {

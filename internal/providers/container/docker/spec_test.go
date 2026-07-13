@@ -9,7 +9,10 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
-const pinnedImage = "registry.example.com/openclarion/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+const (
+	pinnedImage        = "registry.example.com/openclarion/agent@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	testEgressProxyURL = "http://openclarion-egress-proxy:18080"
+)
 
 func TestBuildRunSpecUsesSecureDockerDefaults(t *testing.T) {
 	req := validRequest()
@@ -50,6 +53,9 @@ func TestBuildRunSpecUsesSecureDockerDefaults(t *testing.T) {
 	}
 	if spec.NetworkMode != "none" {
 		t.Fatalf("NetworkMode = %q, want none", spec.NetworkMode)
+	}
+	if spec.EgressProxyURL != "" {
+		t.Fatalf("EgressProxyURL = %q, want empty for network-none", spec.EgressProxyURL)
 	}
 	if spec.OutputMount.Target != ports.SandboxOutputDir || spec.OutputMount.ReadOnly {
 		t.Fatalf("OutputMount = %#v", spec.OutputMount)
@@ -92,6 +98,68 @@ func TestBuildRunSpecAllowlistUsesDedicatedNetwork(t *testing.T) {
 	}
 	if spec.NetworkMode != DefaultAllowlistNetworkMode {
 		t.Fatalf("NetworkMode = %q, want dedicated allowlist network", spec.NetworkMode)
+	}
+	if spec.EgressProxyURL != testEgressProxyURL {
+		t.Fatalf("EgressProxyURL = %q, want %q", spec.EgressProxyURL, testEgressProxyURL)
+	}
+}
+
+func TestBuildRunSpecAllowlistNormalizesProxyURL(t *testing.T) {
+	req := validRequest()
+	req.Network = ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: []string{"prometheus.internal:9090"},
+	}
+	cfg := validConfig()
+	cfg.EgressProxyURL += "/"
+
+	spec, err := BuildRunSpec(cfg, req, validWorkspace())
+	if err != nil {
+		t.Fatalf("BuildRunSpec: %v", err)
+	}
+	if spec.EgressProxyURL != testEgressProxyURL {
+		t.Fatalf("EgressProxyURL = %q, want %q", spec.EgressProxyURL, testEgressProxyURL)
+	}
+	normalized, err := cfg.Normalized()
+	if err != nil {
+		t.Fatalf("Config.Normalized: %v", err)
+	}
+	if normalized.EgressProxyURL != testEgressProxyURL {
+		t.Fatalf("normalized EgressProxyURL = %q, want %q", normalized.EgressProxyURL, testEgressProxyURL)
+	}
+
+	spec.EgressProxyURL += "/"
+	if err = ValidateRunSpec(spec, req); err == nil || !strings.Contains(err.Error(), "must be normalized") {
+		t.Fatalf("ValidateRunSpec error = %v, want non-canonical proxy rejection", err)
+	}
+}
+
+func TestBuildRunSpecAllowlistRequiresProxyURL(t *testing.T) {
+	req := validRequest()
+	req.Network = ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: []string{"prometheus.internal:9090"},
+	}
+	cfg := validConfig()
+	cfg.EgressProxyURL = ""
+
+	_, err := BuildRunSpec(cfg, req, validWorkspace())
+	if err == nil || !strings.Contains(err.Error(), "egress proxy URL is required") {
+		t.Fatalf("BuildRunSpec err = %v, want missing proxy URL", err)
+	}
+}
+
+func TestBuildRunSpecRejectsCredentialProxyOverride(t *testing.T) {
+	req := validRequest()
+	req.Credentials = []ports.ContainerCredential{{
+		Name:      "HTTPS_PROXY",
+		Value:     "http://bypass.example.test:8080",
+		ExpiresAt: time.Now().Add(time.Minute),
+	}}
+
+	_, err := BuildRunSpec(validConfig(), req, validWorkspace())
+	if err == nil || !strings.Contains(err.Error(), "reserved by the Docker egress boundary") {
+		t.Fatalf("BuildRunSpec err = %v, want reserved proxy env rejection", err)
 	}
 }
 
@@ -199,6 +267,46 @@ func TestConfigRejectsUnsafeSecurityPosture(t *testing.T) {
 			mutate:  func(cfg *Config) { cfg.AllowlistNetworkMode = " openclarion-sandbox-allowlist " },
 			wantErr: "contains whitespace",
 		},
+		{
+			name:    "https proxy",
+			mutate:  func(cfg *Config) { cfg.EgressProxyURL = "https://openclarion-egress-proxy:18080" },
+			wantErr: "absolute http URL",
+		},
+		{
+			name:    "proxy userinfo",
+			mutate:  func(cfg *Config) { cfg.EgressProxyURL = "http://user@openclarion-egress-proxy:18080" },
+			wantErr: "userinfo",
+		},
+		{
+			name:    "proxy path",
+			mutate:  func(cfg *Config) { cfg.EgressProxyURL = "http://openclarion-egress-proxy:18080/proxy" },
+			wantErr: "path",
+		},
+		{
+			name:    "proxy query",
+			mutate:  func(cfg *Config) { cfg.EgressProxyURL = "http://openclarion-egress-proxy:18080/?tenant=test" },
+			wantErr: "query or fragment",
+		},
+		{
+			name:    "proxy whitespace",
+			mutate:  func(cfg *Config) { cfg.EgressProxyURL = " http://openclarion-egress-proxy:18080" },
+			wantErr: "whitespace",
+		},
+		{
+			name:    "localhost proxy",
+			mutate:  func(cfg *Config) { cfg.EgressProxyURL = "http://localhost:18080" },
+			wantErr: "loopback or unspecified",
+		},
+		{
+			name:    "ipv4 loopback proxy",
+			mutate:  func(cfg *Config) { cfg.EgressProxyURL = "http://127.42.0.1:18080" },
+			wantErr: "loopback or unspecified",
+		},
+		{
+			name:    "unspecified proxy",
+			mutate:  func(cfg *Config) { cfg.EgressProxyURL = "http://0.0.0.0:18080" },
+			wantErr: "loopback or unspecified",
+		},
 	}
 
 	for _, tt := range tests {
@@ -294,6 +402,11 @@ func TestValidateRunSpecRejectsPostTranslationDrift(t *testing.T) {
 			mutate:  func(spec *RunSpec) { spec.WorkingDir = "/tmp" },
 			wantErr: "working directory",
 		},
+		{
+			name:    "proxy on network-none",
+			mutate:  func(spec *RunSpec) { spec.EgressProxyURL = testEgressProxyURL },
+			wantErr: "must be empty",
+		},
 	}
 
 	for _, tt := range tests {
@@ -317,6 +430,7 @@ func validConfig() Config {
 		User:            DefaultUser,
 		ReadonlyRootFS:  true,
 		NoNewPrivileges: true,
+		EgressProxyURL:  testEgressProxyURL,
 	}
 }
 

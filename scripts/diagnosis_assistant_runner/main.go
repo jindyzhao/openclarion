@@ -39,6 +39,8 @@ const (
 	maxInstructionsBytes      = 64 * 1024
 	maxRunnerJSONBytes        = 10 * 1024 * 1024
 	diagnosisOutputSchemaName = "diagnosis_turn_v1"
+	readinessCommand          = "readiness"
+	readinessTimeout          = 5 * time.Second
 )
 
 type runnerPaths struct {
@@ -57,11 +59,99 @@ type runnerConfig struct {
 	timeout    time.Duration
 }
 
+type readinessHTTPClient interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
 func main() {
-	if err := run(context.Background(), defaultPaths(), os.Getenv); err != nil {
+	if err := dispatchRunner(context.Background(), os.Args[1:], os.Getenv); err != nil {
 		fmt.Fprintf(os.Stderr, "[diagnosis-assistant-runner] %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func dispatchRunner(ctx context.Context, args []string, getenv func(string) string) error {
+	if len(args) == 1 && args[0] == readinessCommand {
+		return checkSandboxReadiness(ctx, getenv)
+	}
+	return run(ctx, defaultPaths(), getenv)
+}
+
+func checkSandboxReadiness(ctx context.Context, getenv func(string) string) error {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   readinessTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	return checkSandboxReadinessWithClient(ctx, getenv, client)
+}
+
+func checkSandboxReadinessWithClient(
+	ctx context.Context,
+	getenv func(string) string,
+	client readinessHTTPClient,
+) error {
+	if getenv == nil {
+		return fmt.Errorf("environment reader is required")
+	}
+	if client == nil {
+		return fmt.Errorf("readiness HTTP client is required")
+	}
+	allowed := csvValues(getenv("OPENCLARION_SANDBOX_EGRESS_ALLOWED"))
+	if err := ports.ValidateContainerEgressURL(
+		getenv("OPENCLARION_DIAGNOSIS_LLM_BASE_URL"),
+		allowed,
+	); err != nil {
+		return fmt.Errorf("diagnosis LLM egress configuration: %w", err)
+	}
+	allowlistFingerprint, err := ports.ContainerEgressAllowlistFingerprint(allowed)
+	if err != nil {
+		return fmt.Errorf("diagnosis LLM egress allowlist fingerprint: %w", err)
+	}
+	readinessURL, err := sandboxEgressProxyReadinessURL(
+		getenv("OPENCLARION_SANDBOX_EGRESS_PROXY_URL"),
+	)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, readinessURL, nil)
+	if err != nil {
+		return fmt.Errorf("create sandbox egress proxy readiness request: %w", err)
+	}
+	req.Header.Set(ports.ContainerEgressProxyReadinessFingerprintHeader, allowlistFingerprint)
+	resp, err := client.Do(req) // #nosec G704 -- the URL is restricted to the configured credential-free HTTP proxy readiness endpoint.
+	if err != nil {
+		return fmt.Errorf("sandbox egress proxy readiness endpoint is unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("sandbox egress proxy readiness status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	return nil
+}
+
+func sandboxEgressProxyReadinessURL(rawURL string) (string, error) {
+	normalized, err := ports.NormalizeContainerEgressProxyURL(rawURL)
+	if err != nil {
+		return "", err
+	}
+	return normalized + ports.ContainerEgressProxyReadinessPath, nil
+}
+
+func csvValues(raw string) []string {
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if value := strings.TrimSpace(part); value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 func defaultPaths() runnerPaths {

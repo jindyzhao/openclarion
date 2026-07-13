@@ -2,10 +2,14 @@ package ports
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +30,11 @@ const (
 	SandboxOutputDir = "/workspace/out"
 	// SandboxOutputPath is the structured response file read by the Go control plane.
 	SandboxOutputPath = "/workspace/out/output.json"
+	// ContainerEgressProxyReadinessPath verifies the live proxy configuration.
+	ContainerEgressProxyReadinessPath = "/readyz"
+	// ContainerEgressProxyReadinessFingerprintHeader carries the expected
+	// canonical allowlist fingerprint without exposing its targets.
+	ContainerEgressProxyReadinessFingerprintHeader = "X-OpenClarion-Egress-Allowlist-SHA256"
 
 	// DefaultContainerRunTimeout is the default fixed lifetime for one sandbox invocation.
 	DefaultContainerRunTimeout = 5 * time.Minute
@@ -248,10 +257,10 @@ func (p ContainerNetworkPolicy) Validate() error {
 	return nil
 }
 
-// NormalizeContainerEgressTargets returns canonical host[:port] targets for
+// NormalizeContainerEgressTargets returns canonical host:port targets for
 // allowlist-mode sandbox egress. It rejects URLs, paths, wildcards, whitespace,
-// invalid ports, and duplicates before a provider-specific enforcer sees the
-// request.
+// missing or invalid ports, and duplicates before a provider-specific enforcer
+// sees the request.
 func NormalizeContainerEgressTargets(targets []string) ([]string, error) {
 	if len(targets) == 0 {
 		return nil, fmt.Errorf("allowlist network mode requires at least one egress target")
@@ -270,6 +279,87 @@ func NormalizeContainerEgressTargets(targets []string) ([]string, error) {
 		normalized = append(normalized, out)
 	}
 	return normalized, nil
+}
+
+// ContainerEgressAllowlistFingerprint returns an order-independent digest of
+// the canonical allowlist. It can compare expected and live proxy
+// configuration without exposing the configured targets.
+func ContainerEgressAllowlistFingerprint(targets []string) (string, error) {
+	normalized, err := NormalizeContainerEgressTargets(targets)
+	if err != nil {
+		return "", err
+	}
+	sort.Strings(normalized)
+	digest := sha256.Sum256([]byte(strings.Join(normalized, "\n")))
+	return hex.EncodeToString(digest[:]), nil
+}
+
+// NormalizeContainerEgressProxyURL validates and canonicalizes the HTTP proxy
+// endpoint with an explicit host:port shared by sandbox providers and their
+// readiness probes.
+func NormalizeContainerEgressProxyURL(raw string) (string, error) {
+	if strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, "\r\n\t ") {
+		return "", fmt.Errorf("sandbox egress proxy URL must not contain whitespace")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.Opaque != "" {
+		return "", fmt.Errorf("sandbox egress proxy URL must be an absolute http URL")
+	}
+	if parsed.User != nil {
+		return "", fmt.Errorf("sandbox egress proxy URL must not include userinfo")
+	}
+	if isContainerLocalEgressHost(parsed.Hostname()) {
+		return "", fmt.Errorf("sandbox egress proxy URL host must not be loopback or unspecified")
+	}
+	if (parsed.Path != "" && parsed.Path != "/") || parsed.RawPath != "" {
+		return "", fmt.Errorf("sandbox egress proxy URL must not include a path")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery {
+		return "", fmt.Errorf("sandbox egress proxy URL must not include query or fragment")
+	}
+	normalizedHost, err := NormalizeContainerEgressTargets([]string{parsed.Host})
+	if err != nil {
+		return "", fmt.Errorf("sandbox egress proxy URL host: %w", err)
+	}
+	parsed.Host = normalizedHost[0]
+	parsed.Path = ""
+	parsed.RawPath = ""
+	return parsed.String(), nil
+}
+
+// ValidateContainerEgressURL verifies that an absolute HTTP(S) URL is covered
+// by a normalized host:port allowlist.
+func ValidateContainerEgressURL(rawURL string, targets []string) error {
+	trimmedURL := strings.TrimSpace(rawURL)
+	parsed, err := url.Parse(trimmedURL)
+	if rawURL != trimmedURL || err != nil ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("egress URL must be an absolute http or https URL without userinfo or surrounding whitespace")
+	}
+	allowed, err := NormalizeContainerEgressTargets(targets)
+	if err != nil {
+		return fmt.Errorf("allowed egress targets: %w", err)
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if isContainerLocalEgressHost(host) {
+		return fmt.Errorf("egress URL host must not be localhost, loopback, or unspecified")
+	}
+	port := parsed.Port()
+	defaultPort := "80"
+	if parsed.Scheme == "https" {
+		defaultPort = "443"
+	}
+	if port == "" {
+		port = defaultPort
+	}
+	exact := host + ":" + port
+	for _, target := range allowed {
+		if target == exact {
+			return nil
+		}
+	}
+	return fmt.Errorf("egress URL host must be listed in allowed targets")
 }
 
 // ValidateContainerRunResult checks the lifecycle and raw output
@@ -344,10 +434,10 @@ func normalizeContainerEgressTarget(target string) (string, error) {
 		return "", fmt.Errorf("allowed egress target %q contains whitespace", target)
 	}
 	if strings.Contains(target, "://") {
-		return "", fmt.Errorf("allowed egress target %q must be host[:port], not a URL", target)
+		return "", fmt.Errorf("allowed egress target %q must be host:port, not a URL", target)
 	}
 	if strings.ContainsAny(target, "/?#@") {
-		return "", fmt.Errorf("allowed egress target %q must be host[:port]", target)
+		return "", fmt.Errorf("allowed egress target %q must be host:port", target)
 	}
 	if strings.Contains(target, "*") {
 		return "", fmt.Errorf("allowed egress target %q must not contain wildcards", target)
@@ -356,24 +446,24 @@ func normalizeContainerEgressTarget(target string) (string, error) {
 	host := target
 	port := ""
 	if strings.Count(target, ":") > 1 {
-		return "", fmt.Errorf("allowed egress target %q must use host[:port], not IPv6 literal syntax", target)
+		return "", fmt.Errorf("allowed egress target %q must use host:port, not IPv6 literal syntax", target)
 	}
 	if strings.Contains(target, ":") {
 		var err error
 		host, port, err = net.SplitHostPort(target)
 		if err != nil {
-			host, port, err = splitBareHostPort(target)
-			if err != nil {
-				return "", err
-			}
+			return "", fmt.Errorf("allowed egress target %q must be host:port", target)
 		}
+	}
+	if port == "" {
+		return "", fmt.Errorf("allowed egress target %q must include an explicit port", target)
 	}
 	if !containerEgressHostPattern.MatchString(host) {
 		return "", fmt.Errorf("allowed egress target %q has invalid host", target)
 	}
 	host = strings.ToLower(host)
-	if port == "" {
-		return host, nil
+	if isContainerLocalEgressHost(host) {
+		return "", fmt.Errorf("allowed egress target %q host must not be localhost, loopback, or unspecified", target)
 	}
 	if err := validateContainerEgressPort(target, port); err != nil {
 		return "", err
@@ -381,12 +471,13 @@ func normalizeContainerEgressTarget(target string) (string, error) {
 	return host + ":" + port, nil
 }
 
-func splitBareHostPort(target string) (string, string, error) {
-	host, port, ok := strings.Cut(target, ":")
-	if !ok || host == "" || port == "" {
-		return "", "", fmt.Errorf("allowed egress target %q must be host[:port]", target)
+func isContainerLocalEgressHost(host string) bool {
+	normalized := strings.TrimSuffix(strings.ToLower(host), ".")
+	if normalized == "localhost" || strings.HasSuffix(normalized, ".localhost") {
+		return true
 	}
-	return host, port, nil
+	ip := net.ParseIP(normalized)
+	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
 }
 
 func validateContainerEgressPort(target, port string) error {

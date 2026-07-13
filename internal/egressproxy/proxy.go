@@ -1,10 +1,11 @@
 // Package egressproxy implements the narrow forward-proxy boundary used by
-// local Docker sandboxes. It permits only operator-configured host[:port]
+// local Docker sandboxes. It permits only operator-configured host:port
 // targets and supports plain HTTP plus HTTPS CONNECT tunneling.
 package egressproxy
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
@@ -48,10 +49,11 @@ type Config struct {
 
 // Handler is an HTTP forward proxy with an exact outbound target allowlist.
 type Handler struct {
-	allowed            map[string]struct{}
-	dialer             *net.Dialer
-	transport          *http.Transport
-	maxRequestDuration time.Duration
+	allowed              map[string]struct{}
+	allowlistFingerprint string
+	dialContext          func(context.Context, string, string) (net.Conn, error)
+	transport            *http.Transport
+	maxRequestDuration   time.Duration
 }
 
 // NewHandler validates cfg and returns a reusable proxy handler.
@@ -59,6 +61,10 @@ func NewHandler(cfg Config) (*Handler, error) {
 	allowedTargets, err := ports.NormalizeContainerEgressTargets(cfg.AllowedTargets)
 	if err != nil {
 		return nil, fmt.Errorf("egress proxy allowlist: %w", err)
+	}
+	allowlistFingerprint, err := ports.ContainerEgressAllowlistFingerprint(allowedTargets)
+	if err != nil {
+		return nil, fmt.Errorf("egress proxy allowlist fingerprint: %w", err)
 	}
 	if cfg.DialTimeout == 0 {
 		cfg.DialTimeout = defaultDialTimeout
@@ -84,19 +90,21 @@ func NewHandler(cfg Config) (*Handler, error) {
 		allowed[target] = struct{}{}
 	}
 	dialer := &net.Dialer{Timeout: cfg.DialTimeout, KeepAlive: 30 * time.Second}
+	dialContext := dialer.DialContext
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.DisableCompression = true
-	transport.DialContext = dialer.DialContext
+	transport.DialContext = dialContext
 	transport.ResponseHeaderTimeout = cfg.ResponseHeaderTimeout
 	transport.MaxResponseHeaderBytes = cfg.MaxResponseHeaderBytes
 	transport.ForceAttemptHTTP2 = false
 
 	return &Handler{
-		allowed:            allowed,
-		dialer:             dialer,
-		transport:          transport,
-		maxRequestDuration: cfg.MaxRequestDuration,
+		allowed:              allowed,
+		allowlistFingerprint: allowlistFingerprint,
+		dialContext:          dialContext,
+		transport:            transport,
+		maxRequestDuration:   cfg.MaxRequestDuration,
 	}, nil
 }
 
@@ -107,8 +115,8 @@ func (h *Handler) Close() {
 	}
 }
 
-// ServeHTTP handles the local health endpoint, HTTP forward requests, and
-// HTTPS CONNECT tunnels. Error responses intentionally omit upstream details.
+// ServeHTTP handles local health/readiness endpoints, HTTP forward requests,
+// and HTTPS CONNECT tunnels. Error responses intentionally omit upstream details.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h == nil {
 		http.Error(w, "proxy unavailable", http.StatusServiceUnavailable)
@@ -125,6 +133,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			_, _ = io.WriteString(w, "ok\n")
 		}
+		return
+	}
+	if !r.URL.IsAbs() && r.URL.Path == ports.ContainerEgressProxyReadinessPath {
+		h.serveReadiness(w, r)
 		return
 	}
 
@@ -150,9 +162,28 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.serveHTTPForward(w, r)
 }
 
+func (h *Handler) serveReadiness(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+	provided := r.Header.Values(ports.ContainerEgressProxyReadinessFingerprintHeader)
+	if r.URL.RawQuery != "" || len(provided) != 1 ||
+		subtle.ConstantTimeCompare([]byte(provided[0]), []byte(h.allowlistFingerprint)) != 1 {
+		http.Error(w, "proxy not ready", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodGet {
+		_, _ = io.WriteString(w, "ready\n")
+	}
+}
+
 func (h *Handler) serveConnect(w http.ResponseWriter, r *http.Request) {
 	target, err := canonicalTarget(r.Host, "443")
-	if err != nil || !h.targetAllowed(target, "443") {
+	if err != nil || !h.targetAllowed(target) {
 		http.Error(w, "egress target denied", http.StatusForbidden)
 		return
 	}
@@ -160,7 +191,7 @@ func (h *Handler) serveConnect(w http.ResponseWriter, r *http.Request) {
 	if !strings.Contains(target, ":") {
 		dialTarget = net.JoinHostPort(target, "443")
 	}
-	upstream, err := h.dialer.DialContext(r.Context(), "tcp", dialTarget)
+	upstream, err := h.dialContext(r.Context(), "tcp", dialTarget)
 	if err != nil {
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 		return
@@ -209,7 +240,7 @@ func (h *Handler) serveHTTPForward(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target, err := canonicalTarget(r.URL.Host, "80")
-	if err != nil || !h.targetAllowed(target, "80") {
+	if err != nil || !h.targetAllowed(target) {
 		http.Error(w, "egress target denied", http.StatusForbidden)
 		return
 	}
@@ -235,31 +266,20 @@ func (h *Handler) serveHTTPForward(w http.ResponseWriter, r *http.Request) {
 	copyAndFlush(w, resp.Body)
 }
 
-func (h *Handler) targetAllowed(target, defaultPort string) bool {
-	if _, ok := h.allowed[target]; ok {
-		return true
-	}
-	host, port, err := net.SplitHostPort(target)
-	if err == nil && port == defaultPort {
-		_, ok := h.allowed[host]
-		return ok
-	}
-	return false
+func (h *Handler) targetAllowed(target string) bool {
+	_, ok := h.allowed[target]
+	return ok
 }
 
 func canonicalTarget(raw, defaultPort string) (string, error) {
+	if defaultPort != "" && !strings.Contains(raw, ":") {
+		raw = net.JoinHostPort(raw, defaultPort)
+	}
 	normalized, err := ports.NormalizeContainerEgressTargets([]string{raw})
 	if err != nil {
 		return "", err
 	}
-	target := normalized[0]
-	if strings.Contains(target, ":") {
-		return target, nil
-	}
-	if defaultPort == "" {
-		return target, nil
-	}
-	return net.JoinHostPort(target, defaultPort), nil
+	return normalized[0], nil
 }
 
 func removeHopByHopHeaders(header http.Header) {

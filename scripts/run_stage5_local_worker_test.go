@@ -27,6 +27,109 @@ func TestStage5LocalWorkerCheckOnlyRequiresRuntimeNetwork(t *testing.T) {
 	assertStage5LocalWorkerNoSecretLeak(t, out)
 }
 
+func TestStage5LocalWorkerCheckOnlyRejectsUnsafeRuntimeNetwork(t *testing.T) {
+	tests := []struct {
+		name  string
+		state string
+	}{
+		{name: "external", state: "openclarion-sandbox-allowlist|false|false|false"},
+		{name: "ingress", state: "openclarion-sandbox-allowlist|true|true|false"},
+		{name: "config only", state: "openclarion-sandbox-allowlist|true|false|true"},
+		{name: "different name", state: "other-network|true|false|false"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := newStage5LocalWorkerFixture(t)
+			privateDir := t.TempDir()
+			envFile := writeStage5LocalWorkerEnv(t, privateDir, map[string]string{})
+			binDir := writeStage5LocalWorkerFakeDockerScript(t, `#!/usr/bin/env bash
+if [[ "$1" == "network" && "$2" == "inspect" ]]; then
+  printf '%s\n' '`+tt.state+`'
+  exit 0
+fi
+exit 2
+`)
+
+			out, err := runStage5LocalWorker(t, root, envFile, binDir, "--check-only")
+			if err == nil {
+				t.Fatalf("stage5-local-worker passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, "must name the exact internal, non-ingress, non-config-only Docker network") {
+				t.Fatalf("stage5-local-worker output = %q, want unsafe network error", out)
+			}
+			assertStage5LocalWorkerNoSecretLeak(t, out)
+		})
+	}
+}
+
+func TestStage5LocalWorkerCheckOnlyRejectsFailedSandboxReadinessProbe(t *testing.T) {
+	root := newStage5LocalWorkerFixture(t)
+	privateDir := t.TempDir()
+	envFile := writeStage5LocalWorkerEnv(t, privateDir, map[string]string{
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED": "other.example.invalid:443",
+	})
+	binDir := writeStage5LocalWorkerFakeDockerScript(t, `#!/usr/bin/env bash
+if [[ "$1" == "network" && "$2" == "inspect" ]]; then
+  printf '%s\n' 'openclarion-sandbox-allowlist|true|false|false'
+  exit 0
+fi
+if [[ "$1" == "image" && "$2" == "inspect" ]]; then
+  exit 0
+fi
+if [[ "$1" == "run" ]]; then
+  exit 1
+fi
+exit 2
+`)
+
+	out, err := runStage5LocalWorker(t, root, envFile, binDir, "--check-only")
+	if err == nil {
+		t.Fatalf("stage5-local-worker passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "diagnosis sandbox readiness probe failed") {
+		t.Fatalf("stage5-local-worker output = %q, want readiness probe error", out)
+	}
+	assertStage5LocalWorkerNoSecretLeak(t, out)
+}
+
+func TestStage5LocalWorkerCheckOnlyRequiresEgressProxyURL(t *testing.T) {
+	root := newStage5LocalWorkerFixture(t)
+	privateDir := t.TempDir()
+	envFile := writeStage5LocalWorkerEnv(t, privateDir, map[string]string{
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL": "",
+	})
+	binDir := writeStage5LocalWorkerFakeDocker(t, 0)
+
+	out, err := runStage5LocalWorker(t, root, envFile, binDir, "--check-only")
+	if err == nil {
+		t.Fatalf("stage5-local-worker passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "OPENCLARION_SANDBOX_EGRESS_PROXY_URL") {
+		t.Fatalf("stage5-local-worker output = %q, want missing proxy URL", out)
+	}
+	assertStage5LocalWorkerNoSecretLeak(t, out)
+}
+
+func TestStage5LocalWorkerCheckOnlyRejectsCustomSandboxCommand(t *testing.T) {
+	root := newStage5LocalWorkerFixture(t)
+	privateDir := t.TempDir()
+	envFile := writeStage5LocalWorkerEnv(t, privateDir, map[string]string{
+		"OPENCLARION_SANDBOX_COMMAND_JSON": `["/custom-runner"]`,
+	})
+	binDir := writeStage5LocalWorkerFakeDocker(t, 0)
+
+	out, err := runStage5LocalWorker(t, root, envFile, binDir, "--check-only")
+	if err == nil {
+		t.Fatalf("stage5-local-worker passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "OPENCLARION_SANDBOX_COMMAND_JSON") ||
+		!strings.Contains(out, "image ENTRYPOINT") {
+		t.Fatalf("stage5-local-worker output = %q, want custom command rejection", out)
+	}
+	assertStage5LocalWorkerNoSecretLeak(t, out)
+}
+
 func TestStage5LocalWorkerCheckOnlyPassesAfterRuntimeNetworkCheck(t *testing.T) {
 	root := newStage5LocalWorkerFixture(t)
 	privateDir := t.TempDir()
@@ -513,13 +616,17 @@ func TestStage5LocalWorkerCheckOnlyPullsMissingSandboxImage(t *testing.T) {
 	envFile := writeStage5LocalWorkerEnv(t, privateDir, map[string]string{})
 	binDir := writeStage5LocalWorkerFakeDockerScript(t, `#!/usr/bin/env bash
 if [[ "$1" == "network" && "$2" == "inspect" && "$3" == "openclarion-sandbox-allowlist" ]]; then
-  exit 0
+	printf '%s\n' 'openclarion-sandbox-allowlist|true|false|false'
+	exit 0
 fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then
   exit 1
 fi
 if [[ "$1" == "pull" ]]; then
-  exit 0
+	exit 0
+fi
+if [[ "$1" == "run" ]]; then
+	exit 0
 fi
 exit 2
 `)
@@ -703,6 +810,7 @@ func writeStage5LocalWorkerEnv(t *testing.T, dir string, overrides map[string]st
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": agentDir,
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL":  "http://openclarion-egress-proxy:18080",
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "not-a-secret-fixture",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
@@ -739,7 +847,9 @@ func writeStage5LocalWorkerEnv(t *testing.T, dir string, overrides map[string]st
 		"OPENCLARION_WECOM_CALLBACK_RECEIVE_ID",
 		"OPENCLARION_SANDBOX_IMAGE_REF",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT",
+		"OPENCLARION_SANDBOX_COMMAND_JSON",
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED",
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL",
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL",
@@ -776,13 +886,39 @@ func writeStage5LocalWorkerFakeDocker(t *testing.T, exitCode int) string {
 	t.Helper()
 	body := `#!/usr/bin/env bash
 if [[ "$1" == "network" && "$2" == "inspect" && "$3" == "openclarion-sandbox-allowlist" ]]; then
-  exit ` + strconv.Itoa(exitCode) + `
+	if (( ` + strconv.Itoa(exitCode) + ` != 0 )); then
+		exit ` + strconv.Itoa(exitCode) + `
+	fi
+	printf '%s\n' 'openclarion-sandbox-allowlist|true|false|false'
+	exit 0
 fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then
-  exit 0
+	exit 0
 fi
 if [[ "$1" == "pull" ]]; then
-  exit 0
+	exit 0
+fi
+if [[ "$1" == "run" ]]; then
+	args=" $* "
+	for required in \
+		' --network openclarion-sandbox-allowlist ' \
+		' -e OPENCLARION_DIAGNOSIS_LLM_BASE_URL ' \
+		' -e OPENCLARION_SANDBOX_EGRESS_ALLOWED ' \
+		' -e OPENCLARION_SANDBOX_EGRESS_PROXY_URL '
+	do
+		if [[ "$args" != *"$required"* ]]; then
+			echo "missing readiness argument" >&2
+			exit 9
+		fi
+	done
+	if [[ "$args" == *' --entrypoint '* ]]; then
+		echo "readiness must use image entrypoint" >&2
+		exit 9
+	fi
+	if [[ "${!#}" != "readiness" ]]; then
+		exit 9
+	fi
+	exit 0
 fi
 exit 2
 `

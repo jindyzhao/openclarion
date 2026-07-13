@@ -92,6 +92,146 @@ func TestRunPublishesValidatedOutput(t *testing.T) {
 	}
 }
 
+func TestCheckSandboxReadinessChecksAllowlistAndProxy(t *testing.T) {
+	const allowedTarget = "llm.example.invalid:443"
+	fingerprint, err := ports.ContainerEgressAllowlistFingerprint([]string{allowedTarget})
+	if err != nil {
+		t.Fatalf("ContainerEgressAllowlistFingerprint: %v", err)
+	}
+	client := readinessTestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Scheme != "http" ||
+			r.URL.Host != "proxy.example.invalid:18080" ||
+			r.URL.Path != ports.ContainerEgressProxyReadinessPath ||
+			r.Header.Get(ports.ContainerEgressProxyReadinessFingerprintHeader) != fingerprint {
+			http.Error(w, "proxy not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	env := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":   "https://llm.example.invalid/v1",
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":   allowedTarget,
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL": "http://proxy.example.invalid:18080/",
+	}
+	if err = checkSandboxReadinessWithClient(
+		context.Background(),
+		func(key string) string { return env[key] },
+		client,
+	); err != nil {
+		t.Fatalf("checkSandboxReadinessWithClient: %v", err)
+	}
+}
+
+func TestDispatchRunnerReadinessRejectsUncoveredLLMTarget(t *testing.T) {
+	env := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":   "https://llm.example.invalid/v1",
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":   "other.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL": "http://proxy.example.invalid:18080",
+	}
+	err := dispatchRunner(
+		context.Background(),
+		[]string{readinessCommand},
+		func(key string) string { return env[key] },
+	)
+	if err == nil || !strings.Contains(err.Error(), "host must be listed") {
+		t.Fatalf("dispatchRunner readiness error = %v, want uncovered LLM target", err)
+	}
+}
+
+func TestDispatchRunnerPreservesNormalCommandArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "custom args", args: []string{"--mode", "diagnosis"}},
+		{name: "non-exact readiness command", args: []string{readinessCommand, "extra"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := dispatchRunner(context.Background(), tt.args, nil)
+			if err == nil || err.Error() != "environment reader is required" {
+				t.Fatalf("dispatchRunner error = %v, want normal runner error", err)
+			}
+		})
+	}
+}
+
+func TestCheckSandboxReadinessRejectsUnhealthyProxy(t *testing.T) {
+	client := readinessTestClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+
+	env := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":   "https://llm.example.invalid/v1",
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":   "llm.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL": "http://proxy.example.invalid:18080",
+	}
+	err := checkSandboxReadinessWithClient(
+		context.Background(),
+		func(key string) string { return env[key] },
+		client,
+	)
+	if err == nil || !strings.Contains(err.Error(), "readiness status = 503") {
+		t.Fatalf("checkSandboxReadinessWithClient error = %v, want unhealthy proxy status", err)
+	}
+}
+
+func TestCheckSandboxReadinessRejectsStaleProxyAllowlist(t *testing.T) {
+	staleFingerprint, err := ports.ContainerEgressAllowlistFingerprint([]string{"stale.example.invalid:443"})
+	if err != nil {
+		t.Fatalf("ContainerEgressAllowlistFingerprint: %v", err)
+	}
+	client := readinessTestClient(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(ports.ContainerEgressProxyReadinessFingerprintHeader) != staleFingerprint {
+			http.Error(w, "proxy not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	env := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":   "https://llm.example.invalid/v1",
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":   "llm.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL": "http://proxy.example.invalid:18080",
+	}
+	err = checkSandboxReadinessWithClient(
+		context.Background(),
+		func(key string) string { return env[key] },
+		client,
+	)
+	if err == nil || !strings.Contains(err.Error(), "readiness status = 503") {
+		t.Fatalf("checkSandboxReadinessWithClient error = %v, want stale proxy rejection", err)
+	}
+}
+
+func readinessTestClient(handler http.Handler) *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+		return recorder.Result(), nil
+	})}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestSandboxEgressProxyReadinessURLRejectsCredentialsWithoutLeak(t *testing.T) {
+	// #nosec G101 -- test-only credential-bearing URL verifies redaction.
+	const rawURL = "http://operator:secret@proxy.example.invalid:18080"
+	_, err := sandboxEgressProxyReadinessURL(rawURL)
+	if err == nil || !strings.Contains(err.Error(), "userinfo") {
+		t.Fatalf("sandboxEgressProxyReadinessURL error = %v, want credential rejection", err)
+	}
+	if strings.Contains(err.Error(), "operator") || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("sandboxEgressProxyReadinessURL leaked credentials: %v", err)
+	}
+}
+
 func TestRunPreservesLatestUserLanguageAcrossValidationRetry(t *testing.T) {
 	providerOutputs := []string{
 		`{"schema_version":"diagnosis_turn.v1","message":"","confidence":"high","requires_human_review":false}`,

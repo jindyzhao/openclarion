@@ -57,6 +57,7 @@ type config struct {
 	OutputMax       int64
 	AllowedEgress   []string
 	EgressNetwork   string
+	EgressProxyURL  string
 }
 
 type evidenceStore interface {
@@ -168,6 +169,7 @@ func parseConfig(args []string, environ []string) (config, error) {
 		OutputMax:       *outputMax,
 		AllowedEgress:   csvValues(firstEnv(environ, "OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED", "OPENCLARION_SANDBOX_EGRESS_ALLOWED")),
 		EgressNetwork:   firstEnv(environ, "OPENCLARION_M4_SANDBOX_EGRESS_NETWORK", "OPENCLARION_SANDBOX_EGRESS_NETWORK"),
+		EgressProxyURL:  firstEnv(environ, "OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL", "OPENCLARION_SANDBOX_EGRESS_PROXY_URL"),
 	}
 	commandRaw := firstEnv(environ, "OPENCLARION_M4_SANDBOX_COMMAND_JSON", "OPENCLARION_SANDBOX_COMMAND_JSON")
 	command, err := parseOptionalJSONStringArray(commandRaw, "OPENCLARION_M4_SANDBOX_COMMAND_JSON")
@@ -217,6 +219,9 @@ func (c config) validate() error {
 	}
 	if c.OutputMax > ports.MaxContainerOutputBytes {
 		return fmt.Errorf("--output-max-bytes exceeds maximum %d", ports.MaxContainerOutputBytes)
+	}
+	if len(c.AllowedEgress) > 0 && c.EgressProxyURL == "" {
+		return errors.New("OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL is required when sandbox egress is allowed")
 	}
 	return nil
 }
@@ -328,6 +333,7 @@ func dockerProviderFromConfig(cfg config) (ports.ContainerProvider, func(), erro
 		CapDrop:              []string{containerdocker.DropAllCapabilities},
 		Command:              cloneStrings(cfg.Command),
 		AllowlistNetworkMode: networkMode,
+		EgressProxyURL:       cfg.EgressProxyURL,
 	}, cfg.AgentConfigRoot, opts...)
 	if err != nil {
 		cleanup()
