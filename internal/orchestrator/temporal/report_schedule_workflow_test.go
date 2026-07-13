@@ -193,8 +193,10 @@ func TestActivities_RunScheduledReportPolicyReplayUsesPolicyReplayer(t *testing.
 		},
 	}
 	activities := temporalpkg.NewActivities(nil, temporalpkg.WithReportPolicyReplayer(replayer))
-	windowStart := time.Date(2026, 6, 6, 9, 0, 0, 0, time.UTC)
+	windowStart := time.Date(2026, 6, 6, 17, 0, 0, 123456789, time.FixedZone("UTC+8", 8*60*60))
 	windowEnd := windowStart.Add(time.Hour)
+	wantWindowStart := windowStart.UTC().Truncate(time.Microsecond)
+	wantWindowEnd := windowEnd.UTC().Truncate(time.Microsecond)
 
 	result, err := activities.RunScheduledReportPolicyReplay(context.Background(), temporalpkg.ScheduledReportPolicyReplayActivityInput{
 		ScheduleID:             5,
@@ -214,8 +216,8 @@ func TestActivities_RunScheduledReportPolicyReplayUsesPolicyReplayer(t *testing.
 		t.Fatalf("replayer calls = %d, want 1", replayer.calls)
 	}
 	if replayer.req.PolicyID != 8 ||
-		!replayer.req.WindowStart.Equal(windowStart) ||
-		!replayer.req.WindowEnd.Equal(windowEnd) ||
+		!replayer.req.WindowStart.Equal(wantWindowStart) ||
+		!replayer.req.WindowEnd.Equal(wantWindowEnd) ||
 		replayer.req.Limit != 500 ||
 		replayer.req.CorrelationKey != "report-workflow-schedule:5" ||
 		replayer.req.WorkflowID != "report-schedule-hash" ||
@@ -223,10 +225,35 @@ func TestActivities_RunScheduledReportPolicyReplayUsesPolicyReplayer(t *testing.
 		t.Fatalf("replayer request = %+v", replayer.req)
 	}
 	if result.EventsLoaded != 9 || result.Snapshots != 2 ||
+		!result.WindowStart.Equal(wantWindowStart) ||
+		!result.WindowEnd.Equal(wantWindowEnd) ||
 		!result.ReportBatchWorkflowStarted ||
 		result.ReportBatchWorkflowID != "report-batch-2" ||
 		result.ReportBatchRunID != "run-2" {
 		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestActivities_RunScheduledReportPolicyReplayRejectsCollapsedWindow(t *testing.T) {
+	replayer := &recordingPolicyReplayer{}
+	activities := temporalpkg.NewActivities(nil, temporalpkg.WithReportPolicyReplayer(replayer))
+	start := time.Date(2026, 6, 6, 9, 0, 0, 500, time.UTC)
+
+	_, err := activities.RunScheduledReportPolicyReplay(context.Background(), temporalpkg.ScheduledReportPolicyReplayActivityInput{
+		ScheduleID:             5,
+		ReportWorkflowPolicyID: 8,
+		TemporalScheduleID:     "report-schedule",
+		WindowStart:            start,
+		WindowEnd:              start.Add(300 * time.Nanosecond),
+		ReplayLimit:            500,
+		CorrelationKey:         "report-workflow-schedule:5",
+		WorkflowID:             "report-schedule-hash",
+	})
+	if err == nil || !strings.Contains(err.Error(), "after normalization") {
+		t.Fatalf("error = %v, want normalized-window validation failure", err)
+	}
+	if replayer.calls != 0 {
+		t.Fatalf("replayer calls = %d, want 0", replayer.calls)
 	}
 }
 
