@@ -291,6 +291,11 @@ func (r *closeTestRepo) ListTasksByEvidenceSnapshot(context.Context, domain.Evid
 	return nil, errors.New("unexpected ListTasksByEvidenceSnapshot call")
 }
 
+func (r *closeTestRepo) ListSnapshotHistories(context.Context, []domain.EvidenceSnapshotID, int, []string) ([]ports.DiagnosisSnapshotHistory, error) {
+	r.failNow("unexpected ListSnapshotHistories call")
+	return nil, nil
+}
+
 func (r *closeTestRepo) AppendEvent(_ context.Context, event domain.DiagnosisTaskEvent) (domain.DiagnosisTaskEvent, error) {
 	event.ID = domain.DiagnosisTaskEventID(len(r.events) + 1)
 	r.events = append(r.events, event)

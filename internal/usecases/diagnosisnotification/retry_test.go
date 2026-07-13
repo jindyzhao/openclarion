@@ -824,6 +824,10 @@ func (r *retryTestRepo) FindTaskByExecution(context.Context, string, string) (do
 func (r *retryTestRepo) ListTasksByEvidenceSnapshot(context.Context, domain.EvidenceSnapshotID, int) ([]domain.DiagnosisTask, error) {
 	return nil, errors.New("unexpected ListTasksByEvidenceSnapshot call")
 }
+func (r *retryTestRepo) ListSnapshotHistories(context.Context, []domain.EvidenceSnapshotID, int, []string) ([]ports.DiagnosisSnapshotHistory, error) {
+	r.failNow("unexpected ListSnapshotHistories call")
+	return nil, nil
+}
 func (r *retryTestRepo) AppendEvent(_ context.Context, event domain.DiagnosisTaskEvent) (domain.DiagnosisTaskEvent, error) {
 	event.ID = domain.DiagnosisTaskEventID(100 + len(r.events))
 	r.events = append([]domain.DiagnosisTaskEvent{event}, r.events...)

@@ -527,6 +527,172 @@ func TestStartRoomsSkipsConfirmedSnapshotWithoutConsumingRoomCapacity(t *testing
 	}
 }
 
+func TestStartRoomsStartsNewRoomWhenProgressSupersedesConfirmation(t *testing.T) {
+	ctx := context.Background()
+	sourceID := domain.AlertSourceProfileID(7)
+	autoPolicy := mustReportWorkflowPolicy(t, 13, sourceID, domain.DiagnosisFollowUpModeAutoRoom)
+	snapshot := triggerSnapshot(77)
+	confirmedTask := domain.DiagnosisTask{
+		ID:                 1001,
+		EvidenceSnapshotID: snapshot.ID,
+		Status:             domain.DiagnosisStatusSucceeded,
+	}
+	newerTask := domain.DiagnosisTask{
+		ID:                 1002,
+		EvidenceSnapshotID: snapshot.ID,
+		Status:             domain.DiagnosisStatusRunning,
+	}
+	closed := triggerClosedEvent(t, confirmedTask, diagnosisRoomHumanConfirmedReason, "operator-1")
+	progress := triggerProgressEvent(newerTask, closed.RecordedAt.Add(time.Minute))
+	diagnosisRepo := &fakeTriggerDiagnosisRepo{
+		tasks: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{snapshot.ID: {newerTask, confirmedTask}},
+		events: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
+			confirmedTask.ID: {
+				diagnosisRoomClosedEventKind: {closed},
+			},
+			newerTask.ID: {
+				diagnosisRoomProgressEventKind: {progress},
+			},
+		},
+	}
+	factory := &fakeTriggerFactory{
+		config:    &fakeTriggerConfigRepo{},
+		evidence:  &fakeTriggerEvidenceRepo{snapshots: map[domain.EvidenceSnapshotID]domain.EvidenceSnapshot{snapshot.ID: snapshot}},
+		diagnosis: diagnosisRepo,
+	}
+	starter := &recordingRoomStarter{}
+	service, err := NewService(factory, starter)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.StartRooms(ctx, StartRoomsRequest{
+		AlertSourceProfileID: sourceID,
+		Policy:               autoPolicy,
+		Snapshots:            []alertreplay.SnapshotRef{{ID: snapshot.ID, GroupIndex: 0, EventCount: 1}},
+	})
+	if err != nil {
+		t.Fatalf("StartRooms: %v", err)
+	}
+	if len(result.Rooms) != 1 || result.Rooms[0].EvidenceSnapshotID != snapshot.ID {
+		t.Fatalf("result = %+v, want a replacement room for stale confirmation", result)
+	}
+	if diagnosisRepo.historyCalls != 1 || diagnosisRepo.legacyTaskCalls != 0 || diagnosisRepo.legacyEventCalls != 0 {
+		t.Fatalf(
+			"diagnosis lookup calls = history:%d tasks:%d events:%d, want 1,0,0",
+			diagnosisRepo.historyCalls,
+			diagnosisRepo.legacyTaskCalls,
+			diagnosisRepo.legacyEventCalls,
+		)
+	}
+}
+
+func TestConfirmedDiagnosisFromHistoryKeepsNewerConfirmation(t *testing.T) {
+	task := domain.DiagnosisTask{ID: 1001, EvidenceSnapshotID: 77, Status: domain.DiagnosisStatusSucceeded}
+	closed := triggerClosedEvent(t, task, diagnosisRoomHumanConfirmedReason, "operator-1")
+	progress := triggerProgressEvent(task, closed.RecordedAt.Add(-time.Minute))
+
+	confirmed, err := confirmedDiagnosisFromHistory(ports.DiagnosisSnapshotHistory{
+		EvidenceSnapshotID: task.EvidenceSnapshotID,
+		Tasks:              []domain.DiagnosisTask{task},
+		LatestEvents:       []domain.DiagnosisTaskEvent{progress, closed},
+	})
+	if err != nil || !confirmed {
+		t.Fatalf("confirmedDiagnosisFromHistory = %v, %v; want true, nil", confirmed, err)
+	}
+}
+
+func TestStartRoomsTreatsUnreadableHistoryAfterCapacityAsExactSkip(t *testing.T) {
+	ctx := context.Background()
+	sourceID := domain.AlertSourceProfileID(7)
+	autoPolicy := mustReportWorkflowPolicy(t, 13, sourceID, domain.DiagnosisFollowUpModeAutoRoom)
+	firstSnapshot := triggerSnapshot(77)
+	truncatedSnapshot := triggerSnapshot(78)
+	tasks := make([]domain.DiagnosisTask, confirmedDiagnosisTaskScanLimit+1)
+	for i := range tasks {
+		tasks[i] = domain.DiagnosisTask{
+			ID:                 domain.DiagnosisTaskID(i + 1),
+			EvidenceSnapshotID: truncatedSnapshot.ID,
+			Status:             domain.DiagnosisStatusRunning,
+		}
+	}
+	factory := &fakeTriggerFactory{
+		config: &fakeTriggerConfigRepo{},
+		evidence: &fakeTriggerEvidenceRepo{snapshots: map[domain.EvidenceSnapshotID]domain.EvidenceSnapshot{
+			firstSnapshot.ID: firstSnapshot,
+		}},
+		diagnosis: &fakeTriggerDiagnosisRepo{tasks: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{
+			truncatedSnapshot.ID: tasks,
+		}},
+	}
+	starter := &recordingRoomStarter{}
+	service, err := NewService(factory, starter, WithMaxRoomsPerTrigger(1))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.StartRooms(ctx, StartRoomsRequest{
+		AlertSourceProfileID: sourceID,
+		Policy:               autoPolicy,
+		Snapshots: []alertreplay.SnapshotRef{
+			{ID: firstSnapshot.ID, GroupIndex: 0, EventCount: 1},
+			{ID: truncatedSnapshot.ID, GroupIndex: 1, EventCount: 1},
+		},
+	})
+	if err != nil {
+		t.Fatalf("StartRooms: %v", err)
+	}
+	if len(result.Rooms) != 1 || result.Rooms[0].EvidenceSnapshotID != firstSnapshot.ID ||
+		len(result.SkippedSnapshots) != 1 || result.SkippedSnapshots[0].ID != truncatedSnapshot.ID {
+		t.Fatalf("result = %+v, want first room and exact truncated suffix skip", result)
+	}
+}
+
+func TestStartRoomsBatchesLargeConfirmationLookup(t *testing.T) {
+	ctx := context.Background()
+	sourceID := domain.AlertSourceProfileID(7)
+	autoPolicy := mustReportWorkflowPolicy(t, 13, sourceID, domain.DiagnosisFollowUpModeAutoRoom)
+	firstSnapshot := triggerSnapshot(1)
+	snapshots := make([]alertreplay.SnapshotRef, 250)
+	for i := range snapshots {
+		snapshots[i] = alertreplay.SnapshotRef{
+			ID:         domain.EvidenceSnapshotID(i + 1),
+			GroupIndex: i,
+			EventCount: 1,
+		}
+	}
+	diagnosisRepo := &fakeTriggerDiagnosisRepo{}
+	factory := &fakeTriggerFactory{
+		config:    &fakeTriggerConfigRepo{},
+		evidence:  &fakeTriggerEvidenceRepo{snapshots: map[domain.EvidenceSnapshotID]domain.EvidenceSnapshot{firstSnapshot.ID: firstSnapshot}},
+		diagnosis: diagnosisRepo,
+	}
+	service, err := NewService(factory, &recordingRoomStarter{}, WithMaxRoomsPerTrigger(1))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	result, err := service.StartRooms(ctx, StartRoomsRequest{
+		AlertSourceProfileID: sourceID,
+		Policy:               autoPolicy,
+		Snapshots:            snapshots,
+	})
+	if err != nil {
+		t.Fatalf("StartRooms: %v", err)
+	}
+	if len(result.Rooms) != 1 || len(result.SkippedSnapshots) != len(snapshots)-1 {
+		t.Fatalf("result rooms/skips = %d/%d, want 1/%d", len(result.Rooms), len(result.SkippedSnapshots), len(snapshots)-1)
+	}
+	if diagnosisRepo.historyCalls != 1 || diagnosisRepo.legacyTaskCalls != 0 || diagnosisRepo.legacyEventCalls != 0 {
+		t.Fatalf(
+			"diagnosis lookup calls = history:%d tasks:%d events:%d, want 1,0,0",
+			diagnosisRepo.historyCalls,
+			diagnosisRepo.legacyTaskCalls,
+			diagnosisRepo.legacyEventCalls,
+		)
+	}
+}
+
 func TestStartRoomsRejectsAmbiguousConfirmedCloseEvent(t *testing.T) {
 	ctx := context.Background()
 	sourceID := domain.AlertSourceProfileID(7)
@@ -1227,11 +1393,27 @@ func triggerClosedEvent(
 		t.Fatalf("marshal diagnosis close event: %v", err)
 	}
 	return domain.DiagnosisTaskEvent{
-		ID:      domain.DiagnosisTaskEventID(int64(task.ID) + 1000),
-		TaskID:  task.ID,
-		Kind:    diagnosisRoomClosedEventKind,
-		Payload: payload,
+		ID:         domain.DiagnosisTaskEventID(int64(task.ID) + 1000),
+		TaskID:     task.ID,
+		Kind:       diagnosisRoomClosedEventKind,
+		Payload:    payload,
+		OccurredAt: triggerEventTime(task.ID),
+		RecordedAt: triggerEventTime(task.ID),
 	}
+}
+
+func triggerProgressEvent(task domain.DiagnosisTask, recordedAt time.Time) domain.DiagnosisTaskEvent {
+	return domain.DiagnosisTaskEvent{
+		ID:         domain.DiagnosisTaskEventID(int64(task.ID) + 2000),
+		TaskID:     task.ID,
+		Kind:       diagnosisRoomProgressEventKind,
+		OccurredAt: recordedAt,
+		RecordedAt: recordedAt,
+	}
+}
+
+func triggerEventTime(taskID domain.DiagnosisTaskID) time.Time {
+	return time.Date(2026, 7, 13, 0, 0, int(taskID%60), 0, time.UTC)
 }
 
 func mutateTriggerClosedEvent(
@@ -1307,8 +1489,11 @@ func (u *fakeTriggerUOW) Rollback(context.Context) error        { return nil }
 
 type fakeTriggerDiagnosisRepo struct {
 	ports.DiagnosisRepository
-	tasks  map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
-	events map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
+	tasks            map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
+	events           map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
+	historyCalls     int
+	legacyTaskCalls  int
+	legacyEventCalls int
 }
 
 func (r *fakeTriggerDiagnosisRepo) ListTasksByEvidenceSnapshot(
@@ -1316,6 +1501,7 @@ func (r *fakeTriggerDiagnosisRepo) ListTasksByEvidenceSnapshot(
 	snapshotID domain.EvidenceSnapshotID,
 	limit int,
 ) ([]domain.DiagnosisTask, error) {
+	r.legacyTaskCalls++
 	items := r.tasks[snapshotID]
 	if len(items) > limit {
 		items = items[:limit]
@@ -1329,11 +1515,47 @@ func (r *fakeTriggerDiagnosisRepo) ListEventsByTaskAndKind(
 	kind string,
 	limit int,
 ) ([]domain.DiagnosisTaskEvent, error) {
+	r.legacyEventCalls++
 	items := r.events[taskID][kind]
 	if len(items) > limit {
 		items = items[:limit]
 	}
 	return append([]domain.DiagnosisTaskEvent(nil), items...), nil
+}
+
+func (r *fakeTriggerDiagnosisRepo) ListSnapshotHistories(
+	_ context.Context,
+	snapshotIDs []domain.EvidenceSnapshotID,
+	taskLimit int,
+	eventKinds []string,
+) ([]ports.DiagnosisSnapshotHistory, error) {
+	r.historyCalls++
+	histories := make([]ports.DiagnosisSnapshotHistory, 0, len(snapshotIDs))
+	seen := make(map[domain.EvidenceSnapshotID]struct{}, len(snapshotIDs))
+	for _, snapshotID := range snapshotIDs {
+		if _, ok := seen[snapshotID]; ok {
+			continue
+		}
+		seen[snapshotID] = struct{}{}
+		history := ports.DiagnosisSnapshotHistory{EvidenceSnapshotID: snapshotID}
+		tasks := r.tasks[snapshotID]
+		if len(tasks) > taskLimit {
+			history.TasksTruncated = true
+			histories = append(histories, history)
+			continue
+		}
+		history.Tasks = append([]domain.DiagnosisTask(nil), tasks...)
+		for _, task := range tasks {
+			for _, kind := range eventKinds {
+				items := r.events[task.ID][kind]
+				if len(items) > 0 {
+					history.LatestEvents = append(history.LatestEvents, items[0])
+				}
+			}
+		}
+		histories = append(histories, history)
+	}
+	return histories, nil
 }
 
 type fakeTriggerConfigRepo struct {

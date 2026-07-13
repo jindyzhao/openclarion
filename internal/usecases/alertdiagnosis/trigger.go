@@ -32,6 +32,7 @@ const (
 	MaxRoomsPerTriggerLimit = 100
 
 	diagnosisRoomClosedEventKind      = "diagnosis_room.closed"
+	diagnosisRoomProgressEventKind    = "diagnosis_room.turn_persisted"
 	diagnosisRoomHumanConfirmedReason = "human_confirmed"
 	diagnosisRoomCloseVersion         = "diagnosis-room-close.v1"
 	confirmedDiagnosisTaskScanLimit   = 100
@@ -272,24 +273,42 @@ func (s *Service) planRooms(
 	snapshots []alertreplay.SnapshotRef,
 	capacity int,
 ) (roomStartPlan, error) {
-	unconfirmed := make([]alertreplay.SnapshotRef, 0, len(snapshots))
-	for _, snapshotRef := range snapshots {
-		confirmed, err := s.hasConfirmedDiagnosis(ctx, snapshotRef.ID)
-		if err != nil {
-			return roomStartPlan{}, err
-		}
-		if confirmed {
-			continue
-		}
-		unconfirmed = append(unconfirmed, snapshotRef)
+	confirmationStates, err := s.confirmedDiagnosisStates(ctx, snapshots)
+	if err != nil {
+		return roomStartPlan{}, err
 	}
 
-	roomCount := min(len(unconfirmed), max(capacity, 0))
+	roomCapacity := max(capacity, 0)
 	plan := roomStartPlan{
-		rooms:            make([]plannedRoomStart, 0, roomCount),
-		skippedSnapshots: cloneSnapshotRefs(unconfirmed[roomCount:]),
+		rooms:            make([]plannedRoomStart, 0, min(len(snapshots), roomCapacity)),
+		skippedSnapshots: make([]alertreplay.SnapshotRef, 0, max(len(snapshots)-roomCapacity, 0)),
 	}
-	for _, snapshotRef := range unconfirmed[:roomCount] {
+	for _, snapshotRef := range snapshots {
+		state, ok := confirmationStates[snapshotRef.ID]
+		if !ok {
+			return roomStartPlan{}, fmt.Errorf(
+				"alert diagnosis: confirmed diagnosis history missing for snapshot %d: %w",
+				snapshotRef.ID,
+				domain.ErrInvariantViolation,
+			)
+		}
+		if state.err != nil {
+			// Once capacity is exhausted, an unreadable history cannot cause an
+			// extra room start. Keep it in the exact cap-skip set and continue
+			// checking later snapshots so confirmed suffixes are not misreported.
+			if len(plan.rooms) >= roomCapacity {
+				plan.skippedSnapshots = append(plan.skippedSnapshots, snapshotRef)
+				continue
+			}
+			return roomStartPlan{}, state.err
+		}
+		if state.confirmed {
+			continue
+		}
+		if len(plan.rooms) >= roomCapacity {
+			plan.skippedSnapshots = append(plan.skippedSnapshots, snapshotRef)
+			continue
+		}
 		room, err := s.prepareRoomStart(ctx, policy, sourceID, snapshotRef.ID)
 		if err != nil {
 			return roomStartPlan{}, err
@@ -334,51 +353,193 @@ type confirmedDiagnosisClosedEventPayload struct {
 	} `json:"final_conclusion"`
 }
 
-func (s *Service) hasConfirmedDiagnosis(ctx context.Context, snapshotID domain.EvidenceSnapshotID) (bool, error) {
-	confirmed := false
+type confirmedDiagnosisState struct {
+	confirmed bool
+	err       error
+}
+
+func (s *Service) confirmedDiagnosisStates(
+	ctx context.Context,
+	snapshots []alertreplay.SnapshotRef,
+) (map[domain.EvidenceSnapshotID]confirmedDiagnosisState, error) {
+	snapshotIDs := make([]domain.EvidenceSnapshotID, 0, len(snapshots))
+	seen := make(map[domain.EvidenceSnapshotID]struct{}, len(snapshots))
+	for _, snapshot := range snapshots {
+		if _, ok := seen[snapshot.ID]; ok {
+			continue
+		}
+		seen[snapshot.ID] = struct{}{}
+		snapshotIDs = append(snapshotIDs, snapshot.ID)
+	}
+	if len(snapshotIDs) == 0 {
+		return map[domain.EvidenceSnapshotID]confirmedDiagnosisState{}, nil
+	}
+
+	var histories []ports.DiagnosisSnapshotHistory
 	err := s.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
-		tasks, err := uow.Diagnosis().ListTasksByEvidenceSnapshot(ctx, snapshotID, confirmedDiagnosisTaskScanLimit+1)
-		if err != nil {
-			return err
-		}
-		truncated := len(tasks) > confirmedDiagnosisTaskScanLimit
-		for _, task := range tasks {
-			if task.ID <= 0 || task.EvidenceSnapshotID != snapshotID || !task.Status.Valid() {
-				return fmt.Errorf("diagnosis task %d is invalid for snapshot %d: %w", task.ID, snapshotID, domain.ErrInvariantViolation)
-			}
-			if task.Status != domain.DiagnosisStatusSucceeded {
-				continue
-			}
-			events, err := uow.Diagnosis().ListEventsByTaskAndKind(ctx, task.ID, diagnosisRoomClosedEventKind, 1)
-			if err != nil {
-				return err
-			}
-			if len(events) == 0 {
-				continue
-			}
-			isConfirmed, err := confirmedDiagnosisClosedEvent(events[0], task)
-			if err != nil {
-				return err
-			}
-			if isConfirmed {
-				confirmed = true
-				return nil
-			}
-		}
-		if truncated {
-			return fmt.Errorf(
-				"confirmed diagnosis lookup for snapshot %d exceeded %d recent tasks: %w",
-				snapshotID,
-				confirmedDiagnosisTaskScanLimit,
+		var err error
+		histories, err = uow.Diagnosis().ListSnapshotHistories(
+			ctx,
+			snapshotIDs,
+			confirmedDiagnosisTaskScanLimit,
+			[]string{diagnosisRoomClosedEventKind, diagnosisRoomProgressEventKind},
+		)
+		return err
+	})
+	if err != nil {
+		return nil, fmt.Errorf("alert diagnosis: inspect confirmed diagnosis histories: %w", err)
+	}
+	if len(histories) != len(snapshotIDs) {
+		return nil, fmt.Errorf(
+			"alert diagnosis: confirmed diagnosis history count %d does not match snapshot count %d: %w",
+			len(histories),
+			len(snapshotIDs),
+			domain.ErrInvariantViolation,
+		)
+	}
+
+	states := make(map[domain.EvidenceSnapshotID]confirmedDiagnosisState, len(histories))
+	for _, history := range histories {
+		if _, expected := seen[history.EvidenceSnapshotID]; !expected {
+			return nil, fmt.Errorf(
+				"alert diagnosis: confirmed diagnosis history references unexpected snapshot %d: %w",
+				history.EvidenceSnapshotID,
 				domain.ErrInvariantViolation,
 			)
 		}
-		return nil
-	})
-	if err != nil {
-		return false, fmt.Errorf("alert diagnosis: inspect confirmed diagnosis for snapshot %d: %w", snapshotID, err)
+		if _, duplicate := states[history.EvidenceSnapshotID]; duplicate {
+			return nil, fmt.Errorf(
+				"alert diagnosis: duplicate confirmed diagnosis history for snapshot %d: %w",
+				history.EvidenceSnapshotID,
+				domain.ErrInvariantViolation,
+			)
+		}
+		confirmed, historyErr := confirmedDiagnosisFromHistory(history)
+		if historyErr != nil {
+			historyErr = fmt.Errorf(
+				"alert diagnosis: inspect confirmed diagnosis for snapshot %d: %w",
+				history.EvidenceSnapshotID,
+				historyErr,
+			)
+		}
+		states[history.EvidenceSnapshotID] = confirmedDiagnosisState{confirmed: confirmed, err: historyErr}
 	}
-	return confirmed, nil
+	return states, nil
+}
+
+func confirmedDiagnosisFromHistory(history ports.DiagnosisSnapshotHistory) (bool, error) {
+	if history.EvidenceSnapshotID <= 0 {
+		return false, fmt.Errorf("confirmed diagnosis history has an invalid snapshot id: %w", domain.ErrInvariantViolation)
+	}
+	if history.TasksTruncated {
+		return false, fmt.Errorf(
+			"confirmed diagnosis lookup for snapshot %d exceeded %d recent tasks: %w",
+			history.EvidenceSnapshotID,
+			confirmedDiagnosisTaskScanLimit,
+			domain.ErrInvariantViolation,
+		)
+	}
+	if len(history.Tasks) > confirmedDiagnosisTaskScanLimit {
+		return false, fmt.Errorf(
+			"confirmed diagnosis lookup for snapshot %d returned %d tasks above limit %d: %w",
+			history.EvidenceSnapshotID,
+			len(history.Tasks),
+			confirmedDiagnosisTaskScanLimit,
+			domain.ErrInvariantViolation,
+		)
+	}
+
+	tasks := make(map[domain.DiagnosisTaskID]domain.DiagnosisTask, len(history.Tasks))
+	for _, task := range history.Tasks {
+		if task.ID <= 0 || task.EvidenceSnapshotID != history.EvidenceSnapshotID || !task.Status.Valid() {
+			return false, fmt.Errorf(
+				"diagnosis task %d is invalid for snapshot %d: %w",
+				task.ID,
+				history.EvidenceSnapshotID,
+				domain.ErrInvariantViolation,
+			)
+		}
+		if _, duplicate := tasks[task.ID]; duplicate {
+			return false, fmt.Errorf("diagnosis task %d is duplicated in snapshot history: %w", task.ID, domain.ErrInvariantViolation)
+		}
+		tasks[task.ID] = task
+	}
+
+	events := make(map[domain.DiagnosisTaskID]map[string]domain.DiagnosisTaskEvent, len(tasks))
+	for _, event := range history.LatestEvents {
+		if event.ID <= 0 || (event.Kind != diagnosisRoomClosedEventKind && event.Kind != diagnosisRoomProgressEventKind) {
+			return false, fmt.Errorf("diagnosis history event %d has an invalid identity: %w", event.ID, domain.ErrInvariantViolation)
+		}
+		if _, ok := tasks[event.TaskID]; !ok {
+			return false, fmt.Errorf(
+				"diagnosis history event %d references unexpected task %d: %w",
+				event.ID,
+				event.TaskID,
+				domain.ErrInvariantViolation,
+			)
+		}
+		if events[event.TaskID] == nil {
+			events[event.TaskID] = make(map[string]domain.DiagnosisTaskEvent, 2)
+		}
+		if _, duplicate := events[event.TaskID][event.Kind]; duplicate {
+			return false, fmt.Errorf(
+				"diagnosis history has duplicate latest %q events for task %d: %w",
+				event.Kind,
+				event.TaskID,
+				domain.ErrInvariantViolation,
+			)
+		}
+		events[event.TaskID][event.Kind] = event
+	}
+
+	var latestConfirmation time.Time
+	var latestProgress time.Time
+	for _, task := range history.Tasks {
+		taskEvents := events[task.ID]
+		if progress, ok := taskEvents[diagnosisRoomProgressEventKind]; ok {
+			recordedAt, err := diagnosisHistoryEventRecordedAt(progress)
+			if err != nil {
+				return false, err
+			}
+			if recordedAt.After(latestProgress) {
+				latestProgress = recordedAt
+			}
+		}
+		if task.Status != domain.DiagnosisStatusSucceeded {
+			continue
+		}
+		closed, ok := taskEvents[diagnosisRoomClosedEventKind]
+		if !ok {
+			continue
+		}
+		confirmed, err := confirmedDiagnosisClosedEvent(closed, task)
+		if err != nil {
+			return false, err
+		}
+		if !confirmed {
+			continue
+		}
+		recordedAt, err := diagnosisHistoryEventRecordedAt(closed)
+		if err != nil {
+			return false, err
+		}
+		if recordedAt.After(latestConfirmation) {
+			latestConfirmation = recordedAt
+		}
+	}
+
+	return !latestConfirmation.IsZero() && !latestProgress.After(latestConfirmation), nil
+}
+
+func diagnosisHistoryEventRecordedAt(event domain.DiagnosisTaskEvent) (time.Time, error) {
+	recordedAt := event.RecordedAt
+	if recordedAt.IsZero() {
+		recordedAt = event.OccurredAt
+	}
+	if recordedAt.IsZero() {
+		return time.Time{}, fmt.Errorf("diagnosis history event %d has no recorded time: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	return recordedAt, nil
 }
 
 func confirmedDiagnosisClosedEvent(event domain.DiagnosisTaskEvent, task domain.DiagnosisTask) (bool, error) {

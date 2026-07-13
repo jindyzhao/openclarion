@@ -17,6 +17,11 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
+const (
+	diagnosisHistorySnapshotChunkSize = 10000
+	diagnosisHistoryTaskChunkSize     = 5000
+)
+
 // diagnosisRepo is the Ent-backed implementation of
 // ports.DiagnosisRepository.
 type diagnosisRepo struct {
@@ -152,6 +157,236 @@ func (r *diagnosisRepo) ListTasksByEvidenceSnapshot(ctx context.Context, snapsho
 		out[i] = diagnosisTaskToDomain(row)
 	}
 	return out, nil
+}
+
+// ListSnapshotHistories batches bounded task history and latest event reads
+// for many EvidenceSnapshots without per-snapshot repository round trips.
+func (r *diagnosisRepo) ListSnapshotHistories(
+	ctx context.Context,
+	snapshotIDs []domain.EvidenceSnapshotID,
+	taskLimit int,
+	eventKinds []string,
+) ([]ports.DiagnosisSnapshotHistory, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	ids, err := normalizedDiagnosisHistorySnapshotIDs(snapshotIDs)
+	if err != nil {
+		return nil, err
+	}
+	if taskLimit <= 0 {
+		return nil, fmt.Errorf("list diagnosis snapshot histories: task limit must be > 0 (got %d): %w", taskLimit, domain.ErrInvariantViolation)
+	}
+	kinds, err := normalizedDiagnosisHistoryEventKinds(eventKinds)
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	histories := make([]ports.DiagnosisSnapshotHistory, len(ids))
+	historyIndex := make(map[domain.EvidenceSnapshotID]int, len(ids))
+	for i, id := range ids {
+		histories[i].EvidenceSnapshotID = id
+		historyIndex[id] = i
+	}
+
+	for start := 0; start < len(ids); start += diagnosisHistorySnapshotChunkSize {
+		end := min(start+diagnosisHistorySnapshotChunkSize, len(ids))
+		if err := r.loadDiagnosisHistoryTaskChunk(ctx, histories, historyIndex, ids[start:end], taskLimit); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(kinds) == 0 {
+		return histories, nil
+	}
+	taskHistoryIndex := make(map[domain.DiagnosisTaskID]int)
+	taskIDs := make([]domain.DiagnosisTaskID, 0)
+	for i := range histories {
+		if histories[i].TasksTruncated {
+			continue
+		}
+		for _, task := range histories[i].Tasks {
+			taskHistoryIndex[task.ID] = i
+			taskIDs = append(taskIDs, task.ID)
+		}
+	}
+	for start := 0; start < len(taskIDs); start += diagnosisHistoryTaskChunkSize {
+		end := min(start+diagnosisHistoryTaskChunkSize, len(taskIDs))
+		events, err := r.listLatestDiagnosisEvents(ctx, taskIDs[start:end], kinds)
+		if err != nil {
+			return nil, err
+		}
+		for _, event := range events {
+			index, ok := taskHistoryIndex[event.TaskID]
+			if !ok {
+				return nil, fmt.Errorf("list diagnosis snapshot histories: event %d references unexpected task %d: %w", event.ID, event.TaskID, domain.ErrInvariantViolation)
+			}
+			histories[index].LatestEvents = append(histories[index].LatestEvents, event)
+		}
+	}
+	return histories, nil
+}
+
+type diagnosisHistoryTaskCount struct {
+	EvidenceSnapshotID int `json:"evidence_snapshot_id"`
+	Count              int `json:"count"`
+}
+
+func (r *diagnosisRepo) loadDiagnosisHistoryTaskChunk(
+	ctx context.Context,
+	histories []ports.DiagnosisSnapshotHistory,
+	historyIndex map[domain.EvidenceSnapshotID]int,
+	ids []domain.EvidenceSnapshotID,
+	taskLimit int,
+) error {
+	storageIDs := evidenceSnapshotIDsToInts(ids)
+	var counts []diagnosisHistoryTaskCount
+	if err := r.tx.DiagnosisTask.Query().
+		Where(diagnosistask.EvidenceSnapshotIDIn(storageIDs...)).
+		GroupBy(diagnosistask.FieldEvidenceSnapshotID).
+		Aggregate(ent.Count()).
+		Scan(ctx, &counts); err != nil {
+		return fmt.Errorf("list diagnosis snapshot history task counts: %w", err)
+	}
+	countBySnapshotID := make(map[domain.EvidenceSnapshotID]int, len(counts))
+	for _, count := range counts {
+		countBySnapshotID[domain.EvidenceSnapshotID(count.EvidenceSnapshotID)] = count.Count
+	}
+
+	eligibleStorageIDs := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if countBySnapshotID[id] > taskLimit {
+			histories[historyIndex[id]].TasksTruncated = true
+			continue
+		}
+		eligibleStorageIDs = append(eligibleStorageIDs, int(id))
+	}
+	if len(eligibleStorageIDs) == 0 {
+		return nil
+	}
+
+	rows, err := r.tx.DiagnosisTask.Query().
+		Where(diagnosistask.EvidenceSnapshotIDIn(eligibleStorageIDs...)).
+		Order(
+			diagnosistask.ByEvidenceSnapshotID(),
+			diagnosistask.ByCreatedAt(sql.OrderDesc()),
+			diagnosistask.ByID(sql.OrderDesc()),
+		).
+		Limit((taskLimit + 1) * len(eligibleStorageIDs)).
+		All(ctx)
+	if err != nil {
+		return fmt.Errorf("list diagnosis snapshot history tasks: %w", err)
+	}
+	for _, row := range rows {
+		id := domain.EvidenceSnapshotID(row.EvidenceSnapshotID)
+		index, ok := historyIndex[id]
+		if !ok {
+			return fmt.Errorf("list diagnosis snapshot histories: task %d references unexpected snapshot %d: %w", row.ID, id, domain.ErrInvariantViolation)
+		}
+		history := &histories[index]
+		if len(history.Tasks) >= taskLimit {
+			history.Tasks = nil
+			history.TasksTruncated = true
+			continue
+		}
+		if !history.TasksTruncated {
+			history.Tasks = append(history.Tasks, diagnosisTaskToDomain(row))
+		}
+	}
+	return nil
+}
+
+func (r *diagnosisRepo) listLatestDiagnosisEvents(
+	ctx context.Context,
+	taskIDs []domain.DiagnosisTaskID,
+	kinds []string,
+) ([]domain.DiagnosisTaskEvent, error) {
+	storageTaskIDs := make([]int, len(taskIDs))
+	for i, id := range taskIDs {
+		storageTaskIDs[i] = int(id)
+	}
+	rows, err := r.tx.DiagnosisTaskEvent.Query().
+		Where(
+			diagnosistaskevent.TaskIDIn(storageTaskIDs...),
+			diagnosistaskevent.KindIn(kinds...),
+			func(selector *sql.Selector) {
+				newer := sql.Table(diagnosistaskevent.Table).As("newer_diagnosis_task_events")
+				selector.Where(sql.Not(sql.Exists(
+					sql.Select(newer.C(diagnosistaskevent.FieldID)).
+						From(newer).
+						Where(sql.And(
+							sql.ColumnsEQ(newer.C(diagnosistaskevent.FieldTaskID), selector.C(diagnosistaskevent.FieldTaskID)),
+							sql.ColumnsEQ(newer.C(diagnosistaskevent.FieldKind), selector.C(diagnosistaskevent.FieldKind)),
+							sql.Or(
+								sql.ColumnsGT(newer.C(diagnosistaskevent.FieldOccurredAt), selector.C(diagnosistaskevent.FieldOccurredAt)),
+								sql.And(
+									sql.ColumnsEQ(newer.C(diagnosistaskevent.FieldOccurredAt), selector.C(diagnosistaskevent.FieldOccurredAt)),
+									sql.ColumnsGT(newer.C(diagnosistaskevent.FieldID), selector.C(diagnosistaskevent.FieldID)),
+								),
+							),
+						)),
+				)))
+			},
+		).
+		Order(
+			diagnosistaskevent.ByTaskID(),
+			diagnosistaskevent.ByKind(),
+			diagnosistaskevent.ByOccurredAt(sql.OrderDesc()),
+			diagnosistaskevent.ByID(sql.OrderDesc()),
+		).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list latest diagnosis snapshot history events: %w", err)
+	}
+	out := make([]domain.DiagnosisTaskEvent, len(rows))
+	for i, row := range rows {
+		out[i] = diagnosisTaskEventToDomain(row)
+	}
+	return out, nil
+}
+
+func normalizedDiagnosisHistorySnapshotIDs(ids []domain.EvidenceSnapshotID) ([]domain.EvidenceSnapshotID, error) {
+	out := make([]domain.EvidenceSnapshotID, 0, len(ids))
+	seen := make(map[domain.EvidenceSnapshotID]struct{}, len(ids))
+	for i, id := range ids {
+		if id <= 0 {
+			return nil, fmt.Errorf("list diagnosis snapshot histories: snapshot_ids[%d] must be positive: %w", i, domain.ErrInvariantViolation)
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+func normalizedDiagnosisHistoryEventKinds(kinds []string) ([]string, error) {
+	out := make([]string, 0, len(kinds))
+	seen := make(map[string]struct{}, len(kinds))
+	for i, kind := range kinds {
+		trimmed := strings.TrimSpace(kind)
+		if trimmed == "" || trimmed != kind {
+			return nil, fmt.Errorf("list diagnosis snapshot histories: event_kinds[%d] must be canonical non-empty text: %w", i, domain.ErrInvariantViolation)
+		}
+		if _, ok := seen[kind]; ok {
+			continue
+		}
+		seen[kind] = struct{}{}
+		out = append(out, kind)
+	}
+	return out, nil
+}
+
+func evidenceSnapshotIDsToInts(ids []domain.EvidenceSnapshotID) []int {
+	out := make([]int, len(ids))
+	for i, id := range ids {
+		out[i] = int(id)
+	}
+	return out
 }
 
 // AppendEvent inserts a new DiagnosisTaskEvent. When DedupeKey is
