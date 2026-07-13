@@ -36,6 +36,7 @@ import {
 import type { FormInstance, TableColumnsType } from "antd";
 import { useMemo, useState } from "react";
 
+import { autoDiagnosisConfirmedSnapshotCount } from "@/features/report-replay/replay-response";
 import type { ApiResult } from "@/lib/api/client";
 
 import { formatDateTime } from "../format";
@@ -3408,6 +3409,13 @@ function autoDiagnosisReplaySummary(
     pluralizeCount(autoDiagnosis.snapshots, "snapshot"),
     `${pluralizeCount(autoDiagnosis.rooms_started, "room")} started`,
   ];
+  const confirmedSnapshots =
+    autoDiagnosisConfirmedSnapshotCount(autoDiagnosis);
+  if (confirmedSnapshots > 0) {
+    parts.push(
+      `${pluralizeCount(confirmedSnapshots, "snapshot")} already confirmed`,
+    );
+  }
   if (autoDiagnosis.rooms_skipped > 0) {
     parts.push(
       `${pluralizeCount(autoDiagnosis.rooms_skipped, "snapshot")} skipped by safety cap`,

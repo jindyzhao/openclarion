@@ -2195,6 +2195,7 @@ describe("report workflow policy form formatting", () => {
           snapshots: 2,
           rooms_started: 1,
           rooms_skipped: 1,
+          skipped_snapshot_ids: [102],
           rooms: [
             {
               policy_id: 7,

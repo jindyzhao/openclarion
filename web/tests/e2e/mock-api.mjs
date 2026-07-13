@@ -2338,6 +2338,7 @@ function handleReportWorkflowPolicyReplay(request, response, policyID) {
                 snapshots: 2,
                 rooms_started: 1,
                 rooms_skipped: 1,
+                skipped_snapshot_ids: [8],
                 rooms: [
                   {
                     policy_id: policy.id,
@@ -2408,6 +2409,7 @@ function handleReportReplay(request, response) {
           snapshots: 1,
           rooms_started: 1,
           rooms_skipped: 0,
+          skipped_snapshot_ids: [],
           rooms: [
             {
               policy_id: 1,

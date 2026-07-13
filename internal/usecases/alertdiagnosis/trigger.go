@@ -61,9 +61,9 @@ type Result struct {
 	PoliciesMatched int
 	Snapshots       []alertreplay.SnapshotRef
 	Rooms           []RoomStart
-	// RoomsSkipped counts snapshots left without an automatic room only
+	// SkippedSnapshots contains snapshots left without an automatic room only
 	// because the per-trigger runtime safety cap was reached.
-	RoomsSkipped int
+	SkippedSnapshots []alertreplay.SnapshotRef
 }
 
 // RoomStart identifies one diagnosis room accepted by the workflow starter.
@@ -171,6 +171,7 @@ func (s *Service) Trigger(ctx context.Context, req Request) (Result, error) {
 		return result, nil
 	}
 
+	plannedRooms := make([]plannedRoomStart, 0, s.maxRoomsPerTrigger)
 	for _, binding := range bindings {
 		replay, err := s.replay(ctx, s.uowFactory, alertreplay.Request{
 			WindowStart:              window.StartInclusive(),
@@ -188,18 +189,24 @@ func (s *Service) Trigger(ctx context.Context, req Request) (Result, error) {
 		}
 		result.Snapshots = append(result.Snapshots, replay.Snapshots...)
 
-		rooms, capSkipped, err := s.startRooms(
+		plan, err := s.planRooms(
 			ctx,
 			binding.policy,
 			req.AlertSourceProfileID,
 			replay.Snapshots,
-			s.maxRoomsPerTrigger-len(result.Rooms),
+			s.maxRoomsPerTrigger-len(plannedRooms),
 		)
-		result.RoomsSkipped += capSkipped
-		result.Rooms = append(result.Rooms, rooms...)
 		if err != nil {
 			return result, err
 		}
+		plannedRooms = append(plannedRooms, plan.rooms...)
+		result.SkippedSnapshots = append(result.SkippedSnapshots, plan.skippedSnapshots...)
+	}
+
+	rooms, err := s.startPlannedRooms(ctx, plannedRooms)
+	result.Rooms = append(result.Rooms, rooms...)
+	if err != nil {
+		return result, err
 	}
 	return result, nil
 }
@@ -221,15 +228,18 @@ func (s *Service) StartRooms(ctx context.Context, req StartRoomsRequest) (Result
 	result.PoliciesMatched = 1
 	result.Snapshots = cloneSnapshotRefs(req.Snapshots)
 
-	rooms, capSkipped, err := s.startRooms(
+	plan, err := s.planRooms(
 		ctx,
 		req.Policy,
 		req.AlertSourceProfileID,
 		req.Snapshots,
 		s.maxRoomsPerTrigger,
 	)
-	result.RoomsSkipped = capSkipped
-	result.Rooms = rooms
+	if err != nil {
+		return result, err
+	}
+	result.SkippedSnapshots = plan.skippedSnapshots
+	result.Rooms, err = s.startPlannedRooms(ctx, plan.rooms)
 	if err != nil {
 		return result, err
 	}
@@ -243,37 +253,70 @@ func validateMaxRoomsPerTrigger(limit int) error {
 	return nil
 }
 
-func (s *Service) startRooms(
+type roomStartPlan struct {
+	rooms            []plannedRoomStart
+	skippedSnapshots []alertreplay.SnapshotRef
+}
+
+type plannedRoomStart struct {
+	policyID         domain.ReportWorkflowPolicyID
+	snapshotID       domain.EvidenceSnapshotID
+	initialMessageID string
+	request          ports.DiagnosisRoomStartRequest
+}
+
+func (s *Service) planRooms(
 	ctx context.Context,
 	policy domain.ReportWorkflowPolicy,
 	sourceID domain.AlertSourceProfileID,
 	snapshots []alertreplay.SnapshotRef,
 	capacity int,
-) ([]RoomStart, int, error) {
-	if capacity <= 0 {
-		return nil, len(snapshots), nil
-	}
-	rooms := make([]RoomStart, 0, min(len(snapshots), capacity))
-	capSkipped := 0
-	for index, snapshotRef := range snapshots {
-		if len(rooms) >= capacity {
-			capSkipped += len(snapshots) - index
-			break
-		}
+) (roomStartPlan, error) {
+	unconfirmed := make([]alertreplay.SnapshotRef, 0, len(snapshots))
+	for _, snapshotRef := range snapshots {
 		confirmed, err := s.hasConfirmedDiagnosis(ctx, snapshotRef.ID)
 		if err != nil {
-			return rooms, capSkipped, err
+			return roomStartPlan{}, err
 		}
 		if confirmed {
 			continue
 		}
-		started, err := s.startRoom(ctx, policy, sourceID, snapshotRef.ID)
-		if err != nil {
-			return rooms, capSkipped, err
-		}
-		rooms = append(rooms, started)
+		unconfirmed = append(unconfirmed, snapshotRef)
 	}
-	return rooms, capSkipped, nil
+
+	roomCount := min(len(unconfirmed), max(capacity, 0))
+	plan := roomStartPlan{
+		rooms:            make([]plannedRoomStart, 0, roomCount),
+		skippedSnapshots: cloneSnapshotRefs(unconfirmed[roomCount:]),
+	}
+	for _, snapshotRef := range unconfirmed[:roomCount] {
+		room, err := s.prepareRoomStart(ctx, policy, sourceID, snapshotRef.ID)
+		if err != nil {
+			return roomStartPlan{}, err
+		}
+		plan.rooms = append(plan.rooms, room)
+	}
+	return plan, nil
+}
+
+func (s *Service) startPlannedRooms(ctx context.Context, plans []plannedRoomStart) ([]RoomStart, error) {
+	// Every local read and validation finishes during planning. Deterministic
+	// session IDs let a retry converge if an external start fails mid-batch.
+	rooms := make([]RoomStart, 0, len(plans))
+	for _, plan := range plans {
+		started, err := s.starter.StartDiagnosisRoom(ctx, plan.request)
+		if err != nil {
+			return rooms, fmt.Errorf("alert diagnosis: start diagnosis room: %w", err)
+		}
+		rooms = append(rooms, RoomStart{
+			PolicyID:           plan.policyID,
+			EvidenceSnapshotID: plan.snapshotID,
+			SessionID:          started.SessionID,
+			InitialMessageID:   plan.initialMessageID,
+			Workflow:           started.Workflow,
+		})
+	}
+	return rooms, nil
 }
 
 type confirmedDiagnosisClosedEventPayload struct {
@@ -437,44 +480,39 @@ func (s *Service) validateAutoRoomNotificationBinding(ctx context.Context, id do
 	})
 }
 
-func (s *Service) startRoom(
+func (s *Service) prepareRoomStart(
 	ctx context.Context,
 	policy domain.ReportWorkflowPolicy,
 	sourceID domain.AlertSourceProfileID,
 	snapshotID domain.EvidenceSnapshotID,
-) (RoomStart, error) {
+) (plannedRoomStart, error) {
 	snapshot, err := s.loadSnapshot(ctx, snapshotID)
 	if err != nil {
-		return RoomStart{}, err
+		return plannedRoomStart{}, err
 	}
 	evidence, err := diagnosiscontext.EvidenceWithAvailableDiagnosisTools(ctx, s.uowFactory, snapshot.Payload)
 	if err != nil {
-		return RoomStart{}, err
+		return plannedRoomStart{}, err
 	}
 	sessionID := AutoRoomSessionID(policy.ID, snapshotID)
 	ownerSubject := AutoRoomOwnerSubject(sourceID, policy.ID)
 	initialMessageID := AutoRoomInitialMessageID(policy.ID, snapshotID)
-	started, err := s.starter.StartDiagnosisRoom(ctx, ports.DiagnosisRoomStartRequest{
-		SessionID:                         sessionID,
-		EvidenceSnapshotID:                snapshot.ID,
-		OwnerSubject:                      ownerSubject,
-		Evidence:                          evidence,
-		CloseNotificationChannelProfileID: policy.ReportNotificationChannelProfileID,
-		InitialTurn: &ports.DiagnosisRoomInitialTurnRequest{
-			MessageID:    initialMessageID,
-			ActorSubject: ownerSubject,
-			Message:      AutoRoomInitialMessage(policy.ID, sourceID, snapshotID),
+	return plannedRoomStart{
+		policyID:         policy.ID,
+		snapshotID:       snapshot.ID,
+		initialMessageID: initialMessageID,
+		request: ports.DiagnosisRoomStartRequest{
+			SessionID:                         sessionID,
+			EvidenceSnapshotID:                snapshot.ID,
+			OwnerSubject:                      ownerSubject,
+			Evidence:                          evidence,
+			CloseNotificationChannelProfileID: policy.ReportNotificationChannelProfileID,
+			InitialTurn: &ports.DiagnosisRoomInitialTurnRequest{
+				MessageID:    initialMessageID,
+				ActorSubject: ownerSubject,
+				Message:      AutoRoomInitialMessage(policy.ID, sourceID, snapshotID),
+			},
 		},
-	})
-	if err != nil {
-		return RoomStart{}, fmt.Errorf("alert diagnosis: start diagnosis room: %w", err)
-	}
-	return RoomStart{
-		PolicyID:           policy.ID,
-		EvidenceSnapshotID: snapshot.ID,
-		SessionID:          started.SessionID,
-		InitialMessageID:   initialMessageID,
-		Workflow:           started.Workflow,
 	}, nil
 }
 

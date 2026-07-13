@@ -3863,7 +3863,7 @@ export interface components {
             policies_matched: number;
             /**
              * Format: int64
-             * @description Evidence snapshots produced or reused for automatic diagnosis.
+             * @description Evidence snapshots evaluated for automatic diagnosis. The remainder after rooms_started and rooms_skipped already had valid human-confirmed conclusions.
              * @example 1
              */
             snapshots: number;
@@ -3879,6 +3879,11 @@ export interface components {
              * @example 0
              */
             rooms_skipped: number;
+            /**
+             * @description EvidenceSnapshot IDs counted by rooms_skipped, in trigger input order. The array length always equals rooms_skipped.
+             * @example []
+             */
+            skipped_snapshot_ids: number[];
             /** @description Diagnosis rooms accepted for automatic consultation, with only navigation-safe identifiers. */
             rooms?: components["schemas"]["AlertmanagerWebhookAutoDiagnosisRoom"][];
         };

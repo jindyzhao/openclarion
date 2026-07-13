@@ -50,7 +50,7 @@ describe("report workflow policy replay route", () => {
         rooms_started: 1,
         rooms: [
           {
-            session_id: "diagnosis-session-auto-p7-s17",
+            session_id: "diagnosis-session-auto-p7-s9002",
           },
         ],
       },
@@ -83,6 +83,7 @@ describe("report workflow policy replay route", () => {
             snapshots: 1,
             rooms_started: 1,
             rooms_skipped: 0,
+            skipped_snapshot_ids: [],
             rooms: [],
           },
         }),
@@ -147,15 +148,16 @@ function validReplayResponse(
       rooms: [
         {
           policy_id: 7,
-          evidence_snapshot_id: 17,
-          session_id: "diagnosis-session-auto-p7-s17",
-          initial_message_id: "diagnosis-auto-initial-p7-s17",
-          workflow_id: "diagnosis-room-diagnosis-session-auto-p7-s17",
-          run_id: "run-17",
+          evidence_snapshot_id: 9002,
+          session_id: "diagnosis-session-auto-p7-s9002",
+          initial_message_id: "diagnosis-auto-initial-p7-s9002",
+          workflow_id: "diagnosis-room-diagnosis-session-auto-p7-s9002",
+          run_id: "run-9002",
         },
       ],
       rooms_skipped: 0,
       rooms_started: 1,
+      skipped_snapshot_ids: [],
       snapshots: 1,
     },
     correlation_key: "policy-replay-7",

@@ -448,6 +448,7 @@ func TestStartRoomsSkipsConfirmedSnapshotWithoutConsumingRoomCapacity(t *testing
 	confirmedSnapshot := triggerSnapshot(77)
 	userClosedSnapshot := triggerSnapshot(78)
 	capacitySnapshot := triggerSnapshot(79)
+	confirmedSuffixSnapshot := triggerSnapshot(80)
 	confirmedTask := domain.DiagnosisTask{
 		ID:                 1001,
 		EvidenceSnapshotID: confirmedSnapshot.ID,
@@ -458,17 +459,24 @@ func TestStartRoomsSkipsConfirmedSnapshotWithoutConsumingRoomCapacity(t *testing
 		EvidenceSnapshotID: userClosedSnapshot.ID,
 		Status:             domain.DiagnosisStatusSucceeded,
 	}
+	confirmedSuffixTask := domain.DiagnosisTask{
+		ID:                 1003,
+		EvidenceSnapshotID: confirmedSuffixSnapshot.ID,
+		Status:             domain.DiagnosisStatusSucceeded,
+	}
 	factory := &fakeTriggerFactory{
 		config: &fakeTriggerConfigRepo{},
 		evidence: &fakeTriggerEvidenceRepo{snapshots: map[domain.EvidenceSnapshotID]domain.EvidenceSnapshot{
-			confirmedSnapshot.ID:  confirmedSnapshot,
-			userClosedSnapshot.ID: userClosedSnapshot,
-			capacitySnapshot.ID:   capacitySnapshot,
+			confirmedSnapshot.ID:       confirmedSnapshot,
+			userClosedSnapshot.ID:      userClosedSnapshot,
+			capacitySnapshot.ID:        capacitySnapshot,
+			confirmedSuffixSnapshot.ID: confirmedSuffixSnapshot,
 		}},
 		diagnosis: &fakeTriggerDiagnosisRepo{
 			tasks: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{
-				confirmedSnapshot.ID:  {confirmedTask},
-				userClosedSnapshot.ID: {userClosedTask},
+				confirmedSnapshot.ID:       {confirmedTask},
+				userClosedSnapshot.ID:      {userClosedTask},
+				confirmedSuffixSnapshot.ID: {confirmedSuffixTask},
 			},
 			events: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
 				confirmedTask.ID: {
@@ -479,6 +487,11 @@ func TestStartRoomsSkipsConfirmedSnapshotWithoutConsumingRoomCapacity(t *testing
 				userClosedTask.ID: {
 					diagnosisRoomClosedEventKind: {
 						triggerClosedEvent(t, userClosedTask, "user_done", ""),
+					},
+				},
+				confirmedSuffixTask.ID: {
+					diagnosisRoomClosedEventKind: {
+						triggerClosedEvent(t, confirmedSuffixTask, diagnosisRoomHumanConfirmedReason, "operator-2"),
 					},
 				},
 			},
@@ -497,6 +510,7 @@ func TestStartRoomsSkipsConfirmedSnapshotWithoutConsumingRoomCapacity(t *testing
 			{ID: confirmedSnapshot.ID, GroupIndex: 0, EventCount: 1},
 			{ID: userClosedSnapshot.ID, GroupIndex: 1, EventCount: 1},
 			{ID: capacitySnapshot.ID, GroupIndex: 2, EventCount: 1},
+			{ID: confirmedSuffixSnapshot.ID, GroupIndex: 3, EventCount: 1},
 		},
 	})
 	if err != nil {
@@ -504,7 +518,8 @@ func TestStartRoomsSkipsConfirmedSnapshotWithoutConsumingRoomCapacity(t *testing
 	}
 	if len(result.Rooms) != 1 ||
 		result.Rooms[0].EvidenceSnapshotID != userClosedSnapshot.ID ||
-		result.RoomsSkipped != 1 {
+		len(result.SkippedSnapshots) != 1 ||
+		result.SkippedSnapshots[0].ID != capacitySnapshot.ID {
 		t.Fatalf("result = %+v, want one user-closed start and one capacity skip", result)
 	}
 	if len(starter.requests) != 1 || starter.requests[0].EvidenceSnapshotID != userClosedSnapshot.ID {
@@ -588,6 +603,52 @@ func TestStartRoomsFailsClosedWhenConfirmedDiagnosisHistoryIsTruncated(t *testin
 	}
 	if len(starter.requests) != 0 {
 		t.Fatalf("starter requests = %d, want 0", len(starter.requests))
+	}
+}
+
+func TestStartRoomsPreflightsConfirmedHistoryBeforeStartingAnyRoom(t *testing.T) {
+	ctx := context.Background()
+	sourceID := domain.AlertSourceProfileID(7)
+	autoPolicy := mustReportWorkflowPolicy(t, 13, sourceID, domain.DiagnosisFollowUpModeAutoRoom)
+	firstSnapshot := triggerSnapshot(77)
+	truncatedSnapshot := triggerSnapshot(78)
+	tasks := make([]domain.DiagnosisTask, confirmedDiagnosisTaskScanLimit+1)
+	for i := range tasks {
+		tasks[i] = domain.DiagnosisTask{
+			ID:                 domain.DiagnosisTaskID(i + 1),
+			EvidenceSnapshotID: truncatedSnapshot.ID,
+			Status:             domain.DiagnosisStatusRunning,
+		}
+	}
+	factory := &fakeTriggerFactory{
+		config: &fakeTriggerConfigRepo{},
+		evidence: &fakeTriggerEvidenceRepo{snapshots: map[domain.EvidenceSnapshotID]domain.EvidenceSnapshot{
+			firstSnapshot.ID:     firstSnapshot,
+			truncatedSnapshot.ID: truncatedSnapshot,
+		}},
+		diagnosis: &fakeTriggerDiagnosisRepo{tasks: map[domain.EvidenceSnapshotID][]domain.DiagnosisTask{
+			truncatedSnapshot.ID: tasks,
+		}},
+	}
+	starter := &recordingRoomStarter{}
+	service, err := NewService(factory, starter)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	_, err = service.StartRooms(ctx, StartRoomsRequest{
+		AlertSourceProfileID: sourceID,
+		Policy:               autoPolicy,
+		Snapshots: []alertreplay.SnapshotRef{
+			{ID: firstSnapshot.ID, GroupIndex: 0, EventCount: 1},
+			{ID: truncatedSnapshot.ID, GroupIndex: 1, EventCount: 1},
+		},
+	})
+	if !errors.Is(err, domain.ErrInvariantViolation) || !strings.Contains(err.Error(), "exceeded 100 recent tasks") {
+		t.Fatalf("StartRooms error = %v, want truncated-history invariant violation", err)
+	}
+	if len(starter.requests) != 0 {
+		t.Fatalf("starter requests = %d, want no starts before batch validation completes", len(starter.requests))
 	}
 }
 
@@ -767,7 +828,7 @@ func TestStartRoomsCapsRoomStartsPerTrigger(t *testing.T) {
 	if result.PoliciesMatched != 1 ||
 		len(result.Snapshots) != len(refs) ||
 		len(result.Rooms) != 2 ||
-		result.RoomsSkipped != 3 {
+		len(result.SkippedSnapshots) != 3 {
 		t.Fatalf("result = %+v, want 5 snapshots, 2 rooms, 3 skipped", result)
 	}
 	if len(starter.requests) != 2 {
@@ -843,7 +904,7 @@ func TestTriggerSharesRoomStartCapAcrossMatchedPolicies(t *testing.T) {
 		result.PoliciesMatched != 2 ||
 		len(result.Snapshots) != 6 ||
 		len(result.Rooms) != 4 ||
-		result.RoomsSkipped != 2 {
+		len(result.SkippedSnapshots) != 2 {
 		t.Fatalf("result = %+v replayCalls=%d, want 6 snapshots, 4 rooms, 2 skipped across two policies", result, replayCalls)
 	}
 	if len(starter.requests) != 4 {

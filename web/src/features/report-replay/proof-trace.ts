@@ -1,6 +1,8 @@
 import { diagnosisRoomLinkHref } from "@/features/diagnosis-room/url-state";
 import type { components } from "@/lib/api/openapi";
 
+import { autoDiagnosisConfirmedSnapshotCount } from "./replay-response";
+
 type ReportReplayTriggerResponse = components["schemas"]["ReportReplayTriggerResponse"];
 type ReplayProofTraceStatus = "ready" | "review" | "pending" | "blocked";
 
@@ -82,6 +84,20 @@ function replayNotificationProofTrace(result: ReportReplayTriggerResponse): Repo
     };
   }
 
+  if (
+    autoDiagnosis &&
+    autoDiagnosis.rooms_skipped === 0 &&
+    autoDiagnosisConfirmedSnapshotCount(autoDiagnosis) > 0
+  ) {
+    const confirmed = autoDiagnosisConfirmedSnapshotCount(autoDiagnosis);
+    return {
+      detail: `${pluralizeCount(confirmed, "snapshot")} already ${confirmed === 1 ? "has" : "have"} a human-confirmed conclusion, so no new diagnosis room or consultation notification was required.`,
+      status: "ready",
+      title: "Notification proof",
+      value: "Already confirmed"
+    };
+  }
+
   if (autoDiagnosis && autoDiagnosis.policies_matched > 0) {
     return {
       actions: replayNotificationProofActions(result),
@@ -126,11 +142,11 @@ function skippedAutoDiagnosisSnapshots(result: ReportReplayTriggerResponse) {
   if (!autoDiagnosis || autoDiagnosis.rooms_skipped <= 0) {
     return [];
   }
-  const startedSnapshotIDs = new Set((autoDiagnosis.rooms ?? []).map((room) => room.evidence_snapshot_id));
-  const unstarted = result.snapshots.filter((snapshot) => !startedSnapshotIDs.has(snapshot.id));
-  // The runtime stops at the cap, so cap-skipped snapshots form the suffix;
-  // earlier unstarted snapshots may already have confirmed conclusions.
-  return unstarted.slice(-autoDiagnosis.rooms_skipped);
+  const snapshotsByID = new Map(result.snapshots.map((snapshot) => [snapshot.id, snapshot]));
+  return autoDiagnosis.skipped_snapshot_ids.flatMap((snapshotID) => {
+    const snapshot = snapshotsByID.get(snapshotID);
+    return snapshot === undefined ? [] : [snapshot];
+  });
 }
 
 function diagnosisRoomURL(
@@ -158,7 +174,12 @@ function replayRoomNotificationTraceDetail(
     autoDiagnosis.rooms_skipped > 0
       ? ` ${pluralizeCount(autoDiagnosis.rooms_skipped, "snapshot")} ${autoDiagnosis.rooms_skipped === 1 ? "remains" : "remain"} without automatic room timelines because the safety cap was reached.`
       : "";
-  return `${started} started; verify assistant and final-ready notifications in the diagnosis-room notification timeline.${skipped}`;
+  const confirmed = autoDiagnosisConfirmedSnapshotCount(autoDiagnosis);
+  const confirmedDetail =
+    confirmed > 0
+      ? ` ${pluralizeCount(confirmed, "snapshot")} already ${confirmed === 1 ? "has" : "have"} a human-confirmed conclusion.`
+      : "";
+  return `${started} started; verify assistant and final-ready notifications in the diagnosis-room notification timeline.${confirmedDetail}${skipped}`;
 }
 
 function replayAutoDiagnosisTraceStatus(
@@ -170,7 +191,9 @@ function replayAutoDiagnosisTraceStatus(
   if (autoDiagnosis.rooms_skipped > 0) {
     return "review";
   }
-  return autoDiagnosis.rooms_started > 0 ? "ready" : "review";
+  return autoDiagnosis.rooms_started > 0 || autoDiagnosisConfirmedSnapshotCount(autoDiagnosis) > 0
+    ? "ready"
+    : "review";
 }
 
 function replayAutoDiagnosisTraceValue(
@@ -181,6 +204,9 @@ function replayAutoDiagnosisTraceValue(
   }
   if (autoDiagnosis.rooms_started > 0) {
     return `${autoDiagnosis.rooms_started} room${autoDiagnosis.rooms_started === 1 ? "" : "s"}`;
+  }
+  if (autoDiagnosisConfirmedSnapshotCount(autoDiagnosis) > 0) {
+    return "Already confirmed";
   }
   return "Manual handoff";
 }
@@ -197,7 +223,12 @@ function replayAutoDiagnosisTraceDetail(
   const skipped = autoDiagnosis.rooms_skipped > 0
     ? ` ${pluralizeCount(autoDiagnosis.rooms_skipped, "snapshot")} ${autoDiagnosis.rooms_skipped === 1 ? "remains" : "remain"} for manual room creation.`
     : "";
-  return `${autoDiagnosis.policies_matched} policy matched ${autoDiagnosis.snapshots} snapshots and started ${autoDiagnosis.rooms_started} rooms.${skipped}`;
+  const confirmed = autoDiagnosisConfirmedSnapshotCount(autoDiagnosis);
+  const confirmedDetail =
+    confirmed > 0
+      ? ` ${pluralizeCount(confirmed, "snapshot")} already ${confirmed === 1 ? "has" : "have"} a human-confirmed conclusion.`
+      : "";
+  return `${autoDiagnosis.policies_matched} policy matched ${autoDiagnosis.snapshots} snapshots and started ${autoDiagnosis.rooms_started} rooms.${confirmedDetail}${skipped}`;
 }
 
 function pluralizeCount(count: number, noun: string): string {

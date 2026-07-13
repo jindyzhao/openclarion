@@ -89,11 +89,16 @@ func alertmanagerWebhookAutoDiagnosisSummary(result alertdiagnosis.Result) api.A
 			RunID:              room.Workflow.RunID,
 		})
 	}
+	skippedSnapshotIDs := make([]int64, 0, len(result.SkippedSnapshots))
+	for _, snapshot := range result.SkippedSnapshots {
+		skippedSnapshotIDs = append(skippedSnapshotIDs, int64(snapshot.ID))
+	}
 	return api.AlertmanagerWebhookAutoDiagnosisSummary{
-		PoliciesMatched: int64(result.PoliciesMatched),
-		Snapshots:       int64(len(result.Snapshots)),
-		RoomsStarted:    int64(len(result.Rooms)),
-		RoomsSkipped:    int64(result.RoomsSkipped),
-		Rooms:           rooms,
+		PoliciesMatched:    int64(result.PoliciesMatched),
+		Snapshots:          int64(len(result.Snapshots)),
+		RoomsStarted:       int64(len(result.Rooms)),
+		RoomsSkipped:       int64(len(result.SkippedSnapshots)),
+		SkippedSnapshotIds: skippedSnapshotIDs,
+		Rooms:              rooms,
 	}
 }
