@@ -11,12 +11,14 @@ import (
 )
 
 // Unmarshal rejects duplicate object keys and unknown struct fields before
-// unmarshalling raw JSON into dst.
+// unmarshalling raw JSON into dst. Untyped numeric values remain json.Number
+// so callers can normalize JSON without losing integer precision.
 func Unmarshal(raw []byte, dst any) error {
 	if err := RejectDuplicateObjectKeys(raw); err != nil {
 		return err
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		return err

@@ -76,22 +76,29 @@ if [[ ! "$run_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$ ]]; then
   fail "build id must match [A-Za-z0-9][A-Za-z0-9._-]{0,79}"
 fi
 
-tmp_dir="$(mktemp -d -t openclarion-diagnosis-runner.XXXXXX)"
-registry_image="${OPENCLARION_DIAGNOSIS_RUNNER_REGISTRY_IMAGE:-registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373}"
 registry_name="openclarion-diagnosis-runner-registry-${run_id}"
 local_tag="openclarion/diagnosis-assistant-runner:local-${run_id}"
+docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable"
+if docker container inspect "$registry_name" >/dev/null 2>&1; then
+  fail "build id already names an existing container: $registry_name"
+fi
+if docker image inspect "$local_tag" >/dev/null 2>&1; then
+  fail "build id already names an existing image tag: $local_tag"
+fi
+
+tmp_dir="$(mktemp -d -t openclarion-diagnosis-runner.XXXXXX)"
+registry_image="${OPENCLARION_DIAGNOSIS_RUNNER_REGISTRY_IMAGE:-registry:2@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373}"
 registry_cid=""
 remote_tag=""
 tmp_output=""
+local_image_created=0
 
 cleanup() {
   if [[ -n "$registry_cid" ]]; then
     docker rm -f -v "$registry_cid" >/dev/null 2>&1 || true
-  else
-    docker rm -f -v "$registry_name" >/dev/null 2>&1 || true
   fi
-  if [[ -n "$local_tag" ]]; then
-    docker image rm -f "$local_tag" >/dev/null 2>&1 || true
+  if ((local_image_created == 1)); then
+    docker image rm "$local_tag" >/dev/null 2>&1 || true
   fi
   if [[ -n "$tmp_output" ]]; then
     rm -f "$tmp_output"
@@ -120,6 +127,7 @@ chmod 0644 "$tmp_dir/Apache-2.0.txt" "$tmp_dir/THIRD_PARTY_NOTICES.txt"
 chmod 0644 "$tmp_dir/ca-certificates.crt"
 
 docker build --pull=false --platform "$target_platform" -t "$local_tag" "$tmp_dir" >/dev/null
+local_image_created=1
 local_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$local_tag")"
 [[ "$local_platform" == "$target_platform" ]] || \
   fail "local image platform ${local_platform:-unknown} does not match ${target_platform}"

@@ -91,7 +91,9 @@ decision packet and representative direct-versus-sandbox evidence.
 mounted evidence, prior transcript, and latest user message into one Eino
 ChatModelAgent invocation. It uses the existing OpenAI-compatible provider,
 strict diagnosis schema, idempotency key, and bounded validation retry, then
-writes only schema-valid `/workspace/out/output.json`.
+writes only schema-valid `/workspace/out/output.json`. Application-owned retry
+feedback is merged into the system instructions, so the latest operator turn
+remains the language anchor after a validation failure.
 
 V1 registers no Eino tools, framework persistence, multi-agent router, or
 custom Agent loop. Inputs are direct regular files with explicit size limits;
@@ -114,8 +116,10 @@ image metadata matches the cross-compiled binary target. The build helper uses
 a temporary loopback registry to resolve a real repository digest and waits for
 its Registry V2 endpoint before pushing. The readiness timeout defaults to 30
 seconds and accepts an explicit value from 1 to 120 seconds through
-`OPENCLARION_DIAGNOSIS_RUNNER_REGISTRY_READY_TIMEOUT_SECONDS`. A repo-local
-digest-ref output must be ignored and cannot overlap a tracked path.
+`OPENCLARION_DIAGNOSIS_RUNNER_REGISTRY_READY_TIMEOUT_SECONDS`. A supplied build
+ID is rejected when its container name or local image tag already exists, and
+cleanup removes only Docker resources created by the current invocation. A
+repo-local digest-ref output must be ignored and cannot overlap a tracked path.
 ContainerProvider, Temporal, WebSocket, and browser integration
 remain separate follow-up concerns and are not claimed by this runner batch.
 

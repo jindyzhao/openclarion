@@ -163,6 +163,83 @@ func TestBuildDiagnosisAssistantRunnerRejectsInvalidRegistryReadinessTimeout(t *
 	}
 }
 
+func TestBuildDiagnosisAssistantRunnerRejectsPreexistingDockerResourcesWithoutCleanup(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string
+		wantErr string
+	}{
+		{
+			name:    "registry container",
+			env:     "OPENCLARION_TEST_PREEXISTING_REGISTRY=1",
+			wantErr: "build id already names an existing container",
+		},
+		{
+			name:    "local image tag",
+			env:     "OPENCLARION_TEST_PREEXISTING_LOCAL_IMAGE=1",
+			wantErr: "build id already names an existing image tag",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logPath := filepath.Join(t.TempDir(), "commands.log")
+			binDir := writeDiagnosisRunnerBuildFakeTools(t)
+			outPath := filepath.Join(t.TempDir(), "runner.digest-ref")
+			out, err := runDiagnosisRunnerBuild(t, binDir, logPath, outPath, "", "", tc.env)
+			if err == nil {
+				t.Fatalf("runner build passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, tc.wantErr) {
+				t.Fatalf("build output = %q, want %q", out, tc.wantErr)
+			}
+			raw, readErr := os.ReadFile(logPath) // #nosec G304 -- test reads its controlled fixture log.
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			logText := string(raw)
+			if strings.Contains(logText, "docker build") || strings.Contains(logText, "docker rm") ||
+				strings.Contains(logText, "docker image rm") {
+				t.Fatalf("build modified a pre-existing Docker resource:\n%s", logText)
+			}
+			if _, statErr := os.Stat(outPath); !os.IsNotExist(statErr) {
+				t.Fatalf("digest output exists after resource collision: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestBuildDiagnosisAssistantRunnerDoesNotRemoveRegistryWhenRunFails(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	binDir := writeDiagnosisRunnerBuildFakeTools(t)
+	outPath := filepath.Join(t.TempDir(), "runner.digest-ref")
+	out, err := runDiagnosisRunnerBuild(
+		t,
+		binDir,
+		logPath,
+		outPath,
+		"",
+		"",
+		"OPENCLARION_TEST_DOCKER_RUN_FAIL=1",
+	)
+	if err == nil {
+		t.Fatalf("runner build passed unexpectedly:\n%s", out)
+	}
+	raw, readErr := os.ReadFile(logPath) // #nosec G304 -- test reads its controlled fixture log.
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	logText := string(raw)
+	if strings.Contains(logText, "docker rm -f -v") {
+		t.Fatalf("cleanup removed a registry that this run did not create:\n%s", logText)
+	}
+	if !strings.Contains(logText, "docker image rm openclarion/diagnosis-assistant-runner:local-test-build") {
+		t.Fatalf("cleanup did not remove the local image created by this run:\n%s", logText)
+	}
+	if _, statErr := os.Stat(outPath); !os.IsNotExist(statErr) {
+		t.Fatalf("digest output exists after registry start failure: %v", statErr)
+	}
+}
+
 func runDiagnosisRunnerBuild(
 	t *testing.T,
 	binDir string,
@@ -177,7 +254,7 @@ func runDiagnosisRunnerBuild(
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", "scripts/build_diagnosis_assistant_runner.sh") // #nosec G204 -- controlled repository script.
 	cmd.Dir = ".."
-	env := make([]string, 0, len(os.Environ())+9+len(extraEnv))
+	env := make([]string, 0, len(os.Environ())+12+len(extraEnv))
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
 		switch key {
@@ -188,7 +265,10 @@ func runDiagnosisRunnerBuild(
 			"OPENCLARION_DIAGNOSIS_RUNNER_TARGET_ARCH",
 			"OPENCLARION_TEST_COMMAND_LOG",
 			"OPENCLARION_TEST_CURL_COUNT",
+			"OPENCLARION_TEST_DOCKER_RUN_FAIL",
 			"OPENCLARION_TEST_IMAGE_ARCH",
+			"OPENCLARION_TEST_PREEXISTING_LOCAL_IMAGE",
+			"OPENCLARION_TEST_PREEXISTING_REGISTRY",
 			"OPENCLARION_TEST_REGISTRY_READY_AFTER":
 			continue
 		}
@@ -287,6 +367,19 @@ if [[ -z "$reported_arch" ]]; then
   reported_arch="$target_arch"
 fi
 case "${1:-}" in
+	info)
+		exit 0
+		;;
+	container)
+		if [[ "${2:-}" != "inspect" ]]; then
+			exit 2
+		fi
+		if [[ "${OPENCLARION_TEST_PREEXISTING_REGISTRY:-0}" == "1" ]]; then
+			printf '[{"Id":"preexisting-registry"}]\n'
+			exit 0
+		fi
+		exit 1
+		;;
   build)
     context="${!#}"
     test -x "$context/diagnosis-assistant-runner"
@@ -295,6 +388,9 @@ case "${1:-}" in
     exit 0
     ;;
   run)
+		if [[ "${OPENCLARION_TEST_DOCKER_RUN_FAIL:-0}" == "1" ]]; then
+			exit 42
+		fi
     printf 'fake-registry-cid\n'
     exit 0
     ;;
@@ -313,7 +409,11 @@ case "${1:-}" in
       exit 2
     fi
     ref="${!#}"
+		has_format=0
     for arg in "$@"; do
+		if [[ "$arg" == "--format" ]]; then
+			has_format=1
+		fi
       if [[ "$arg" == *'.Os'*'.Architecture'* ]]; then
         printf 'linux/%s\n' "$reported_arch"
         exit 0
@@ -324,6 +424,13 @@ case "${1:-}" in
         exit 0
       fi
     done
+		if ((has_format == 0)); then
+			if [[ "${OPENCLARION_TEST_PREEXISTING_LOCAL_IMAGE:-0}" == "1" ]]; then
+				printf '[{"Id":"sha256:preexisting-image"}]\n'
+				exit 0
+			fi
+			exit 1
+		fi
     exit 0
     ;;
 esac

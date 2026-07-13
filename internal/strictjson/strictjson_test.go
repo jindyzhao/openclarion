@@ -1,6 +1,7 @@
 package strictjson
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -73,5 +74,24 @@ func TestUnmarshalRejectsUnknownStructFields(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), `unknown field "unexpected"`) {
 		t.Fatalf("Unmarshal err = %q, want unknown field error", err.Error())
+	}
+}
+
+func TestUnmarshalPreservesUntypedJSONNumbers(t *testing.T) {
+	const largeID = "9007199254740993"
+	var out map[string]any
+	if err := Unmarshal([]byte(`{"id":`+largeID+`}`), &out); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	number, ok := out["id"].(json.Number)
+	if !ok || number.String() != largeID {
+		t.Fatalf("decoded id = %#v, want json.Number(%s)", out["id"], largeID)
+	}
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if string(encoded) != `{"id":`+largeID+`}` {
+		t.Fatalf("encoded JSON = %s, want exact large integer", encoded)
 	}
 }

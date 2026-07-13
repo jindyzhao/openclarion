@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
@@ -88,6 +89,84 @@ func TestRunPublishesValidatedOutput(t *testing.T) {
 	}
 	if string(actualRaw) != string(expectedRaw) {
 		t.Fatalf("normalized output = %s, want %s", actualRaw, expectedRaw)
+	}
+}
+
+func TestRunPreservesLatestUserLanguageAcrossValidationRetry(t *testing.T) {
+	providerOutputs := []string{
+		`{"schema_version":"diagnosis_turn.v1","message":"","confidence":"high","requires_human_review":false}`,
+		`{"schema_version":"diagnosis_turn.v1","message":"CPU 使用率过高。","confidence":"high","requires_human_review":false}`,
+	}
+	var mu sync.Mutex
+	requests := make([][]ports.LLMMessage, 0, len(providerOutputs))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Messages []ports.LLMMessage `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		mu.Lock()
+		index := len(requests)
+		requests = append(requests, request.Messages)
+		mu.Unlock()
+		if index >= len(providerOutputs) {
+			http.Error(w, "unexpected provider call", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"model": "test-model",
+			"choices": []map[string]any{{
+				"message":       map[string]any{"content": providerOutputs[index]},
+				"finish_reason": "stop",
+			}},
+		}); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	paths := writeRunnerFixture(t)
+	const latestUserMessage = "请继续分析当前告警。"
+	if err := os.WriteFile(
+		paths.Message,
+		[]byte(`{"role":"user","content":"`+latestUserMessage+`"}`),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL": server.URL + "/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":  "test-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":    "test-model",
+	}
+	if err := run(context.Background(), paths, func(key string) string { return env[key] }); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(requests) != 2 {
+		t.Fatalf("provider requests = %d, want one validation retry", len(requests))
+	}
+	second := requests[1]
+	latestUser := ""
+	for _, message := range second {
+		if message.Role == ports.LLMRoleUser {
+			latestUser = message.Content
+		}
+	}
+	if latestUser != latestUserMessage {
+		t.Fatalf("latest retry user message = %q, want %q", latestUser, latestUserMessage)
+	}
+	if latest := second[len(second)-1]; latest.Role != ports.LLMRoleUser || latest.Content != latestUserMessage {
+		t.Fatalf("last retry message = %+v, want original user turn", latest)
+	}
+	feedback := second[0]
+	if feedback.Role != ports.LLMRoleSystem || !strings.Contains(feedback.Content, "failed validation") {
+		t.Fatalf("retry feedback = %+v, want application-owned system instruction", feedback)
 	}
 }
 
@@ -275,6 +354,56 @@ func TestValidateDiagnosisResponseNormalizesOmittedNullableProperties(t *testing
 	parsed, ok := accepted.Parsed.(diagnosisroom.TurnOutput)
 	if !ok || parsed.Message != "Inspect active alerts." {
 		t.Fatalf("accepted parsed output = %#v", accepted.Parsed)
+	}
+}
+
+func TestValidateDiagnosisResponsePreservesLargeNumericIDs(t *testing.T) {
+	const largeTemplateID int64 = 9007199254740993
+	const largeProfileID int64 = 9007199254740995
+	schema, err := diagnosisroom.TurnOutputStructuredSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := ports.LLMRequest{
+		OutputSchema:   schema,
+		OutputSchemaID: diagnosisOutputSchemaName,
+		IdempotencyKey: "diagnosis-turn:test",
+	}
+	response := ports.LLMResponse{
+		Content: json.RawMessage(`{
+			"schema_version":"diagnosis_turn.v1",
+			"message":"Collect the configured metric.",
+			"evidence_requests":[{
+				"template_id":9007199254740993,
+				"alert_source_profile_id":9007199254740995,
+				"tool":"metric_query",
+				"reason":"Need the configured metric."
+			}],
+			"confidence":"medium",
+			"requires_human_review":true
+		}`),
+		FinishReason: "stop",
+		OutputMode:   ports.LLMOutputModeJSONSchema,
+	}
+	accepted, err := validateDiagnosisResponse(req, response)
+	if err != nil {
+		t.Fatalf("validateDiagnosisResponse: %v", err)
+	}
+	parsed, ok := accepted.Parsed.(diagnosisroom.TurnOutput)
+	if !ok || len(parsed.EvidenceRequests) != 1 {
+		t.Fatalf("accepted parsed output = %#v", accepted.Parsed)
+	}
+	request := parsed.EvidenceRequests[0]
+	if request.TemplateID != largeTemplateID || request.AlertSourceProfileID != largeProfileID {
+		t.Fatalf("large IDs changed: template=%d profile=%d", request.TemplateID, request.AlertSourceProfileID)
+	}
+	for _, want := range []string{
+		`"template_id":9007199254740993`,
+		`"alert_source_profile_id":9007199254740995`,
+	} {
+		if !strings.Contains(string(accepted.Content), want) {
+			t.Fatalf("normalized content lost %s: %s", want, accepted.Content)
+		}
 	}
 }
 

@@ -66,9 +66,9 @@ func (e *Error) Unwrap() error {
 
 // GenerateValidated calls the provider until output passes
 // llmoutput.Validate, a non-retryable error occurs, context is
-// canceled, or MaxAttempts is exhausted. Retry feedback is appended as
-// a user message so provider implementations do not need to know about
-// the validation package.
+// canceled, or MaxAttempts is exhausted. Retry feedback is merged into
+// the application-owned system instructions so it cannot replace the
+// latest end-user turn or be mistaken for untrusted operator input.
 func GenerateValidated(ctx context.Context, req Request) (Result, error) {
 	if req.Provider == nil {
 		return Result{}, fmt.Errorf("llm retry: provider must be non-nil")
@@ -126,15 +126,27 @@ func GenerateValidated(ctx context.Context, req Request) (Result, error) {
 		if !llmoutput.IsRetryable(err) || i == maxAttempts {
 			return Result{}, &Error{Attempts: cloneAttempts(attempts), Err: err}
 		}
-		attemptReq.Messages = append(attemptReq.Messages, validationFeedbackMessage(err))
+		attemptReq.Messages = addValidationFeedback(attemptReq.Messages, err)
 	}
 
 	return Result{}, &Error{Attempts: cloneAttempts(attempts), Err: lastErr}
 }
 
+func addValidationFeedback(messages []ports.LLMMessage, err error) []ports.LLMMessage {
+	feedback := validationFeedbackMessage(err)
+	for index := range messages {
+		if messages[index].Role != ports.LLMRoleSystem {
+			continue
+		}
+		messages[index].Content += "\n\n" + feedback.Content
+		return messages
+	}
+	return append([]ports.LLMMessage{feedback}, messages...)
+}
+
 func validationFeedbackMessage(err error) ports.LLMMessage {
 	return ports.LLMMessage{
-		Role: ports.LLMRoleUser,
+		Role: ports.LLMRoleSystem,
 		Content: "The previous assistant output failed validation. " +
 			"Return only corrected JSON that satisfies the requested schema. " +
 			"Validation error: " + err.Error(),
