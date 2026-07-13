@@ -199,8 +199,7 @@ func TestProviderCheckEgressReadinessCreatesSecureProbeAndRemoves(t *testing.T) 
 	if create.Image != pinnedImage || create.Config.User != DefaultUser {
 		t.Fatalf("readiness image/user = %q/%q", create.Image, create.Config.User)
 	}
-	if strings.Join(create.Config.Entrypoint, ",") != diagnosisRunnerEntrypoint ||
-		strings.Join(create.Config.Cmd, ",") != egressReadinessCommand {
+	if len(create.Config.Entrypoint) != 0 || strings.Join(create.Config.Cmd, ",") != egressReadinessCommand {
 		t.Fatalf("readiness entrypoint/cmd = %v/%v", create.Config.Entrypoint, create.Config.Cmd)
 	}
 	wantEnv := map[string]string{
@@ -234,6 +233,21 @@ func TestProviderCheckEgressReadinessCreatesSecureProbeAndRemoves(t *testing.T) 
 		t.Fatalf("readiness endpoint config = %+v", create.NetworkingConfig.EndpointsConfig)
 	}
 	engine.assertCalls(t, "inspect", "create", "start", "wait", "remove")
+}
+
+func TestProviderCheckEgressReadinessRejectsCustomCommand(t *testing.T) {
+	engine := newFakeEngine(nil)
+	provider := newTestProvider(t, engine)
+	provider.cfg.Command = []string{"/custom-runner"}
+
+	err := provider.CheckEgressReadiness(t.Context(), "https://llm.example.invalid/v1", ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: []string{"llm.example.invalid:443"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "configure the runner as the image ENTRYPOINT") {
+		t.Fatalf("CheckEgressReadiness err = %v, want custom command rejection", err)
+	}
+	engine.assertCalls(t)
 }
 
 func TestProviderCheckEgressReadinessRemovesFailedProbe(t *testing.T) {

@@ -790,6 +790,9 @@ func diagnosisActivityOptionsFromEnv(
 	if err != nil {
 		return nil, err
 	}
+	if len(command) > 0 {
+		return nil, fmt.Errorf("OPENCLARION_SANDBOX_COMMAND_JSON is not supported with diagnosis sandbox egress readiness; configure the runner as the image ENTRYPOINT")
+	}
 	containerCredentials, err := diagnosisContainerCredentialsFromEnv(getenv)
 	if err != nil {
 		return nil, err

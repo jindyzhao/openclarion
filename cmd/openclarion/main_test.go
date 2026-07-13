@@ -1545,7 +1545,6 @@ func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) 
 	opts, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
-		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/runner"]`,
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
 		"OPENCLARION_SANDBOX_EGRESS_NETWORK":    "openclarion-sandbox-egress-prod",
 		sandboxEgressProxyURLEnv:                "http://proxy.example.test:18080",
@@ -1561,6 +1560,24 @@ func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) 
 	}
 	if !readinessCalled {
 		t.Fatal("sandbox readiness checker was not called")
+	}
+}
+
+func TestDiagnosisActivityOptionsFromEnv_RejectsCustomCommandWithReadiness(t *testing.T) {
+	_, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
+		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/custom-runner"]`,
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_NETWORK":    "openclarion-sandbox-egress-prod",
+		sandboxEgressProxyURLEnv:                "http://proxy.example.test:18080",
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
+	}), nil, allowDiagnosisSandboxReadiness)
+	if err == nil || !strings.Contains(err.Error(), "OPENCLARION_SANDBOX_COMMAND_JSON") ||
+		!strings.Contains(err.Error(), "image ENTRYPOINT") {
+		t.Fatalf("diagnosisActivityOptionsFromEnv err = %v, want custom command rejection", err)
 	}
 }
 
@@ -1731,7 +1748,6 @@ func TestDiagnosisActivityOptionsFromEnv_RejectsMissingDiagnosisLLMConfig(t *tes
 	_, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
-		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/runner"]`,
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
 	}), nil, allowDiagnosisSandboxReadiness)
 	if err == nil {

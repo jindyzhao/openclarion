@@ -198,7 +198,9 @@ override them. Worker startup verifies that the configured diagnosis LLM
 target is covered by the allowlist, inspects the internal network, and runs the
 configured diagnosis image on that network before accepting the configuration.
 The Stage 5 readiness command performs the same preflight before launching the
-worker. Both paths validate the proxy readiness endpoint with a canonical
+worker. Both paths invoke `readiness` through the configured image's exec-form
+`ENTRYPOINT`; egress-enabled command overrides fail before Docker create. Both
+paths validate the proxy readiness endpoint with a canonical
 SHA-256 fingerprint, so the running proxy must have loaded the complete
 expected allowlist without exposing its targets or sending a business request
 to the LLM.

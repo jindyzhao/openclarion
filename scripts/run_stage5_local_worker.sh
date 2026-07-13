@@ -252,6 +252,9 @@ require_env OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT
 require_env OPENCLARION_SANDBOX_EGRESS_ALLOWED
 require_env OPENCLARION_SANDBOX_EGRESS_NETWORK
 require_env OPENCLARION_SANDBOX_EGRESS_PROXY_URL
+if [[ -n "${OPENCLARION_SANDBOX_COMMAND_JSON:-}" ]]; then
+  fail "OPENCLARION_SANDBOX_COMMAND_JSON is not supported with diagnosis sandbox egress readiness; configure the runner as the image ENTRYPOINT"
+fi
 if [[ -z "${OPENCLARION_IM_WEBHOOK_URL:-}" && -z "${OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON:-}" ]]; then
   missing+=("OPENCLARION_IM_WEBHOOK_URL or OPENCLARION_NOTIFICATION_CHANNEL_SECRET_REFS_JSON")
 fi
@@ -389,7 +392,6 @@ if ! docker run --rm \
   -e OPENCLARION_DIAGNOSIS_LLM_BASE_URL \
   -e OPENCLARION_SANDBOX_EGRESS_ALLOWED \
   -e OPENCLARION_SANDBOX_EGRESS_PROXY_URL \
-  --entrypoint /diagnosis-assistant-runner \
   "$OPENCLARION_SANDBOX_IMAGE_REF" readiness >/dev/null 2>&1; then
   fail "diagnosis sandbox readiness probe failed; verify the LLM allowlist and sandbox egress proxy health"
 fi

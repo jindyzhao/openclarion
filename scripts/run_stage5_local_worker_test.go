@@ -111,6 +111,25 @@ func TestStage5LocalWorkerCheckOnlyRequiresEgressProxyURL(t *testing.T) {
 	assertStage5LocalWorkerNoSecretLeak(t, out)
 }
 
+func TestStage5LocalWorkerCheckOnlyRejectsCustomSandboxCommand(t *testing.T) {
+	root := newStage5LocalWorkerFixture(t)
+	privateDir := t.TempDir()
+	envFile := writeStage5LocalWorkerEnv(t, privateDir, map[string]string{
+		"OPENCLARION_SANDBOX_COMMAND_JSON": `["/custom-runner"]`,
+	})
+	binDir := writeStage5LocalWorkerFakeDocker(t, 0)
+
+	out, err := runStage5LocalWorker(t, root, envFile, binDir, "--check-only")
+	if err == nil {
+		t.Fatalf("stage5-local-worker passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "OPENCLARION_SANDBOX_COMMAND_JSON") ||
+		!strings.Contains(out, "image ENTRYPOINT") {
+		t.Fatalf("stage5-local-worker output = %q, want custom command rejection", out)
+	}
+	assertStage5LocalWorkerNoSecretLeak(t, out)
+}
+
 func TestStage5LocalWorkerCheckOnlyPassesAfterRuntimeNetworkCheck(t *testing.T) {
 	root := newStage5LocalWorkerFixture(t)
 	privateDir := t.TempDir()
@@ -828,6 +847,7 @@ func writeStage5LocalWorkerEnv(t *testing.T, dir string, overrides map[string]st
 		"OPENCLARION_WECOM_CALLBACK_RECEIVE_ID",
 		"OPENCLARION_SANDBOX_IMAGE_REF",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT",
+		"OPENCLARION_SANDBOX_COMMAND_JSON",
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED",
 		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL",
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL",
@@ -884,14 +904,17 @@ if [[ "$1" == "run" ]]; then
 		' --network openclarion-sandbox-allowlist ' \
 		' -e OPENCLARION_DIAGNOSIS_LLM_BASE_URL ' \
 		' -e OPENCLARION_SANDBOX_EGRESS_ALLOWED ' \
-		' -e OPENCLARION_SANDBOX_EGRESS_PROXY_URL ' \
-		' --entrypoint /diagnosis-assistant-runner '
+		' -e OPENCLARION_SANDBOX_EGRESS_PROXY_URL '
 	do
 		if [[ "$args" != *"$required"* ]]; then
 			echo "missing readiness argument" >&2
 			exit 9
 		fi
 	done
+	if [[ "$args" == *' --entrypoint '* ]]; then
+		echo "readiness must use image entrypoint" >&2
+		exit 9
+	fi
 	if [[ "${!#}" != "readiness" ]]; then
 		exit 9
 	fi

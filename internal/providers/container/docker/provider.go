@@ -40,7 +40,6 @@ const (
 	egressReadinessTimeout    = 10 * time.Second
 	egressReadinessMemory     = 128 * 1024 * 1024
 	egressReadinessPidsLimit  = 64
-	diagnosisRunnerEntrypoint = "/diagnosis-assistant-runner"
 	egressReadinessCommand    = "readiness"
 	labelComponent            = "openclarion.component"
 	labelInvocationID         = "openclarion.invocation_id"
@@ -158,6 +157,9 @@ func (p *Provider) CheckEgressReadiness(
 	}
 	if ctx == nil {
 		return fmt.Errorf("docker readiness context is required")
+	}
+	if len(p.cfg.Command) > 0 {
+		return fmt.Errorf("docker egress readiness does not support a custom command; configure the runner as the image ENTRYPOINT")
 	}
 	if policy.EffectiveMode() != ports.ContainerNetworkAllowlist {
 		return fmt.Errorf("docker egress readiness requires network mode %q", ports.ContainerNetworkAllowlist)
@@ -732,9 +734,8 @@ func buildEgressReadinessCreateOptions(
 	networkMode := cfg.AllowlistNetworkMode
 	return dockerclient.ContainerCreateOptions{
 		Config: &dockercontainer.Config{
-			User:       cfg.User,
-			Entrypoint: []string{diagnosisRunnerEntrypoint},
-			Cmd:        []string{egressReadinessCommand},
+			User: cfg.User,
+			Cmd:  []string{egressReadinessCommand},
 			Env: []string{
 				"OPENCLARION_DIAGNOSIS_LLM_BASE_URL=" + llmBaseURL,
 				"OPENCLARION_SANDBOX_EGRESS_ALLOWED=" + strings.Join(allowed, ","),
