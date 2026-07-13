@@ -378,9 +378,9 @@ type AuthTransportPolicyReporter interface {
 type LLMMessageRole string
 
 const (
-	// LLMRoleSystem carries system/developer instructions for a model.
+	// LLMRoleSystem carries application-owned system/developer instructions.
 	LLMRoleSystem LLMMessageRole = "system"
-	// LLMRoleUser carries user or validation-feedback content.
+	// LLMRoleUser carries end-user content.
 	LLMRoleUser LLMMessageRole = "user"
 	// LLMRoleAssistant carries prior assistant content during retry.
 	LLMRoleAssistant LLMMessageRole = "assistant"

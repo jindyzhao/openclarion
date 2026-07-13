@@ -77,6 +77,29 @@ updates:
           - "version-update:semver-minor"
           - "version-update:semver-major"
 
+  - package-ecosystem: "gomod"
+    directory: "/scripts/diagnosis_assistant_runner"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:50"
+      timezone: "Asia/Hong_Kong"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+      - "agent-runtime"
+    groups:
+      diagnosis-agent-runtime-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+      diagnosis-agent-runtime-security:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+
   - package-ecosystem: "npm"
     directory: "/web"
     schedule:

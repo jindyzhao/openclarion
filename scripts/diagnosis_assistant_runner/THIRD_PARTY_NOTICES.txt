@@ -1,0 +1,10 @@
+OpenClarion diagnosis assistant runtime third-party notices
+
+CloudWeGo Eino v0.9.12
+Copyright CloudWeGo Authors
+Licensed under the Apache License, Version 2.0.
+Source: https://github.com/cloudwego/eino
+
+The OpenClarion Apache License 2.0 text is included at
+/licenses/Apache-2.0.txt. Dependency license and notice files are included
+under /licenses/third_party in the runtime image.

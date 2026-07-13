@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/llmoutput"
+	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
 func TestParseTurnOutput_AcceptsValidOutput(t *testing.T) {
@@ -493,5 +495,175 @@ func TestTurnOutputSchemaReturnsCopy(t *testing.T) {
 	second := TurnOutputSchema()
 	if len(second) == 0 || second[0] == 'x' {
 		t.Fatalf("TurnOutputSchema returned shared backing storage: %s", second)
+	}
+}
+
+func TestTurnOutputStructuredSchemaRequiresNullableOptionalProperties(t *testing.T) {
+	schema, err := TurnOutputStructuredSchema()
+	if err != nil {
+		t.Fatalf("TurnOutputStructuredSchema: %v", err)
+	}
+	valid := json.RawMessage(`{
+		"schema_version":"diagnosis_turn.v1",
+		"message":"Inspect the active alerts.",
+		"findings":null,
+		"recommended_actions":null,
+		"evidence_requests":[{
+			"template_id":null,
+			"alert_source_profile_id":null,
+			"tool":"active_alerts",
+			"reason":"Check sibling alerts.",
+			"query":null,
+			"window_seconds":null,
+			"step_seconds":null,
+			"limit":null
+		}],
+		"confidence":"medium",
+		"requires_human_review":true,
+		"confidence_rationale":null,
+		"missing_evidence_requests":null,
+		"evidence_collection_suggestions":null,
+		"tool_request_suggestions":null,
+		"conclusion_status":"needs_evidence"
+	}`)
+	request := ports.LLMRequest{
+		OutputSchema:   schema,
+		OutputSchemaID: "diagnosis_turn_v1",
+		IdempotencyKey: "diagnosis-turn:test",
+	}
+	response := ports.LLMResponse{
+		Content:      valid,
+		FinishReason: "stop",
+		OutputMode:   ports.LLMOutputModeJSONSchema,
+		Model:        "test",
+	}
+	if _, err := llmoutput.Validate(request, response); err != nil {
+		t.Fatalf("Validate structured output: %v", err)
+	}
+
+	for _, invalid := range []json.RawMessage{
+		json.RawMessage(strings.Replace(string(valid), `"findings":null,`, "", 1)),
+		json.RawMessage(strings.Replace(string(valid), `"query":null,`, "", 1)),
+	} {
+		response.Content = invalid
+		if _, err := llmoutput.Validate(request, response); err == nil {
+			t.Fatalf("Validate accepted missing structured property: %s", invalid)
+		}
+	}
+}
+
+func TestTurnOutputStructuredSchemaUsesPortableProviderSubset(t *testing.T) {
+	structured, err := TurnOutputStructuredSchema()
+	if err != nil {
+		t.Fatalf("TurnOutputStructuredSchema: %v", err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(structured, &schema); err != nil {
+		t.Fatalf("decode structured schema: %v", err)
+	}
+	assertSchemaKeywordsAbsent(t, schema, map[string]struct{}{
+		"$schema":   {},
+		"$id":       {},
+		"const":     {},
+		"minLength": {},
+		"maxLength": {},
+		"pattern":   {},
+		"minimum":   {},
+		"maximum":   {},
+		"maxItems":  {},
+	})
+
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("structured properties = %#v", schema["properties"])
+	}
+	version, ok := properties["schema_version"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema_version schema = %#v", properties["schema_version"])
+	}
+	enum, ok := version["enum"].([]any)
+	if !ok || len(enum) != 1 || enum[0] != TurnOutputSchemaVersion || version["type"] != "string" {
+		t.Fatalf("schema_version provider projection = %#v", version)
+	}
+
+	local := string(TurnOutputSchema())
+	for _, keyword := range []string{`"const"`, `"minLength"`, `"maxLength"`, `"maximum"`, `"maxItems"`} {
+		if !strings.Contains(local, keyword) {
+			t.Fatalf("local V1 schema lost validation keyword %s", keyword)
+		}
+	}
+}
+
+func assertSchemaKeywordsAbsent(t *testing.T, value any, forbidden map[string]struct{}) {
+	t.Helper()
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if _, exists := forbidden[key]; exists {
+				t.Fatalf("provider schema retained unsupported keyword %q", key)
+			}
+			assertSchemaKeywordsAbsent(t, child, forbidden)
+		}
+	case []any:
+		for _, child := range typed {
+			assertSchemaKeywordsAbsent(t, child, forbidden)
+		}
+	}
+}
+
+func TestTurnOutputStructuredSchemaReturnsIndependentValues(t *testing.T) {
+	first, err := TurnOutputStructuredSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first[0] = 'x'
+	second, err := TurnOutputStructuredSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) == 0 || second[0] == 'x' {
+		t.Fatalf("TurnOutputStructuredSchema returned shared backing storage: %s", second)
+	}
+}
+
+func TestNormalizeTurnOutputStructuredResponseFillsOnlyOptionalProperties(t *testing.T) {
+	schema, err := TurnOutputStructuredSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := json.RawMessage(`{
+		"schema_version":"diagnosis_turn.v1",
+		"message":"Inspect active alerts.",
+		"evidence_requests":[{"tool":"active_alerts","reason":"Check siblings."}],
+		"confidence":"medium",
+		"requires_human_review":true
+	}`)
+	normalized, err := NormalizeTurnOutputStructuredResponse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := ports.LLMRequest{
+		OutputSchema:   schema,
+		OutputSchemaID: "diagnosis_turn_v1",
+		IdempotencyKey: "diagnosis-turn:test",
+	}
+	response := ports.LLMResponse{
+		Content:      normalized,
+		FinishReason: "stop",
+		OutputMode:   ports.LLMOutputModeJSONSchema,
+		Model:        "test",
+	}
+	if _, err := llmoutput.Validate(request, response); err != nil {
+		t.Fatalf("Validate normalized structured output: %v\n%s", err, normalized)
+	}
+
+	missingRequired := json.RawMessage(`{"schema_version":"diagnosis_turn.v1","message":"Inspect active alerts.","confidence":"medium"}`)
+	normalized, err = NormalizeTurnOutputStructuredResponse(missingRequired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Content = normalized
+	if _, err := llmoutput.Validate(request, response); err == nil {
+		t.Fatalf("Validate accepted missing V1-required property: %s", normalized)
 	}
 }

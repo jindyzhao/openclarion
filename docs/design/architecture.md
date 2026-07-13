@@ -141,25 +141,21 @@ strictly separated responsibilities. Neither should attempt the other's job.
 ### Agent Framework Owns (Inside Container)
 
 * **role definition** (system prompt, persona, behavioral constraints)
-* **skills/tools** loading and registration
-* **data source connections** (V1: direct HTTP to Prometheus, K8s, etc.;
-  post-V1: MCP-over-Streamable-HTTP if tool standardization adds value)
-* **reasoning strategy** (ReAct, plan-and-execute, multi-Agent, etc.)
-* **sub-Agent composition** (analysis Agent, verification Agent, etc.)
-* **internal state** between tool calls within a single invocation
+* **reasoning lifecycle** (Eino ChatModelAgent iteration and cancellation
+  within one invocation)
+* **invocation-local state** used by the framework while producing one response
 
-The concrete runtime is selected by the M4
-[agent runtime selection gate](agent-runtime-selection.md). Named candidates
-are examples until they prove the same file-contract, lifecycle, and
-sandbox-security requirements. Runtime dependencies belong inside the sandbox
-image, not in the Go control plane.
+CloudWeGo Eino `v0.9.12` is the selected M5 implementation in the
+[agent runtime selection record](agent-runtime-selection.md). The dependency
+belongs to the isolated sandbox module and is not linked into the Go
+control-plane service. V1 does not register in-container tools, framework
+memory, or sub-Agents. The file boundary remains governed by
+[ADR-0013](../adr/ADR-0013-per-turn-container-invocation.md).
 
 ### Go Does NOT Own
 
-* which skills the agent loads
-* what data sources the agent connects to (Go only controls the network allowlist)
-* how the agent reasons internally
-* sub-Agent delegation strategies
+* the Agent framework's internal iteration and message mechanics inside one
+  invocation
 
 ### Agent Does NOT Own
 
@@ -167,6 +163,7 @@ image, not in the Go control plane.
 * where its input comes from
 * where its output goes
 * its own lifecycle (timeout, cleanup)
+* direct production-system access or tool authorization
 * persistence of conversation state across turns
 
 ### Data Flow Contract
@@ -178,7 +175,7 @@ Input (mounted readonly by Go):
   /workspace/evidence.json         # structured evidence from EvidenceSnapshot
   /workspace/conversation.json     # conversation history (M5 only)
   /workspace/message.json          # latest user message (M5 only)
-  /workspace/agent_config/         # agent role, skills, tool endpoints
+  /workspace/agent_config/         # reviewed agent instructions (V1)
 
 Output (writable capped output mount, read by Go after container exits):
   /workspace/out/output.json       # structured response (schema-validated by Go)
@@ -190,24 +187,16 @@ the expected JSON Schema before accepting it.
 
 ### Agent Config Structure (Reference)
 
-```
-agents/                            # version-controlled agent workspaces
-  report-enhancer/                 # M4 sandbox agent
-    agent.yaml                     # role, model, skills list, tool endpoints
-    skills/                        # skill definitions
-    prompts/                       # prompt templates
-  diagnosis-assistant/             # M5 interactive agent
-    agent.yaml                     # role, model, conversation skills, tool endpoints
-    skills/
-    prompts/
+```text
+config/agents/
+  diagnosis-assistant/
+    instructions.md               # reviewed V1 system instructions
 ```
 
-These configs are iterated by agent developers independently of Go code changes.
-Changing an agent's skills or tool endpoints does not require modifying Go,
-Temporal workflows, or redeploying the control plane.
-
-V1: agent.yaml references direct HTTP tool endpoints (Prometheus, K8s API).
-Post-V1: may migrate to MCP-over-Streamable-HTTP for tool standardization.
+V1 mounts reviewed instructions only. It does not load framework skills,
+register direct data-source tools, or grant the sandbox access to production
+systems. Any future tool configuration must preserve control-plane approval,
+tenant scope, evidence provenance, and the ADR-0013 boundary.
 
 ## M5 Interactive Model: Per-Turn Container Invocation
 

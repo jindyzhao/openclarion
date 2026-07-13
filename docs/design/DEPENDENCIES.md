@@ -19,6 +19,7 @@
 | Observability | OpenTelemetry Go `go.opentelemetry.io/otel v1.44.0`, `go.opentelemetry.io/otel/sdk v1.44.0`, OTLP HTTP trace exporter `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0`, HTTP server/client instrumentation `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0`, and Temporal OTel interceptor `go.temporal.io/sdk/contrib/opentelemetry v0.7.0` (direct requires since `internal/observability/tracing` initializes W3C propagation, no-op/OTLP tracer providers, resource service attributes, generated API HTTP span middleware, outbound HTTP transport instrumentation, Temporal workflow/activity tracing, and an OTLP HTTP collector smoke; exporter pin is above the `GO-2026-4985` fixed-in floor reported by `govulncheck`) | 2026-06-03 |
 | Metrics ingest + exposition | Prometheus client `github.com/prometheus/client_golang v1.23.2` + `github.com/prometheus/common v0.68.0` (direct require since `internal/providers/metrics/prometheus/client.go` imports both `common/config` for the Bearer-auth round-tripper and `common/model` for `LabelSet`; M3 `/metrics` exposition also uses `prometheus`, `collectors`, and `promhttp` from the same pinned module) | 2026-06-03 |
 | LLM output validation | `github.com/santhosh-tekuri/jsonschema/v6 v6.0.2` (direct require since `internal/usecases/llmoutput` validates provider JSON against report schemas before persistence; default draft 2020-12) | 2026-05-28 |
+| Diagnosis agent runtime | CloudWeGo Eino `github.com/cloudwego/eino v0.9.12` in the isolated `scripts/diagnosis_assistant_runner` module (Apache-2.0; ChatModelAgent lifecycle, bounded iterations, and cancellation). The root control-plane module does not depend on Eino, and V1 registers no in-container tools or framework persistence. | 2026-07-13 |
 | Docker Engine sandbox provider | Docker Go SDK modules `github.com/moby/moby/api v1.54.2` and `github.com/moby/moby/client v0.4.1` (direct requires since `internal/providers/container/docker/provider.go` imports Engine API types and the official client for create/start/wait/stop/kill/remove/copy lifecycle calls; unit tests use a fake EngineClient so cleanup, timeout, and output-copy behavior are verified without requiring a local daemon) | 2026-06-03 |
 | Authentication | `github.com/coreos/go-oidc/v3 v3.18.0` (direct require since `internal/providers/auth/oidc` verifies signed OIDC ID tokens through issuer discovery/JWKS, client ID audience checks, expiry/signature validation, and role-claim extraction for M5 AuthProvider) | 2026-05-28 |
 | Future vector | pgvector 0.7+ (not MVP) | 2026-05-19 |
@@ -46,6 +47,8 @@
 > instead of being accepted as standalone dependency updates, and
 > `forbidden-latest` rejects mismatched `@types/node` / `setup-node` majors.
 
+replace-allow: github.com/openclarion/openclarion => ../..; owner: runtime; expires: 2026-12-31; reason: nested runner parent import
+
 > **Custom analyzer lockstep rule**: `tools/openclarion-linter` must keep
 > `golang.org/x/tools` on the exact version embedded in the pinned
 > `GOLANGCI_LINT_VERSION` binary. `scripts/check_lint_version.sh` enforces this
@@ -66,10 +69,11 @@
 ## License Compliance Policy
 
 Go dependency licenses are checked with pinned `go-licenses v1.6.0` through
-`make go-licenses-check`. The gate includes test dependencies and scans both
-the root Go module and `tools/openclarion-linter`; first-party OpenClarion
-package prefixes are ignored in `go-licenses` so the gate evaluates third-party
-dependencies while still traversing dependencies imported from those packages.
+`make go-licenses-check`. The gate includes test dependencies and scans the
+root Go module, `tools/openclarion-linter`, and the isolated diagnosis runner;
+first-party OpenClarion package prefixes are ignored in `go-licenses` so the
+gate evaluates third-party dependencies while still traversing dependencies
+imported from those packages.
 The SPDX allowlist line must carry non-empty owner, non-future review date, and
 reason metadata.
 

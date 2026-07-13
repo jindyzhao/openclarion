@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -233,6 +234,7 @@ const turnOutputSchemaJSON = `{
   ],
   "properties": {
     "schema_version": {
+      "type": "string",
       "const": "diagnosis_turn.v1"
     },
     "message": {
@@ -309,6 +311,292 @@ const turnOutputSchemaJSON = `{
 // TurnOutputSchema returns a defensive copy of the V1 sandbox output schema.
 func TurnOutputSchema() json.RawMessage {
 	return cloneRawMessage(json.RawMessage(turnOutputSchemaJSON))
+}
+
+// TurnOutputStructuredSchema returns a strict-mode-compatible projection of
+// the V1 schema for LLM providers. Every object property is required; fields
+// that remain optional in the persisted V1 contract accept null.
+func TurnOutputStructuredSchema() (json.RawMessage, error) {
+	var schema any
+	if err := strictjson.Unmarshal(json.RawMessage(turnOutputSchemaJSON), &schema); err != nil {
+		return nil, fmt.Errorf("diagnosis turn output: decode structured-output schema: %w", err)
+	}
+	if err := requireStructuredOutputProperties(schema); err != nil {
+		return nil, fmt.Errorf("diagnosis turn output: build structured-output schema: %w", err)
+	}
+	if err := projectStructuredOutputProviderSubset(schema); err != nil {
+		return nil, fmt.Errorf("diagnosis turn output: project provider schema: %w", err)
+	}
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return nil, fmt.Errorf("diagnosis turn output: encode structured-output schema: %w", err)
+	}
+	return json.RawMessage(raw), nil
+}
+
+// NormalizeTurnOutputStructuredResponse fills only omitted V1-optional object
+// properties with null. This compensates for OpenAI-compatible gateways that
+// accept a strict schema but do not enforce required nullable properties; V1
+// required properties remain absent so the structured validator rejects them.
+func NormalizeTurnOutputStructuredResponse(raw json.RawMessage) (json.RawMessage, error) {
+	var value any
+	if err := strictjson.Unmarshal(raw, &value); err != nil {
+		return nil, fmt.Errorf("diagnosis turn output: decode structured response: %w", err)
+	}
+	var schema any
+	if err := strictjson.Unmarshal(json.RawMessage(turnOutputSchemaJSON), &schema); err != nil {
+		return nil, fmt.Errorf("diagnosis turn output: decode response-normalization schema: %w", err)
+	}
+	root, ok := schema.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("diagnosis turn output: response-normalization schema must be an object")
+	}
+	if err := fillOptionalSchemaProperties(value, root, root); err != nil {
+		return nil, fmt.Errorf("diagnosis turn output: normalize structured response: %w", err)
+	}
+	normalized, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("diagnosis turn output: encode structured response: %w", err)
+	}
+	return json.RawMessage(normalized), nil
+}
+
+func fillOptionalSchemaProperties(instance any, schema, root map[string]any) error {
+	if ref, ok := schema["$ref"].(string); ok {
+		resolved, err := resolveLocalSchemaRef(ref, root)
+		if err != nil {
+			return err
+		}
+		return fillOptionalSchemaProperties(instance, resolved, root)
+	}
+	if propertiesRaw, exists := schema["properties"]; exists {
+		properties, ok := propertiesRaw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("properties must be an object")
+		}
+		required, err := requiredSchemaPropertySet(schema["required"])
+		if err != nil {
+			return err
+		}
+		object, ok := instance.(map[string]any)
+		if !ok {
+			return nil
+		}
+		for name, propertyRaw := range properties {
+			property, ok := propertyRaw.(map[string]any)
+			if !ok {
+				return fmt.Errorf("property %q schema must be an object", name)
+			}
+			child, exists := object[name]
+			if !exists {
+				if _, mandatory := required[name]; !mandatory {
+					object[name] = nil
+				}
+				continue
+			}
+			if child != nil {
+				if err := fillOptionalSchemaProperties(child, property, root); err != nil {
+					return fmt.Errorf("property %q: %w", name, err)
+				}
+			}
+		}
+	}
+	itemsRaw, exists := schema["items"]
+	if !exists {
+		return nil
+	}
+	items, ok := itemsRaw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("items schema must be an object")
+	}
+	array, ok := instance.([]any)
+	if !ok {
+		return nil
+	}
+	for i, child := range array {
+		if child == nil {
+			continue
+		}
+		if err := fillOptionalSchemaProperties(child, items, root); err != nil {
+			return fmt.Errorf("item %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+func resolveLocalSchemaRef(ref string, root map[string]any) (map[string]any, error) {
+	const prefix = "#/$defs/"
+	if !strings.HasPrefix(ref, prefix) {
+		return nil, fmt.Errorf("unsupported schema reference %q", ref)
+	}
+	name := strings.TrimPrefix(ref, prefix)
+	name = strings.ReplaceAll(strings.ReplaceAll(name, "~1", "/"), "~0", "~")
+	definitions, ok := root["$defs"].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("schema definitions must be an object")
+	}
+	resolved, ok := definitions[name].(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("schema reference %q was not found", ref)
+	}
+	return resolved, nil
+}
+
+func requireStructuredOutputProperties(node any) error {
+	switch value := node.(type) {
+	case map[string]any:
+		for key, child := range value {
+			if key == "properties" {
+				continue
+			}
+			if err := requireStructuredOutputProperties(child); err != nil {
+				return err
+			}
+		}
+		propertiesRaw, exists := value["properties"]
+		if !exists {
+			return nil
+		}
+		properties, ok := propertiesRaw.(map[string]any)
+		if !ok {
+			return fmt.Errorf("properties must be an object")
+		}
+		required, err := requiredSchemaPropertySet(value["required"])
+		if err != nil {
+			return err
+		}
+		names := make([]string, 0, len(properties))
+		for name, property := range properties {
+			if err := requireStructuredOutputProperties(property); err != nil {
+				return fmt.Errorf("property %q: %w", name, err)
+			}
+			if _, alreadyRequired := required[name]; !alreadyRequired {
+				properties[name] = map[string]any{
+					"anyOf": []any{property, map[string]any{"type": "null"}},
+				}
+			}
+			names = append(names, name)
+		}
+		for name := range required {
+			if _, exists := properties[name]; !exists {
+				return fmt.Errorf("required property %q is not declared", name)
+			}
+		}
+		sort.Strings(names)
+		value["required"] = names
+		value["additionalProperties"] = false
+	case []any:
+		for i, child := range value {
+			if err := requireStructuredOutputProperties(child); err != nil {
+				return fmt.Errorf("schema item %d: %w", i, err)
+			}
+		}
+	}
+	return nil
+}
+
+func projectStructuredOutputProviderSubset(node any) error {
+	schema, ok := node.(map[string]any)
+	if !ok {
+		return fmt.Errorf("schema node must be an object")
+	}
+	if constant, exists := schema["const"]; exists {
+		if _, alreadyConstrained := schema["enum"]; alreadyConstrained {
+			return fmt.Errorf("const and enum cannot both be projected")
+		}
+		schema["enum"] = []any{constant}
+		delete(schema, "const")
+	}
+	for _, keyword := range []string{
+		"$schema",
+		"$id",
+		"default",
+		"examples",
+		"minLength",
+		"maxLength",
+		"pattern",
+		"format",
+		"minimum",
+		"maximum",
+		"exclusiveMinimum",
+		"exclusiveMaximum",
+		"multipleOf",
+		"minItems",
+		"maxItems",
+		"uniqueItems",
+		"minProperties",
+		"maxProperties",
+	} {
+		delete(schema, keyword)
+	}
+
+	for keyword, child := range schema {
+		switch keyword {
+		case "$ref", "type", "description", "enum", "required", "additionalProperties":
+			continue
+		case "properties", "$defs":
+			children, ok := child.(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s must be an object", keyword)
+			}
+			for name, rawChild := range children {
+				childSchema, ok := rawChild.(map[string]any)
+				if !ok {
+					return fmt.Errorf("%s %q must be a schema object", keyword, name)
+				}
+				if err := projectStructuredOutputProviderSubset(childSchema); err != nil {
+					return fmt.Errorf("%s %q: %w", keyword, name, err)
+				}
+			}
+		case "items":
+			childSchema, ok := child.(map[string]any)
+			if !ok {
+				return fmt.Errorf("items must be a schema object")
+			}
+			if err := projectStructuredOutputProviderSubset(childSchema); err != nil {
+				return fmt.Errorf("items: %w", err)
+			}
+		case "anyOf":
+			options, ok := child.([]any)
+			if !ok {
+				return fmt.Errorf("anyOf must be an array")
+			}
+			for i, rawOption := range options {
+				option, ok := rawOption.(map[string]any)
+				if !ok {
+					return fmt.Errorf("anyOf item %d must be a schema object", i)
+				}
+				if err := projectStructuredOutputProviderSubset(option); err != nil {
+					return fmt.Errorf("anyOf item %d: %w", i, err)
+				}
+			}
+		default:
+			return fmt.Errorf("schema keyword %q is not in the provider subset", keyword)
+		}
+	}
+	return nil
+}
+
+func requiredSchemaPropertySet(raw any) (map[string]struct{}, error) {
+	out := map[string]struct{}{}
+	if raw == nil {
+		return out, nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("required must be an array")
+	}
+	for i, item := range items {
+		name, ok := item.(string)
+		if !ok || name == "" {
+			return nil, fmt.Errorf("required item %d must be a non-empty string", i)
+		}
+		if _, exists := out[name]; exists {
+			return nil, fmt.Errorf("required property %q is duplicated", name)
+		}
+		out[name] = struct{}{}
+	}
+	return out, nil
 }
 
 // ParseTurnOutput validates raw sandbox output.json bytes and returns the

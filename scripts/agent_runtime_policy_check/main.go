@@ -1,5 +1,5 @@
-// Command agent_runtime_policy_check enforces the pre-M4 control-plane
-// runtime-family dependency and hardcoding boundary.
+// Command agent_runtime_policy_check keeps agent frameworks inside the accepted
+// sandbox runtime and out of OpenClarion's control plane.
 package main
 
 import (
@@ -25,6 +25,8 @@ import (
 
 const defaultPolicyPath = "docs/design/ci/agent-runtime-forbidden.tsv"
 
+const acceptedSandboxRuntimeRoot = "scripts/diagnosis_assistant_runner"
+
 var dependencySections = []string{
 	"dependencies",
 	"devDependencies",
@@ -49,8 +51,9 @@ type config struct {
 }
 
 type policy struct {
-	Manifest []policyPattern
-	Code     []policyPattern
+	Manifest     []policyPattern
+	Code         []policyPattern
+	SandboxAllow []policyPattern
 }
 
 type policyPattern struct {
@@ -75,34 +78,34 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
-	manifestFindings, err := scanManifests(cfg.Root, pol.Manifest)
+	manifestFindings, err := scanManifests(cfg.Root, pol.Manifest, pol.SandboxAllow)
 	if err != nil {
 		return err
 	}
-	codeFindings, err := scanGoControlPlane(cfg.Root, pol.Code)
+	codeFindings, err := scanGoControlPlane(cfg.Root, pol.Code, pol.SandboxAllow)
 	if err != nil {
 		return err
 	}
-	textFindings, err := scanTextControlPlane(cfg.Root, pol.Code)
+	textFindings, err := scanTextControlPlane(cfg.Root, pol.Code, pol.SandboxAllow)
 	if err != nil {
 		return err
 	}
 	for _, finding := range manifestFindings {
 		fmt.Fprintf(stderr, "[forbidden-agent-runtime] %s dependency %q matched policy pattern %q\n", finding.Path, finding.Value, finding.Pattern.Raw)
-		fmt.Fprintf(stderr, "[forbidden-agent-runtime] %s must not add agent runtime dependency '%s' before the runtime selection gate accepts a baseline.\n", finding.Path, finding.Pattern.Raw)
+		fmt.Fprintf(stderr, "[forbidden-agent-runtime] %s must not add agent runtime dependency '%s' outside the accepted sandbox runtime module.\n", finding.Path, finding.Pattern.Raw)
 	}
 	for _, finding := range codeFindings {
 		fmt.Fprintf(stderr, "[forbidden-agent-runtime] %s %s %q matched policy pattern %q\n", finding.Position, finding.Kind, finding.Value, finding.Pattern.Raw)
-		fmt.Fprintf(stderr, "[forbidden-agent-runtime] %s must not hard-code agent runtime family '%s' in first-party Go control-plane code before the runtime selection gate accepts a baseline.\n", finding.Path, finding.Pattern.Raw)
+		fmt.Fprintf(stderr, "[forbidden-agent-runtime] %s must not hard-code agent runtime family '%s' in first-party Go control-plane code.\n", finding.Path, finding.Pattern.Raw)
 	}
 	for _, finding := range textFindings {
 		fmt.Fprintf(stderr, "[forbidden-agent-runtime] %s %s %q matched policy pattern %q\n", finding.Position, finding.Kind, finding.Value, finding.Pattern.Raw)
-		fmt.Fprintf(stderr, "[forbidden-agent-runtime] %s must not hard-code agent runtime family '%s' in first-party control-plane source before the runtime selection gate accepts a baseline.\n", finding.Path, finding.Pattern.Raw)
+		fmt.Fprintf(stderr, "[forbidden-agent-runtime] %s must not hard-code agent runtime family '%s' in first-party control-plane source.\n", finding.Path, finding.Pattern.Raw)
 	}
 	if len(manifestFindings) > 0 || len(codeFindings) > 0 || len(textFindings) > 0 {
 		fmt.Fprintln(stderr)
-		fmt.Fprintln(stderr, "Justification: docs/design/agent-runtime-selection.md keeps agent-runtime dependencies and runtime-specific logic inside candidate sandbox images until M4 proves the runtime baseline.")
-		fmt.Fprintf(stderr, "Fix: remove the control-plane dependency or hard-coded runtime name, keep candidate names in evidence/docs/sandbox images, or update the runtime selection gate and %s in the same change.\n", cfg.PolicyPath)
+		fmt.Fprintln(stderr, "Justification: docs/design/agent-runtime-selection.md keeps agent-runtime dependencies and runtime-specific logic inside the accepted sandbox module.")
+		fmt.Fprintf(stderr, "Fix: remove the control-plane dependency or hard-coded runtime name, keep runtime-specific code under %s, or update the runtime selection gate and %s in the same change.\n", acceptedSandboxRuntimeRoot, cfg.PolicyPath)
 		return errors.New("agent runtime policy violation")
 	}
 	fmt.Fprintln(stdout, "[forbidden-agent-runtime] OK")
@@ -157,7 +160,7 @@ func readPolicy(cfg config) (policy, error) {
 		}
 		parts := strings.Split(line, "\t")
 		if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-			return policy{}, fmt.Errorf("invalid policy row %s:%d; expected '<manifest|code><TAB><pattern>'", displayPath(cfg.Root, cfg.PolicyPath), lineNo)
+			return policy{}, fmt.Errorf("invalid policy row %s:%d; expected '<manifest|code|sandbox-allow><TAB><pattern>'", displayPath(cfg.Root, cfg.PolicyPath), lineNo)
 		}
 		scope, rawPattern := parts[0], parts[1]
 		if strings.TrimSpace(scope) != scope || strings.TrimSpace(rawPattern) != rawPattern {
@@ -177,6 +180,8 @@ func readPolicy(cfg config) (policy, error) {
 			pol.Manifest = append(pol.Manifest, pattern)
 		case "code":
 			pol.Code = append(pol.Code, pattern)
+		case "sandbox-allow":
+			pol.SandboxAllow = append(pol.SandboxAllow, pattern)
 		default:
 			return policy{}, fmt.Errorf("invalid policy scope %s:%d: %s", displayPath(cfg.Root, cfg.PolicyPath), lineNo, scope)
 		}
@@ -184,7 +189,24 @@ func readPolicy(cfg config) (policy, error) {
 	if len(pol.Manifest) == 0 || len(pol.Code) == 0 {
 		return policy{}, fmt.Errorf("policy file must define at least one manifest and one code pattern: %s", displayPath(cfg.Root, cfg.PolicyPath))
 	}
+	for _, allowed := range pol.SandboxAllow {
+		if !allowed.Exact || !strings.Contains(allowed.Match, "/") {
+			return policy{}, fmt.Errorf("sandbox-allow pattern %q must be an exact module path", allowed.Raw)
+		}
+		if !containsPolicyMatch(pol.Manifest, allowed.Match) || !containsPolicyMatch(pol.Code, allowed.Match) {
+			return policy{}, fmt.Errorf("sandbox-allow pattern %q must also exist in manifest and code scopes", allowed.Raw)
+		}
+	}
 	return pol, nil
+}
+
+func containsPolicyMatch(patterns []policyPattern, match string) bool {
+	for _, pattern := range patterns {
+		if pattern.Match == match {
+			return true
+		}
+	}
+	return false
 }
 
 func newPolicyPattern(raw string) (policyPattern, error) {
@@ -238,7 +260,7 @@ type finding struct {
 	Pattern  policyPattern
 }
 
-func scanManifests(root string, patterns []policyPattern) ([]finding, error) {
+func scanManifests(root string, patterns, sandboxAllow []policyPattern) ([]finding, error) {
 	paths, err := collectFiles(root, func(_ string, d fs.DirEntry) bool {
 		name := d.Name()
 		return name == "go.mod" || name == "package.json"
@@ -262,6 +284,9 @@ func scanManifests(root string, patterns []policyPattern) ([]finding, error) {
 		for _, value := range values {
 			for _, pattern := range patterns {
 				if pattern.Matches(value) {
+					if isAcceptedSandboxRuntimeDependencyValue(root, path, value, pattern, sandboxAllow) {
+						continue
+					}
 					findings = append(findings, finding{Path: rel, Value: value, Pattern: pattern})
 				}
 			}
@@ -330,7 +355,7 @@ func packageDependencyNames(path string) ([]string, error) {
 	return sortedKeys(names), nil
 }
 
-func scanGoControlPlane(root string, patterns []policyPattern) ([]finding, error) {
+func scanGoControlPlane(root string, patterns, sandboxAllow []policyPattern) ([]finding, error) {
 	paths, err := collectFiles(root, func(path string, d fs.DirEntry) bool {
 		return strings.HasSuffix(d.Name(), ".go") && !strings.HasSuffix(d.Name(), "_test.go") && inControlPlaneGoRoot(root, path)
 	})
@@ -339,7 +364,7 @@ func scanGoControlPlane(root string, patterns []policyPattern) ([]finding, error
 	}
 	var findings []finding
 	for _, path := range paths {
-		fileFindings, err := scanGoFile(root, path, patterns)
+		fileFindings, err := scanGoFile(root, path, patterns, sandboxAllow)
 		if err != nil {
 			return nil, err
 		}
@@ -356,7 +381,7 @@ func inControlPlaneGoRoot(root, path string) bool {
 	return strings.HasPrefix(rel, "cmd/") || strings.HasPrefix(rel, "internal/") || strings.HasPrefix(rel, "scripts/")
 }
 
-func scanGoFile(root, path string, patterns []policyPattern) ([]finding, error) {
+func scanGoFile(root, path string, patterns, sandboxAllow []policyPattern) ([]finding, error) {
 	raw, err := readRegularFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", displayPath(root, path), err)
@@ -371,6 +396,9 @@ func scanGoFile(root, path string, patterns []policyPattern) ([]finding, error) 
 	check := func(pos token.Pos, kind, value string) {
 		for _, pattern := range patterns {
 			if pattern.Matches(value) {
+				if isAcceptedSandboxRuntimePattern(root, path, pattern, sandboxAllow) {
+					continue
+				}
 				position := fset.Position(pos).String()
 				findings = append(findings, finding{
 					Path:     rel,
@@ -411,7 +439,7 @@ func scanGoFile(root, path string, patterns []policyPattern) ([]finding, error) 
 	return findings, nil
 }
 
-func scanTextControlPlane(root string, patterns []policyPattern) ([]finding, error) {
+func scanTextControlPlane(root string, patterns, sandboxAllow []policyPattern) ([]finding, error) {
 	paths, err := collectFiles(root, func(path string, d fs.DirEntry) bool {
 		return isTextSourceFile(d.Name()) && inControlPlaneSourceRoot(root, path)
 	})
@@ -420,7 +448,7 @@ func scanTextControlPlane(root string, patterns []policyPattern) ([]finding, err
 	}
 	var findings []finding
 	for _, path := range paths {
-		fileFindings, err := scanTextFile(root, path, patterns)
+		fileFindings, err := scanTextFile(root, path, patterns, sandboxAllow)
 		if err != nil {
 			return nil, err
 		}
@@ -467,7 +495,22 @@ func inControlPlaneSourceRoot(root, path string) bool {
 	return strings.HasPrefix(rel, "cmd/") || strings.HasPrefix(rel, "internal/") || strings.HasPrefix(rel, "scripts/") || strings.HasPrefix(rel, "web/src/")
 }
 
-func scanTextFile(root, path string, patterns []policyPattern) ([]finding, error) {
+func isAcceptedSandboxRuntimeRelativePath(path string) bool {
+	path = filepath.ToSlash(filepath.Clean(path))
+	return path == acceptedSandboxRuntimeRoot || strings.HasPrefix(path, acceptedSandboxRuntimeRoot+"/")
+}
+
+func isAcceptedSandboxRuntimePattern(root, path string, pattern policyPattern, sandboxAllow []policyPattern) bool {
+	return isAcceptedSandboxRuntimeRelativePath(displayPath(root, path)) &&
+		containsPolicyMatch(sandboxAllow, pattern.Match)
+}
+
+func isAcceptedSandboxRuntimeDependencyValue(root, path, value string, pattern policyPattern, sandboxAllow []policyPattern) bool {
+	return isAcceptedSandboxRuntimePattern(root, path, pattern, sandboxAllow) &&
+		strings.EqualFold(value, pattern.Match)
+}
+
+func scanTextFile(root, path string, patterns, sandboxAllow []policyPattern) ([]finding, error) {
 	raw, err := readRegularFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", displayPath(root, path), err)
@@ -479,6 +522,9 @@ func scanTextFile(root, path string, patterns []policyPattern) ([]finding, error
 		value := strings.TrimSpace(strings.TrimSuffix(line, "\r"))
 		for _, pattern := range patterns {
 			if pattern.MatchesText(line) {
+				if isAcceptedSandboxRuntimePattern(root, path, pattern, sandboxAllow) {
+					continue
+				}
 				findings = append(findings, finding{
 					Path:     rel,
 					Position: fmt.Sprintf("%s:%d", rel, lineNo),

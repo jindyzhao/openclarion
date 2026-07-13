@@ -115,11 +115,11 @@ func TestGenerateValidated_RetriesValidationErrorWithFeedback(t *testing.T) {
 	if len(rec.requests[0].Messages) != 1 {
 		t.Fatalf("first request messages = %d, want original only", len(rec.requests[0].Messages))
 	}
-	if len(rec.requests[1].Messages) != 2 {
-		t.Fatalf("second request messages = %d, want validation feedback appended", len(rec.requests[1].Messages))
+	if len(rec.requests[1].Messages) != 1 {
+		t.Fatalf("second request messages = %d, want feedback merged into system instructions", len(rec.requests[1].Messages))
 	}
-	feedback := rec.requests[1].Messages[1]
-	if feedback.Role != ports.LLMRoleUser {
+	feedback := rec.requests[1].Messages[0]
+	if feedback.Role != ports.LLMRoleSystem {
 		t.Fatalf("feedback role = %q", feedback.Role)
 	}
 	if !strings.Contains(feedback.Content, "failed validation") ||
@@ -168,8 +168,20 @@ func TestGenerateValidated_UsesCustomValidator(t *testing.T) {
 		t.Fatalf("validator calls = %d, want 2", validatorCalls)
 	}
 	if len(rec.requests) != 2 ||
-		!strings.Contains(rec.requests[1].Messages[1].Content, "semantic evidence_refs mismatch") {
+		!strings.Contains(rec.requests[1].Messages[0].Content, "semantic evidence_refs mismatch") {
 		t.Fatalf("second request feedback = %+v", rec.requests)
+	}
+}
+
+func TestAddValidationFeedbackPrependsSystemWithoutReplacingLatestUser(t *testing.T) {
+	messages := []ports.LLMMessage{{Role: ports.LLMRoleUser, Content: "请继续分析。"}}
+	got := addValidationFeedback(messages, errors.New("schema violation"))
+	if len(got) != 2 || got[0].Role != ports.LLMRoleSystem ||
+		!strings.Contains(got[0].Content, "schema violation") {
+		t.Fatalf("feedback messages = %+v", got)
+	}
+	if got[1] != messages[0] {
+		t.Fatalf("latest user message changed: %+v", got)
 	}
 }
 

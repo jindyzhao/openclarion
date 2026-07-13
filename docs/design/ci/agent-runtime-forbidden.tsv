@@ -16,6 +16,7 @@ manifest	autogen
 manifest	"agno"
 manifest	agno-agi/agno
 manifest	@mastra/
+manifest	github.com/cloudwego/eino
 code	openclaw
 code	hermes
 code	hermes-agent
@@ -34,3 +35,5 @@ code	"agno"
 code	`agno`
 code	agno-agi/agno
 code	@mastra/
+code	github.com/cloudwego/eino
+sandbox-allow	"github.com/cloudwego/eino"
