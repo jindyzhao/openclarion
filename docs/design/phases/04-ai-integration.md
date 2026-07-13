@@ -279,7 +279,7 @@ decision outputs. See
 - **Egress control prerequisite**: egress allowlist design (iptables or egress
   proxy) must be tested before M4 acceptance, not just documented. SaaS LLM
   targets with rotating IPs require domain-based egress proxy even in V1.
-  Allowlist requests use exact `host[:port]` targets and must pass the Docker
+  Allowlist requests use exact `host:port` targets and must pass the Docker
   provider's subset enforcer before container creation. `make
   egress-allowdeny-smoke` proves the Docker internal-network + proxy topology;
   production wiring into the accepted candidate runtime remains pending.

@@ -1,5 +1,5 @@
 // Package egressproxy implements the narrow forward-proxy boundary used by
-// local Docker sandboxes. It permits only operator-configured host[:port]
+// local Docker sandboxes. It permits only operator-configured host:port
 // targets and supports plain HTTP plus HTTPS CONNECT tunneling.
 package egressproxy
 
@@ -51,7 +51,7 @@ type Config struct {
 type Handler struct {
 	allowed              map[string]struct{}
 	allowlistFingerprint string
-	dialer               *net.Dialer
+	dialContext          func(context.Context, string, string) (net.Conn, error)
 	transport            *http.Transport
 	maxRequestDuration   time.Duration
 }
@@ -90,10 +90,11 @@ func NewHandler(cfg Config) (*Handler, error) {
 		allowed[target] = struct{}{}
 	}
 	dialer := &net.Dialer{Timeout: cfg.DialTimeout, KeepAlive: 30 * time.Second}
+	dialContext := dialer.DialContext
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
 	transport.DisableCompression = true
-	transport.DialContext = dialer.DialContext
+	transport.DialContext = dialContext
 	transport.ResponseHeaderTimeout = cfg.ResponseHeaderTimeout
 	transport.MaxResponseHeaderBytes = cfg.MaxResponseHeaderBytes
 	transport.ForceAttemptHTTP2 = false
@@ -101,7 +102,7 @@ func NewHandler(cfg Config) (*Handler, error) {
 	return &Handler{
 		allowed:              allowed,
 		allowlistFingerprint: allowlistFingerprint,
-		dialer:               dialer,
+		dialContext:          dialContext,
 		transport:            transport,
 		maxRequestDuration:   cfg.MaxRequestDuration,
 	}, nil
@@ -182,7 +183,7 @@ func (h *Handler) serveReadiness(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) serveConnect(w http.ResponseWriter, r *http.Request) {
 	target, err := canonicalTarget(r.Host, "443")
-	if err != nil || !h.targetAllowed(target, "443") {
+	if err != nil || !h.targetAllowed(target) {
 		http.Error(w, "egress target denied", http.StatusForbidden)
 		return
 	}
@@ -190,7 +191,7 @@ func (h *Handler) serveConnect(w http.ResponseWriter, r *http.Request) {
 	if !strings.Contains(target, ":") {
 		dialTarget = net.JoinHostPort(target, "443")
 	}
-	upstream, err := h.dialer.DialContext(r.Context(), "tcp", dialTarget)
+	upstream, err := h.dialContext(r.Context(), "tcp", dialTarget)
 	if err != nil {
 		http.Error(w, "upstream unavailable", http.StatusBadGateway)
 		return
@@ -239,7 +240,7 @@ func (h *Handler) serveHTTPForward(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target, err := canonicalTarget(r.URL.Host, "80")
-	if err != nil || !h.targetAllowed(target, "80") {
+	if err != nil || !h.targetAllowed(target) {
 		http.Error(w, "egress target denied", http.StatusForbidden)
 		return
 	}
@@ -265,16 +266,9 @@ func (h *Handler) serveHTTPForward(w http.ResponseWriter, r *http.Request) {
 	copyAndFlush(w, resp.Body)
 }
 
-func (h *Handler) targetAllowed(target, defaultPort string) bool {
-	if _, ok := h.allowed[target]; ok {
-		return true
-	}
-	host, port, err := net.SplitHostPort(target)
-	if err == nil && port == defaultPort {
-		_, ok := h.allowed[host]
-		return ok
-	}
-	return false
+func (h *Handler) targetAllowed(target string) bool {
+	_, ok := h.allowed[target]
+	return ok
 }
 
 func canonicalTarget(raw, defaultPort string) (string, error) {

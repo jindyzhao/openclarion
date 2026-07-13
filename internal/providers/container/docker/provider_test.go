@@ -172,6 +172,90 @@ func TestProviderRunRejectsUnsafeAllowlistNetworkBeforeCreate(t *testing.T) {
 	}
 }
 
+func TestProviderCheckEgressReadinessCreatesSecureProbeAndRemoves(t *testing.T) {
+	engine := newFakeEngine(nil)
+	provider := newTestProvider(t, engine)
+	enforcer := &recordingEgressEnforcer{}
+	provider.egressEnforcer = enforcer
+	policy := ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: []string{"LLM.EXAMPLE.INVALID:443"},
+	}
+
+	if err := provider.CheckEgressReadiness(
+		t.Context(),
+		"https://llm.example.invalid/v1",
+		policy,
+	); err != nil {
+		t.Fatalf("CheckEgressReadiness: %v", err)
+	}
+	if enforcer.calls != 1 || enforcer.networkMode != DefaultAllowlistNetworkMode {
+		t.Fatalf("egress enforcer calls = %d, network = %q", enforcer.calls, enforcer.networkMode)
+	}
+	create := engine.createOptions
+	if create.Config == nil || create.HostConfig == nil || create.NetworkingConfig == nil {
+		t.Fatalf("readiness create options incomplete: %#v", create)
+	}
+	if create.Image != pinnedImage || create.Config.User != DefaultUser {
+		t.Fatalf("readiness image/user = %q/%q", create.Image, create.Config.User)
+	}
+	if strings.Join(create.Config.Entrypoint, ",") != diagnosisRunnerEntrypoint ||
+		strings.Join(create.Config.Cmd, ",") != egressReadinessCommand {
+		t.Fatalf("readiness entrypoint/cmd = %v/%v", create.Config.Entrypoint, create.Config.Cmd)
+	}
+	wantEnv := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":   "https://llm.example.invalid/v1",
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":   "llm.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL": testEgressProxyURL,
+	}
+	if len(create.Config.Env) != len(wantEnv) {
+		t.Fatalf("readiness env = %v", create.Config.Env)
+	}
+	for _, entry := range create.Config.Env {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok || wantEnv[name] != value {
+			t.Fatalf("unexpected readiness env entry %q", entry)
+		}
+	}
+	if len(create.HostConfig.Mounts) != 0 || !create.HostConfig.ReadonlyRootfs || create.HostConfig.Privileged {
+		t.Fatalf("readiness mounts/security = %v/%+v", create.HostConfig.Mounts, create.HostConfig)
+	}
+	if create.HostConfig.NetworkMode != dockercontainer.NetworkMode(DefaultAllowlistNetworkMode) ||
+		create.Config.NetworkDisabled {
+		t.Fatalf("readiness network = %q disabled=%t", create.HostConfig.NetworkMode, create.Config.NetworkDisabled)
+	}
+	if create.HostConfig.Resources.PidsLimit == nil ||
+		*create.HostConfig.Resources.PidsLimit != egressReadinessPidsLimit ||
+		create.HostConfig.Resources.Memory != egressReadinessMemory {
+		t.Fatalf("readiness resources = %+v", create.HostConfig.Resources)
+	}
+	endpoint := create.NetworkingConfig.EndpointsConfig[DefaultAllowlistNetworkMode]
+	if endpoint == nil {
+		t.Fatalf("readiness endpoint config = %+v", create.NetworkingConfig.EndpointsConfig)
+	}
+	engine.assertCalls(t, "inspect", "create", "start", "wait", "remove")
+}
+
+func TestProviderCheckEgressReadinessRemovesFailedProbe(t *testing.T) {
+	engine := newFakeEngine(nil)
+	engine.exitCode = 1
+	provider := newTestProvider(t, engine)
+	provider.egressEnforcer = &recordingEgressEnforcer{}
+
+	err := provider.CheckEgressReadiness(t.Context(), "https://llm.example.invalid/v1", ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: []string{"llm.example.invalid:443"},
+	})
+	if err == nil {
+		t.Fatal("CheckEgressReadiness err = nil, want failed probe")
+	}
+	var exitErr *ports.ContainerExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode != 1 {
+		t.Fatalf("CheckEgressReadiness err = %T/%v, want exit code 1", err, err)
+	}
+	engine.assertCalls(t, "inspect", "create", "start", "wait", "logs", "remove")
+}
+
 func TestProviderRunRejectsInvalidCredentialLifetimeBeforeCreate(t *testing.T) {
 	tests := []struct {
 		name    string

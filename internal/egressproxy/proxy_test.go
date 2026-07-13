@@ -1,8 +1,11 @@
 package egressproxy
 
 import (
+	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -32,12 +35,15 @@ func TestHandlerAllowsHTTPAndDeniesUnlistedTarget(t *testing.T) {
 		_, _ = io.WriteString(w, "allowed")
 	}))
 	defer upstream.Close()
-	upstreamURL := mustURL(t, upstream.URL)
-	proxy := newTestProxy(t, []string{upstreamURL.Host})
+	upstreamURL, upstreamAddress := mappedUpstreamURL(t, upstream.URL, "allowed-http.example.test")
+	proxy := newMappedTestProxy(t, Config{
+		AllowedTargets:     []string{upstreamURL.Host},
+		MaxRequestDuration: 2 * time.Second,
+	}, upstreamURL.Host, upstreamAddress)
 	defer proxy.Close()
 
 	client := proxyClient(t, proxy.URL, nil)
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, upstreamURL.String(), nil)
 	if err != nil {
 		t.Fatalf("NewRequest: %v", err)
 	}
@@ -55,12 +61,14 @@ func TestHandlerAllowsHTTPAndDeniesUnlistedTarget(t *testing.T) {
 		t.Fatalf("upstream host = %q, want proxy target %q", got, upstreamURL.Host)
 	}
 
-	handler, err := NewHandler(Config{AllowedTargets: []string{upstreamURL.Host}})
-	if err != nil {
-		t.Fatalf("NewHandler: %v", err)
-	}
+	handler := newMappedHandler(
+		t,
+		Config{AllowedTargets: []string{upstreamURL.Host}},
+		upstreamURL.Host,
+		upstreamAddress,
+	)
 	defer handler.Close()
-	spoofedHostRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	spoofedHostRequest := httptest.NewRequestWithContext(t.Context(), http.MethodGet, upstreamURL.String(), nil)
 	spoofedHostRequest.Host = "unlisted-virtual-host.example.test"
 	recorder := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
 	handler.ServeHTTP(recorder, spoofedHostRequest)
@@ -102,12 +110,15 @@ func TestHandlerSupportsHTTPSConnect(t *testing.T) {
 		_, _ = io.WriteString(w, "tls-ok")
 	}))
 	defer upstream.Close()
-	upstreamURL := mustURL(t, upstream.URL)
-	proxy := newTestProxy(t, []string{upstreamURL.Host})
+	upstreamURL, upstreamAddress := mappedUpstreamURL(t, upstream.URL, "allowed-https.example.test")
+	proxy := newMappedTestProxy(t, Config{
+		AllowedTargets:     []string{upstreamURL.Host},
+		MaxRequestDuration: 2 * time.Second,
+	}, upstreamURL.Host, upstreamAddress)
 	defer proxy.Close()
 
 	client := proxyClient(t, proxy.URL, &tls.Config{InsecureSkipVerify: true}) // #nosec G402 -- test-only TLS server.
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, upstreamURL.String(), nil)
 	if err != nil {
 		t.Fatalf("new HTTPS request: %v", err)
 	}
@@ -132,6 +143,9 @@ func TestHandlerHealthAndConfigurationValidation(t *testing.T) {
 
 	if _, err := NewHandler(Config{AllowedTargets: []string{"*.example.test:443"}}); err == nil {
 		t.Fatal("NewHandler wildcard err = nil, want rejection")
+	}
+	if _, err := NewHandler(Config{AllowedTargets: []string{"api.example.test"}}); err == nil {
+		t.Fatal("NewHandler missing port err = nil, want rejection")
 	}
 	if _, err := NewHandler(Config{AllowedTargets: []string{"api.example.test:443"}, DialTimeout: -time.Second}); err == nil {
 		t.Fatal("NewHandler negative timeout err = nil, want rejection")
@@ -194,16 +208,13 @@ func TestHandlerBoundsAndClearsDownstreamWriteDeadline(t *testing.T) {
 		_, _ = io.WriteString(w, "response body")
 	}))
 	defer upstream.Close()
-	upstreamURL := mustURL(t, upstream.URL)
-	handler, err := NewHandler(Config{
+	upstreamURL, upstreamAddress := mappedUpstreamURL(t, upstream.URL, "deadline.example.test")
+	handler := newMappedHandler(t, Config{
 		AllowedTargets:     []string{upstreamURL.Host},
 		MaxRequestDuration: 100 * time.Millisecond,
-	})
-	if err != nil {
-		t.Fatalf("NewHandler: %v", err)
-	}
+	}, upstreamURL.Host, upstreamAddress)
 	defer handler.Close()
-	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, upstreamURL.String(), nil)
 	writer := newDeadlineBlockingWriter()
 
 	started := time.Now()
@@ -223,16 +234,16 @@ func TestHandlerBoundsUpstreamResponseHeaders(t *testing.T) {
 		_, _ = io.WriteString(w, "must not be forwarded")
 	}))
 	defer upstream.Close()
-	upstreamURL := mustURL(t, upstream.URL)
-	proxy := newTestProxyWithConfig(t, Config{
+	upstreamURL, upstreamAddress := mappedUpstreamURL(t, upstream.URL, "headers.example.test")
+	proxy := newMappedTestProxy(t, Config{
 		AllowedTargets:         []string{upstreamURL.Host},
 		MaxRequestDuration:     2 * time.Second,
 		MaxResponseHeaderBytes: 1024,
-	})
+	}, upstreamURL.Host, upstreamAddress)
 	defer proxy.Close()
 
 	client := proxyClient(t, proxy.URL, nil)
-	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, upstream.URL, nil)
+	request, err := http.NewRequestWithContext(t.Context(), http.MethodGet, upstreamURL.String(), nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
@@ -243,19 +254,47 @@ func TestHandlerBoundsUpstreamResponseHeaders(t *testing.T) {
 	assertBody(t, response, http.StatusBadGateway, "upstream unavailable")
 }
 
-func newTestProxy(t *testing.T, allowed []string) *httptest.Server {
+func newMappedTestProxy(
+	t *testing.T,
+	cfg Config,
+	targetAddress string,
+	upstreamAddress string,
+) *httptest.Server {
 	t.Helper()
-	return newTestProxyWithConfig(t, Config{AllowedTargets: allowed, MaxRequestDuration: 2 * time.Second})
+	handler := newMappedHandler(t, cfg, targetAddress, upstreamAddress)
+	return httptest.NewServer(handler)
 }
 
-func newTestProxyWithConfig(t *testing.T, cfg Config) *httptest.Server {
+func newMappedHandler(
+	t *testing.T,
+	cfg Config,
+	targetAddress string,
+	upstreamAddress string,
+) *Handler {
 	t.Helper()
 	handler, err := NewHandler(cfg)
 	if err != nil {
 		t.Fatalf("NewHandler: %v", err)
 	}
 	t.Cleanup(handler.Close)
-	return httptest.NewServer(handler)
+	dialer := &net.Dialer{Timeout: time.Second}
+	dialContext := func(ctx context.Context, network, address string) (net.Conn, error) {
+		if address != targetAddress {
+			return nil, fmt.Errorf("unexpected test proxy dial target %q", address)
+		}
+		return dialer.DialContext(ctx, network, upstreamAddress)
+	}
+	handler.dialContext = dialContext
+	handler.transport.DialContext = dialContext
+	return handler
+}
+
+func mappedUpstreamURL(t *testing.T, rawURL, hostname string) (*url.URL, string) {
+	t.Helper()
+	upstream := mustURL(t, rawURL)
+	mapped := *upstream
+	mapped.Host = net.JoinHostPort(hostname, upstream.Port())
+	return &mapped, upstream.Host
 }
 
 func proxyClient(t *testing.T, proxyRawURL string, tlsConfig *tls.Config) *http.Client {

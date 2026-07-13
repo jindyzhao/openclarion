@@ -74,6 +74,13 @@ import (
 
 type getenvFunc func(string) string
 
+type diagnosisSandboxReadinessChecker func(
+	context.Context,
+	*containerdocker.Provider,
+	string,
+	ports.ContainerNetworkPolicy,
+) error
+
 const (
 	temporalTaskQueueEnv = "OPENCLARION_TEMPORAL_TASK_QUEUE"
 	publicBaseURLEnv     = "OPENCLARION_PUBLIC_BASE_URL"
@@ -332,7 +339,13 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
-	diagnosisActivityOptions, err := diagnosisActivityOptionsFromEnv(logger, os.Getenv, httpTracing)
+	diagnosisActivityOptions, err := diagnosisActivityOptionsFromEnv(
+		ctx,
+		logger,
+		os.Getenv,
+		httpTracing,
+		checkDiagnosisSandboxReadiness,
+	)
 	if err != nil {
 		return err
 	}
@@ -722,9 +735,11 @@ func notificationChannelEmailFactory() notificationchannelprovider.EmailFactory 
 }
 
 func diagnosisActivityOptionsFromEnv(
+	ctx context.Context,
 	logger *slog.Logger,
 	getenv getenvFunc,
 	httpTracing *observabilitytracing.HTTPTracing,
+	readinessChecker diagnosisSandboxReadinessChecker,
 ) ([]temporalpkg.ActivityOption, error) {
 	var opts []temporalpkg.ActivityOption
 	publicBaseURL, err := publicBaseURLFromEnv(getenv)
@@ -792,10 +807,8 @@ func diagnosisActivityOptionsFromEnv(
 	if egressProxyURL == "" {
 		return nil, fmt.Errorf("%s is required when configuring the diagnosis sandbox provider", sandboxEgressProxyURLEnv)
 	}
-	if err := validateSandboxEgressCoversURL(
-		getenv("OPENCLARION_DIAGNOSIS_LLM_BASE_URL"),
-		allowedEgress,
-	); err != nil {
+	llmBaseURL := getenv("OPENCLARION_DIAGNOSIS_LLM_BASE_URL")
+	if err := validateSandboxEgressCoversURL(llmBaseURL, allowedEgress); err != nil {
 		return nil, err
 	}
 	networkMode := strings.TrimSpace(getenv("OPENCLARION_SANDBOX_EGRESS_NETWORK"))
@@ -823,6 +836,12 @@ func diagnosisActivityOptionsFromEnv(
 	if err != nil {
 		return nil, fmt.Errorf("configure diagnosis sandbox provider: %w", err)
 	}
+	if readinessChecker == nil {
+		return nil, fmt.Errorf("diagnosis sandbox readiness checker is required")
+	}
+	if err := readinessChecker(ctx, provider, llmBaseURL, networkPolicy); err != nil {
+		return nil, fmt.Errorf("verify diagnosis sandbox readiness: %w", err)
+	}
 	logger.Info("configured diagnosis sandbox provider", "provider", "docker")
 	opts = append(opts,
 		temporalpkg.WithContainerProvider(provider),
@@ -830,6 +849,15 @@ func diagnosisActivityOptionsFromEnv(
 		temporalpkg.WithContainerNetworkPolicy(networkPolicy),
 	)
 	return opts, nil
+}
+
+func checkDiagnosisSandboxReadiness(
+	ctx context.Context,
+	provider *containerdocker.Provider,
+	llmBaseURL string,
+	policy ports.ContainerNetworkPolicy,
+) error {
+	return provider.CheckEgressReadiness(ctx, llmBaseURL, policy)
 }
 
 func validateSandboxEgressCoversURL(rawURL string, allowedTargets []string) error {

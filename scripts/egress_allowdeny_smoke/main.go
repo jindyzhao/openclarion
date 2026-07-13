@@ -70,7 +70,7 @@ func runProxy(args []string) error {
 	fs := flag.NewFlagSet("proxy", flag.ContinueOnError)
 	listen := fs.String("listen", ":18080", "listen address")
 	allows := multiFlag{}
-	fs.Var(&allows, "allow", "allowed host[:port]; repeat for multiple targets")
+	fs.Var(&allows, "allow", "allowed host:port; repeat for multiple targets")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -143,9 +143,9 @@ func runProof(args []string, stdout io.Writer) error {
 	source := fs.String("source", "make egress-allowdeny-smoke", "canonical proof source")
 	runID := fs.String("run-id", "", "optional smoke run identifier")
 	timeoutSeconds := fs.Int64("timeout-seconds", 8, "smoke readiness timeout in seconds")
-	allowedTarget := fs.String("allowed-target", "allowed.internal:8080", "allowed egress host[:port]")
-	deniedTarget := fs.String("denied-target", "denied.internal:8080", "denied egress host[:port]")
-	proxyTarget := fs.String("proxy-target", "egress-proxy:18080", "sandbox proxy host[:port]")
+	allowedTarget := fs.String("allowed-target", "allowed.internal:8080", "allowed egress host:port")
+	deniedTarget := fs.String("denied-target", "denied.internal:8080", "denied egress host:port")
+	proxyTarget := fs.String("proxy-target", "egress-proxy:18080", "sandbox proxy host:port")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

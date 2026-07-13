@@ -176,7 +176,7 @@ Diagnosis runtime allowlist mode uses the Compose-managed internal
 `openclarion-sandbox-allowlist` network and bundled
 `openclarion-egress-proxy`. The proxy is dual-homed, but sandbox containers
 join only the internal network. The provider-neutral contract accepts only
-exact `host[:port]` targets, while the proxy enforces those targets for HTTP
+exact `host:port` targets, while the proxy enforces those targets for HTTP
 forwarding and HTTPS CONNECT. This local Compose topology requires Docker
 Compose 2.33.1 or later because its external default route is selected with
 `gw_priority`.
@@ -194,13 +194,14 @@ entry to Docker `ContainerCreate`. Before create, it inspects the selected
 network and requires the exact configured name, `Internal=true`, and a
 non-ingress, non-config-only network. It owns upper- and lower-case HTTP proxy
 variables, clears bypass variables, and rejects credentials that attempt to
-override them. Worker startup also verifies that the configured diagnosis LLM
-target is covered by the allowlist. The Stage 5 readiness command mirrors the
-provider's network-property checks and runs the configured diagnosis image on
-that network to validate both allowlist coverage and the proxy readiness
-endpoint. Readiness compares a canonical SHA-256 fingerprint so the running
-proxy must have loaded the complete expected allowlist without exposing its
-targets or sending a business request to the LLM.
+override them. Worker startup verifies that the configured diagnosis LLM
+target is covered by the allowlist, inspects the internal network, and runs the
+configured diagnosis image on that network before accepting the configuration.
+The Stage 5 readiness command performs the same preflight before launching the
+worker. Both paths validate the proxy readiness endpoint with a canonical
+SHA-256 fingerprint, so the running proxy must have loaded the complete
+expected allowlist without exposing its targets or sending a business request
+to the LLM.
 
 ### Chain B Additional Constraints
 
@@ -233,9 +234,9 @@ targets or sending a business request to the LLM.
 internal Docker network, bundled dual-network proxy, runtime network inspection,
 and create-time endpoint binding. The Docker Engine provider fails closed unless
 the egress enforcer, internal network, proxy URL, and target coverage are valid,
-rejects allowlist targets that are not exact `host[:port]` values, rejects
-long-lived, expired, or proxy-overriding runtime credentials before create, and
-has a manual live Docker smoke through
+rejects non-exact, local, or unspecified allowlist targets, rejects long-lived,
+expired, or proxy-overriding runtime credentials before create, and has a
+manual live Docker smoke through
 `make container-provider-smoke`, timeout cleanup proof through
 `make container-provider-timeout-smoke`, and output cap proof through
 `make container-provider-output-cap-smoke`. A concrete Docker internal-network

@@ -90,7 +90,7 @@ Documented and test-covered now:
   `make container-provider-output-cap-smoke`.
 - Concrete Docker internal-network + proxy allow/deny smoke through
   `make egress-allowdeny-smoke`.
-- Bundled exact `host[:port]` HTTP/CONNECT proxy, packaged as a non-root scratch
+- Bundled exact `host:port` HTTP/CONNECT proxy, packaged as a non-root scratch
   image through `make local-egress-proxy-build`; focused tests cover allowed and
   denied targets, CONNECT tunneling, hop-by-hop header removal, health checks,
   and malformed configuration.
@@ -99,9 +99,11 @@ Documented and test-covered now:
   pull policy.
 - Docker provider fail-closed proxy URL validation, proxy environment
   injection, bypass-variable clearing, credential override rejection, and
-  diagnosis LLM target coverage validation before worker startup. Each
-  allowlist invocation also inspects the selected Docker network before create
-  and requires the exact configured name, `Internal=true`, and a non-ingress,
+  diagnosis LLM target coverage validation before worker startup. Startup
+  launches the diagnosis image on the selected internal network and verifies
+  the live proxy allowlist fingerprint before accepting the configuration.
+  Each allowlist invocation also inspects that network before create and
+  requires the exact configured name, `Internal=true`, and a non-ingress,
   non-config-only runtime network.
 - Local custom thin runner candidate proof through
   `make custom-thin-runner-smoke`, using a digest-pinned localhost-registry

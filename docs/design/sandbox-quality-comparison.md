@@ -94,7 +94,7 @@ egress is enabled, the helper passes the configured dedicated Docker network
 and credential-free proxy URL through the Docker provider. The provider
 attaches the candidate runtime to that network with explicit create-time
 endpoint configuration after the egress enforcer validates the requested
-`host[:port]` target subset. This
+`host:port` target subset. This
 generates retained candidate rows; it does not choose representative samples,
 compare quality, perform human review, or accept a runtime candidate.
 

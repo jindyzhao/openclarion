@@ -130,7 +130,7 @@ func TestStaticAllowlistEnforcerRejectsInvalidConfiguration(t *testing.T) {
 			name:        "invalid target",
 			networkMode: DefaultAllowlistNetworkMode,
 			targets:     []string{"prometheus.internal/path"},
-			wantErr:     "host[:port]",
+			wantErr:     "host:port",
 		},
 	}
 

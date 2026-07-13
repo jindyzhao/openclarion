@@ -16,6 +16,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
+	containerdocker "github.com/openclarion/openclarion/internal/providers/container/docker"
 	"github.com/openclarion/openclarion/internal/strictjson"
 	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
@@ -1468,7 +1469,9 @@ func TestHTTPServerOptionsFromEnv_RejectsIncompleteDiagnosisConfig(t *testing.T)
 }
 
 func TestDiagnosisActivityOptionsFromEnv_ConfiguresEvidenceProviderWithoutSandbox(t *testing.T) {
-	opts, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{}), nil)
+	opts, err := diagnosisActivityOptionsFromEnv(
+		t.Context(), discardLogger(), mapGetenv(map[string]string{}), nil, allowDiagnosisSandboxReadiness,
+	)
 	if err != nil {
 		t.Fatalf("diagnosisActivityOptionsFromEnv: %v", err)
 	}
@@ -1478,9 +1481,9 @@ func TestDiagnosisActivityOptionsFromEnv_ConfiguresEvidenceProviderWithoutSandbo
 }
 
 func TestDiagnosisActivityOptionsFromEnv_ConfiguresPublicBaseURL(t *testing.T) {
-	opts, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+	opts, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
 		publicBaseURLEnv: "https://openclarion.example.test/ops",
-	}), nil)
+	}), nil, allowDiagnosisSandboxReadiness)
 	if err != nil {
 		t.Fatalf("diagnosisActivityOptionsFromEnv: %v", err)
 	}
@@ -1502,9 +1505,9 @@ func TestDiagnosisActivityOptionsFromEnv_RejectsInvalidPublicBaseURL(t *testing.
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+			_, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
 				publicBaseURLEnv: tc.value,
-			}), nil)
+			}), nil, allowDiagnosisSandboxReadiness)
 			if err == nil {
 				t.Fatal("expected public base URL error, got nil")
 			}
@@ -1519,7 +1522,27 @@ func TestDiagnosisActivityOptionsFromEnv_RejectsInvalidPublicBaseURL(t *testing.
 }
 
 func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) {
-	opts, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+	readinessCalled := false
+	readinessChecker := func(
+		_ context.Context,
+		provider *containerdocker.Provider,
+		llmBaseURL string,
+		policy ports.ContainerNetworkPolicy,
+	) error {
+		readinessCalled = true
+		if provider == nil {
+			t.Fatal("readiness provider is nil")
+		}
+		if llmBaseURL != "https://llm.example.invalid/v1" {
+			t.Fatalf("readiness LLM base URL = %q", llmBaseURL)
+		}
+		if policy.EffectiveMode() != ports.ContainerNetworkAllowlist ||
+			strings.Join(policy.AllowedEgress, ",") != "llm.example.invalid:443" {
+			t.Fatalf("readiness network policy = %+v", policy)
+		}
+		return nil
+	}
+	opts, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
 		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/runner"]`,
@@ -1529,45 +1552,76 @@ func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) 
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
-	}), nil)
+	}), nil, readinessChecker)
 	if err != nil {
 		t.Fatalf("diagnosisActivityOptionsFromEnv: %v", err)
 	}
 	if len(opts) != 4 {
 		t.Fatalf("len(opts) = %d, want 4", len(opts))
 	}
+	if !readinessCalled {
+		t.Fatal("sandbox readiness checker was not called")
+	}
+}
+
+func TestDiagnosisActivityOptionsFromEnv_RejectsFailedSandboxReadiness(t *testing.T) {
+	readinessChecker := func(
+		context.Context,
+		*containerdocker.Provider,
+		string,
+		ports.ContainerNetworkPolicy,
+	) error {
+		return io.ErrUnexpectedEOF
+	}
+	_, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_NETWORK":    "openclarion-sandbox-egress-prod",
+		sandboxEgressProxyURLEnv:                "http://proxy.example.test:18080",
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
+	}), nil, readinessChecker)
+	if err == nil || !strings.Contains(err.Error(), "verify diagnosis sandbox readiness") ||
+		!strings.Contains(err.Error(), io.ErrUnexpectedEOF.Error()) {
+		t.Fatalf("diagnosisActivityOptionsFromEnv err = %v, want readiness failure", err)
+	}
+	if strings.Contains(err.Error(), "test-api-key") {
+		t.Fatalf("error leaked credential: %v", err)
+	}
 }
 
 func TestDiagnosisActivityOptionsFromEnv_RejectsMissingAllowlist(t *testing.T) {
-	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+	_, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
 		sandboxEgressProxyURLEnv:                "http://proxy.example.test:18080",
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
-	}), nil)
+	}), nil, allowDiagnosisSandboxReadiness)
 	if err == nil || !strings.Contains(err.Error(), "OPENCLARION_SANDBOX_EGRESS_ALLOWED") {
 		t.Fatalf("diagnosisActivityOptionsFromEnv err = %v, want missing allowlist", err)
 	}
 }
 
 func TestDiagnosisActivityOptionsFromEnv_RejectsAllowlistWithoutProxy(t *testing.T) {
-	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+	_, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
-	}), nil)
+	}), nil, allowDiagnosisSandboxReadiness)
 	if err == nil || !strings.Contains(err.Error(), sandboxEgressProxyURLEnv) {
 		t.Fatalf("diagnosisActivityOptionsFromEnv err = %v, want missing proxy URL", err)
 	}
 }
 
 func TestDiagnosisActivityOptionsFromEnv_RejectsLLMTargetOutsideAllowlist(t *testing.T) {
-	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+	_, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "other.example.invalid:443",
@@ -1575,7 +1629,7 @@ func TestDiagnosisActivityOptionsFromEnv_RejectsLLMTargetOutsideAllowlist(t *tes
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
-	}), nil)
+	}), nil, allowDiagnosisSandboxReadiness)
 	if err == nil || !strings.Contains(err.Error(), "host must be listed") {
 		t.Fatalf("diagnosisActivityOptionsFromEnv err = %v, want uncovered LLM target", err)
 	}
@@ -1592,9 +1646,9 @@ func TestValidateSandboxEgressCoversURL(t *testing.T) {
 		wantErr string
 	}{
 		{
-			name:    "default https port by bare host",
+			name:    "default https port by explicit target",
 			rawURL:  "https://llm.example.invalid/v1",
-			allowed: []string{"LLM.EXAMPLE.INVALID"},
+			allowed: []string{"LLM.EXAMPLE.INVALID:443"},
 		},
 		{
 			name:    "explicit non-default port",
@@ -1602,22 +1656,34 @@ func TestValidateSandboxEgressCoversURL(t *testing.T) {
 			allowed: []string{"llm.example.invalid:8080"},
 		},
 		{
+			name:    "bare allowlist host",
+			rawURL:  "https://llm.example.invalid/v1",
+			allowed: []string{"llm.example.invalid"},
+			wantErr: "explicit port",
+		},
+		{
 			name:    "wrong port",
 			rawURL:  "https://llm.example.invalid:8443/v1",
 			allowed: []string{"llm.example.invalid:443"},
 			wantErr: "host must be listed",
 		},
+		{
+			name:    "loopback target",
+			rawURL:  "http://localhost:11434/v1",
+			allowed: []string{"localhost:11434"},
+			wantErr: "localhost, loopback, or unspecified",
+		},
 		// #nosec G101 -- test-only credential-bearing URL verifies redaction.
 		{
 			name:    "userinfo",
 			rawURL:  "https://user:secret@llm.example.invalid/v1",
-			allowed: []string{"llm.example.invalid"},
+			allowed: []string{"llm.example.invalid:443"},
 			wantErr: "without userinfo",
 		},
 		{
 			name:    "surrounding whitespace",
 			rawURL:  " https://llm.example.invalid/v1",
-			allowed: []string{"llm.example.invalid"},
+			allowed: []string{"llm.example.invalid:443"},
 			wantErr: "surrounding whitespace",
 		},
 	}
@@ -1642,7 +1708,7 @@ func TestValidateSandboxEgressCoversURL(t *testing.T) {
 }
 
 func TestDiagnosisActivityOptionsFromEnv_RejectsUnsafeSandboxEgressNetwork(t *testing.T) {
-	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+	_, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
@@ -1651,7 +1717,7 @@ func TestDiagnosisActivityOptionsFromEnv_RejectsUnsafeSandboxEgressNetwork(t *te
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
-	}), nil)
+	}), nil, allowDiagnosisSandboxReadiness)
 	if err == nil {
 		t.Fatal("diagnosisActivityOptionsFromEnv err = nil, want unsafe egress network error")
 	}
@@ -1662,12 +1728,12 @@ func TestDiagnosisActivityOptionsFromEnv_RejectsUnsafeSandboxEgressNetwork(t *te
 }
 
 func TestDiagnosisActivityOptionsFromEnv_RejectsMissingDiagnosisLLMConfig(t *testing.T) {
-	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+	_, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
 		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/runner"]`,
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
-	}), nil)
+	}), nil, allowDiagnosisSandboxReadiness)
 	if err == nil {
 		t.Fatal("expected diagnosis LLM config error, got nil")
 	}
@@ -1762,15 +1828,24 @@ func TestDiagnosisContainerCredentialsFromEnv_RejectsInvalidOptionalRunnerConfig
 }
 
 func TestDiagnosisActivityOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
-	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+	_, err := diagnosisActivityOptionsFromEnv(t.Context(), discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_SANDBOX_COMMAND_JSON": `["/runner"]`,
-	}), nil)
+	}), nil, allowDiagnosisSandboxReadiness)
 	if err == nil {
 		t.Fatal("expected sandbox image error, got nil")
 	}
 	if !strings.Contains(err.Error(), "OPENCLARION_SANDBOX_IMAGE_REF") {
 		t.Fatalf("error = %q, want OPENCLARION_SANDBOX_IMAGE_REF", err.Error())
 	}
+}
+
+func allowDiagnosisSandboxReadiness(
+	context.Context,
+	*containerdocker.Provider,
+	string,
+	ports.ContainerNetworkPolicy,
+) error {
+	return nil
 }
 
 func TestParseReportReplayCLIArgs(t *testing.T) {
