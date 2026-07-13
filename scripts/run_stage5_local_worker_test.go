@@ -27,6 +27,24 @@ func TestStage5LocalWorkerCheckOnlyRequiresRuntimeNetwork(t *testing.T) {
 	assertStage5LocalWorkerNoSecretLeak(t, out)
 }
 
+func TestStage5LocalWorkerCheckOnlyRequiresEgressProxyURL(t *testing.T) {
+	root := newStage5LocalWorkerFixture(t)
+	privateDir := t.TempDir()
+	envFile := writeStage5LocalWorkerEnv(t, privateDir, map[string]string{
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL": "",
+	})
+	binDir := writeStage5LocalWorkerFakeDocker(t, 0)
+
+	out, err := runStage5LocalWorker(t, root, envFile, binDir, "--check-only")
+	if err == nil {
+		t.Fatalf("stage5-local-worker passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "OPENCLARION_SANDBOX_EGRESS_PROXY_URL") {
+		t.Fatalf("stage5-local-worker output = %q, want missing proxy URL", out)
+	}
+	assertStage5LocalWorkerNoSecretLeak(t, out)
+}
+
 func TestStage5LocalWorkerCheckOnlyPassesAfterRuntimeNetworkCheck(t *testing.T) {
 	root := newStage5LocalWorkerFixture(t)
 	privateDir := t.TempDir()
@@ -703,6 +721,7 @@ func writeStage5LocalWorkerEnv(t *testing.T, dir string, overrides map[string]st
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": agentDir,
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL":  "http://openclarion-egress-proxy:18080",
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "not-a-secret-fixture",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
@@ -740,6 +759,7 @@ func writeStage5LocalWorkerEnv(t *testing.T, dir string, overrides map[string]st
 		"OPENCLARION_SANDBOX_IMAGE_REF",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT",
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED",
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL",
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL",

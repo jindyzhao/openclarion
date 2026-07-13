@@ -5,6 +5,7 @@ package docker
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"regexp"
 	"strings"
@@ -427,6 +428,9 @@ func validateEgressProxyURL(raw string) error {
 	if parsed.User != nil {
 		return fmt.Errorf("sandbox egress proxy URL must not include userinfo")
 	}
+	if isContainerLocalProxyHost(parsed.Hostname()) {
+		return fmt.Errorf("sandbox egress proxy URL host must not be loopback or unspecified")
+	}
 	if parsed.Path != "" && parsed.Path != "/" {
 		return fmt.Errorf("sandbox egress proxy URL must not include a path")
 	}
@@ -437,6 +441,15 @@ func validateEgressProxyURL(raw string) error {
 		return fmt.Errorf("sandbox egress proxy URL host: %w", err)
 	}
 	return nil
+}
+
+func isContainerLocalProxyHost(host string) bool {
+	normalized := strings.TrimSuffix(strings.ToLower(host), ".")
+	if normalized == "localhost" || strings.HasSuffix(normalized, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(normalized)
+	return ip != nil && (ip.IsLoopback() || ip.IsUnspecified())
 }
 
 func validateRuntimeCredentialNames(credentials []ports.ContainerCredential) error {

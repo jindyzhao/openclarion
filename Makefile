@@ -487,7 +487,7 @@ sandbox-quality-compare-test: ## Run focused M4 sandbox/direct SubReport compari
 
 sandbox-m4-subreport-generate: ## Manual M4 sandbox SubReport generation: SNAPSHOT_ID=... SCENARIO=... CANDIDATE_ID=... OUT=...
 	@if [[ -z "$(SNAPSHOT_ID)" || -z "$(SCENARIO)" || -z "$(CANDIDATE_ID)" || -z "$(OUT)" ]]; then \
-		echo "[sandbox-m4-subreport-generate] usage: DATABASE_URL=<postgres-url> OPENCLARION_M4_SANDBOX_IMAGE_REF=<image@sha256:...> OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=<dir> make sandbox-m4-subreport-generate SNAPSHOT_ID=<id> SCENARIO=<single_alert|cascade|alert_storm> CANDIDATE_ID=<stable-id> [GROUP_INDEX=<n>] OUT=<summary.json>"; \
+		echo "[sandbox-m4-subreport-generate] usage: DATABASE_URL=<postgres-url> OPENCLARION_M4_SANDBOX_IMAGE_REF=<image@sha256:...> OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=<dir> [OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=<host:port> OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL=<proxy-url>] make sandbox-m4-subreport-generate SNAPSHOT_ID=<id> SCENARIO=<single_alert|cascade|alert_storm> CANDIDATE_ID=<stable-id> [GROUP_INDEX=<n>] OUT=<summary.json>"; \
 		exit 2; \
 	fi
 	@go run ./scripts/sandbox_m4_subreport_generate \

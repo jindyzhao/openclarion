@@ -128,6 +128,7 @@ func TestParseConfigReadsManualSandboxEnv(t *testing.T) {
 		`OPENCLARION_M4_SANDBOX_COMMAND_JSON=["/bin/runner","--mode","report"]`,
 		"OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=prometheus.internal:9090, topology.internal:8080",
 		"OPENCLARION_M4_SANDBOX_EGRESS_NETWORK=openclarion-sandbox-egress-prod",
+		"OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL=http://openclarion-egress-proxy:18080",
 	}
 	cfg, err := parseConfig([]string{
 		"--snapshot-id", "11",
@@ -145,8 +146,26 @@ func TestParseConfigReadsManualSandboxEnv(t *testing.T) {
 		cfg.CandidateID != "candidate-a" ||
 		strings.Join(cfg.Command, " ") != "/bin/runner --mode report" ||
 		len(cfg.AllowedEgress) != 2 ||
-		cfg.EgressNetwork != "openclarion-sandbox-egress-prod" {
+		cfg.EgressNetwork != "openclarion-sandbox-egress-prod" ||
+		cfg.EgressProxyURL != "http://openclarion-egress-proxy:18080" {
 		t.Fatalf("cfg = %+v", cfg)
+	}
+}
+
+func TestParseConfigRequiresProxyForAllowedEgress(t *testing.T) {
+	env := []string{
+		"DATABASE_URL=postgres://openclarion@localhost:5432/openclarion?sslmode=disable",
+		"OPENCLARION_M4_SANDBOX_IMAGE_REF=registry.example.com/openclarion/runtime@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=/tmp/agents",
+		"OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=prometheus.internal:9090",
+	}
+	_, err := parseConfig([]string{
+		"--snapshot-id", "11",
+		"--scenario", "single_alert",
+		"--candidate-id", "candidate-a",
+	}, env)
+	if err == nil || !strings.Contains(err.Error(), "OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL") {
+		t.Fatalf("parseConfig err = %v, want missing proxy URL", err)
 	}
 }
 

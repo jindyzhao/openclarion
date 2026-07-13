@@ -262,6 +262,21 @@ func TestConfigRejectsUnsafeSecurityPosture(t *testing.T) {
 			mutate:  func(cfg *Config) { cfg.EgressProxyURL = " http://openclarion-egress-proxy:18080" },
 			wantErr: "whitespace",
 		},
+		{
+			name:    "localhost proxy",
+			mutate:  func(cfg *Config) { cfg.EgressProxyURL = "http://localhost:18080" },
+			wantErr: "loopback or unspecified",
+		},
+		{
+			name:    "ipv4 loopback proxy",
+			mutate:  func(cfg *Config) { cfg.EgressProxyURL = "http://127.42.0.1:18080" },
+			wantErr: "loopback or unspecified",
+		},
+		{
+			name:    "unspecified proxy",
+			mutate:  func(cfg *Config) { cfg.EgressProxyURL = "http://0.0.0.0:18080" },
+			wantErr: "loopback or unspecified",
+		},
 	}
 
 	for _, tt := range tests {
