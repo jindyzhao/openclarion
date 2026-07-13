@@ -833,33 +833,13 @@ func diagnosisActivityOptionsFromEnv(
 }
 
 func validateSandboxEgressCoversURL(rawURL string, allowedTargets []string) error {
-	trimmedURL := strings.TrimSpace(rawURL)
-	parsed, err := url.Parse(trimmedURL)
-	if rawURL != trimmedURL || err != nil ||
-		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
-		parsed.Host == "" || parsed.User != nil {
-		return fmt.Errorf("OPENCLARION_DIAGNOSIS_LLM_BASE_URL must be an absolute http or https URL without userinfo or surrounding whitespace")
+	if err := ports.ValidateContainerEgressURL(rawURL, allowedTargets); err != nil {
+		return fmt.Errorf(
+			"validate OPENCLARION_DIAGNOSIS_LLM_BASE_URL against OPENCLARION_SANDBOX_EGRESS_ALLOWED: %w",
+			err,
+		)
 	}
-	allowed, err := ports.NormalizeContainerEgressTargets(allowedTargets)
-	if err != nil {
-		return fmt.Errorf("OPENCLARION_SANDBOX_EGRESS_ALLOWED: %w", err)
-	}
-	host := strings.ToLower(parsed.Hostname())
-	port := parsed.Port()
-	defaultPort := "80"
-	if parsed.Scheme == "https" {
-		defaultPort = "443"
-	}
-	if port == "" {
-		port = defaultPort
-	}
-	exact := host + ":" + port
-	for _, target := range allowed {
-		if target == exact || (target == host && port == defaultPort) {
-			return nil
-		}
-	}
-	return fmt.Errorf("OPENCLARION_DIAGNOSIS_LLM_BASE_URL host must be listed in OPENCLARION_SANDBOX_EGRESS_ALLOWED")
+	return nil
 }
 
 func publicBaseURLFromEnv(getenv getenvFunc) (*url.URL, error) {

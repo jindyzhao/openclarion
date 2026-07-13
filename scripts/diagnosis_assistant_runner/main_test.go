@@ -92,6 +92,80 @@ func TestRunPublishesValidatedOutput(t *testing.T) {
 	}
 }
 
+func TestDispatchRunnerReadinessChecksAllowlistAndProxy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/healthz" {
+			t.Errorf("request = %s %s, want GET /healthz", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	hostPort := strings.TrimPrefix(server.URL, "http://")
+	env := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":   server.URL + "/v1",
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":   hostPort,
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL": server.URL,
+	}
+	if err := dispatchRunner(
+		context.Background(),
+		[]string{readinessCommand},
+		func(key string) string { return env[key] },
+	); err != nil {
+		t.Fatalf("dispatchRunner readiness: %v", err)
+	}
+}
+
+func TestDispatchRunnerReadinessRejectsUncoveredLLMTarget(t *testing.T) {
+	env := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":   "https://llm.example.invalid/v1",
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":   "other.example.invalid:443",
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL": "http://proxy.example.invalid:18080",
+	}
+	err := dispatchRunner(
+		context.Background(),
+		[]string{readinessCommand},
+		func(key string) string { return env[key] },
+	)
+	if err == nil || !strings.Contains(err.Error(), "host must be listed") {
+		t.Fatalf("dispatchRunner readiness error = %v, want uncovered LLM target", err)
+	}
+}
+
+func TestDispatchRunnerReadinessRejectsUnhealthyProxy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	hostPort := strings.TrimPrefix(server.URL, "http://")
+	env := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":   server.URL + "/v1",
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":   hostPort,
+		"OPENCLARION_SANDBOX_EGRESS_PROXY_URL": server.URL,
+	}
+	err := dispatchRunner(
+		context.Background(),
+		[]string{readinessCommand},
+		func(key string) string { return env[key] },
+	)
+	if err == nil || !strings.Contains(err.Error(), "health status = 503") {
+		t.Fatalf("dispatchRunner readiness error = %v, want unhealthy proxy status", err)
+	}
+}
+
+func TestSandboxEgressProxyHealthURLRejectsCredentialsWithoutLeak(t *testing.T) {
+	// #nosec G101 -- test-only credential-bearing URL verifies redaction.
+	const rawURL = "http://operator:secret@proxy.example.invalid:18080"
+	_, err := sandboxEgressProxyHealthURL(rawURL)
+	if err == nil || !strings.Contains(err.Error(), "credential-free") {
+		t.Fatalf("sandboxEgressProxyHealthURL error = %v, want credential rejection", err)
+	}
+	if strings.Contains(err.Error(), "operator") || strings.Contains(err.Error(), "secret") {
+		t.Fatalf("sandboxEgressProxyHealthURL leaked credentials: %v", err)
+	}
+}
+
 func TestRunPreservesLatestUserLanguageAcrossValidationRetry(t *testing.T) {
 	providerOutputs := []string{
 		`{"schema_version":"diagnosis_turn.v1","message":"","confidence":"high","requires_human_review":false}`,

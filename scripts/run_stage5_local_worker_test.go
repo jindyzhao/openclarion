@@ -27,6 +27,72 @@ func TestStage5LocalWorkerCheckOnlyRequiresRuntimeNetwork(t *testing.T) {
 	assertStage5LocalWorkerNoSecretLeak(t, out)
 }
 
+func TestStage5LocalWorkerCheckOnlyRejectsUnsafeRuntimeNetwork(t *testing.T) {
+	tests := []struct {
+		name  string
+		state string
+	}{
+		{name: "external", state: "openclarion-sandbox-allowlist|false|false|false"},
+		{name: "ingress", state: "openclarion-sandbox-allowlist|true|true|false"},
+		{name: "config only", state: "openclarion-sandbox-allowlist|true|false|true"},
+		{name: "different name", state: "other-network|true|false|false"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := newStage5LocalWorkerFixture(t)
+			privateDir := t.TempDir()
+			envFile := writeStage5LocalWorkerEnv(t, privateDir, map[string]string{})
+			binDir := writeStage5LocalWorkerFakeDockerScript(t, `#!/usr/bin/env bash
+if [[ "$1" == "network" && "$2" == "inspect" ]]; then
+  printf '%s\n' '`+tt.state+`'
+  exit 0
+fi
+exit 2
+`)
+
+			out, err := runStage5LocalWorker(t, root, envFile, binDir, "--check-only")
+			if err == nil {
+				t.Fatalf("stage5-local-worker passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, "must name the exact internal, non-ingress, non-config-only Docker network") {
+				t.Fatalf("stage5-local-worker output = %q, want unsafe network error", out)
+			}
+			assertStage5LocalWorkerNoSecretLeak(t, out)
+		})
+	}
+}
+
+func TestStage5LocalWorkerCheckOnlyRejectsFailedSandboxReadinessProbe(t *testing.T) {
+	root := newStage5LocalWorkerFixture(t)
+	privateDir := t.TempDir()
+	envFile := writeStage5LocalWorkerEnv(t, privateDir, map[string]string{
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED": "other.example.invalid:443",
+	})
+	binDir := writeStage5LocalWorkerFakeDockerScript(t, `#!/usr/bin/env bash
+if [[ "$1" == "network" && "$2" == "inspect" ]]; then
+  printf '%s\n' 'openclarion-sandbox-allowlist|true|false|false'
+  exit 0
+fi
+if [[ "$1" == "image" && "$2" == "inspect" ]]; then
+  exit 0
+fi
+if [[ "$1" == "run" ]]; then
+  exit 1
+fi
+exit 2
+`)
+
+	out, err := runStage5LocalWorker(t, root, envFile, binDir, "--check-only")
+	if err == nil {
+		t.Fatalf("stage5-local-worker passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "diagnosis sandbox readiness probe failed") {
+		t.Fatalf("stage5-local-worker output = %q, want readiness probe error", out)
+	}
+	assertStage5LocalWorkerNoSecretLeak(t, out)
+}
+
 func TestStage5LocalWorkerCheckOnlyRequiresEgressProxyURL(t *testing.T) {
 	root := newStage5LocalWorkerFixture(t)
 	privateDir := t.TempDir()
@@ -531,13 +597,17 @@ func TestStage5LocalWorkerCheckOnlyPullsMissingSandboxImage(t *testing.T) {
 	envFile := writeStage5LocalWorkerEnv(t, privateDir, map[string]string{})
 	binDir := writeStage5LocalWorkerFakeDockerScript(t, `#!/usr/bin/env bash
 if [[ "$1" == "network" && "$2" == "inspect" && "$3" == "openclarion-sandbox-allowlist" ]]; then
-  exit 0
+	printf '%s\n' 'openclarion-sandbox-allowlist|true|false|false'
+	exit 0
 fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then
   exit 1
 fi
 if [[ "$1" == "pull" ]]; then
-  exit 0
+	exit 0
+fi
+if [[ "$1" == "run" ]]; then
+	exit 0
 fi
 exit 2
 `)
@@ -796,13 +866,36 @@ func writeStage5LocalWorkerFakeDocker(t *testing.T, exitCode int) string {
 	t.Helper()
 	body := `#!/usr/bin/env bash
 if [[ "$1" == "network" && "$2" == "inspect" && "$3" == "openclarion-sandbox-allowlist" ]]; then
-  exit ` + strconv.Itoa(exitCode) + `
+	if (( ` + strconv.Itoa(exitCode) + ` != 0 )); then
+		exit ` + strconv.Itoa(exitCode) + `
+	fi
+	printf '%s\n' 'openclarion-sandbox-allowlist|true|false|false'
+	exit 0
 fi
 if [[ "$1" == "image" && "$2" == "inspect" ]]; then
-  exit 0
+	exit 0
 fi
 if [[ "$1" == "pull" ]]; then
-  exit 0
+	exit 0
+fi
+if [[ "$1" == "run" ]]; then
+	args=" $* "
+	for required in \
+		' --network openclarion-sandbox-allowlist ' \
+		' -e OPENCLARION_DIAGNOSIS_LLM_BASE_URL ' \
+		' -e OPENCLARION_SANDBOX_EGRESS_ALLOWED ' \
+		' -e OPENCLARION_SANDBOX_EGRESS_PROXY_URL ' \
+		' --entrypoint /diagnosis-assistant-runner '
+	do
+		if [[ "$args" != *"$required"* ]]; then
+			echo "missing readiness argument" >&2
+			exit 9
+		fi
+	done
+	if [[ "${!#}" != "readiness" ]]; then
+		exit 9
+	fi
+	exit 0
 fi
 exit 2
 `

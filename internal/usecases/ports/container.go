@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -270,6 +271,39 @@ func NormalizeContainerEgressTargets(targets []string) ([]string, error) {
 		normalized = append(normalized, out)
 	}
 	return normalized, nil
+}
+
+// ValidateContainerEgressURL verifies that an absolute HTTP(S) URL is covered
+// by a normalized host[:port] allowlist. A bare host covers only the URL
+// scheme's default port.
+func ValidateContainerEgressURL(rawURL string, targets []string) error {
+	trimmedURL := strings.TrimSpace(rawURL)
+	parsed, err := url.Parse(trimmedURL)
+	if rawURL != trimmedURL || err != nil ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("egress URL must be an absolute http or https URL without userinfo or surrounding whitespace")
+	}
+	allowed, err := NormalizeContainerEgressTargets(targets)
+	if err != nil {
+		return fmt.Errorf("allowed egress targets: %w", err)
+	}
+	host := strings.ToLower(parsed.Hostname())
+	port := parsed.Port()
+	defaultPort := "80"
+	if parsed.Scheme == "https" {
+		defaultPort = "443"
+	}
+	if port == "" {
+		port = defaultPort
+	}
+	exact := host + ":" + port
+	for _, target := range allowed {
+		if target == exact || (target == host && port == defaultPort) {
+			return nil
+		}
+	}
+	return fmt.Errorf("egress URL host must be listed in allowed targets")
 }
 
 // ValidateContainerRunResult checks the lifecycle and raw output

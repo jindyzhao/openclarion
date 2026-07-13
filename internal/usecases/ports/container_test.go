@@ -49,6 +49,63 @@ func TestNormalizeContainerEgressTargets(t *testing.T) {
 	}
 }
 
+func TestValidateContainerEgressURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawURL  string
+		allowed []string
+		wantErr string
+	}{
+		{
+			name:    "default https port by bare host",
+			rawURL:  "https://llm.example.invalid/v1",
+			allowed: []string{"LLM.EXAMPLE.INVALID"},
+		},
+		{
+			name:    "explicit non-default port",
+			rawURL:  "http://llm.example.invalid:8080/v1",
+			allowed: []string{"llm.example.invalid:8080"},
+		},
+		{
+			name:    "wrong port",
+			rawURL:  "https://llm.example.invalid:8443/v1",
+			allowed: []string{"llm.example.invalid:443"},
+			wantErr: "host must be listed",
+		},
+		// #nosec G101 -- test-only credential-bearing URL verifies rejection.
+		{
+			name:    "userinfo",
+			rawURL:  "https://user:secret@llm.example.invalid/v1",
+			allowed: []string{"llm.example.invalid"},
+			wantErr: "without userinfo",
+		},
+		{
+			name:    "surrounding whitespace",
+			rawURL:  " https://llm.example.invalid/v1",
+			allowed: []string{"llm.example.invalid"},
+			wantErr: "surrounding whitespace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateContainerEgressURL(tt.rawURL, tt.allowed)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("ValidateContainerEgressURL: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("ValidateContainerEgressURL err = %v, want %q", err, tt.wantErr)
+			}
+			if strings.Contains(err.Error(), "secret") {
+				t.Fatalf("error leaked URL credential: %v", err)
+			}
+		})
+	}
+}
+
 func TestContainerRunRequestValidateAcceptsShortLivedCredentials(t *testing.T) {
 	now := time.Date(2026, 5, 28, 9, 0, 0, 0, time.UTC)
 	req := validContainerRequest()

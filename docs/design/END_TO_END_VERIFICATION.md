@@ -177,7 +177,9 @@ Diagnosis runtime allowlist mode uses the Compose-managed internal
 `openclarion-egress-proxy`. The proxy is dual-homed, but sandbox containers
 join only the internal network. The provider-neutral contract accepts only
 exact `host[:port]` targets, while the proxy enforces those targets for HTTP
-forwarding and HTTPS CONNECT.
+forwarding and HTTPS CONNECT. This local Compose topology requires Docker
+Compose 2.33.1 or later because its external default route is selected with
+`gw_priority`.
 
 `make egress-allowdeny-smoke` proves this topology locally with Docker: a
 sandbox client on an internal network reaches `allowed.internal:8080` through a
@@ -193,7 +195,9 @@ network and requires the exact configured name, `Internal=true`, and a
 non-ingress, non-config-only network. It owns upper- and lower-case HTTP proxy
 variables, clears bypass variables, and rejects credentials that attempt to
 override them. Worker startup also verifies that the configured diagnosis LLM
-target is covered by the allowlist.
+target is covered by the allowlist. The Stage 5 readiness command mirrors the
+provider's network-property checks and runs the configured diagnosis image on
+that network to validate both allowlist coverage and the proxy health endpoint.
 
 ### Chain B Additional Constraints
 

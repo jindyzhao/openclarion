@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -39,6 +40,8 @@ const (
 	maxInstructionsBytes      = 64 * 1024
 	maxRunnerJSONBytes        = 10 * 1024 * 1024
 	diagnosisOutputSchemaName = "diagnosis_turn_v1"
+	readinessCommand          = "readiness"
+	readinessTimeout          = 5 * time.Second
 )
 
 type runnerPaths struct {
@@ -58,10 +61,84 @@ type runnerConfig struct {
 }
 
 func main() {
-	if err := run(context.Background(), defaultPaths(), os.Getenv); err != nil {
+	if err := dispatchRunner(context.Background(), os.Args[1:], os.Getenv); err != nil {
 		fmt.Fprintf(os.Stderr, "[diagnosis-assistant-runner] %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func dispatchRunner(ctx context.Context, args []string, getenv func(string) string) error {
+	if len(args) == 0 {
+		return run(ctx, defaultPaths(), getenv)
+	}
+	if len(args) == 1 && args[0] == readinessCommand {
+		return checkSandboxReadiness(ctx, getenv)
+	}
+	return fmt.Errorf("usage: diagnosis-assistant-runner [%s]", readinessCommand)
+}
+
+func checkSandboxReadiness(ctx context.Context, getenv func(string) string) error {
+	if getenv == nil {
+		return fmt.Errorf("environment reader is required")
+	}
+	allowed := csvValues(getenv("OPENCLARION_SANDBOX_EGRESS_ALLOWED"))
+	if err := ports.ValidateContainerEgressURL(
+		getenv("OPENCLARION_DIAGNOSIS_LLM_BASE_URL"),
+		allowed,
+	); err != nil {
+		return fmt.Errorf("diagnosis LLM egress configuration: %w", err)
+	}
+	healthURL, err := sandboxEgressProxyHealthURL(
+		getenv("OPENCLARION_SANDBOX_EGRESS_PROXY_URL"),
+	)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
+	if err != nil {
+		return fmt.Errorf("create sandbox egress proxy readiness request: %w", err)
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   readinessTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Do(req) // #nosec G704 -- the URL is restricted to the configured credential-free HTTP proxy health endpoint.
+	if err != nil {
+		return fmt.Errorf("sandbox egress proxy health endpoint is unreachable: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("sandbox egress proxy health status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+	return nil
+}
+
+func sandboxEgressProxyHealthURL(rawURL string) (string, error) {
+	trimmedURL := strings.TrimSpace(rawURL)
+	parsed, err := url.Parse(trimmedURL)
+	if rawURL != trimmedURL || err != nil || parsed.Scheme != "http" ||
+		parsed.Host == "" || parsed.User != nil || parsed.Path != "" ||
+		parsed.RawPath != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("sandbox egress proxy URL must be an absolute credential-free http URL without path, query, fragment, or surrounding whitespace")
+	}
+	parsed.Path = "/healthz"
+	return parsed.String(), nil
+}
+
+func csvValues(raw string) []string {
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if value := strings.TrimSpace(part); value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
 }
 
 func defaultPaths() runnerPaths {

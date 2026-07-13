@@ -24,7 +24,7 @@
 #       docker compose up -d --wait
 #
 # Prerequisites:
-#   Docker Engine 24+ with Compose V2
+#   Docker Engine 24+ with Docker Compose 2.33.1+ (`gw_priority` support)
 
 services:
   postgres:
