@@ -71,13 +71,10 @@ func main() {
 }
 
 func dispatchRunner(ctx context.Context, args []string, getenv func(string) string) error {
-	if len(args) == 0 {
-		return run(ctx, defaultPaths(), getenv)
-	}
 	if len(args) == 1 && args[0] == readinessCommand {
 		return checkSandboxReadiness(ctx, getenv)
 	}
-	return fmt.Errorf("usage: diagnosis-assistant-runner [%s]", readinessCommand)
+	return run(ctx, defaultPaths(), getenv)
 }
 
 func checkSandboxReadiness(ctx context.Context, getenv func(string) string) error {

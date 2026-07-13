@@ -139,6 +139,25 @@ func TestDispatchRunnerReadinessRejectsUncoveredLLMTarget(t *testing.T) {
 	}
 }
 
+func TestDispatchRunnerPreservesNormalCommandArgs(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "custom args", args: []string{"--mode", "diagnosis"}},
+		{name: "non-exact readiness command", args: []string{readinessCommand, "extra"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := dispatchRunner(context.Background(), tt.args, nil)
+			if err == nil || err.Error() != "environment reader is required" {
+				t.Fatalf("dispatchRunner error = %v, want normal runner error", err)
+			}
+		})
+	}
+}
+
 func TestCheckSandboxReadinessRejectsUnhealthyProxy(t *testing.T) {
 	client := readinessTestClient(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
