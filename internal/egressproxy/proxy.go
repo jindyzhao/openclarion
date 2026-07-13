@@ -272,18 +272,14 @@ func (h *Handler) targetAllowed(target string) bool {
 }
 
 func canonicalTarget(raw, defaultPort string) (string, error) {
+	if defaultPort != "" && !strings.Contains(raw, ":") {
+		raw = net.JoinHostPort(raw, defaultPort)
+	}
 	normalized, err := ports.NormalizeContainerEgressTargets([]string{raw})
 	if err != nil {
 		return "", err
 	}
-	target := normalized[0]
-	if strings.Contains(target, ":") {
-		return target, nil
-	}
-	if defaultPort == "" {
-		return target, nil
-	}
-	return net.JoinHostPort(target, defaultPort), nil
+	return normalized[0], nil
 }
 
 func removeHopByHopHeaders(header http.Header) {

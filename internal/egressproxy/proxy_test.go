@@ -35,11 +35,15 @@ func TestHandlerAllowsHTTPAndDeniesUnlistedTarget(t *testing.T) {
 		_, _ = io.WriteString(w, "allowed")
 	}))
 	defer upstream.Close()
-	upstreamURL, upstreamAddress := mappedUpstreamURL(t, upstream.URL, "allowed-http.example.test")
+	localUpstreamURL := mustURL(t, upstream.URL)
+	upstreamAddress := localUpstreamURL.Host
+	upstreamURL := *localUpstreamURL
+	upstreamURL.Host = "allowed-http.example.test"
+	targetAddress := net.JoinHostPort(upstreamURL.Host, "80")
 	proxy := newMappedTestProxy(t, Config{
-		AllowedTargets:     []string{upstreamURL.Host},
+		AllowedTargets:     []string{targetAddress},
 		MaxRequestDuration: 2 * time.Second,
-	}, upstreamURL.Host, upstreamAddress)
+	}, targetAddress, upstreamAddress)
 	defer proxy.Close()
 
 	client := proxyClient(t, proxy.URL, nil)
@@ -63,8 +67,8 @@ func TestHandlerAllowsHTTPAndDeniesUnlistedTarget(t *testing.T) {
 
 	handler := newMappedHandler(
 		t,
-		Config{AllowedTargets: []string{upstreamURL.Host}},
-		upstreamURL.Host,
+		Config{AllowedTargets: []string{targetAddress}},
+		targetAddress,
 		upstreamAddress,
 	)
 	defer handler.Close()
