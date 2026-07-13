@@ -16,6 +16,7 @@ import (
 
 	dockerstdcopy "github.com/moby/moby/api/pkg/stdcopy"
 	dockercontainer "github.com/moby/moby/api/types/container"
+	dockernetwork "github.com/moby/moby/api/types/network"
 	dockerclient "github.com/moby/moby/client"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -105,6 +106,70 @@ func TestProviderRunInjectsShortLivedCredentialsIntoContainerEnv(t *testing.T) {
 		t.Fatalf("Env = %v, want %v", got, want)
 	}
 	engine.assertCalls(t, "create", "start", "wait", "copy", "remove")
+}
+
+func TestProviderRunRejectsUnsafeAllowlistNetworkBeforeCreate(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*fakeEngine)
+		wantErr string
+	}{
+		{
+			name: "external network",
+			mutate: func(engine *fakeEngine) {
+				engine.networkInternal = false
+			},
+			wantErr: "must be internal",
+		},
+		{
+			name: "name mismatch",
+			mutate: func(engine *fakeEngine) {
+				engine.networkName = "unexpected-network"
+			},
+			wantErr: "network name",
+		},
+		{
+			name: "ingress network",
+			mutate: func(engine *fakeEngine) {
+				engine.networkIngress = true
+			},
+			wantErr: "must not be ingress or config-only",
+		},
+		{
+			name: "config-only network",
+			mutate: func(engine *fakeEngine) {
+				engine.networkConfigOnly = true
+			},
+			wantErr: "must not be ingress or config-only",
+		},
+		{
+			name: "inspect failure",
+			mutate: func(engine *fakeEngine) {
+				engine.networkInspectErr = errors.New("network unavailable")
+			},
+			wantErr: "inspect allowlist network",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := validRequest()
+			req.Network = ports.ContainerNetworkPolicy{
+				Mode:          ports.ContainerNetworkAllowlist,
+				AllowedEgress: []string{"prometheus.internal:9090"},
+			}
+			engine := newFakeEngine(tarArchive(t, "output.json", []byte(`{"summary":"ok"}`)))
+			tt.mutate(engine)
+			provider := newTestProvider(t, engine)
+			provider.egressEnforcer = &recordingEgressEnforcer{}
+
+			_, err := provider.Run(context.Background(), req)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Run err = %v, want %q", err, tt.wantErr)
+			}
+			engine.assertCalls(t, "inspect")
+		})
+	}
 }
 
 func TestProviderRunRejectsInvalidCredentialLifetimeBeforeCreate(t *testing.T) {
@@ -310,7 +375,8 @@ func TestProviderRunUsesEgressEnforcerBeforeCreatingAllowlistContainer(t *testin
 		engine.createOptions.NetworkingConfig.EndpointsConfig[DefaultAllowlistNetworkMode] == nil {
 		t.Fatalf("NetworkingConfig.EndpointsConfig = %#v, want explicit allowlist endpoint", engine.createOptions.NetworkingConfig)
 	}
-	engine.assertCalls(t, "create", "start", "wait", "copy", "remove")
+	assertProxyEnv(t, engine.createOptions.Config.Env, testEgressProxyURL)
+	engine.assertCalls(t, "inspect", "create", "start", "wait", "copy", "remove")
 }
 
 func TestProviderRunUsesConfiguredAllowlistNetworkEndpoint(t *testing.T) {
@@ -338,7 +404,7 @@ func TestProviderRunUsesConfiguredAllowlistNetworkEndpoint(t *testing.T) {
 		engine.createOptions.NetworkingConfig.EndpointsConfig["openclarion-sandbox-egress-prod"] == nil {
 		t.Fatalf("NetworkingConfig.EndpointsConfig = %#v, want configured allowlist endpoint", engine.createOptions.NetworkingConfig)
 	}
-	engine.assertCalls(t, "create", "start", "wait", "copy", "remove")
+	engine.assertCalls(t, "inspect", "create", "start", "wait", "copy", "remove")
 }
 
 func TestProviderRunDoesNotCreateWhenEgressEnforcerRejects(t *testing.T) {
@@ -550,18 +616,23 @@ func TestReadOutputArchiveRejectsTarInsecurePathError(t *testing.T) {
 }
 
 type fakeEngine struct {
-	t             *testing.T
-	outputArchive io.ReadCloser
-	blockWait     bool
-	exitCode      int64
-	stopErr       error
-	copyErr       error
-	logErr        error
-	logStream     io.ReadCloser
-	createOptions dockerclient.ContainerCreateOptions
-	waitOptions   dockerclient.ContainerWaitOptions
-	evidence      string
-	calls         []string
+	t                 *testing.T
+	outputArchive     io.ReadCloser
+	blockWait         bool
+	exitCode          int64
+	stopErr           error
+	copyErr           error
+	logErr            error
+	logStream         io.ReadCloser
+	networkInspectErr error
+	networkName       string
+	networkInternal   bool
+	networkIngress    bool
+	networkConfigOnly bool
+	createOptions     dockerclient.ContainerCreateOptions
+	waitOptions       dockerclient.ContainerWaitOptions
+	evidence          string
+	calls             []string
 }
 
 type recordingEgressEnforcer struct {
@@ -578,8 +649,48 @@ func (e *recordingEgressEnforcer) Validate(_ context.Context, policy ports.Conta
 	return e.err
 }
 
+func assertProxyEnv(t *testing.T, env []string, proxyURL string) {
+	t.Helper()
+	want := map[string]string{
+		"HTTP_PROXY": proxyURL, "HTTPS_PROXY": proxyURL,
+		"http_proxy": proxyURL, "https_proxy": proxyURL,
+		"ALL_PROXY": "", "NO_PROXY": "", "all_proxy": "", "no_proxy": "",
+	}
+	got := make(map[string]string, len(env))
+	for _, entry := range env {
+		name, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			t.Fatalf("invalid env entry %q", entry)
+		}
+		got[name] = value
+	}
+	for name, value := range want {
+		gotValue, exists := got[name]
+		if !exists || gotValue != value {
+			t.Fatalf("%s = %q (present=%t), want %q (env=%v)", name, gotValue, exists, value, env)
+		}
+	}
+}
+
 func newFakeEngine(output io.ReadCloser) *fakeEngine {
-	return &fakeEngine{outputArchive: output}
+	return &fakeEngine{outputArchive: output, networkInternal: true}
+}
+
+func (f *fakeEngine) NetworkInspect(_ context.Context, networkID string, _ dockerclient.NetworkInspectOptions) (dockerclient.NetworkInspectResult, error) {
+	f.calls = append(f.calls, "inspect")
+	if f.networkInspectErr != nil {
+		return dockerclient.NetworkInspectResult{}, f.networkInspectErr
+	}
+	name := f.networkName
+	if name == "" {
+		name = networkID
+	}
+	return dockerclient.NetworkInspectResult{Network: dockernetwork.Inspect{Network: dockernetwork.Network{
+		Name:       name,
+		Internal:   f.networkInternal,
+		Ingress:    f.networkIngress,
+		ConfigOnly: f.networkConfigOnly,
+	}}}, nil
 }
 
 func (f *fakeEngine) ContainerCreate(_ context.Context, options dockerclient.ContainerCreateOptions) (dockerclient.ContainerCreateResult, error) {

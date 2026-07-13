@@ -46,6 +46,7 @@ const (
 // Tests use a fake implementation so cleanup, timeout, and output-copy
 // semantics stay covered without requiring a local Docker daemon.
 type EngineClient interface {
+	NetworkInspect(ctx context.Context, networkID string, options dockerclient.NetworkInspectOptions) (dockerclient.NetworkInspectResult, error)
 	ContainerCreate(ctx context.Context, options dockerclient.ContainerCreateOptions) (dockerclient.ContainerCreateResult, error)
 	ContainerStart(ctx context.Context, containerID string, options dockerclient.ContainerStartOptions) (dockerclient.ContainerStartResult, error)
 	ContainerWait(ctx context.Context, containerID string, options dockerclient.ContainerWaitOptions) dockerclient.ContainerWaitResult
@@ -234,6 +235,19 @@ func (p *Provider) validateEgress(ctx context.Context, policy ports.ContainerNet
 	}
 	if err := p.egressEnforcer.Validate(ctx, policy, networkMode); err != nil {
 		return fmt.Errorf("docker provider egress allowlist is not enforced: %w", err)
+	}
+	network, err := p.engine.NetworkInspect(ctx, networkMode, dockerclient.NetworkInspectOptions{})
+	if err != nil {
+		return fmt.Errorf("docker provider inspect allowlist network %q: %w", networkMode, err)
+	}
+	if network.Network.Name != networkMode {
+		return fmt.Errorf("docker provider allowlist network name = %q, want %q", network.Network.Name, networkMode)
+	}
+	if !network.Network.Internal {
+		return fmt.Errorf("docker provider allowlist network %q must be internal", networkMode)
+	}
+	if network.Network.Ingress || network.Network.ConfigOnly {
+		return fmt.Errorf("docker provider allowlist network %q must not be ingress or config-only", networkMode)
 	}
 	return nil
 }
@@ -598,7 +612,7 @@ func buildCreateOptions(spec RunSpec, req ports.ContainerRunRequest) dockerclien
 		Config: &dockercontainer.Config{
 			User:            spec.User,
 			Cmd:             cloneStringSlice(spec.Command),
-			Env:             credentialEnv(req.Credentials),
+			Env:             runtimeEnv(spec, req.Credentials),
 			WorkingDir:      spec.WorkingDir,
 			NetworkDisabled: networkDisabled,
 			Labels: map[string]string{
@@ -654,6 +668,23 @@ func credentialEnv(credentials []ports.ContainerCredential) []string {
 		out = append(out, credential.Name+"="+credential.Value)
 	}
 	return out
+}
+
+func runtimeEnv(spec RunSpec, credentials []ports.ContainerCredential) []string {
+	out := credentialEnv(credentials)
+	if spec.EgressProxyURL == "" {
+		return out
+	}
+	return append(out,
+		"HTTP_PROXY="+spec.EgressProxyURL,
+		"HTTPS_PROXY="+spec.EgressProxyURL,
+		"ALL_PROXY=",
+		"NO_PROXY=",
+		"http_proxy="+spec.EgressProxyURL,
+		"https_proxy="+spec.EgressProxyURL,
+		"all_proxy=",
+		"no_proxy=",
+	)
 }
 
 func readOutputArchive(reader io.Reader, outputPath string, outputMax int64) (json.RawMessage, error) {

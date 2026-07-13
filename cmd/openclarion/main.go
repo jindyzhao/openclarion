@@ -149,6 +149,7 @@ const (
 	diagnosisWeComCallbackEncodingAESKeyEnv = "OPENCLARION_WECOM_CALLBACK_ENCODING_AES_KEY"
 	diagnosisWeComCallbackReceiveIDEnv      = "OPENCLARION_WECOM_CALLBACK_RECEIVE_ID"
 	reportLLMHTTPTimeoutSecondsEnv          = "OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS"
+	sandboxEgressProxyURLEnv                = "OPENCLARION_SANDBOX_EGRESS_PROXY_URL"
 	reportReplayCLICommand                  = "report-replay"
 	reportPolicyReplayCLICommand            = "report-policy-replay"
 	reportScheduleLiveSmokeCLICommand       = "report-schedule-live-smoke"
@@ -755,6 +756,7 @@ func diagnosisActivityOptionsFromEnv(
 		"OPENCLARION_SANDBOX_WORKSPACE_ROOT",
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED",
 		"OPENCLARION_SANDBOX_EGRESS_NETWORK",
+		sandboxEgressProxyURLEnv,
 	)
 	if !sandboxConfigured {
 		logger.Warn("diagnosis sandbox provider is not configured; diagnosis-room turns require OPENCLARION_SANDBOX_IMAGE_REF and OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT before live use")
@@ -783,23 +785,31 @@ func diagnosisActivityOptionsFromEnv(
 		providerOpts = append(providerOpts, containerdocker.WithWorkspaceRoot(workspaceRoot))
 	}
 	allowedEgress := csvValues(getenv("OPENCLARION_SANDBOX_EGRESS_ALLOWED"))
-	networkPolicy := ports.ContainerNetworkPolicy{Mode: ports.ContainerNetworkNone}
-	allowlistNetworkMode := ""
-	if len(allowedEgress) > 0 {
-		networkMode := strings.TrimSpace(getenv("OPENCLARION_SANDBOX_EGRESS_NETWORK"))
-		if networkMode == "" {
-			networkMode = containerdocker.DefaultAllowlistNetworkMode
-		}
-		enforcer, err := containerdocker.NewStaticAllowlistEnforcer(networkMode, allowedEgress)
-		if err != nil {
-			return nil, fmt.Errorf("configure sandbox egress enforcer: %w", err)
-		}
-		providerOpts = append(providerOpts, containerdocker.WithEgressEnforcer(enforcer))
-		networkPolicy = ports.ContainerNetworkPolicy{
-			Mode:          ports.ContainerNetworkAllowlist,
-			AllowedEgress: allowedEgress,
-		}
-		allowlistNetworkMode = networkMode
+	if len(allowedEgress) == 0 {
+		return nil, fmt.Errorf("OPENCLARION_SANDBOX_EGRESS_ALLOWED is required when configuring the diagnosis sandbox provider")
+	}
+	egressProxyURL := strings.TrimSpace(getenv(sandboxEgressProxyURLEnv))
+	if egressProxyURL == "" {
+		return nil, fmt.Errorf("%s is required when configuring the diagnosis sandbox provider", sandboxEgressProxyURLEnv)
+	}
+	if err := validateSandboxEgressCoversURL(
+		getenv("OPENCLARION_DIAGNOSIS_LLM_BASE_URL"),
+		allowedEgress,
+	); err != nil {
+		return nil, err
+	}
+	networkMode := strings.TrimSpace(getenv("OPENCLARION_SANDBOX_EGRESS_NETWORK"))
+	if networkMode == "" {
+		networkMode = containerdocker.DefaultAllowlistNetworkMode
+	}
+	enforcer, err := containerdocker.NewStaticAllowlistEnforcer(networkMode, allowedEgress)
+	if err != nil {
+		return nil, fmt.Errorf("configure sandbox egress enforcer: %w", err)
+	}
+	providerOpts = append(providerOpts, containerdocker.WithEgressEnforcer(enforcer))
+	networkPolicy := ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: allowedEgress,
 	}
 
 	provider, err := containerdocker.NewProviderFromEnv(containerdocker.Config{
@@ -807,7 +817,8 @@ func diagnosisActivityOptionsFromEnv(
 		ReadonlyRootFS:       true,
 		NoNewPrivileges:      true,
 		Command:              command,
-		AllowlistNetworkMode: allowlistNetworkMode,
+		AllowlistNetworkMode: networkMode,
+		EgressProxyURL:       egressProxyURL,
 	}, agentConfigRoot, providerOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("configure diagnosis sandbox provider: %w", err)
@@ -819,6 +830,36 @@ func diagnosisActivityOptionsFromEnv(
 		temporalpkg.WithContainerNetworkPolicy(networkPolicy),
 	)
 	return opts, nil
+}
+
+func validateSandboxEgressCoversURL(rawURL string, allowedTargets []string) error {
+	trimmedURL := strings.TrimSpace(rawURL)
+	parsed, err := url.Parse(trimmedURL)
+	if rawURL != trimmedURL || err != nil ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("OPENCLARION_DIAGNOSIS_LLM_BASE_URL must be an absolute http or https URL without userinfo or surrounding whitespace")
+	}
+	allowed, err := ports.NormalizeContainerEgressTargets(allowedTargets)
+	if err != nil {
+		return fmt.Errorf("OPENCLARION_SANDBOX_EGRESS_ALLOWED: %w", err)
+	}
+	host := strings.ToLower(parsed.Hostname())
+	port := parsed.Port()
+	defaultPort := "80"
+	if parsed.Scheme == "https" {
+		defaultPort = "443"
+	}
+	if port == "" {
+		port = defaultPort
+	}
+	exact := host + ":" + port
+	for _, target := range allowed {
+		if target == exact || (target == host && port == defaultPort) {
+			return nil
+		}
+	}
+	return fmt.Errorf("OPENCLARION_DIAGNOSIS_LLM_BASE_URL host must be listed in OPENCLARION_SANDBOX_EGRESS_ALLOWED")
 }
 
 func publicBaseURLFromEnv(getenv getenvFunc) (*url.URL, error) {

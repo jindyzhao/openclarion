@@ -5,6 +5,7 @@ package docker
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -53,6 +54,9 @@ type Config struct {
 	// request explicitly asks for allowlisted egress through an external proxy
 	// or firewall boundary.
 	AllowlistNetworkMode string
+	// EgressProxyURL is the credential-free HTTP proxy reachable only through
+	// the dedicated allowlist network.
+	EgressProxyURL string
 }
 
 // WorkspacePaths are host-side paths prepared by the control plane for
@@ -88,6 +92,7 @@ type RunSpec struct {
 	Command         []string
 	WorkingDir      string
 	NetworkMode     string
+	EgressProxyURL  string
 	BindMounts      []BindMount
 	OutputMount     BindMount
 	OutputMaxBytes  int64
@@ -113,7 +118,14 @@ func BuildRunSpec(cfg Config, req ports.ContainerRunRequest, workspace Workspace
 	if err := validateBindMounts(binds); err != nil {
 		return RunSpec{}, err
 	}
+	if err := validateRuntimeCredentialNames(req.Credentials); err != nil {
+		return RunSpec{}, err
+	}
 	networkMode, err := networkModeFor(req.Network, normalized.AllowlistNetworkMode)
+	if err != nil {
+		return RunSpec{}, err
+	}
+	egressProxyURL, err := egressProxyURLFor(req.Network, normalized.EgressProxyURL)
 	if err != nil {
 		return RunSpec{}, err
 	}
@@ -131,6 +143,7 @@ func BuildRunSpec(cfg Config, req ports.ContainerRunRequest, workspace Workspace
 		Command:         cloneStringSlice(normalized.Command),
 		WorkingDir:      normalized.WorkingDir,
 		NetworkMode:     networkMode,
+		EgressProxyURL:  egressProxyURL,
 		BindMounts:      binds,
 		OutputMount:     BindMount{Source: workspace.OutputDir, Target: ports.SandboxOutputDir, ReadOnly: false},
 		OutputMaxBytes:  req.EffectiveOutputMax(),
@@ -218,6 +231,11 @@ func (c Config) Validate() error {
 	if err := validateAllowlistNetworkMode(c.AllowlistNetworkMode); err != nil {
 		return err
 	}
+	if c.EgressProxyURL != "" {
+		if err := validateEgressProxyURL(c.EgressProxyURL); err != nil {
+			return err
+		}
+	}
 	for _, arg := range c.Command {
 		if strings.TrimSpace(arg) == "" {
 			return fmt.Errorf("sandbox command arguments must be non-empty")
@@ -255,6 +273,16 @@ func ValidateRunSpec(spec RunSpec, req ports.ContainerRunRequest) error {
 	}
 	if spec.WorkingDir != DefaultWorkingDir {
 		return fmt.Errorf("run spec working directory = %q, want %q", spec.WorkingDir, DefaultWorkingDir)
+	}
+	expectedProxyURL, err := egressProxyURLFor(req.Network, spec.EgressProxyURL)
+	if err != nil {
+		return err
+	}
+	if expectedProxyURL != spec.EgressProxyURL {
+		return fmt.Errorf("run spec egress proxy must be empty when networking is disabled")
+	}
+	if err := validateRuntimeCredentialNames(req.Credentials); err != nil {
+		return err
 	}
 	for _, arg := range spec.Command {
 		if strings.TrimSpace(arg) == "" {
@@ -368,6 +396,64 @@ func networkModeFor(policy ports.ContainerNetworkPolicy, allowlistNetworkMode st
 		return allowlistNetworkMode, nil
 	default:
 		return "", fmt.Errorf("unsupported container network mode %q", policy.Mode)
+	}
+}
+
+func egressProxyURLFor(policy ports.ContainerNetworkPolicy, proxyURL string) (string, error) {
+	switch policy.EffectiveMode() {
+	case ports.ContainerNetworkNone:
+		return "", nil
+	case ports.ContainerNetworkAllowlist:
+		if proxyURL == "" {
+			return "", fmt.Errorf("sandbox egress proxy URL is required for allowlist network mode")
+		}
+		if err := validateEgressProxyURL(proxyURL); err != nil {
+			return "", err
+		}
+		return proxyURL, nil
+	default:
+		return "", fmt.Errorf("unsupported container network mode %q", policy.Mode)
+	}
+}
+
+func validateEgressProxyURL(raw string) error {
+	if strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, "\r\n\t ") {
+		return fmt.Errorf("sandbox egress proxy URL must not contain whitespace")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "http" || parsed.Host == "" || parsed.Opaque != "" {
+		return fmt.Errorf("sandbox egress proxy URL must be an absolute http URL")
+	}
+	if parsed.User != nil {
+		return fmt.Errorf("sandbox egress proxy URL must not include userinfo")
+	}
+	if parsed.Path != "" && parsed.Path != "/" {
+		return fmt.Errorf("sandbox egress proxy URL must not include a path")
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery {
+		return fmt.Errorf("sandbox egress proxy URL must not include query or fragment")
+	}
+	if _, err := ports.NormalizeContainerEgressTargets([]string{parsed.Host}); err != nil {
+		return fmt.Errorf("sandbox egress proxy URL host: %w", err)
+	}
+	return nil
+}
+
+func validateRuntimeCredentialNames(credentials []ports.ContainerCredential) error {
+	for _, credential := range credentials {
+		if isReservedProxyEnv(credential.Name) {
+			return fmt.Errorf("container credential %q is reserved by the Docker egress boundary", credential.Name)
+		}
+	}
+	return nil
+}
+
+func isReservedProxyEnv(name string) bool {
+	switch strings.ToLower(name) {
+	case "http_proxy", "https_proxy", "all_proxy", "no_proxy":
+		return true
+	default:
+		return false
 	}
 }
 

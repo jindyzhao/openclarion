@@ -1525,6 +1525,7 @@ func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) 
 		"OPENCLARION_SANDBOX_COMMAND_JSON":      `["/runner"]`,
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
 		"OPENCLARION_SANDBOX_EGRESS_NETWORK":    "openclarion-sandbox-egress-prod",
+		sandboxEgressProxyURLEnv:                "http://proxy.example.test:18080",
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
@@ -1537,12 +1538,116 @@ func TestDiagnosisActivityOptionsFromEnv_ConfiguresDockerProvider(t *testing.T) 
 	}
 }
 
+func TestDiagnosisActivityOptionsFromEnv_RejectsMissingAllowlist(t *testing.T) {
+	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
+		sandboxEgressProxyURLEnv:                "http://proxy.example.test:18080",
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
+	}), nil)
+	if err == nil || !strings.Contains(err.Error(), "OPENCLARION_SANDBOX_EGRESS_ALLOWED") {
+		t.Fatalf("diagnosisActivityOptionsFromEnv err = %v, want missing allowlist", err)
+	}
+}
+
+func TestDiagnosisActivityOptionsFromEnv_RejectsAllowlistWithoutProxy(t *testing.T) {
+	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
+	}), nil)
+	if err == nil || !strings.Contains(err.Error(), sandboxEgressProxyURLEnv) {
+		t.Fatalf("diagnosisActivityOptionsFromEnv err = %v, want missing proxy URL", err)
+	}
+}
+
+func TestDiagnosisActivityOptionsFromEnv_RejectsLLMTargetOutsideAllowlist(t *testing.T) {
+	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
+		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
+		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "other.example.invalid:443",
+		sandboxEgressProxyURLEnv:                "http://proxy.example.test:18080",
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
+	}), nil)
+	if err == nil || !strings.Contains(err.Error(), "host must be listed") {
+		t.Fatalf("diagnosisActivityOptionsFromEnv err = %v, want uncovered LLM target", err)
+	}
+	if strings.Contains(err.Error(), "test-api-key") {
+		t.Fatalf("error leaked credential: %v", err)
+	}
+}
+
+func TestValidateSandboxEgressCoversURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		rawURL  string
+		allowed []string
+		wantErr string
+	}{
+		{
+			name:    "default https port by bare host",
+			rawURL:  "https://llm.example.invalid/v1",
+			allowed: []string{"LLM.EXAMPLE.INVALID"},
+		},
+		{
+			name:    "explicit non-default port",
+			rawURL:  "http://llm.example.invalid:8080/v1",
+			allowed: []string{"llm.example.invalid:8080"},
+		},
+		{
+			name:    "wrong port",
+			rawURL:  "https://llm.example.invalid:8443/v1",
+			allowed: []string{"llm.example.invalid:443"},
+			wantErr: "host must be listed",
+		},
+		// #nosec G101 -- test-only credential-bearing URL verifies redaction.
+		{
+			name:    "userinfo",
+			rawURL:  "https://user:secret@llm.example.invalid/v1",
+			allowed: []string{"llm.example.invalid"},
+			wantErr: "without userinfo",
+		},
+		{
+			name:    "surrounding whitespace",
+			rawURL:  " https://llm.example.invalid/v1",
+			allowed: []string{"llm.example.invalid"},
+			wantErr: "surrounding whitespace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSandboxEgressCoversURL(tt.rawURL, tt.allowed)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateSandboxEgressCoversURL: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validateSandboxEgressCoversURL err = %v, want %q", err, tt.wantErr)
+			}
+			if strings.Contains(err.Error(), "secret") {
+				t.Fatalf("error leaked URL credential: %v", err)
+			}
+		})
+	}
+}
+
 func TestDiagnosisActivityOptionsFromEnv_RejectsUnsafeSandboxEgressNetwork(t *testing.T) {
 	_, err := diagnosisActivityOptionsFromEnv(discardLogger(), mapGetenv(map[string]string{
 		"OPENCLARION_SANDBOX_IMAGE_REF":         "registry.example/openclarion/diagnosis@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT": t.TempDir(),
 		"OPENCLARION_SANDBOX_EGRESS_ALLOWED":    "llm.example.invalid:443",
 		"OPENCLARION_SANDBOX_EGRESS_NETWORK":    "host",
+		sandboxEgressProxyURLEnv:                "http://proxy.example.test:18080",
 		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL":    "https://llm.example.invalid/v1",
 		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":     "test-api-key",
 		"OPENCLARION_DIAGNOSIS_LLM_MODEL":       "test-model",
