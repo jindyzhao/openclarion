@@ -127,9 +127,10 @@ function skippedAutoDiagnosisSnapshots(result: ReportReplayTriggerResponse) {
     return [];
   }
   const startedSnapshotIDs = new Set((autoDiagnosis.rooms ?? []).map((room) => room.evidence_snapshot_id));
-  return result.snapshots
-    .filter((snapshot) => !startedSnapshotIDs.has(snapshot.id))
-    .slice(0, autoDiagnosis.rooms_skipped);
+  const unstarted = result.snapshots.filter((snapshot) => !startedSnapshotIDs.has(snapshot.id));
+  // The runtime stops at the cap, so cap-skipped snapshots form the suffix;
+  // earlier unstarted snapshots may already have confirmed conclusions.
+  return unstarted.slice(-autoDiagnosis.rooms_skipped);
 }
 
 function diagnosisRoomURL(

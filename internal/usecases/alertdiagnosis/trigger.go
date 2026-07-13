@@ -61,7 +61,9 @@ type Result struct {
 	PoliciesMatched int
 	Snapshots       []alertreplay.SnapshotRef
 	Rooms           []RoomStart
-	RoomsSkipped    int
+	// RoomsSkipped counts snapshots left without an automatic room only
+	// because the per-trigger runtime safety cap was reached.
+	RoomsSkipped int
 }
 
 // RoomStart identifies one diagnosis room accepted by the workflow starter.
@@ -186,14 +188,14 @@ func (s *Service) Trigger(ctx context.Context, req Request) (Result, error) {
 		}
 		result.Snapshots = append(result.Snapshots, replay.Snapshots...)
 
-		rooms, skipped, err := s.startRooms(
+		rooms, capSkipped, err := s.startRooms(
 			ctx,
 			binding.policy,
 			req.AlertSourceProfileID,
 			replay.Snapshots,
 			s.maxRoomsPerTrigger-len(result.Rooms),
 		)
-		result.RoomsSkipped += skipped
+		result.RoomsSkipped += capSkipped
 		result.Rooms = append(result.Rooms, rooms...)
 		if err != nil {
 			return result, err
@@ -219,14 +221,14 @@ func (s *Service) StartRooms(ctx context.Context, req StartRoomsRequest) (Result
 	result.PoliciesMatched = 1
 	result.Snapshots = cloneSnapshotRefs(req.Snapshots)
 
-	rooms, skipped, err := s.startRooms(
+	rooms, capSkipped, err := s.startRooms(
 		ctx,
 		req.Policy,
 		req.AlertSourceProfileID,
 		req.Snapshots,
 		s.maxRoomsPerTrigger,
 	)
-	result.RoomsSkipped = skipped
+	result.RoomsSkipped = capSkipped
 	result.Rooms = rooms
 	if err != nil {
 		return result, err
@@ -252,27 +254,26 @@ func (s *Service) startRooms(
 		return nil, len(snapshots), nil
 	}
 	rooms := make([]RoomStart, 0, min(len(snapshots), capacity))
-	skipped := 0
+	capSkipped := 0
 	for index, snapshotRef := range snapshots {
 		if len(rooms) >= capacity {
-			skipped += len(snapshots) - index
+			capSkipped += len(snapshots) - index
 			break
 		}
 		confirmed, err := s.hasConfirmedDiagnosis(ctx, snapshotRef.ID)
 		if err != nil {
-			return rooms, skipped, err
+			return rooms, capSkipped, err
 		}
 		if confirmed {
-			skipped++
 			continue
 		}
 		started, err := s.startRoom(ctx, policy, sourceID, snapshotRef.ID)
 		if err != nil {
-			return rooms, skipped, err
+			return rooms, capSkipped, err
 		}
 		rooms = append(rooms, started)
 	}
-	return rooms, skipped, nil
+	return rooms, capSkipped, nil
 }
 
 type confirmedDiagnosisClosedEventPayload struct {

@@ -504,8 +504,8 @@ func TestStartRoomsSkipsConfirmedSnapshotWithoutConsumingRoomCapacity(t *testing
 	}
 	if len(result.Rooms) != 1 ||
 		result.Rooms[0].EvidenceSnapshotID != userClosedSnapshot.ID ||
-		result.RoomsSkipped != 2 {
-		t.Fatalf("result = %+v, want confirmed skip, one user-closed start, and one capacity skip", result)
+		result.RoomsSkipped != 1 {
+		t.Fatalf("result = %+v, want one user-closed start and one capacity skip", result)
 	}
 	if len(starter.requests) != 1 || starter.requests[0].EvidenceSnapshotID != userClosedSnapshot.ID {
 		t.Fatalf("starter requests = %+v, want only the unconfirmed snapshot", starter.requests)

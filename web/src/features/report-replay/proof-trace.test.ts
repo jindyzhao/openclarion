@@ -93,6 +93,38 @@ describe("report replay proof trace", () => {
     ]);
   });
 
+  it("does not present an already-confirmed snapshot as safety-capped", () => {
+    const trace = reportReplayProofTrace(
+      reportReplayTriggerResponse({
+        auto_diagnosis: {
+          policies_matched: 1,
+          snapshots: 3,
+          rooms_started: 1,
+          rooms_skipped: 1,
+          rooms: [autoDiagnosisRoom(102, "diagnosis-session-auto-p7-s102")]
+        },
+        snapshots: [
+          { id: 101, group_index: 0, event_count: 2 },
+          { id: 102, group_index: 1, event_count: 1 },
+          { id: 103, group_index: 2, event_count: 1 }
+        ]
+      })
+    );
+
+    expect(proofItem(trace, "Notification proof").actions).toEqual([
+      {
+        detail: "Open the automatic diagnosis room and review its notification timeline.",
+        href: "/diagnosis-room?evidence_snapshot_id=102&intent=review_conclusion&session_id=diagnosis-session-auto-p7-s102",
+        label: "Review room #102"
+      },
+      {
+        detail: "Open the retained evidence snapshot and create a manual diagnosis room.",
+        href: "/diagnosis-room?evidence_snapshot_id=103&intent=alert_review",
+        label: "Create room #103"
+      }
+    ]);
+  });
+
   it("falls back to final report delivery proof when no automatic room starts", () => {
     const trace = reportReplayProofTrace(reportReplayTriggerResponse());
     const notificationProof = proofItem(trace, "Notification proof");
