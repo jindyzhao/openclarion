@@ -72,6 +72,97 @@ func TestBuildDiagnosisAssistantRunnerRejectsImagePlatformMismatch(t *testing.T)
 	}
 }
 
+func TestBuildDiagnosisAssistantRunnerWaitsForRegistryReadiness(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	binDir := writeDiagnosisRunnerBuildFakeTools(t)
+	outPath := filepath.Join(t.TempDir(), "runner.digest-ref")
+
+	out, err := runDiagnosisRunnerBuild(
+		t,
+		binDir,
+		logPath,
+		outPath,
+		"",
+		"",
+		"OPENCLARION_TEST_REGISTRY_READY_AFTER=2",
+		"OPENCLARION_DIAGNOSIS_RUNNER_REGISTRY_READY_TIMEOUT_SECONDS=5",
+	)
+	if err != nil {
+		t.Fatalf("runner build failed: %v\n%s", err, out)
+	}
+	raw, err := os.ReadFile(logPath) // #nosec G304 -- test reads its controlled fixture log.
+	if err != nil {
+		t.Fatal(err)
+	}
+	logText := string(raw)
+	if got := strings.Count(logText, "curl --proto"); got != 2 {
+		t.Fatalf("registry readiness attempts = %d, want 2:\n%s", got, logText)
+	}
+	probe := strings.LastIndex(logText, "curl --proto")
+	tag := strings.Index(logText, "docker tag")
+	push := strings.Index(logText, "docker push")
+	if probe < 0 || tag <= probe || push <= tag {
+		t.Fatalf("registry probe/tag/push order is invalid:\n%s", logText)
+	}
+}
+
+func TestBuildDiagnosisAssistantRunnerRejectsRegistryReadinessTimeout(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "commands.log")
+	binDir := writeDiagnosisRunnerBuildFakeTools(t)
+	outPath := filepath.Join(t.TempDir(), "runner.digest-ref")
+
+	out, err := runDiagnosisRunnerBuild(
+		t,
+		binDir,
+		logPath,
+		outPath,
+		"",
+		"",
+		"OPENCLARION_TEST_REGISTRY_READY_AFTER=99",
+		"OPENCLARION_DIAGNOSIS_RUNNER_REGISTRY_READY_TIMEOUT_SECONDS=1",
+	)
+	if err == nil {
+		t.Fatalf("runner build passed unexpectedly:\n%s", out)
+	}
+	if !strings.Contains(out, "temporary registry did not become ready within 1s") {
+		t.Fatalf("build output = %q, want registry timeout", out)
+	}
+	raw, readErr := os.ReadFile(logPath) // #nosec G304 -- test reads its controlled fixture log.
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if strings.Contains(string(raw), "docker tag") || strings.Contains(string(raw), "docker push") {
+		t.Fatalf("build tagged or pushed before registry readiness:\n%s", raw)
+	}
+	if _, statErr := os.Stat(outPath); !os.IsNotExist(statErr) {
+		t.Fatalf("digest output exists after registry timeout: %v", statErr)
+	}
+}
+
+func TestBuildDiagnosisAssistantRunnerRejectsInvalidRegistryReadinessTimeout(t *testing.T) {
+	for _, timeout := range []string{"0", "121", "01", "not-a-number"} {
+		t.Run(timeout, func(t *testing.T) {
+			binDir := writeDiagnosisRunnerBuildFakeTools(t)
+			outPath := filepath.Join(t.TempDir(), "runner.digest-ref")
+			out, err := runDiagnosisRunnerBuild(
+				t,
+				binDir,
+				filepath.Join(t.TempDir(), "commands.log"),
+				outPath,
+				"",
+				"",
+				"OPENCLARION_DIAGNOSIS_RUNNER_REGISTRY_READY_TIMEOUT_SECONDS="+timeout,
+			)
+			if err == nil {
+				t.Fatalf("runner build passed unexpectedly:\n%s", out)
+			}
+			if !strings.Contains(out, "registry readiness timeout must be an integer from 1 to 120 seconds") {
+				t.Fatalf("build output = %q, want timeout validation", out)
+			}
+		})
+	}
+}
+
 func runDiagnosisRunnerBuild(
 	t *testing.T,
 	binDir string,
@@ -79,22 +170,26 @@ func runDiagnosisRunnerBuild(
 	outPath string,
 	targetArch string,
 	imageArch string,
+	extraEnv ...string,
 ) (string, error) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "bash", "scripts/build_diagnosis_assistant_runner.sh") // #nosec G204 -- controlled repository script.
 	cmd.Dir = ".."
-	env := make([]string, 0, len(os.Environ())+6)
+	env := make([]string, 0, len(os.Environ())+9+len(extraEnv))
 	for _, entry := range os.Environ() {
 		key, _, _ := strings.Cut(entry, "=")
 		switch key {
 		case "PATH",
 			"OPENCLARION_DIAGNOSIS_RUNNER_BUILD_ID",
 			"OPENCLARION_DIAGNOSIS_RUNNER_DIGEST_REF_OUT",
+			"OPENCLARION_DIAGNOSIS_RUNNER_REGISTRY_READY_TIMEOUT_SECONDS",
 			"OPENCLARION_DIAGNOSIS_RUNNER_TARGET_ARCH",
 			"OPENCLARION_TEST_COMMAND_LOG",
-			"OPENCLARION_TEST_IMAGE_ARCH":
+			"OPENCLARION_TEST_CURL_COUNT",
+			"OPENCLARION_TEST_IMAGE_ARCH",
+			"OPENCLARION_TEST_REGISTRY_READY_AFTER":
 			continue
 		}
 		env = append(env, entry)
@@ -105,8 +200,10 @@ func runDiagnosisRunnerBuild(
 		"OPENCLARION_DIAGNOSIS_RUNNER_DIGEST_REF_OUT="+outPath,
 		"OPENCLARION_DIAGNOSIS_RUNNER_TARGET_ARCH="+targetArch,
 		"OPENCLARION_TEST_COMMAND_LOG="+logPath,
+		"OPENCLARION_TEST_CURL_COUNT="+filepath.Join(t.TempDir(), "curl-count"),
 		"OPENCLARION_TEST_IMAGE_ARCH="+imageArch,
 	)
+	env = append(env, extraEnv...)
 	cmd.Env = env
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -231,6 +328,37 @@ case "${1:-}" in
     ;;
 esac
 exit 2
+`, 0o700)
+
+	writeDiagnosisRunnerBuildFile(t, binDir, "curl", `#!/usr/bin/env bash
+set -euo pipefail
+{
+  printf 'curl'
+  printf ' %s' "$@"
+  printf '\n'
+} >>"$OPENCLARION_TEST_COMMAND_LOG"
+header_file=""
+while (($# > 0)); do
+  case "$1" in
+    --dump-header)
+      header_file="$2"
+      shift 2
+      ;;
+    *) shift ;;
+  esac
+done
+[[ -n "$header_file" ]]
+count=0
+if [[ -f "$OPENCLARION_TEST_CURL_COUNT" ]]; then
+  read -r count <"$OPENCLARION_TEST_CURL_COUNT"
+fi
+count=$((count + 1))
+printf '%s\n' "$count" >"$OPENCLARION_TEST_CURL_COUNT"
+ready_after="${OPENCLARION_TEST_REGISTRY_READY_AFTER:-1}"
+if ((count < ready_after)); then
+  exit 7
+fi
+printf 'HTTP/1.1 200 OK\r\nDocker-Distribution-Api-Version: registry/2.0\r\n\r\n' >"$header_file"
 `, 0o700)
 	return binDir
 }

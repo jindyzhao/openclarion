@@ -18,6 +18,10 @@ case "$target_arch" in
   *) fail "target architecture must be amd64 or arm64" ;;
 esac
 target_platform="linux/${target_arch}"
+registry_ready_timeout_seconds="${OPENCLARION_DIAGNOSIS_RUNNER_REGISTRY_READY_TIMEOUT_SECONDS:-30}"
+if [[ ! "$registry_ready_timeout_seconds" =~ ^([1-9]|[1-9][0-9]|1[01][0-9]|120)$ ]]; then
+  fail "registry readiness timeout must be an integer from 1 to 120 seconds"
+fi
 
 validate_output_file() {
   local path="$1"
@@ -48,7 +52,7 @@ validate_output_file() {
   fi
 }
 
-for tool in docker git go realpath sed; do
+for tool in curl docker git go grep realpath sed; do
   command -v "$tool" >/dev/null 2>&1 || fail "required tool not found in PATH: $tool"
 done
 
@@ -124,6 +128,23 @@ echo "[diagnosis-assistant-runner-build] resolving immutable repository digest..
 registry_cid="$(docker run -d --name "$registry_name" -p 127.0.0.1::5000 "$registry_image")"
 host_port="$(docker port "$registry_cid" 5000/tcp | sed -n 's/.*://p' | sed -n '1p')"
 [[ "$host_port" =~ ^[0-9]+$ ]] || fail "could not determine temporary registry port"
+registry_headers="$tmp_dir/registry-headers"
+registry_ready=0
+registry_ready_deadline=$((SECONDS + registry_ready_timeout_seconds))
+while ((SECONDS < registry_ready_deadline)); do
+  : >"$registry_headers"
+  if curl --proto '=http' --noproxy '*' --fail --silent --show-error \
+    --connect-timeout 1 --max-time 1 --dump-header "$registry_headers" \
+    --output /dev/null "http://127.0.0.1:${host_port}/v2/" 2>/dev/null && \
+    grep -Eiq '^Docker-Distribution-Api-Version:[[:space:]]*registry/2\.0[[:space:]]*$' "$registry_headers"; then
+    registry_ready=1
+    break
+  fi
+  sleep 1
+done
+if ((registry_ready != 1)); then
+  fail "temporary registry did not become ready within ${registry_ready_timeout_seconds}s"
+fi
 repository="localhost:${host_port}/openclarion/diagnosis-assistant-runner"
 remote_tag="${repository}:local-${run_id}"
 docker tag "$local_tag" "$remote_tag"

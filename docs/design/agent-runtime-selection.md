@@ -111,7 +111,10 @@ build defaults to `linux/amd64`; set
 `OPENCLARION_DIAGNOSIS_RUNNER_TARGET_ARCH=arm64` for an explicit ARM64 target.
 Only those two architectures are accepted, and the helper verifies that the
 image metadata matches the cross-compiled binary target. The build helper uses
-a temporary loopback registry to resolve a real repository digest; a repo-local
+a temporary loopback registry to resolve a real repository digest and waits for
+its Registry V2 endpoint before pushing. The readiness timeout defaults to 30
+seconds and accepts an explicit value from 1 to 120 seconds through
+`OPENCLARION_DIAGNOSIS_RUNNER_REGISTRY_READY_TIMEOUT_SECONDS`. A repo-local
 digest-ref output must be ignored and cannot overlap a tracked path.
 ContainerProvider, Temporal, WebSocket, and browser integration
 remain separate follow-up concerns and are not claimed by this runner batch.
