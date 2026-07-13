@@ -11,6 +11,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
 func TestHandlerAllowsHTTPAndDeniesUnlistedTarget(t *testing.T) {
@@ -136,6 +138,38 @@ func TestHandlerHealthAndConfigurationValidation(t *testing.T) {
 	}
 	if _, err := NewHandler(Config{AllowedTargets: []string{"api.example.test:443"}, MaxResponseHeaderBytes: -1}); err == nil {
 		t.Fatal("NewHandler negative max response header bytes err = nil, want rejection")
+	}
+}
+
+func TestHandlerReadinessRequiresMatchingLiveAllowlist(t *testing.T) {
+	allowed := []string{"api.example.test:443", "metrics.example.test:9090"}
+	handler, err := NewHandler(Config{AllowedTargets: allowed})
+	if err != nil {
+		t.Fatalf("NewHandler: %v", err)
+	}
+	defer handler.Close()
+	fingerprint, err := ports.ContainerEgressAllowlistFingerprint([]string{
+		"metrics.example.test:9090",
+		"API.EXAMPLE.TEST:443",
+	})
+	if err != nil {
+		t.Fatalf("ContainerEgressAllowlistFingerprint: %v", err)
+	}
+
+	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, ports.ContainerEgressProxyReadinessPath, nil)
+	request.Header.Set(ports.ContainerEgressProxyReadinessFingerprintHeader, fingerprint)
+	recorder := httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "ready\n" {
+		t.Fatalf("readiness response = %d %q", recorder.Code, recorder.Body.String())
+	}
+
+	request = httptest.NewRequestWithContext(t.Context(), http.MethodGet, ports.ContainerEgressProxyReadinessPath, nil)
+	request.Header.Set(ports.ContainerEgressProxyReadinessFingerprintHeader, strings.Repeat("0", 64))
+	recorder = httptest.NewRecorder()
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusServiceUnavailable || !strings.Contains(recorder.Body.String(), "proxy not ready") {
+		t.Fatalf("stale readiness response = %d %q", recorder.Code, recorder.Body.String())
 	}
 }
 

@@ -197,7 +197,10 @@ variables, clears bypass variables, and rejects credentials that attempt to
 override them. Worker startup also verifies that the configured diagnosis LLM
 target is covered by the allowlist. The Stage 5 readiness command mirrors the
 provider's network-property checks and runs the configured diagnosis image on
-that network to validate both allowlist coverage and the proxy health endpoint.
+that network to validate both allowlist coverage and the proxy readiness
+endpoint. Readiness compares a canonical SHA-256 fingerprint so the running
+proxy must have loaded the complete expected allowlist without exposing its
+targets or sending a business request to the LLM.
 
 ### Chain B Additional Constraints
 

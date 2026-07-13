@@ -5,6 +5,7 @@ package egressproxy
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"io"
@@ -48,10 +49,11 @@ type Config struct {
 
 // Handler is an HTTP forward proxy with an exact outbound target allowlist.
 type Handler struct {
-	allowed            map[string]struct{}
-	dialer             *net.Dialer
-	transport          *http.Transport
-	maxRequestDuration time.Duration
+	allowed              map[string]struct{}
+	allowlistFingerprint string
+	dialer               *net.Dialer
+	transport            *http.Transport
+	maxRequestDuration   time.Duration
 }
 
 // NewHandler validates cfg and returns a reusable proxy handler.
@@ -59,6 +61,10 @@ func NewHandler(cfg Config) (*Handler, error) {
 	allowedTargets, err := ports.NormalizeContainerEgressTargets(cfg.AllowedTargets)
 	if err != nil {
 		return nil, fmt.Errorf("egress proxy allowlist: %w", err)
+	}
+	allowlistFingerprint, err := ports.ContainerEgressAllowlistFingerprint(allowedTargets)
+	if err != nil {
+		return nil, fmt.Errorf("egress proxy allowlist fingerprint: %w", err)
 	}
 	if cfg.DialTimeout == 0 {
 		cfg.DialTimeout = defaultDialTimeout
@@ -93,10 +99,11 @@ func NewHandler(cfg Config) (*Handler, error) {
 	transport.ForceAttemptHTTP2 = false
 
 	return &Handler{
-		allowed:            allowed,
-		dialer:             dialer,
-		transport:          transport,
-		maxRequestDuration: cfg.MaxRequestDuration,
+		allowed:              allowed,
+		allowlistFingerprint: allowlistFingerprint,
+		dialer:               dialer,
+		transport:            transport,
+		maxRequestDuration:   cfg.MaxRequestDuration,
 	}, nil
 }
 
@@ -107,8 +114,8 @@ func (h *Handler) Close() {
 	}
 }
 
-// ServeHTTP handles the local health endpoint, HTTP forward requests, and
-// HTTPS CONNECT tunnels. Error responses intentionally omit upstream details.
+// ServeHTTP handles local health/readiness endpoints, HTTP forward requests,
+// and HTTPS CONNECT tunnels. Error responses intentionally omit upstream details.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if h == nil {
 		http.Error(w, "proxy unavailable", http.StatusServiceUnavailable)
@@ -125,6 +132,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			_, _ = io.WriteString(w, "ok\n")
 		}
+		return
+	}
+	if !r.URL.IsAbs() && r.URL.Path == ports.ContainerEgressProxyReadinessPath {
+		h.serveReadiness(w, r)
 		return
 	}
 
@@ -148,6 +159,25 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = controller.SetWriteDeadline(time.Time{})
 	}()
 	h.serveHTTPForward(w, r)
+}
+
+func (h *Handler) serveReadiness(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return
+	}
+	provided := r.Header.Values(ports.ContainerEgressProxyReadinessFingerprintHeader)
+	if r.URL.RawQuery != "" || len(provided) != 1 ||
+		subtle.ConstantTimeCompare([]byte(provided[0]), []byte(h.allowlistFingerprint)) != 1 {
+		http.Error(w, "proxy not ready", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	if r.Method == http.MethodGet {
+		_, _ = io.WriteString(w, "ready\n")
+	}
 }
 
 func (h *Handler) serveConnect(w http.ResponseWriter, r *http.Request) {

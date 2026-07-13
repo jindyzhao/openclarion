@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -60,6 +59,10 @@ type runnerConfig struct {
 	timeout    time.Duration
 }
 
+type readinessHTTPClient interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
 func main() {
 	if err := dispatchRunner(context.Background(), os.Args[1:], os.Getenv); err != nil {
 		fmt.Fprintf(os.Stderr, "[diagnosis-assistant-runner] %v\n", err)
@@ -78,8 +81,29 @@ func dispatchRunner(ctx context.Context, args []string, getenv func(string) stri
 }
 
 func checkSandboxReadiness(ctx context.Context, getenv func(string) string) error {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	defer transport.CloseIdleConnections()
+	client := &http.Client{
+		Transport: transport,
+		Timeout:   readinessTimeout,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	return checkSandboxReadinessWithClient(ctx, getenv, client)
+}
+
+func checkSandboxReadinessWithClient(
+	ctx context.Context,
+	getenv func(string) string,
+	client readinessHTTPClient,
+) error {
 	if getenv == nil {
 		return fmt.Errorf("environment reader is required")
+	}
+	if client == nil {
+		return fmt.Errorf("readiness HTTP client is required")
 	}
 	allowed := csvValues(getenv("OPENCLARION_SANDBOX_EGRESS_ALLOWED"))
 	if err := ports.ValidateContainerEgressURL(
@@ -88,46 +112,38 @@ func checkSandboxReadiness(ctx context.Context, getenv func(string) string) erro
 	); err != nil {
 		return fmt.Errorf("diagnosis LLM egress configuration: %w", err)
 	}
-	healthURL, err := sandboxEgressProxyHealthURL(
+	allowlistFingerprint, err := ports.ContainerEgressAllowlistFingerprint(allowed)
+	if err != nil {
+		return fmt.Errorf("diagnosis LLM egress allowlist fingerprint: %w", err)
+	}
+	readinessURL, err := sandboxEgressProxyReadinessURL(
 		getenv("OPENCLARION_SANDBOX_EGRESS_PROXY_URL"),
 	)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, readinessURL, nil)
 	if err != nil {
 		return fmt.Errorf("create sandbox egress proxy readiness request: %w", err)
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = nil
-	client := &http.Client{
-		Transport: transport,
-		Timeout:   readinessTimeout,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	resp, err := client.Do(req) // #nosec G704 -- the URL is restricted to the configured credential-free HTTP proxy health endpoint.
+	req.Header.Set(ports.ContainerEgressProxyReadinessFingerprintHeader, allowlistFingerprint)
+	resp, err := client.Do(req) // #nosec G704 -- the URL is restricted to the configured credential-free HTTP proxy readiness endpoint.
 	if err != nil {
-		return fmt.Errorf("sandbox egress proxy health endpoint is unreachable: %w", err)
+		return fmt.Errorf("sandbox egress proxy readiness endpoint is unreachable: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("sandbox egress proxy health status = %d, want %d", resp.StatusCode, http.StatusOK)
+		return fmt.Errorf("sandbox egress proxy readiness status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
 	return nil
 }
 
-func sandboxEgressProxyHealthURL(rawURL string) (string, error) {
-	trimmedURL := strings.TrimSpace(rawURL)
-	parsed, err := url.Parse(trimmedURL)
-	if rawURL != trimmedURL || err != nil || parsed.Scheme != "http" ||
-		parsed.Host == "" || parsed.User != nil || parsed.Path != "" ||
-		parsed.RawPath != "" || parsed.RawQuery != "" || parsed.Fragment != "" {
-		return "", fmt.Errorf("sandbox egress proxy URL must be an absolute credential-free http URL without path, query, fragment, or surrounding whitespace")
+func sandboxEgressProxyReadinessURL(rawURL string) (string, error) {
+	normalized, err := ports.NormalizeContainerEgressProxyURL(rawURL)
+	if err != nil {
+		return "", err
 	}
-	parsed.Path = "/healthz"
-	return parsed.String(), nil
+	return normalized + ports.ContainerEgressProxyReadinessPath, nil
 }
 
 func csvValues(raw string) []string {

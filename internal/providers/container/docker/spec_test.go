@@ -104,6 +104,36 @@ func TestBuildRunSpecAllowlistUsesDedicatedNetwork(t *testing.T) {
 	}
 }
 
+func TestBuildRunSpecAllowlistNormalizesProxyURL(t *testing.T) {
+	req := validRequest()
+	req.Network = ports.ContainerNetworkPolicy{
+		Mode:          ports.ContainerNetworkAllowlist,
+		AllowedEgress: []string{"prometheus.internal:9090"},
+	}
+	cfg := validConfig()
+	cfg.EgressProxyURL += "/"
+
+	spec, err := BuildRunSpec(cfg, req, validWorkspace())
+	if err != nil {
+		t.Fatalf("BuildRunSpec: %v", err)
+	}
+	if spec.EgressProxyURL != testEgressProxyURL {
+		t.Fatalf("EgressProxyURL = %q, want %q", spec.EgressProxyURL, testEgressProxyURL)
+	}
+	normalized, err := cfg.Normalized()
+	if err != nil {
+		t.Fatalf("Config.Normalized: %v", err)
+	}
+	if normalized.EgressProxyURL != testEgressProxyURL {
+		t.Fatalf("normalized EgressProxyURL = %q, want %q", normalized.EgressProxyURL, testEgressProxyURL)
+	}
+
+	spec.EgressProxyURL += "/"
+	if err = ValidateRunSpec(spec, req); err == nil || !strings.Contains(err.Error(), "must be normalized") {
+		t.Fatalf("ValidateRunSpec error = %v, want non-canonical proxy rejection", err)
+	}
+}
+
 func TestBuildRunSpecAllowlistRequiresProxyURL(t *testing.T) {
 	req := validRequest()
 	req.Network = ports.ContainerNetworkPolicy{

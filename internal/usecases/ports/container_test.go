@@ -49,6 +49,65 @@ func TestNormalizeContainerEgressTargets(t *testing.T) {
 	}
 }
 
+func TestContainerEgressAllowlistFingerprintIsOrderIndependent(t *testing.T) {
+	first, err := ContainerEgressAllowlistFingerprint([]string{
+		"metrics.example.invalid:9090",
+		"llm.example.invalid:443",
+	})
+	if err != nil {
+		t.Fatalf("ContainerEgressAllowlistFingerprint first: %v", err)
+	}
+	second, err := ContainerEgressAllowlistFingerprint([]string{
+		"LLM.EXAMPLE.INVALID:443",
+		"metrics.example.invalid:9090",
+	})
+	if err != nil {
+		t.Fatalf("ContainerEgressAllowlistFingerprint second: %v", err)
+	}
+	if first != second || len(first) != 64 {
+		t.Fatalf("fingerprints = %q and %q, want matching SHA-256 values", first, second)
+	}
+	different, err := ContainerEgressAllowlistFingerprint([]string{"other.example.invalid:443"})
+	if err != nil {
+		t.Fatalf("ContainerEgressAllowlistFingerprint different: %v", err)
+	}
+	if different == first {
+		t.Fatal("different allowlists produced the same fingerprint")
+	}
+}
+
+func TestNormalizeContainerEgressProxyURL(t *testing.T) {
+	got, err := NormalizeContainerEgressProxyURL("http://Proxy.Example.Invalid:18080/")
+	if err != nil {
+		t.Fatalf("NormalizeContainerEgressProxyURL: %v", err)
+	}
+	if want := "http://proxy.example.invalid:18080"; got != want {
+		t.Fatalf("NormalizeContainerEgressProxyURL = %q, want %q", got, want)
+	}
+
+	tests := []struct {
+		name    string
+		rawURL  string
+		wantErr string
+	}{
+		{name: "empty query", rawURL: "http://proxy.example.invalid?", wantErr: "query or fragment"},
+		{name: "localhost", rawURL: "http://localhost:18080", wantErr: "loopback or unspecified"},
+		// #nosec G101 -- test-only credential-bearing URL verifies redaction.
+		{name: "userinfo", rawURL: "http://operator:secret@proxy.example.invalid", wantErr: "userinfo"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NormalizeContainerEgressProxyURL(tt.rawURL)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("NormalizeContainerEgressProxyURL error = %v, want containing %q", err, tt.wantErr)
+			}
+			if strings.Contains(err.Error(), "operator") || strings.Contains(err.Error(), "secret") {
+				t.Fatalf("NormalizeContainerEgressProxyURL leaked userinfo: %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateContainerEgressURL(t *testing.T) {
 	tests := []struct {
 		name    string
