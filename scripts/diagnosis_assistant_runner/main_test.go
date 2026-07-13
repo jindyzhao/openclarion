@@ -91,6 +91,25 @@ func TestRunPublishesValidatedOutput(t *testing.T) {
 	}
 }
 
+func TestRunRejectsNullEvidence(t *testing.T) {
+	paths := writeRunnerFixture(t)
+	if err := os.WriteFile(paths.Evidence, []byte("null"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL": "https://llm.example.test/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":  "test-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":    "test-model",
+	}
+	err := run(context.Background(), paths, func(key string) string { return env[key] })
+	if err == nil || !strings.Contains(err.Error(), "evidence must be a JSON object") {
+		t.Fatalf("run error = %v, want null evidence rejection", err)
+	}
+	if _, statErr := os.Stat(paths.Output); !os.IsNotExist(statErr) {
+		t.Fatalf("output exists after null evidence rejection: %v", statErr)
+	}
+}
+
 func TestRemoveNullObjectPropertiesPreservesArrayPositions(t *testing.T) {
 	raw := json.RawMessage(`{"keep":1,"drop":null,"nested":{"drop":null,"keep":"ok"},"items":[null,{"drop":null,"keep":true}]}`)
 	got, err := removeNullObjectProperties(raw)

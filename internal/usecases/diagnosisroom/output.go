@@ -234,6 +234,7 @@ const turnOutputSchemaJSON = `{
   ],
   "properties": {
     "schema_version": {
+      "type": "string",
       "const": "diagnosis_turn.v1"
     },
     "message": {
@@ -322,6 +323,9 @@ func TurnOutputStructuredSchema() (json.RawMessage, error) {
 	}
 	if err := requireStructuredOutputProperties(schema); err != nil {
 		return nil, fmt.Errorf("diagnosis turn output: build structured-output schema: %w", err)
+	}
+	if err := projectStructuredOutputProviderSubset(schema); err != nil {
+		return nil, fmt.Errorf("diagnosis turn output: project provider schema: %w", err)
 	}
 	raw, err := json.Marshal(schema)
 	if err != nil {
@@ -486,6 +490,88 @@ func requireStructuredOutputProperties(node any) error {
 			if err := requireStructuredOutputProperties(child); err != nil {
 				return fmt.Errorf("schema item %d: %w", i, err)
 			}
+		}
+	}
+	return nil
+}
+
+func projectStructuredOutputProviderSubset(node any) error {
+	schema, ok := node.(map[string]any)
+	if !ok {
+		return fmt.Errorf("schema node must be an object")
+	}
+	if constant, exists := schema["const"]; exists {
+		if _, alreadyConstrained := schema["enum"]; alreadyConstrained {
+			return fmt.Errorf("const and enum cannot both be projected")
+		}
+		schema["enum"] = []any{constant}
+		delete(schema, "const")
+	}
+	for _, keyword := range []string{
+		"$schema",
+		"$id",
+		"default",
+		"examples",
+		"minLength",
+		"maxLength",
+		"pattern",
+		"format",
+		"minimum",
+		"maximum",
+		"exclusiveMinimum",
+		"exclusiveMaximum",
+		"multipleOf",
+		"minItems",
+		"maxItems",
+		"uniqueItems",
+		"minProperties",
+		"maxProperties",
+	} {
+		delete(schema, keyword)
+	}
+
+	for keyword, child := range schema {
+		switch keyword {
+		case "$ref", "type", "description", "enum", "required", "additionalProperties":
+			continue
+		case "properties", "$defs":
+			children, ok := child.(map[string]any)
+			if !ok {
+				return fmt.Errorf("%s must be an object", keyword)
+			}
+			for name, rawChild := range children {
+				childSchema, ok := rawChild.(map[string]any)
+				if !ok {
+					return fmt.Errorf("%s %q must be a schema object", keyword, name)
+				}
+				if err := projectStructuredOutputProviderSubset(childSchema); err != nil {
+					return fmt.Errorf("%s %q: %w", keyword, name, err)
+				}
+			}
+		case "items":
+			childSchema, ok := child.(map[string]any)
+			if !ok {
+				return fmt.Errorf("items must be a schema object")
+			}
+			if err := projectStructuredOutputProviderSubset(childSchema); err != nil {
+				return fmt.Errorf("items: %w", err)
+			}
+		case "anyOf":
+			options, ok := child.([]any)
+			if !ok {
+				return fmt.Errorf("anyOf must be an array")
+			}
+			for i, rawOption := range options {
+				option, ok := rawOption.(map[string]any)
+				if !ok {
+					return fmt.Errorf("anyOf item %d must be a schema object", i)
+				}
+				if err := projectStructuredOutputProviderSubset(option); err != nil {
+					return fmt.Errorf("anyOf item %d: %w", i, err)
+				}
+			}
+		default:
+			return fmt.Errorf("schema keyword %q is not in the provider subset", keyword)
 		}
 	}
 	return nil

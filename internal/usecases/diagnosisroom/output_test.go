@@ -552,6 +552,65 @@ func TestTurnOutputStructuredSchemaRequiresNullableOptionalProperties(t *testing
 	}
 }
 
+func TestTurnOutputStructuredSchemaUsesPortableProviderSubset(t *testing.T) {
+	structured, err := TurnOutputStructuredSchema()
+	if err != nil {
+		t.Fatalf("TurnOutputStructuredSchema: %v", err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(structured, &schema); err != nil {
+		t.Fatalf("decode structured schema: %v", err)
+	}
+	assertSchemaKeywordsAbsent(t, schema, map[string]struct{}{
+		"$schema":   {},
+		"$id":       {},
+		"const":     {},
+		"minLength": {},
+		"maxLength": {},
+		"pattern":   {},
+		"minimum":   {},
+		"maximum":   {},
+		"maxItems":  {},
+	})
+
+	properties, ok := schema["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("structured properties = %#v", schema["properties"])
+	}
+	version, ok := properties["schema_version"].(map[string]any)
+	if !ok {
+		t.Fatalf("schema_version schema = %#v", properties["schema_version"])
+	}
+	enum, ok := version["enum"].([]any)
+	if !ok || len(enum) != 1 || enum[0] != TurnOutputSchemaVersion || version["type"] != "string" {
+		t.Fatalf("schema_version provider projection = %#v", version)
+	}
+
+	local := string(TurnOutputSchema())
+	for _, keyword := range []string{`"const"`, `"minLength"`, `"maxLength"`, `"maximum"`, `"maxItems"`} {
+		if !strings.Contains(local, keyword) {
+			t.Fatalf("local V1 schema lost validation keyword %s", keyword)
+		}
+	}
+}
+
+func assertSchemaKeywordsAbsent(t *testing.T, value any, forbidden map[string]struct{}) {
+	t.Helper()
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if _, exists := forbidden[key]; exists {
+				t.Fatalf("provider schema retained unsupported keyword %q", key)
+			}
+			assertSchemaKeywordsAbsent(t, child, forbidden)
+		}
+	case []any:
+		for _, child := range typed {
+			assertSchemaKeywordsAbsent(t, child, forbidden)
+		}
+	}
+}
+
 func TestTurnOutputStructuredSchemaReturnsIndependentValues(t *testing.T) {
 	first, err := TurnOutputStructuredSchema()
 	if err != nil {

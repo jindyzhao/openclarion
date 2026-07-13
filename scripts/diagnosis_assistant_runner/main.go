@@ -90,6 +90,9 @@ func run(ctx context.Context, paths runnerPaths, getenv func(string) string) err
 	if err := strictjson.Unmarshal(evidence, &evidenceObject); err != nil {
 		return fmt.Errorf("evidence must be a JSON object: %w", err)
 	}
+	if evidenceObject == nil {
+		return fmt.Errorf("evidence must be a JSON object")
+	}
 	conversationRaw, err := readStrictJSONFile(paths.Conversation, "conversation")
 	if err != nil {
 		return err

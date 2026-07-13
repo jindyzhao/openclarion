@@ -12,6 +12,13 @@ fail() {
   exit 2
 }
 
+target_arch="${OPENCLARION_DIAGNOSIS_RUNNER_TARGET_ARCH:-amd64}"
+case "$target_arch" in
+  amd64 | arm64) ;;
+  *) fail "target architecture must be amd64 or arm64" ;;
+esac
+target_platform="linux/${target_arch}"
+
 validate_output_file() {
   local path="$1"
   local path_abs=""
@@ -89,8 +96,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "[diagnosis-assistant-runner-build] building static binaries..." >&2
-CGO_ENABLED=0 GOOS=linux GOARCH="$(go env GOARCH)" \
+echo "[diagnosis-assistant-runner-build] building static binaries for ${target_platform}..." >&2
+CGO_ENABLED=0 GOOS=linux GOARCH="$target_arch" \
   GOWORK=off go -C scripts/diagnosis_assistant_runner build \
   -trimpath -ldflags='-s -w' -o "$tmp_dir/diagnosis-assistant-runner" .
 chmod 0755 "$tmp_dir/diagnosis-assistant-runner"
@@ -108,7 +115,10 @@ cp "$ca_bundle" "$tmp_dir/ca-certificates.crt"
 chmod 0644 "$tmp_dir/Apache-2.0.txt" "$tmp_dir/THIRD_PARTY_NOTICES.txt"
 chmod 0644 "$tmp_dir/ca-certificates.crt"
 
-docker build --pull=false -t "$local_tag" "$tmp_dir" >/dev/null
+docker build --pull=false --platform "$target_platform" -t "$local_tag" "$tmp_dir" >/dev/null
+local_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$local_tag")"
+[[ "$local_platform" == "$target_platform" ]] || \
+  fail "local image platform ${local_platform:-unknown} does not match ${target_platform}"
 
 echo "[diagnosis-assistant-runner-build] resolving immutable repository digest..." >&2
 registry_cid="$(docker run -d --name "$registry_name" -p 127.0.0.1::5000 "$registry_image")"
@@ -132,7 +142,9 @@ done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end
 if [[ ! "$digest_ref" =~ ^[^[:space:]@]+@sha256:[a-f0-9]{64}$ ]]; then
   fail "could not resolve a lowercase repository digest"
 fi
-docker image inspect "$digest_ref" >/dev/null
+digest_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$digest_ref")"
+[[ "$digest_platform" == "$target_platform" ]] || \
+  fail "digest image platform ${digest_platform:-unknown} does not match ${target_platform}"
 
 output_dir="$(dirname -- "$output_file")"
 mkdir -p "$output_dir"
@@ -143,5 +155,6 @@ mv -f "$tmp_output" "$output_file"
 tmp_output=""
 
 echo "[diagnosis-assistant-runner-build] local immutable image is ready." >&2
+echo "[diagnosis-assistant-runner-build] image platform: $target_platform" >&2
 echo "[diagnosis-assistant-runner-build] digest ref file: $output_file" >&2
 printf '%s\n' "$digest_ref"
