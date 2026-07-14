@@ -178,7 +178,7 @@ func TestReportActivities_GenerateSubReportPersistsAndIsIdempotent(t *testing.T)
 	if second.SubReportID != first.SubReportID {
 		t.Fatalf("idempotent SubReportID mismatch: first=%d second=%d", first.SubReportID, second.SubReportID)
 	}
-	key := "snapshot:" + int64String(seed.SnapshotID) + "/group:0/sub_report"
+	key := "snapshot:" + int64String(seed.SnapshotID) + "/group:0/scenario:single_alert/sub_report"
 	if provider.Calls(key) != 1 {
 		t.Fatalf("provider calls for %s = %d, want 1", key, provider.Calls(key))
 	}
@@ -200,6 +200,39 @@ func TestReportActivities_GenerateSubReportPersistsAndIsIdempotent(t *testing.T)
 	}
 	if stored.IdempotencyKey != key {
 		t.Fatalf("IdempotencyKey = %q, want %q", stored.IdempotencyKey, key)
+	}
+}
+
+func TestReportActivities_GenerateSubReportSeparatesScenarios(t *testing.T) {
+	seed := seedDiagnosisTask(t, "report-sub-scenario-identity")
+	provider := newReportLLMProvider()
+	activities := temporalpkg.NewActivities(env.factory, temporalpkg.WithLLMProvider(provider))
+	ctx := context.Background()
+
+	single, err := activities.GenerateSubReport(ctx, temporalpkg.ReportFanOutWorkflowInput{
+		EvidenceSnapshotID: int64(seed.SnapshotID),
+		Scenario:           "single_alert",
+		GroupIndex:         0,
+	})
+	if err != nil {
+		t.Fatalf("GenerateSubReport single_alert: %v", err)
+	}
+	cascade, err := activities.GenerateSubReport(ctx, temporalpkg.ReportFanOutWorkflowInput{
+		EvidenceSnapshotID: int64(seed.SnapshotID),
+		Scenario:           "cascade",
+		GroupIndex:         0,
+	})
+	if err != nil {
+		t.Fatalf("GenerateSubReport cascade: %v", err)
+	}
+	if single.SubReportID == cascade.SubReportID {
+		t.Fatalf("different scenarios reused SubReportID %d", single.SubReportID)
+	}
+	for _, scenario := range []string{"single_alert", "cascade"} {
+		key := "snapshot:" + int64String(seed.SnapshotID) + "/group:0/scenario:" + scenario + "/sub_report"
+		if provider.Calls(key) != 1 {
+			t.Fatalf("provider calls for %s = %d, want 1", key, provider.Calls(key))
+		}
 	}
 }
 
