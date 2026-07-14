@@ -9374,6 +9374,19 @@ components:
           type: string
         confidence_rationale:
           type: string
+        context_bytes:
+          type: integer
+          description: Actual mounted diagnosis context bytes after optional historical report enrichment.
+          minimum: 1
+          maximum: 2097152
+        retrieval_refs:
+          type: array
+          description: Historical report sources used by the latest diagnosis turn as advisory context.
+          maxItems: 10
+          uniqueItems: true
+          items:
+            type: string
+            pattern: '^(sub_report|final_report):[1-9][0-9]*$'
         failure_reason:
           type: string
           description: Sanitized terminal failure reason when status is failed.
@@ -9657,6 +9670,18 @@ components:
           type: string
         confidence_rationale:
           type: string
+        context_bytes:
+          type: integer
+          minimum: 1
+          maximum: 2097152
+        retrieval_refs:
+          type: array
+          description: Historical report sources supplied to this assistant turn as advisory context.
+          maxItems: 10
+          uniqueItems: true
+          items:
+            type: string
+            pattern: '^(sub_report|final_report):[1-9][0-9]*$'
         evidence_request_count:
           type: integer
         evidence_requests:

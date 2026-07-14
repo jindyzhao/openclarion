@@ -1054,12 +1054,14 @@ type LatestConsultationInsight = {
   assistantSequence?: number;
   autoFollowUpCount: number;
   collectionResults: DiagnosisEvidenceCollectionResult[];
+  contextBytes?: number;
   confidence: string;
   confidenceTimeline: DiagnosisConfidenceTimelineEntry[];
   evidenceTimeline: DiagnosisEvidenceTimelineEntry[];
   evidenceRequests: DiagnosisEvidenceRequest[];
   insight: DiagnosisConsultationInsight;
   requiresHumanReview: boolean;
+  retrievalRefs: string[];
   status: string;
   turnCount: number;
 };
@@ -9457,6 +9459,7 @@ function latestConsultationInsight(
         evidenceTimeline,
         selectedCollectionResults,
       ),
+      contextBytes: latestFollowUp.context_bytes,
       confidence: latestFollowUp.confidence,
       confidenceTimeline: frame.confidence_timeline ?? [],
       evidenceTimeline,
@@ -9467,6 +9470,7 @@ function latestConsultationInsight(
           : fallbackEvidenceRequests,
       insight: latestFollowUp.consultation_insight ?? {},
       requiresHumanReview: latestFollowUp.requires_human_review,
+      retrievalRefs: latestFollowUp.retrieval_refs ?? [],
       status: frame.status,
       turnCount: latestFollowUp.turn_count,
     };
@@ -9478,12 +9482,14 @@ function latestConsultationInsight(
       evidenceTimeline,
       frame.evidence_collection_results ?? [],
     ),
+    contextBytes: frame.context_bytes,
     confidence: frame.confidence,
     confidenceTimeline: frame.confidence_timeline ?? [],
     evidenceTimeline,
     evidenceRequests: frame.evidence_requests ?? [],
     insight: frame.consultation_insight ?? {},
     requiresHumanReview: frame.requires_human_review,
+    retrievalRefs: frame.retrieval_refs ?? [],
     status: frame.status,
     turnCount: frame.turn_count,
   };
@@ -9496,6 +9502,7 @@ function latestConsultationInsightFromState(
     return null;
   }
   const evidenceTimeline = evidenceTimelineFromState(frame);
+  const historicalContext = latestHistoricalContext(frame.confidence_timeline);
   return {
     assistantSequence:
       latestConfidenceTimelineAssistantSequence(frame.confidence_timeline) ??
@@ -9505,6 +9512,7 @@ function latestConsultationInsightFromState(
       evidenceTimeline,
       frame.evidence_collection_results ?? [],
     ),
+    contextBytes: historicalContext?.context_bytes,
     confidence: frame.confidence ?? frame.final_conclusion?.confidence ?? "",
     confidenceTimeline: frame.confidence_timeline ?? [],
     evidenceTimeline,
@@ -9514,9 +9522,23 @@ function latestConsultationInsightFromState(
       frame.requires_human_review ??
       frame.final_conclusion?.requires_human_review ??
       false,
+    retrievalRefs: historicalContext?.retrieval_refs ?? [],
     status: frame.status,
     turnCount: frame.turn_count,
   };
+}
+
+function latestHistoricalContext(
+  items: DiagnosisConfidenceTimelineEntry[] | undefined,
+): DiagnosisConfidenceTimelineEntry | undefined {
+  return (items ?? [])
+    .slice()
+    .reverse()
+    .find(
+      (item) =>
+        (item.context_bytes !== undefined && item.context_bytes > 0) ||
+        (item.retrieval_refs?.length ?? 0) > 0,
+    );
 }
 
 function latestConfidenceTimelineAssistantSequence(
@@ -9879,7 +9901,7 @@ function roomStateDescriptionItems(
 function consultationInsightItems(
   latestInsight: LatestConsultationInsight,
 ): DescriptionsProps["items"] {
-  return [
+  const items: NonNullable<DescriptionsProps["items"]> = [
     { key: "turn", label: "Turn", children: String(latestInsight.turnCount) },
     {
       key: "status",
@@ -9902,6 +9924,37 @@ function consultationInsightItems(
       children: String(latestInsight.autoFollowUpCount),
     },
   ];
+  if (latestInsight.contextBytes !== undefined && latestInsight.contextBytes > 0) {
+    items.push({
+      key: "context-bytes",
+      label: "Mounted context",
+      children: `${latestInsight.contextBytes.toLocaleString()} B`,
+    });
+  }
+  if (latestInsight.retrievalRefs.length > 0) {
+    items.push({
+      key: "historical-reports",
+      label: "Historical reports",
+      children: (
+        <Space size={[8, 4]} wrap>
+          {latestInsight.retrievalRefs.map(historicalReportReference)}
+        </Space>
+      ),
+    });
+  }
+  return items;
+}
+
+function historicalReportReference(ref: string): ReactNode {
+  const match = /^(sub_report|final_report):([1-9][0-9]*)$/.exec(ref);
+  if (match?.[1] === "final_report") {
+    return (
+      <Link href={`/reports/${match[2]}` as Route} key={ref} prefetch={false}>
+        {ref}
+      </Link>
+    );
+  }
+  return <Typography.Text code key={ref}>{ref}</Typography.Text>;
 }
 
 function formatActiveAlert(alert: DiagnosisActiveAlert): string {

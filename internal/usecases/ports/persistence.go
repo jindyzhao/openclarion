@@ -431,6 +431,12 @@ type ReportRepository interface {
 	// excluded before limit is applied.
 	SearchRetrievalChunks(ctx context.Context, embeddingModel string, query []float32, maxCosineDistance float64, limit int) ([]domain.RetrievedChunk, error)
 
+	// ListReportSourceRefsByEvidenceSnapshot returns canonical SubReport and
+	// FinalReport source refs associated with one EvidenceSnapshot. Results are
+	// deterministic and the method returns ErrInvariantViolation instead of a
+	// partial list when more than limit refs exist.
+	ListReportSourceRefsByEvidenceSnapshot(ctx context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]string, error)
+
 	// SaveSubReport inserts a new SubReport. A duplicate
 	// (evidence_snapshot_id, idempotency_key) returns a wrapped
 	// domain.ErrAlreadyExists. The returned report has ID and

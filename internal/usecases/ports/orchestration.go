@@ -191,6 +191,7 @@ type DiagnosisRoomSubmitTurnResult struct {
 	AssistantMessage    string
 	RequiresHumanReview bool
 	Confidence          string
+	RetrievalRefs       []string
 	EvidenceRequests    []DiagnosisRoomEvidenceRequest
 	CollectionResults   []DiagnosisRoomEvidenceCollectionResult
 	EvidenceTimeline    []DiagnosisRoomEvidenceTimelineEntry
@@ -215,6 +216,7 @@ type DiagnosisRoomFollowUpTurnResult struct {
 	AssistantMessage    string
 	RequiresHumanReview bool
 	Confidence          string
+	RetrievalRefs       []string
 	EvidenceRequests    []DiagnosisRoomEvidenceRequest
 	CollectionResults   []DiagnosisRoomEvidenceCollectionResult
 	ConsultationInsight DiagnosisRoomConsultationInsight
@@ -248,6 +250,8 @@ type DiagnosisRoomConfidenceTimelineEntry struct {
 	RequiresHumanReview           bool
 	ConclusionStatus              string
 	ConfidenceRationale           string
+	ContextBytes                  int
+	RetrievalRefs                 []string
 	EvidenceRequests              []DiagnosisRoomEvidenceRequest
 	CollectionResults             []DiagnosisRoomEvidenceCollectionResult
 	MissingEvidenceRequests       []DiagnosisRoomConsultationEvidenceRequest

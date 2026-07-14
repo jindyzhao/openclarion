@@ -26,6 +26,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisapproval"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosiscompression"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisnotification"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomclose"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
 	"github.com/openclarion/openclarion/internal/usecases/notificationchannelcheck"
@@ -2067,6 +2068,8 @@ type diagnosisRoomTurnPersistedEventPayload struct {
 	TurnCount           int                                     `json:"turn_count,omitempty"`
 	Confidence          string                                  `json:"confidence,omitempty"`
 	RequiresHumanReview bool                                    `json:"requires_human_review,omitempty"`
+	ContextBytes        int                                     `json:"context_bytes,omitempty"`
+	RetrievalRefs       []string                                `json:"historical_report_refs,omitempty"`
 	EvidenceRequests    []diagnosisRoomEvidenceRequestPayload   `json:"evidence_requests,omitempty"`
 	ConsultationInsight diagnosisRoomConsultationInsightPayload `json:"consultation_insight,omitempty"`
 }
@@ -2570,6 +2573,8 @@ func latestDiagnosisProgressForTask(
 		RequiresHumanReview:           latestItem.RequiresHumanReview,
 		ConclusionStatus:              latestItem.ConclusionStatus,
 		ConfidenceRationale:           latestItem.ConfidenceRationale,
+		ContextBytes:                  latestItem.ContextBytes,
+		RetrievalRefs:                 latestItem.RetrievalRefs,
 		EvidenceRequestCount:          latestItem.EvidenceRequestCount,
 		EvidenceRequests:              latestItem.EvidenceRequests,
 		EvidenceCollectionResults:     latestItem.EvidenceCollectionResults,
@@ -3043,17 +3048,31 @@ func confidenceTimelineEntryFromDiagnosisEvent(event domain.DiagnosisTaskEvent) 
 	if confidence == nil {
 		return api.DiagnosisRoomConfidenceTimelineEntry{}, false, nil
 	}
+	if payload.ContextBytes < 0 || payload.ContextBytes > diagnosisroom.HardMaxContextBytes {
+		return api.DiagnosisRoomConfidenceTimelineEntry{}, false, fmt.Errorf(
+			"diagnosis confidence timeline event %d context_bytes must be in [0,%d]: %w",
+			event.ID,
+			diagnosisroom.HardMaxContextBytes,
+			domain.ErrInvariantViolation,
+		)
+	}
 	occurredAt := event.OccurredAt
 	if occurredAt.IsZero() {
 		occurredAt = event.RecordedAt
 	}
 	evidenceRequests := diagnosisRoomEvidenceRequestSummaries(payload.EvidenceRequests)
+	retrievalRefs, err := validatedRetrievalSourceRefs(payload.RetrievalRefs)
+	if err != nil {
+		return api.DiagnosisRoomConfidenceTimelineEntry{}, false, fmt.Errorf("diagnosis confidence timeline event %d retrieval refs: %w", event.ID, err)
+	}
 	return api.DiagnosisRoomConfidenceTimelineEntry{
 		EventKind:                     event.Kind,
 		Confidence:                    *confidence,
 		RequiresHumanReview:           payload.RequiresHumanReview,
 		ConclusionStatus:              nonEmptyStringPtr(payload.ConsultationInsight.ConclusionStatus),
 		ConfidenceRationale:           nonEmptyStringPtr(payload.ConsultationInsight.ConfidenceRationale),
+		ContextBytes:                  nonZeroIntPtr(payload.ContextBytes),
+		RetrievalRefs:                 retrievalRefs,
 		EvidenceRequestCount:          len(evidenceRequests),
 		EvidenceRequests:              evidenceRequests,
 		MissingEvidenceRequests:       diagnosisRoomConsultationEvidenceRequestSummaries(payload.ConsultationInsight.MissingEvidenceRequests),
@@ -3328,6 +3347,31 @@ func nonEmptyStringSlice(values []string) []string {
 		return nil
 	}
 	return out
+}
+
+func validatedRetrievalSourceRefs(values []string) ([]string, error) {
+	if len(values) > domain.RetrievalReferenceLimit {
+		return nil, fmt.Errorf("at most %d values are allowed: %w", domain.RetrievalReferenceLimit, domain.ErrInvariantViolation)
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for i, value := range values {
+		if value != strings.TrimSpace(value) {
+			return nil, fmt.Errorf("value[%d] must be normalized: %w", i, domain.ErrInvariantViolation)
+		}
+		if _, _, err := domain.ParseRetrievalSourceRef(value); err != nil {
+			return nil, fmt.Errorf("value[%d]: %w", i, err)
+		}
+		if _, duplicate := seen[value]; duplicate {
+			return nil, fmt.Errorf("value[%d] duplicates %q: %w", i, value, domain.ErrInvariantViolation)
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
 }
 
 func nonZeroInt64Ptr(value int64) *int64 {

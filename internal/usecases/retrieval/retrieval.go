@@ -533,6 +533,47 @@ func EvidenceSnapshotQuery(snapshot domain.EvidenceSnapshot) (string, error) {
 	return query, nil
 }
 
+// DiagnosisTurnQuery builds one bounded similarity query from current
+// evidence and the latest operator intent.
+func DiagnosisTurnQuery(evidence json.RawMessage, message string) (string, error) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return "", fmt.Errorf("retrieval: diagnosis message must be non-empty: %w", domain.ErrInvariantViolation)
+	}
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, evidence); err != nil {
+		return "", fmt.Errorf("retrieval: diagnosis evidence must be valid JSON: %w", domain.ErrInvariantViolation)
+	}
+	query := "operator request:" + message + " current diagnosis evidence:" + compacted.String()
+	query = truncateUTF8Bytes(query, domain.RetrievalChunkMaxBytes)
+	if query == "" {
+		return "", fmt.Errorf("retrieval: diagnosis query is empty: %w", domain.ErrInvariantViolation)
+	}
+	return query, nil
+}
+
+// LimitContextItems returns a defensive, ordered copy capped by content bytes.
+func LimitContextItems(items []ContextItem, contextBytes int) []ContextItem {
+	if contextBytes <= 0 || len(items) == 0 {
+		return nil
+	}
+	out := make([]ContextItem, 0, len(items))
+	remaining := contextBytes
+	for _, item := range items {
+		content := truncateUTF8Bytes(item.Content, remaining)
+		if content == "" {
+			break
+		}
+		item.Content = content
+		out = append(out, item)
+		remaining -= len([]byte(content))
+		if remaining <= 0 {
+			break
+		}
+	}
+	return out
+}
+
 // QueryDigest provides a bounded deterministic idempotency component without
 // putting raw evidence or operator text into provider headers.
 func QueryDigest(value string) string {

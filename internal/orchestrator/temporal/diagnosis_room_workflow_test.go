@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/workflow"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
@@ -136,6 +138,136 @@ func TestDiagnosisRoomWorkflow_SubmitTurnQueryAndCloseSignal(t *testing.T) {
 		result.ConversationSummary.SourceTurnCount != 2 ||
 		result.ConversationSummary.SchemaVersion != "diagnosis-conversation-summary.v1" {
 		t.Fatalf("terminal conversation summary = %+v", result.ConversationSummary)
+	}
+}
+
+func TestDiagnosisRoomWorkflow_PropagatesHistoricalReportRetrieval(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 7, 14, 10, 0, 0, 0, time.UTC))
+
+	retrievalRefs := []string{"sub_report:44", "final_report:91"}
+	const mountedContextBytes = 2048
+	var activityCalls []temporalpkg.DiagnosisTurnActivityInput
+	var persistCalls []temporalpkg.PersistDiagnosisTurnInput
+	registerDiagnosisRoomPersistenceActivitiesWithTurnCapture(t, env, &persistCalls)
+	registerDiagnosisTurnActivityWithHistoricalResult(
+		t,
+		env,
+		true,
+		mountedContextBytes,
+		retrievalRefs,
+		&activityCalls,
+	)
+
+	var update captureSubmitTurnUpdate
+	var queried temporalpkg.DiagnosisRoomWorkflowState
+	var queryErr error
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-historical-retrieval",
+			update.callbackWithQueryAndClose(t, env, &queried, &queryErr, "user_done"),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "msg-historical-retrieval",
+				ActorSubject: "owner-1",
+				Message:      "Compare this incident with relevant historical reports.",
+			},
+		)
+	}, time.Millisecond)
+
+	input := defaultRoomInput()
+	input.EvidenceSnapshotID = 9001
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+	if update.rejected != nil || update.completeErr != nil || !update.accepted {
+		t.Fatalf("submit update accepted=%t rejected=%v completeErr=%v", update.accepted, update.rejected, update.completeErr)
+	}
+	if queryErr != nil {
+		t.Fatalf("query state: %v", queryErr)
+	}
+	if len(activityCalls) != 1 || !activityCalls[0].EnableHistoricalRetrieval || activityCalls[0].EvidenceSnapshotID != input.EvidenceSnapshotID {
+		t.Fatalf("diagnosis activity calls = %+v, want historical retrieval enabled", activityCalls)
+	}
+	if len(persistCalls) != 1 ||
+		persistCalls[0].ContextBytes != mountedContextBytes ||
+		!slices.Equal(persistCalls[0].RetrievalRefs, retrievalRefs) {
+		t.Fatalf("persist calls = %+v, want context_bytes=%d retrieval_refs=%v", persistCalls, mountedContextBytes, retrievalRefs)
+	}
+	if update.result.ContextBytes != mountedContextBytes ||
+		!slices.Equal(update.result.RetrievalRefs, retrievalRefs) ||
+		len(update.result.ConfidenceTimeline) != 1 ||
+		update.result.ConfidenceTimeline[0].ContextBytes != mountedContextBytes ||
+		!slices.Equal(update.result.ConfidenceTimeline[0].RetrievalRefs, retrievalRefs) {
+		t.Fatalf("submit result = %+v, want propagated historical retrieval metadata", update.result)
+	}
+	if len(queried.ConfidenceTimeline) != 1 ||
+		queried.ConfidenceTimeline[0].ContextBytes != mountedContextBytes ||
+		!slices.Equal(queried.ConfidenceTimeline[0].RetrievalRefs, retrievalRefs) {
+		t.Fatalf("queried confidence timeline = %+v, want propagated historical retrieval metadata", queried.ConfidenceTimeline)
+	}
+}
+
+func TestDiagnosisRoomWorkflow_LegacyHistoryIgnoresHistoricalRetrievalActivityFields(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 7, 14, 10, 0, 0, 0, time.UTC))
+	env.OnGetVersion(
+		"diagnosis-room-historical-report-retrieval",
+		workflow.DefaultVersion,
+		workflow.Version(1),
+	).Return(workflow.DefaultVersion)
+
+	retrievalRefs := []string{"final_report:91"}
+	const activityContextBytes = 2048
+	var activityCalls []temporalpkg.DiagnosisTurnActivityInput
+	var persistCalls []temporalpkg.PersistDiagnosisTurnInput
+	registerDiagnosisRoomPersistenceActivitiesWithTurnCapture(t, env, &persistCalls)
+	registerDiagnosisTurnActivityWithHistoricalResult(
+		t,
+		env,
+		false,
+		activityContextBytes,
+		retrievalRefs,
+		&activityCalls,
+	)
+
+	var update captureSubmitTurnUpdate
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-legacy-historical-retrieval",
+			update.callbackOnSuccess(t, func() {
+				env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{Reason: "user_done"})
+			}),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "msg-legacy-historical-retrieval",
+				ActorSubject: "owner-1",
+				Message:      "Continue the diagnosis.",
+			},
+		)
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
+	assertRoomWorkflowCompleted(t, env)
+	if update.rejected != nil || update.completeErr != nil || !update.accepted {
+		t.Fatalf("submit update accepted=%t rejected=%v completeErr=%v", update.accepted, update.rejected, update.completeErr)
+	}
+	if len(activityCalls) != 1 || activityCalls[0].EnableHistoricalRetrieval || activityCalls[0].EvidenceSnapshotID != 0 {
+		t.Fatalf("legacy diagnosis activity calls = %+v, want historical retrieval disabled", activityCalls)
+	}
+	if len(persistCalls) != 1 ||
+		persistCalls[0].ContextBytes <= 0 ||
+		persistCalls[0].ContextBytes == activityContextBytes ||
+		len(persistCalls[0].RetrievalRefs) != 0 {
+		t.Fatalf("legacy persist calls = %+v, want deterministic pre-retrieval context", persistCalls)
+	}
+	if update.result.ContextBytes != persistCalls[0].ContextBytes ||
+		len(update.result.RetrievalRefs) != 0 ||
+		len(update.result.ConfidenceTimeline) != 1 ||
+		update.result.ConfidenceTimeline[0].ContextBytes != 0 ||
+		len(update.result.ConfidenceTimeline[0].RetrievalRefs) != 0 {
+		t.Fatalf("legacy submit result = %+v, want no historical retrieval metadata", update.result)
 	}
 }
 
@@ -3606,6 +3738,7 @@ func TestDiagnosisRoomWorkflow_InitialNeedsEvidenceTurnRunsAutoFollowUpAndFinalR
 		&assistantTurnCalls,
 		nil,
 		&evidenceCollectedCalls,
+		nil,
 		false,
 		false,
 	)
@@ -4197,6 +4330,36 @@ func registerDiagnosisTurnActivity(t *testing.T, env *testsuite.TestWorkflowEnvi
 	)
 }
 
+func registerDiagnosisTurnActivityWithHistoricalResult(
+	t *testing.T,
+	env *testsuite.TestWorkflowEnvironment,
+	wantEnabled bool,
+	contextBytes int,
+	retrievalRefs []string,
+	calls *[]temporalpkg.DiagnosisTurnActivityInput,
+) {
+	t.Helper()
+	env.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.DiagnosisTurnActivityInput) (temporalpkg.DiagnosisTurnActivityResult, error) {
+			*calls = append(*calls, got)
+			if got.EnableHistoricalRetrieval != wantEnabled {
+				t.Fatalf("EnableHistoricalRetrieval = %t, want %t", got.EnableHistoricalRetrieval, wantEnabled)
+			}
+			result := diagnosisTurnActivityResultForTest(t, got, diagnosisroom.TurnOutput{
+				SchemaVersion:       diagnosisroom.TurnOutputSchemaVersion,
+				Message:             "Historical context was considered as advisory information.",
+				Confidence:          "medium",
+				RequiresHumanReview: true,
+				ConfidenceRationale: "Current incident evidence still requires operator review.",
+			})
+			result.ContextBytes = contextBytes
+			result.RetrievalRefs = append([]string(nil), retrievalRefs...)
+			return result, nil
+		},
+		activity.RegisterOptions{Name: "RunDiagnosisTurn"},
+	)
+}
+
 func registerFinalDiagnosisTurnActivity(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
 	t.Helper()
 	env.RegisterActivityWithOptions(
@@ -4395,7 +4558,16 @@ func (p messageOutputContainerProvider) Run(
 
 func registerDiagnosisRoomPersistenceActivities(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
 	t.Helper()
-	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, nil, nil, nil, nil, false, false)
+	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, nil, nil, nil, nil, nil, false, false)
+}
+
+func registerDiagnosisRoomPersistenceActivitiesWithTurnCapture(
+	t *testing.T,
+	env *testsuite.TestWorkflowEnvironment,
+	persistTurnCalls *[]temporalpkg.PersistDiagnosisTurnInput,
+) {
+	t.Helper()
+	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, nil, nil, nil, nil, persistTurnCalls, false, false)
 }
 
 func registerDiagnosisRoomPersistenceActivitiesWithCollect(
@@ -4404,7 +4576,7 @@ func registerDiagnosisRoomPersistenceActivitiesWithCollect(
 	collect func(context.Context, temporalpkg.CollectDiagnosisEvidenceInput) (temporalpkg.CollectDiagnosisEvidenceResult, error),
 ) {
 	t.Helper()
-	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, nil, nil, collect, nil, false, false)
+	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, nil, nil, collect, nil, nil, false, false)
 }
 
 func registerDiagnosisRoomPersistenceActivitiesWithCollectAndEvidenceRecordCapture(
@@ -4414,7 +4586,7 @@ func registerDiagnosisRoomPersistenceActivitiesWithCollectAndEvidenceRecordCaptu
 	evidenceCollectedCalls *[]temporalpkg.RecordDiagnosisEvidenceCollectedInput,
 ) {
 	t.Helper()
-	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, nil, nil, collect, evidenceCollectedCalls, false, false)
+	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, nil, nil, collect, evidenceCollectedCalls, nil, false, false)
 }
 
 func registerDiagnosisRoomPersistenceActivitiesWithFinalReadyCapture(
@@ -4423,7 +4595,7 @@ func registerDiagnosisRoomPersistenceActivitiesWithFinalReadyCapture(
 	finalReadyCalls *[]temporalpkg.SendDiagnosisRoomFinalReadyNotificationInput,
 ) {
 	t.Helper()
-	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, finalReadyCalls, nil, nil, nil, false, false)
+	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, finalReadyCalls, nil, nil, nil, nil, false, false)
 }
 
 func registerDiagnosisRoomPersistenceActivitiesWithNotificationCapture(
@@ -4433,7 +4605,7 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationCapture(
 	assistantTurnCalls *[]temporalpkg.SendDiagnosisRoomAssistantTurnNotificationInput,
 ) {
 	t.Helper()
-	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, finalReadyCalls, assistantTurnCalls, nil, nil, false, false)
+	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, finalReadyCalls, assistantTurnCalls, nil, nil, nil, false, false)
 }
 
 func registerDiagnosisRoomPersistenceActivitiesWithNotificationFailure(
@@ -4443,7 +4615,7 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationFailure(
 	assistantTurnFailed bool,
 ) {
 	t.Helper()
-	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, nil, nil, nil, nil, finalReadyFailed, assistantTurnFailed)
+	registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(t, env, nil, nil, nil, nil, nil, finalReadyFailed, assistantTurnFailed)
 }
 
 func registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect(
@@ -4453,6 +4625,7 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect
 	assistantTurnCalls *[]temporalpkg.SendDiagnosisRoomAssistantTurnNotificationInput,
 	collect func(context.Context, temporalpkg.CollectDiagnosisEvidenceInput) (temporalpkg.CollectDiagnosisEvidenceResult, error),
 	evidenceCollectedCalls *[]temporalpkg.RecordDiagnosisEvidenceCollectedInput,
+	persistTurnCalls *[]temporalpkg.PersistDiagnosisTurnInput,
 	finalReadyFailed bool,
 	assistantTurnFailed bool,
 ) {
@@ -4496,6 +4669,9 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect
 	)
 	env.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.PersistDiagnosisTurnInput) (temporalpkg.PersistDiagnosisTurnResult, error) {
+			if persistTurnCalls != nil {
+				*persistTurnCalls = append(*persistTurnCalls, got)
+			}
 			if got.SessionID == "" ||
 				got.DiagnosisTaskID == 0 ||
 				got.UserMessageID == "" ||

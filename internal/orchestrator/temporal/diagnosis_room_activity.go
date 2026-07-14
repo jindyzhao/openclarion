@@ -21,6 +21,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/diagnosiscontext"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+	"github.com/openclarion/openclarion/internal/usecases/retrieval"
 )
 
 const (
@@ -31,18 +32,20 @@ const (
 // DiagnosisTurnActivityInput is the workflow-to-activity payload for one
 // stateless M5 sandbox invocation.
 type DiagnosisTurnActivityInput struct {
-	SessionID            string
-	DiagnosisTaskID      int64
-	MessageID            string
-	UserSequence         int
-	AssistantSequence    int
-	ActorSubject         string
-	Evidence             json.RawMessage
-	Conversation         []diagnosisroom.ConversationTurn
-	Message              string
-	SupplementalEvidence *DiagnosisRoomSupplementalEvidence
-	Policy               diagnosisroom.Policy
-	EnableStreaming      bool `json:"EnableStreaming,omitempty"`
+	SessionID                 string
+	DiagnosisTaskID           int64
+	EvidenceSnapshotID        int64 `json:"EvidenceSnapshotID,omitempty"`
+	MessageID                 string
+	UserSequence              int
+	AssistantSequence         int
+	ActorSubject              string
+	Evidence                  json.RawMessage
+	Conversation              []diagnosisroom.ConversationTurn
+	Message                   string
+	SupplementalEvidence      *DiagnosisRoomSupplementalEvidence
+	Policy                    diagnosisroom.Policy
+	EnableHistoricalRetrieval bool `json:"EnableHistoricalRetrieval,omitempty"`
+	EnableStreaming           bool `json:"EnableStreaming,omitempty"`
 }
 
 // DiagnosisTurnActivityResult is the schema-validated assistant response
@@ -60,6 +63,8 @@ type DiagnosisTurnActivityResult struct {
 	RequiresHumanReview bool
 	Confidence          string
 	Insight             diagnosisroom.ConsultationInsight
+	ContextBytes        int      `json:"ContextBytes,omitempty"`
+	RetrievalRefs       []string `json:"RetrievalRefs,omitempty"`
 }
 
 // RunDiagnosisTurn calls the configured ContainerProvider once, validates the
@@ -74,6 +79,33 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 	if err := validateDiagnosisTurnActivityInput(policy, req); err != nil {
 		return DiagnosisTurnActivityResult{}, mapActivityError(err, "run-diagnosis-turn input")
 	}
+	if err := diagnosiscontext.ValidateHistoricalReportContextAbsent(req.Evidence); err != nil {
+		return DiagnosisTurnActivityResult{}, mapActivityError(err, "run-diagnosis-turn input")
+	}
+	activityAttempt := 1
+	if temporalactivity.IsActivity(ctx) {
+		activityAttempt = int(temporalactivity.GetInfo(ctx).Attempt)
+	}
+	heartbeats := newDiagnosisTurnStreamHeartbeats(ctx, req.EnableStreaming, activityAttempt)
+	defer heartbeats.Stop()
+	contextBytes, err := diagnosisroom.MountContextBytes(req.Evidence, req.Conversation, req.Message)
+	if err != nil {
+		return DiagnosisTurnActivityResult{}, mapActivityError(err, "run-diagnosis-turn input")
+	}
+	retrievalRefs := make([]string, 0)
+	if req.EnableHistoricalRetrieval && a.embeddingProvider != nil {
+		enriched, refs, mountedBytes, retrievalErr := a.enrichDiagnosisTurnHistoricalContext(ctx, policy, req, contextBytes)
+		if retrievalErr != nil {
+			if isContextCancellation(retrievalErr) {
+				return DiagnosisTurnActivityResult{}, mapActivityError(retrievalErr, "run-diagnosis-turn retrieval")
+			}
+			logOptionalRetrievalFailure(ctx, "query diagnosis historical reports", retrievalErr)
+		} else {
+			req = enriched
+			retrievalRefs = refs
+			contextBytes = mountedBytes
+		}
+	}
 
 	containerReq, err := buildDiagnosisTurnContainerRequest(
 		policy,
@@ -84,12 +116,6 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 	if err != nil {
 		return DiagnosisTurnActivityResult{}, mapActivityError(err, "run-diagnosis-turn request")
 	}
-	activityAttempt := 1
-	if temporalactivity.IsActivity(ctx) {
-		activityAttempt = int(temporalactivity.GetInfo(ctx).Attempt)
-	}
-	heartbeats := newDiagnosisTurnStreamHeartbeats(ctx, req.EnableStreaming, activityAttempt)
-	defer heartbeats.Stop()
 	if req.EnableStreaming {
 		a.publishDiagnosisTurnStream(ports.DiagnosisTurnStreamEvent{
 			Phase:              ports.DiagnosisTurnStreamStarted,
@@ -176,6 +202,8 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 		RequiresHumanReview: output.RequiresHumanReview,
 		Confidence:          output.Confidence,
 		Insight:             output.Insight(),
+		ContextBytes:        contextBytes,
+		RetrievalRefs:       append([]string(nil), retrievalRefs...),
 	}, nil
 }
 
@@ -275,6 +303,127 @@ func (h *diagnosisTurnStreamHeartbeats) Stop() {
 	}
 	h.once.Do(func() { close(h.stop) })
 	_ = h.group.Wait()
+}
+
+func (a *Activities) enrichDiagnosisTurnHistoricalContext(
+	ctx context.Context,
+	policy diagnosisroom.Policy,
+	req DiagnosisTurnActivityInput,
+	baseContextBytes int,
+) (DiagnosisTurnActivityInput, []string, int, error) {
+	if req.EvidenceSnapshotID <= 0 {
+		return req, nil, baseContextBytes, nil
+	}
+	if a.uowFactory == nil {
+		return DiagnosisTurnActivityInput{}, nil, 0, fmt.Errorf("diagnosis retrieval: unit of work factory is not configured: %w", domain.ErrInvariantViolation)
+	}
+	availableBytes := policy.ContextBytes - baseContextBytes
+	if availableBytes <= 0 {
+		return req, nil, baseContextBytes, nil
+	}
+	semanticEvidence, err := diagnosiscontext.EvidenceForHistoricalRetrieval(req.Evidence)
+	if err != nil {
+		return DiagnosisTurnActivityInput{}, nil, 0, err
+	}
+	queryText, err := retrieval.DiagnosisTurnQuery(semanticEvidence, req.Message)
+	if err != nil {
+		return DiagnosisTurnActivityInput{}, nil, 0, err
+	}
+	excludedSourceRefs := make([]string, 0)
+	err = a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var listErr error
+		excludedSourceRefs, listErr = uow.Reports().ListReportSourceRefsByEvidenceSnapshot(
+			ctx,
+			domain.EvidenceSnapshotID(req.EvidenceSnapshotID),
+			domain.RetrievalReferenceLimit,
+		)
+		return listErr
+	})
+	if err != nil {
+		return DiagnosisTurnActivityInput{}, nil, 0, fmt.Errorf("diagnosis retrieval: list current report sources: %w", err)
+	}
+	retrievalBudget := availableBytes
+	if retrievalBudget > retrieval.MaxContextBytes {
+		retrievalBudget = retrieval.MaxContextBytes
+	}
+	items, err := retrieval.Retrieve(ctx, a.uowFactory, a.embeddingProvider, retrieval.Query{
+		Text:              queryText,
+		IdempotencyKey:    "retrieval-query:" + retrieval.QueryDigest(queryText),
+		ContextBytes:      retrievalBudget,
+		ExcludeSourceRefs: excludedSourceRefs,
+	})
+	if err != nil {
+		return DiagnosisTurnActivityInput{}, nil, 0, err
+	}
+	if len(items) == 0 {
+		return req, nil, baseContextBytes, nil
+	}
+	enrichedEvidence, fitted, mountedBytes, err := fitDiagnosisHistoricalContext(policy, req, items, baseContextBytes)
+	if err != nil {
+		return DiagnosisTurnActivityInput{}, nil, 0, err
+	}
+	if len(fitted) == 0 {
+		return req, nil, baseContextBytes, nil
+	}
+	req.Evidence = enrichedEvidence
+	if err := validateDiagnosisTurnActivityInput(policy, req); err != nil {
+		return DiagnosisTurnActivityInput{}, nil, 0, err
+	}
+	refs := make([]string, len(fitted))
+	for i, item := range fitted {
+		refs[i] = item.SourceRef
+	}
+	return req, refs, mountedBytes, nil
+}
+
+func fitDiagnosisHistoricalContext(
+	policy diagnosisroom.Policy,
+	req DiagnosisTurnActivityInput,
+	items []retrieval.ContextItem,
+	baseContextBytes int,
+) (json.RawMessage, []retrieval.ContextItem, int, error) {
+	totalContentBytes := 0
+	for _, item := range items {
+		totalContentBytes += len([]byte(item.Content))
+	}
+	low, high := 1, totalContentBytes
+	var bestEvidence json.RawMessage
+	var bestItems []retrieval.ContextItem
+	bestMountedBytes := baseContextBytes
+	for low <= high {
+		mid := low + (high-low)/2
+		candidate := retrieval.LimitContextItems(items, mid)
+		contextItems := make([]diagnosiscontext.HistoricalReportContextItem, len(candidate))
+		for i, item := range candidate {
+			contextItems[i] = diagnosiscontext.HistoricalReportContextItem{
+				SourceRef:      item.SourceRef,
+				SourceKind:     item.SourceKind,
+				Content:        item.Content,
+				CosineDistance: item.CosineDistance,
+			}
+		}
+		evidence, err := diagnosiscontext.AppendHistoricalReportContext(req.Evidence, contextItems)
+		if err != nil {
+			if errors.Is(err, diagnosiscontext.ErrHistoricalReportContextTooLarge) {
+				high = mid - 1
+				continue
+			}
+			return nil, nil, 0, err
+		}
+		mountedBytes, err := diagnosisroom.MountContextBytes(evidence, req.Conversation, req.Message)
+		if err != nil {
+			return nil, nil, 0, err
+		}
+		if mountedBytes <= policy.ContextBytes {
+			bestEvidence = evidence
+			bestItems = candidate
+			bestMountedBytes = mountedBytes
+			low = mid + 1
+		} else {
+			high = mid - 1
+		}
+	}
+	return bestEvidence, bestItems, bestMountedBytes, nil
 }
 
 func parseDiagnosisTurnActivityOutput(
@@ -581,6 +730,9 @@ func validateDiagnosisTurnActivityInput(policy diagnosisroom.Policy, req Diagnos
 	}
 	if req.DiagnosisTaskID == 0 {
 		return fmt.Errorf("diagnosis turn: diagnosis_task_id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if req.EvidenceSnapshotID < 0 {
+		return fmt.Errorf("diagnosis turn: evidence_snapshot_id must be non-negative: %w", domain.ErrInvariantViolation)
 	}
 	if strings.TrimSpace(req.MessageID) == "" {
 		return fmt.Errorf("diagnosis turn: message_id must be non-empty: %w", domain.ErrInvariantViolation)

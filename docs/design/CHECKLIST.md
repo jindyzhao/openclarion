@@ -231,6 +231,10 @@
   at the workflow Update boundary (`make diagnosis-room-workflow-test`)
 - [x] context byte budget enforced before mounting into container; V1 rejects on exceed
   (`make diagnosis-room-policy-test`, `make diagnosis-room-workflow-test`)
+- [x] optional historical report retrieval enriches each new-version diagnosis
+  turn with bounded advisory context, fails open on provider/search errors,
+  persists source refs, and projects traceability through REST, WebSocket, and UI
+  (`make diagnosis-room-workflow-test`, `make diagnosis-chat-persistence-test`)
 - [x] fixed session lifetime + idle timeout fire correctly
   (`make diagnosis-room-workflow-test`)
 - [x] WebSocket handshake requires valid ticket before upgrade

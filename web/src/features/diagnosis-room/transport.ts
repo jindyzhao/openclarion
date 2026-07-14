@@ -359,11 +359,14 @@ function isDiagnosisTurnResultFrame(
     isFiniteNumber(value.user_sequence) &&
     isFiniteNumber(value.assistant_sequence) &&
     isFiniteNumber(value.turn_count) &&
-    isFiniteNumber(value.context_bytes) &&
+    isDiagnosisContextBytes(value.context_bytes) &&
     isString(value.status) &&
     isString(value.assistant_message) &&
     typeof value.requires_human_review === "boolean" &&
-    isString(value.confidence)
+    isString(value.confidence) &&
+    isOptionalDiagnosisRetrievalRefs(value.retrieval_refs) &&
+    isOptionalDiagnosisRetrievalEntries(value.follow_up_turns) &&
+    isOptionalDiagnosisRetrievalEntries(value.confidence_timeline)
   );
 }
 
@@ -386,7 +389,9 @@ function isDiagnosisStateFrame(
       typeof value.approval_in_flight === "boolean" &&
       typeof value.in_flight === "boolean" &&
       Array.isArray(value.seen_message_ids) &&
-      Array.isArray(value.conversation)
+      Array.isArray(value.conversation) &&
+      isOptionalDiagnosisRetrievalEntries(value.follow_up_turns) &&
+      isOptionalDiagnosisRetrievalEntries(value.confidence_timeline)
     )
   ) {
     return false;
@@ -494,6 +499,45 @@ function isDiagnosisErrorFrame(
   value: Record<string, unknown>,
 ): value is Extract<DiagnosisServerFrame, { type: "error" }> {
   return isString(value.code) && isString(value.message);
+}
+
+const maxDiagnosisContextBytes = 2 * 1024 * 1024;
+const maxDiagnosisRetrievalRefs = 10;
+
+function isOptionalDiagnosisRetrievalEntries(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.every(
+        (item) =>
+          isRecord(item) &&
+          (item.context_bytes === undefined ||
+            isDiagnosisContextBytes(item.context_bytes)) &&
+          isOptionalDiagnosisRetrievalRefs(item.retrieval_refs),
+      ))
+  );
+}
+
+function isOptionalDiagnosisRetrievalRefs(value: unknown): boolean {
+  if (value === undefined) {
+    return true;
+  }
+  return (
+    Array.isArray(value) &&
+    value.length <= maxDiagnosisRetrievalRefs &&
+    value.every(isDiagnosisRetrievalRef) &&
+    new Set(value).size === value.length
+  );
+}
+
+function isDiagnosisContextBytes(value: unknown): value is number {
+  return isPositiveInteger(value) && value <= maxDiagnosisContextBytes;
+}
+
+function isDiagnosisRetrievalRef(value: unknown): value is string {
+  return (
+    isString(value) && /^(?:sub_report|final_report):[1-9][0-9]*$/.test(value)
+  );
 }
 
 function isString(value: unknown): value is string {

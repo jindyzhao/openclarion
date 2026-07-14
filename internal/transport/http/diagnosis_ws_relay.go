@@ -280,6 +280,7 @@ func writeDiagnosisWSTurnResult(conn *websocket.Conn, result ports.DiagnosisRoom
 		AssistantMessage:    result.AssistantMessage,
 		RequiresHumanReview: result.RequiresHumanReview,
 		Confidence:          result.Confidence,
+		RetrievalRefs:       append([]string(nil), result.RetrievalRefs...),
 		EvidenceRequests:    diagnosisWSEvidenceRequests(result.EvidenceRequests),
 		CollectionResults:   diagnosisWSEvidenceCollectionResults(result.CollectionResults),
 		EvidenceTimeline:    diagnosisWSEvidenceTimelineFromTurnResult(result, actorSubject),
@@ -807,6 +808,7 @@ func diagnosisWSFollowUpTurns(in []ports.DiagnosisRoomFollowUpTurnResult) []diag
 			AssistantMessage:    turn.AssistantMessage,
 			RequiresHumanReview: turn.RequiresHumanReview,
 			Confidence:          turn.Confidence,
+			RetrievalRefs:       append([]string(nil), turn.RetrievalRefs...),
 			EvidenceRequests:    diagnosisWSEvidenceRequests(turn.EvidenceRequests),
 			CollectionResults:   diagnosisWSEvidenceCollectionResults(turn.CollectionResults),
 			ConsultationInsight: diagnosisWSConsultationInsightFrame(turn.ConsultationInsight),
@@ -893,6 +895,8 @@ func diagnosisWSConfidenceTimeline(
 			RequiresHumanReview:           item.RequiresHumanReview,
 			ConclusionStatus:              item.ConclusionStatus,
 			ConfidenceRationale:           item.ConfidenceRationale,
+			ContextBytes:                  item.ContextBytes,
+			RetrievalRefs:                 append([]string(nil), item.RetrievalRefs...),
 			EvidenceRequests:              diagnosisWSEvidenceRequests(item.EvidenceRequests),
 			CollectionResults:             diagnosisWSEvidenceCollectionResults(item.CollectionResults),
 			MissingEvidenceRequests:       diagnosisWSConsultationEvidenceRequests(item.MissingEvidenceRequests),
@@ -1125,6 +1129,7 @@ type diagnosisWSTurnResultFrame struct {
 	AssistantMessage    string                                `json:"assistant_message"`
 	RequiresHumanReview bool                                  `json:"requires_human_review"`
 	Confidence          string                                `json:"confidence"`
+	RetrievalRefs       []string                              `json:"retrieval_refs,omitempty"`
 	EvidenceRequests    []diagnosisWSEvidenceRequest          `json:"evidence_requests,omitempty"`
 	CollectionResults   []diagnosisWSEvidenceCollectionResult `json:"evidence_collection_results,omitempty"`
 	EvidenceTimeline    []diagnosisWSEvidenceTimelineEntry    `json:"evidence_timeline,omitempty"`
@@ -1147,6 +1152,7 @@ type diagnosisWSFollowUpTurn struct {
 	AssistantMessage    string                                `json:"assistant_message"`
 	RequiresHumanReview bool                                  `json:"requires_human_review"`
 	Confidence          string                                `json:"confidence"`
+	RetrievalRefs       []string                              `json:"retrieval_refs,omitempty"`
 	EvidenceRequests    []diagnosisWSEvidenceRequest          `json:"evidence_requests,omitempty"`
 	CollectionResults   []diagnosisWSEvidenceCollectionResult `json:"evidence_collection_results,omitempty"`
 	ConsultationInsight diagnosisWSConsultationInsight        `json:"consultation_insight"`
@@ -1278,6 +1284,8 @@ type diagnosisWSConfidenceTimelineEntry struct {
 	RequiresHumanReview           bool                                     `json:"requires_human_review"`
 	ConclusionStatus              string                                   `json:"conclusion_status,omitempty"`
 	ConfidenceRationale           string                                   `json:"confidence_rationale,omitempty"`
+	ContextBytes                  int                                      `json:"context_bytes,omitempty"`
+	RetrievalRefs                 []string                                 `json:"retrieval_refs,omitempty"`
 	EvidenceRequests              []diagnosisWSEvidenceRequest             `json:"evidence_requests,omitempty"`
 	CollectionResults             []diagnosisWSEvidenceCollectionResult    `json:"evidence_collection_results,omitempty"`
 	MissingEvidenceRequests       []diagnosisWSConsultationEvidenceRequest `json:"missing_evidence_requests,omitempty"`

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -292,6 +293,56 @@ func TestReportRepository_ListSubReportsBySnapshot(t *testing.T) {
 		}
 		if out[0].ID != newest.ID || out[1].ID != middle.ID {
 			t.Errorf("ListSubReportsBySnapshot order = [%d,%d], want [%d,%d]", out[0].ID, out[1].ID, newest.ID, middle.ID)
+		}
+	})
+}
+
+func TestReportRepository_ListReportSourceRefsByEvidenceSnapshot(t *testing.T) {
+	resetDB(t)
+	snapshotA := makeSnapshotForReport(t, "report-source-refs-a", "digest-report-source-refs-a")
+	snapshotB := makeSnapshotForReport(t, "report-source-refs-b", "digest-report-source-refs-b")
+
+	var subReportA, subReportB domain.SubReport
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		var err error
+		subReportA, err = uow.Reports().SaveSubReport(ctx, mustNewReportSubReport(t, snapshotA, "source-refs-sub-a"))
+		if err != nil {
+			t.Fatalf("SaveSubReport snapshot A: %v", err)
+		}
+		subReportB, err = uow.Reports().SaveSubReport(ctx, mustNewReportSubReport(t, snapshotB, "source-refs-sub-b"))
+		if err != nil {
+			t.Fatalf("SaveSubReport snapshot B: %v", err)
+		}
+	})
+
+	var finalReportA domain.FinalReport
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		var err error
+		finalReportA, err = uow.Reports().SaveFinalReport(ctx, mustNewReportFinalReport(t, "source-refs-final-a"), []domain.SubReportID{subReportA.ID})
+		if err != nil {
+			t.Fatalf("SaveFinalReport snapshot A: %v", err)
+		}
+		if _, err := uow.Reports().SaveFinalReport(ctx, mustNewReportFinalReport(t, "source-refs-final-b"), []domain.SubReportID{subReportB.ID}); err != nil {
+			t.Fatalf("SaveFinalReport snapshot B: %v", err)
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		refs, err := uow.Reports().ListReportSourceRefsByEvidenceSnapshot(ctx, snapshotA, domain.RetrievalReferenceLimit)
+		if err != nil {
+			t.Fatalf("ListReportSourceRefsByEvidenceSnapshot: %v", err)
+		}
+		want := []string{
+			fmt.Sprintf("sub_report:%d", subReportA.ID),
+			fmt.Sprintf("final_report:%d", finalReportA.ID),
+		}
+		if !slices.Equal(refs, want) {
+			t.Fatalf("ListReportSourceRefsByEvidenceSnapshot = %v, want %v", refs, want)
+		}
+
+		_, err = uow.Reports().ListReportSourceRefsByEvidenceSnapshot(ctx, snapshotA, 1)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("overflow error = %v, want ErrInvariantViolation", err)
 		}
 	})
 }

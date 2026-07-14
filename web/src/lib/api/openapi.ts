@@ -4340,6 +4340,10 @@ export interface components {
             requires_human_review: boolean;
             conclusion_status?: string;
             confidence_rationale?: string;
+            /** @description Actual mounted diagnosis context bytes after optional historical report enrichment. */
+            context_bytes?: number;
+            /** @description Historical report sources used by the latest diagnosis turn as advisory context. */
+            retrieval_refs?: string[];
             /** @description Sanitized terminal failure reason when status is failed. */
             failure_reason?: string;
             evidence_request_count: number;
@@ -4466,6 +4470,9 @@ export interface components {
             requires_human_review: boolean;
             conclusion_status?: string;
             confidence_rationale?: string;
+            context_bytes?: number;
+            /** @description Historical report sources supplied to this assistant turn as advisory context. */
+            retrieval_refs?: string[];
             evidence_request_count: number;
             evidence_requests?: components["schemas"]["DiagnosisRoomEvidenceRequestSummary"][];
             evidence_collection_results?: components["schemas"]["DiagnosisRoomEvidenceCollectionResultSummary"][];
