@@ -1050,6 +1050,9 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 		EnableHistoricalRetrieval: historicalRetrievalVersion >= diagnosisRoomHistoricalRetrievalVersion,
 		EnableStreaming:           streamingEnabled,
 	}
+	if activityReq.EnableHistoricalRetrieval {
+		activityReq.EvidenceSnapshotID = s.input.EvidenceSnapshotID
+	}
 	actCtx := workflow.WithActivityOptions(ctx, diagnosisRoomTurnActivityOptions(s.policy, streamingEnabled))
 	var activityResult DiagnosisTurnActivityResult
 	if err := workflow.ExecuteActivity(actCtx, (*Activities).RunDiagnosisTurn, activityReq).Get(ctx, &activityResult); err != nil {

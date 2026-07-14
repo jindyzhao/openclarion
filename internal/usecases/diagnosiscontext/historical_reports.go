@@ -37,6 +37,16 @@ type historicalReportContext struct {
 	Items []HistoricalReportContextItem `json:"items"`
 }
 
+// ValidateHistoricalReportContextAbsent rejects caller-supplied data in the
+// server-owned historical context slot.
+func ValidateHistoricalReportContextAbsent(base json.RawMessage) error {
+	top, err := decodeEvidenceObject(base)
+	if err != nil {
+		return err
+	}
+	return rejectHistoricalReportContext(top)
+}
+
 // AppendHistoricalReportContext adds validated server-owned advisory context.
 // Existing reserved data is rejected instead of overwritten.
 func AppendHistoricalReportContext(base json.RawMessage, items []HistoricalReportContextItem) (json.RawMessage, error) {
@@ -50,8 +60,8 @@ func AppendHistoricalReportContext(base json.RawMessage, items []HistoricalRepor
 	if err != nil {
 		return nil, err
 	}
-	if _, exists := top[HistoricalReportContextKey]; exists {
-		return nil, fmt.Errorf("diagnosis context: evidence already contains reserved key %q: %w", HistoricalReportContextKey, domain.ErrInvariantViolation)
+	if err := rejectHistoricalReportContext(top); err != nil {
+		return nil, err
 	}
 	seen := make(map[string]struct{}, len(items))
 	validated := make([]HistoricalReportContextItem, len(items))
@@ -96,6 +106,13 @@ func AppendHistoricalReportContext(base json.RawMessage, items []HistoricalRepor
 		return nil, err
 	}
 	return out, nil
+}
+
+func rejectHistoricalReportContext(top map[string]json.RawMessage) error {
+	if _, exists := top[HistoricalReportContextKey]; exists {
+		return fmt.Errorf("diagnosis context: evidence already contains reserved key %q: %w", HistoricalReportContextKey, domain.ErrInvariantViolation)
+	}
+	return nil
 }
 
 // EvidenceForHistoricalRetrieval removes runtime instruction catalogs before

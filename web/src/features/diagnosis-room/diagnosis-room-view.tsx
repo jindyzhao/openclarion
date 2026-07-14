@@ -9470,8 +9470,7 @@ function latestConsultationInsight(
           : fallbackEvidenceRequests,
       insight: latestFollowUp.consultation_insight ?? {},
       requiresHumanReview: latestFollowUp.requires_human_review,
-      retrievalRefs:
-        latestFollowUp.retrieval_refs ?? frame.retrieval_refs ?? [],
+      retrievalRefs: latestFollowUp.retrieval_refs ?? [],
       status: frame.status,
       turnCount: latestFollowUp.turn_count,
     };

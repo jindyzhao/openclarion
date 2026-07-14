@@ -34,6 +34,7 @@ const (
 type DiagnosisTurnActivityInput struct {
 	SessionID                 string
 	DiagnosisTaskID           int64
+	EvidenceSnapshotID        int64 `json:"EvidenceSnapshotID,omitempty"`
 	MessageID                 string
 	UserSequence              int
 	AssistantSequence         int
@@ -78,6 +79,15 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 	if err := validateDiagnosisTurnActivityInput(policy, req); err != nil {
 		return DiagnosisTurnActivityResult{}, mapActivityError(err, "run-diagnosis-turn input")
 	}
+	if err := diagnosiscontext.ValidateHistoricalReportContextAbsent(req.Evidence); err != nil {
+		return DiagnosisTurnActivityResult{}, mapActivityError(err, "run-diagnosis-turn input")
+	}
+	activityAttempt := 1
+	if temporalactivity.IsActivity(ctx) {
+		activityAttempt = int(temporalactivity.GetInfo(ctx).Attempt)
+	}
+	heartbeats := newDiagnosisTurnStreamHeartbeats(ctx, req.EnableStreaming, activityAttempt)
+	defer heartbeats.Stop()
 	contextBytes, err := diagnosisroom.MountContextBytes(req.Evidence, req.Conversation, req.Message)
 	if err != nil {
 		return DiagnosisTurnActivityResult{}, mapActivityError(err, "run-diagnosis-turn input")
@@ -106,12 +116,6 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 	if err != nil {
 		return DiagnosisTurnActivityResult{}, mapActivityError(err, "run-diagnosis-turn request")
 	}
-	activityAttempt := 1
-	if temporalactivity.IsActivity(ctx) {
-		activityAttempt = int(temporalactivity.GetInfo(ctx).Attempt)
-	}
-	heartbeats := newDiagnosisTurnStreamHeartbeats(ctx, req.EnableStreaming, activityAttempt)
-	defer heartbeats.Stop()
 	if req.EnableStreaming {
 		a.publishDiagnosisTurnStream(ports.DiagnosisTurnStreamEvent{
 			Phase:              ports.DiagnosisTurnStreamStarted,
@@ -307,6 +311,9 @@ func (a *Activities) enrichDiagnosisTurnHistoricalContext(
 	req DiagnosisTurnActivityInput,
 	baseContextBytes int,
 ) (DiagnosisTurnActivityInput, []string, int, error) {
+	if req.EvidenceSnapshotID <= 0 {
+		return req, nil, baseContextBytes, nil
+	}
 	if a.uowFactory == nil {
 		return DiagnosisTurnActivityInput{}, nil, 0, fmt.Errorf("diagnosis retrieval: unit of work factory is not configured: %w", domain.ErrInvariantViolation)
 	}
@@ -322,14 +329,28 @@ func (a *Activities) enrichDiagnosisTurnHistoricalContext(
 	if err != nil {
 		return DiagnosisTurnActivityInput{}, nil, 0, err
 	}
+	excludedSourceRefs := make([]string, 0)
+	err = a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var listErr error
+		excludedSourceRefs, listErr = uow.Reports().ListReportSourceRefsByEvidenceSnapshot(
+			ctx,
+			domain.EvidenceSnapshotID(req.EvidenceSnapshotID),
+			domain.RetrievalReferenceLimit,
+		)
+		return listErr
+	})
+	if err != nil {
+		return DiagnosisTurnActivityInput{}, nil, 0, fmt.Errorf("diagnosis retrieval: list current report sources: %w", err)
+	}
 	retrievalBudget := availableBytes
 	if retrievalBudget > retrieval.MaxContextBytes {
 		retrievalBudget = retrieval.MaxContextBytes
 	}
 	items, err := retrieval.Retrieve(ctx, a.uowFactory, a.embeddingProvider, retrieval.Query{
-		Text:           queryText,
-		IdempotencyKey: "retrieval-query:" + retrieval.QueryDigest(queryText),
-		ContextBytes:   retrievalBudget,
+		Text:              queryText,
+		IdempotencyKey:    "retrieval-query:" + retrieval.QueryDigest(queryText),
+		ContextBytes:      retrievalBudget,
+		ExcludeSourceRefs: excludedSourceRefs,
 	})
 	if err != nil {
 		return DiagnosisTurnActivityInput{}, nil, 0, err
@@ -709,6 +730,9 @@ func validateDiagnosisTurnActivityInput(policy diagnosisroom.Policy, req Diagnos
 	}
 	if req.DiagnosisTaskID == 0 {
 		return fmt.Errorf("diagnosis turn: diagnosis_task_id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if req.EvidenceSnapshotID < 0 {
+		return fmt.Errorf("diagnosis turn: evidence_snapshot_id must be non-negative: %w", domain.ErrInvariantViolation)
 	}
 	if strings.TrimSpace(req.MessageID) == "" {
 		return fmt.Errorf("diagnosis turn: message_id must be non-empty: %w", domain.ErrInvariantViolation)

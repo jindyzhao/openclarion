@@ -182,6 +182,55 @@ func cosineDistance(left, right []float32) float64 {
 	return distance
 }
 
+// ListReportSourceRefsByEvidenceSnapshot returns every report source that
+// could describe the current immutable evidence snapshot. A partial exclusion
+// list would allow circular retrieval, so overflow is rejected.
+func (r *reportRepo) ListReportSourceRefsByEvidenceSnapshot(ctx context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]string, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	if snapshotID == 0 {
+		return nil, fmt.Errorf("list report source refs by evidence snapshot: snapshot id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if limit <= 0 || limit > domain.RetrievalReferenceLimit {
+		return nil, fmt.Errorf("list report source refs by evidence snapshot: limit must be in [1,%d] (got %d): %w", domain.RetrievalReferenceLimit, limit, domain.ErrInvariantViolation)
+	}
+
+	subReportIDs, err := r.tx.SubReport.Query().
+		Where(subreport.EvidenceSnapshotIDEQ(int(snapshotID))).
+		Order(subreport.ByID()).
+		Limit(limit + 1).
+		IDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list report source refs by evidence snapshot: list subreports: %w", err)
+	}
+	if len(subReportIDs) > limit {
+		return nil, fmt.Errorf("list report source refs by evidence snapshot: more than %d associated reports: %w", limit, domain.ErrInvariantViolation)
+	}
+
+	remaining := limit - len(subReportIDs)
+	finalReportIDs, err := r.tx.FinalReport.Query().
+		Where(finalreport.HasSubReportsWith(subreport.EvidenceSnapshotIDEQ(int(snapshotID)))).
+		Order(finalreport.ByID()).
+		Limit(remaining + 1).
+		IDs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list report source refs by evidence snapshot: list final reports: %w", err)
+	}
+	if len(finalReportIDs) > remaining {
+		return nil, fmt.Errorf("list report source refs by evidence snapshot: more than %d associated reports: %w", limit, domain.ErrInvariantViolation)
+	}
+
+	refs := make([]string, 0, len(subReportIDs)+len(finalReportIDs))
+	for _, id := range subReportIDs {
+		refs = append(refs, fmt.Sprintf("%s:%d", domain.RetrievalSourceSubReport, id))
+	}
+	for _, id := range finalReportIDs {
+		refs = append(refs, fmt.Sprintf("%s:%d", domain.RetrievalSourceFinalReport, id))
+	}
+	return refs, nil
+}
+
 // SaveSubReport inserts one immutable SubReport. The
 // (evidence_snapshot_id, idempotency_key) unique key is the retry
 // boundary for per-snapshot report generation.

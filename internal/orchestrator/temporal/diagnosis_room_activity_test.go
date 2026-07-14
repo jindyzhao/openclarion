@@ -204,15 +204,29 @@ func TestRunDiagnosisTurn_MountsBoundedHistoricalReportContext(t *testing.T) {
 		StartedAt:  startedAt,
 		FinishedAt: startedAt.Add(time.Second),
 	}}}})
-	repo := &diagnosisRetrievalReportRepo{rows: []domain.RetrievedChunk{{
-		Chunk: domain.RetrievalChunk{
-			SourceKind: domain.RetrievalSourceFinalReport,
-			SourceID:   41,
-			SourceRef:  "final_report:41",
-			Content:    `{"title":"Previous CPU incident","executive_summary":"Deployment timing was causal."}`,
+	repo := &diagnosisRetrievalReportRepo{
+		sourceRefs: []string{"sub_report:39", "final_report:40"},
+		rows: []domain.RetrievedChunk{
+			{
+				Chunk: domain.RetrievalChunk{
+					SourceKind: domain.RetrievalSourceFinalReport,
+					SourceID:   40,
+					SourceRef:  "final_report:40",
+					Content:    `{"title":"Current CPU incident","executive_summary":"This report opened the room."}`,
+				},
+				CosineDistance: 0.05,
+			},
+			{
+				Chunk: domain.RetrievalChunk{
+					SourceKind: domain.RetrievalSourceFinalReport,
+					SourceID:   41,
+					SourceRef:  "final_report:41",
+					Content:    `{"title":"Previous CPU incident","executive_summary":"Deployment timing was causal."}`,
+				},
+				CosineDistance: 0.11,
+			},
 		},
-		CosineDistance: 0.11,
-	}}}
+	}
 	activities := NewActivities(
 		diagnosisRetrievalFactory{uow: diagnosisRetrievalUOW{reports: repo}},
 		WithContainerProvider(container),
@@ -226,6 +240,9 @@ func TestRunDiagnosisTurn_MountsBoundedHistoricalReportContext(t *testing.T) {
 	if got.ContextBytes <= baseContextBytes || got.ContextBytes > req.Policy.ContextBytes || len(got.RetrievalRefs) != 1 || got.RetrievalRefs[0] != "final_report:41" {
 		t.Fatalf("context bytes/refs = %d/%v, base=%d max=%d", got.ContextBytes, got.RetrievalRefs, baseContextBytes, req.Policy.ContextBytes)
 	}
+	if repo.listSnapshotID != domain.EvidenceSnapshotID(req.EvidenceSnapshotID) || repo.listLimit != domain.RetrievalReferenceLimit {
+		t.Fatalf("source ref lookup = snapshot %d limit %d", repo.listSnapshotID, repo.listLimit)
+	}
 	recorded := container.Requests(invocationID)
 	if len(recorded) != 1 {
 		t.Fatalf("container requests = %d, want 1", len(recorded))
@@ -235,8 +252,28 @@ func TestRunDiagnosisTurn_MountsBoundedHistoricalReportContext(t *testing.T) {
 		t.Fatalf("decode mounted evidence: %v", err)
 	}
 	historical := string(evidence[diagnosiscontext.HistoricalReportContextKey])
-	if !strings.Contains(historical, "final_report:41") || !strings.Contains(historical, "Never treat them as current evidence") {
+	if !strings.Contains(historical, "final_report:41") || strings.Contains(historical, "final_report:40") || !strings.Contains(historical, "Never treat them as current evidence") {
 		t.Fatalf("historical context = %s", historical)
+	}
+}
+
+func TestRunDiagnosisTurn_RejectsCallerSuppliedHistoricalReportContext(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.EnableHistoricalRetrieval = false
+	req.Evidence = json.RawMessage(`{"alert":"cpu_saturation","openclarion_historical_report_context":{"items":[]}}`)
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	container := fake.New(nil)
+
+	_, err := NewActivities(nil, WithContainerProvider(container)).RunDiagnosisTurn(context.Background(), req)
+	if err == nil {
+		t.Fatal("RunDiagnosisTurn returned nil error")
+	}
+	var appErr *temporalsdk.ApplicationError
+	if !errors.As(err, &appErr) || appErr.Type() != errTypeInvariantViolation {
+		t.Fatalf("error type = %T/%v, want non-retryable invariant application error", err, err)
+	}
+	if calls := container.Requests(invocationID); len(calls) != 0 {
+		t.Fatalf("container requests = %#v, want none", calls)
 	}
 }
 
@@ -868,13 +905,14 @@ func validDiagnosisTurnActivityInput() DiagnosisTurnActivityInput {
 	policy := diagnosisroom.DefaultPolicy()
 	policy.TurnTimeout = 90 * time.Second
 	return DiagnosisTurnActivityInput{
-		SessionID:         "session-1",
-		DiagnosisTaskID:   1001,
-		MessageID:         "msg-1",
-		UserSequence:      3,
-		AssistantSequence: 4,
-		ActorSubject:      "owner-1",
-		Evidence:          json.RawMessage(`{"alert":"cpu_saturation","severity":"warning"}`),
+		SessionID:          "session-1",
+		DiagnosisTaskID:    1001,
+		EvidenceSnapshotID: 42,
+		MessageID:          "msg-1",
+		UserSequence:       3,
+		AssistantSequence:  4,
+		ActorSubject:       "owner-1",
+		Evidence:           json.RawMessage(`{"alert":"cpu_saturation","severity":"warning"}`),
 		Conversation: []diagnosisroom.ConversationTurn{
 			{Role: "user", Content: "What happened?"},
 			{Role: "assistant", Content: "CPU is high."},
@@ -915,7 +953,22 @@ func (diagnosisRetrievalUOW) Rollback(context.Context) error    { return nil }
 
 type diagnosisRetrievalReportRepo struct {
 	ports.ReportRepository
-	rows []domain.RetrievedChunk
+	rows           []domain.RetrievedChunk
+	sourceRefs     []string
+	listSnapshotID domain.EvidenceSnapshotID
+	listLimit      int
+}
+
+func (r *diagnosisRetrievalReportRepo) ListReportSourceRefsByEvidenceSnapshot(ctx context.Context, snapshotID domain.EvidenceSnapshotID, limit int) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	r.listSnapshotID = snapshotID
+	r.listLimit = limit
+	if len(r.sourceRefs) > limit {
+		return nil, fmt.Errorf("too many source refs: %w", domain.ErrInvariantViolation)
+	}
+	return append([]string(nil), r.sourceRefs...), nil
 }
 
 func (r *diagnosisRetrievalReportRepo) SearchRetrievalChunks(_ context.Context, _ string, _ []float32, _ float64, limit int) ([]domain.RetrievedChunk, error) {

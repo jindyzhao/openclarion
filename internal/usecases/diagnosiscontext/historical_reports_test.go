@@ -55,6 +55,18 @@ func TestAppendHistoricalReportContextRejectsInvalidItems(t *testing.T) {
 	}
 }
 
+func TestValidateHistoricalReportContextAbsent(t *testing.T) {
+	if err := ValidateHistoricalReportContextAbsent(json.RawMessage(`{"events":[]}`)); err != nil {
+		t.Fatalf("ValidateHistoricalReportContextAbsent valid evidence: %v", err)
+	}
+	for _, value := range []string{`null`, `{}`, `{"items":[]}`} {
+		evidence := json.RawMessage(fmt.Sprintf(`{"%s":%s}`, HistoricalReportContextKey, value))
+		if err := ValidateHistoricalReportContextAbsent(evidence); !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("ValidateHistoricalReportContextAbsent(%s) error = %v, want ErrInvariantViolation", evidence, err)
+		}
+	}
+}
+
 func TestAppendHistoricalReportContextClassifiesEncodedBudgetOverflow(t *testing.T) {
 	items := make([]HistoricalReportContextItem, 4)
 	for i := range items {

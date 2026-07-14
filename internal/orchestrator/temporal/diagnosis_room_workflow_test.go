@@ -176,7 +176,9 @@ func TestDiagnosisRoomWorkflow_PropagatesHistoricalReportRetrieval(t *testing.T)
 		)
 	}, time.Millisecond)
 
-	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
+	input := defaultRoomInput()
+	input.EvidenceSnapshotID = 9001
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
 	assertRoomWorkflowCompleted(t, env)
 	if update.rejected != nil || update.completeErr != nil || !update.accepted {
 		t.Fatalf("submit update accepted=%t rejected=%v completeErr=%v", update.accepted, update.rejected, update.completeErr)
@@ -184,7 +186,7 @@ func TestDiagnosisRoomWorkflow_PropagatesHistoricalReportRetrieval(t *testing.T)
 	if queryErr != nil {
 		t.Fatalf("query state: %v", queryErr)
 	}
-	if len(activityCalls) != 1 || !activityCalls[0].EnableHistoricalRetrieval {
+	if len(activityCalls) != 1 || !activityCalls[0].EnableHistoricalRetrieval || activityCalls[0].EvidenceSnapshotID != input.EvidenceSnapshotID {
 		t.Fatalf("diagnosis activity calls = %+v, want historical retrieval enabled", activityCalls)
 	}
 	if len(persistCalls) != 1 ||
@@ -251,7 +253,7 @@ func TestDiagnosisRoomWorkflow_LegacyHistoryIgnoresHistoricalRetrievalActivityFi
 	if update.rejected != nil || update.completeErr != nil || !update.accepted {
 		t.Fatalf("submit update accepted=%t rejected=%v completeErr=%v", update.accepted, update.rejected, update.completeErr)
 	}
-	if len(activityCalls) != 1 || activityCalls[0].EnableHistoricalRetrieval {
+	if len(activityCalls) != 1 || activityCalls[0].EnableHistoricalRetrieval || activityCalls[0].EvidenceSnapshotID != 0 {
 		t.Fatalf("legacy diagnosis activity calls = %+v, want historical retrieval disabled", activityCalls)
 	}
 	if len(persistCalls) != 1 ||
