@@ -26,6 +26,7 @@ coverage/
 # Node
 node_modules/
 .next/
+/web/next-env.d.ts
 *.tsbuildinfo
 playwright-report/
 playwright-report-live/

@@ -82,6 +82,8 @@
 #   make diagnosis-live-smoke-output-test # M5 live browser smoke proof validator tests
 #   make stage5-local-worker-check # manual M5 local worker readiness check
 #   make stage5-local-worker # manual M5 local worker/API process from private env
+#   make local-product-check # prepare and validate the non-Kubernetes local product
+#   make local-product # run the non-Kubernetes API/worker and frontend
 #   make container-provider-smoke # manual M4 smoke: real Docker Provider.Run lifecycle
 #   make container-provider-timeout-smoke # manual M4 smoke: real Docker timeout cleanup
 #   make container-provider-output-cap-smoke # manual M4 smoke: real Docker output cap
@@ -689,7 +691,7 @@ frontend-checks: frontend-install ci-frontend-typecheck ci-frontend-lint ci-fron
 # See ADR-0001 (PostgreSQL single source of truth) and
 # docs/design/database/migrations.md.
 
-.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke manual-evidence-readiness alert-consultation-setup diagnosis-auth-live-smoke notification-channel-live-smoke alertmanager-auto-diagnosis-live-smoke report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke local-egress-proxy-build sandbox-m4-runtime-smoke-artifacts diagnosis-assistant-runner-build diagnosis-dev-oidc-issuer stage5-local-worker-check stage5-local-worker
+.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke atlas-apply manual-evidence-readiness alert-consultation-setup diagnosis-auth-live-smoke notification-channel-live-smoke alertmanager-auto-diagnosis-live-smoke report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke local-egress-proxy-build sandbox-m4-runtime-smoke-artifacts diagnosis-assistant-runner-build diagnosis-dev-oidc-issuer stage5-local-worker-check stage5-local-worker local-product-check local-product
 
 ent-generate: ## Regenerate ent client + entity code from schemas under internal/persistence/ent/schema
 	@go generate $(ENT_PKG)/...
@@ -720,6 +722,9 @@ atlas-drift: ## Reject ent-schema vs migrations drift; runs in a temp copy so th
 
 atlas-smoke: ## Manual one-shot smoke: verify Dockerized Atlas can read the ent schema (M1-PR1 acceptance gate)
 	@ATLAS_IMAGE="$(ATLAS_IMAGE)" ENT_SCHEMA_URL="$(ENT_SCHEMA_URL)" bash scripts/check_atlas_smoke.sh
+
+atlas-apply: ## Manual migration apply: validate and apply committed migrations to DATABASE_URL
+	@ATLAS_IMAGE="$(ATLAS_IMAGE)" bash scripts/apply_atlas_migrations.sh
 
 manual-evidence-readiness: ## Manual readiness preflight for remaining M2/M3.1/M4/M5 live and evidence targets
 	@args=(); \
@@ -790,6 +795,12 @@ stage5-local-worker-check: ## Manual M5 helper: validate private env and runtime
 
 stage5-local-worker: ## Manual M5 helper: run current API and diagnosis worker from a private env file
 	@bash scripts/run_stage5_local_worker.sh
+
+local-product-check: ## Manual local product preflight: start dependencies, migrate, and validate runtime configuration
+	@ATLAS_IMAGE="$(ATLAS_IMAGE)" bash scripts/run_local_product.sh --check-only
+
+local-product: ## Manual local product start: run the non-Kubernetes API/worker and frontend
+	@ATLAS_IMAGE="$(ATLAS_IMAGE)" bash scripts/run_local_product.sh
 
 # Future gates are tracked in docs/design/ci/README.md, not as inactive
 # Makefile placeholders. Add a target here only when its script/tool,

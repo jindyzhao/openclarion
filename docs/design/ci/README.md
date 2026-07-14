@@ -241,6 +241,9 @@ make stage5-local-worker-check # manual M5 local worker readiness check; require
 make stage5-local-worker # manual M5 local worker/API process from private env
 # use OPENCLARION_STAGE5_WORKER_SOURCE=1 or scripts/run_stage5_local_worker.sh --source
 # when live proof must exercise the current checkout instead of a private binary
+make atlas-apply # manual committed migration apply; requires Docker and DATABASE_URL
+make local-product-check # manual non-Kubernetes product preflight; starts local dependencies and applies migrations
+make local-product # manual non-Kubernetes API/worker and frontend start; requires Docker and private env
 make openclarion-service-image-build # manual deployment image build; requires Docker, Go, and explicit tag
 make openclarion-service-image-push # manual deployment image publish; requires registry login and explicit tag
 make diagnosis-live-smoke-output-test # M5 live browser smoke proof validator tests
