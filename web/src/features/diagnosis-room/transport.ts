@@ -251,6 +251,11 @@ export function parseDiagnosisServerFrame(raw: string): DiagnosisServerFrame {
         throw new Error("Invalid ready diagnosis frame.");
       }
       return parsed;
+    case "turn_stream":
+      if (!isDiagnosisTurnStreamFrame(parsed)) {
+        throw new Error("Invalid turn_stream diagnosis frame.");
+      }
+      return parsed;
     case "turn_result":
       if (!isDiagnosisTurnResultFrame(parsed)) {
         throw new Error("Invalid turn_result diagnosis frame.");
@@ -289,6 +294,49 @@ function isDiagnosisReadyFrame(
   value: Record<string, unknown>,
 ): value is Extract<DiagnosisServerFrame, { type: "ready" }> {
   return isString(value.session_id) && isString(value.subject);
+}
+
+const maxDiagnosisTurnPreviewBytes = 128 * 1024;
+
+function isDiagnosisTurnStreamFrame(
+  value: Record<string, unknown>,
+): value is Extract<DiagnosisServerFrame, { type: "turn_stream" }> {
+  if (
+    !isString(value.session_id) ||
+    value.session_id.length === 0 ||
+    !isString(value.message_id) ||
+    value.message_id.length === 0 ||
+    !isString(value.assistant_message_id) ||
+    value.assistant_message_id.length === 0 ||
+    !isPositiveInteger(value.activity_attempt) ||
+    !isNonNegativeInteger(value.generation_attempt) ||
+    !isNonNegativeInteger(value.sequence) ||
+    !isString(value.assistant_message) ||
+    new TextEncoder().encode(value.assistant_message).length >
+      maxDiagnosisTurnPreviewBytes
+  ) {
+    return false;
+  }
+  if (value.phase === "started") {
+    return (
+      value.generation_attempt === 0 &&
+      value.sequence === 0 &&
+      value.assistant_message === ""
+    );
+  }
+  if (value.phase === "reset") {
+    return (
+      value.generation_attempt > 0 &&
+      value.sequence === 0 &&
+      value.assistant_message === ""
+    );
+  }
+  return (
+    value.phase === "delta" &&
+    value.generation_attempt > 0 &&
+    value.sequence > 0 &&
+    value.assistant_message.length > 0
+  );
 }
 
 function isDiagnosisTurnResultFrame(
@@ -341,5 +389,13 @@ function isString(value: unknown): value is string {
 }
 
 function isFiniteNumber(value: unknown): value is number {
-  return typeof value === "number" && Number.isFinite(value);
+	return typeof value === "number" && Number.isFinite(value);
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }

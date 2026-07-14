@@ -68,6 +68,8 @@ const (
 	diagnosisRoomManualEvidenceVersion             = 1
 	diagnosisRoomManualEvidenceCollectedChangeID   = "diagnosis-room-manual-evidence-collected-event"
 	diagnosisRoomManualEvidenceCollectedVersion    = 1
+	diagnosisRoomTurnStreamingChangeID             = "diagnosis-room-turn-streaming"
+	diagnosisRoomTurnStreamingVersion              = 1
 
 	diagnosisRoomAutoActorSubject = "openclarion:auto-diagnosis"
 
@@ -908,6 +910,13 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 	finalReadyNotificationVersion workflow.Version,
 	assistantTurnNotificationVersion workflow.Version,
 ) (SubmitDiagnosisTurnResult, workflow.Version, error) {
+	streamingVersion := workflow.GetVersion(
+		ctx,
+		diagnosisRoomTurnStreamingChangeID,
+		workflow.DefaultVersion,
+		diagnosisRoomTurnStreamingVersion,
+	)
+	streamingEnabled := streamingVersion >= diagnosisRoomTurnStreamingVersion
 	userOccurredAt := workflow.Now(ctx)
 	priorConversation := s.conversationCopy()
 	userSequence := len(s.conversation) + 1
@@ -927,8 +936,9 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 		Message:              req.Message,
 		SupplementalEvidence: copyDiagnosisRoomSupplementalEvidence(req.SupplementalEvidence),
 		Policy:               s.policy,
+		EnableStreaming:      streamingEnabled,
 	}
-	actCtx := workflow.WithActivityOptions(ctx, diagnosisRoomTurnActivityOptions(s.policy))
+	actCtx := workflow.WithActivityOptions(ctx, diagnosisRoomTurnActivityOptions(s.policy, streamingEnabled))
 	var activityResult DiagnosisTurnActivityResult
 	if err := workflow.ExecuteActivity(actCtx, (*Activities).RunDiagnosisTurn, activityReq).Get(ctx, &activityResult); err != nil {
 		return SubmitDiagnosisTurnResult{}, collectionVersion, err
@@ -2462,12 +2472,12 @@ func diagnosisRoomPolicyOrDefault(policy diagnosisroom.Policy) diagnosisroom.Pol
 	return policy
 }
 
-func diagnosisRoomTurnActivityOptions(policy diagnosisroom.Policy) workflow.ActivityOptions {
+func diagnosisRoomTurnActivityOptions(policy diagnosisroom.Policy, streaming bool) workflow.ActivityOptions {
 	timeout := policy.TurnTimeout
 	if timeout <= 0 {
 		timeout = diagnosisroom.DefaultTurnTimeout
 	}
-	return workflow.ActivityOptions{
+	options := workflow.ActivityOptions{
 		StartToCloseTimeout: timeout,
 		RetryPolicy: &temporalsdk.RetryPolicy{
 			InitialInterval:    time.Second,
@@ -2481,6 +2491,16 @@ func diagnosisRoomTurnActivityOptions(policy diagnosisroom.Policy) workflow.Acti
 			},
 		},
 	}
+	if streaming {
+		options.HeartbeatTimeout = timeout / 2
+		if options.HeartbeatTimeout <= 0 {
+			options.HeartbeatTimeout = timeout
+		}
+		if options.HeartbeatTimeout > 30*time.Second {
+			options.HeartbeatTimeout = 30 * time.Second
+		}
+	}
+	return options
 }
 
 func diagnosisRoomPersistenceActivityOptions() workflow.ActivityOptions {

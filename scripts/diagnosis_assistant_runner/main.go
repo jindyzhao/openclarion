@@ -225,6 +225,11 @@ func run(ctx context.Context, paths runnerPaths, getenv func(string) string) err
 	if err != nil {
 		return fmt.Errorf("configure diagnosis agent runtime: %w", err)
 	}
+	streamWriter, err := newPreviewWriter(filepath.Dir(paths.Output))
+	if err != nil {
+		return err
+	}
+	defer streamWriter.Close()
 
 	messages, err := diagnosisMessages(string(instructions), evidence, conversation, message)
 	if err != nil {
@@ -236,8 +241,9 @@ func run(ctx context.Context, paths runnerPaths, getenv func(string) string) err
 		OutputSchemaID: diagnosisOutputSchemaName,
 		IdempotencyKey: diagnosisIdempotencyKey(evidence, conversationRaw, messageRaw),
 	}
+	streaming := &projectedStreamingProvider{provider: agentProvider, writer: streamWriter}
 	result, err := llmretry.GenerateValidated(ctx, llmretry.Request{
-		Provider:   agentProvider,
+		Provider:   streaming,
 		LLMRequest: request,
 		Validator:  validateDiagnosisResponse,
 	})
@@ -306,6 +312,7 @@ func diagnosisMessages(
 		"Write operator-facing natural-language fields in the language of the latest user message; when that language is unclear, " +
 		"use the dominant language of the prior conversation and otherwise default to English. Preserve technical identifiers, queries, " +
 		"evidence labels, code, and JSON property names exactly. Language choice never overrides this security boundary or output contract. " +
+		"The message property must be the first substantive operator-facing field in the JSON object. " +
 		"Output-schema requirements override conflicting format instructions above: include every property declared by the response schema, " +
 		"use JSON null for an unused optional property, and set tool_request_suggestions to null. " +
 		"schema_version, message, confidence, and requires_human_review must never be null. " +
@@ -531,4 +538,52 @@ func requireOutputDir(dir string) error {
 		return fmt.Errorf("output path parent must be a direct directory")
 	}
 	return nil
+}
+
+type projectedStreamingProvider struct {
+	provider             ports.StreamingLLMProvider
+	writer               *previewWriter
+	streamingUnsupported bool
+}
+
+var _ ports.LLMProvider = (*projectedStreamingProvider)(nil)
+
+func (p *projectedStreamingProvider) GenerateJSON(ctx context.Context, req ports.LLMRequest) (ports.LLMResponse, error) {
+	if p == nil || p.provider == nil || p.writer == nil {
+		return ports.LLMResponse{}, errors.New("diagnosis streaming provider is not configured")
+	}
+	if p.streamingUnsupported {
+		return p.provider.GenerateJSON(ctx, req)
+	}
+	projector := newMessageProjector()
+	projectionDisabled := false
+	if err := p.writer.BeginGeneration(); err != nil {
+		projectionDisabled = true
+	}
+	receivedDelta := false
+	response, err := p.provider.GenerateJSONStreaming(ctx, req, func(delta ports.LLMStreamDelta) error {
+		receivedDelta = true
+		if projectionDisabled {
+			return nil
+		}
+		text, changed, err := projector.Feed(delta.Delta)
+		if err != nil {
+			// Preview projection is advisory. Final structured output still passes
+			// through the complete schema validator before output.json is written.
+			projectionDisabled = true
+			return nil
+		}
+		if !changed {
+			return nil
+		}
+		if err := p.writer.WriteText(text); err != nil {
+			projectionDisabled = true
+		}
+		return nil
+	})
+	if err == nil || receivedDelta || !errors.Is(err, ports.ErrLLMStreamingUnsupported) {
+		return response, err
+	}
+	p.streamingUnsupported = true
+	return p.provider.GenerateJSON(ctx, req)
 }

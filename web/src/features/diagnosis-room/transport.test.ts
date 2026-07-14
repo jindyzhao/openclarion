@@ -25,6 +25,63 @@ describe("parseDiagnosisServerFrame", () => {
     });
   });
 
+  it("accepts bounded turn stream snapshots and rejects invalid retries", () => {
+    expect(
+      parseDiagnosisServerFrame(
+        JSON.stringify({
+          type: "turn_stream",
+          phase: "delta",
+          session_id: "s1",
+          message_id: "message-1",
+          assistant_message_id: "message-1/assistant",
+          activity_attempt: 1,
+          generation_attempt: 2,
+          sequence: 3,
+          assistant_message: "Checking the current alert evidence.",
+        }),
+      ),
+    ).toMatchObject({
+      type: "turn_stream",
+      generation_attempt: 2,
+      sequence: 3,
+    });
+    expect(
+      parseDiagnosisServerFrame(
+        JSON.stringify({
+          type: "turn_stream",
+          phase: "reset",
+          session_id: "s1",
+          message_id: "message-1",
+          assistant_message_id: "message-1/assistant",
+          activity_attempt: 1,
+          generation_attempt: 3,
+          sequence: 0,
+          assistant_message: "",
+        }),
+      ),
+    ).toMatchObject({
+      phase: "reset",
+      generation_attempt: 3,
+      sequence: 0,
+    });
+
+    expect(() =>
+      parseDiagnosisServerFrame(
+        JSON.stringify({
+          type: "turn_stream",
+          phase: "started",
+          session_id: "s1",
+          message_id: "message-1",
+          assistant_message_id: "message-1/assistant",
+          activity_attempt: 2,
+          generation_attempt: 1,
+          sequence: 0,
+          assistant_message: "stale",
+        }),
+      ),
+    ).toThrow("Invalid turn_stream diagnosis frame.");
+  });
+
   it("preserves consultation insight on turn result frames", () => {
     expect(
       parseDiagnosisServerFrame(
@@ -315,6 +372,10 @@ describe("parseDiagnosisServerFrame", () => {
   it("rejects known frame types when required fields are missing", () => {
     for (const [raw, message] of [
       [`{"type":"ready","session_id":"s1"}`, /Invalid ready/],
+      [
+        `{"type":"turn_stream","phase":"delta","session_id":"s1"}`,
+        /Invalid turn_stream/,
+      ],
       [
         JSON.stringify({
           type: "turn_result",

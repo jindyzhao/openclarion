@@ -24,6 +24,7 @@ import (
 	dockernetwork "github.com/moby/moby/api/types/network"
 	dockerclient "github.com/moby/moby/client"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -78,7 +79,10 @@ type Provider struct {
 	now                func() time.Time
 }
 
-var _ ports.ContainerProvider = (*Provider)(nil)
+var (
+	_ ports.ContainerProvider          = (*Provider)(nil)
+	_ ports.StreamingContainerProvider = (*Provider)(nil)
+)
 
 // ProviderOption customizes the Docker provider.
 type ProviderOption func(*Provider)
@@ -221,6 +225,27 @@ func (p *Provider) CheckEgressReadiness(
 // completion, copies output.json, validates raw lifecycle invariants, and
 // removes the runtime resource on every path.
 func (p *Provider) Run(ctx context.Context, req ports.ContainerRunRequest) (result ports.ContainerRunResult, err error) {
+	return p.run(ctx, req, nil)
+}
+
+// RunStreaming preserves the normal validated output path while relaying an
+// optional bounded stream.ndjson file from the writable output mount.
+func (p *Provider) RunStreaming(
+	ctx context.Context,
+	req ports.ContainerRunRequest,
+	onChunk ports.ContainerStreamHandler,
+) (result ports.ContainerRunResult, err error) {
+	if onChunk == nil {
+		return ports.ContainerRunResult{}, fmt.Errorf("docker provider stream callback is required")
+	}
+	return p.run(ctx, req, onChunk)
+}
+
+func (p *Provider) run(
+	ctx context.Context,
+	req ports.ContainerRunRequest,
+	onChunk ports.ContainerStreamHandler,
+) (result ports.ContainerRunResult, err error) {
 	if p == nil {
 		return ports.ContainerRunResult{}, fmt.Errorf("docker provider is nil")
 	}
@@ -267,18 +292,38 @@ func (p *Provider) Run(ctx context.Context, req ports.ContainerRunRequest) (resu
 		return result, fmt.Errorf("docker container start %s: %w", result.RuntimeID, err)
 	}
 
+	var stopStream context.CancelFunc
+	var streamGroup errgroup.Group
+	if onChunk != nil {
+		streamCtx, stop := context.WithCancel(runCtx)
+		stopStream = stop
+		reader := newContainerStreamReader(workspace.OutputDir, onChunk)
+		streamGroup.Go(func() error {
+			streamErr := watchContainerStream(streamCtx, reader)
+			if streamErr != nil {
+				cancel()
+			}
+			return streamErr
+		})
+	}
+
 	wait := p.engine.ContainerWait(runCtx, result.RuntimeID, dockerclient.ContainerWaitOptions{
 		Condition: dockercontainer.WaitConditionNotRunning,
 	})
 
-	waitResponse, err := p.waitForExit(runCtx, result.RuntimeID, wait)
+	waitResponse, waitErr := p.waitForExit(runCtx, result.RuntimeID, wait)
+	var streamErr error
+	if stopStream != nil {
+		stopStream()
+		streamErr = streamGroup.Wait()
+	}
 	finishedAt := p.now().UTC()
 	result.InvocationID = req.InvocationID
 	result.AgentName = req.AgentName
 	result.StartedAt = startedAt
 	result.FinishedAt = finishedAt
-	if err != nil {
-		return result, err
+	if waitErr != nil || streamErr != nil {
+		return result, errors.Join(waitErr, streamErr)
 	}
 	result.ExitCode = int(waitResponse.StatusCode)
 	if waitResponse.Error != nil && waitResponse.Error.Message != "" {

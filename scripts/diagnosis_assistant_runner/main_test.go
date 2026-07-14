@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -21,10 +22,11 @@ func TestRunPublishesValidatedOutput(t *testing.T) {
 	finalOutput := `{"schema_version":"diagnosis_turn.v1","message":"CPU is saturated on api-1.","findings":["CPU exceeded the alert threshold."],"recommended_actions":["Inspect the current deployment revision."],"confidence":"high","requires_human_review":false,"conclusion_status":"final"}`
 	providerOutput := `{"schema_version":"diagnosis_turn.v1","message":"CPU is saturated on api-1.","findings":["CPU exceeded the alert threshold."],"recommended_actions":["Inspect the current deployment revision."],"evidence_requests":null,"confidence":"high","requires_human_review":false,"confidence_rationale":null,"missing_evidence_requests":null,"evidence_collection_suggestions":null,"tool_request_suggestions":null,"conclusion_status":"final"}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer test-key" {
+		if r.Header.Get("Authorization") != "Bearer test-key" || r.Header.Get("Accept") != "text/event-stream" {
 			t.Errorf("request headers = %#v", r.Header)
 		}
 		var request struct {
+			Stream         bool `json:"stream"`
 			ResponseFormat struct {
 				Type string `json:"type"`
 			} `json:"response_format"`
@@ -32,19 +34,15 @@ func TestRunPublishesValidatedOutput(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Errorf("decode request: %v", err)
 		}
-		if request.ResponseFormat.Type != string(ports.LLMOutputModeJSONSchema) {
+		if !request.Stream || request.ResponseFormat.Type != string(ports.LLMOutputModeJSONSchema) {
 			t.Errorf("request = %+v", request)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]any{
-			"model": "test-model",
-			"choices": []map[string]any{{
-				"message":       map[string]any{"content": providerOutput},
-				"finish_reason": "stop",
-			}},
-		}); err != nil {
-			t.Errorf("encode response: %v", err)
-		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		midpoint := strings.Index(providerOutput, "saturated")
+		writeTestSSECompletion(t, w, providerOutput[:midpoint], "")
+		writeTestSSECompletion(t, w, providerOutput[midpoint:], "")
+		writeTestSSECompletion(t, w, "", "stop")
+		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	defer server.Close()
 
@@ -89,6 +87,89 @@ func TestRunPublishesValidatedOutput(t *testing.T) {
 	}
 	if string(actualRaw) != string(expectedRaw) {
 		t.Fatalf("normalized output = %s, want %s", actualRaw, expectedRaw)
+	}
+	streamRaw, err := os.ReadFile(filepath.Join(filepath.Dir(paths.Output), filepath.Base(ports.SandboxStreamPath)))
+	if err != nil {
+		t.Fatalf("read preview stream: %v", err)
+	}
+	var preview strings.Builder
+	for _, line := range strings.Split(strings.TrimSpace(string(streamRaw)), "\n") {
+		var record struct {
+			SchemaVersion string `json:"schema_version"`
+			Delta         string `json:"delta"`
+		}
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("decode preview record: %v", err)
+		}
+		if record.SchemaVersion != ports.ContainerStreamSchemaVersion {
+			t.Fatalf("preview schema = %q", record.SchemaVersion)
+		}
+		preview.WriteString(record.Delta)
+	}
+	if preview.String() != "CPU is saturated on api-1." {
+		t.Fatalf("preview = %q", preview.String())
+	}
+}
+
+func TestRunFallsBackWhenStreamingIsUnsupported(t *testing.T) {
+	providerOutput := `{"schema_version":"diagnosis_turn.v1","message":"Use the validated fallback.","findings":[],"recommended_actions":[],"confidence":"medium","requires_human_review":false,"conclusion_status":"final"}`
+	var mu sync.Mutex
+	streamCalls := 0
+	nonStreamingCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Stream bool `json:"stream"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		mu.Lock()
+		if request.Stream {
+			streamCalls++
+		} else {
+			nonStreamingCalls++
+		}
+		mu.Unlock()
+		if request.Stream {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"stream is not supported","type":"invalid_request_error","param":"stream","code":"unsupported_value"}}`)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"model": "test-model",
+			"choices": []map[string]any{{
+				"message":       map[string]any{"content": providerOutput},
+				"finish_reason": "stop",
+			}},
+		}); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	paths := writeRunnerFixture(t)
+	env := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL": server.URL + "/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":  "test-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":    "test-model",
+	}
+	if err := run(context.Background(), paths, func(key string) string { return env[key] }); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	rawOutput, err := os.ReadFile(paths.Output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := diagnosisroom.ParseTurnOutput(rawOutput)
+	if err != nil || parsed.Message != "Use the validated fallback." {
+		t.Fatalf("fallback output = %s parsed=%+v err=%v", rawOutput, parsed, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if streamCalls != 1 || nonStreamingCalls != 1 {
+		t.Fatalf("provider calls stream=%d non-streaming=%d, want 1/1", streamCalls, nonStreamingCalls)
 	}
 }
 
@@ -242,6 +323,7 @@ func TestRunPreservesLatestUserLanguageAcrossValidationRetry(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Messages []ports.LLMMessage `json:"messages"`
+			Stream   bool               `json:"stream"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 			t.Errorf("decode request: %v", err)
@@ -255,16 +337,13 @@ func TestRunPreservesLatestUserLanguageAcrossValidationRetry(t *testing.T) {
 			http.Error(w, "unexpected provider call", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(map[string]any{
-			"model": "test-model",
-			"choices": []map[string]any{{
-				"message":       map[string]any{"content": providerOutputs[index]},
-				"finish_reason": "stop",
-			}},
-		}); err != nil {
-			t.Errorf("encode response: %v", err)
+		if !request.Stream {
+			t.Error("stream = false, want true")
 		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		writeTestSSECompletion(t, w, providerOutputs[index], "")
+		writeTestSSECompletion(t, w, "", "stop")
+		fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 	defer server.Close()
 
@@ -308,6 +387,26 @@ func TestRunPreservesLatestUserLanguageAcrossValidationRetry(t *testing.T) {
 	if feedback.Role != ports.LLMRoleSystem || !strings.Contains(feedback.Content, "failed validation") {
 		t.Fatalf("retry feedback = %+v, want application-owned system instruction", feedback)
 	}
+}
+
+func writeTestSSECompletion(t *testing.T, w http.ResponseWriter, content, finishReason string) {
+	t.Helper()
+	chunk := map[string]any{
+		"id":      "chatcmpl-test",
+		"object":  "chat.completion.chunk",
+		"created": 1,
+		"model":   "test-model",
+		"choices": []map[string]any{{
+			"index":         0,
+			"delta":         map[string]any{"content": content},
+			"finish_reason": finishReason,
+		}},
+	}
+	raw, err := json.Marshal(chunk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fmt.Fprintf(w, "data: %s\n\n", raw)
 }
 
 func TestRunRejectsNullEvidence(t *testing.T) {

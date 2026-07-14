@@ -115,6 +115,65 @@ func TestRunDiagnosisTurn_CallsContainerAndParsesOutput(t *testing.T) {
 	}
 }
 
+func TestRunDiagnosisTurn_PublishesTransientStreamingSnapshots(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.EnableStreaming = true
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	started := time.Date(2026, 7, 11, 11, 0, 0, 0, time.UTC)
+	provider := fake.New(map[string][]fake.Result{
+		invocationID: {{
+			Stream: []ports.ContainerStreamChunk{
+				{GenerationAttempt: 1, Sequence: 1, Delta: "CPU ", Text: "CPU "},
+				{GenerationAttempt: 1, Sequence: 2, Delta: "is saturated.", Text: "CPU is saturated."},
+				{GenerationAttempt: 2, Reset: true},
+				{GenerationAttempt: 2, Sequence: 1, Delta: "CPU is saturated.", Text: "CPU is saturated."},
+			},
+			Run: ports.ContainerRunResult{
+				InvocationID: invocationID,
+				AgentName:    diagnosisRoomAgentName,
+				Output: json.RawMessage(`{
+					"schema_version":"diagnosis_turn.v1",
+					"message":"CPU is saturated.",
+					"confidence":"high",
+					"requires_human_review":false,
+					"conclusion_status":"final"
+				}`),
+				ExitCode:   0,
+				StartedAt:  started,
+				FinishedAt: started.Add(time.Second),
+			},
+		}},
+	})
+	sink := &recordingDiagnosisTurnStreamSink{}
+	activities := NewActivities(
+		nil,
+		WithContainerProvider(provider),
+		WithDiagnosisTurnStreamSink(sink),
+	)
+
+	result, err := activities.RunDiagnosisTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("RunDiagnosisTurn: %v", err)
+	}
+	if result.AssistantMessage != "CPU is saturated." {
+		t.Fatalf("AssistantMessage = %q", result.AssistantMessage)
+	}
+	if len(sink.events) != 5 {
+		t.Fatalf("stream events = %#v", sink.events)
+	}
+	if sink.events[0].Phase != ports.DiagnosisTurnStreamStarted ||
+		sink.events[1].AssistantMessage != "CPU " ||
+		sink.events[2].AssistantMessage != "CPU is saturated." ||
+		sink.events[2].Sequence != 2 ||
+		sink.events[3].Phase != ports.DiagnosisTurnStreamReset ||
+		sink.events[3].AssistantMessage != "" ||
+		sink.events[3].GenerationAttempt != 2 ||
+		sink.events[3].Sequence != 0 ||
+		sink.events[4].AssistantMessage != "CPU is saturated." {
+		t.Fatalf("stream events = %#v", sink.events)
+	}
+}
+
 func TestRunDiagnosisTurn_InjectsRuntimeCredentialsAndNetwork(t *testing.T) {
 	req := validDiagnosisTurnActivityInput()
 	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
@@ -661,4 +720,12 @@ func validDiagnosisTurnActivityInput() DiagnosisTurnActivityInput {
 		Message: "What changed recently?",
 		Policy:  policy,
 	}
+}
+
+type recordingDiagnosisTurnStreamSink struct {
+	events []ports.DiagnosisTurnStreamEvent
+}
+
+func (s *recordingDiagnosisTurnStreamSink) PublishDiagnosisTurnStream(event ports.DiagnosisTurnStreamEvent) {
+	s.events = append(s.events, event)
 }

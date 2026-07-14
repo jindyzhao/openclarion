@@ -187,6 +187,10 @@ import {
   shouldQueryDiagnosisStateAfterTurn,
 } from "./state-refresh";
 import {
+  nextDiagnosisTurnPreview,
+  type DiagnosisTurnPreview,
+} from "./stream-preview";
+import {
   refreshDiagnosisHandoffs,
   refreshDiagnosisRoom,
   refreshDiagnosisRooms,
@@ -1223,6 +1227,8 @@ export function DiagnosisRoomView({
   const weComAutoLoginAttemptRef = useRef("");
   const [roomState, setRoomState] = useState<DiagnosisStateFrame | null>(null);
   const [transcript, setTranscript] = useState<DiagnosisTranscriptTurn[]>([]);
+  const [turnPreview, setTurnPreview] =
+    useState<DiagnosisTurnPreview | null>(null);
   const [latestInsight, setLatestInsight] =
     useState<LatestConsultationInsight | null>(null);
   const [
@@ -2547,6 +2553,7 @@ export function DiagnosisRoomView({
     socketRef.current = null;
     setSocketOpen(false);
     setStatus("ticketing");
+    setTurnPreview(null);
     if (!options.preserveState) {
       setReadySubject("");
       setLocalTurnInFlight(false);
@@ -2873,6 +2880,9 @@ export function DiagnosisRoomView({
         }
         setConfirmInFlight(false);
         setLocalTurnInFlight(frame.in_flight);
+        if (!frame.in_flight) {
+          setTurnPreview(null);
+        }
         setRoomState(frame);
         setTranscript(diagnosisStateTranscript(frame));
         setLatestInsight(latestConsultationInsightFromState(frame));
@@ -2887,6 +2897,10 @@ export function DiagnosisRoomView({
             `Auto evidence follow-up completed ${(frame.follow_up_turns ?? []).length} turn(s).`,
           );
         }
+        break;
+      case "turn_stream":
+        setLocalTurnInFlight(true);
+        setTurnPreview((current) => nextDiagnosisTurnPreview(current, frame));
         break;
       case "turn_result":
         if (frame.latest_error) {
@@ -3513,6 +3527,7 @@ export function DiagnosisRoomView({
   }
 
   function markTurnInFlight() {
+    setTurnPreview(null);
     setLocalTurnInFlight(true);
     setRoomState((current) =>
       current
@@ -3523,6 +3538,7 @@ export function DiagnosisRoomView({
   }
 
   function clearTurnInFlight() {
+    setTurnPreview(null);
     setLocalTurnInFlight(false);
     setRoomState((current) =>
       current && current.in_flight ? { ...current, in_flight: false } : current,
@@ -4766,7 +4782,7 @@ export function DiagnosisRoomView({
           }
           title="Transcript"
         >
-        {transcript.length === 0 ? (
+        {transcript.length === 0 && turnPreview === null ? (
           <Empty
             description="No transcript messages"
             image={Empty.PRESENTED_IMAGE_SIMPLE}
@@ -4788,6 +4804,25 @@ export function DiagnosisRoomView({
                 <p>{turn.content}</p>
               </article>
             ))}
+            {turnPreview ? (
+              <article
+                aria-busy="true"
+                className="diagnosis-turn diagnosis-turn-assistant diagnosis-turn-preview"
+                key={turnPreview.assistant_message_id}
+              >
+                <div className="diagnosis-turn-role">
+                  assistant
+                  <Tag color="processing">Draft</Tag>
+                </div>
+                {turnPreview.assistant_message ? (
+                  <p>{turnPreview.assistant_message}</p>
+                ) : (
+                  <Typography.Text type="secondary">
+                    Generating response...
+                  </Typography.Text>
+                )}
+              </article>
+            ) : null}
           </div>
         )}
 

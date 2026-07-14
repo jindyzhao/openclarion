@@ -163,6 +163,18 @@ type DiagnosisReadyFrame = {
   subject: string;
 };
 
+export type DiagnosisTurnStreamFrame = {
+  type: "turn_stream";
+  phase: "started" | "reset" | "delta";
+  session_id: string;
+  message_id: string;
+  assistant_message_id: string;
+  activity_attempt: number;
+  generation_attempt: number;
+  sequence: number;
+  assistant_message: string;
+};
+
 type DiagnosisTurnResultFrame = {
   type: "turn_result";
   session_id: string;
@@ -243,6 +255,7 @@ type DiagnosisErrorFrame = {
 
 export type DiagnosisServerFrame =
   | DiagnosisReadyFrame
+  | DiagnosisTurnStreamFrame
   | DiagnosisTurnResultFrame
   | DiagnosisStateFrame
   | DiagnosisErrorFrame;

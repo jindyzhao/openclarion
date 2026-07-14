@@ -49,7 +49,10 @@ type Provider struct {
 	httpClient *http.Client
 }
 
-var _ ports.LLMProvider = (*Provider)(nil)
+var (
+	_ ports.LLMProvider          = (*Provider)(nil)
+	_ ports.StreamingLLMProvider = (*Provider)(nil)
+)
 
 // NewProvider constructs a Provider with an explicit output mode.
 // Use NewProviderWithCapabilityDetection when the caller wants to
@@ -301,6 +304,7 @@ func apiStatusError(resp *http.Response) error {
 			Message:    apiErr.Error.Message,
 			Type:       apiErr.Error.Type,
 			Code:       apiErr.Error.Code,
+			Param:      apiErr.Error.Param,
 		}
 	}
 	return &statusError{
@@ -384,6 +388,7 @@ type chatCompletionRequest struct {
 	Model          string         `json:"model"`
 	Messages       []chatMessage  `json:"messages"`
 	ResponseFormat responseFormat `json:"response_format"`
+	Stream         bool           `json:"stream,omitempty"`
 }
 
 type chatMessage struct {
@@ -425,6 +430,7 @@ type apiError struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Code    string `json:"code"`
+	Param   string `json:"param"`
 }
 
 type statusError struct {
@@ -432,6 +438,7 @@ type statusError struct {
 	Message    string
 	Type       string
 	Code       string
+	Param      string
 }
 
 func (e *statusError) Error() string {

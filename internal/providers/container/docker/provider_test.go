@@ -87,6 +87,32 @@ func TestProviderRunCreatesSecureContainerCopiesOutputAndRemoves(t *testing.T) {
 	engine.assertCalls(t, "create", "start", "wait", "copy", "remove")
 }
 
+func TestProviderRunStreamingRelaysPreviewBeforeReturningValidatedOutput(t *testing.T) {
+	engine := newFakeEngine(tarArchive(t, "output.json", []byte(`{"summary":"ok"}`)))
+	engine.streamOutput = strings.Join([]string{
+		`{"schema_version":"container_stream.v1","generation_attempt":1,"sequence":1,"delta":"Need "}`,
+		`{"schema_version":"container_stream.v1","generation_attempt":1,"sequence":2,"delta":"evidence."}`,
+		"",
+	}, "\n")
+	provider := newTestProvider(t, engine)
+	var chunks []ports.ContainerStreamChunk
+
+	got, err := provider.RunStreaming(context.Background(), validRequest(), func(chunk ports.ContainerStreamChunk) error {
+		chunks = append(chunks, chunk)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("RunStreaming: %v", err)
+	}
+	if string(got.Output) != `{"summary":"ok"}` {
+		t.Fatalf("Output = %s", got.Output)
+	}
+	if len(chunks) != 2 || chunks[1].Text != "Need evidence." {
+		t.Fatalf("chunks = %#v", chunks)
+	}
+	engine.assertCalls(t, "create", "start", "wait", "copy", "remove")
+}
+
 func TestProviderRunInjectsShortLivedCredentialsIntoContainerEnv(t *testing.T) {
 	req := validRequest()
 	req.Credentials = []ports.ContainerCredential{{
@@ -722,6 +748,7 @@ type fakeEngine struct {
 	copyErr           error
 	logErr            error
 	logStream         io.ReadCloser
+	streamOutput      string
 	networkInspectErr error
 	networkName       string
 	networkInternal   bool
@@ -808,6 +835,16 @@ func (f *fakeEngine) ContainerCreate(_ context.Context, options dockerclient.Con
 
 func (f *fakeEngine) ContainerStart(context.Context, string, dockerclient.ContainerStartOptions) (dockerclient.ContainerStartResult, error) {
 	f.calls = append(f.calls, "start")
+	if f.streamOutput != "" {
+		for _, mount := range f.createOptions.HostConfig.Mounts {
+			if mount.Target != ports.SandboxOutputDir {
+				continue
+			}
+			if err := os.WriteFile(filepath.Join(mount.Source, filepath.Base(ports.SandboxStreamPath)), []byte(f.streamOutput), 0o600); err != nil {
+				f.t.Fatalf("write mounted stream: %v", err)
+			}
+		}
+	}
 	return dockerclient.ContainerStartResult{}, nil
 }
 

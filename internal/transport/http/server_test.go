@@ -33,6 +33,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomclose"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisstream"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosiswecomcallback"
 	"github.com/openclarion/openclarion/internal/usecases/directorysync"
 	"github.com/openclarion/openclarion/internal/usecases/notificationchannelcheck"
@@ -10333,6 +10334,108 @@ func TestDiagnosisWebSocketRelayReportsStillProcessingOnUpdateTimeout(t *testing
 	submitReq, submitCalled := workflowClient.submitSnapshot()
 	if submitCalled != 1 || submitReq.ActorSubject != "owner-1" {
 		t.Fatalf("submit calls=%d request=%+v", submitCalled, submitReq)
+	}
+}
+
+func TestDiagnosisWebSocketRelayStreamsPreviewThenReturnsAuthoritativeTurn(t *testing.T) {
+	now := time.Date(2026, 7, 11, 11, 0, 0, 0, time.UTC)
+	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("S", diagnosisauth.DefaultTokenBytes)))
+	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
+	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, session, now)
+	if err != nil {
+		t.Fatalf("IssueTicket: %v", err)
+	}
+	hub := diagnosisstream.NewHub()
+	workflowClient := &fakeDiagnosisRoomWorkflowClient{
+		submitResult: ports.DiagnosisRoomSubmitTurnResult{
+			SessionID:          "session-1",
+			MessageID:          "msg-1",
+			AssistantMessageID: "msg-1/assistant",
+			Status:             "open",
+			AssistantMessage:   "Validated final diagnosis.",
+			Confidence:         "high",
+		},
+		submitStarted: make(chan struct{}),
+		releaseSubmit: make(chan struct{}),
+	}
+	handler := testHandlerWithDiagnosisWS(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(&neverAuthProvider{}, service, &fakeDiagnosisSessionResolver{
+			sessions: map[string]diagnosisauth.SessionRef{"session-1": session},
+		}),
+		WithDiagnosisRoomWorkflowClient(
+			workflowClient,
+			WithDiagnosisTurnStreamSource(hub),
+			WithDiagnosisWebSocketUpdateTimeout(time.Second),
+		),
+		withDiagnosisClock(func() time.Time { return now.Add(time.Second) }),
+	)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/diagnosis?session_id=session-1&ticket=" + ticket.Token
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer closeWebSocketDialResponse(resp)
+	if err != nil {
+		t.Fatalf("Dial: %v; resp=%v", err, resp)
+	}
+	defer conn.Close()
+	var ready diagnosisWSReadyFrame
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("ReadJSON ready: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]string{
+		"type":       diagnosisWSClientSubmitTurn,
+		"message_id": "msg-1",
+		"message":    "Please investigate",
+	}); err != nil {
+		t.Fatalf("WriteJSON submit: %v", err)
+	}
+	select {
+	case <-workflowClient.submitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("SubmitDiagnosisTurn did not start")
+	}
+	hub.PublishDiagnosisTurnStream(ports.DiagnosisTurnStreamEvent{
+		Phase:              ports.DiagnosisTurnStreamStarted,
+		SessionID:          "session-1",
+		MessageID:          "msg-1",
+		AssistantMessageID: "msg-1/assistant",
+		ActivityAttempt:    1,
+	})
+	hub.PublishDiagnosisTurnStream(ports.DiagnosisTurnStreamEvent{
+		Phase:              ports.DiagnosisTurnStreamDelta,
+		SessionID:          "session-1",
+		MessageID:          "msg-1",
+		AssistantMessageID: "msg-1/assistant",
+		ActivityAttempt:    1,
+		GenerationAttempt:  1,
+		Sequence:           2,
+		AssistantMessage:   "Transient draft.",
+	})
+
+	var preview diagnosisWSTurnStreamFrame
+	for reads := 0; reads < 2; reads++ {
+		if err := conn.ReadJSON(&preview); err != nil {
+			t.Fatalf("ReadJSON preview: %v", err)
+		}
+		if preview.Phase == ports.DiagnosisTurnStreamDelta {
+			break
+		}
+	}
+	if preview.Type != diagnosisWSServerTurnStream || preview.Phase != ports.DiagnosisTurnStreamDelta || preview.AssistantMessage != "Transient draft." {
+		t.Fatalf("preview = %+v", preview)
+	}
+	close(workflowClient.releaseSubmit)
+	var result diagnosisWSTurnResultFrame
+	if err := conn.ReadJSON(&result); err != nil {
+		t.Fatalf("ReadJSON result: %v", err)
+	}
+	if result.Type != diagnosisWSServerTurnResult || result.AssistantMessage != "Validated final diagnosis." {
+		t.Fatalf("result = %+v", result)
 	}
 }
 
