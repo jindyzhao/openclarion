@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	temporalactivity "go.temporal.io/sdk/activity"
 	temporalsdk "go.temporal.io/sdk/temporal"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/openclarion/openclarion/internal/diagnosisquery"
 	"github.com/openclarion/openclarion/internal/domain"
@@ -39,6 +42,7 @@ type DiagnosisTurnActivityInput struct {
 	Message              string
 	SupplementalEvidence *DiagnosisRoomSupplementalEvidence
 	Policy               diagnosisroom.Policy
+	EnableStreaming      bool `json:"EnableStreaming,omitempty"`
 }
 
 // DiagnosisTurnActivityResult is the schema-validated assistant response
@@ -80,7 +84,45 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 	if err != nil {
 		return DiagnosisTurnActivityResult{}, mapActivityError(err, "run-diagnosis-turn request")
 	}
-	result, err := a.containerProvider.Run(ctx, containerReq)
+	activityAttempt := 1
+	if temporalactivity.IsActivity(ctx) {
+		activityAttempt = int(temporalactivity.GetInfo(ctx).Attempt)
+	}
+	heartbeats := newDiagnosisTurnStreamHeartbeats(ctx, req.EnableStreaming, activityAttempt)
+	defer heartbeats.Stop()
+	if req.EnableStreaming {
+		a.publishDiagnosisTurnStream(ports.DiagnosisTurnStreamEvent{
+			Phase:              ports.DiagnosisTurnStreamStarted,
+			SessionID:          req.SessionID,
+			MessageID:          req.MessageID,
+			AssistantMessageID: assistantMessageID(req.MessageID),
+			ActivityAttempt:    activityAttempt,
+		})
+	}
+
+	var result ports.ContainerRunResult
+	streamingProvider, supportsStreaming := a.containerProvider.(ports.StreamingContainerProvider)
+	if req.EnableStreaming && supportsStreaming {
+		result, err = streamingProvider.RunStreaming(ctx, containerReq, func(chunk ports.ContainerStreamChunk) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			heartbeats.Update(chunk)
+			a.publishDiagnosisTurnStream(ports.DiagnosisTurnStreamEvent{
+				Phase:              ports.DiagnosisTurnStreamDelta,
+				SessionID:          req.SessionID,
+				MessageID:          req.MessageID,
+				AssistantMessageID: assistantMessageID(req.MessageID),
+				ActivityAttempt:    activityAttempt,
+				GenerationAttempt:  chunk.GenerationAttempt,
+				Sequence:           chunk.Sequence,
+				AssistantMessage:   chunk.Text,
+			})
+			return nil
+		})
+	} else {
+		result, err = a.containerProvider.Run(ctx, containerReq)
+	}
 	if err != nil {
 		var exitErr *ports.ContainerExitError
 		if errors.As(err, &exitErr) {
@@ -131,6 +173,101 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 		Confidence:          output.Confidence,
 		Insight:             output.Insight(),
 	}, nil
+}
+
+func (a *Activities) publishDiagnosisTurnStream(event ports.DiagnosisTurnStreamEvent) {
+	if a != nil && a.diagnosisTurnStreamSink != nil {
+		a.diagnosisTurnStreamSink.PublishDiagnosisTurnStream(event)
+	}
+}
+
+type diagnosisTurnStreamHeartbeatDetails struct {
+	ActivityAttempt   int    `json:"activity_attempt"`
+	GenerationAttempt int    `json:"generation_attempt"`
+	Sequence          int    `json:"sequence"`
+	AssistantBytes    int    `json:"assistant_bytes"`
+	AssistantSHA256   string `json:"assistant_sha256,omitempty"`
+}
+
+type diagnosisTurnStreamHeartbeats struct {
+	ctx     context.Context
+	enabled bool
+	mu      sync.Mutex
+	details diagnosisTurnStreamHeartbeatDetails
+	stop    chan struct{}
+	once    sync.Once
+	group   errgroup.Group
+}
+
+func newDiagnosisTurnStreamHeartbeats(ctx context.Context, enabled bool, activityAttempt int) *diagnosisTurnStreamHeartbeats {
+	h := &diagnosisTurnStreamHeartbeats{
+		ctx:     ctx,
+		details: diagnosisTurnStreamHeartbeatDetails{ActivityAttempt: activityAttempt},
+	}
+	if !enabled || !temporalactivity.IsActivity(ctx) {
+		return h
+	}
+	heartbeatTimeout := temporalactivity.GetInfo(ctx).HeartbeatTimeout
+	if heartbeatTimeout <= 0 {
+		return h
+	}
+	interval := heartbeatTimeout / 2
+	if interval <= 0 {
+		interval = heartbeatTimeout
+	}
+	if interval > 10*time.Second {
+		interval = 10 * time.Second
+	}
+	h.enabled = true
+	h.stop = make(chan struct{})
+	h.record()
+	h.group.Go(func() error {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				h.record()
+			case <-h.stop:
+				return nil
+			case <-ctx.Done():
+				return nil
+			}
+		}
+	})
+	return h
+}
+
+func (h *diagnosisTurnStreamHeartbeats) Update(chunk ports.ContainerStreamChunk) {
+	if h == nil || !h.enabled {
+		return
+	}
+	digest := sha256.Sum256([]byte(chunk.Text))
+	h.mu.Lock()
+	h.details.GenerationAttempt = chunk.GenerationAttempt
+	h.details.Sequence = chunk.Sequence
+	h.details.AssistantBytes = len([]byte(chunk.Text))
+	h.details.AssistantSHA256 = hex.EncodeToString(digest[:])
+	h.mu.Unlock()
+	h.record()
+}
+
+func (h *diagnosisTurnStreamHeartbeats) record() {
+	if h == nil || !h.enabled {
+		return
+	}
+	h.mu.Lock()
+	details := h.details
+	h.mu.Unlock()
+	temporalactivity.RecordHeartbeat(h.ctx, details)
+}
+
+func (h *diagnosisTurnStreamHeartbeats) Stop() {
+	if h == nil || !h.enabled {
+		return
+	}
+	h.once.Do(func() { close(h.stop) })
+	_ = h.group.Wait()
 }
 
 func parseDiagnosisTurnActivityOutput(

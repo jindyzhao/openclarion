@@ -3,7 +3,10 @@
 > Realises the per-turn container invocation contract from
 > [ADR-0013](../../adr/ADR-0013-per-turn-container-invocation.md). All
 > per-turn lifecycle, isolation, and budget rules below derive from
-> that ADR; conflicts must be resolved in favour of the ADR.
+> that ADR; conflicts must be resolved in favour of the ADR. Transient preview
+> delivery is an optional provider capability under
+> [ADR-0003](../../adr/ADR-0003-provider-extension-interfaces.md) and does not
+> alter the authoritative `output.json` contract.
 
 ## Status
 
@@ -89,6 +92,8 @@ Go Control Plane
                     })
                     -> container reads agent_config/ for role/skills/tools
                     -> agent reasons within single invocation
+                    -> optionally appends semantic message previews to
+                       /workspace/out/stream.ndjson
                     -> writes /workspace/out/output.json
                     -> Go validates + persists ChatTurn
     |
@@ -98,6 +103,7 @@ Docker Sandbox (ContainerProvider, from M4)
     |-- /workspace/conversation.json  (readonly, all previous turns)
     |-- /workspace/message.json       (readonly, latest user message)
     |-- /workspace/agent_config/      (readonly, from agents/diagnosis-assistant/)
+    |-- /workspace/out/stream.ndjson  (optional bounded transient preview)
     |-- /workspace/out/output.json    (agent writes response here, writable capped output mount)
     |-- timeout: turn-level (e.g. 2 min) + session-level ceiling
     |-- cleanup: deterministic after each turn
@@ -170,6 +176,9 @@ owns the M5 room state machine through `DiagnosisRoomWorkflow`:
 - accepted Updates call `RunDiagnosisTurn`, which mounts the frozen evidence,
   prior conversation, and latest user message into `ContainerProvider.Run`
   with network-none defaults and a policy-derived turn timeout
+- new workflow histories enable the optional streaming provider extension via
+  a Temporal version marker; Activity heartbeats report only bounded progress
+  metadata and preview text remains outside Workflow history and persistence
 - sandbox output is accepted only after the V1 diagnosis-turn JSON Schema
   validates
 - accepted user and assistant turns are persisted through
@@ -216,11 +225,15 @@ persistence, lifecycle audit, and final close-notification Activity boundary.
 
 - an authenticated connection receives a `ready` frame after ticket consumption
 - `submit_turn` frames call `ports.DiagnosisRoomWorkflowClient.SubmitDiagnosisTurn`
-  and return a `turn_result` frame
+  and return a `turn_result` frame; while the Update runs, validated transient
+  snapshots may arrive as `turn_stream` frames
 - `query_state` frames call `ports.DiagnosisRoomWorkflowClient.QueryDiagnosisRoom`
   and return a `state` frame for reconnect/read flows
 - submit-turn waits use a bounded context decoupled from WebSocket disconnects;
   on timeout the client receives an `error` frame with `turn_still_processing`
+- the process-local preview hub keeps one latest snapshot per subscriber, so a
+  slow or disconnected browser cannot backpressure the Activity; reconnect
+  recovery still comes from Temporal Query and persisted turns
 
 `internal/orchestrator/temporal/diagnosis_room_client.go` is the Temporal
 adapter behind that port. It uses `UpdateWorkflow` with
@@ -236,6 +249,8 @@ browser entry point. It delegates the ticket/bootstrap/transcript UI to
 - ticket issuance uses the generated OpenAPI TypeScript contract for
   `POST /api/v1/diagnosis/ws-ticket`
 - non-OpenAPI WebSocket frame types stay local to the diagnosis-room feature
+- transient `turn_stream` snapshots render as a replaceable assistant draft;
+  Activity/model retries reset the draft and `turn_result` replaces it
 - the route smoke runs against a mocked API/WebSocket endpoint and proves
   `ready`, `state`, `submit_turn`, and `turn_result` in a production Next.js
   server

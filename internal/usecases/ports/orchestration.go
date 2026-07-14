@@ -8,6 +8,41 @@ import (
 	"github.com/openclarion/openclarion/internal/domain"
 )
 
+// DiagnosisTurnStreamPhase identifies a transient, non-durable preview event.
+type DiagnosisTurnStreamPhase string
+
+const (
+	// DiagnosisTurnStreamStarted resets transient preview state for one Activity attempt.
+	DiagnosisTurnStreamStarted DiagnosisTurnStreamPhase = "started"
+	// DiagnosisTurnStreamDelta replaces the preview with a validated text snapshot.
+	DiagnosisTurnStreamDelta DiagnosisTurnStreamPhase = "delta"
+)
+
+// DiagnosisTurnStreamEvent is an in-process preview snapshot. It intentionally
+// stays outside Workflow state and persistence; the validated turn_result is
+// the only authoritative assistant response.
+type DiagnosisTurnStreamEvent struct {
+	Phase              DiagnosisTurnStreamPhase
+	SessionID          string
+	MessageID          string
+	AssistantMessageID string
+	ActivityAttempt    int
+	GenerationAttempt  int
+	Sequence           int
+	AssistantMessage   string
+}
+
+// DiagnosisTurnStreamSink accepts transient preview snapshots from Activities.
+type DiagnosisTurnStreamSink interface {
+	PublishDiagnosisTurnStream(DiagnosisTurnStreamEvent)
+}
+
+// DiagnosisTurnStreamSource subscribes a WebSocket relay before it starts the
+// corresponding Workflow Update. cancel must always be called by the relay.
+type DiagnosisTurnStreamSource interface {
+	SubscribeDiagnosisTurnStream(sessionID, messageID string) (<-chan DiagnosisTurnStreamEvent, func())
+}
+
 // ReportBatchStartItem identifies one EvidenceSnapshot to include in
 // a report batch workflow.
 type ReportBatchStartItem struct {

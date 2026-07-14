@@ -27,6 +27,7 @@ type Activities struct {
 	imProvider                   ports.IMProvider
 	notificationProviderResolver ports.NotificationChannelProviderResolver
 	containerProvider            ports.ContainerProvider
+	diagnosisTurnStreamSink      ports.DiagnosisTurnStreamSink
 	containerCredentials         []ContainerCredentialTemplate
 	containerNetwork             ports.ContainerNetworkPolicy
 	alertSourceProviders         *alertsourceprovider.Builder
@@ -76,6 +77,14 @@ func WithNotificationChannelProviderResolver(resolver ports.NotificationChannelP
 func WithContainerProvider(provider ports.ContainerProvider) ActivityOption {
 	return func(a *Activities) {
 		a.containerProvider = provider
+	}
+}
+
+// WithDiagnosisTurnStreamSink enables transient diagnosis previews for the
+// co-located HTTP/worker runtime. It does not affect durable Workflow state.
+func WithDiagnosisTurnStreamSink(sink ports.DiagnosisTurnStreamSink) ActivityOption {
+	return func(a *Activities) {
+		a.diagnosisTurnStreamSink = sink
 	}
 }
 

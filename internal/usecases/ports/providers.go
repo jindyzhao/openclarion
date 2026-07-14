@@ -452,6 +452,24 @@ type LLMProvider interface {
 	GenerateJSON(ctx context.Context, req LLMRequest) (LLMResponse, error)
 }
 
+// LLMStreamDelta is one ordered raw structured-output content delta. Callers
+// must not persist or present it directly without applying their own semantic
+// projection; the final LLMResponse still requires normal schema validation.
+type LLMStreamDelta struct {
+	Sequence int
+	Delta    string
+}
+
+// LLMStreamHandler receives ordered content deltas while generation is active.
+type LLMStreamHandler func(LLMStreamDelta) error
+
+// StreamingLLMProvider is an optional extension for OpenAI-compatible
+// providers that support server-sent Chat Completions chunks.
+type StreamingLLMProvider interface {
+	LLMProvider
+	GenerateJSONStreaming(ctx context.Context, req LLMRequest, onDelta LLMStreamHandler) (LLMResponse, error)
+}
+
 // IMNotification is the provider-neutral outbound notification DTO.
 // Workflows own persistence and ordering; IM providers only deliver
 // already-accepted operator-facing messages.

@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/gorilla/websocket"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/strictjson"
@@ -25,12 +27,14 @@ const (
 	diagnosisWSClientConfirm                    = "confirm_conclusion"
 
 	diagnosisWSServerReady      = "ready"
+	diagnosisWSServerTurnStream = "turn_stream"
 	diagnosisWSServerTurnResult = "turn_result"
 	diagnosisWSServerState      = "state"
 	diagnosisWSServerError      = "error"
 
 	defaultDiagnosisWSUpdateTimeout = diagnosisroom.HardMaxTurnTimeout * (diagnosisroom.HardMaxAutoEvidenceFollowUps + 1)
 	defaultDiagnosisWSQueryTimeout  = 10 * time.Second
+	defaultDiagnosisWSWriteTimeout  = 10 * time.Second
 	diagnosisWSReadLimitSlop        = 4096
 )
 
@@ -75,11 +79,22 @@ func withDiagnosisWebSocketFrameAuthorizer(authorizer diagnosisWebSocketFrameAut
 	}
 }
 
+// WithDiagnosisTurnStreamSource enables best-effort transient assistant
+// previews while a submit-turn Workflow Update is still running.
+func WithDiagnosisTurnStreamSource(source ports.DiagnosisTurnStreamSource) DiagnosisWebSocketRelayOption {
+	return func(r *DiagnosisWebSocketRelay) {
+		if source != nil {
+			r.streamSource = source
+		}
+	}
+}
+
 // DiagnosisWebSocketRelay forwards authenticated WebSocket frames to the
 // diagnosis-room workflow Update/Query boundary.
 type DiagnosisWebSocketRelay struct {
 	workflows       ports.DiagnosisRoomWorkflowClient
 	frameAuthorizer diagnosisWebSocketFrameAuthorizer
+	streamSource    ports.DiagnosisTurnStreamSource
 	updateTimeout   time.Duration
 	queryTimeout    time.Duration
 }
@@ -188,17 +203,57 @@ func diagnosisWSFramePermission(frameType string) (domain.RBACPermission, bool) 
 
 func (r *DiagnosisWebSocketRelay) handleSubmitTurn(ctx context.Context, conn *websocket.Conn, ticket diagnosisauth.Ticket, frame diagnosisWSClientFrame) error {
 	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.updateTimeout)
-	defer cancel()
-	result, err := r.workflows.SubmitDiagnosisTurn(updateCtx, ports.DiagnosisRoomSubmitTurnRequest{
-		SessionID:            ticket.SessionID,
-		MessageID:            frame.MessageID,
-		ActorSubject:         ticket.Subject,
-		Message:              frame.Message,
-		SupplementalEvidence: diagnosisWSSupplementalEvidencePort(frame.SupplementalEvidence),
-	})
-	if err != nil {
-		return writeDiagnosisWSError(conn, err)
+	var updateGroup errgroup.Group
+	defer func() { _ = updateGroup.Wait() }()
+
+	var stream <-chan ports.DiagnosisTurnStreamEvent
+	cancelStream := func() {}
+	if r.streamSource != nil {
+		stream, cancelStream = r.streamSource.SubscribeDiagnosisTurnStream(ticket.SessionID, frame.MessageID)
 	}
+	defer cancelStream()
+
+	type updateOutcome struct {
+		result ports.DiagnosisRoomSubmitTurnResult
+		err    error
+	}
+	outcomes := make(chan updateOutcome, 1)
+	updateGroup.Go(func() error {
+		defer cancel()
+		result, err := r.workflows.SubmitDiagnosisTurn(updateCtx, ports.DiagnosisRoomSubmitTurnRequest{
+			SessionID:            ticket.SessionID,
+			MessageID:            frame.MessageID,
+			ActorSubject:         ticket.Subject,
+			Message:              frame.Message,
+			SupplementalEvidence: diagnosisWSSupplementalEvidencePort(frame.SupplementalEvidence),
+		})
+		outcomes <- updateOutcome{result: result, err: err}
+		return nil
+	})
+
+	for {
+		select {
+		case event, ok := <-stream:
+			if !ok {
+				stream = nil
+				continue
+			}
+			preview, ok := diagnosisWSTurnStreamFrameFromEvent(ticket.SessionID, frame.MessageID, event)
+			if ok {
+				if err := writeDiagnosisWSJSON(conn, preview); err != nil {
+					return err
+				}
+			}
+		case outcome := <-outcomes:
+			if outcome.err != nil {
+				return writeDiagnosisWSError(conn, outcome.err)
+			}
+			return writeDiagnosisWSTurnResult(conn, outcome.result, ticket.Subject)
+		}
+	}
+}
+
+func writeDiagnosisWSTurnResult(conn *websocket.Conn, result ports.DiagnosisRoomSubmitTurnResult, actorSubject string) error {
 	return writeDiagnosisWSJSON(conn, diagnosisWSTurnResultFrame{
 		Type:                diagnosisWSServerTurnResult,
 		SessionID:           result.SessionID,
@@ -217,12 +272,54 @@ func (r *DiagnosisWebSocketRelay) handleSubmitTurn(ctx context.Context, conn *we
 		Confidence:          result.Confidence,
 		EvidenceRequests:    diagnosisWSEvidenceRequests(result.EvidenceRequests),
 		CollectionResults:   diagnosisWSEvidenceCollectionResults(result.CollectionResults),
-		EvidenceTimeline:    diagnosisWSEvidenceTimelineFromTurnResult(result, ticket.Subject),
+		EvidenceTimeline:    diagnosisWSEvidenceTimelineFromTurnResult(result, actorSubject),
 		ConfidenceTimeline:  diagnosisWSConfidenceTimeline(result.ConfidenceTimeline),
 		ConsultationInsight: diagnosisWSConsultationInsightFrame(result.ConsultationInsight),
 		FollowUpTurns:       diagnosisWSFollowUpTurns(result.FollowUpTurns),
 		LatestError:         diagnosisWSLatestErrorFrame(result.LatestError),
 	})
+}
+
+func diagnosisWSTurnStreamFrameFromEvent(
+	sessionID string,
+	messageID string,
+	event ports.DiagnosisTurnStreamEvent,
+) (diagnosisWSTurnStreamFrame, bool) {
+	if event.SessionID != sessionID || event.MessageID != messageID || event.ActivityAttempt <= 0 {
+		return diagnosisWSTurnStreamFrame{}, false
+	}
+	if strings.TrimSpace(event.AssistantMessageID) == "" ||
+		strings.TrimSpace(event.AssistantMessageID) != event.AssistantMessageID ||
+		!utf8.ValidString(event.AssistantMessageID) ||
+		len([]byte(event.AssistantMessageID)) > diagnosisroom.HardMaxMessageBytes {
+		return diagnosisWSTurnStreamFrame{}, false
+	}
+	if !utf8.ValidString(event.AssistantMessage) || len([]byte(event.AssistantMessage)) > ports.MaxContainerStreamTextBytes {
+		return diagnosisWSTurnStreamFrame{}, false
+	}
+	switch event.Phase {
+	case ports.DiagnosisTurnStreamStarted:
+		if event.GenerationAttempt != 0 || event.Sequence != 0 || event.AssistantMessage != "" {
+			return diagnosisWSTurnStreamFrame{}, false
+		}
+	case ports.DiagnosisTurnStreamDelta:
+		if event.GenerationAttempt <= 0 || event.Sequence <= 0 || event.AssistantMessage == "" {
+			return diagnosisWSTurnStreamFrame{}, false
+		}
+	default:
+		return diagnosisWSTurnStreamFrame{}, false
+	}
+	return diagnosisWSTurnStreamFrame{
+		Type:               diagnosisWSServerTurnStream,
+		Phase:              event.Phase,
+		SessionID:          event.SessionID,
+		MessageID:          event.MessageID,
+		AssistantMessageID: event.AssistantMessageID,
+		ActivityAttempt:    event.ActivityAttempt,
+		GenerationAttempt:  event.GenerationAttempt,
+		Sequence:           event.Sequence,
+		AssistantMessage:   event.AssistantMessage,
+	}, true
 }
 
 func (r *DiagnosisWebSocketRelay) handleCollectEvidence(ctx context.Context, conn *websocket.Conn, ticket diagnosisauth.Ticket, frame diagnosisWSClientFrame) error {
@@ -899,6 +996,9 @@ func diagnosisWSSupplementalEvidenceRecords(
 }
 
 func writeDiagnosisWSJSON(conn *websocket.Conn, value interface{}) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(defaultDiagnosisWSWriteTimeout)); err != nil {
+		return err
+	}
 	if err := conn.WriteJSON(value); err != nil {
 		return err
 	}
@@ -940,6 +1040,18 @@ type diagnosisWSReadyFrame struct {
 	Type      string `json:"type"`
 	SessionID string `json:"session_id"`
 	Subject   string `json:"subject"`
+}
+
+type diagnosisWSTurnStreamFrame struct {
+	Type               string                         `json:"type"`
+	Phase              ports.DiagnosisTurnStreamPhase `json:"phase"`
+	SessionID          string                         `json:"session_id"`
+	MessageID          string                         `json:"message_id"`
+	AssistantMessageID string                         `json:"assistant_message_id"`
+	ActivityAttempt    int                            `json:"activity_attempt"`
+	GenerationAttempt  int                            `json:"generation_attempt"`
+	Sequence           int                            `json:"sequence"`
+	AssistantMessage   string                         `json:"assistant_message"`
 }
 
 type diagnosisWSTurnResultFrame struct {

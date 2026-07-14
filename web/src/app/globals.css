@@ -2369,6 +2369,10 @@ textarea {
   justify-self: start;
 }
 
+.diagnosis-turn-preview {
+  border-style: dashed;
+}
+
 .diagnosis-turn-role {
   color: var(--text-muted);
   font-size: 12px;

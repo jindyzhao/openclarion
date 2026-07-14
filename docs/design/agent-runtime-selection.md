@@ -3,7 +3,7 @@
 ## Status
 
 M4 decision gate and selected M5 runner implementation. Last reviewed:
-2026-07-13.
+2026-07-14.
 
 ## Purpose
 
@@ -39,7 +39,7 @@ M4/M5 baseline:
 |------|-------------|
 | Invocation | one short-lived container invocation per M4 group or M5 turn |
 | Input | reads `/workspace/evidence.json`, optional `/workspace/conversation.json`, optional `/workspace/message.json`, and opaque `/workspace/agent_config/` |
-| Output | writes only `/workspace/out/output.json`; stdout/stderr are diagnostic only |
+| Output | writes authoritative `/workspace/out/output.json` and may append bounded semantic previews to `/workspace/out/stream.ndjson`; stdout/stderr are diagnostic only |
 | Validation | output is valid JSON and passes the caller-owned JSON Schema before persistence |
 | State | durable state stays in PostgreSQL/Temporal; candidate-local memory is disabled or confined to invocation-scoped tmpfs for V1 |
 | Filesystem | non-root user, readonly rootfs, readonly input mounts, writable capped output mount only at `/workspace/out` |
@@ -48,10 +48,16 @@ M4/M5 baseline:
 | Lifecycle | honors SIGTERM, exits within the timeout, and is always cleaned up on success, failure, and cancellation |
 | Tool policy | tool execution is deny-by-default; write/edit/browser/host gateway tools are unavailable unless explicitly accepted by a future ADR/update |
 
+`stream.ndjson` is a capability-negotiated concrete-provider extension under
+[ADR-0003](../adr/ADR-0003-provider-extension-interfaces.md), not a required
+runtime interoperability artifact. Runtimes that implement only the
+ADR-0013 contract continue through `ContainerProvider.Run`; the preview is
+never accepted as turn output or persisted.
+
 ## Candidate Examples
 
 These notes began with the 2026-05-28 Context7 review. Eino was reviewed again
-through Context7 and the pinned `v0.9.12` source on 2026-07-13. New candidates
+through Context7 and the pinned `v0.9.12` source on 2026-07-14. New candidates
 can be evaluated by adding evidence without changing the control-plane
 contract.
 
@@ -91,9 +97,12 @@ decision packet and representative direct-versus-sandbox evidence.
 mounted evidence, prior transcript, and latest user message into one Eino
 ChatModelAgent invocation. It uses the existing OpenAI-compatible provider,
 strict diagnosis schema, idempotency key, and bounded validation retry, then
-writes only schema-valid `/workspace/out/output.json`. Application-owned retry
-feedback is merged into the system instructions, so the latest operator turn
-remains the language anchor after a validation failure.
+writes schema-valid `/workspace/out/output.json`. When streaming is enabled,
+the runner projects only the growing structured `message` property into a
+bounded NDJSON preview file; raw model JSON is never sent to the browser, and
+preview failure does not bypass final schema validation. Application-owned
+retry feedback is merged into the system instructions, so the latest operator
+turn remains the language anchor after a validation failure.
 
 V1 registers no Eino tools, framework persistence, multi-agent router, or
 custom Agent loop. Inputs are direct regular files with explicit size limits;
@@ -120,8 +129,9 @@ seconds and accepts an explicit value from 1 to 120 seconds through
 ID is rejected when its container name or local image tag already exists, and
 cleanup removes only Docker resources created by the current invocation. A
 repo-local digest-ref output must be ignored and cannot overlap a tracked path.
-ContainerProvider, Temporal, WebSocket, and browser integration
-remain separate follow-up concerns and are not claimed by this runner batch.
+The control plane tails the optional preview through the existing writable
+output bind mount. Temporal heartbeats contain only byte counts and a digest,
+while the validated `output.json` remains the sole persisted assistant result.
 
 ## Manual Smoke Harness
 

@@ -49,7 +49,10 @@ type Provider struct {
 	httpClient *http.Client
 }
 
-var _ ports.LLMProvider = (*Provider)(nil)
+var (
+	_ ports.LLMProvider          = (*Provider)(nil)
+	_ ports.StreamingLLMProvider = (*Provider)(nil)
+)
 
 // NewProvider constructs a Provider with an explicit output mode.
 // Use NewProviderWithCapabilityDetection when the caller wants to
@@ -384,6 +387,7 @@ type chatCompletionRequest struct {
 	Model          string         `json:"model"`
 	Messages       []chatMessage  `json:"messages"`
 	ResponseFormat responseFormat `json:"response_format"`
+	Stream         bool           `json:"stream,omitempty"`
 }
 
 type chatMessage struct {

@@ -13,8 +13,9 @@ import (
 
 // Result is one scripted sandbox outcome.
 type Result struct {
-	Run ports.ContainerRunResult
-	Err error
+	Run    ports.ContainerRunResult
+	Stream []ports.ContainerStreamChunk
+	Err    error
 }
 
 // Provider is a deterministic, concurrency-safe ContainerProvider.
@@ -28,7 +29,10 @@ type Provider struct {
 	requests map[string][]ports.ContainerRunRequest
 }
 
-var _ ports.ContainerProvider = (*Provider)(nil)
+var (
+	_ ports.ContainerProvider          = (*Provider)(nil)
+	_ ports.StreamingContainerProvider = (*Provider)(nil)
+)
 
 // New constructs a Provider from scripts keyed by
 // ports.ContainerRunRequest.InvocationID. Scripts are deep-copied so
@@ -43,6 +47,27 @@ func New(scripts map[string][]Result) *Provider {
 
 // Run records req and returns the next scripted Result for req.InvocationID.
 func (p *Provider) Run(ctx context.Context, req ports.ContainerRunRequest) (ports.ContainerRunResult, error) {
+	return p.run(ctx, req, nil)
+}
+
+// RunStreaming emits the scripted preview before returning the same validated
+// final result as Run.
+func (p *Provider) RunStreaming(
+	ctx context.Context,
+	req ports.ContainerRunRequest,
+	onChunk ports.ContainerStreamHandler,
+) (ports.ContainerRunResult, error) {
+	if onChunk == nil {
+		return ports.ContainerRunResult{}, fmt.Errorf("fake container: stream callback is required")
+	}
+	return p.run(ctx, req, onChunk)
+}
+
+func (p *Provider) run(
+	ctx context.Context,
+	req ports.ContainerRunRequest,
+	onChunk ports.ContainerStreamHandler,
+) (ports.ContainerRunResult, error) {
 	if err := ctx.Err(); err != nil {
 		return ports.ContainerRunResult{}, err
 	}
@@ -51,10 +76,9 @@ func (p *Provider) Run(ctx context.Context, req ports.ContainerRunRequest) (port
 	}
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	script, ok := p.scripts[req.InvocationID]
 	if !ok || len(script) == 0 {
+		p.mu.Unlock()
 		return ports.ContainerRunResult{}, fmt.Errorf("fake container: no script for invocation id %q", req.InvocationID)
 	}
 	p.requests[req.InvocationID] = append(p.requests[req.InvocationID], cloneRequest(req))
@@ -65,11 +89,26 @@ func (p *Provider) Run(ctx context.Context, req ports.ContainerRunRequest) (port
 		call = len(script) - 1
 	}
 
-	result := script[call]
+	result := Result{
+		Run:    cloneRunResult(script[call].Run),
+		Stream: cloneStreamChunks(script[call].Stream),
+		Err:    script[call].Err,
+	}
+	p.mu.Unlock()
 	if result.Err != nil {
 		return ports.ContainerRunResult{}, result.Err
 	}
-	out := cloneRunResult(result.Run)
+	for _, chunk := range result.Stream {
+		if err := ctx.Err(); err != nil {
+			return ports.ContainerRunResult{}, err
+		}
+		if onChunk != nil {
+			if err := onChunk(chunk); err != nil {
+				return ports.ContainerRunResult{}, fmt.Errorf("fake container: stream callback: %w", err)
+			}
+		}
+	}
+	out := result.Run
 	if err := ports.ValidateContainerRunResult(req, out); err != nil {
 		return ports.ContainerRunResult{}, fmt.Errorf("fake container: invalid scripted result for invocation id %q: %w", req.InvocationID, err)
 	}
@@ -111,12 +150,22 @@ func cloneScripts(in map[string][]Result) map[string][]Result {
 		copied := make([]Result, len(script))
 		for i, result := range script {
 			copied[i] = Result{
-				Run: cloneRunResult(result.Run),
-				Err: result.Err,
+				Run:    cloneRunResult(result.Run),
+				Stream: cloneStreamChunks(result.Stream),
+				Err:    result.Err,
 			}
 		}
 		out[key] = copied
 	}
+	return out
+}
+
+func cloneStreamChunks(in []ports.ContainerStreamChunk) []ports.ContainerStreamChunk {
+	if in == nil {
+		return nil
+	}
+	out := make([]ports.ContainerStreamChunk, len(in))
+	copy(out, in)
 	return out
 }
 

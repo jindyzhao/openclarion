@@ -61,6 +61,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisnotification"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomclose"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisstream"
 	"github.com/openclarion/openclarion/internal/usecases/directorysync"
 	"github.com/openclarion/openclarion/internal/usecases/notificationchannelcheck"
 	"github.com/openclarion/openclarion/internal/usecases/notificationchannelprovider"
@@ -335,6 +336,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 
+	diagnosisStreamHub := diagnosisstream.NewHub()
 	activityOptions, err := reportActivityOptionsFromEnv(ctx, logger, os.Getenv, uowFactory, reportStarter, diagnosisRoomStarter, httpTracing)
 	if err != nil {
 		return err
@@ -350,6 +352,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	activityOptions = append(activityOptions, diagnosisActivityOptions...)
+	activityOptions = append(activityOptions, temporalpkg.WithDiagnosisTurnStreamSink(diagnosisStreamHub))
 	w, err := temporalpkg.NewWorkerWithTaskQueue(tc, uowFactory, temporalTaskQueue, activityOptions...)
 	if err != nil {
 		return err
@@ -379,7 +382,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("configure diagnosis WebSocket ticket store: %w", err)
 	}
-	serverOptions, originPolicy, err := httpServerOptionsFromEnv(logger, os.Getenv, uowFactory, reportStarter, diagnosisRoomClient, diagnosisRoomStarter, ticketStore, scheduleRegistrar, httpTracing)
+	serverOptions, originPolicy, err := httpServerOptionsFromEnv(logger, os.Getenv, uowFactory, reportStarter, diagnosisRoomClient, diagnosisRoomStarter, ticketStore, scheduleRegistrar, httpTracing, diagnosisStreamHub)
 	if err != nil {
 		return err
 	}
@@ -950,6 +953,7 @@ func httpServerOptionsFromEnv(
 	diagnosisTickets diagnosisauth.Store,
 	scheduleSyncer transporthttp.ReportWorkflowScheduleSynchronizer,
 	httpTracing *observabilitytracing.HTTPTracing,
+	diagnosisStreamSources ...ports.DiagnosisTurnStreamSource,
 ) ([]transporthttp.ServerOption, *browserOriginPolicy, error) {
 	var opts []transporthttp.ServerOption
 	originPolicy, err := browserOriginPolicyFromEnv(getenv)
@@ -1179,6 +1183,7 @@ func httpServerOptionsFromEnv(
 		diagnosisTickets,
 		originPolicy,
 		httpTracing,
+		diagnosisStreamSources...,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1470,6 +1475,7 @@ func diagnosisServerOptionsFromEnv(
 	tickets diagnosisauth.Store,
 	originPolicy *browserOriginPolicy,
 	httpTracing *observabilitytracing.HTTPTracing,
+	streamSources ...ports.DiagnosisTurnStreamSource,
 ) ([]transporthttp.ServerOption, error) {
 	authProvider, authProviderName, err := diagnosisAuthProviderFromEnv(getenv, httpTracing)
 	if err != nil {
@@ -1511,10 +1517,14 @@ func diagnosisServerOptionsFromEnv(
 	if err != nil {
 		return nil, fmt.Errorf("configure diagnosis room starter service: %w", err)
 	}
+	var relayOptions []transporthttp.DiagnosisWebSocketRelayOption
+	if len(streamSources) > 0 && streamSources[0] != nil {
+		relayOptions = append(relayOptions, transporthttp.WithDiagnosisTurnStreamSource(streamSources[0]))
+	}
 	opts := []transporthttp.ServerOption{
 		transporthttp.WithDiagnosisAuth(authProvider, ticketService, diagnosisChatSessionResolver{uowFactory: uowFactory}, authProviderNames...),
 		transporthttp.WithDiagnosisRoomStarter(roomStartService),
-		transporthttp.WithDiagnosisRoomWorkflowClient(workflows),
+		transporthttp.WithDiagnosisRoomWorkflowClient(workflows, relayOptions...),
 	}
 	if sessionIssuer != nil {
 		opts = append(opts, transporthttp.WithDiagnosisAuthSessionIssuer(sessionIssuer))

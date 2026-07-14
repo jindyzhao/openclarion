@@ -30,6 +30,17 @@ const (
 	SandboxOutputDir = "/workspace/out"
 	// SandboxOutputPath is the structured response file read by the Go control plane.
 	SandboxOutputPath = "/workspace/out/output.json"
+	// SandboxStreamPath is the optional best-effort NDJSON preview stream. It is
+	// never persisted and never replaces schema validation of SandboxOutputPath.
+	SandboxStreamPath = "/workspace/out/stream.ndjson"
+	// ContainerStreamSchemaVersion identifies one preview stream record.
+	ContainerStreamSchemaVersion = "container_stream.v1"
+	// MaxContainerStreamDeltaBytes bounds one semantic assistant-message delta.
+	MaxContainerStreamDeltaBytes = 16 * 1024
+	// MaxContainerStreamTextBytes bounds the accumulated transient preview.
+	MaxContainerStreamTextBytes = 128 * 1024
+	// MaxContainerStreamFileBytes bounds protocol overhead in stream.ndjson.
+	MaxContainerStreamFileBytes = 512 * 1024
 	// ContainerEgressProxyReadinessPath verifies the live proxy configuration.
 	ContainerEgressProxyReadinessPath = "/readyz"
 	// ContainerEgressProxyReadinessFingerprintHeader carries the expected
@@ -110,6 +121,20 @@ type ContainerRunResult struct {
 	RuntimeID    string
 }
 
+// ContainerStreamChunk is one validated semantic assistant-message snapshot
+// from an optional sandbox preview stream. Sequence restarts at one whenever
+// a visible preview generation replaces an earlier draft.
+type ContainerStreamChunk struct {
+	GenerationAttempt int    `json:"generation_attempt"`
+	Sequence          int    `json:"sequence"`
+	Delta             string `json:"delta"`
+	Text              string `json:"-"`
+}
+
+// ContainerStreamHandler receives ordered chunks while a container is still
+// running. The callback must return quickly; returning an error aborts the run.
+type ContainerStreamHandler func(ContainerStreamChunk) error
+
 // ContainerExitError is returned when a sandbox runtime starts successfully but
 // the agent process exits non-zero. Diagnostic text must already be redacted by
 // the concrete provider before crossing this port boundary.
@@ -143,6 +168,14 @@ func (e *ContainerExitError) Error() string {
 // runtime resource on success, error, and context cancellation.
 type ContainerProvider interface {
 	Run(ctx context.Context, req ContainerRunRequest) (ContainerRunResult, error)
+}
+
+// StreamingContainerProvider is an optional extension for runtimes that emit
+// SandboxStreamPath. Final output remains authoritative and is returned only
+// after the normal ContainerProvider validation path succeeds.
+type StreamingContainerProvider interface {
+	ContainerProvider
+	RunStreaming(ctx context.Context, req ContainerRunRequest, onChunk ContainerStreamHandler) (ContainerRunResult, error)
 }
 
 // EffectiveTimeout returns the fixed timeout used when the caller does

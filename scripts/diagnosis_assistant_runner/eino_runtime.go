@@ -22,12 +22,12 @@ const diagnosisAgentMaxIterations = 1
 // to Eino's proven ChatModelAgent lifecycle. Durable state remains outside the
 // process, and no in-container tools are registered in V1.
 type einoDiagnosisProvider struct {
-	provider ports.LLMProvider
+	provider ports.StreamingLLMProvider
 }
 
-var _ ports.LLMProvider = (*einoDiagnosisProvider)(nil)
+var _ ports.StreamingLLMProvider = (*einoDiagnosisProvider)(nil)
 
-func newEinoDiagnosisProvider(provider ports.LLMProvider) (*einoDiagnosisProvider, error) {
+func newEinoDiagnosisProvider(provider ports.StreamingLLMProvider) (*einoDiagnosisProvider, error) {
 	if provider == nil {
 		return nil, errors.New("diagnosis agent model provider is required")
 	}
@@ -35,6 +35,25 @@ func newEinoDiagnosisProvider(provider ports.LLMProvider) (*einoDiagnosisProvide
 }
 
 func (p *einoDiagnosisProvider) GenerateJSON(ctx context.Context, req ports.LLMRequest) (ports.LLMResponse, error) {
+	return p.run(ctx, req, nil)
+}
+
+func (p *einoDiagnosisProvider) GenerateJSONStreaming(
+	ctx context.Context,
+	req ports.LLMRequest,
+	onDelta ports.LLMStreamHandler,
+) (ports.LLMResponse, error) {
+	if onDelta == nil {
+		return ports.LLMResponse{}, errors.New("diagnosis agent stream callback is required")
+	}
+	return p.run(ctx, req, onDelta)
+}
+
+func (p *einoDiagnosisProvider) run(
+	ctx context.Context,
+	req ports.LLMRequest,
+	onDelta ports.LLMStreamHandler,
+) (ports.LLMResponse, error) {
 	if p == nil || p.provider == nil {
 		return ports.LLMResponse{}, errors.New("diagnosis agent provider is not configured")
 	}
@@ -45,6 +64,7 @@ func (p *einoDiagnosisProvider) GenerateJSON(ctx context.Context, req ports.LLMR
 	chatModel := &openClarionEinoModel{
 		provider: p.provider,
 		request:  cloneLLMRequest(req),
+		onDelta:  onDelta,
 	}
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:          "openclarion_diagnosis_assistant",
@@ -55,7 +75,10 @@ func (p *einoDiagnosisProvider) GenerateJSON(ctx context.Context, req ports.LLMR
 	if err != nil {
 		return ports.LLMResponse{}, fmt.Errorf("configure diagnosis agent: %w", err)
 	}
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent})
+	runner := adk.NewRunner(ctx, adk.RunnerConfig{
+		Agent:           agent,
+		EnableStreaming: onDelta != nil,
+	})
 
 	iterator := runner.Run(ctx, messages)
 	var final *schema.Message
@@ -130,8 +153,9 @@ func einoMessages(messages []ports.LLMMessage) ([]*schema.Message, error) {
 }
 
 type openClarionEinoModel struct {
-	provider ports.LLMProvider
+	provider ports.StreamingLLMProvider
 	request  ports.LLMRequest
+	onDelta  ports.LLMStreamHandler
 
 	mu       sync.Mutex
 	response *ports.LLMResponse
@@ -161,13 +185,36 @@ func (m *openClarionEinoModel) Generate(
 func (m *openClarionEinoModel) Stream(
 	ctx context.Context,
 	input []*schema.Message,
-	opts ...model.Option,
+	_ ...model.Option,
 ) (*schema.StreamReader[*schema.Message], error) {
-	message, err := m.Generate(ctx, input, opts...)
+	if m.onDelta == nil {
+		return nil, errors.New("diagnosis agent model stream callback is not configured")
+	}
+	req, err := m.requestForMessages(input)
 	if err != nil {
 		return nil, err
 	}
-	return schema.StreamReaderFromArray([]*schema.Message{message}), nil
+	reader, writer := schema.Pipe[*schema.Message](8)
+	go func() {
+		defer writer.Close()
+		response, runErr := m.provider.GenerateJSONStreaming(ctx, req, func(delta ports.LLMStreamDelta) error {
+			if err := m.onDelta(delta); err != nil {
+				return err
+			}
+			if writer.Send(schema.AssistantMessage(delta.Delta, nil), nil) {
+				return errors.New("diagnosis agent model stream was closed")
+			}
+			return nil
+		})
+		if runErr != nil {
+			writer.Send(nil, runErr)
+			return
+		}
+		if err := m.recordResponse(response); err != nil {
+			writer.Send(nil, err)
+		}
+	}()
+	return reader, nil
 }
 
 func (m *openClarionEinoModel) requestForMessages(input []*schema.Message) (ports.LLMRequest, error) {

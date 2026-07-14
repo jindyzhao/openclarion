@@ -90,26 +90,84 @@ func TestEinoDiagnosisProviderPropagatesContextCancellation(t *testing.T) {
 }
 
 func TestOpenClarionEinoModelStreamProvidesOneCompleteMessage(t *testing.T) {
-	upstream := &recordingProvider{response: ports.LLMResponse{
-		Content:      json.RawMessage(`{"message":"complete"}`),
-		FinishReason: "stop",
-		OutputMode:   ports.LLMOutputModeJSONSchema,
-	}}
-	model := &openClarionEinoModel{provider: upstream, request: validAgentRequest()}
+	upstream := &recordingProvider{
+		chunks: []string{`{"message":"`, `complete"}`},
+		response: ports.LLMResponse{
+			Content:      json.RawMessage(`{"message":"complete"}`),
+			FinishReason: "stop",
+			OutputMode:   ports.LLMOutputModeJSONSchema,
+		},
+	}
+	var projected strings.Builder
+	model := &openClarionEinoModel{
+		provider: upstream,
+		request:  validAgentRequest(),
+		onDelta: func(delta ports.LLMStreamDelta) error {
+			projected.WriteString(delta.Delta)
+			return nil
+		},
+	}
 	reader, err := model.Stream(context.Background(), []*schema.Message{schema.UserMessage("Diagnose.")})
 	if err != nil {
 		t.Fatalf("Stream: %v", err)
 	}
 	defer reader.Close()
-	message, err := reader.Recv()
+	var streamed strings.Builder
+	for {
+		message, err := reader.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Recv: %v", err)
+		}
+		streamed.WriteString(message.Content)
+	}
+	if streamed.String() != `{"message":"complete"}` || projected.String() != streamed.String() {
+		t.Fatalf("streamed = %q projected = %q", streamed.String(), projected.String())
+	}
+}
+
+func TestEinoDiagnosisProviderPropagatesStreamCallbackFailure(t *testing.T) {
+	upstream := &recordingProvider{
+		chunks: []string{`{"message":"partial"}`},
+		response: ports.LLMResponse{
+			Content:      json.RawMessage(`{"message":"partial"}`),
+			FinishReason: "stop",
+			OutputMode:   ports.LLMOutputModeJSONSchema,
+		},
+	}
+	provider, err := newEinoDiagnosisProvider(upstream)
 	if err != nil {
-		t.Fatalf("Recv: %v", err)
+		t.Fatal(err)
 	}
-	if message.Content != `{"message":"complete"}` {
-		t.Fatalf("message = %+v", message)
+	wantErr := errors.New("preview output cap reached")
+	_, err = provider.GenerateJSONStreaming(context.Background(), validAgentRequest(), func(ports.LLMStreamDelta) error {
+		return wantErr
+	})
+	if err == nil || !strings.Contains(err.Error(), wantErr.Error()) {
+		t.Fatalf("GenerateJSONStreaming error = %v", err)
 	}
-	if _, err := reader.Recv(); !errors.Is(err, io.EOF) {
-		t.Fatalf("second Recv error = %v, want EOF", err)
+}
+
+func TestEinoDiagnosisProviderRejectsDivergentStreamAndFinalResponse(t *testing.T) {
+	upstream := &recordingProvider{
+		chunks: []string{`{"message":"stream"}`},
+		response: ports.LLMResponse{
+			Content:      json.RawMessage(`{"message":"final"}`),
+			FinishReason: "stop",
+			OutputMode:   ports.LLMOutputModeJSONSchema,
+		},
+	}
+	provider, err := newEinoDiagnosisProvider(upstream)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = provider.GenerateJSONStreaming(context.Background(), validAgentRequest(), func(ports.LLMStreamDelta) error {
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "output diverged") {
+		t.Fatalf("GenerateJSONStreaming error = %v", err)
 	}
 }
 
@@ -125,6 +183,7 @@ func validAgentRequest() ports.LLMRequest {
 type recordingProvider struct {
 	mu       sync.Mutex
 	requests []ports.LLMRequest
+	chunks   []string
 	response ports.LLMResponse
 }
 
@@ -133,6 +192,24 @@ func (p *recordingProvider) GenerateJSON(_ context.Context, req ports.LLMRequest
 	defer p.mu.Unlock()
 	p.requests = append(p.requests, cloneLLMRequest(req))
 	return cloneLLMResponse(p.response), nil
+}
+
+func (p *recordingProvider) GenerateJSONStreaming(
+	_ context.Context,
+	req ports.LLMRequest,
+	onDelta ports.LLMStreamHandler,
+) (ports.LLMResponse, error) {
+	p.mu.Lock()
+	p.requests = append(p.requests, cloneLLMRequest(req))
+	chunks := append([]string(nil), p.chunks...)
+	response := cloneLLMResponse(p.response)
+	p.mu.Unlock()
+	for index, chunk := range chunks {
+		if err := onDelta(ports.LLMStreamDelta{Sequence: index + 1, Delta: chunk}); err != nil {
+			return ports.LLMResponse{}, err
+		}
+	}
+	return response, nil
 }
 
 func (p *recordingProvider) requestValues() []ports.LLMRequest {
@@ -148,6 +225,15 @@ func (p *recordingProvider) requestValues() []ports.LLMRequest {
 type cancelingProvider struct{}
 
 func (cancelingProvider) GenerateJSON(ctx context.Context, _ ports.LLMRequest) (ports.LLMResponse, error) {
+	<-ctx.Done()
+	return ports.LLMResponse{}, ctx.Err()
+}
+
+func (cancelingProvider) GenerateJSONStreaming(
+	ctx context.Context,
+	_ ports.LLMRequest,
+	_ ports.LLMStreamHandler,
+) (ports.LLMResponse, error) {
 	<-ctx.Done()
 	return ports.LLMResponse{}, ctx.Err()
 }
