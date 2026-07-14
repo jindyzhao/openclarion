@@ -75,5 +75,8 @@ type ReportWorkflowPolicy func(*sql.Selector)
 // ReportWorkflowSchedule is the predicate function for reportworkflowschedule builders.
 type ReportWorkflowSchedule func(*sql.Selector)
 
+// RetrievalChunk is the predicate function for retrievalchunk builders.
+type RetrievalChunk func(*sql.Selector)
+
 // SubReport is the predicate function for subreport builders.
 type SubReport func(*sql.Selector)

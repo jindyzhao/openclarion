@@ -1,11 +1,143 @@
 package domain
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"time"
 )
+
+const (
+	// RetrievalEmbeddingDimensions is fixed in storage so one HNSW index can
+	// serve every configured OpenAI-compatible embedding model.
+	RetrievalEmbeddingDimensions = 1536
+	// RetrievalChunkMaxBytes bounds one stored and embedded report projection.
+	// The byte cap is deliberately conservative for 8192-token embedding APIs.
+	RetrievalChunkMaxBytes = 8 * 1024
+	// RetrievalReferenceLimit bounds traceability references retained per report.
+	RetrievalReferenceLimit = 10
+	// RetrievalMetadataMaxBytes bounds auxiliary source metadata per chunk.
+	RetrievalMetadataMaxBytes = 4 * 1024
+	// RetrievalContextMaxBytes bounds one serialized historical-context array.
+	RetrievalContextMaxBytes = 32 * 1024
+)
+
+// RetrievalSourceKind identifies the immutable report artifact represented by
+// a semantic retrieval chunk.
+type RetrievalSourceKind string
+
+const (
+	// RetrievalSourceSubReport identifies an accepted subreport projection.
+	RetrievalSourceSubReport RetrievalSourceKind = "sub_report"
+	// RetrievalSourceFinalReport identifies an accepted final-report projection.
+	RetrievalSourceFinalReport RetrievalSourceKind = "final_report"
+)
+
+// Valid reports whether k can be used in the historical report corpus.
+func (k RetrievalSourceKind) Valid() bool {
+	return k == RetrievalSourceSubReport || k == RetrievalSourceFinalReport
+}
+
+// ParseRetrievalSourceRef validates and decomposes a canonical report source
+// reference such as "sub_report:42".
+func ParseRetrievalSourceRef(ref string) (RetrievalSourceKind, int64, error) {
+	if ref != strings.TrimSpace(ref) || ref == "" {
+		return "", 0, fmt.Errorf("retrieval source ref must be normalized: %w", ErrInvariantViolation)
+	}
+	kindRaw, idRaw, found := strings.Cut(ref, ":")
+	kind := RetrievalSourceKind(kindRaw)
+	if !found || !kind.Valid() || idRaw == "" {
+		return "", 0, fmt.Errorf("retrieval source ref %q is invalid: %w", ref, ErrInvariantViolation)
+	}
+	id, err := strconv.ParseInt(idRaw, 10, 64)
+	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != idRaw {
+		return "", 0, fmt.Errorf("retrieval source ref %q has an invalid id: %w", ref, ErrInvariantViolation)
+	}
+	return kind, id, nil
+}
+
+// RetrievalChunk is one immutable vector-indexed report projection. Content is
+// bounded canonical text; accepted report rows remain the audit source of truth.
+type RetrievalChunk struct {
+	ID                  RetrievalChunkID
+	SourceKind          RetrievalSourceKind
+	SourceID            int64
+	SourceRef           string
+	Content             string
+	ContentDigest       string
+	EmbeddingModel      string
+	EmbeddingDimensions int
+	Embedding           []float32
+	Metadata            json.RawMessage
+	CreatedAt           time.Time
+}
+
+// RetrievedChunk pairs one corpus chunk with its cosine distance to a query.
+type RetrievedChunk struct {
+	Chunk          RetrievalChunk
+	CosineDistance float64
+}
+
+// NewRetrievalChunk validates an immutable corpus row before persistence.
+func NewRetrievalChunk(in RetrievalChunk) (RetrievalChunk, error) {
+	if !in.SourceKind.Valid() || in.SourceID <= 0 {
+		return RetrievalChunk{}, fmt.Errorf("retrieval chunk: source identity is invalid: %w", ErrInvariantViolation)
+	}
+	in.SourceRef = strings.TrimSpace(in.SourceRef)
+	in.Content = strings.TrimSpace(in.Content)
+	in.ContentDigest = strings.TrimSpace(in.ContentDigest)
+	in.EmbeddingModel = strings.TrimSpace(in.EmbeddingModel)
+	if in.SourceRef == "" || len(in.SourceRef) > 256 {
+		return RetrievalChunk{}, fmt.Errorf("retrieval chunk: source_ref must contain 1-256 bytes: %w", ErrInvariantViolation)
+	}
+	refKind, refID, err := ParseRetrievalSourceRef(in.SourceRef)
+	if err != nil || refKind != in.SourceKind || refID != in.SourceID {
+		return RetrievalChunk{}, fmt.Errorf("retrieval chunk: source_ref must match source_kind and source_id: %w", ErrInvariantViolation)
+	}
+	if in.Content == "" || len([]byte(in.Content)) > RetrievalChunkMaxBytes {
+		return RetrievalChunk{}, fmt.Errorf("retrieval chunk: content must contain 1-%d bytes: %w", RetrievalChunkMaxBytes, ErrInvariantViolation)
+	}
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte(in.Content)))
+	if in.ContentDigest == "" {
+		in.ContentDigest = digest
+	}
+	if in.ContentDigest != digest {
+		return RetrievalChunk{}, fmt.Errorf("retrieval chunk: content_digest does not match content: %w", ErrInvariantViolation)
+	}
+	if in.EmbeddingModel == "" || len(in.EmbeddingModel) > 128 {
+		return RetrievalChunk{}, fmt.Errorf("retrieval chunk: embedding_model must contain 1-128 bytes: %w", ErrInvariantViolation)
+	}
+	if in.EmbeddingDimensions != RetrievalEmbeddingDimensions || len(in.Embedding) != RetrievalEmbeddingDimensions {
+		return RetrievalChunk{}, fmt.Errorf("retrieval chunk: embedding must contain exactly %d dimensions: %w", RetrievalEmbeddingDimensions, ErrInvariantViolation)
+	}
+	var embeddingNormSquared float64
+	for _, value := range in.Embedding {
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return RetrievalChunk{}, fmt.Errorf("retrieval chunk: embedding values must be finite: %w", ErrInvariantViolation)
+		}
+		embeddingNormSquared += float64(value) * float64(value)
+	}
+	if embeddingNormSquared == 0 {
+		return RetrievalChunk{}, fmt.Errorf("retrieval chunk: embedding must be non-zero: %w", ErrInvariantViolation)
+	}
+	in.Metadata = defaultJSONObject(in.Metadata)
+	if len(in.Metadata) > RetrievalMetadataMaxBytes {
+		return RetrievalChunk{}, fmt.Errorf("retrieval chunk: metadata must contain at most %d bytes: %w", RetrievalMetadataMaxBytes, ErrInvariantViolation)
+	}
+	if err := requireValidJSON("retrieval chunk: metadata", in.Metadata); err != nil {
+		return RetrievalChunk{}, err
+	}
+	var metadata map[string]json.RawMessage
+	if err := json.Unmarshal(in.Metadata, &metadata); err != nil || metadata == nil {
+		return RetrievalChunk{}, fmt.Errorf("retrieval chunk: metadata must be a JSON object: %w", ErrInvariantViolation)
+	}
+	in.Embedding = append([]float32(nil), in.Embedding...)
+	in.Metadata = append(json.RawMessage(nil), in.Metadata...)
+	return in, nil
+}
 
 // ReportSeverity is the report-facing severity vocabulary shared by
 // SubReport and FinalReport.
@@ -65,6 +197,7 @@ type SubReport struct {
 	Findings           json.RawMessage
 	RecommendedActions json.RawMessage
 	EvidenceRefs       []string
+	RetrievalRefs      []string
 	Content            json.RawMessage
 	Model              string
 	OutputMode         string
@@ -105,6 +238,22 @@ func NewSubReport(in SubReport) (SubReport, error) {
 	if err := requireValidJSON("sub report: content", in.Content); err != nil {
 		return SubReport{}, err
 	}
+	if len(in.RetrievalRefs) > RetrievalReferenceLimit {
+		return SubReport{}, fmt.Errorf("sub report: retrieval_refs must contain at most %d values: %w", RetrievalReferenceLimit, ErrInvariantViolation)
+	}
+	in.RetrievalRefs = append([]string(nil), in.RetrievalRefs...)
+	seenRetrievalRefs := make(map[string]struct{}, len(in.RetrievalRefs))
+	for i, ref := range in.RetrievalRefs {
+		ref = strings.TrimSpace(ref)
+		if _, _, err := ParseRetrievalSourceRef(ref); err != nil {
+			return SubReport{}, fmt.Errorf("sub report: retrieval_refs[%d]: %w", i, err)
+		}
+		if _, exists := seenRetrievalRefs[ref]; exists {
+			return SubReport{}, fmt.Errorf("sub report: retrieval_refs[%d] duplicates %q: %w", i, ref, ErrInvariantViolation)
+		}
+		seenRetrievalRefs[ref] = struct{}{}
+		in.RetrievalRefs[i] = ref
+	}
 	in.IdempotencyKey = strings.TrimSpace(in.IdempotencyKey)
 	in.Scenario = strings.TrimSpace(in.Scenario)
 	in.Title = strings.TrimSpace(in.Title)
@@ -112,6 +261,11 @@ func NewSubReport(in SubReport) (SubReport, error) {
 	in.Model = strings.TrimSpace(in.Model)
 	in.OutputMode = strings.TrimSpace(in.OutputMode)
 	in.CreatedByWorkflow = strings.TrimSpace(in.CreatedByWorkflow)
+	in.Findings = append(json.RawMessage(nil), in.Findings...)
+	in.RecommendedActions = append(json.RawMessage(nil), in.RecommendedActions...)
+	in.EvidenceRefs = append([]string(nil), in.EvidenceRefs...)
+	in.RetrievalRefs = append([]string(nil), in.RetrievalRefs...)
+	in.Content = append(json.RawMessage(nil), in.Content...)
 	return in, nil
 }
 

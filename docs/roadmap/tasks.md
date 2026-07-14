@@ -257,7 +257,8 @@ sessions, arbitrary external approval policies, streaming partial responses.
 
 ## Future
 
-- [ ] pgvector retrieval (RAG)
+- [x] pgvector report corpus, report-generation retrieval, and bounded reindex command
+- [ ] diagnosis-room consumption of bounded historical report context
 - [ ] Kubernetes Job ContainerProvider
 - [x] DingTalk and Feishu IM providers
 - [x] NetBox CMDB provider

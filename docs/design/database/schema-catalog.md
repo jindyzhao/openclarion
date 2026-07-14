@@ -18,6 +18,7 @@ workflow. Alert operations configuration tables follow
 | `AlertWindow` | M1-PR3 | replayable polling window and active alert snapshot |
 | `SubReport` | shipped at M2 local | per-snapshot AI report; `(evidence_snapshot_id, idempotency_key)` is the retry-safe producer key |
 | `FinalReport` | shipped at M2 local | incident/window reduction of validated SubReports; persisted before notification |
+| `RetrievalChunk` | shipped post-V1 local | immutable bounded report projection with a fixed-dimension pgvector embedding and model-scoped source identity |
 | `ReportNotificationDelivery` | shipped at M2 local | one delivery audit row per notification idempotency key; tracks pending/delivered/failed state and provider metadata |
 | `DiagnosisAuthTicket` | shipped at M5 local | short-lived WebSocket ticket metadata; stores `sha256(token)`, never the raw token |
 | `ChatSession` | shipped at M5 local | interactive diagnosis-room lifecycle anchored to `DiagnosisTask` |
@@ -184,6 +185,29 @@ Each turn records `role`, `actor_subject`, `content`, `metadata`, and
 * lifecycle-end compression never deletes or rewrites `ChatTurn` rows
 * the JSON `schema_version` keeps future periodic or semantic summary formats
   explicit without mutating existing checkpoints
+
+## RetrievalChunk
+
+`RetrievalChunk` is an immutable semantic projection of an accepted
+`SubReport` or `FinalReport`. The accepted report row remains the audit source
+of truth; the retrieval row contains only bounded text, provenance metadata,
+and the vector needed for historical similarity search.
+
+* `(source_kind, source_id, embedding_model)` is UNIQUE, making indexing and
+  Activity retries idempotent while allowing a deliberate model migration to
+  create a separate embedding space.
+* `source_ref` is the canonical `sub_report:<id>` or `final_report:<id>` value
+  retained in report traceability metadata.
+* `content_digest` is SHA-256 over the exact bounded projection stored in
+  `content`; an existing source/model row cannot silently change content.
+* `embedding` is fixed at 1536 dimensions and indexed with HNSW
+  `vector_cosine_ops`. Queries always filter by `embedding_model` and validate
+  finite non-zero vectors before binding them as SQL parameters.
+* `metadata` is bounded JSONB for source attributes such as scenario,
+  EvidenceSnapshot ID, or correlation key. It is not current incident evidence.
+* The table intentionally has no polymorphic foreign key. Domain validation
+  binds kind, positive source ID, and canonical ref; report retention tooling
+  must manage corresponding retrieval rows explicitly.
 
 ## AlertSourceProfile
 

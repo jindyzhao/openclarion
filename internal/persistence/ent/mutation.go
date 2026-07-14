@@ -36,7 +36,9 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
+	"github.com/openclarion/openclarion/internal/persistence/ent/retrievalchunk"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
+	pgvector "github.com/pgvector/pgvector-go"
 )
 
 const (
@@ -71,6 +73,7 @@ const (
 	TypeReportNotificationDelivery   = "ReportNotificationDelivery"
 	TypeReportWorkflowPolicy         = "ReportWorkflowPolicy"
 	TypeReportWorkflowSchedule       = "ReportWorkflowSchedule"
+	TypeRetrievalChunk               = "RetrievalChunk"
 	TypeSubReport                    = "SubReport"
 )
 
@@ -23814,6 +23817,903 @@ func (m *ReportWorkflowScheduleMutation) ResetEdge(name string) error {
 	return fmt.Errorf("unknown ReportWorkflowSchedule edge %s", name)
 }
 
+// RetrievalChunkMutation represents an operation that mutates the RetrievalChunk nodes in the graph.
+type RetrievalChunkMutation struct {
+	config
+	op                      Op
+	typ                     string
+	id                      *int
+	source_kind             *string
+	source_id               *int64
+	addsource_id            *int64
+	source_ref              *string
+	content                 *string
+	content_digest          *string
+	embedding_model         *string
+	embedding_dimensions    *int
+	addembedding_dimensions *int
+	embedding               *pgvector.Vector
+	metadata                *json.RawMessage
+	appendmetadata          json.RawMessage
+	created_at              *time.Time
+	clearedFields           map[string]struct{}
+	done                    bool
+	oldValue                func(context.Context) (*RetrievalChunk, error)
+	predicates              []predicate.RetrievalChunk
+}
+
+var _ ent.Mutation = (*RetrievalChunkMutation)(nil)
+
+// retrievalchunkOption allows management of the mutation configuration using functional options.
+type retrievalchunkOption func(*RetrievalChunkMutation)
+
+// newRetrievalChunkMutation creates new mutation for the RetrievalChunk entity.
+func newRetrievalChunkMutation(c config, op Op, opts ...retrievalchunkOption) *RetrievalChunkMutation {
+	m := &RetrievalChunkMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeRetrievalChunk,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withRetrievalChunkID sets the ID field of the mutation.
+func withRetrievalChunkID(id int) retrievalchunkOption {
+	return func(m *RetrievalChunkMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *RetrievalChunk
+		)
+		m.oldValue = func(ctx context.Context) (*RetrievalChunk, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().RetrievalChunk.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withRetrievalChunk sets the old RetrievalChunk of the mutation.
+func withRetrievalChunk(node *RetrievalChunk) retrievalchunkOption {
+	return func(m *RetrievalChunkMutation) {
+		m.oldValue = func(context.Context) (*RetrievalChunk, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m RetrievalChunkMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m RetrievalChunkMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *RetrievalChunkMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *RetrievalChunkMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().RetrievalChunk.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetSourceKind sets the "source_kind" field.
+func (m *RetrievalChunkMutation) SetSourceKind(s string) {
+	m.source_kind = &s
+}
+
+// SourceKind returns the value of the "source_kind" field in the mutation.
+func (m *RetrievalChunkMutation) SourceKind() (r string, exists bool) {
+	v := m.source_kind
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceKind returns the old "source_kind" field's value of the RetrievalChunk entity.
+// If the RetrievalChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RetrievalChunkMutation) OldSourceKind(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceKind is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceKind requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceKind: %w", err)
+	}
+	return oldValue.SourceKind, nil
+}
+
+// ResetSourceKind resets all changes to the "source_kind" field.
+func (m *RetrievalChunkMutation) ResetSourceKind() {
+	m.source_kind = nil
+}
+
+// SetSourceID sets the "source_id" field.
+func (m *RetrievalChunkMutation) SetSourceID(i int64) {
+	m.source_id = &i
+	m.addsource_id = nil
+}
+
+// SourceID returns the value of the "source_id" field in the mutation.
+func (m *RetrievalChunkMutation) SourceID() (r int64, exists bool) {
+	v := m.source_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceID returns the old "source_id" field's value of the RetrievalChunk entity.
+// If the RetrievalChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RetrievalChunkMutation) OldSourceID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceID: %w", err)
+	}
+	return oldValue.SourceID, nil
+}
+
+// AddSourceID adds i to the "source_id" field.
+func (m *RetrievalChunkMutation) AddSourceID(i int64) {
+	if m.addsource_id != nil {
+		*m.addsource_id += i
+	} else {
+		m.addsource_id = &i
+	}
+}
+
+// AddedSourceID returns the value that was added to the "source_id" field in this mutation.
+func (m *RetrievalChunkMutation) AddedSourceID() (r int64, exists bool) {
+	v := m.addsource_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetSourceID resets all changes to the "source_id" field.
+func (m *RetrievalChunkMutation) ResetSourceID() {
+	m.source_id = nil
+	m.addsource_id = nil
+}
+
+// SetSourceRef sets the "source_ref" field.
+func (m *RetrievalChunkMutation) SetSourceRef(s string) {
+	m.source_ref = &s
+}
+
+// SourceRef returns the value of the "source_ref" field in the mutation.
+func (m *RetrievalChunkMutation) SourceRef() (r string, exists bool) {
+	v := m.source_ref
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSourceRef returns the old "source_ref" field's value of the RetrievalChunk entity.
+// If the RetrievalChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RetrievalChunkMutation) OldSourceRef(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSourceRef is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSourceRef requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSourceRef: %w", err)
+	}
+	return oldValue.SourceRef, nil
+}
+
+// ResetSourceRef resets all changes to the "source_ref" field.
+func (m *RetrievalChunkMutation) ResetSourceRef() {
+	m.source_ref = nil
+}
+
+// SetContent sets the "content" field.
+func (m *RetrievalChunkMutation) SetContent(s string) {
+	m.content = &s
+}
+
+// Content returns the value of the "content" field in the mutation.
+func (m *RetrievalChunkMutation) Content() (r string, exists bool) {
+	v := m.content
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldContent returns the old "content" field's value of the RetrievalChunk entity.
+// If the RetrievalChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RetrievalChunkMutation) OldContent(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldContent is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldContent requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldContent: %w", err)
+	}
+	return oldValue.Content, nil
+}
+
+// ResetContent resets all changes to the "content" field.
+func (m *RetrievalChunkMutation) ResetContent() {
+	m.content = nil
+}
+
+// SetContentDigest sets the "content_digest" field.
+func (m *RetrievalChunkMutation) SetContentDigest(s string) {
+	m.content_digest = &s
+}
+
+// ContentDigest returns the value of the "content_digest" field in the mutation.
+func (m *RetrievalChunkMutation) ContentDigest() (r string, exists bool) {
+	v := m.content_digest
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldContentDigest returns the old "content_digest" field's value of the RetrievalChunk entity.
+// If the RetrievalChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RetrievalChunkMutation) OldContentDigest(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldContentDigest is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldContentDigest requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldContentDigest: %w", err)
+	}
+	return oldValue.ContentDigest, nil
+}
+
+// ResetContentDigest resets all changes to the "content_digest" field.
+func (m *RetrievalChunkMutation) ResetContentDigest() {
+	m.content_digest = nil
+}
+
+// SetEmbeddingModel sets the "embedding_model" field.
+func (m *RetrievalChunkMutation) SetEmbeddingModel(s string) {
+	m.embedding_model = &s
+}
+
+// EmbeddingModel returns the value of the "embedding_model" field in the mutation.
+func (m *RetrievalChunkMutation) EmbeddingModel() (r string, exists bool) {
+	v := m.embedding_model
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEmbeddingModel returns the old "embedding_model" field's value of the RetrievalChunk entity.
+// If the RetrievalChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RetrievalChunkMutation) OldEmbeddingModel(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEmbeddingModel is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEmbeddingModel requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEmbeddingModel: %w", err)
+	}
+	return oldValue.EmbeddingModel, nil
+}
+
+// ResetEmbeddingModel resets all changes to the "embedding_model" field.
+func (m *RetrievalChunkMutation) ResetEmbeddingModel() {
+	m.embedding_model = nil
+}
+
+// SetEmbeddingDimensions sets the "embedding_dimensions" field.
+func (m *RetrievalChunkMutation) SetEmbeddingDimensions(i int) {
+	m.embedding_dimensions = &i
+	m.addembedding_dimensions = nil
+}
+
+// EmbeddingDimensions returns the value of the "embedding_dimensions" field in the mutation.
+func (m *RetrievalChunkMutation) EmbeddingDimensions() (r int, exists bool) {
+	v := m.embedding_dimensions
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEmbeddingDimensions returns the old "embedding_dimensions" field's value of the RetrievalChunk entity.
+// If the RetrievalChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RetrievalChunkMutation) OldEmbeddingDimensions(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEmbeddingDimensions is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEmbeddingDimensions requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEmbeddingDimensions: %w", err)
+	}
+	return oldValue.EmbeddingDimensions, nil
+}
+
+// AddEmbeddingDimensions adds i to the "embedding_dimensions" field.
+func (m *RetrievalChunkMutation) AddEmbeddingDimensions(i int) {
+	if m.addembedding_dimensions != nil {
+		*m.addembedding_dimensions += i
+	} else {
+		m.addembedding_dimensions = &i
+	}
+}
+
+// AddedEmbeddingDimensions returns the value that was added to the "embedding_dimensions" field in this mutation.
+func (m *RetrievalChunkMutation) AddedEmbeddingDimensions() (r int, exists bool) {
+	v := m.addembedding_dimensions
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetEmbeddingDimensions resets all changes to the "embedding_dimensions" field.
+func (m *RetrievalChunkMutation) ResetEmbeddingDimensions() {
+	m.embedding_dimensions = nil
+	m.addembedding_dimensions = nil
+}
+
+// SetEmbedding sets the "embedding" field.
+func (m *RetrievalChunkMutation) SetEmbedding(pg pgvector.Vector) {
+	m.embedding = &pg
+}
+
+// Embedding returns the value of the "embedding" field in the mutation.
+func (m *RetrievalChunkMutation) Embedding() (r pgvector.Vector, exists bool) {
+	v := m.embedding
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEmbedding returns the old "embedding" field's value of the RetrievalChunk entity.
+// If the RetrievalChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RetrievalChunkMutation) OldEmbedding(ctx context.Context) (v pgvector.Vector, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEmbedding is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEmbedding requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEmbedding: %w", err)
+	}
+	return oldValue.Embedding, nil
+}
+
+// ResetEmbedding resets all changes to the "embedding" field.
+func (m *RetrievalChunkMutation) ResetEmbedding() {
+	m.embedding = nil
+}
+
+// SetMetadata sets the "metadata" field.
+func (m *RetrievalChunkMutation) SetMetadata(jm json.RawMessage) {
+	m.metadata = &jm
+	m.appendmetadata = nil
+}
+
+// Metadata returns the value of the "metadata" field in the mutation.
+func (m *RetrievalChunkMutation) Metadata() (r json.RawMessage, exists bool) {
+	v := m.metadata
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldMetadata returns the old "metadata" field's value of the RetrievalChunk entity.
+// If the RetrievalChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RetrievalChunkMutation) OldMetadata(ctx context.Context) (v json.RawMessage, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldMetadata is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldMetadata requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldMetadata: %w", err)
+	}
+	return oldValue.Metadata, nil
+}
+
+// AppendMetadata adds jm to the "metadata" field.
+func (m *RetrievalChunkMutation) AppendMetadata(jm json.RawMessage) {
+	m.appendmetadata = append(m.appendmetadata, jm...)
+}
+
+// AppendedMetadata returns the list of values that were appended to the "metadata" field in this mutation.
+func (m *RetrievalChunkMutation) AppendedMetadata() (json.RawMessage, bool) {
+	if len(m.appendmetadata) == 0 {
+		return nil, false
+	}
+	return m.appendmetadata, true
+}
+
+// ResetMetadata resets all changes to the "metadata" field.
+func (m *RetrievalChunkMutation) ResetMetadata() {
+	m.metadata = nil
+	m.appendmetadata = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *RetrievalChunkMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *RetrievalChunkMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the RetrievalChunk entity.
+// If the RetrievalChunk object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RetrievalChunkMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *RetrievalChunkMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// Where appends a list predicates to the RetrievalChunkMutation builder.
+func (m *RetrievalChunkMutation) Where(ps ...predicate.RetrievalChunk) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the RetrievalChunkMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *RetrievalChunkMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.RetrievalChunk, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *RetrievalChunkMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *RetrievalChunkMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (RetrievalChunk).
+func (m *RetrievalChunkMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *RetrievalChunkMutation) Fields() []string {
+	fields := make([]string, 0, 10)
+	if m.source_kind != nil {
+		fields = append(fields, retrievalchunk.FieldSourceKind)
+	}
+	if m.source_id != nil {
+		fields = append(fields, retrievalchunk.FieldSourceID)
+	}
+	if m.source_ref != nil {
+		fields = append(fields, retrievalchunk.FieldSourceRef)
+	}
+	if m.content != nil {
+		fields = append(fields, retrievalchunk.FieldContent)
+	}
+	if m.content_digest != nil {
+		fields = append(fields, retrievalchunk.FieldContentDigest)
+	}
+	if m.embedding_model != nil {
+		fields = append(fields, retrievalchunk.FieldEmbeddingModel)
+	}
+	if m.embedding_dimensions != nil {
+		fields = append(fields, retrievalchunk.FieldEmbeddingDimensions)
+	}
+	if m.embedding != nil {
+		fields = append(fields, retrievalchunk.FieldEmbedding)
+	}
+	if m.metadata != nil {
+		fields = append(fields, retrievalchunk.FieldMetadata)
+	}
+	if m.created_at != nil {
+		fields = append(fields, retrievalchunk.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *RetrievalChunkMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case retrievalchunk.FieldSourceKind:
+		return m.SourceKind()
+	case retrievalchunk.FieldSourceID:
+		return m.SourceID()
+	case retrievalchunk.FieldSourceRef:
+		return m.SourceRef()
+	case retrievalchunk.FieldContent:
+		return m.Content()
+	case retrievalchunk.FieldContentDigest:
+		return m.ContentDigest()
+	case retrievalchunk.FieldEmbeddingModel:
+		return m.EmbeddingModel()
+	case retrievalchunk.FieldEmbeddingDimensions:
+		return m.EmbeddingDimensions()
+	case retrievalchunk.FieldEmbedding:
+		return m.Embedding()
+	case retrievalchunk.FieldMetadata:
+		return m.Metadata()
+	case retrievalchunk.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *RetrievalChunkMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case retrievalchunk.FieldSourceKind:
+		return m.OldSourceKind(ctx)
+	case retrievalchunk.FieldSourceID:
+		return m.OldSourceID(ctx)
+	case retrievalchunk.FieldSourceRef:
+		return m.OldSourceRef(ctx)
+	case retrievalchunk.FieldContent:
+		return m.OldContent(ctx)
+	case retrievalchunk.FieldContentDigest:
+		return m.OldContentDigest(ctx)
+	case retrievalchunk.FieldEmbeddingModel:
+		return m.OldEmbeddingModel(ctx)
+	case retrievalchunk.FieldEmbeddingDimensions:
+		return m.OldEmbeddingDimensions(ctx)
+	case retrievalchunk.FieldEmbedding:
+		return m.OldEmbedding(ctx)
+	case retrievalchunk.FieldMetadata:
+		return m.OldMetadata(ctx)
+	case retrievalchunk.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown RetrievalChunk field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *RetrievalChunkMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case retrievalchunk.FieldSourceKind:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceKind(v)
+		return nil
+	case retrievalchunk.FieldSourceID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceID(v)
+		return nil
+	case retrievalchunk.FieldSourceRef:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSourceRef(v)
+		return nil
+	case retrievalchunk.FieldContent:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetContent(v)
+		return nil
+	case retrievalchunk.FieldContentDigest:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetContentDigest(v)
+		return nil
+	case retrievalchunk.FieldEmbeddingModel:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEmbeddingModel(v)
+		return nil
+	case retrievalchunk.FieldEmbeddingDimensions:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEmbeddingDimensions(v)
+		return nil
+	case retrievalchunk.FieldEmbedding:
+		v, ok := value.(pgvector.Vector)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEmbedding(v)
+		return nil
+	case retrievalchunk.FieldMetadata:
+		v, ok := value.(json.RawMessage)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetMetadata(v)
+		return nil
+	case retrievalchunk.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown RetrievalChunk field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *RetrievalChunkMutation) AddedFields() []string {
+	var fields []string
+	if m.addsource_id != nil {
+		fields = append(fields, retrievalchunk.FieldSourceID)
+	}
+	if m.addembedding_dimensions != nil {
+		fields = append(fields, retrievalchunk.FieldEmbeddingDimensions)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *RetrievalChunkMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case retrievalchunk.FieldSourceID:
+		return m.AddedSourceID()
+	case retrievalchunk.FieldEmbeddingDimensions:
+		return m.AddedEmbeddingDimensions()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *RetrievalChunkMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case retrievalchunk.FieldSourceID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddSourceID(v)
+		return nil
+	case retrievalchunk.FieldEmbeddingDimensions:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddEmbeddingDimensions(v)
+		return nil
+	}
+	return fmt.Errorf("unknown RetrievalChunk numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *RetrievalChunkMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *RetrievalChunkMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *RetrievalChunkMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown RetrievalChunk nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *RetrievalChunkMutation) ResetField(name string) error {
+	switch name {
+	case retrievalchunk.FieldSourceKind:
+		m.ResetSourceKind()
+		return nil
+	case retrievalchunk.FieldSourceID:
+		m.ResetSourceID()
+		return nil
+	case retrievalchunk.FieldSourceRef:
+		m.ResetSourceRef()
+		return nil
+	case retrievalchunk.FieldContent:
+		m.ResetContent()
+		return nil
+	case retrievalchunk.FieldContentDigest:
+		m.ResetContentDigest()
+		return nil
+	case retrievalchunk.FieldEmbeddingModel:
+		m.ResetEmbeddingModel()
+		return nil
+	case retrievalchunk.FieldEmbeddingDimensions:
+		m.ResetEmbeddingDimensions()
+		return nil
+	case retrievalchunk.FieldEmbedding:
+		m.ResetEmbedding()
+		return nil
+	case retrievalchunk.FieldMetadata:
+		m.ResetMetadata()
+		return nil
+	case retrievalchunk.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown RetrievalChunk field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *RetrievalChunkMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *RetrievalChunkMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *RetrievalChunkMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *RetrievalChunkMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *RetrievalChunkMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *RetrievalChunkMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *RetrievalChunkMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown RetrievalChunk unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *RetrievalChunkMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown RetrievalChunk edge %s", name)
+}
+
 // SubReportMutation represents an operation that mutates the SubReport nodes in the graph.
 type SubReportMutation struct {
 	config
@@ -23832,6 +24732,8 @@ type SubReportMutation struct {
 	appendrecommended_actions json.RawMessage
 	evidence_refs             *[]string
 	appendevidence_refs       []string
+	retrieval_refs            *[]string
+	appendretrieval_refs      []string
 	content                   *json.RawMessage
 	appendcontent             json.RawMessage
 	model                     *string
@@ -24352,6 +25254,57 @@ func (m *SubReportMutation) ResetEvidenceRefs() {
 	m.appendevidence_refs = nil
 }
 
+// SetRetrievalRefs sets the "retrieval_refs" field.
+func (m *SubReportMutation) SetRetrievalRefs(s []string) {
+	m.retrieval_refs = &s
+	m.appendretrieval_refs = nil
+}
+
+// RetrievalRefs returns the value of the "retrieval_refs" field in the mutation.
+func (m *SubReportMutation) RetrievalRefs() (r []string, exists bool) {
+	v := m.retrieval_refs
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRetrievalRefs returns the old "retrieval_refs" field's value of the SubReport entity.
+// If the SubReport object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *SubReportMutation) OldRetrievalRefs(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRetrievalRefs is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRetrievalRefs requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRetrievalRefs: %w", err)
+	}
+	return oldValue.RetrievalRefs, nil
+}
+
+// AppendRetrievalRefs adds s to the "retrieval_refs" field.
+func (m *SubReportMutation) AppendRetrievalRefs(s []string) {
+	m.appendretrieval_refs = append(m.appendretrieval_refs, s...)
+}
+
+// AppendedRetrievalRefs returns the list of values that were appended to the "retrieval_refs" field in this mutation.
+func (m *SubReportMutation) AppendedRetrievalRefs() ([]string, bool) {
+	if len(m.appendretrieval_refs) == 0 {
+		return nil, false
+	}
+	return m.appendretrieval_refs, true
+}
+
+// ResetRetrievalRefs resets all changes to the "retrieval_refs" field.
+func (m *SubReportMutation) ResetRetrievalRefs() {
+	m.retrieval_refs = nil
+	m.appendretrieval_refs = nil
+}
+
 // SetContent sets the "content" field.
 func (m *SubReportMutation) SetContent(jm json.RawMessage) {
 	m.content = &jm
@@ -24714,7 +25667,7 @@ func (m *SubReportMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *SubReportMutation) Fields() []string {
-	fields := make([]string, 0, 15)
+	fields := make([]string, 0, 16)
 	if m.snapshot != nil {
 		fields = append(fields, subreport.FieldEvidenceSnapshotID)
 	}
@@ -24744,6 +25697,9 @@ func (m *SubReportMutation) Fields() []string {
 	}
 	if m.evidence_refs != nil {
 		fields = append(fields, subreport.FieldEvidenceRefs)
+	}
+	if m.retrieval_refs != nil {
+		fields = append(fields, subreport.FieldRetrievalRefs)
 	}
 	if m.content != nil {
 		fields = append(fields, subreport.FieldContent)
@@ -24788,6 +25744,8 @@ func (m *SubReportMutation) Field(name string) (ent.Value, bool) {
 		return m.RecommendedActions()
 	case subreport.FieldEvidenceRefs:
 		return m.EvidenceRefs()
+	case subreport.FieldRetrievalRefs:
+		return m.RetrievalRefs()
 	case subreport.FieldContent:
 		return m.Content()
 	case subreport.FieldModel:
@@ -24827,6 +25785,8 @@ func (m *SubReportMutation) OldField(ctx context.Context, name string) (ent.Valu
 		return m.OldRecommendedActions(ctx)
 	case subreport.FieldEvidenceRefs:
 		return m.OldEvidenceRefs(ctx)
+	case subreport.FieldRetrievalRefs:
+		return m.OldRetrievalRefs(ctx)
 	case subreport.FieldContent:
 		return m.OldContent(ctx)
 	case subreport.FieldModel:
@@ -24915,6 +25875,13 @@ func (m *SubReportMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetEvidenceRefs(v)
+		return nil
+	case subreport.FieldRetrievalRefs:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRetrievalRefs(v)
 		return nil
 	case subreport.FieldContent:
 		v, ok := value.(json.RawMessage)
@@ -25053,6 +26020,9 @@ func (m *SubReportMutation) ResetField(name string) error {
 		return nil
 	case subreport.FieldEvidenceRefs:
 		m.ResetEvidenceRefs()
+		return nil
+	case subreport.FieldRetrievalRefs:
+		m.ResetRetrievalRefs()
 		return nil
 	case subreport.FieldContent:
 		m.ResetContent()

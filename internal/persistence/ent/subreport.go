@@ -39,6 +39,8 @@ type SubReport struct {
 	RecommendedActions json.RawMessage `json:"recommended_actions,omitempty"`
 	// evidence identifiers referenced by the SubReport
 	EvidenceRefs []string `json:"evidence_refs,omitempty"`
+	// historical report source references supplied as advisory context
+	RetrievalRefs []string `json:"retrieval_refs,omitempty"`
 	// full accepted SubReport JSON payload
 	Content json.RawMessage `json:"content,omitempty"`
 	// provider model that produced the accepted output
@@ -91,7 +93,7 @@ func (*SubReport) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case subreport.FieldFindings, subreport.FieldRecommendedActions, subreport.FieldEvidenceRefs, subreport.FieldContent:
+		case subreport.FieldFindings, subreport.FieldRecommendedActions, subreport.FieldEvidenceRefs, subreport.FieldRetrievalRefs, subreport.FieldContent:
 			values[i] = new([]byte)
 		case subreport.FieldID, subreport.FieldEvidenceSnapshotID:
 			values[i] = new(sql.NullInt64)
@@ -184,6 +186,14 @@ func (_m *SubReport) assignValues(columns []string, values []any) error {
 			} else if value != nil && len(*value) > 0 {
 				if err := json.Unmarshal(*value, &_m.EvidenceRefs); err != nil {
 					return fmt.Errorf("unmarshal field evidence_refs: %w", err)
+				}
+			}
+		case subreport.FieldRetrievalRefs:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field retrieval_refs", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.RetrievalRefs); err != nil {
+					return fmt.Errorf("unmarshal field retrieval_refs: %w", err)
 				}
 			}
 		case subreport.FieldContent:
@@ -293,6 +303,9 @@ func (_m *SubReport) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("evidence_refs=")
 	builder.WriteString(fmt.Sprintf("%v", _m.EvidenceRefs))
+	builder.WriteString(", ")
+	builder.WriteString("retrieval_refs=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RetrievalRefs))
 	builder.WriteString(", ")
 	builder.WriteString("content=")
 	builder.WriteString(fmt.Sprintf("%v", _m.Content))

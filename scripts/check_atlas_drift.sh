@@ -9,7 +9,7 @@
 #
 # Mechanism (post-2026-05-22 wrapper redesign):
 #   1. Copy committed migrations into a throwaway directory.
-#   2. Launch an ephemeral postgres:18-alpine on a dedicated network.
+#   2. Launch an ephemeral pgvector PostgreSQL 18 on a dedicated network.
 #   3. Run `atlas migrate diff drift_check` in the pinned Atlas image
 #      with the host Go toolchain mounted, talking to the dev Postgres
 #      via a plain postgres:// URL.

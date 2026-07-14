@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"math"
 	"testing"
 	"time"
 
@@ -38,6 +40,7 @@ func mustNewReportSubReport(t *testing.T, snapshotID domain.EvidenceSnapshotID, 
 		Findings:           json.RawMessage(`[{"label":"CPU","detail":"high","evidence_id":"alert:1"}]`),
 		RecommendedActions: json.RawMessage(`[{"label":"Scale","detail":"Add one replica","priority":"medium"}]`),
 		EvidenceRefs:       []string{"alert:1"},
+		RetrievalRefs:      []string{"final_report:9"},
 		Content:            json.RawMessage(`{"title":"CPU saturation","summary":"CPU usage is above threshold."}`),
 		Model:              "gpt-test",
 		OutputMode:         "json_schema",
@@ -99,6 +102,9 @@ func TestReportRepository_SaveSubReportAndQuery(t *testing.T) {
 		if byID.IdempotencyKey != "sub-key-1" {
 			t.Errorf("FindSubReportByID.IdempotencyKey = %q, want sub-key-1", byID.IdempotencyKey)
 		}
+		if len(byID.RetrievalRefs) != 1 || byID.RetrievalRefs[0] != "final_report:9" {
+			t.Errorf("FindSubReportByID.RetrievalRefs = %v", byID.RetrievalRefs)
+		}
 		byKey, err := uow.Reports().FindSubReportBySnapshotAndIdempotencyKey(ctx, snapshotID, "sub-key-1")
 		if err != nil {
 			t.Fatalf("FindSubReportBySnapshotAndIdempotencyKey: %v", err)
@@ -107,6 +113,106 @@ func TestReportRepository_SaveSubReportAndQuery(t *testing.T) {
 			t.Errorf("FindSubReportBySnapshotAndIdempotencyKey.ID = %d, want %d", byKey.ID, saved.ID)
 		}
 	})
+}
+
+func TestReportRepository_RetrievalChunkCosineSearch(t *testing.T) {
+	resetDB(t)
+	subReportIDs, finalReportIDs := makeRetrievalReportSources(t)
+	chunks := []domain.RetrievalChunk{
+		mustRetrievalChunk(t, domain.RetrievalSourceSubReport, int64(subReportIDs[0]), "embed-model", vectorWith(1, 0)),
+		mustRetrievalChunk(t, domain.RetrievalSourceSubReport, int64(subReportIDs[1]), "embed-model", vectorWith(1, 1)),
+		mustRetrievalChunk(t, domain.RetrievalSourceFinalReport, int64(finalReportIDs[0]), "embed-model", vectorWith(0, 1)),
+		mustRetrievalChunk(t, domain.RetrievalSourceFinalReport, int64(finalReportIDs[1]), "other-model", vectorWith(1, 0)),
+	}
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for _, chunk := range chunks {
+			if _, err := uow.Reports().SaveRetrievalChunk(ctx, chunk); err != nil {
+				t.Fatalf("SaveRetrievalChunk(%s): %v", chunk.SourceRef, err)
+			}
+		}
+	})
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		rows, err := uow.Reports().SearchRetrievalChunks(ctx, "embed-model", vectorWith(1, 0), 0.4, 2)
+		if err != nil {
+			t.Fatalf("SearchRetrievalChunks: %v", err)
+		}
+		if len(rows) != 2 || rows[0].Chunk.SourceRef != chunks[0].SourceRef || rows[1].Chunk.SourceRef != chunks[1].SourceRef {
+			t.Fatalf("rows = %+v", rows)
+		}
+		if rows[0].CosineDistance != 0 || rows[1].CosineDistance <= 0 || rows[1].CosineDistance >= 0.4 {
+			t.Fatalf("distances = %v/%v", rows[0].CosineDistance, rows[1].CosineDistance)
+		}
+		found, err := uow.Reports().FindRetrievalChunkBySource(ctx, domain.RetrievalSourceSubReport, int64(subReportIDs[0]), "embed-model")
+		if err != nil || found.SourceRef != chunks[0].SourceRef {
+			t.Fatalf("FindRetrievalChunkBySource = %+v, %v", found, err)
+		}
+	})
+
+	err := integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, err := uow.Reports().SaveRetrievalChunk(ctx, chunks[0])
+		return err
+	})
+	if !errors.Is(err, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate SaveRetrievalChunk error = %v, want ErrAlreadyExists", err)
+	}
+}
+
+func makeRetrievalReportSources(t *testing.T) ([]domain.SubReportID, []domain.FinalReportID) {
+	t.Helper()
+	snapshotIDs := []domain.EvidenceSnapshotID{
+		makeSnapshotForReport(t, "retrieval-source-a", "digest-retrieval-source-a"),
+		makeSnapshotForReport(t, "retrieval-source-b", "digest-retrieval-source-b"),
+	}
+	subReportIDs := make([]domain.SubReportID, 0, len(snapshotIDs))
+	finalReportIDs := make([]domain.FinalReportID, 0, len(snapshotIDs))
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for i, snapshotID := range snapshotIDs {
+			subReport, err := uow.Reports().SaveSubReport(
+				ctx,
+				mustNewReportSubReport(t, snapshotID, fmt.Sprintf("retrieval-sub-%d", i+1)),
+			)
+			if err != nil {
+				t.Fatalf("SaveSubReport retrieval source[%d]: %v", i, err)
+			}
+			subReportIDs = append(subReportIDs, subReport.ID)
+			finalReport, err := uow.Reports().SaveFinalReport(
+				ctx,
+				mustNewReportFinalReport(t, fmt.Sprintf("retrieval-final-%d", i+1)),
+				[]domain.SubReportID{subReport.ID},
+			)
+			if err != nil {
+				t.Fatalf("SaveFinalReport retrieval source[%d]: %v", i, err)
+			}
+			finalReportIDs = append(finalReportIDs, finalReport.ID)
+		}
+	})
+	return subReportIDs, finalReportIDs
+}
+
+func mustRetrievalChunk(t *testing.T, kind domain.RetrievalSourceKind, id int64, model string, embedding []float32) domain.RetrievalChunk {
+	t.Helper()
+	chunk, err := domain.NewRetrievalChunk(domain.RetrievalChunk{
+		SourceKind:          kind,
+		SourceID:            id,
+		SourceRef:           string(kind) + ":" + fmt.Sprint(id),
+		Content:             fmt.Sprintf(`{"source_ref":%q}`, string(kind)+":"+fmt.Sprint(id)),
+		EmbeddingModel:      model,
+		EmbeddingDimensions: domain.RetrievalEmbeddingDimensions,
+		Embedding:           embedding,
+		Metadata:            json.RawMessage(`{}`),
+	})
+	if err != nil {
+		t.Fatalf("NewRetrievalChunk: %v", err)
+	}
+	return chunk
+}
+
+func vectorWith(first, second float32) []float32 {
+	vector := make([]float32, domain.RetrievalEmbeddingDimensions)
+	vector[0] = first
+	vector[1] = second
+	return vector
 }
 
 func TestReportRepository_SubReportIdempotencyPerSnapshot(t *testing.T) {
@@ -456,6 +562,22 @@ func TestReportRepository_RejectsBadInputs(t *testing.T) {
 				name: "list final reports bad limit",
 				call: func() error {
 					_, err := uow.Reports().ListFinalReports(ctx, 0)
+					return err
+				},
+			},
+			{
+				name: "search retrieval chunks non-finite query",
+				call: func() error {
+					query := vectorWith(1, 0)
+					query[0] = float32(math.NaN())
+					_, err := uow.Reports().SearchRetrievalChunks(ctx, "embed-model", query, 0.4, 1)
+					return err
+				},
+			},
+			{
+				name: "search retrieval chunks excessive limit",
+				call: func() error {
+					_, err := uow.Reports().SearchRetrievalChunks(ctx, "embed-model", vectorWith(1, 0), 0.4, maxRetrievalSearchLimit+1)
 					return err
 				},
 			},

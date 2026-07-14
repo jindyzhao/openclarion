@@ -29,8 +29,8 @@ provider interfaces without changing the control plane.
 4. Generate structured `SubReport` and `FinalReport` output through a headless
    LLM report loop.
 5. Distribute concise reports through IM providers.
-6. Persist evidence, tasks, chat turns, and reports in PostgreSQL for review,
-   weekly/monthly summaries, and future retrieval.
+6. Persist evidence, tasks, chat turns, reports, and optional bounded historical
+   report retrieval data in PostgreSQL for review and weekly/monthly summaries.
 
 The product has two logical subsystems inside the same repository and product
 surface:

@@ -71,6 +71,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/reportpolicytrigger"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
+	"github.com/openclarion/openclarion/internal/usecases/retrieval"
 )
 
 type getenvFunc func(string) string
@@ -157,24 +158,32 @@ const (
 	diagnosisWeComCallbackEncodingAESKeyEnv = "OPENCLARION_WECOM_CALLBACK_ENCODING_AES_KEY"
 	diagnosisWeComCallbackReceiveIDEnv      = "OPENCLARION_WECOM_CALLBACK_RECEIVE_ID"
 	reportLLMHTTPTimeoutSecondsEnv          = "OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS"
-	sandboxEgressProxyURLEnv                = "OPENCLARION_SANDBOX_EGRESS_PROXY_URL"
-	reportReplayCLICommand                  = "report-replay"
-	reportPolicyReplayCLICommand            = "report-policy-replay"
-	reportScheduleLiveSmokeCLICommand       = "report-schedule-live-smoke"
-	workflowBacklogCLICommand               = "workflow-backlog"
-	diagnosisRoomListCLICommand             = "diagnosis-room-list"
-	reportReplayCLICreatedByWorkflow        = "ReportReplayCLI"
-	defaultReportReplayCLILimit             = 10000
-	defaultWorkflowBacklogCLILimit          = 50
-	maxWorkflowBacklogCLILimit              = 500
-	defaultDiagnosisRoomListCLILimit        = 100
-	maxDiagnosisRoomListCLILimit            = 500
-	defaultReportReplayCLIWait              = 20 * time.Minute
-	defaultReportLLMHTTPTimeout             = 260 * time.Second
-	defaultCMDBHTTPTimeout                  = 10 * time.Second
-	defaultReportScheduleLiveSmokeWait      = 30 * time.Minute
-	defaultReportScheduleLiveSmokePoll      = 5 * time.Second
-	minIAMDirectorySyncInterval             = time.Minute
+	embeddingModelEnv                       = "OPENCLARION_EMBEDDING_MODEL"
+	embeddingBaseURLEnv                     = "OPENCLARION_EMBEDDING_BASE_URL"
+	// #nosec G101 -- environment variable name only; values are read at runtime.
+	embeddingAPIKeyEnv                 = "OPENCLARION_EMBEDDING_API_KEY"
+	embeddingHTTPTimeoutSecondsEnv     = "OPENCLARION_EMBEDDING_HTTP_TIMEOUT_SECONDS"
+	sandboxEgressProxyURLEnv           = "OPENCLARION_SANDBOX_EGRESS_PROXY_URL"
+	reportReplayCLICommand             = "report-replay"
+	reportPolicyReplayCLICommand       = "report-policy-replay"
+	reportScheduleLiveSmokeCLICommand  = "report-schedule-live-smoke"
+	retrievalReindexCLICommand         = "retrieval-reindex"
+	workflowBacklogCLICommand          = "workflow-backlog"
+	diagnosisRoomListCLICommand        = "diagnosis-room-list"
+	reportReplayCLICreatedByWorkflow   = "ReportReplayCLI"
+	defaultReportReplayCLILimit        = 10000
+	defaultRetrievalReindexLimit       = 1000
+	defaultWorkflowBacklogCLILimit     = 50
+	maxWorkflowBacklogCLILimit         = 500
+	defaultDiagnosisRoomListCLILimit   = 100
+	maxDiagnosisRoomListCLILimit       = 500
+	defaultReportReplayCLIWait         = 20 * time.Minute
+	defaultReportLLMHTTPTimeout        = 260 * time.Second
+	defaultEmbeddingHTTPTimeout        = 30 * time.Second
+	defaultCMDBHTTPTimeout             = 10 * time.Second
+	defaultReportScheduleLiveSmokeWait = 30 * time.Minute
+	defaultReportScheduleLiveSmokePoll = 5 * time.Second
+	minIAMDirectorySyncInterval        = time.Minute
 
 	diagnosisRoomCloseCLICommand    = "diagnosis-room-close"
 	defaultDiagnosisRoomCloseReason = "live_smoke_completed"
@@ -241,6 +250,8 @@ func dispatch(ctx context.Context, logger *slog.Logger, args []string, stdout io
 		return runReportPolicyReplayCLI(ctx, logger, os.Getenv, args[1:], stdout)
 	case reportScheduleLiveSmokeCLICommand:
 		return runReportScheduleLiveSmokeCLI(ctx, logger, os.Getenv, args[1:], stdout)
+	case retrievalReindexCLICommand:
+		return runRetrievalReindexCLI(ctx, logger, os.Getenv, args[1:], stdout)
 	case workflowBacklogCLICommand:
 		return runWorkflowBacklogCLI(ctx, logger, os.Getenv, args[1:], stdout)
 	case diagnosisRoomListCLICommand:
@@ -248,7 +259,7 @@ func dispatch(ctx context.Context, logger *slog.Logger, args []string, stdout io
 	case diagnosisRoomCloseCLICommand:
 		return runDiagnosisRoomCloseCLI(ctx, logger, os.Getenv, args[1:], stdout)
 	default:
-		return fmt.Errorf("unknown command %q (expected: serve, %s, %s, %s, %s, %s, or %s)", args[0], reportReplayCLICommand, reportPolicyReplayCLICommand, reportScheduleLiveSmokeCLICommand, workflowBacklogCLICommand, diagnosisRoomListCLICommand, diagnosisRoomCloseCLICommand)
+		return fmt.Errorf("unknown command %q (expected: serve, %s, %s, %s, %s, %s, %s, or %s)", args[0], reportReplayCLICommand, reportPolicyReplayCLICommand, reportScheduleLiveSmokeCLICommand, retrievalReindexCLICommand, workflowBacklogCLICommand, diagnosisRoomListCLICommand, diagnosisRoomCloseCLICommand)
 	}
 }
 
@@ -476,6 +487,48 @@ func temporalTaskQueueFromEnv(getenv getenvFunc) (string, error) {
 	return taskQueue, nil
 }
 
+func embeddingProviderFromEnv(
+	getenv getenvFunc,
+	httpTracing *observabilitytracing.HTTPTracing,
+) (ports.EmbeddingProvider, bool, error) {
+	configured := anyEnv(getenv,
+		embeddingModelEnv,
+		embeddingBaseURLEnv,
+		embeddingAPIKeyEnv,
+		embeddingHTTPTimeoutSecondsEnv,
+	)
+	if !configured {
+		return nil, false, nil
+	}
+	model := strings.TrimSpace(getenv(embeddingModelEnv))
+	if model == "" {
+		return nil, true, fmt.Errorf("%s is required when configuring report retrieval", embeddingModelEnv)
+	}
+	baseURL := strings.TrimSpace(getenv(embeddingBaseURLEnv))
+	if baseURL == "" {
+		baseURL = strings.TrimSpace(getenv("OPENCLARION_LLM_BASE_URL"))
+	}
+	apiKey := strings.TrimSpace(getenv(embeddingAPIKeyEnv))
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(getenv("OPENCLARION_LLM_API_KEY"))
+	}
+	timeout, err := positiveDurationSecondsFromEnv(getenv, embeddingHTTPTimeoutSecondsEnv, defaultEmbeddingHTTPTimeout)
+	if err != nil {
+		return nil, true, err
+	}
+	provider, err := openaillm.NewEmbeddingProvider(openaillm.EmbeddingConfig{
+		BaseURL:    baseURL,
+		APIKey:     apiKey,
+		Model:      model,
+		Dimensions: domain.RetrievalEmbeddingDimensions,
+		HTTPClient: outboundHTTPClient(httpTracing, timeout),
+	})
+	if err != nil {
+		return nil, true, fmt.Errorf("configure embedding provider: %w", err)
+	}
+	return provider, true, nil
+}
+
 func reportActivityOptionsFromEnv(
 	ctx context.Context,
 	logger *slog.Logger,
@@ -516,6 +569,18 @@ func reportActivityOptionsFromEnv(
 		}
 		opts = append(opts, temporalpkg.WithLLMProvider(provider))
 		logger.Info("configured report LLM provider", "provider", "openai-compatible", "output_mode", provider.OutputMode())
+	}
+
+	embeddingProvider, embeddingConfigured, err := embeddingProviderFromEnv(getenv, httpTracing)
+	if err != nil {
+		return nil, err
+	}
+	if embeddingConfigured {
+		if uowFactory == nil {
+			return nil, fmt.Errorf("embedding provider requires a unit of work factory")
+		}
+		opts = append(opts, temporalpkg.WithEmbeddingProvider(embeddingProvider))
+		logger.Info("configured historical report retrieval", "provider", "openai-compatible")
 	}
 
 	imProvider, imFormat, imConfigured, err := reportIMProviderFromEnv(getenv, httpTracing)
@@ -2022,6 +2087,10 @@ type reportScheduleLiveSmokeCLIConfig struct {
 	WaitTimeout        time.Duration
 }
 
+type retrievalReindexCLIConfig struct {
+	Limit int
+}
+
 type reportReplayCLITrigger interface {
 	ReplayAndStart(ctx context.Context, req reporttrigger.Request) (reporttrigger.Result, error)
 }
@@ -2681,6 +2750,67 @@ func runReportScheduleLiveSmokeCLI(
 	}
 	defer tc.Close()
 	return runReportScheduleLiveSmokeCLIWithDependencies(ctx, temporalReportScheduleLiveSmokeWaiter{client: tc}, schedule, cfg, stdout)
+}
+
+func runRetrievalReindexCLI(
+	ctx context.Context,
+	logger *slog.Logger,
+	getenv getenvFunc,
+	args []string,
+	stdout io.Writer,
+) error {
+	cfg, err := parseRetrievalReindexCLIArgs(args)
+	if err != nil {
+		return err
+	}
+	if stdout == nil {
+		return fmt.Errorf("retrieval reindex: stdout must be configured: %w", domain.ErrInvariantViolation)
+	}
+	dsn := strings.TrimSpace(getenv("DATABASE_URL"))
+	if dsn == "" {
+		return fmt.Errorf("DATABASE_URL is required")
+	}
+	provider, configured, err := embeddingProviderFromEnv(getenv, nil)
+	if err != nil {
+		return err
+	}
+	if !configured {
+		return fmt.Errorf("%s is required for %s", embeddingModelEnv, retrievalReindexCLICommand)
+	}
+	entClient, err := repository.OpenPostgres(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("open postgres: %w", err)
+	}
+	defer func() {
+		if closeErr := entClient.Close(); closeErr != nil && logger != nil {
+			logger.Warn("close ent client", "error", closeErr)
+		}
+	}()
+	stats, reindexErr := retrieval.ReindexReports(ctx, repository.NewFactory(entClient), provider, cfg.Limit)
+	if err := json.NewEncoder(stdout).Encode(stats); err != nil {
+		return fmt.Errorf("encode retrieval reindex stats: %w", err)
+	}
+	if reindexErr != nil {
+		return fmt.Errorf("retrieval reindex completed with failures: %w", reindexErr)
+	}
+	return nil
+}
+
+func parseRetrievalReindexCLIArgs(args []string) (retrievalReindexCLIConfig, error) {
+	cfg := retrievalReindexCLIConfig{Limit: defaultRetrievalReindexLimit}
+	fs := flag.NewFlagSet(retrievalReindexCLICommand, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.IntVar(&cfg.Limit, "limit", defaultRetrievalReindexLimit, "maximum recent final reports to index")
+	if err := fs.Parse(args); err != nil {
+		return retrievalReindexCLIConfig{}, fmt.Errorf("%w\n%s", err, retrievalReindexCLIUsage())
+	}
+	if fs.NArg() != 0 {
+		return retrievalReindexCLIConfig{}, fmt.Errorf("unexpected positional arguments: %s\n%s", strings.Join(fs.Args(), " "), retrievalReindexCLIUsage())
+	}
+	if cfg.Limit <= 0 || cfg.Limit > retrieval.MaxReindexReports {
+		return retrievalReindexCLIConfig{}, fmt.Errorf("--limit must be in [1,%d] (got %d)\n%s", retrieval.MaxReindexReports, cfg.Limit, retrievalReindexCLIUsage())
+	}
+	return cfg, nil
 }
 
 func parseReportReplayCLIArgs(args []string) (reportReplayCLIConfig, error) {
@@ -4364,4 +4494,8 @@ func reportScheduleLiveSmokeCLIUsage() string {
 		" [--temporal-schedule-id openclarion-report-policy-456-daily]" +
 		" [--observed-after " + strconv.Quote("2026-06-06T00:00:00Z") + "]" +
 		" [--wait-timeout 30m]"
+}
+
+func retrievalReindexCLIUsage() string {
+	return "usage: openclarion " + retrievalReindexCLICommand + " [--limit 1000]"
 }

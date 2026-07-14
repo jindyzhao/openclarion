@@ -38,6 +38,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
+	"github.com/openclarion/openclarion/internal/persistence/ent/retrievalchunk"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
 
@@ -92,6 +93,8 @@ type Client struct {
 	ReportWorkflowPolicy *ReportWorkflowPolicyClient
 	// ReportWorkflowSchedule is the client for interacting with the ReportWorkflowSchedule builders.
 	ReportWorkflowSchedule *ReportWorkflowScheduleClient
+	// RetrievalChunk is the client for interacting with the RetrievalChunk builders.
+	RetrievalChunk *RetrievalChunkClient
 	// SubReport is the client for interacting with the SubReport builders.
 	SubReport *SubReportClient
 }
@@ -128,6 +131,7 @@ func (c *Client) init() {
 	c.ReportNotificationDelivery = NewReportNotificationDeliveryClient(c.config)
 	c.ReportWorkflowPolicy = NewReportWorkflowPolicyClient(c.config)
 	c.ReportWorkflowSchedule = NewReportWorkflowScheduleClient(c.config)
+	c.RetrievalChunk = NewRetrievalChunkClient(c.config)
 	c.SubReport = NewSubReportClient(c.config)
 }
 
@@ -244,6 +248,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ReportNotificationDelivery:   NewReportNotificationDeliveryClient(cfg),
 		ReportWorkflowPolicy:         NewReportWorkflowPolicyClient(cfg),
 		ReportWorkflowSchedule:       NewReportWorkflowScheduleClient(cfg),
+		RetrievalChunk:               NewRetrievalChunkClient(cfg),
 		SubReport:                    NewSubReportClient(cfg),
 	}, nil
 }
@@ -287,6 +292,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ReportNotificationDelivery:   NewReportNotificationDeliveryClient(cfg),
 		ReportWorkflowPolicy:         NewReportWorkflowPolicyClient(cfg),
 		ReportWorkflowSchedule:       NewReportWorkflowScheduleClient(cfg),
+		RetrievalChunk:               NewRetrievalChunkClient(cfg),
 		SubReport:                    NewSubReportClient(cfg),
 	}, nil
 }
@@ -323,7 +329,8 @@ func (c *Client) Use(hooks ...Hook) {
 		c.DirectoryDepartment, c.DirectorySyncRun, c.DirectoryUser, c.EvidenceSnapshot,
 		c.FinalReport, c.GroupingPolicy, c.NotificationChannelProfile,
 		c.NotificationChannelTestProof, c.RBACAssignment, c.ReportNotificationDelivery,
-		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.SubReport,
+		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.RetrievalChunk,
+		c.SubReport,
 	} {
 		n.Use(hooks...)
 	}
@@ -339,7 +346,8 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.DirectoryDepartment, c.DirectorySyncRun, c.DirectoryUser, c.EvidenceSnapshot,
 		c.FinalReport, c.GroupingPolicy, c.NotificationChannelProfile,
 		c.NotificationChannelTestProof, c.RBACAssignment, c.ReportNotificationDelivery,
-		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.SubReport,
+		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.RetrievalChunk,
+		c.SubReport,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -394,6 +402,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.ReportWorkflowPolicy.mutate(ctx, m)
 	case *ReportWorkflowScheduleMutation:
 		return c.ReportWorkflowSchedule.mutate(ctx, m)
+	case *RetrievalChunkMutation:
+		return c.RetrievalChunk.mutate(ctx, m)
 	case *SubReportMutation:
 		return c.SubReport.mutate(ctx, m)
 	default:
@@ -3812,6 +3822,139 @@ func (c *ReportWorkflowScheduleClient) mutate(ctx context.Context, m *ReportWork
 	}
 }
 
+// RetrievalChunkClient is a client for the RetrievalChunk schema.
+type RetrievalChunkClient struct {
+	config
+}
+
+// NewRetrievalChunkClient returns a client for the RetrievalChunk from the given config.
+func NewRetrievalChunkClient(c config) *RetrievalChunkClient {
+	return &RetrievalChunkClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `retrievalchunk.Hooks(f(g(h())))`.
+func (c *RetrievalChunkClient) Use(hooks ...Hook) {
+	c.hooks.RetrievalChunk = append(c.hooks.RetrievalChunk, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `retrievalchunk.Intercept(f(g(h())))`.
+func (c *RetrievalChunkClient) Intercept(interceptors ...Interceptor) {
+	c.inters.RetrievalChunk = append(c.inters.RetrievalChunk, interceptors...)
+}
+
+// Create returns a builder for creating a RetrievalChunk entity.
+func (c *RetrievalChunkClient) Create() *RetrievalChunkCreate {
+	mutation := newRetrievalChunkMutation(c.config, OpCreate)
+	return &RetrievalChunkCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of RetrievalChunk entities.
+func (c *RetrievalChunkClient) CreateBulk(builders ...*RetrievalChunkCreate) *RetrievalChunkCreateBulk {
+	return &RetrievalChunkCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *RetrievalChunkClient) MapCreateBulk(slice any, setFunc func(*RetrievalChunkCreate, int)) *RetrievalChunkCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &RetrievalChunkCreateBulk{err: fmt.Errorf("calling to RetrievalChunkClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*RetrievalChunkCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &RetrievalChunkCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for RetrievalChunk.
+func (c *RetrievalChunkClient) Update() *RetrievalChunkUpdate {
+	mutation := newRetrievalChunkMutation(c.config, OpUpdate)
+	return &RetrievalChunkUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *RetrievalChunkClient) UpdateOne(_m *RetrievalChunk) *RetrievalChunkUpdateOne {
+	mutation := newRetrievalChunkMutation(c.config, OpUpdateOne, withRetrievalChunk(_m))
+	return &RetrievalChunkUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *RetrievalChunkClient) UpdateOneID(id int) *RetrievalChunkUpdateOne {
+	mutation := newRetrievalChunkMutation(c.config, OpUpdateOne, withRetrievalChunkID(id))
+	return &RetrievalChunkUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for RetrievalChunk.
+func (c *RetrievalChunkClient) Delete() *RetrievalChunkDelete {
+	mutation := newRetrievalChunkMutation(c.config, OpDelete)
+	return &RetrievalChunkDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *RetrievalChunkClient) DeleteOne(_m *RetrievalChunk) *RetrievalChunkDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *RetrievalChunkClient) DeleteOneID(id int) *RetrievalChunkDeleteOne {
+	builder := c.Delete().Where(retrievalchunk.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &RetrievalChunkDeleteOne{builder}
+}
+
+// Query returns a query builder for RetrievalChunk.
+func (c *RetrievalChunkClient) Query() *RetrievalChunkQuery {
+	return &RetrievalChunkQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeRetrievalChunk},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a RetrievalChunk entity by its id.
+func (c *RetrievalChunkClient) Get(ctx context.Context, id int) (*RetrievalChunk, error) {
+	return c.Query().Where(retrievalchunk.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *RetrievalChunkClient) GetX(ctx context.Context, id int) *RetrievalChunk {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *RetrievalChunkClient) Hooks() []Hook {
+	return c.hooks.RetrievalChunk
+}
+
+// Interceptors returns the client interceptors.
+func (c *RetrievalChunkClient) Interceptors() []Interceptor {
+	return c.inters.RetrievalChunk
+}
+
+func (c *RetrievalChunkClient) mutate(ctx context.Context, m *RetrievalChunkMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&RetrievalChunkCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&RetrievalChunkUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&RetrievalChunkUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&RetrievalChunkDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown RetrievalChunk mutation op: %q", m.Op())
+	}
+}
+
 // SubReportClient is a client for the SubReport schema.
 type SubReportClient struct {
 	config
@@ -3986,7 +4129,7 @@ type (
 		DirectorySyncRun, DirectoryUser, EvidenceSnapshot, FinalReport, GroupingPolicy,
 		NotificationChannelProfile, NotificationChannelTestProof, RBACAssignment,
 		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
-		SubReport []ent.Hook
+		RetrievalChunk, SubReport []ent.Hook
 	}
 	inters struct {
 		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatSessionApproval,
@@ -3995,6 +4138,6 @@ type (
 		DirectorySyncRun, DirectoryUser, EvidenceSnapshot, FinalReport, GroupingPolicy,
 		NotificationChannelProfile, NotificationChannelTestProof, RBACAssignment,
 		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
-		SubReport []ent.Interceptor
+		RetrievalChunk, SubReport []ent.Interceptor
 	}
 )

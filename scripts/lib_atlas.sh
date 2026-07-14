@@ -7,7 +7,7 @@
 #
 # Wrapper shape (M1-PR1, post-redesign 2026-05-22):
 #
-#   1. The host script launches an ephemeral postgres:18-alpine
+#   1. The host script launches an ephemeral pgvector PostgreSQL 18
 #      container attached to a dedicated per-invocation Docker network
 #      (no --network host, no published ports). Concurrent invocations
 #      (local parallel jobs, CI matrix) get unique container / network
@@ -47,7 +47,7 @@
 # script-only runs still work out of the box. If the two ever drift,
 # the Makefile wins because every CI gate goes through it.
 ATLAS_IMAGE="${ATLAS_IMAGE:-arigaio/atlas:1.2.0}"
-DEV_PG_IMAGE="${DEV_PG_IMAGE:-postgres:18-alpine}"
+DEV_PG_IMAGE="${DEV_PG_IMAGE:-pgvector/pgvector:0.8.2-pg18-trixie}"
 ENT_SCHEMA_URL="${ENT_SCHEMA_URL:-ent://internal/persistence/ent/schema}"
 
 # Per-invocation unique resource names.
@@ -91,7 +91,15 @@ atlas::start_dev_pg() {
     "$DEV_PG_IMAGE" >/dev/null
 
   for i in $(seq 1 60); do
-    if docker exec "$ATLAS_PG_NAME" pg_isready -U postgres -d dev >/dev/null 2>&1; then
+    # Query the target database because pg_isready can succeed while the image
+    # entrypoint is still creating POSTGRES_DB.
+    if docker exec "$ATLAS_PG_NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d dev \
+      -Atc 'SELECT 1' >/dev/null 2>&1; then
+      if ! docker exec "$ATLAS_PG_NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d dev \
+        -c 'CREATE EXTENSION IF NOT EXISTS vector' >/dev/null; then
+        echo "[atlas] failed to enable vector extension." >&2
+        exit 1
+      fi
       echo "[atlas] dev Postgres ready after ${i}s."
       return 0
     fi

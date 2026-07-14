@@ -476,6 +476,27 @@ type StreamingLLMProvider interface {
 	GenerateJSONStreaming(ctx context.Context, req LLMRequest, onDelta LLMStreamHandler) (LLMResponse, error)
 }
 
+// EmbeddingRequest contains bounded text inputs for one semantic-index or
+// retrieval query call. IdempotencyKey is forwarded as provider correlation.
+type EmbeddingRequest struct {
+	Inputs         []string
+	IdempotencyKey string
+}
+
+// EmbeddingResponse preserves provider ordering and reports the concrete model
+// so persisted chunks never mix incompatible embedding spaces.
+type EmbeddingResponse struct {
+	Vectors [][]float32
+	Model   string
+}
+
+// EmbeddingProvider is the provider-neutral semantic embedding boundary used
+// by report indexing and historical-context retrieval.
+type EmbeddingProvider interface {
+	Model() string
+	Embed(ctx context.Context, req EmbeddingRequest) (EmbeddingResponse, error)
+}
+
 // IMNotification is the provider-neutral outbound notification DTO.
 // Workflows own persistence and ordering; IM providers only deliver
 // already-accepted operator-facing messages.

@@ -34,6 +34,8 @@ const (
 	FieldRecommendedActions = "recommended_actions"
 	// FieldEvidenceRefs holds the string denoting the evidence_refs field in the database.
 	FieldEvidenceRefs = "evidence_refs"
+	// FieldRetrievalRefs holds the string denoting the retrieval_refs field in the database.
+	FieldRetrievalRefs = "retrieval_refs"
 	// FieldContent holds the string denoting the content field in the database.
 	FieldContent = "content"
 	// FieldModel holds the string denoting the model field in the database.
@@ -77,6 +79,7 @@ var Columns = []string{
 	FieldFindings,
 	FieldRecommendedActions,
 	FieldEvidenceRefs,
+	FieldRetrievalRefs,
 	FieldContent,
 	FieldModel,
 	FieldOutputMode,
@@ -113,6 +116,8 @@ var (
 	SeverityValidator func(string) error
 	// ConfidenceValidator is a validator for the "confidence" field. It is called by the builders before save.
 	ConfidenceValidator func(string) error
+	// DefaultRetrievalRefs holds the default value on creation for the "retrieval_refs" field.
+	DefaultRetrievalRefs []string
 	// ModelValidator is a validator for the "model" field. It is called by the builders before save.
 	ModelValidator func(string) error
 	// OutputModeValidator is a validator for the "output_mode" field. It is called by the builders before save.

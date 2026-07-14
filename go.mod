@@ -17,6 +17,7 @@ require (
 	github.com/jackc/pgx/v5 v5.9.2
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
+	github.com/pgvector/pgvector-go v0.4.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/common v0.68.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2

@@ -12,7 +12,8 @@ diffs the live ent schema against the committed migration history under
 > bundle a Docker CLI, and reading `ent://...` from inside the Atlas
 > container also requires a Go runtime that the image does not ship.
 > The redesigned wrapper (host script launches a per-invocation
-> `postgres:18-alpine` on a dedicated Docker network; Atlas runs in
+> `pgvector/pgvector:0.8.2-pg18-trixie` on a dedicated Docker network;
+> the wrapper enables the `vector` extension in the target database; Atlas runs in
 > `arigaio/atlas:1.2.0` with the host Go toolchain mounted read-only at
 > `/usr/local/go`, runs as `$(id -u):$(id -g)`, talks to the dev DB via
 > plain `postgres://`) is committed in `scripts/lib_atlas.sh` and three
@@ -39,12 +40,18 @@ internal/persistence/
 |------|---------|--------------|---------|
 | Ent  | `v0.14.6` | `go.mod` (`require` + `tool` directives) | schema-as-code definition + client generation |
 | Atlas CLI | `arigaio/atlas:1.2.0` | pinned Docker image (see `Makefile` `ATLAS_IMAGE`) | migration planning, drift detection |
-| Postgres dev DB | `postgres:18-alpine` (see `DEV_PG_IMAGE` in `scripts/lib_atlas.sh`) | launched by the host script per invocation on a dedicated Docker network | ephemeral schema-diff sandbox |
+| Postgres dev DB | `pgvector/pgvector:0.8.2-pg18-trixie` (see `DEV_PG_IMAGE` in `scripts/lib_atlas.sh`) | launched by the host script per invocation on a dedicated Docker network | ephemeral schema-diff sandbox with the `vector` extension enabled |
 
 `go.mod` carries the Ent runtime and the `entgo.io/ent/cmd/ent` codegen
 tool; Atlas is NOT in `go.mod` (the indirect `ariga.io/atlas` entry that
 appears there is the Atlas Go SDK pulled in by ent's loader, NOT the
 CLI). The Atlas CLI is used only via the pinned Docker image.
+
+The report-retrieval migration executes `CREATE EXTENSION IF NOT EXISTS
+vector`. Production PostgreSQL must make pgvector available and the migration
+role must be allowed to enable it before application rollout. Local Compose and
+the Atlas wrapper satisfy this prerequisite with the pinned pgvector image; a
+managed service must satisfy it through its own extension-management controls.
 
 ## Standard invocation pattern
 
@@ -58,9 +65,11 @@ from three thin entry scripts:
   (`make atlas-migrate-diff NAME=<name>`).
 
 Each entry script first calls `atlas::start_dev_pg` to launch a
-per-invocation `postgres:18-alpine` on a dedicated Docker network
+per-invocation `pgvector/pgvector:0.8.2-pg18-trixie` on a dedicated Docker network
 (unique container / network names so concurrent jobs cannot collide),
-then `atlas::run`, then `atlas::stop_dev_pg` (registered in `trap`).
+waits for the target `dev` database with `SELECT 1`, enables the `vector`
+extension, then calls `atlas::run` and `atlas::stop_dev_pg` (registered in
+`trap`).
 
 `atlas::run` invokes `arigaio/atlas:1.2.0` with the following
 non-negotiable flags:

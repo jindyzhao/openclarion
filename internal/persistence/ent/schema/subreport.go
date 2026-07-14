@@ -72,6 +72,10 @@ func (SubReport) Fields() []ent.Field {
 		field.JSON("evidence_refs", []string{}).
 			Immutable().
 			Comment("evidence identifiers referenced by the SubReport"),
+		field.JSON("retrieval_refs", []string{}).
+			Default([]string{}).
+			Immutable().
+			Comment("historical report source references supplied as advisory context"),
 		field.JSON("content", json.RawMessage{}).
 			Immutable().
 			Comment("full accepted SubReport JSON payload"),

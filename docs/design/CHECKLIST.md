@@ -34,7 +34,8 @@
   contract (with the empirical findings that drove the redesign)
 - [x] **Atlas wrapper redesign**: original `--dev-url docker://...` + mounted Docker socket attempt is unusable (image lacks
   Docker CLI and Go runtime); redesigned wrapper (`scripts/lib_atlas.sh` plus three thin entry scripts) launches
-  per-invocation `postgres:18-alpine` from host on a dedicated Docker network, mounts host Go toolchain read-only into
+  per-invocation pgvector PostgreSQL 18 from host on a dedicated Docker network, enables the `vector` extension,
+  mounts the host Go toolchain read-only into
   Atlas container at `/usr/local/go`, runs as `$(id -u):$(id -g)`, uses plain `postgres://` dev-url
 - [x] AlertEvent uses Ent default `bigserial` primary key (UUID is reserved for security-sensitive single-use tokens such as
   the WS ticket per `docs/design/SECURITY_CODING.md`; switching entity primary keys to UUID/ULID is deferred and is gated
@@ -74,7 +75,10 @@
 - [x] retry mechanism feeds validation errors back to LLM (up to 3 attempts)
 - [x] `finish_reason` / refusal / truncation checked before accepting output
 - [x] failed AI output is marked and retryable
-- [x] LLM Activity carries idempotency key (`snapshotID + groupIndex`)
+- [x] LLM Activity carries scenario-scoped idempotency key (`snapshotID + groupIndex + scenario`)
+- [x] fixed-dimension pgvector corpus stores bounded immutable SubReport and FinalReport projections
+- [x] OpenAI-compatible EmbeddingProvider indexes accepted reports and supplies bounded advisory historical context to SubReport prompts
+- [x] retrieval reindex CLI backfills recent FinalReports and their linked SubReports idempotently
 - [x] ReportBatchWorkflow fans out SubReport child workflows and fans in to FinalReportWorkflow
 - [x] alert replay exposes persisted EvidenceSnapshot refs for report dispatch
 - [x] report trigger usecase maps replay refs to an idempotent ReportBatchWorkflow start request

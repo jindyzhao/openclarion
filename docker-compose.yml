@@ -4,11 +4,9 @@
 #   - This file is for LOCAL DEVELOPMENT ONLY. Tag-based pinning is the
 #     baseline; @sha256 digest is NOT required here.
 #   - The literal `latest` is forbidden; every image MUST use a concrete,
-#     non-`latest` tag. A rolling major-line tag such as `postgres:18-alpine`
-#     is acceptable for local dev (it tracks the latest patch within a major
-#     line, which is the right reproducibility/maintenance trade-off for
-#     contributor laptops); pin to `major.minor` or `major.minor.patch` when
-#     a specific patch level matters (e.g. `temporalio/auto-setup:1.25.2`).
+#     non-`latest` tag. PostgreSQL uses the official pgvector image with both
+#     extension and PostgreSQL versions pinned; other local services pin to a
+#     concrete release tag (e.g. `temporalio/auto-setup:1.25.2`).
 #   - Production deployments and the M4 sandbox runtime MUST pin to digest;
 #     that policy is enforced by a separate CI gate introduced at M4.
 #
@@ -28,7 +26,7 @@
 
 services:
   postgres:
-    image: postgres:18-alpine
+    image: pgvector/pgvector:0.8.2-pg18-trixie
     environment:
       POSTGRES_USER: openclarion
       POSTGRES_PASSWORD: openclarion_dev
@@ -40,6 +38,7 @@ services:
       # under /var/lib/postgresql; mount the parent so future pg_upgrade --link
       # can stay within a single volume boundary.
       - postgres_data:/var/lib/postgresql
+      - ./scripts/init-openclarion-db.sql:/docker-entrypoint-initdb.d/00-openclarion.sql:ro
       - ./scripts/init-temporal-db.sql:/docker-entrypoint-initdb.d/01-temporal.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U openclarion"]

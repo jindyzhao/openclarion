@@ -35,6 +35,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
+	"github.com/openclarion/openclarion/internal/persistence/ent/retrievalchunk"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
 
@@ -119,6 +120,7 @@ func checkColumn(t, c string) error {
 			reportnotificationdelivery.Table:   reportnotificationdelivery.ValidColumn,
 			reportworkflowpolicy.Table:         reportworkflowpolicy.ValidColumn,
 			reportworkflowschedule.Table:       reportworkflowschedule.ValidColumn,
+			retrievalchunk.Table:               retrievalchunk.ValidColumn,
 			subreport.Table:                    subreport.ValidColumn,
 		})
 	})

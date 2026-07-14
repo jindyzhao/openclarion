@@ -14,13 +14,15 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
+	embeddingfake "github.com/openclarion/openclarion/internal/providers/embedding/fake"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 	"github.com/openclarion/openclarion/internal/usecases/reportdraft"
 )
 
 type reportLLMProvider struct {
-	mu    sync.Mutex
-	calls map[string]int
+	mu      sync.Mutex
+	calls   map[string]int
+	prompts map[string]string
 }
 
 type recordingIMProvider struct {
@@ -40,7 +42,7 @@ type recordingNotificationProviderResolver struct {
 }
 
 func newReportLLMProvider() *reportLLMProvider {
-	return &reportLLMProvider{calls: map[string]int{}}
+	return &reportLLMProvider{calls: map[string]int{}, prompts: map[string]string{}}
 }
 
 func (p *reportLLMProvider) GenerateJSON(ctx context.Context, req ports.LLMRequest) (ports.LLMResponse, error) {
@@ -49,6 +51,9 @@ func (p *reportLLMProvider) GenerateJSON(ctx context.Context, req ports.LLMReque
 	}
 	p.mu.Lock()
 	p.calls[req.IdempotencyKey]++
+	if len(req.Messages) > 0 {
+		p.prompts[req.IdempotencyKey] = req.Messages[len(req.Messages)-1].Content
+	}
 	p.mu.Unlock()
 
 	switch req.OutputSchemaID {
@@ -81,6 +86,12 @@ func (p *reportLLMProvider) Calls(key string) int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.calls[key]
+}
+
+func (p *reportLLMProvider) Prompt(key string) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.prompts[key]
 }
 
 func (p *recordingIMProvider) SendNotification(_ context.Context, req ports.IMNotification) (ports.IMDelivery, error) {
@@ -233,6 +244,79 @@ func TestReportActivities_GenerateSubReportSeparatesScenarios(t *testing.T) {
 		if provider.Calls(key) != 1 {
 			t.Fatalf("provider calls for %s = %d, want 1", key, provider.Calls(key))
 		}
+	}
+}
+
+func TestReportActivities_IndexesAndRetrievesHistoricalReports(t *testing.T) {
+	ctx := context.Background()
+	llm := newReportLLMProvider()
+	embeddings := embeddingfake.NewDeterministic("report-rag-test-model")
+	activities := temporalpkg.NewActivities(
+		env.factory,
+		temporalpkg.WithLLMProvider(llm),
+		temporalpkg.WithEmbeddingProvider(embeddings),
+	)
+
+	firstSeed := seedDiagnosisTask(t, "report-rag-first")
+	firstSub, err := activities.GenerateSubReport(ctx, temporalpkg.ReportFanOutWorkflowInput{
+		EvidenceSnapshotID: int64(firstSeed.SnapshotID), Scenario: "single_alert", GroupIndex: 0,
+	})
+	if err != nil {
+		t.Fatalf("GenerateSubReport first incident: %v", err)
+	}
+	firstFinal, err := activities.GenerateFinalReport(ctx, temporalpkg.FinalReportWorkflowInput{
+		CorrelationKey: "report-rag-first", SubReportIDs: []int64{firstSub.SubReportID},
+	})
+	if err != nil {
+		t.Fatalf("GenerateFinalReport first incident: %v", err)
+	}
+
+	secondSeed := seedDiagnosisTask(t, "report-rag-second")
+	secondReq := temporalpkg.ReportFanOutWorkflowInput{
+		EvidenceSnapshotID: int64(secondSeed.SnapshotID), Scenario: "cascade", GroupIndex: 0,
+	}
+	secondSub, err := activities.GenerateSubReport(ctx, secondReq)
+	if err != nil {
+		t.Fatalf("GenerateSubReport second incident: %v", err)
+	}
+	duplicate, err := activities.GenerateSubReport(ctx, secondReq)
+	if err != nil {
+		t.Fatalf("GenerateSubReport duplicate: %v", err)
+	}
+	if duplicate.SubReportID != secondSub.SubReportID {
+		t.Fatalf("duplicate subreport ID = %d, want %d", duplicate.SubReportID, secondSub.SubReportID)
+	}
+
+	key := "snapshot:" + int64String(secondSeed.SnapshotID) + "/group:0/scenario:cascade/sub_report"
+	if llm.Calls(key) != 1 {
+		t.Fatalf("LLM calls = %d, want 1", llm.Calls(key))
+	}
+	prompt := llm.Prompt(key)
+	for _, want := range []string{
+		"Historical accepted reports",
+		"sub_report:" + strconv.FormatInt(firstSub.SubReportID, 10),
+		"final_report:" + strconv.FormatInt(firstFinal.FinalReportID, 10),
+		"Do not treat them as current evidence",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("second report prompt missing %q: %s", want, prompt)
+		}
+	}
+
+	var stored domain.SubReport
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var err error
+		stored, err = uow.Reports().FindSubReportByID(ctx, domain.SubReportID(secondSub.SubReportID))
+		return err
+	})
+	if err != nil {
+		t.Fatalf("load second SubReport: %v", err)
+	}
+	if len(stored.RetrievalRefs) < 2 {
+		t.Fatalf("RetrievalRefs = %v, want prior subreport and final report", stored.RetrievalRefs)
+	}
+	if embeddings.Calls("retrieval-index:sub_report:"+strconv.FormatInt(secondSub.SubReportID, 10)) != 1 {
+		t.Fatal("second SubReport was not indexed exactly once")
 	}
 }
 

@@ -13,7 +13,8 @@
 | API | OpenAPI 3.1, `oapi-codegen-exp` V3 (pinned in `go.mod` at M0) | 2026-05-22 |
 | API diff | `oasdiff v1.11.7` via pinned `go run github.com/oasdiff/oasdiff@v1.11.7` in `make openapi-breaking` | 2026-05-27 |
 | GitHub Actions lint | `actionlint v1.7.12` via pinned `go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12` in `make actionlint` | 2026-05-31 |
-| Database | PostgreSQL 18, Ent `v0.14.6` (`go.mod` direct require + `tool` directive at M1-PR1), Atlas CLI `arigaio/atlas:1.2.0` (Docker image pin) | 2026-05-22 |
+| Database | PostgreSQL 18 with pgvector `0.8.2` (`pgvector/pgvector:0.8.2-pg18-trixie` for local and Atlas dev databases), Ent `v0.14.6` (`go.mod` direct require + `tool` directive at M1-PR1), Atlas CLI `arigaio/atlas:1.2.0` (Docker image pin) | 2026-07-14 |
+| Vector client | `github.com/pgvector/pgvector-go v0.4.0` (direct require since report retrieval persists fixed 1536-dimension vectors and binds cosine-search query parameters through Ent/pgx) | 2026-07-14 |
 | Workflow | Temporal Go SDK `go.temporal.io/sdk v1.44.0` pinned via first-import rule at M1-PR3 (`DiagnosisWorkflow` shell shipped per ADR-0012 amendment) | 2026-05-25 |
 | Frontend / Node tooling | Node.js 24.x LTS in CI, Next.js `16.2.7`, React / React DOM `19.2.7`, TypeScript `5.9.3`, ESLint `9.39.4` + `eslint-config-next 16.2.7`, Vitest `4.1.8`, Playwright `1.60.0`, `@types/node 24.12.4`, `@types/react 19.2.16`, `@types/react-dom 19.2.3`, Knip `6.14.2`, OpenAPI TypeScript `7.13.0`, Markdownlint CLI2 `0.22.1`; `postcss` is overridden to `8.5.15` to stay above the advisory floor while Next's dependency graph catches up | 2026-06-03 |
 | Observability | OpenTelemetry Go `go.opentelemetry.io/otel v1.44.0`, `go.opentelemetry.io/otel/sdk v1.44.0`, OTLP HTTP trace exporter `go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0`, HTTP server/client instrumentation `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.69.0`, and Temporal OTel interceptor `go.temporal.io/sdk/contrib/opentelemetry v0.7.0` (direct requires since `internal/observability/tracing` initializes W3C propagation, no-op/OTLP tracer providers, resource service attributes, generated API HTTP span middleware, outbound HTTP transport instrumentation, Temporal workflow/activity tracing, and an OTLP HTTP collector smoke; exporter pin is above the `GO-2026-4985` fixed-in floor reported by `govulncheck`) | 2026-06-03 |
@@ -22,7 +23,6 @@
 | Diagnosis agent runtime | CloudWeGo Eino `github.com/cloudwego/eino v0.9.12` in the isolated `scripts/diagnosis_assistant_runner` module (Apache-2.0; ChatModelAgent lifecycle, bounded iterations, and cancellation). The root control-plane module does not depend on Eino, and V1 registers no in-container tools or framework persistence. | 2026-07-13 |
 | Docker Engine sandbox provider | Docker Go SDK modules `github.com/moby/moby/api v1.54.2` and `github.com/moby/moby/client v0.4.1` (direct requires since `internal/providers/container/docker/provider.go` imports Engine API types and the official client for create/start/wait/stop/kill/remove/copy lifecycle calls; unit tests use a fake EngineClient so cleanup, timeout, and output-copy behavior are verified without requiring a local daemon) | 2026-06-03 |
 | Authentication | `github.com/coreos/go-oidc/v3 v3.18.0` (direct require since `internal/providers/auth/oidc` verifies signed OIDC ID tokens through issuer discovery/JWKS, client ID audience checks, expiry/signature validation, and role-claim extraction for M5 AuthProvider) | 2026-05-28 |
-| Future vector | pgvector 0.7+ (not MVP) | 2026-05-19 |
 
 > **First-import pin rule**: a Go dependency is added to `go.mod` only when
 > production code first imports it. The version is then pinned to a concrete
@@ -92,7 +92,7 @@ Different environments have different pinning requirements:
 
 | Environment | Pin granularity | Rationale |
 |-------------|-----------------|-----------|
-| Local `docker-compose.yml` (dev) | tag with major+minor (e.g. `postgres:18-alpine`); `latest` forbidden | reproducibility within a release line; upgrade burden stays manageable for individual contributors |
+| Local `docker-compose.yml` (dev) | concrete release tag (for example `pgvector/pgvector:0.8.2-pg18-trixie`); `latest` forbidden | reproducible database extension and PostgreSQL compatibility for contributor environments |
 | First-party Dockerfile base images | `@sha256:...` digest for external images; `scratch` and previous build stages allowed | build/runtime images are executable supply-chain inputs once M4 sandbox images exist; internal stage reuse and scratch images do not pull a mutable external base |
 | Build-time tooling images (e.g. `arigaio/atlas:1.2.0`) | tag with major+minor+patch; `latest` and rolling tags forbidden | the tool runs against schema/migration source-of-truth files, so deterministic CLI behaviour matters more than tracking a release line |
 | GitHub Actions (`uses:`) | full 40-char commit SHA | external code execution surface; pinning prevents supply-chain drift; Dependabot handles updates |
@@ -119,7 +119,7 @@ exact same binary.
   Upgrading Atlas requires updating `Makefile` AND the row in this
   file in the same PR.
 * **Invocation pattern**: the host wrapper (`scripts/lib_atlas.sh`)
-  launches an ephemeral `postgres:18-alpine` on a per-invocation
+  launches an ephemeral `pgvector/pgvector:0.8.2-pg18-trixie` on a per-invocation
   dedicated Docker network and runs Atlas in the pinned image on the
   same network. Atlas talks to the dev DB via a plain
   `postgres://postgres:postgres@<container>:5432/dev?...` URL resolved
@@ -129,7 +129,9 @@ exact same binary.
   also does not ship Go, the host Go toolchain (`$(go env GOROOT)`) is
   mounted read-only at `/usr/local/go`; Atlas runs as
   `--user $(id -u):$(id -g)` so generated migration files are owned by
-  the invoking user, not root. See `scripts/lib_atlas.sh` and
+  the invoking user, not root. The wrapper waits by querying the target
+  database and enables the `vector` extension before Atlas runs. See
+  `scripts/lib_atlas.sh` and
   `docs/design/database/migrations.md` for the full contract.
 * **Acceptance smoke (PR1 first action)**: `make atlas-smoke` proves that
   the chosen image variant can resolve `ent://internal/persistence/ent/schema`

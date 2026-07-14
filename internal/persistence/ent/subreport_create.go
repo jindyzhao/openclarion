@@ -85,6 +85,12 @@ func (_c *SubReportCreate) SetEvidenceRefs(v []string) *SubReportCreate {
 	return _c
 }
 
+// SetRetrievalRefs sets the "retrieval_refs" field.
+func (_c *SubReportCreate) SetRetrievalRefs(v []string) *SubReportCreate {
+	_c.mutation.SetRetrievalRefs(v)
+	return _c
+}
+
 // SetContent sets the "content" field.
 func (_c *SubReportCreate) SetContent(v json.RawMessage) *SubReportCreate {
 	_c.mutation.SetContent(v)
@@ -208,6 +214,10 @@ func (_c *SubReportCreate) ExecX(ctx context.Context) {
 
 // defaults sets the default values of the builder before save.
 func (_c *SubReportCreate) defaults() {
+	if _, ok := _c.mutation.RetrievalRefs(); !ok {
+		v := subreport.DefaultRetrievalRefs
+		_c.mutation.SetRetrievalRefs(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := subreport.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -275,6 +285,9 @@ func (_c *SubReportCreate) check() error {
 	}
 	if _, ok := _c.mutation.EvidenceRefs(); !ok {
 		return &ValidationError{Name: "evidence_refs", err: errors.New(`ent: missing required field "SubReport.evidence_refs"`)}
+	}
+	if _, ok := _c.mutation.RetrievalRefs(); !ok {
+		return &ValidationError{Name: "retrieval_refs", err: errors.New(`ent: missing required field "SubReport.retrieval_refs"`)}
 	}
 	if _, ok := _c.mutation.Content(); !ok {
 		return &ValidationError{Name: "content", err: errors.New(`ent: missing required field "SubReport.content"`)}
@@ -362,6 +375,10 @@ func (_c *SubReportCreate) createSpec() (*SubReport, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.EvidenceRefs(); ok {
 		_spec.SetField(subreport.FieldEvidenceRefs, field.TypeJSON, value)
 		_node.EvidenceRefs = value
+	}
+	if value, ok := _c.mutation.RetrievalRefs(); ok {
+		_spec.SetField(subreport.FieldRetrievalRefs, field.TypeJSON, value)
+		_node.RetrievalRefs = value
 	}
 	if value, ok := _c.mutation.Content(); ok {
 		_spec.SetField(subreport.FieldContent, field.TypeJSON, value)
@@ -508,6 +525,9 @@ func (u *SubReportUpsertOne) UpdateNewValues() *SubReportUpsertOne {
 		}
 		if _, exists := u.create.mutation.EvidenceRefs(); exists {
 			s.SetIgnore(subreport.FieldEvidenceRefs)
+		}
+		if _, exists := u.create.mutation.RetrievalRefs(); exists {
+			s.SetIgnore(subreport.FieldRetrievalRefs)
 		}
 		if _, exists := u.create.mutation.Content(); exists {
 			s.SetIgnore(subreport.FieldContent)
@@ -760,6 +780,9 @@ func (u *SubReportUpsertBulk) UpdateNewValues() *SubReportUpsertBulk {
 			}
 			if _, exists := b.mutation.EvidenceRefs(); exists {
 				s.SetIgnore(subreport.FieldEvidenceRefs)
+			}
+			if _, exists := b.mutation.RetrievalRefs(); exists {
+				s.SetIgnore(subreport.FieldRetrievalRefs)
 			}
 			if _, exists := b.mutation.Content(); exists {
 				s.SetIgnore(subreport.FieldContent)

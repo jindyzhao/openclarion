@@ -58,6 +58,8 @@ type Tx struct {
 	ReportWorkflowPolicy *ReportWorkflowPolicyClient
 	// ReportWorkflowSchedule is the client for interacting with the ReportWorkflowSchedule builders.
 	ReportWorkflowSchedule *ReportWorkflowScheduleClient
+	// RetrievalChunk is the client for interacting with the RetrievalChunk builders.
+	RetrievalChunk *RetrievalChunkClient
 	// SubReport is the client for interacting with the SubReport builders.
 	SubReport *SubReportClient
 
@@ -214,6 +216,7 @@ func (tx *Tx) init() {
 	tx.ReportNotificationDelivery = NewReportNotificationDeliveryClient(tx.config)
 	tx.ReportWorkflowPolicy = NewReportWorkflowPolicyClient(tx.config)
 	tx.ReportWorkflowSchedule = NewReportWorkflowScheduleClient(tx.config)
+	tx.RetrievalChunk = NewRetrievalChunkClient(tx.config)
 	tx.SubReport = NewSubReportClient(tx.config)
 }
 
