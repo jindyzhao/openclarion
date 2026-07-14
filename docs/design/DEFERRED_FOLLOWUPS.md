@@ -43,9 +43,10 @@
 |-------|-------|
 | Status | open |
 | Decided | 2026-05-19 |
-| Reason | RAG is not part of MVP. Reports work without retrieval. Adding pgvector early would expand schema and ops surface for unproven value. |
-| Trigger | post-V1 product validation indicates report quality is bottlenecked by missing context |
-| Target | post-V1 |
+| Updated | 2026-07-14 |
+| Reason | The report path now has an optional pgvector corpus, OpenAI-compatible embeddings, bounded advisory historical context, traceability refs, and an idempotent reindex command. Diagnosis-room consumption remains intentionally separate so historical reports cannot be mistaken for current evidence or enter the sandbox before its prompt and provenance contract is reviewed. |
+| Trigger | close after diagnosis-room retrieval uses the same bounded model-scoped corpus with explicit advisory provenance and focused workflow coverage |
+| Target | post-V1 completion work |
 
 ### D8: Kubernetes Job ContainerProvider
 
@@ -138,6 +139,7 @@
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-14 | jindyzhao | Update D7 after report-side pgvector retrieval landed; keep the deferral open only for diagnosis-room consumption and its provenance contract. |
 | 2026-07-14 | jindyzhao | Close D4 after configurable single-party and owner-plus-leader conclusion approval landed with digest-bound immutable approvals and persisted quorum enforcement. |
 | 2026-05-19 | jindyzhao | Initial set of deferrals: spike, Strict adapter, M5 long-session features, version pinning, future providers |
 | 2026-05-22 | jindyzhao | Update D6: replace "must pin at M0" policy with the `first-import pin` rule (DEPENDENCIES.md). Temporal/Ent/Atlas pinning targets shift to M1; OTel to M3. ADR-0012 amended in the same window. |

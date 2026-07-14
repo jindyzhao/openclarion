@@ -960,6 +960,47 @@ var (
 			},
 		},
 	}
+	// RetrievalChunksColumns holds the columns for the "retrieval_chunks" table.
+	RetrievalChunksColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "source_kind", Type: field.TypeString, Size: 32},
+		{Name: "source_id", Type: field.TypeInt64},
+		{Name: "source_ref", Type: field.TypeString, Size: 256},
+		{Name: "content", Type: field.TypeString, Size: 2147483647},
+		{Name: "content_digest", Type: field.TypeString, Size: 64},
+		{Name: "embedding_model", Type: field.TypeString, Size: 128},
+		{Name: "embedding_dimensions", Type: field.TypeInt},
+		{Name: "embedding", Type: field.TypeOther, SchemaType: map[string]string{"postgres": "vector(1536)"}},
+		{Name: "metadata", Type: field.TypeJSON},
+		{Name: "created_at", Type: field.TypeTime},
+	}
+	// RetrievalChunksTable holds the schema information for the "retrieval_chunks" table.
+	RetrievalChunksTable = &schema.Table{
+		Name:       "retrieval_chunks",
+		Columns:    RetrievalChunksColumns,
+		PrimaryKey: []*schema.Column{RetrievalChunksColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "retrievalchunk_source_kind_source_id_embedding_model",
+				Unique:  true,
+				Columns: []*schema.Column{RetrievalChunksColumns[1], RetrievalChunksColumns[2], RetrievalChunksColumns[6]},
+			},
+			{
+				Name:    "retrievalchunk_embedding_model_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{RetrievalChunksColumns[6], RetrievalChunksColumns[10]},
+			},
+			{
+				Name:    "retrievalchunk_embedding",
+				Unique:  false,
+				Columns: []*schema.Column{RetrievalChunksColumns[8]},
+				Annotation: &entsql.IndexAnnotation{
+					OpClass: "vector_cosine_ops",
+					Type:    "hnsw",
+				},
+			},
+		},
+	}
 	// SubReportsColumns holds the columns for the "sub_reports" table.
 	SubReportsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -972,6 +1013,7 @@ var (
 		{Name: "findings", Type: field.TypeJSON},
 		{Name: "recommended_actions", Type: field.TypeJSON},
 		{Name: "evidence_refs", Type: field.TypeJSON},
+		{Name: "retrieval_refs", Type: field.TypeJSON},
 		{Name: "content", Type: field.TypeJSON},
 		{Name: "model", Type: field.TypeString, Nullable: true, Size: 128},
 		{Name: "output_mode", Type: field.TypeString, Nullable: true, Size: 32},
@@ -987,7 +1029,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "sub_reports_evidence_snapshots_sub_reports",
-				Columns:    []*schema.Column{SubReportsColumns[15]},
+				Columns:    []*schema.Column{SubReportsColumns[16]},
 				RefColumns: []*schema.Column{EvidenceSnapshotsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -996,17 +1038,17 @@ var (
 			{
 				Name:    "subreport_evidence_snapshot_id_idempotency_key",
 				Unique:  true,
-				Columns: []*schema.Column{SubReportsColumns[15], SubReportsColumns[1]},
+				Columns: []*schema.Column{SubReportsColumns[16], SubReportsColumns[1]},
 			},
 			{
 				Name:    "subreport_evidence_snapshot_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{SubReportsColumns[15], SubReportsColumns[14]},
+				Columns: []*schema.Column{SubReportsColumns[16], SubReportsColumns[15]},
 			},
 			{
 				Name:    "subreport_severity_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{SubReportsColumns[5], SubReportsColumns[14]},
+				Columns: []*schema.Column{SubReportsColumns[5], SubReportsColumns[15]},
 			},
 		},
 	}
@@ -1085,6 +1127,7 @@ var (
 		ReportNotificationDeliveriesTable,
 		ReportWorkflowPoliciesTable,
 		ReportWorkflowSchedulesTable,
+		RetrievalChunksTable,
 		SubReportsTable,
 		AlertEventGroupsTable,
 		FinalReportSubReportsTable,

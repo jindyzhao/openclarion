@@ -37,7 +37,7 @@ import (
 )
 
 const (
-	testPGImage                     = "postgres:18-alpine"
+	testPGImage                     = "pgvector/pgvector:0.8.2-pg18-trixie"
 	testDBName                      = "openclarion_e2e"
 	testDBUser                      = "openclarion"
 	testDBPassword                  = "openclarion"
@@ -208,6 +208,11 @@ func startE2EDatabase(ctx context.Context, t *testing.T) (ports.UnitOfWorkFactor
 	if err != nil {
 		cleanupContainer()
 		t.Fatalf("open postgres for migration: %v", err)
+	}
+	if _, err := migrateDB.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS vector"); err != nil {
+		_ = migrateDB.Close()
+		cleanupContainer()
+		t.Fatalf("enable pgvector extension: %v", err)
 	}
 	migrateDrv := entsql.OpenDB(dialect.Postgres, migrateDB)
 	migrateClient := ent.NewClient(ent.Driver(migrateDrv))

@@ -52,7 +52,7 @@ npm run dev
 | unmanaged `go func() {}` | worker pool, errgroup with ownership, or Temporal activity |
 | hand-written distributed state machine | Temporal workflow |
 | direct modification of AI agent internals | prompts, skills, sandbox configuration |
-| polyglot persistence for core state | PostgreSQL JSONB / relational schema / pgvector later |
+| polyglot persistence for core state | PostgreSQL relational schema / JSONB / pgvector |
 | privileged AI container | non-root, readonly rootfs, network allowlist, fixed timeout |
 | generated-code drift | `make generate` and CI freshness checks |
 

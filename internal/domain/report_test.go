@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -44,6 +45,92 @@ func TestNewSubReport(t *testing.T) {
 				t.Fatalf("err = %v, want ErrInvariantViolation", err)
 			}
 		})
+	}
+}
+
+func TestRetrievalSourceRefAndChunkValidation(t *testing.T) {
+	kind, id, err := ParseRetrievalSourceRef("sub_report:42")
+	if err != nil || kind != RetrievalSourceSubReport || id != 42 {
+		t.Fatalf("ParseRetrievalSourceRef = %q/%d/%v", kind, id, err)
+	}
+	for _, ref := range []string{"", " sub_report:42", "sub_report:0", "sub_report:042", "unknown:1", "final_report:not-a-number"} {
+		if _, _, err := ParseRetrievalSourceRef(ref); !errors.Is(err, ErrInvariantViolation) {
+			t.Fatalf("ParseRetrievalSourceRef(%q) error = %v, want ErrInvariantViolation", ref, err)
+		}
+	}
+
+	embedding := make([]float32, RetrievalEmbeddingDimensions)
+	embedding[0] = 1
+	metadata := json.RawMessage(`{"scenario":"single_alert"}`)
+	chunk, err := NewRetrievalChunk(RetrievalChunk{
+		SourceKind:          RetrievalSourceSubReport,
+		SourceID:            42,
+		SourceRef:           "sub_report:42",
+		Content:             `{"title":"CPU"}`,
+		EmbeddingModel:      "embed-model",
+		EmbeddingDimensions: RetrievalEmbeddingDimensions,
+		Embedding:           embedding,
+		Metadata:            metadata,
+	})
+	if err != nil {
+		t.Fatalf("NewRetrievalChunk: %v", err)
+	}
+	embedding[0] = 9
+	metadata[2] = 'X'
+	if chunk.Embedding[0] != 1 || string(chunk.Metadata) != `{"scenario":"single_alert"}` || len(chunk.ContentDigest) != 64 {
+		t.Fatalf("chunk was polluted or incomplete: %+v", chunk)
+	}
+
+	bad := chunk
+	bad.ID = 0
+	bad.SourceRef = "final_report:42"
+	if _, err := NewRetrievalChunk(bad); !errors.Is(err, ErrInvariantViolation) {
+		t.Fatalf("mismatched source ref error = %v", err)
+	}
+
+	for name, edit := range map[string]func(*RetrievalChunk){
+		"oversized content": func(c *RetrievalChunk) { c.Content = strings.Repeat("x", RetrievalChunkMaxBytes+1) },
+		"oversized metadata": func(c *RetrievalChunk) {
+			c.Metadata = json.RawMessage(`{"value":"` + strings.Repeat("x", RetrievalMetadataMaxBytes) + `"}`)
+		},
+		"duplicate metadata key": func(c *RetrievalChunk) { c.Metadata = json.RawMessage(`{"scenario":"one","scenario":"two"}`) },
+		"zero embedding":         func(c *RetrievalChunk) { c.Embedding = make([]float32, RetrievalEmbeddingDimensions) },
+		"non-finite embedding":   func(c *RetrievalChunk) { c.Embedding[0] = float32(math.NaN()) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := chunk
+			invalid.Embedding = append([]float32(nil), chunk.Embedding...)
+			edit(&invalid)
+			if _, err := NewRetrievalChunk(invalid); !errors.Is(err, ErrInvariantViolation) {
+				t.Fatalf("NewRetrievalChunk error = %v, want ErrInvariantViolation", err)
+			}
+		})
+	}
+}
+
+func TestNewSubReportRetrievalRefs(t *testing.T) {
+	report := validSubReport()
+	refs := []string{" sub_report:7 ", "final_report:9"}
+	report.RetrievalRefs = refs
+	got, err := NewSubReport(report)
+	if err != nil {
+		t.Fatalf("NewSubReport: %v", err)
+	}
+	refs[0] = "final_report:99"
+	if got.RetrievalRefs[0] != "sub_report:7" {
+		t.Fatalf("retrieval refs = %v, want normalized defensive copy", got.RetrievalRefs)
+	}
+
+	for _, refs := range [][]string{
+		{"sub_report:1", "sub_report:1"},
+		{"snapshot:1"},
+		make([]string, RetrievalReferenceLimit+1),
+	} {
+		report := validSubReport()
+		report.RetrievalRefs = refs
+		if _, err := NewSubReport(report); !errors.Is(err, ErrInvariantViolation) {
+			t.Fatalf("retrieval refs %v error = %v, want ErrInvariantViolation", refs, err)
+		}
 	}
 }
 

@@ -90,6 +90,49 @@ func TestReportActivityOptionsFromEnv_AllowsUnconfiguredProviders(t *testing.T) 
 	}
 }
 
+func TestReportActivityOptionsFromEnv_ConfiguresEmbeddingProvider(t *testing.T) {
+	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(map[string]string{
+		embeddingModelEnv:   "text-embedding-test",
+		embeddingBaseURLEnv: "https://embedding.example.test/v1",
+		embeddingAPIKeyEnv:  "embedding-test-key",
+	}), emptyFactory{}, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("reportActivityOptionsFromEnv: %v", err)
+	}
+	if len(opts) != 1 {
+		t.Fatalf("len(opts) = %d, want 1", len(opts))
+	}
+}
+
+func TestEmbeddingProviderFromEnvFallsBackToReportGateway(t *testing.T) {
+	provider, configured, err := embeddingProviderFromEnv(mapGetenv(map[string]string{
+		embeddingModelEnv:          "text-embedding-test",
+		"OPENCLARION_LLM_BASE_URL": "https://gateway.example.test/v1",
+		"OPENCLARION_LLM_API_KEY":  "gateway-test-key",
+	}), nil)
+	if err != nil {
+		t.Fatalf("embeddingProviderFromEnv: %v", err)
+	}
+	if !configured || provider == nil || provider.Model() != "text-embedding-test" {
+		t.Fatalf("provider/configured = %v/%v", provider, configured)
+	}
+}
+
+func TestParseRetrievalReindexCLIArgs(t *testing.T) {
+	got, err := parseRetrievalReindexCLIArgs([]string{"--limit", "25"})
+	if err != nil {
+		t.Fatalf("parseRetrievalReindexCLIArgs: %v", err)
+	}
+	if got.Limit != 25 {
+		t.Fatalf("limit = %d, want 25", got.Limit)
+	}
+	for _, args := range [][]string{{"--limit", "0"}, {"--limit", "10001"}, {"extra"}} {
+		if _, err := parseRetrievalReindexCLIArgs(args); err == nil {
+			t.Fatalf("parseRetrievalReindexCLIArgs(%v) error = nil", args)
+		}
+	}
+}
+
 func TestReportActivityOptionsFromEnv_ConfiguresScheduledPolicyReplayer(t *testing.T) {
 	opts, err := reportActivityOptionsFromEnv(context.Background(), discardLogger(), mapGetenv(nil), emptyFactory{}, emptyStarter{}, nil, nil)
 	if err != nil {
@@ -485,6 +528,20 @@ func TestReportActivityOptionsFromEnv_RejectsPartialConfig(t *testing.T) {
 				"OPENCLARION_LLM_BASE_URL": "https://example.invalid/v1",
 			},
 			wantSubstr: "OPENCLARION_LLM_MODEL",
+		},
+		{
+			name: "embedding base without model",
+			env: map[string]string{
+				embeddingBaseURLEnv: "https://example.invalid/v1",
+			},
+			wantSubstr: embeddingModelEnv,
+		},
+		{
+			name: "embedding provider without persistence",
+			env: map[string]string{
+				embeddingModelEnv: "text-embedding-test",
+			},
+			wantSubstr: "unit of work factory",
 		},
 		{
 			name: "webhook token without url",

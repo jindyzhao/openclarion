@@ -32,6 +32,9 @@ type SubReportID int64
 // FinalReportID is the surrogate identifier of a FinalReport row.
 type FinalReportID int64
 
+// RetrievalChunkID is the surrogate identifier of a RetrievalChunk row.
+type RetrievalChunkID int64
+
 // ReportNotificationDeliveryID is the surrogate identifier of a
 // report notification delivery row.
 type ReportNotificationDeliveryID int64

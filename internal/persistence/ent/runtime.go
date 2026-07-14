@@ -28,6 +28,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
+	"github.com/openclarion/openclarion/internal/persistence/ent/retrievalchunk"
 	"github.com/openclarion/openclarion/internal/persistence/ent/schema"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 )
@@ -1744,6 +1745,96 @@ func init() {
 	reportworkflowschedule.DefaultUpdatedAt = reportworkflowscheduleDescUpdatedAt.Default.(func() time.Time)
 	// reportworkflowschedule.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	reportworkflowschedule.UpdateDefaultUpdatedAt = reportworkflowscheduleDescUpdatedAt.UpdateDefault.(func() time.Time)
+	retrievalchunkFields := schema.RetrievalChunk{}.Fields()
+	_ = retrievalchunkFields
+	// retrievalchunkDescSourceKind is the schema descriptor for source_kind field.
+	retrievalchunkDescSourceKind := retrievalchunkFields[0].Descriptor()
+	// retrievalchunk.SourceKindValidator is a validator for the "source_kind" field. It is called by the builders before save.
+	retrievalchunk.SourceKindValidator = func() func(string) error {
+		validators := retrievalchunkDescSourceKind.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(source_kind string) error {
+			for _, fn := range fns {
+				if err := fn(source_kind); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// retrievalchunkDescSourceID is the schema descriptor for source_id field.
+	retrievalchunkDescSourceID := retrievalchunkFields[1].Descriptor()
+	// retrievalchunk.SourceIDValidator is a validator for the "source_id" field. It is called by the builders before save.
+	retrievalchunk.SourceIDValidator = retrievalchunkDescSourceID.Validators[0].(func(int64) error)
+	// retrievalchunkDescSourceRef is the schema descriptor for source_ref field.
+	retrievalchunkDescSourceRef := retrievalchunkFields[2].Descriptor()
+	// retrievalchunk.SourceRefValidator is a validator for the "source_ref" field. It is called by the builders before save.
+	retrievalchunk.SourceRefValidator = func() func(string) error {
+		validators := retrievalchunkDescSourceRef.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(source_ref string) error {
+			for _, fn := range fns {
+				if err := fn(source_ref); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// retrievalchunkDescContent is the schema descriptor for content field.
+	retrievalchunkDescContent := retrievalchunkFields[3].Descriptor()
+	// retrievalchunk.ContentValidator is a validator for the "content" field. It is called by the builders before save.
+	retrievalchunk.ContentValidator = retrievalchunkDescContent.Validators[0].(func(string) error)
+	// retrievalchunkDescContentDigest is the schema descriptor for content_digest field.
+	retrievalchunkDescContentDigest := retrievalchunkFields[4].Descriptor()
+	// retrievalchunk.ContentDigestValidator is a validator for the "content_digest" field. It is called by the builders before save.
+	retrievalchunk.ContentDigestValidator = func() func(string) error {
+		validators := retrievalchunkDescContentDigest.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(content_digest string) error {
+			for _, fn := range fns {
+				if err := fn(content_digest); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// retrievalchunkDescEmbeddingModel is the schema descriptor for embedding_model field.
+	retrievalchunkDescEmbeddingModel := retrievalchunkFields[5].Descriptor()
+	// retrievalchunk.EmbeddingModelValidator is a validator for the "embedding_model" field. It is called by the builders before save.
+	retrievalchunk.EmbeddingModelValidator = func() func(string) error {
+		validators := retrievalchunkDescEmbeddingModel.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(embedding_model string) error {
+			for _, fn := range fns {
+				if err := fn(embedding_model); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// retrievalchunkDescEmbeddingDimensions is the schema descriptor for embedding_dimensions field.
+	retrievalchunkDescEmbeddingDimensions := retrievalchunkFields[6].Descriptor()
+	// retrievalchunk.EmbeddingDimensionsValidator is a validator for the "embedding_dimensions" field. It is called by the builders before save.
+	retrievalchunk.EmbeddingDimensionsValidator = retrievalchunkDescEmbeddingDimensions.Validators[0].(func(int) error)
+	// retrievalchunkDescCreatedAt is the schema descriptor for created_at field.
+	retrievalchunkDescCreatedAt := retrievalchunkFields[9].Descriptor()
+	// retrievalchunk.DefaultCreatedAt holds the default value on creation for the created_at field.
+	retrievalchunk.DefaultCreatedAt = retrievalchunkDescCreatedAt.Default.(func() time.Time)
 	subreportFields := schema.SubReport{}.Fields()
 	_ = subreportFields
 	// subreportDescIdempotencyKey is the schema descriptor for idempotency_key field.
@@ -1854,20 +1945,24 @@ func init() {
 			return nil
 		}
 	}()
+	// subreportDescRetrievalRefs is the schema descriptor for retrieval_refs field.
+	subreportDescRetrievalRefs := subreportFields[10].Descriptor()
+	// subreport.DefaultRetrievalRefs holds the default value on creation for the retrieval_refs field.
+	subreport.DefaultRetrievalRefs = subreportDescRetrievalRefs.Default.([]string)
 	// subreportDescModel is the schema descriptor for model field.
-	subreportDescModel := subreportFields[11].Descriptor()
+	subreportDescModel := subreportFields[12].Descriptor()
 	// subreport.ModelValidator is a validator for the "model" field. It is called by the builders before save.
 	subreport.ModelValidator = subreportDescModel.Validators[0].(func(string) error)
 	// subreportDescOutputMode is the schema descriptor for output_mode field.
-	subreportDescOutputMode := subreportFields[12].Descriptor()
+	subreportDescOutputMode := subreportFields[13].Descriptor()
 	// subreport.OutputModeValidator is a validator for the "output_mode" field. It is called by the builders before save.
 	subreport.OutputModeValidator = subreportDescOutputMode.Validators[0].(func(string) error)
 	// subreportDescCreatedByWorkflow is the schema descriptor for created_by_workflow field.
-	subreportDescCreatedByWorkflow := subreportFields[13].Descriptor()
+	subreportDescCreatedByWorkflow := subreportFields[14].Descriptor()
 	// subreport.CreatedByWorkflowValidator is a validator for the "created_by_workflow" field. It is called by the builders before save.
 	subreport.CreatedByWorkflowValidator = subreportDescCreatedByWorkflow.Validators[0].(func(string) error)
 	// subreportDescCreatedAt is the schema descriptor for created_at field.
-	subreportDescCreatedAt := subreportFields[14].Descriptor()
+	subreportDescCreatedAt := subreportFields[15].Descriptor()
 	// subreport.DefaultCreatedAt holds the default value on creation for the created_at field.
 	subreport.DefaultCreatedAt = subreportDescCreatedAt.Default.(func() time.Time)
 }

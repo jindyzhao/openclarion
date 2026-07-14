@@ -285,6 +285,18 @@ func (f ReportWorkflowScheduleFunc) Mutate(ctx context.Context, m ent.Mutation) 
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ReportWorkflowScheduleMutation", m)
 }
 
+// The RetrievalChunkFunc type is an adapter to allow the use of ordinary
+// function as RetrievalChunk mutator.
+type RetrievalChunkFunc func(context.Context, *ent.RetrievalChunkMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f RetrievalChunkFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.RetrievalChunkMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.RetrievalChunkMutation", m)
+}
+
 // The SubReportFunc type is an adapter to allow the use of ordinary
 // function as SubReport mutator.
 type SubReportFunc func(context.Context, *ent.SubReportMutation) (ent.Value, error)

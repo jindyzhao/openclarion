@@ -3,6 +3,8 @@ package repository
 import (
 	"context"
 	"fmt"
+	"math"
+	"strings"
 	"sync/atomic"
 
 	entsql "entgo.io/ent/dialect/sql"
@@ -11,8 +13,10 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
+	"github.com/openclarion/openclarion/internal/persistence/ent/retrievalchunk"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+	"github.com/pgvector/pgvector-go"
 )
 
 // reportRepo is the Ent-backed implementation of ports.ReportRepository.
@@ -21,8 +25,162 @@ type reportRepo struct {
 	closed *atomic.Int32
 }
 
+const maxRetrievalSearchLimit = 20
+
+const (
+	hnswIterativeScanVariable = "LOCAL hnsw.iterative_scan"
+	hnswIterativeScanMode     = "strict_order"
+)
+
 // Compile-time assertion that the implementation satisfies the port.
 var _ ports.ReportRepository = (*reportRepo)(nil)
+
+// SaveRetrievalChunk appends one immutable report-corpus projection.
+func (r *reportRepo) SaveRetrievalChunk(ctx context.Context, chunk domain.RetrievalChunk) (domain.RetrievalChunk, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.RetrievalChunk{}, err
+	}
+	validated, err := domain.NewRetrievalChunk(chunk)
+	if err != nil {
+		return domain.RetrievalChunk{}, err
+	}
+	row, err := r.tx.RetrievalChunk.Create().
+		SetSourceKind(string(validated.SourceKind)).
+		SetSourceID(validated.SourceID).
+		SetSourceRef(validated.SourceRef).
+		SetContent(validated.Content).
+		SetContentDigest(validated.ContentDigest).
+		SetEmbeddingModel(validated.EmbeddingModel).
+		SetEmbeddingDimensions(validated.EmbeddingDimensions).
+		SetEmbedding(pgvector.NewVector(validated.Embedding)).
+		SetMetadata(validated.Metadata).
+		Save(ctx)
+	if err != nil {
+		return domain.RetrievalChunk{}, asAlreadyExists(err)
+	}
+	return retrievalChunkToDomain(row), nil
+}
+
+// FindRetrievalChunkBySource returns one exact source/model projection.
+func (r *reportRepo) FindRetrievalChunkBySource(ctx context.Context, sourceKind domain.RetrievalSourceKind, sourceID int64, embeddingModel string) (domain.RetrievalChunk, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.RetrievalChunk{}, err
+	}
+	embeddingModel = strings.TrimSpace(embeddingModel)
+	if !sourceKind.Valid() || sourceID <= 0 || embeddingModel == "" || len(embeddingModel) > 128 {
+		return domain.RetrievalChunk{}, fmt.Errorf("find retrieval chunk: source identity and embedding model must be valid: %w", domain.ErrInvariantViolation)
+	}
+	row, err := r.tx.RetrievalChunk.Query().Where(
+		retrievalchunk.SourceKindEQ(string(sourceKind)),
+		retrievalchunk.SourceIDEQ(sourceID),
+		retrievalchunk.EmbeddingModelEQ(embeddingModel),
+	).Only(ctx)
+	if err != nil {
+		return domain.RetrievalChunk{}, asNotFound(err)
+	}
+	return retrievalChunkToDomain(row), nil
+}
+
+// SearchRetrievalChunks performs model-scoped cosine nearest-neighbor search.
+func (r *reportRepo) SearchRetrievalChunks(ctx context.Context, embeddingModel string, query []float32, maxCosineDistance float64, limit int) ([]domain.RetrievedChunk, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	embeddingModel = strings.TrimSpace(embeddingModel)
+	if embeddingModel == "" || len(embeddingModel) > 128 || len(query) != domain.RetrievalEmbeddingDimensions ||
+		limit <= 0 || limit > maxRetrievalSearchLimit ||
+		math.IsNaN(maxCosineDistance) || math.IsInf(maxCosineDistance, 0) || maxCosineDistance < 0 || maxCosineDistance > 2 {
+		return nil, fmt.Errorf("search retrieval chunks: model, %d-dimension query, distance, and limit must be valid: %w", domain.RetrievalEmbeddingDimensions, domain.ErrInvariantViolation)
+	}
+	if !finiteNonZeroVector(query) {
+		return nil, fmt.Errorf("search retrieval chunks: query vector must be finite and non-zero: %w", domain.ErrInvariantViolation)
+	}
+	queryVector := pgvector.NewVector(query)
+	queryCtx := hnswFilteredSearchContext(ctx)
+	rows, err := r.tx.RetrievalChunk.Query().
+		Where(
+			retrievalchunk.EmbeddingModelEQ(embeddingModel),
+			retrievalchunk.EmbeddingDimensionsEQ(domain.RetrievalEmbeddingDimensions),
+			func(selector *entsql.Selector) {
+				selector.Where(entsql.P(func(builder *entsql.Builder) {
+					builder.Join(pgvectorCosineDistance(retrievalchunk.FieldEmbedding, queryVector)).
+						WriteOp(entsql.OpLTE).
+						Arg(maxCosineDistance)
+				}))
+			},
+		).
+		Order(func(selector *entsql.Selector) {
+			selector.OrderExpr(pgvectorCosineDistance(retrievalchunk.FieldEmbedding, queryVector))
+		}, retrievalchunk.ByID()).
+		Limit(limit).
+		All(queryCtx)
+	if err != nil {
+		return nil, fmt.Errorf("search retrieval chunks: %w", err)
+	}
+	out := make([]domain.RetrievedChunk, 0, len(rows))
+	for _, row := range rows {
+		distance := cosineDistance(query, row.Embedding.Slice())
+		if math.IsNaN(distance) || math.IsInf(distance, 0) || distance < 0 || distance > maxCosineDistance {
+			continue
+		}
+		out = append(out, domain.RetrievedChunk{
+			Chunk:          retrievalChunkToDomain(row),
+			CosineDistance: distance,
+		})
+	}
+	return out, nil
+}
+
+func hnswFilteredSearchContext(ctx context.Context) context.Context {
+	// reportRepo always runs inside a transaction. Ent expands this fixed
+	// variable into SET LOCAL before the query, so model filtering can continue
+	// the HNSW scan without leaking the setting to a pooled connection.
+	return entsql.WithVar(ctx, hnswIterativeScanVariable, hnswIterativeScanMode)
+}
+
+func pgvectorCosineDistance(column string, value any) entsql.Querier {
+	return entsql.ExprFunc(func(builder *entsql.Builder) {
+		builder.Ident(column).WriteString(" <=> ").Arg(value)
+	})
+}
+
+func vectorNorm(vector []float32) float64 {
+	var squared float64
+	for _, value := range vector {
+		squared += float64(value) * float64(value)
+	}
+	return math.Sqrt(squared)
+}
+
+func finiteNonZeroVector(vector []float32) bool {
+	var squared float64
+	for _, value := range vector {
+		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) {
+			return false
+		}
+		squared += float64(value) * float64(value)
+	}
+	return squared > 0 && !math.IsInf(squared, 0)
+}
+
+func cosineDistance(left, right []float32) float64 {
+	if len(left) != len(right) || len(left) == 0 {
+		return math.Inf(1)
+	}
+	var dot float64
+	for i := range left {
+		dot += float64(left[i]) * float64(right[i])
+	}
+	denominator := vectorNorm(left) * vectorNorm(right)
+	if denominator == 0 {
+		return math.Inf(1)
+	}
+	distance := 1 - dot/denominator
+	if distance < 0 && distance > -1e-12 {
+		return 0
+	}
+	return distance
+}
 
 // SaveSubReport inserts one immutable SubReport. The
 // (evidence_snapshot_id, idempotency_key) unique key is the retry
@@ -42,6 +200,7 @@ func (r *reportRepo) SaveSubReport(ctx context.Context, sr domain.SubReport) (do
 		SetFindings(sr.Findings).
 		SetRecommendedActions(sr.RecommendedActions).
 		SetEvidenceRefs(sr.EvidenceRefs).
+		SetRetrievalRefs(sr.RetrievalRefs).
 		SetContent(sr.Content)
 	if sr.Model != "" {
 		builder = builder.SetModel(sr.Model)

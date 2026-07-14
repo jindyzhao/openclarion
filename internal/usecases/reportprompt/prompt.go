@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/openclarion/openclarion/internal/domain"
@@ -38,9 +39,19 @@ func (s Scenario) Valid() bool {
 
 // SubReportInput holds the evidence needed to draft one SubReport.
 type SubReportInput struct {
-	Snapshot   domain.EvidenceSnapshot
-	Scenario   Scenario
-	GroupIndex int
+	Snapshot          domain.EvidenceSnapshot
+	Scenario          Scenario
+	GroupIndex        int
+	HistoricalReports []HistoricalReport
+}
+
+// HistoricalReport is bounded advisory context from a previously accepted
+// report. It is never a substitute for the current EvidenceSnapshot.
+type HistoricalReport struct {
+	SourceRef      string                     `json:"source_ref"`
+	SourceKind     domain.RetrievalSourceKind `json:"source_kind"`
+	Content        string                     `json:"content"`
+	CosineDistance float64                    `json:"cosine_distance"`
 }
 
 // FinalReportInput holds validated SubReports for the fan-in draft.
@@ -50,8 +61,9 @@ type FinalReportInput struct {
 }
 
 // BuildSubReportRequest returns a strict-JSON LLM request for one
-// snapshot-backed SubReport. The idempotency key intentionally follows
-// the M2 Activity shape: snapshot ID plus group index.
+// snapshot-backed SubReport. The idempotency key identifies the immutable
+// snapshot/group/scenario report projection; advisory corpus changes do not
+// create a second logical report.
 func BuildSubReportRequest(in SubReportInput) (ports.LLMRequest, error) {
 	if in.Snapshot.ID == 0 {
 		return ports.LLMRequest{}, fmt.Errorf("report prompt: snapshot ID must be non-zero: %w", domain.ErrInvariantViolation)
@@ -70,14 +82,19 @@ func BuildSubReportRequest(in SubReportInput) (ports.LLMRequest, error) {
 		return ports.LLMRequest{}, err
 	}
 
+	historicalReports, err := validateHistoricalReports(in.HistoricalReports)
+	if err != nil {
+		return ports.LLMRequest{}, err
+	}
+
 	return ports.LLMRequest{
 		Messages: []ports.LLMMessage{
 			{Role: ports.LLMRoleSystem, Content: subReportSystemPrompt},
-			{Role: ports.LLMRoleUser, Content: subReportUserPrompt(in, payload)},
+			{Role: ports.LLMRoleUser, Content: subReportUserPrompt(in, payload, historicalReports)},
 		},
 		OutputSchema:   reportdraft.SubReportSchema(),
 		OutputSchemaID: reportdraft.SubReportSchemaID,
-		IdempotencyKey: subReportIdempotencyKey(in.Snapshot.ID, in.GroupIndex, in.Scenario),
+		IdempotencyKey: SubReportIdempotencyKey(in.Snapshot.ID, in.GroupIndex, in.Scenario),
 	}, nil
 }
 
@@ -107,12 +124,13 @@ func BuildFinalReportRequest(in FinalReportInput) (ports.LLMRequest, error) {
 	}, nil
 }
 
-func subReportIdempotencyKey(snapshotID domain.EvidenceSnapshotID, groupIndex int, scenario Scenario) string {
+// SubReportIdempotencyKey identifies one scenario-specific report projection.
+func SubReportIdempotencyKey(snapshotID domain.EvidenceSnapshotID, groupIndex int, scenario Scenario) string {
 	return fmt.Sprintf("snapshot:%d/group:%d/scenario:%s/sub_report", snapshotID, groupIndex, scenario)
 }
 
-func subReportUserPrompt(in SubReportInput, payload string) string {
-	return fmt.Sprintf(`Task: produce one SubReport as JSON for OpenClarion.
+func subReportUserPrompt(in SubReportInput, payload, historicalReports string) string {
+	prompt := fmt.Sprintf(`Task: produce one SubReport as JSON for OpenClarion.
 Scenario: %s
 Scenario guidance: %s
 Evidence snapshot id: %d
@@ -127,6 +145,53 @@ Every recommended_actions item must include label, detail, and priority. Use pri
 
 Evidence snapshot JSON:
 %s`, in.Scenario, scenarioGuidance(in.Scenario), in.Snapshot.ID, in.Snapshot.ID, in.Snapshot.Digest, in.GroupIndex, in.Snapshot.ID, in.Snapshot.ID, payload)
+	if historicalReports == "" {
+		return prompt
+	}
+	return prompt + fmt.Sprintf(`
+
+Historical accepted reports (advisory context only; they may be stale):
+%s
+
+Use historical reports only to form hypotheses. Do not treat them as current evidence, do not copy their evidence IDs, and do not put their source_ref values in evidence_refs. Every claim and evidence_refs value in this SubReport must remain supported by the current Evidence snapshot JSON above.`, historicalReports)
+}
+
+func validateHistoricalReports(reports []HistoricalReport) (string, error) {
+	if len(reports) == 0 {
+		return "", nil
+	}
+	if len(reports) > domain.RetrievalReferenceLimit {
+		return "", fmt.Errorf("report prompt: historical reports exceed %d values: %w", domain.RetrievalReferenceLimit, domain.ErrInvariantViolation)
+	}
+	seen := make(map[string]struct{}, len(reports))
+	validated := make([]HistoricalReport, len(reports))
+	for i, report := range reports {
+		report.SourceRef = strings.TrimSpace(report.SourceRef)
+		kind, _, err := domain.ParseRetrievalSourceRef(report.SourceRef)
+		if err != nil || kind != report.SourceKind {
+			return "", fmt.Errorf("report prompt: historical report[%d] source is invalid: %w", i, domain.ErrInvariantViolation)
+		}
+		if _, duplicate := seen[report.SourceRef]; duplicate {
+			return "", fmt.Errorf("report prompt: historical report[%d] duplicates %q: %w", i, report.SourceRef, domain.ErrInvariantViolation)
+		}
+		seen[report.SourceRef] = struct{}{}
+		report.Content = strings.TrimSpace(report.Content)
+		if report.Content == "" || len([]byte(report.Content)) > domain.RetrievalChunkMaxBytes {
+			return "", fmt.Errorf("report prompt: historical report[%d] content is invalid: %w", i, domain.ErrInvariantViolation)
+		}
+		if math.IsNaN(report.CosineDistance) || math.IsInf(report.CosineDistance, 0) || report.CosineDistance < 0 || report.CosineDistance > 2 {
+			return "", fmt.Errorf("report prompt: historical report[%d] distance is invalid: %w", i, domain.ErrInvariantViolation)
+		}
+		validated[i] = report
+	}
+	raw, err := marshalCompact("historical reports", validated)
+	if err != nil {
+		return "", err
+	}
+	if len([]byte(raw)) > domain.RetrievalContextMaxBytes {
+		return "", fmt.Errorf("report prompt: serialized historical reports exceed %d bytes: %w", domain.RetrievalContextMaxBytes, domain.ErrInvariantViolation)
+	}
+	return raw, nil
 }
 
 func finalReportUserPrompt(correlationKey string, subReports string) string {

@@ -108,7 +108,7 @@ SHELL := /usr/bin/env bash
 # Atlas wrapper shape (see scripts/lib_atlas.sh for the full contract):
 #
 #   - The host script (scripts/lib_atlas.sh::atlas::start_dev_pg) launches
-#     an ephemeral postgres:18-alpine on a per-invocation Docker network.
+#     an ephemeral pgvector PostgreSQL 18 on a per-invocation Docker network.
 #     Atlas is then run on the same network and talks to the dev DB via a
 #     plain postgres:// URL. Atlas does NOT mount the host Docker socket
 #     and the `docker://...` dev-url form is intentionally NOT used (the

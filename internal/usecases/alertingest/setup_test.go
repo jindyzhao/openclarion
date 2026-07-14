@@ -30,7 +30,7 @@ import (
 // Image / credential constants mirror repository/setup_test.go so
 // upgrading Postgres stays a localised diff per package.
 const (
-	testPGImage    = "postgres:18-alpine"
+	testPGImage    = "pgvector/pgvector:0.8.2-pg18-trixie"
 	testDBName     = "openclarion_test"
 	testDBUser     = "openclarion"
 	testDBPassword = "openclarion"
@@ -97,6 +97,11 @@ func runMain(m *testing.M) int {
 	migrateDB, err := sql.Open("pgx", dsn)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "open postgres for migrate: %v\n", err)
+		return 1
+	}
+	if _, err := migrateDB.ExecContext(ctx, "CREATE EXTENSION IF NOT EXISTS vector"); err != nil {
+		_ = migrateDB.Close()
+		fmt.Fprintf(os.Stderr, "enable pgvector extension: %v\n", err)
 		return 1
 	}
 	migrateDrv := entsql.OpenDB(dialect.Postgres, migrateDB)

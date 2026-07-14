@@ -11,7 +11,7 @@
 # This gate runs against a throwaway directory; it never touches
 # internal/persistence/migrations/. It is intentionally NOT part of
 # `make ci` because it requires a host Docker daemon AND network
-# access to pull arigaio/atlas + postgres:18-alpine. Run it manually:
+# access to pull arigaio/atlas + pgvector/pgvector. Run it manually:
 #
 #   make atlas-smoke
 #

@@ -418,6 +418,19 @@ type DiagnosisRepository interface {
 // ReportRepository covers persisted SubReports, FinalReports, and the
 // notification delivery log tied to FinalReports.
 type ReportRepository interface {
+	// SaveRetrievalChunk inserts one immutable vector-indexed report chunk. A
+	// duplicate source kind/id/model returns ErrAlreadyExists.
+	SaveRetrievalChunk(ctx context.Context, chunk domain.RetrievalChunk) (domain.RetrievalChunk, error)
+
+	// FindRetrievalChunkBySource returns an exact indexed source projection, or
+	// ErrNotFound when that report/model combination has not been indexed.
+	FindRetrievalChunkBySource(ctx context.Context, sourceKind domain.RetrievalSourceKind, sourceID int64, embeddingModel string) (domain.RetrievalChunk, error)
+
+	// SearchRetrievalChunks returns nearest chunks from the same embedding model
+	// ordered by cosine distance then id. Results above maxCosineDistance are
+	// excluded before limit is applied.
+	SearchRetrievalChunks(ctx context.Context, embeddingModel string, query []float32, maxCosineDistance float64, limit int) ([]domain.RetrievedChunk, error)
+
 	// SaveSubReport inserts a new SubReport. A duplicate
 	// (evidence_snapshot_id, idempotency_key) returns a wrapped
 	// domain.ErrAlreadyExists. The returned report has ID and

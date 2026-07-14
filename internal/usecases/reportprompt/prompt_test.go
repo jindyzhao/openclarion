@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -124,6 +125,77 @@ func TestBuildSubReportRequest_RejectsInvalidInput(t *testing.T) {
 			_, err := BuildSubReportRequest(tc.input)
 			assertInvariant(t, err)
 		})
+	}
+}
+
+func TestBuildSubReportRequest_HistoricalReportsRemainAdvisory(t *testing.T) {
+	req, err := BuildSubReportRequest(SubReportInput{
+		Snapshot:   validSnapshot(),
+		Scenario:   ScenarioCascade,
+		GroupIndex: 2,
+		HistoricalReports: []HistoricalReport{{
+			SourceRef:      "final_report:19",
+			SourceKind:     domain.RetrievalSourceFinalReport,
+			Content:        `{"title":"Previous incident","executive_summary":"Restart fixed it"}`,
+			CosineDistance: 0.12,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BuildSubReportRequest: %v", err)
+	}
+	userPrompt := req.Messages[1].Content
+	for _, required := range []string{
+		`"source_ref":"final_report:19"`,
+		"advisory context only",
+		"Do not treat them as current evidence",
+		"do not put their source_ref values in evidence_refs",
+	} {
+		if !strings.Contains(userPrompt, required) {
+			t.Fatalf("historical prompt missing %q: %s", required, userPrompt)
+		}
+	}
+	if req.IdempotencyKey != SubReportIdempotencyKey(validSnapshot().ID, 2, ScenarioCascade) {
+		t.Fatalf("IdempotencyKey = %q", req.IdempotencyKey)
+	}
+}
+
+func TestBuildSubReportRequest_RejectsInvalidHistoricalReports(t *testing.T) {
+	tests := []HistoricalReport{
+		{SourceRef: "snapshot:1", SourceKind: domain.RetrievalSourceSubReport, Content: "content", CosineDistance: 0.1},
+		{SourceRef: "sub_report:1", SourceKind: domain.RetrievalSourceFinalReport, Content: "content", CosineDistance: 0.1},
+		{SourceRef: "sub_report:1", SourceKind: domain.RetrievalSourceSubReport, Content: "", CosineDistance: 0.1},
+		{SourceRef: "sub_report:1", SourceKind: domain.RetrievalSourceSubReport, Content: "content", CosineDistance: math.NaN()},
+	}
+	for i, historical := range tests {
+		_, err := BuildSubReportRequest(SubReportInput{
+			Snapshot:          validSnapshot(),
+			Scenario:          ScenarioSingleAlert,
+			HistoricalReports: []HistoricalReport{historical},
+		})
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("case %d error = %v, want ErrInvariantViolation", i, err)
+		}
+	}
+
+	duplicate := []HistoricalReport{
+		{SourceRef: "sub_report:1", SourceKind: domain.RetrievalSourceSubReport, Content: "one", CosineDistance: 0.1},
+		{SourceRef: "sub_report:1", SourceKind: domain.RetrievalSourceSubReport, Content: "two", CosineDistance: 0.2},
+	}
+	_, err := BuildSubReportRequest(SubReportInput{Snapshot: validSnapshot(), Scenario: ScenarioSingleAlert, HistoricalReports: duplicate})
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("duplicate historical reports error = %v, want ErrInvariantViolation", err)
+	}
+
+	tooLarge := make([]HistoricalReport, 5)
+	for i := range tooLarge {
+		tooLarge[i] = HistoricalReport{
+			SourceRef: fmt.Sprintf("sub_report:%d", i+1), SourceKind: domain.RetrievalSourceSubReport,
+			Content: strings.Repeat("x", domain.RetrievalChunkMaxBytes), CosineDistance: 0.1,
+		}
+	}
+	_, err = BuildSubReportRequest(SubReportInput{Snapshot: validSnapshot(), Scenario: ScenarioSingleAlert, HistoricalReports: tooLarge})
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("oversized historical context error = %v, want ErrInvariantViolation", err)
 	}
 }
 

@@ -200,6 +200,7 @@ func subReportToDomain(r *ent.SubReport) domain.SubReport {
 		Findings:           r.Findings,
 		RecommendedActions: r.RecommendedActions,
 		EvidenceRefs:       r.EvidenceRefs,
+		RetrievalRefs:      r.RetrievalRefs,
 		Content:            r.Content,
 		Model:              r.Model,
 		OutputMode:         r.OutputMode,
@@ -226,6 +227,22 @@ func finalReportToDomain(r *ent.FinalReport) domain.FinalReport {
 		OutputMode:         r.OutputMode,
 		CreatedByWorkflow:  r.CreatedByWorkflow,
 		CreatedAt:          r.CreatedAt,
+	}
+}
+
+func retrievalChunkToDomain(r *ent.RetrievalChunk) domain.RetrievalChunk {
+	return domain.RetrievalChunk{
+		ID:                  domain.RetrievalChunkID(r.ID),
+		SourceKind:          domain.RetrievalSourceKind(r.SourceKind),
+		SourceID:            r.SourceID,
+		SourceRef:           r.SourceRef,
+		Content:             r.Content,
+		ContentDigest:       r.ContentDigest,
+		EmbeddingModel:      r.EmbeddingModel,
+		EmbeddingDimensions: r.EmbeddingDimensions,
+		Embedding:           append([]float32(nil), r.Embedding.Slice()...),
+		Metadata:            append(json.RawMessage(nil), r.Metadata...),
+		CreatedAt:           r.CreatedAt,
 	}
 }
 

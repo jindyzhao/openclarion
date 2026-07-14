@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
 
+	temporalactivity "go.temporal.io/sdk/activity"
 	temporalsdk "go.temporal.io/sdk/temporal"
 
 	"github.com/openclarion/openclarion/internal/domain"
@@ -18,12 +20,14 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/reportdraft"
 	"github.com/openclarion/openclarion/internal/usecases/reportnotification"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
+	"github.com/openclarion/openclarion/internal/usecases/retrieval"
 )
 
 // Activities contains Temporal activity handlers and their dependencies.
 type Activities struct {
 	uowFactory                   ports.UnitOfWorkFactory
 	llmProvider                  ports.LLMProvider
+	embeddingProvider            ports.EmbeddingProvider
 	imProvider                   ports.IMProvider
 	notificationProviderResolver ports.NotificationChannelProviderResolver
 	containerProvider            ports.ContainerProvider
@@ -52,6 +56,14 @@ type ContainerCredentialTemplate struct {
 func WithLLMProvider(provider ports.LLMProvider) ActivityOption {
 	return func(a *Activities) {
 		a.llmProvider = provider
+	}
+}
+
+// WithEmbeddingProvider enables immutable report indexing and bounded
+// historical-report context for report activities.
+func WithEmbeddingProvider(provider ports.EmbeddingProvider) ActivityOption {
+	return func(a *Activities) {
+		a.embeddingProvider = provider
 	}
 }
 
@@ -316,14 +328,29 @@ func (a *Activities) GenerateSubReport(ctx context.Context, req ReportFanOutWork
 			fmt.Sprintf("generate-sub-report: scenario %q is unsupported", req.Scenario), errTypeInvalidInput, nil)
 	}
 
-	snapshot, llmReq, err := a.buildSubReportRequest(ctx, domain.EvidenceSnapshotID(req.EvidenceSnapshotID), scenario, req.GroupIndex)
+	snapshotID := domain.EvidenceSnapshotID(req.EvidenceSnapshotID)
+	idempotencyKey := reportprompt.SubReportIdempotencyKey(snapshotID, req.GroupIndex, scenario)
+	if existing, found, err := a.lookupSubReport(ctx, snapshotID, idempotencyKey); err != nil {
+		return ReportFanOutWorkflowResult{}, mapActivityError(err, "generate-sub-report pre-check")
+	} else if found {
+		if existing.Scenario != string(scenario) {
+			return ReportFanOutWorkflowResult{}, mapActivityError(
+				fmt.Errorf("existing SubReport scenario %q does not match requested %q: %w", existing.Scenario, scenario, domain.ErrInvariantViolation),
+				"generate-sub-report pre-check",
+			)
+		}
+		return ReportFanOutWorkflowResult{SubReportID: int64(existing.ID)}, nil
+	}
+
+	snapshot, llmReq, retrievalRefs, err := a.buildSubReportRequest(ctx, snapshotID, scenario, req.GroupIndex)
 	if err != nil {
 		return ReportFanOutWorkflowResult{}, mapActivityError(err, "generate-sub-report request")
 	}
-	if id, found, err := a.lookupSubReport(ctx, snapshot.ID, llmReq.IdempotencyKey); err != nil {
-		return ReportFanOutWorkflowResult{}, mapActivityError(err, "generate-sub-report pre-check")
-	} else if found {
-		return ReportFanOutWorkflowResult{SubReportID: id}, nil
+	if llmReq.IdempotencyKey != idempotencyKey {
+		return ReportFanOutWorkflowResult{}, mapActivityError(
+			fmt.Errorf("generated idempotency key %q does not match %q: %w", llmReq.IdempotencyKey, idempotencyKey, domain.ErrInvariantViolation),
+			"generate-sub-report request",
+		)
 	}
 
 	result, err := llmretry.GenerateValidated(ctx, llmretry.Request{
@@ -338,19 +365,19 @@ func (a *Activities) GenerateSubReport(ctx context.Context, req ReportFanOutWork
 	if err != nil {
 		return ReportFanOutWorkflowResult{}, fmt.Errorf("generate-sub-report parse accepted output: %w", err)
 	}
-	report, err := subReportDomainFromDraft(snapshot.ID, llmReq.IdempotencyKey, scenario, draft, result)
+	report, err := subReportDomainFromDraft(snapshot.ID, llmReq.IdempotencyKey, scenario, draft, retrievalRefs, result)
 	if err != nil {
 		return ReportFanOutWorkflowResult{}, mapActivityError(err, "generate-sub-report build domain")
 	}
 
-	savedID, err := a.saveSubReport(ctx, report)
+	saved, err := a.saveSubReport(ctx, report)
 	if err == nil {
-		return ReportFanOutWorkflowResult{SubReportID: savedID}, nil
+		return ReportFanOutWorkflowResult{SubReportID: int64(saved.ID)}, nil
 	}
 	if !errors.Is(err, domain.ErrAlreadyExists) {
 		return ReportFanOutWorkflowResult{}, mapActivityError(err, "generate-sub-report persist")
 	}
-	id, found, err := a.lookupSubReport(ctx, snapshot.ID, llmReq.IdempotencyKey)
+	existing, found, err := a.lookupSubReport(ctx, snapshot.ID, llmReq.IdempotencyKey)
 	if err != nil {
 		return ReportFanOutWorkflowResult{}, mapActivityError(err, "generate-sub-report re-fetch")
 	}
@@ -359,7 +386,13 @@ func (a *Activities) GenerateSubReport(ctx context.Context, req ReportFanOutWork
 			"generate-sub-report: duplicate re-fetch missing for snapshot %d idempotency_key %q",
 			snapshot.ID, llmReq.IdempotencyKey)
 	}
-	return ReportFanOutWorkflowResult{SubReportID: id}, nil
+	if existing.Scenario != string(scenario) {
+		return ReportFanOutWorkflowResult{}, mapActivityError(
+			fmt.Errorf("existing SubReport scenario %q does not match requested %q after duplicate: %w", existing.Scenario, scenario, domain.ErrInvariantViolation),
+			"generate-sub-report re-fetch",
+		)
+	}
+	return ReportFanOutWorkflowResult{SubReportID: int64(existing.ID)}, nil
 }
 
 // GenerateFinalReport reduces persisted SubReports into one FinalReport,
@@ -380,10 +413,13 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report input")
 	}
 	idempotencyKey := finalReportIdempotencyKey(correlationKey)
-	if id, found, err := a.lookupFinalReport(ctx, idempotencyKey); err != nil {
+	if existing, found, err := a.lookupFinalReport(ctx, idempotencyKey); err != nil {
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report pre-check")
 	} else if found {
-		return FinalReportWorkflowResult{FinalReportID: id}, nil
+		if err := a.indexLinkedReportCorpus(ctx, existing, subReportIDs); err != nil {
+			return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report index existing corpus")
+		}
+		return FinalReportWorkflowResult{FinalReportID: int64(existing.ID)}, nil
 	}
 
 	drafts, err := a.loadSubReportsForFinalReport(ctx, subReportIDs)
@@ -415,14 +451,17 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report build domain")
 	}
 
-	savedID, err := a.saveFinalReport(ctx, report, subReportIDs)
+	saved, err := a.saveFinalReport(ctx, report, subReportIDs)
 	if err == nil {
-		return FinalReportWorkflowResult{FinalReportID: savedID}, nil
+		if err := a.indexLinkedReportCorpus(ctx, saved, subReportIDs); err != nil {
+			return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report index corpus")
+		}
+		return FinalReportWorkflowResult{FinalReportID: int64(saved.ID)}, nil
 	}
 	if !errors.Is(err, domain.ErrAlreadyExists) {
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report persist")
 	}
-	id, found, err := a.lookupFinalReport(ctx, llmReq.IdempotencyKey)
+	existing, found, err := a.lookupFinalReport(ctx, llmReq.IdempotencyKey)
 	if err != nil {
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report re-fetch")
 	}
@@ -431,7 +470,10 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 			"generate-final-report: duplicate re-fetch missing for idempotency_key %q",
 			llmReq.IdempotencyKey)
 	}
-	return FinalReportWorkflowResult{FinalReportID: id}, nil
+	if err := a.indexLinkedReportCorpus(ctx, existing, subReportIDs); err != nil {
+		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report index duplicate corpus")
+	}
+	return FinalReportWorkflowResult{FinalReportID: int64(existing.ID)}, nil
 }
 
 // SendReportNotification sends the persisted FinalReport notification through
@@ -474,7 +516,7 @@ func (a *Activities) SendReportNotification(ctx context.Context, req ReportNotif
 	}, nil
 }
 
-func (a *Activities) buildSubReportRequest(ctx context.Context, snapshotID domain.EvidenceSnapshotID, scenario reportprompt.Scenario, groupIndex int) (domain.EvidenceSnapshot, ports.LLMRequest, error) {
+func (a *Activities) buildSubReportRequest(ctx context.Context, snapshotID domain.EvidenceSnapshotID, scenario reportprompt.Scenario, groupIndex int) (domain.EvidenceSnapshot, ports.LLMRequest, []string, error) {
 	var snapshot domain.EvidenceSnapshot
 	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
 		got, err := uow.Evidence().FindByID(ctx, snapshotID)
@@ -488,23 +530,54 @@ func (a *Activities) buildSubReportRequest(ctx context.Context, snapshotID domai
 		return nil
 	})
 	if err != nil {
-		return domain.EvidenceSnapshot{}, ports.LLMRequest{}, err
+		return domain.EvidenceSnapshot{}, ports.LLMRequest{}, nil, err
+	}
+	historicalReports := make([]reportprompt.HistoricalReport, 0)
+	retrievalRefs := make([]string, 0)
+	if a.embeddingProvider != nil {
+		queryText, err := retrieval.EvidenceSnapshotQuery(snapshot)
+		if err != nil {
+			return domain.EvidenceSnapshot{}, ports.LLMRequest{}, nil, err
+		}
+		items, err := retrieval.Retrieve(ctx, a.uowFactory, a.embeddingProvider, retrieval.Query{
+			Text:           queryText,
+			IdempotencyKey: "retrieval-query:" + retrieval.QueryDigest(queryText),
+		})
+		if err != nil {
+			if isContextCancellation(err) {
+				return domain.EvidenceSnapshot{}, ports.LLMRequest{}, nil, err
+			}
+			logOptionalRetrievalFailure(ctx, "query historical reports", err)
+			items = nil
+		}
+		historicalReports = make([]reportprompt.HistoricalReport, len(items))
+		retrievalRefs = make([]string, len(items))
+		for i, item := range items {
+			historicalReports[i] = reportprompt.HistoricalReport{
+				SourceRef:      item.SourceRef,
+				SourceKind:     item.SourceKind,
+				Content:        item.Content,
+				CosineDistance: item.CosineDistance,
+			}
+			retrievalRefs[i] = item.SourceRef
+		}
 	}
 	llmReq, err := reportprompt.BuildSubReportRequest(reportprompt.SubReportInput{
-		Snapshot:   snapshot,
-		Scenario:   scenario,
-		GroupIndex: groupIndex,
+		Snapshot:          snapshot,
+		Scenario:          scenario,
+		GroupIndex:        groupIndex,
+		HistoricalReports: historicalReports,
 	})
 	if err != nil {
-		return domain.EvidenceSnapshot{}, ports.LLMRequest{}, err
+		return domain.EvidenceSnapshot{}, ports.LLMRequest{}, nil, err
 	}
-	return snapshot, llmReq, nil
+	return snapshot, llmReq, retrievalRefs, nil
 }
 
-func (a *Activities) lookupSubReport(ctx context.Context, snapshotID domain.EvidenceSnapshotID, idempotencyKey string) (int64, bool, error) {
+func (a *Activities) lookupSubReport(ctx context.Context, snapshotID domain.EvidenceSnapshotID, idempotencyKey string) (domain.SubReport, bool, error) {
 	var (
-		id    int64
-		found bool
+		report domain.SubReport
+		found  bool
 	)
 	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
 		existing, err := uow.Reports().FindSubReportBySnapshotAndIdempotencyKey(ctx, snapshotID, idempotencyKey)
@@ -514,30 +587,30 @@ func (a *Activities) lookupSubReport(ctx context.Context, snapshotID domain.Evid
 			}
 			return err
 		}
-		id = int64(existing.ID)
+		report = existing
 		found = true
 		return nil
 	})
-	return id, found, err
+	return report, found, err
 }
 
-func (a *Activities) saveSubReport(ctx context.Context, report domain.SubReport) (int64, error) {
-	var id int64
+func (a *Activities) saveSubReport(ctx context.Context, report domain.SubReport) (domain.SubReport, error) {
+	var saved domain.SubReport
 	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
-		saved, err := uow.Reports().SaveSubReport(ctx, report)
+		var err error
+		saved, err = uow.Reports().SaveSubReport(ctx, report)
 		if err != nil {
 			return err
 		}
-		id = int64(saved.ID)
 		return nil
 	})
-	return id, err
+	return saved, err
 }
 
-func (a *Activities) lookupFinalReport(ctx context.Context, idempotencyKey string) (int64, bool, error) {
+func (a *Activities) lookupFinalReport(ctx context.Context, idempotencyKey string) (domain.FinalReport, bool, error) {
 	var (
-		id    int64
-		found bool
+		report domain.FinalReport
+		found  bool
 	)
 	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
 		existing, err := uow.Reports().FindFinalReportByIdempotencyKey(ctx, idempotencyKey)
@@ -547,11 +620,11 @@ func (a *Activities) lookupFinalReport(ctx context.Context, idempotencyKey strin
 			}
 			return err
 		}
-		id = int64(existing.ID)
+		report = existing
 		found = true
 		return nil
 	})
-	return id, found, err
+	return report, found, err
 }
 
 func (a *Activities) loadSubReportsForFinalReport(ctx context.Context, ids []domain.SubReportID) ([]reportdraft.SubReport, error) {
@@ -576,20 +649,113 @@ func (a *Activities) loadSubReportsForFinalReport(ctx context.Context, ids []dom
 	return drafts, err
 }
 
-func (a *Activities) saveFinalReport(ctx context.Context, report domain.FinalReport, subReportIDs []domain.SubReportID) (int64, error) {
-	var id int64
+func (a *Activities) saveFinalReport(ctx context.Context, report domain.FinalReport, subReportIDs []domain.SubReportID) (domain.FinalReport, error) {
+	var saved domain.FinalReport
 	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
-		saved, err := uow.Reports().SaveFinalReport(ctx, report, subReportIDs)
+		var err error
+		saved, err = uow.Reports().SaveFinalReport(ctx, report, subReportIDs)
 		if err != nil {
 			return err
 		}
-		id = int64(saved.ID)
 		return nil
 	})
-	return id, err
+	return saved, err
 }
 
-func subReportDomainFromDraft(snapshotID domain.EvidenceSnapshotID, idempotencyKey string, scenario reportprompt.Scenario, draft reportdraft.SubReport, result llmretry.Result) (domain.SubReport, error) {
+func (a *Activities) indexSubReport(ctx context.Context, report domain.SubReport) error {
+	if a.embeddingProvider == nil {
+		return nil
+	}
+	_, err := retrieval.IndexSubReport(ctx, a.uowFactory, a.embeddingProvider, report)
+	return err
+}
+
+func (a *Activities) indexFinalReport(ctx context.Context, report domain.FinalReport) error {
+	if a.embeddingProvider == nil {
+		return nil
+	}
+	_, err := retrieval.IndexFinalReport(ctx, a.uowFactory, a.embeddingProvider, report)
+	return err
+}
+
+func (a *Activities) indexLinkedReportCorpus(ctx context.Context, finalReport domain.FinalReport, expectedSubReportIDs []domain.SubReportID) error {
+	if a.embeddingProvider == nil {
+		return nil
+	}
+	linked, err := a.loadLinkedSubReportsForIndex(ctx, finalReport.ID, expectedSubReportIDs)
+	if err != nil {
+		return err
+	}
+	indexErrors := make([]error, 0, len(linked)+1)
+	for _, report := range linked {
+		if err := a.indexSubReport(ctx, report); err != nil {
+			indexErrors = append(indexErrors, fmt.Errorf("sub_report:%d: %w", report.ID, err))
+		}
+	}
+	if err := a.indexFinalReport(ctx, finalReport); err != nil {
+		indexErrors = append(indexErrors, fmt.Errorf("final_report:%d: %w", finalReport.ID, err))
+	}
+	if err := errors.Join(indexErrors...); err != nil {
+		if isContextCancellation(err) {
+			return err
+		}
+		logOptionalRetrievalFailure(ctx, "index linked report corpus", err)
+	}
+	return nil
+}
+
+func (a *Activities) loadLinkedSubReportsForIndex(ctx context.Context, finalReportID domain.FinalReportID, expectedIDs []domain.SubReportID) ([]domain.SubReport, error) {
+	if finalReportID == 0 || len(expectedIDs) == 0 {
+		return nil, fmt.Errorf("linked report corpus identity is incomplete: %w", domain.ErrInvariantViolation)
+	}
+	expected := make(map[domain.SubReportID]struct{}, len(expectedIDs))
+	for _, id := range expectedIDs {
+		if id == 0 {
+			return nil, fmt.Errorf("linked report corpus contains a zero SubReport ID: %w", domain.ErrInvariantViolation)
+		}
+		if _, duplicate := expected[id]; duplicate {
+			return nil, fmt.Errorf("linked report corpus duplicates SubReport %d: %w", id, domain.ErrInvariantViolation)
+		}
+		expected[id] = struct{}{}
+	}
+	var linked []domain.SubReport
+	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var err error
+		linked, err = uow.Reports().ListSubReportsForFinalReport(ctx, finalReportID, len(expectedIDs)+1)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(linked) != len(expected) {
+		return nil, fmt.Errorf("final report %d links %d SubReports, want %d: %w", finalReportID, len(linked), len(expected), domain.ErrInvariantViolation)
+	}
+	for _, report := range linked {
+		if _, ok := expected[report.ID]; !ok {
+			return nil, fmt.Errorf("final report %d links unexpected SubReport %d: %w", finalReportID, report.ID, domain.ErrInvariantViolation)
+		}
+		delete(expected, report.ID)
+	}
+	if len(expected) != 0 {
+		return nil, fmt.Errorf("final report %d is missing requested SubReport links: %w", finalReportID, domain.ErrInvariantViolation)
+	}
+	return linked, nil
+}
+
+func isContextCancellation(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func logOptionalRetrievalFailure(ctx context.Context, operation string, err error) {
+	const message = "optional historical report retrieval failed; continuing without it"
+	if temporalactivity.IsActivity(ctx) {
+		temporalactivity.GetLogger(ctx).Warn(message, "operation", operation, "error", err)
+		return
+	}
+	slog.Default().WarnContext(ctx, message, "operation", operation, "error", err)
+}
+
+func subReportDomainFromDraft(snapshotID domain.EvidenceSnapshotID, idempotencyKey string, scenario reportprompt.Scenario, draft reportdraft.SubReport, retrievalRefs []string, result llmretry.Result) (domain.SubReport, error) {
 	findings, err := marshalRaw("subreport findings", draft.Findings)
 	if err != nil {
 		return domain.SubReport{}, err
@@ -609,6 +775,7 @@ func subReportDomainFromDraft(snapshotID domain.EvidenceSnapshotID, idempotencyK
 		Findings:           findings,
 		RecommendedActions: actions,
 		EvidenceRefs:       draft.EvidenceRefs,
+		RetrievalRefs:      retrievalRefs,
 		Content:            result.Output.Content,
 		Model:              result.Accepted.Model,
 		OutputMode:         string(result.Accepted.OutputMode),
