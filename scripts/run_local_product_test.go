@@ -1,11 +1,15 @@
 package main_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func TestRunLocalProductHelpAndMissingEnv(t *testing.T) {
@@ -66,11 +70,83 @@ func TestRunLocalProductCheckUsesIsolatedComposeDatabaseAndBoundedWaits(t *testi
 			t.Fatalf("Stage 5 environment missing %q:\n%s", want, stage5)
 		}
 	}
+	events := fixture.readCapture(t, "events")
+	if stage5Index, atlasIndex := strings.Index(events, "stage5-check\n"), strings.Index(events, "atlas\n"); stage5Index < 0 || atlasIndex < 0 || stage5Index > atlasIndex {
+		t.Fatalf("worker prerequisites must pass before Atlas apply:\n%s", events)
+	}
 	if strings.Contains(string(output), "stale-private-value") {
 		t.Fatalf("launcher leaked stale private database URL: %s", output)
 	}
 	if _, err := os.Stat(filepath.Join(fixture.captureDir, "npm.env")); !os.IsNotExist(err) {
 		t.Fatalf("check-only started npm unexpectedly: %v", err)
+	}
+}
+
+func TestRunLocalProductRejectsBridgeAtlasForLoopbackDatabase(t *testing.T) {
+	fixture := newLocalProductFixture(t)
+	output, err := fixture.command(t, []string{
+		"OPENCLARION_LOCAL_USE_CONFIGURED_DATABASE=1",
+		"DATABASE_URL=postgres://operator:private-value@LOCALHOST:25432/openclarion?sslmode=disable",
+	}, "--check-only").CombinedOutput()
+	if err == nil {
+		t.Fatalf("loopback configured database passed unexpectedly:\n%s", output)
+	}
+	for _, want := range []string{
+		"Atlas cannot reach a loopback database from a bridge network",
+		"OPENCLARION_LOCAL_ATLAS_DATABASE_URL",
+		"OPENCLARION_LOCAL_ATLAS_DOCKER_NETWORK=host",
+	} {
+		if !strings.Contains(string(output), want) {
+			t.Fatalf("output = %q, want %q", output, want)
+		}
+	}
+	if strings.Contains(string(output), "private-value") {
+		t.Fatalf("loopback validation leaked database credentials: %s", output)
+	}
+}
+
+func TestRunLocalProductValidatesPrerequisitesBeforeMigrations(t *testing.T) {
+	t.Run("frontend dependencies", func(t *testing.T) {
+		fixture := newLocalProductFixture(t)
+		if err := os.Remove(filepath.Join(fixture.root, "web", "node_modules", ".bin", "next")); err != nil {
+			t.Fatal(err)
+		}
+		output, err := fixture.command(t, nil, "--check-only").CombinedOutput()
+		if err == nil || !strings.Contains(string(output), "run npm --prefix web ci") {
+			t.Fatalf("frontend prerequisite result: err=%v output=%s", err, output)
+		}
+		fixture.requireNoCapture(t, "atlas.env")
+	})
+
+	t.Run("worker environment", func(t *testing.T) {
+		fixture := newLocalProductFixture(t)
+		output, err := fixture.command(t, []string{"OPENCLARION_TEST_STAGE5_FAIL=1"}, "--check-only").CombinedOutput()
+		if err == nil || !strings.Contains(string(output), "fixture stage5 failure") {
+			t.Fatalf("worker prerequisite result: err=%v output=%s", err, output)
+		}
+		fixture.requireNoCapture(t, "atlas.env")
+	})
+}
+
+func TestRunLocalProductStopsFrontendProcessGroup(t *testing.T) {
+	fixture := newLocalProductFixture(t)
+	fixture.run(t)
+
+	rawPID := strings.TrimSpace(fixture.readCapture(t, "npm-child.pid"))
+	childPID, err := strconv.Atoi(rawPID)
+	if err != nil {
+		t.Fatalf("parse npm child PID %q: %v", rawPID, err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		err = syscall.Kill(childPID, 0)
+		if errors.Is(err, syscall.ESRCH) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("npm child process %d survived launcher cleanup: %v", childPID, err)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
@@ -106,11 +182,15 @@ func TestRunLocalProductStartsFrontendWithMatchingPublicURLs(t *testing.T) {
 func TestRunLocalProductConfiguredDatabaseSkipsLocalApplicationDatabase(t *testing.T) {
 	fixture := newLocalProductFixture(t)
 	databaseURL := strings.Join([]string{
-		"postgres://operator:", "configured-private-value", "@database.test/openclarion?sslmode=require",
+		"postgres://operator:", "configured-private-value", "@localhost:25432/openclarion?sslmode=disable",
+	}, "")
+	atlasURL := strings.Join([]string{
+		"postgres://migrator:", "atlas-private-value", "@database.test/openclarion?sslmode=require",
 	}, "")
 	output := fixture.runWithEnvironment(t, []string{
 		"OPENCLARION_LOCAL_USE_CONFIGURED_DATABASE=1",
 		"OPENCLARION_LOCAL_ATLAS_DOCKER_NETWORK=database_network",
+		"OPENCLARION_LOCAL_ATLAS_DATABASE_URL=" + atlasURL,
 		"DATABASE_URL=" + databaseURL,
 	}, "--check-only")
 
@@ -119,10 +199,14 @@ func TestRunLocalProductConfiguredDatabaseSkipsLocalApplicationDatabase(t *testi
 		t.Fatalf("configured database mode mutated the local application database:\n%s", dockerArgs)
 	}
 	atlas := fixture.readCapture(t, "atlas.env")
-	if !strings.Contains(atlas, "url="+databaseURL) || !strings.Contains(atlas, "network=database_network") {
+	if !strings.Contains(atlas, "url="+atlasURL) || !strings.Contains(atlas, "network=database_network") {
 		t.Fatalf("configured Atlas environment = %q", atlas)
 	}
-	if strings.Contains(string(output), "configured-private-value") {
+	stage5 := fixture.readCapture(t, "stage5.env")
+	if !strings.Contains(stage5, "database="+databaseURL) {
+		t.Fatalf("configured backend database = %q", stage5)
+	}
+	if strings.Contains(string(output), "configured-private-value") || strings.Contains(string(output), "atlas-private-value") {
 		t.Fatalf("configured database URL leaked through launcher output: %s", output)
 	}
 }
@@ -211,6 +295,9 @@ set -eu
   printf 'oidc_secret_present=%s\n' "${OIDC_CLIENT_SECRET+x}"
   printf 'args=%s\n' "$*"
 } >"$HOME/npm.env"
+sleep 60 &
+printf '%s\n' "$!" >"$HOME/npm-child.pid"
+wait
 sleep 2
 `, 0o755)
 
@@ -224,6 +311,7 @@ set -eu
   printf 'url=%s\n' "$OPENCLARION_ATLAS_DATABASE_URL"
   printf 'network=%s\n' "$OPENCLARION_ATLAS_DOCKER_NETWORK"
 } >"$OPENCLARION_TEST_CAPTURE_DIR/atlas.env"
+printf 'atlas\n' >>"$OPENCLARION_TEST_CAPTURE_DIR/events"
 `, 0o755)
 	writeLocalProductFile(t, filepath.Join(root, "scripts", "run_stage5_local_worker.sh"), `#!/bin/sh
 set -eu
@@ -236,8 +324,16 @@ set -eu
   printf 'args=%s\n' "$*"
 } >>"$OPENCLARION_TEST_CAPTURE_DIR/stage5.env"
 case "$*" in
-  *--check-only*) exit 0 ;;
+  *--check-only*)
+    printf 'stage5-check\n' >>"$OPENCLARION_TEST_CAPTURE_DIR/events"
+    if [ "${OPENCLARION_TEST_STAGE5_FAIL:-0}" = "1" ]; then
+      printf 'fixture stage5 failure\n' >&2
+      exit 2
+    fi
+    exit 0
+    ;;
 esac
+printf 'stage5-run\n' >>"$OPENCLARION_TEST_CAPTURE_DIR/events"
 sleep 1
 `, 0o755)
 
@@ -292,6 +388,13 @@ func (f localProductFixture) readCapture(t *testing.T, name string) string {
 		t.Fatalf("read capture %s: %v", name, err)
 	}
 	return string(raw)
+}
+
+func (f localProductFixture) requireNoCapture(t *testing.T, name string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(f.captureDir, name)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("capture %s exists unexpectedly: %v", name, err)
+	}
 }
 
 func copyLocalProductFile(t *testing.T, source, target string, mode os.FileMode) {

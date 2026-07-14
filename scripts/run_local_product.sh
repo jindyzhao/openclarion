@@ -93,12 +93,18 @@ version_at_least() {
     ((major == required_major && minor == required_minor && patch >= required_patch))
 }
 
+database_url_uses_loopback_host() {
+  local url="$1"
+  url="${url,,}"
+  [[ "$url" =~ ^postgres(ql)?://([^/@[:space:]]+@)?(localhost|127\.[0-9]+\.[0-9]+\.[0-9]+|\[::1\])([:/?]|$) ]]
+}
+
 [[ -n "$env_file" ]] || fail "set OPENCLARION_LOCAL_PRODUCT_ENV_FILE or pass --env-file"
 openclarion_capture_exported_env_overrides
 openclarion_load_private_env_file "local-product" "$ROOT_DIR" "$env_file" || exit $?
 openclarion_restore_exported_env_overrides
 
-for tool in curl docker go npm; do
+for tool in curl docker go npm setsid; do
   command -v "$tool" >/dev/null 2>&1 || fail "required tool not found in PATH: $tool"
 done
 compose_version="$(docker compose version --short 2>/dev/null)" || fail "Docker Compose V2 is required"
@@ -162,8 +168,11 @@ if [[ "$OPENCLARION_LOCAL_USE_CONFIGURED_DATABASE" == "0" ]]; then
   atlas_network="${OPENCLARION_LOCAL_COMPOSE_PROJECT_NAME}_default"
 else
   [[ -n "${DATABASE_URL:-}" ]] || fail "DATABASE_URL is required when OPENCLARION_LOCAL_USE_CONFIGURED_DATABASE=1"
-  atlas_database_url="$DATABASE_URL"
+  atlas_database_url="${OPENCLARION_LOCAL_ATLAS_DATABASE_URL:-$DATABASE_URL}"
   atlas_network="${OPENCLARION_LOCAL_ATLAS_DOCKER_NETWORK:-${OPENCLARION_LOCAL_COMPOSE_PROJECT_NAME}_default}"
+  if database_url_uses_loopback_host "$atlas_database_url" && [[ "$atlas_network" != "host" ]]; then
+    fail "Atlas cannot reach a loopback database from a bridge network; set OPENCLARION_LOCAL_ATLAS_DATABASE_URL to a container-reachable URL or OPENCLARION_LOCAL_ATLAS_DOCKER_NETWORK=host where supported"
+  fi
 fi
 
 export POSTGRES_PORT TEMPORAL_PORT TEMPORAL_UI_PORT
@@ -173,6 +182,10 @@ export OPENCLARION_SANDBOX_AGENT_CONFIG_ROOT OPENCLARION_SANDBOX_EGRESS_NETWORK 
 export OPENCLARION_LOCAL_EGRESS_PROXY_IMAGE
 
 compose=(docker compose --project-name "$OPENCLARION_LOCAL_COMPOSE_PROJECT_NAME")
+
+echo "[local-product] validating frontend prerequisites..." >&2
+[[ -f web/package-lock.json && -x web/node_modules/.bin/next ]] || \
+  fail "run npm --prefix web ci before starting the local product"
 
 bash scripts/build_local_egress_proxy.sh >/dev/null
 
@@ -187,6 +200,10 @@ echo "[local-product] starting PostgreSQL, Temporal, and isolated egress proxy..
 "${compose[@]}" --profile sandbox-egress up -d --wait \
   --wait-timeout "$OPENCLARION_LOCAL_COMPOSE_WAIT_SECONDS" \
   postgres temporal temporal-ui openclarion-egress-proxy
+
+echo "[local-product] validating worker prerequisites..." >&2
+OPENCLARION_STAGE5_WORKER_ENV_FILE="$env_file" \
+  bash scripts/run_stage5_local_worker.sh --env-file "$env_file" --source --check-only
 
 if [[ "$OPENCLARION_LOCAL_USE_CONFIGURED_DATABASE" == "0" ]]; then
   database_exists="$("${compose[@]}" exec -T postgres \
@@ -206,12 +223,6 @@ OPENCLARION_ATLAS_DATABASE_URL="$atlas_database_url" \
 OPENCLARION_ATLAS_DOCKER_NETWORK="$atlas_network" \
   bash scripts/apply_atlas_migrations.sh
 
-echo "[local-product] validating worker and frontend prerequisites..." >&2
-OPENCLARION_STAGE5_WORKER_ENV_FILE="$env_file" \
-  bash scripts/run_stage5_local_worker.sh --env-file "$env_file" --source --check-only
-[[ -f web/package-lock.json && -x web/node_modules/.bin/next ]] || \
-  fail "run npm --prefix web ci before starting the local product"
-
 if [[ -n "$check_only" ]]; then
   echo "[local-product] OK - non-Kubernetes local product prerequisites are ready." >&2
   exit 0
@@ -219,25 +230,43 @@ fi
 
 backend_pid=""
 frontend_pid=""
+# stop_process_group is invoked indirectly by the EXIT trap cleanup below.
+# shellcheck disable=SC2317
+stop_process_group() {
+  local pid="$1"
+  [[ -n "$pid" ]] || return 0
+
+  if kill -0 -- "-$pid" >/dev/null 2>&1; then
+    kill -TERM -- "-$pid" >/dev/null 2>&1 || true
+    (
+      sleep 5
+      kill -KILL -- "-$pid" >/dev/null 2>&1 || true
+    ) &
+    local watchdog_pid="$!"
+    wait "$pid" >/dev/null 2>&1 || true
+    kill "$watchdog_pid" >/dev/null 2>&1 || true
+    wait "$watchdog_pid" >/dev/null 2>&1 || true
+    sleep 0.1
+    kill -KILL -- "-$pid" >/dev/null 2>&1 || true
+    return 0
+  fi
+
+  wait "$pid" >/dev/null 2>&1 || true
+}
+
 # cleanup is invoked indirectly by the EXIT trap below.
 # shellcheck disable=SC2317
 cleanup() {
   trap - EXIT INT TERM
-  if [[ -n "$frontend_pid" ]]; then
-    kill "$frontend_pid" >/dev/null 2>&1 || true
-    wait "$frontend_pid" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "$backend_pid" ]]; then
-    kill "$backend_pid" >/dev/null 2>&1 || true
-    wait "$backend_pid" >/dev/null 2>&1 || true
-  fi
+  stop_process_group "$frontend_pid"
+  stop_process_group "$backend_pid"
 }
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
 OPENCLARION_STAGE5_WORKER_ENV_FILE="$env_file" \
-  bash scripts/run_stage5_local_worker.sh --env-file "$env_file" --source &
+  setsid bash scripts/run_stage5_local_worker.sh --env-file "$env_file" --source &
 backend_pid="$!"
 
 wait_for_url() {
@@ -287,7 +316,7 @@ done
 
 (
   cd web
-  exec env -i "${frontend_env[@]}" \
+  exec setsid env -i "${frontend_env[@]}" \
     npm run dev -- --hostname "$OPENCLARION_LOCAL_WEB_HOST" --port "$OPENCLARION_LOCAL_WEB_PORT"
 ) &
 frontend_pid="$!"

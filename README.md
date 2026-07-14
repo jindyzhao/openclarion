@@ -143,8 +143,15 @@ OPENCLARION_LOCAL_PRODUCT_ENV_FILE=.openclarion-private/openclarion-stage5.env m
 The preflight builds the bundled diagnosis runner and egress proxy, starts the
 pinned PostgreSQL/pgvector and Temporal services, applies committed Atlas
 migrations, and validates runtime prerequisites. Replace `local-product-check`
-with `local-product` to start the API/worker and Next.js console. Compose
-dependencies remain available after the launcher exits; stop them with:
+with `local-product` to start the API/worker and Next.js console.
+
+The launcher uses a dedicated Compose database by default. When
+`OPENCLARION_LOCAL_USE_CONFIGURED_DATABASE=1`, Atlas still runs in a container;
+a loopback database URL therefore requires either supported host networking or
+a separate container-reachable `OPENCLARION_LOCAL_ATLAS_DATABASE_URL`. See
+`.env.example` for both overrides.
+
+Compose dependencies remain available after the launcher exits; stop them with:
 
 ```bash
 docker compose --project-name openclarion-local-product --profile sandbox-egress down
