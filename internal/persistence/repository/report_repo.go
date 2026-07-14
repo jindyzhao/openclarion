@@ -27,6 +27,11 @@ type reportRepo struct {
 
 const maxRetrievalSearchLimit = 20
 
+const (
+	hnswIterativeScanVariable = "LOCAL hnsw.iterative_scan"
+	hnswIterativeScanMode     = "strict_order"
+)
+
 // Compile-time assertion that the implementation satisfies the port.
 var _ ports.ReportRepository = (*reportRepo)(nil)
 
@@ -91,6 +96,7 @@ func (r *reportRepo) SearchRetrievalChunks(ctx context.Context, embeddingModel s
 		return nil, fmt.Errorf("search retrieval chunks: query vector must be finite and non-zero: %w", domain.ErrInvariantViolation)
 	}
 	queryVector := pgvector.NewVector(query)
+	queryCtx := hnswFilteredSearchContext(ctx)
 	rows, err := r.tx.RetrievalChunk.Query().
 		Where(
 			retrievalchunk.EmbeddingModelEQ(embeddingModel),
@@ -107,7 +113,7 @@ func (r *reportRepo) SearchRetrievalChunks(ctx context.Context, embeddingModel s
 			selector.OrderExpr(pgvectorCosineDistance(retrievalchunk.FieldEmbedding, queryVector))
 		}, retrievalchunk.ByID()).
 		Limit(limit).
-		All(ctx)
+		All(queryCtx)
 	if err != nil {
 		return nil, fmt.Errorf("search retrieval chunks: %w", err)
 	}
@@ -123,6 +129,13 @@ func (r *reportRepo) SearchRetrievalChunks(ctx context.Context, embeddingModel s
 		})
 	}
 	return out, nil
+}
+
+func hnswFilteredSearchContext(ctx context.Context) context.Context {
+	// reportRepo always runs inside a transaction. Ent expands this fixed
+	// variable into SET LOCAL before the query, so model filtering can continue
+	// the HNSW scan without leaking the setting to a pooled connection.
+	return entsql.WithVar(ctx, hnswIterativeScanVariable, hnswIterativeScanMode)
 }
 
 func pgvectorCosineDistance(column string, value any) entsql.Querier {

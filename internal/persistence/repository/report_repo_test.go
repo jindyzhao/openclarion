@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	entsql "entgo.io/ent/dialect/sql"
+
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -155,6 +157,14 @@ func TestReportRepository_RetrievalChunkCosineSearch(t *testing.T) {
 	})
 	if !errors.Is(err, domain.ErrAlreadyExists) {
 		t.Fatalf("duplicate SaveRetrievalChunk error = %v, want ErrAlreadyExists", err)
+	}
+}
+
+func TestHNSWFilteredSearchContext_UsesTransactionLocalStrictIteration(t *testing.T) {
+	ctx := hnswFilteredSearchContext(context.Background())
+	got, ok := entsql.VarFromContext(ctx, hnswIterativeScanVariable)
+	if !ok || got != hnswIterativeScanMode {
+		t.Fatalf("hnsw iterative scan = %q, %v; want %q, true", got, ok, hnswIterativeScanMode)
 	}
 }
 

@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
 
+	temporalactivity "go.temporal.io/sdk/activity"
 	temporalsdk "go.temporal.io/sdk/temporal"
 
 	"github.com/openclarion/openclarion/internal/domain"
@@ -337,9 +339,6 @@ func (a *Activities) GenerateSubReport(ctx context.Context, req ReportFanOutWork
 				"generate-sub-report pre-check",
 			)
 		}
-		if err := a.indexSubReport(ctx, existing); err != nil {
-			return ReportFanOutWorkflowResult{}, mapActivityError(err, "generate-sub-report index existing")
-		}
 		return ReportFanOutWorkflowResult{SubReportID: int64(existing.ID)}, nil
 	}
 
@@ -373,9 +372,6 @@ func (a *Activities) GenerateSubReport(ctx context.Context, req ReportFanOutWork
 
 	saved, err := a.saveSubReport(ctx, report)
 	if err == nil {
-		if err := a.indexSubReport(ctx, saved); err != nil {
-			return ReportFanOutWorkflowResult{}, mapActivityError(err, "generate-sub-report index")
-		}
 		return ReportFanOutWorkflowResult{SubReportID: int64(saved.ID)}, nil
 	}
 	if !errors.Is(err, domain.ErrAlreadyExists) {
@@ -395,9 +391,6 @@ func (a *Activities) GenerateSubReport(ctx context.Context, req ReportFanOutWork
 			fmt.Errorf("existing SubReport scenario %q does not match requested %q after duplicate: %w", existing.Scenario, scenario, domain.ErrInvariantViolation),
 			"generate-sub-report re-fetch",
 		)
-	}
-	if err := a.indexSubReport(ctx, existing); err != nil {
-		return ReportFanOutWorkflowResult{}, mapActivityError(err, "generate-sub-report index duplicate")
 	}
 	return ReportFanOutWorkflowResult{SubReportID: int64(existing.ID)}, nil
 }
@@ -423,8 +416,8 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 	if existing, found, err := a.lookupFinalReport(ctx, idempotencyKey); err != nil {
 		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report pre-check")
 	} else if found {
-		if err := a.indexFinalReport(ctx, existing); err != nil {
-			return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report index existing")
+		if err := a.indexLinkedReportCorpus(ctx, existing, subReportIDs); err != nil {
+			return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report index existing corpus")
 		}
 		return FinalReportWorkflowResult{FinalReportID: int64(existing.ID)}, nil
 	}
@@ -460,8 +453,8 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 
 	saved, err := a.saveFinalReport(ctx, report, subReportIDs)
 	if err == nil {
-		if err := a.indexFinalReport(ctx, saved); err != nil {
-			return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report index")
+		if err := a.indexLinkedReportCorpus(ctx, saved, subReportIDs); err != nil {
+			return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report index corpus")
 		}
 		return FinalReportWorkflowResult{FinalReportID: int64(saved.ID)}, nil
 	}
@@ -477,8 +470,8 @@ func (a *Activities) GenerateFinalReport(ctx context.Context, req FinalReportWor
 			"generate-final-report: duplicate re-fetch missing for idempotency_key %q",
 			llmReq.IdempotencyKey)
 	}
-	if err := a.indexFinalReport(ctx, existing); err != nil {
-		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report index duplicate")
+	if err := a.indexLinkedReportCorpus(ctx, existing, subReportIDs); err != nil {
+		return FinalReportWorkflowResult{}, mapActivityError(err, "generate-final-report index duplicate corpus")
 	}
 	return FinalReportWorkflowResult{FinalReportID: int64(existing.ID)}, nil
 }
@@ -551,7 +544,11 @@ func (a *Activities) buildSubReportRequest(ctx context.Context, snapshotID domai
 			IdempotencyKey: "retrieval-query:" + retrieval.QueryDigest(queryText),
 		})
 		if err != nil {
-			return domain.EvidenceSnapshot{}, ports.LLMRequest{}, nil, err
+			if isContextCancellation(err) {
+				return domain.EvidenceSnapshot{}, ports.LLMRequest{}, nil, err
+			}
+			logOptionalRetrievalFailure(ctx, "query historical reports", err)
+			items = nil
 		}
 		historicalReports = make([]reportprompt.HistoricalReport, len(items))
 		retrievalRefs = make([]string, len(items))
@@ -679,6 +676,83 @@ func (a *Activities) indexFinalReport(ctx context.Context, report domain.FinalRe
 	}
 	_, err := retrieval.IndexFinalReport(ctx, a.uowFactory, a.embeddingProvider, report)
 	return err
+}
+
+func (a *Activities) indexLinkedReportCorpus(ctx context.Context, finalReport domain.FinalReport, expectedSubReportIDs []domain.SubReportID) error {
+	if a.embeddingProvider == nil {
+		return nil
+	}
+	linked, err := a.loadLinkedSubReportsForIndex(ctx, finalReport.ID, expectedSubReportIDs)
+	if err != nil {
+		return err
+	}
+	indexErrors := make([]error, 0, len(linked)+1)
+	for _, report := range linked {
+		if err := a.indexSubReport(ctx, report); err != nil {
+			indexErrors = append(indexErrors, fmt.Errorf("sub_report:%d: %w", report.ID, err))
+		}
+	}
+	if err := a.indexFinalReport(ctx, finalReport); err != nil {
+		indexErrors = append(indexErrors, fmt.Errorf("final_report:%d: %w", finalReport.ID, err))
+	}
+	if err := errors.Join(indexErrors...); err != nil {
+		if isContextCancellation(err) {
+			return err
+		}
+		logOptionalRetrievalFailure(ctx, "index linked report corpus", err)
+	}
+	return nil
+}
+
+func (a *Activities) loadLinkedSubReportsForIndex(ctx context.Context, finalReportID domain.FinalReportID, expectedIDs []domain.SubReportID) ([]domain.SubReport, error) {
+	if finalReportID == 0 || len(expectedIDs) == 0 {
+		return nil, fmt.Errorf("linked report corpus identity is incomplete: %w", domain.ErrInvariantViolation)
+	}
+	expected := make(map[domain.SubReportID]struct{}, len(expectedIDs))
+	for _, id := range expectedIDs {
+		if id == 0 {
+			return nil, fmt.Errorf("linked report corpus contains a zero SubReport ID: %w", domain.ErrInvariantViolation)
+		}
+		if _, duplicate := expected[id]; duplicate {
+			return nil, fmt.Errorf("linked report corpus duplicates SubReport %d: %w", id, domain.ErrInvariantViolation)
+		}
+		expected[id] = struct{}{}
+	}
+	var linked []domain.SubReport
+	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var err error
+		linked, err = uow.Reports().ListSubReportsForFinalReport(ctx, finalReportID, len(expectedIDs)+1)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(linked) != len(expected) {
+		return nil, fmt.Errorf("final report %d links %d SubReports, want %d: %w", finalReportID, len(linked), len(expected), domain.ErrInvariantViolation)
+	}
+	for _, report := range linked {
+		if _, ok := expected[report.ID]; !ok {
+			return nil, fmt.Errorf("final report %d links unexpected SubReport %d: %w", finalReportID, report.ID, domain.ErrInvariantViolation)
+		}
+		delete(expected, report.ID)
+	}
+	if len(expected) != 0 {
+		return nil, fmt.Errorf("final report %d is missing requested SubReport links: %w", finalReportID, domain.ErrInvariantViolation)
+	}
+	return linked, nil
+}
+
+func isContextCancellation(err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func logOptionalRetrievalFailure(ctx context.Context, operation string, err error) {
+	const message = "optional historical report retrieval failed; continuing without it"
+	if temporalactivity.IsActivity(ctx) {
+		temporalactivity.GetLogger(ctx).Warn(message, "operation", operation, "error", err)
+		return
+	}
+	slog.Default().WarnContext(ctx, message, "operation", operation, "error", err)
 }
 
 func subReportDomainFromDraft(snapshotID domain.EvidenceSnapshotID, idempotencyKey string, scenario reportprompt.Scenario, draft reportdraft.SubReport, retrievalRefs []string, result llmretry.Result) (domain.SubReport, error) {

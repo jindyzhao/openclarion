@@ -77,7 +77,9 @@
 - [x] failed AI output is marked and retryable
 - [x] LLM Activity carries scenario-scoped idempotency key (`snapshotID + groupIndex + scenario`)
 - [x] fixed-dimension pgvector corpus stores bounded immutable SubReport and FinalReport projections
-- [x] OpenAI-compatible EmbeddingProvider indexes accepted reports and supplies bounded advisory historical context to SubReport prompts
+- [x] OpenAI-compatible EmbeddingProvider indexes FinalReport-linked accepted
+  reports and supplies fail-open bounded advisory historical context to
+  SubReport prompts
 - [x] retrieval reindex CLI backfills recent FinalReports and their linked SubReports idempotently
 - [x] ReportBatchWorkflow fans out SubReport child workflows and fans in to FinalReportWorkflow
 - [x] alert replay exposes persisted EvidenceSnapshot refs for report dispatch

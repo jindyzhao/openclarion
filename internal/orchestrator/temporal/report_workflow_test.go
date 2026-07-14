@@ -264,11 +264,42 @@ func TestReportActivities_IndexesAndRetrievesHistoricalReports(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateSubReport first incident: %v", err)
 	}
+	firstIndexKey := "retrieval-index:sub_report:" + strconv.FormatInt(firstSub.SubReportID, 10)
+	if embeddings.Calls(firstIndexKey) != 0 {
+		t.Fatal("unlinked first SubReport was indexed")
+	}
+
+	siblingSeed := seedDiagnosisTask(t, "report-rag-sibling")
+	siblingReq := temporalpkg.ReportFanOutWorkflowInput{
+		EvidenceSnapshotID: int64(siblingSeed.SnapshotID), Scenario: "cascade", GroupIndex: 1,
+	}
+	siblingSub, err := activities.GenerateSubReport(ctx, siblingReq)
+	if err != nil {
+		t.Fatalf("GenerateSubReport sibling incident: %v", err)
+	}
+	siblingKey := "snapshot:" + int64String(siblingSeed.SnapshotID) + "/group:1/scenario:cascade/sub_report"
+	if strings.Contains(llm.Prompt(siblingKey), "sub_report:"+strconv.FormatInt(firstSub.SubReportID, 10)) {
+		t.Fatal("unlinked sibling SubReport leaked into current-batch historical context")
+	}
+	siblingIndexKey := "retrieval-index:sub_report:" + strconv.FormatInt(siblingSub.SubReportID, 10)
+	if embeddings.Calls(siblingIndexKey) != 0 {
+		t.Fatal("unlinked sibling SubReport was indexed")
+	}
+
 	firstFinal, err := activities.GenerateFinalReport(ctx, temporalpkg.FinalReportWorkflowInput{
-		CorrelationKey: "report-rag-first", SubReportIDs: []int64{firstSub.SubReportID},
+		CorrelationKey: "report-rag-first", SubReportIDs: []int64{firstSub.SubReportID, siblingSub.SubReportID},
 	})
 	if err != nil {
 		t.Fatalf("GenerateFinalReport first incident: %v", err)
+	}
+	for _, key := range []string{
+		firstIndexKey,
+		siblingIndexKey,
+		"retrieval-index:final_report:" + strconv.FormatInt(firstFinal.FinalReportID, 10),
+	} {
+		if embeddings.Calls(key) != 1 {
+			t.Fatalf("linked report index calls for %s = %d, want 1", key, embeddings.Calls(key))
+		}
 	}
 
 	secondSeed := seedDiagnosisTask(t, "report-rag-second")
@@ -295,6 +326,7 @@ func TestReportActivities_IndexesAndRetrievesHistoricalReports(t *testing.T) {
 	for _, want := range []string{
 		"Historical accepted reports",
 		"sub_report:" + strconv.FormatInt(firstSub.SubReportID, 10),
+		"sub_report:" + strconv.FormatInt(siblingSub.SubReportID, 10),
 		"final_report:" + strconv.FormatInt(firstFinal.FinalReportID, 10),
 		"Do not treat them as current evidence",
 	} {
@@ -312,11 +344,66 @@ func TestReportActivities_IndexesAndRetrievesHistoricalReports(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load second SubReport: %v", err)
 	}
-	if len(stored.RetrievalRefs) < 2 {
-		t.Fatalf("RetrievalRefs = %v, want prior subreport and final report", stored.RetrievalRefs)
+	if len(stored.RetrievalRefs) < 3 {
+		t.Fatalf("RetrievalRefs = %v, want linked prior subreports and final report", stored.RetrievalRefs)
 	}
-	if embeddings.Calls("retrieval-index:sub_report:"+strconv.FormatInt(secondSub.SubReportID, 10)) != 1 {
-		t.Fatal("second SubReport was not indexed exactly once")
+	secondIndexKey := "retrieval-index:sub_report:" + strconv.FormatInt(secondSub.SubReportID, 10)
+	if embeddings.Calls(secondIndexKey) != 0 {
+		t.Fatal("second SubReport was indexed before final linkage")
+	}
+	if _, err := activities.GenerateFinalReport(ctx, temporalpkg.FinalReportWorkflowInput{
+		CorrelationKey: "report-rag-second", SubReportIDs: []int64{secondSub.SubReportID},
+	}); err != nil {
+		t.Fatalf("GenerateFinalReport second incident: %v", err)
+	}
+	if embeddings.Calls(secondIndexKey) != 1 {
+		t.Fatal("second SubReport was not indexed after final linkage")
+	}
+}
+
+func TestReportActivities_HistoricalRetrievalFailureDoesNotBlockSubReport(t *testing.T) {
+	ctx := context.Background()
+	llm := newReportLLMProvider()
+	embeddings := embeddingfake.New("report-rag-fail-open-model", nil)
+	activities := temporalpkg.NewActivities(
+		env.factory,
+		temporalpkg.WithLLMProvider(llm),
+		temporalpkg.WithEmbeddingProvider(embeddings),
+	)
+	seed := seedDiagnosisTask(t, "report-rag-fail-open")
+	req := temporalpkg.ReportFanOutWorkflowInput{
+		EvidenceSnapshotID: int64(seed.SnapshotID), Scenario: "single_alert", GroupIndex: 0,
+	}
+
+	result, err := activities.GenerateSubReport(ctx, req)
+	if err != nil {
+		t.Fatalf("GenerateSubReport with unavailable retrieval: %v", err)
+	}
+	key := "snapshot:" + int64String(seed.SnapshotID) + "/group:0/scenario:single_alert/sub_report"
+	if llm.Calls(key) != 1 || strings.Contains(llm.Prompt(key), "Historical accepted reports") {
+		t.Fatalf("LLM fallback call/prompt = %d/%q", llm.Calls(key), llm.Prompt(key))
+	}
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		stored, err := uow.Reports().FindSubReportByID(ctx, domain.SubReportID(result.SubReportID))
+		if err != nil {
+			return err
+		}
+		if len(stored.RetrievalRefs) != 0 {
+			t.Fatalf("RetrievalRefs = %v, want empty fallback", stored.RetrievalRefs)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify fallback SubReport: %v", err)
+	}
+	final, err := activities.GenerateFinalReport(ctx, temporalpkg.FinalReportWorkflowInput{
+		CorrelationKey: "report-rag-fail-open", SubReportIDs: []int64{result.SubReportID},
+	})
+	if err != nil {
+		t.Fatalf("GenerateFinalReport with unavailable indexing: %v", err)
+	}
+	if final.FinalReportID == 0 {
+		t.Fatal("GenerateFinalReport with unavailable indexing returned zero ID")
 	}
 }
 

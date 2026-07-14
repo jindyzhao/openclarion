@@ -201,8 +201,13 @@ and the vector needed for historical similarity search.
 * `content_digest` is SHA-256 over the exact bounded projection stored in
   `content`; an existing source/model row cannot silently change content.
 * `embedding` is fixed at 1536 dimensions and indexed with HNSW
-  `vector_cosine_ops`. Queries always filter by `embedding_model` and validate
-  finite non-zero vectors before binding them as SQL parameters.
+  `vector_cosine_ops`. Queries always filter by `embedding_model`, enable
+  transaction-local strict iterative HNSW scans so post-index filtering does
+  not truncate the result set, and validate finite non-zero vectors before
+  binding them as SQL parameters.
+* A `SubReport` becomes eligible for indexing only after a persisted
+  `FinalReport` links it. Concurrent fan-out siblings therefore cannot enter
+  one another's historical prompt context before their batch is finalized.
 * `metadata` is bounded JSONB for source attributes such as scenario,
   EvidenceSnapshot ID, or correlation key. It is not current incident evidence.
 * The table intentionally has no polymorphic foreign key. Domain validation
