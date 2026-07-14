@@ -1,4 +1,4 @@
-h1:5DGqiW9XdEsSYc6xG0xaAF4HRuawT5Ah7HXNFyRjB9k=
+h1:5SO/twX3DH7ByWdyIHuYOTwEnOCc8AdLItvQWHbw4TA=
 20260525060310_initial_schema.sql h1:64NVxLTQU+MCtwcBMJ37cEb9Vsab5DAbwAv2BbvvjWc=
 20260528022647_report_schemas.sql h1:rajY/BH2BPn9zUR5wRnmUzfDrASeM4j3QL0MnftCpEA=
 20260528034745_report_notification_deliveries.sql h1:FrskNYvYNbC19C6cT5hDmnFr1UR/YYhDEhnsh46e+vs=
@@ -17,3 +17,4 @@ h1:5DGqiW9XdEsSYc6xG0xaAF4HRuawT5Ah7HXNFyRjB9k=
 20260629064909_directory_projection_storage.sql h1:j9eIK+/kgP3oGu9CtisaBq/URFUesOqP3st38g3JF6w=
 20260702093822_scope_alert_event_dedupe_by_profile.sql h1:lulMNidH/n/6BMV3KZl7ZDpxfjNRSukp4qu6QQ5zzzE=
 20260707060037_report_schedule_calendar_cadence.sql h1:8vz/0xDWEd5rxru8Yfp5X5vu4jq3Xx1XXaAjV5bkAKk=
+20260711090459_add_chat_session_summaries.sql h1:ONMwJ/CalQY1/HoMSsZRBS3gmuH3wsLNMyE9TkBCUGg=

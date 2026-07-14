@@ -2,6 +2,7 @@ package temporal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -437,6 +438,17 @@ func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 				Confidence:              "high",
 				RequiresHumanReview:     &requiresHumanReview,
 			},
+			ConversationSummary: &DiagnosisRoomConversationSummary{
+				ID:                  77,
+				Version:             1,
+				SchemaVersion:       "diagnosis-conversation-summary.v1",
+				SourceFirstSequence: 1,
+				SourceLastSequence:  2,
+				SourceTurnCount:     2,
+				SourceDigest:        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				Content:             json.RawMessage(`{"schema_version":"diagnosis-conversation-summary.v1","compression_method":"deterministic-extractive","source_turn_count":2}`),
+				GeneratedAt:         closedAt,
+			},
 			LatestInsight: &diagnosisroom.ConsultationInsight{
 				ConfidenceRationale: "CPU evidence is present and restart evidence has recovered.",
 				MissingEvidenceRequests: []diagnosisroom.ConsultationEvidenceRequest{{
@@ -603,6 +615,13 @@ func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 		got.FinalConclusion.RequiresHumanReview == nil ||
 		!*got.FinalConclusion.RequiresHumanReview {
 		t.Fatalf("FinalConclusion = %+v", got.FinalConclusion)
+	}
+	if got.ConversationSummary == nil ||
+		got.ConversationSummary.ID != domain.ChatSessionSummaryID(77) ||
+		got.ConversationSummary.SourceTurnCount != 2 ||
+		got.ConversationSummary.SourceDigest != "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef" ||
+		!got.ConversationSummary.GeneratedAt.Equal(closedAt) {
+		t.Fatalf("ConversationSummary = %+v", got.ConversationSummary)
 	}
 	if got.LatestConsultationInsight == nil ||
 		got.LatestConsultationInsight.ConfidenceRationale != "CPU evidence is present and restart evidence has recovered." ||

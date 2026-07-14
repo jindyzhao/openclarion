@@ -898,6 +898,15 @@ func (r *retryTestRepo) ListChatTurnsBySession(_ context.Context, sessionID doma
 	}
 	return out, nil
 }
+func (r *retryTestRepo) SaveChatSessionSummary(context.Context, domain.ChatSessionSummary) (domain.ChatSessionSummary, error) {
+	return domain.ChatSessionSummary{}, errors.New("unexpected SaveChatSessionSummary call")
+}
+func (r *retryTestRepo) FindChatSessionSummaryBySessionAndVersion(context.Context, domain.ChatSessionID, int) (domain.ChatSessionSummary, error) {
+	return domain.ChatSessionSummary{}, errors.New("unexpected FindChatSessionSummaryBySessionAndVersion call")
+}
+func (r *retryTestRepo) FindLatestChatSessionSummary(context.Context, domain.ChatSessionID) (domain.ChatSessionSummary, error) {
+	return domain.ChatSessionSummary{}, errors.New("unexpected FindLatestChatSessionSummary call")
+}
 func (r *retryTestRepo) failNow(message string) {
 	r.t.Helper()
 	r.t.Fatal(message)

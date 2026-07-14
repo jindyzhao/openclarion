@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 )
@@ -139,6 +140,21 @@ func (_u *ChatSessionUpdate) AddTurns(v ...*ChatTurn) *ChatSessionUpdate {
 	return _u.AddTurnIDs(ids...)
 }
 
+// AddSummaryIDs adds the "summaries" edge to the ChatSessionSummary entity by IDs.
+func (_u *ChatSessionUpdate) AddSummaryIDs(ids ...int) *ChatSessionUpdate {
+	_u.mutation.AddSummaryIDs(ids...)
+	return _u
+}
+
+// AddSummaries adds the "summaries" edges to the ChatSessionSummary entity.
+func (_u *ChatSessionUpdate) AddSummaries(v ...*ChatSessionSummary) *ChatSessionUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSummaryIDs(ids...)
+}
+
 // Mutation returns the ChatSessionMutation object of the builder.
 func (_u *ChatSessionUpdate) Mutation() *ChatSessionMutation {
 	return _u.mutation
@@ -163,6 +179,27 @@ func (_u *ChatSessionUpdate) RemoveTurns(v ...*ChatTurn) *ChatSessionUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTurnIDs(ids...)
+}
+
+// ClearSummaries clears all "summaries" edges to the ChatSessionSummary entity.
+func (_u *ChatSessionUpdate) ClearSummaries() *ChatSessionUpdate {
+	_u.mutation.ClearSummaries()
+	return _u
+}
+
+// RemoveSummaryIDs removes the "summaries" edge to ChatSessionSummary entities by IDs.
+func (_u *ChatSessionUpdate) RemoveSummaryIDs(ids ...int) *ChatSessionUpdate {
+	_u.mutation.RemoveSummaryIDs(ids...)
+	return _u
+}
+
+// RemoveSummaries removes "summaries" edges to ChatSessionSummary entities.
+func (_u *ChatSessionUpdate) RemoveSummaries(v ...*ChatSessionSummary) *ChatSessionUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSummaryIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -308,6 +345,51 @@ func (_u *ChatSessionUpdate) sqlSave(ctx context.Context) (_node int, err error)
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.SummariesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.SummariesTable,
+			Columns: []string{chatsession.SummariesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionsummary.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSummariesIDs(); len(nodes) > 0 && !_u.mutation.SummariesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.SummariesTable,
+			Columns: []string{chatsession.SummariesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionsummary.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SummariesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.SummariesTable,
+			Columns: []string{chatsession.SummariesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionsummary.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{chatsession.Label}
@@ -438,6 +520,21 @@ func (_u *ChatSessionUpdateOne) AddTurns(v ...*ChatTurn) *ChatSessionUpdateOne {
 	return _u.AddTurnIDs(ids...)
 }
 
+// AddSummaryIDs adds the "summaries" edge to the ChatSessionSummary entity by IDs.
+func (_u *ChatSessionUpdateOne) AddSummaryIDs(ids ...int) *ChatSessionUpdateOne {
+	_u.mutation.AddSummaryIDs(ids...)
+	return _u
+}
+
+// AddSummaries adds the "summaries" edges to the ChatSessionSummary entity.
+func (_u *ChatSessionUpdateOne) AddSummaries(v ...*ChatSessionSummary) *ChatSessionUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddSummaryIDs(ids...)
+}
+
 // Mutation returns the ChatSessionMutation object of the builder.
 func (_u *ChatSessionUpdateOne) Mutation() *ChatSessionMutation {
 	return _u.mutation
@@ -462,6 +559,27 @@ func (_u *ChatSessionUpdateOne) RemoveTurns(v ...*ChatTurn) *ChatSessionUpdateOn
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveTurnIDs(ids...)
+}
+
+// ClearSummaries clears all "summaries" edges to the ChatSessionSummary entity.
+func (_u *ChatSessionUpdateOne) ClearSummaries() *ChatSessionUpdateOne {
+	_u.mutation.ClearSummaries()
+	return _u
+}
+
+// RemoveSummaryIDs removes the "summaries" edge to ChatSessionSummary entities by IDs.
+func (_u *ChatSessionUpdateOne) RemoveSummaryIDs(ids ...int) *ChatSessionUpdateOne {
+	_u.mutation.RemoveSummaryIDs(ids...)
+	return _u
+}
+
+// RemoveSummaries removes "summaries" edges to ChatSessionSummary entities.
+func (_u *ChatSessionUpdateOne) RemoveSummaries(v ...*ChatSessionSummary) *ChatSessionUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveSummaryIDs(ids...)
 }
 
 // Where appends a list predicates to the ChatSessionUpdate builder.
@@ -630,6 +748,51 @@ func (_u *ChatSessionUpdateOne) sqlSave(ctx context.Context) (_node *ChatSession
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(chatturn.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.SummariesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.SummariesTable,
+			Columns: []string{chatsession.SummariesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionsummary.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedSummariesIDs(); len(nodes) > 0 && !_u.mutation.SummariesCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.SummariesTable,
+			Columns: []string{chatsession.SummariesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionsummary.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.SummariesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.SummariesTable,
+			Columns: []string{chatsession.SummariesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionsummary.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

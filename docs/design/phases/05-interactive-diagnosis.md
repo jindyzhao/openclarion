@@ -32,14 +32,15 @@ authorization boundary stay separate from report fan-out/fan-in workflows. See
 | short conversation, bounded turn count (e.g. <= 20 turns) | unbounded long sessions |
 | fixed session lifetime (e.g. 30 minutes) + idle timeout | multi-day rooms |
 | owner / admin RBAC enforcement | leader-tier multi-stakeholder approval |
-| chat persistence and audit trail | conversation compression and summarization |
+| chat persistence, audit trail, and lifecycle-end deterministic compression | periodic semantic compression for unbounded long sessions |
 | basic unsafe-instruction filter (deny list) | adaptive policy / model-graded safety |
 | Temporal workflow with signals, updates, and queries | per-tenant workflow isolation |
 | WS ticket-based authenticated handshake | distributed session state across regions |
 
-When the configured turn or time limit is reached, the workflow transitions to
-a final notification step (re-using the M2 IMProvider) and persists session
-closure metadata. No automatic compression is attempted in V1.
+When the configured turn or time limit is reached, the workflow creates an
+immutable source-bound conversation summary, persists session closure metadata,
+and then runs the final notification step through the M2 IMProvider. Original
+ChatTurn rows remain complete.
 
 ## Prerequisites
 
@@ -55,7 +56,7 @@ closure metadata. No automatic compression is attempted in V1.
 - Next.js short-conversation diagnosis page
 - WebSocket connection: browser <-> Go control plane (per-turn file contract via container)
 - Temporal workflow that owns session lifecycle (Update + durable timer)
-- ChatSession and ChatTurn Ent schemas
+- ChatSession, ChatTurn, and immutable versioned ChatSessionSummary Ent schemas
 - bounded-turn enforcement at the workflow level
 - unsafe-instruction filter (deny-list, defense-in-depth)
 - audit logging for session lifecycle events
@@ -421,8 +422,10 @@ history, tool outputs, system prompt, and the latest message. A byte/token
 budget is enforced at the workflow/Activity boundary before mounting:
 
 - V1 rejects oversized turns with an explicit context-limit error.
-- Post-V1 may add deterministic truncation of oldest conversation turns (keep
-  first + last N), but no automatic compression is attempted in V1.
+- lifecycle-end compression creates a bounded retained read model but does not
+  bypass the active-session context limit or discard source turns.
+- future long-session validation may add periodic checkpoints and deterministic
+  context selection before each turn.
 - never silently pass oversized context to the LLM (causes truncation or
   failure).
 
@@ -433,7 +436,8 @@ budget is enforced at the workflow/Activity boundary before mounting:
   allowlist)
 - unsafe-instruction filter runs server-side before forwarding to sandbox
 - all session actions are auditable
-- bounded turns and lifetime cap blast radius without requiring compression
+- bounded turns and lifetime cap bound active-session context independently of
+  lifecycle-end compression
 
 ## Acceptance
 
@@ -446,7 +450,7 @@ budget is enforced at the workflow/Activity boundary before mounting:
 
 ## Out-of-Scope Confirmation
 
-- no automatic conversation compression or summarization
+- no periodic active-session compression for multi-day rooms
 - no leader-tier approval flows
 - no multi-day or multi-region session state
 - no streaming token-level partial responses (turn-by-turn is sufficient)

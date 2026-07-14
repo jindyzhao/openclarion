@@ -1082,13 +1082,14 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 	}
 
 	closeReq := temporalpkg.CloseDiagnosisChatSessionInput{
-		SessionID:       "session-room-close-conclusion",
-		DiagnosisTaskID: int64(seed.TaskID),
-		OwnerSubject:    "owner-1",
-		ConfirmedBy:     "reviewer-1",
-		TurnCount:       1,
-		ClosedAt:        startedAt.Add(5 * time.Minute),
-		Reason:          "human_confirmed",
+		SessionID:                   "session-room-close-conclusion",
+		DiagnosisTaskID:             int64(seed.TaskID),
+		OwnerSubject:                "owner-1",
+		ConfirmedBy:                 "reviewer-1",
+		TurnCount:                   1,
+		ClosedAt:                    startedAt.Add(5 * time.Minute),
+		Reason:                      "human_confirmed",
+		GenerateConversationSummary: true,
 	}
 	first, err := activities.CloseDiagnosisChatSession(ctx, closeReq)
 	if err != nil {
@@ -1100,6 +1101,38 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 	}
 	if second.LifecycleEventID != first.LifecycleEventID {
 		t.Fatalf("close event ID second=%d, want %d", second.LifecycleEventID, first.LifecycleEventID)
+	}
+	if first.ConversationSummary == nil ||
+		first.ConversationSummary.ID == 0 ||
+		first.ConversationSummary.Version != 1 ||
+		first.ConversationSummary.SchemaVersion != "diagnosis-conversation-summary.v1" ||
+		first.ConversationSummary.SourceFirstSequence != 1 ||
+		first.ConversationSummary.SourceLastSequence != 2 ||
+		first.ConversationSummary.SourceTurnCount != 2 ||
+		len(first.ConversationSummary.SourceDigest) != 64 ||
+		second.ConversationSummary == nil ||
+		second.ConversationSummary.ID != first.ConversationSummary.ID ||
+		second.ConversationSummary.SourceDigest != first.ConversationSummary.SourceDigest {
+		t.Fatalf("conversation summaries first=%+v second=%+v", first.ConversationSummary, second.ConversationSummary)
+	}
+	var summaryContent struct {
+		SchemaVersion           string `json:"schema_version"`
+		CompressionMethod       string `json:"compression_method"`
+		SourceTurnCount         int    `json:"source_turn_count"`
+		OpeningRequest          string `json:"opening_request"`
+		LatestRequest           string `json:"latest_request"`
+		LatestAssistantResponse string `json:"latest_assistant_response"`
+	}
+	if err := json.Unmarshal(first.ConversationSummary.Content, &summaryContent); err != nil {
+		t.Fatalf("conversation summary content: %v", err)
+	}
+	if summaryContent.SchemaVersion != "diagnosis-conversation-summary.v1" ||
+		summaryContent.CompressionMethod != "deterministic-extractive" ||
+		summaryContent.SourceTurnCount != 2 ||
+		summaryContent.OpeningRequest != turnReq.UserMessage ||
+		summaryContent.LatestRequest != turnReq.UserMessage ||
+		summaryContent.LatestAssistantResponse != turnReq.AssistantMessage {
+		t.Fatalf("conversation summary content = %+v", summaryContent)
 	}
 	if first.FinalConclusion.Status != "available" ||
 		first.FinalConclusion.Source != "latest_assistant_turn" ||
@@ -1143,6 +1176,14 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 			!task.FinishedAt.Equal(domain.NormalizeUTCMicro(closeReq.ClosedAt)) ||
 			task.FailureReason != "" {
 			t.Fatalf("closed task = %+v", task)
+		}
+		persistedSummary, err := uow.Diagnosis().FindLatestChatSessionSummary(ctx, domain.ChatSessionID(first.ChatSessionID))
+		if err != nil {
+			return err
+		}
+		if int64(persistedSummary.ID) != first.ConversationSummary.ID ||
+			persistedSummary.SourceDigest != first.ConversationSummary.SourceDigest {
+			t.Fatalf("persisted summary = %+v, result = %+v", persistedSummary, first.ConversationSummary)
 		}
 		events, err := uow.Diagnosis().ListEvents(ctx, seed.TaskID, 10)
 		if err != nil {
@@ -1190,6 +1231,13 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 				} `json:"evidence_collection_suggestions"`
 				RequiresHumanReview *bool `json:"requires_human_review"`
 			} `json:"final_conclusion"`
+			ConversationSummary struct {
+				ID              int64  `json:"id"`
+				Version         int    `json:"version"`
+				SchemaVersion   string `json:"schema_version"`
+				SourceTurnCount int    `json:"source_turn_count"`
+				SourceDigest    string `json:"source_digest"`
+			} `json:"conversation_summary"`
 		}
 		if err := json.Unmarshal(closeEvent.Payload, &payload); err != nil {
 			t.Fatalf("close event payload: %v", err)
@@ -1222,7 +1270,12 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 			len(payload.Conclusion.EvidenceCollectionSuggestions) != 1 ||
 			payload.Conclusion.EvidenceCollectionSuggestions[0].Label != "CPU trend" ||
 			payload.Conclusion.RequiresHumanReview == nil ||
-			!*payload.Conclusion.RequiresHumanReview {
+			!*payload.Conclusion.RequiresHumanReview ||
+			payload.ConversationSummary.ID != first.ConversationSummary.ID ||
+			payload.ConversationSummary.Version != 1 ||
+			payload.ConversationSummary.SchemaVersion != "diagnosis-conversation-summary.v1" ||
+			payload.ConversationSummary.SourceTurnCount != 2 ||
+			payload.ConversationSummary.SourceDigest != first.ConversationSummary.SourceDigest {
 			t.Fatalf("close event payload = %+v raw=%s", payload, closeEvent.Payload)
 		}
 		return nil

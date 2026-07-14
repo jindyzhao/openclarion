@@ -44,6 +44,10 @@ type ChatSessionID int64
 // diagnosis-room chat turn row.
 type ChatTurnID int64
 
+// ChatSessionSummaryID is the surrogate identifier of an immutable,
+// versioned diagnosis-room conversation summary row.
+type ChatSessionSummaryID int64
+
 // DiagnosisToolTemplateID is the surrogate identifier of an operator-managed
 // diagnosis tool template.
 type DiagnosisToolTemplateID int64

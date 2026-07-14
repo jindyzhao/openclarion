@@ -808,6 +808,87 @@ func TestDiagnosisRepository_SaveChatTurnAndList(t *testing.T) {
 	}
 }
 
+func TestDiagnosisRepository_SaveChatSessionSummaryAndFind(t *testing.T) {
+	resetDB(t)
+	taskID := makeDiagnosisTaskForChat(t, "summary")
+	var sessionID domain.ChatSessionID
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		session, err := uow.Diagnosis().SaveChatSession(ctx, makeChatSessionForDiagnosis(t, taskID, "session-summary"))
+		if err != nil {
+			t.Fatalf("SaveChatSession: %v", err)
+		}
+		sessionID = session.ID
+	})
+
+	summary := func(version int, digest string) domain.ChatSessionSummary {
+		t.Helper()
+		got, err := domain.NewChatSessionSummary(domain.ChatSessionSummary{
+			SessionID:           sessionID,
+			Version:             version,
+			SchemaVersion:       "diagnosis-conversation-summary.v1",
+			SourceFirstSequence: 1,
+			SourceLastSequence:  2,
+			SourceTurnCount:     2,
+			SourceDigest:        digest,
+			Content:             json.RawMessage(`{"schema_version":"diagnosis-conversation-summary.v1","compression_method":"deterministic-extractive","source_turn_count":2}`),
+			GeneratedAt:         time.Date(2026, 7, 11, 12, version, 0, 0, time.UTC),
+		})
+		if err != nil {
+			t.Fatalf("NewChatSessionSummary: %v", err)
+		}
+		return got
+	}
+	digest1 := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	digest2 := "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	var saved domain.ChatSessionSummary
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		got, err := uow.Diagnosis().SaveChatSessionSummary(ctx, summary(1, digest1))
+		if err != nil {
+			t.Fatalf("SaveChatSessionSummary: %v", err)
+		}
+		saved = got
+	})
+	if saved.ID == 0 || saved.CreatedAt.IsZero() {
+		t.Fatalf("saved summary = %+v", saved)
+	}
+
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		byVersion, err := uow.Diagnosis().FindChatSessionSummaryBySessionAndVersion(ctx, sessionID, 1)
+		if err != nil {
+			t.Fatalf("FindChatSessionSummaryBySessionAndVersion: %v", err)
+		}
+		if byVersion.SourceDigest != digest1 || byVersion.ID != saved.ID {
+			t.Fatalf("summary by version = %+v", byVersion)
+		}
+		if _, err := uow.Diagnosis().SaveChatSessionSummary(ctx, summary(2, digest2)); err != nil {
+			t.Fatalf("SaveChatSessionSummary v2: %v", err)
+		}
+		latest, err := uow.Diagnosis().FindLatestChatSessionSummary(ctx, sessionID)
+		if err != nil {
+			t.Fatalf("FindLatestChatSessionSummary: %v", err)
+		}
+		if latest.Version != 2 || latest.SourceDigest != digest2 {
+			t.Fatalf("latest summary = %+v", latest)
+		}
+	})
+
+	ctx := context.Background()
+	duplicateVersion := integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, err := uow.Diagnosis().SaveChatSessionSummary(ctx, summary(1, digest2))
+		return err
+	})
+	if !errors.Is(duplicateVersion, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate version: want ErrAlreadyExists, got %v", duplicateVersion)
+	}
+	duplicateDigest := integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, err := uow.Diagnosis().SaveChatSessionSummary(ctx, summary(3, digest1))
+		return err
+	})
+	if !errors.Is(duplicateDigest, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate digest: want ErrAlreadyExists, got %v", duplicateDigest)
+	}
+}
+
 func TestDiagnosisRepository_ChatInvariantGuards(t *testing.T) {
 	resetDB(t)
 	taskID := makeDiagnosisTaskForChat(t, "guards")
@@ -844,6 +925,14 @@ func TestDiagnosisRepository_ChatInvariantGuards(t *testing.T) {
 		_, err = uow.Diagnosis().ListChatTurnsBySession(ctx, sessionID, 0)
 		if !errors.Is(err, domain.ErrInvariantViolation) {
 			t.Fatalf("ListChatTurns zero limit: want ErrInvariantViolation, got %v", err)
+		}
+		_, err = uow.Diagnosis().FindChatSessionSummaryBySessionAndVersion(ctx, sessionID, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("FindChatSessionSummaryBySessionAndVersion zero version: want ErrInvariantViolation, got %v", err)
+		}
+		_, err = uow.Diagnosis().FindLatestChatSessionSummary(ctx, 0)
+		if !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("FindLatestChatSessionSummary zero session: want ErrInvariantViolation, got %v", err)
 		}
 	})
 }

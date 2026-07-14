@@ -22,6 +22,7 @@ workflow. Alert operations configuration tables follow
 | `DiagnosisAuthTicket` | shipped at M5 local | short-lived WebSocket ticket metadata; stores `sha256(token)`, never the raw token |
 | `ChatSession` | shipped at M5 local | interactive diagnosis-room lifecycle anchored to `DiagnosisTask` |
 | `ChatTurn` | shipped at M5 local | append-only human, assistant, system, and tool messages |
+| `ChatSessionSummary` | shipped post-V1 local | immutable versioned lifecycle-end conversation compression checkpoint bound to ordered ChatTurn rows by SHA-256 |
 | `AlertSourceProfile` | shipped at M3.1 local | operator-managed alert source connection metadata; stores `secret_ref`, never secret values |
 | `GroupingPolicy` | shipped at M3.1 local | operator-managed deterministic alert grouping configuration |
 | `ReportWorkflowPolicy` | shipped at M3.1 local | operator-managed report workflow binding and explicit enablement policy |
@@ -132,12 +133,13 @@ The row is append-mostly:
   successful update; the rest observe `ErrTicketConsumed`
 * expired tickets are not consumed, so replay attempts remain auditable
 
-## ChatSession and ChatTurn
+## ChatSession, ChatTurn, and ChatSessionSummary
 
-`ChatSession` and `ChatTurn` are the M5 short-conversation persistence
-boundary. They remain tied to the intelligent alert diagnosis path: every
-`ChatSession` belongs to exactly one `DiagnosisTask`, while `session_key` is
-the external room id used by WebSocket tickets and reconnect flows.
+`ChatSession`, `ChatTurn`, and `ChatSessionSummary` are the M5
+short-conversation persistence boundary. They remain tied to the intelligent
+alert diagnosis path: every `ChatSession` belongs to exactly one
+`DiagnosisTask`, while `session_key` is the external room id used by WebSocket
+tickets and reconnect flows.
 
 The V1 model is intentionally small:
 
@@ -157,8 +159,18 @@ The V1 model is intentionally small:
   order for `/workspace/conversation.json`
 
 Each turn records `role`, `actor_subject`, `content`, `metadata`, and
-`occurred_at`. Workflow and WebSocket relay code still need to call this
-repository boundary before the full M5 room is accepted.
+`occurred_at`.
+
+`ChatSessionSummary` rows are append-only compression checkpoints:
+
+* `UNIQUE (chat_session_id, version)` preserves one immutable revision per room
+* `UNIQUE (chat_session_id, source_digest)` prevents duplicate checkpoints for
+  the same canonical ordered source turns
+* source sequence bounds, source turn count, and a lowercase SHA-256 digest bind
+  the structured JSON summary to the retained transcript
+* lifecycle-end compression never deletes or rewrites `ChatTurn` rows
+* the JSON `schema_version` keeps future periodic or semantic summary formats
+  explicit without mutating existing checkpoints
 
 ## AlertSourceProfile
 

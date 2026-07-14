@@ -393,6 +393,7 @@ type DiagnosisRoomState struct {
 	ClosedAt                  *time.Time
 	CloseReason               string
 	FinalConclusion           *DiagnosisRoomFinalConclusion
+	ConversationSummary       *DiagnosisRoomConversationSummary
 	LatestConsultationInsight *DiagnosisRoomConsultationInsight
 	LatestConfidence          string
 	LatestRequiresHumanReview *bool
@@ -405,6 +406,20 @@ type DiagnosisRoomState struct {
 	InFlight                  bool
 	SeenMessageIDs            []string
 	Conversation              []DiagnosisRoomConversationTurn
+}
+
+// DiagnosisRoomConversationSummary is the provider-neutral read model for an
+// immutable lifecycle-end transcript compression checkpoint.
+type DiagnosisRoomConversationSummary struct {
+	ID                  domain.ChatSessionSummaryID
+	Version             int
+	SchemaVersion       string
+	SourceFirstSequence int
+	SourceLastSequence  int
+	SourceTurnCount     int
+	SourceDigest        string
+	Content             json.RawMessage
+	GeneratedAt         time.Time
 }
 
 // DiagnosisRoomWorkflowClient submits user turns and queries room state

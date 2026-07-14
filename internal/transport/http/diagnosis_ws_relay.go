@@ -2,6 +2,7 @@ package http
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -560,6 +561,7 @@ func diagnosisWSStateFrameFromState(state ports.DiagnosisRoomState) diagnosisWSS
 		ClosedAt:            state.ClosedAt,
 		CloseReason:         state.CloseReason,
 		FinalConclusion:     diagnosisWSFinalConclusionFrame(state.FinalConclusion),
+		ConversationSummary: diagnosisWSConversationSummaryFrame(state.ConversationSummary),
 		Confidence:          state.LatestConfidence,
 		RequiresHumanReview: state.LatestRequiresHumanReview,
 		EvidenceRequests:    diagnosisWSEvidenceRequests(state.LatestEvidenceRequests),
@@ -692,6 +694,23 @@ func diagnosisWSFinalConclusionFrame(in *ports.DiagnosisRoomFinalConclusion) *di
 		EvidenceCollectionSuggestions: diagnosisWSConsultationEvidenceRequests(
 			in.EvidenceCollectionSuggestions,
 		),
+	}
+}
+
+func diagnosisWSConversationSummaryFrame(in *ports.DiagnosisRoomConversationSummary) *diagnosisWSConversationSummary {
+	if in == nil {
+		return nil
+	}
+	return &diagnosisWSConversationSummary{
+		ID:                  int64(in.ID),
+		Version:             in.Version,
+		SchemaVersion:       in.SchemaVersion,
+		SourceFirstSequence: in.SourceFirstSequence,
+		SourceLastSequence:  in.SourceLastSequence,
+		SourceTurnCount:     in.SourceTurnCount,
+		SourceDigest:        in.SourceDigest,
+		Content:             append(json.RawMessage(nil), in.Content...),
+		GeneratedAt:         in.GeneratedAt,
 	}
 }
 
@@ -1124,6 +1143,7 @@ type diagnosisWSStateFrame struct {
 	ClosedAt             *time.Time                              `json:"closed_at,omitempty"`
 	CloseReason          string                                  `json:"close_reason,omitempty"`
 	FinalConclusion      *diagnosisWSFinalConclusion             `json:"final_conclusion,omitempty"`
+	ConversationSummary  *diagnosisWSConversationSummary         `json:"conversation_summary,omitempty"`
 	Confidence           string                                  `json:"confidence,omitempty"`
 	RequiresHumanReview  *bool                                   `json:"requires_human_review,omitempty"`
 	EvidenceRequests     []diagnosisWSEvidenceRequest            `json:"evidence_requests,omitempty"`
@@ -1137,6 +1157,18 @@ type diagnosisWSStateFrame struct {
 	InFlight             bool                                    `json:"in_flight"`
 	SeenMessageIDs       []string                                `json:"seen_message_ids"`
 	Conversation         []diagnosisWSConversationTurn           `json:"conversation"`
+}
+
+type diagnosisWSConversationSummary struct {
+	ID                  int64           `json:"id"`
+	Version             int             `json:"version"`
+	SchemaVersion       string          `json:"schema_version"`
+	SourceFirstSequence int             `json:"source_first_sequence"`
+	SourceLastSequence  int             `json:"source_last_sequence"`
+	SourceTurnCount     int             `json:"source_turn_count"`
+	SourceDigest        string          `json:"source_digest"`
+	Content             json.RawMessage `json:"content"`
+	GeneratedAt         time.Time       `json:"generated_at"`
 }
 
 type diagnosisWSLatestError struct {

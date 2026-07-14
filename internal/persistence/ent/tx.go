@@ -20,6 +20,8 @@ type Tx struct {
 	AlertSourceProfile *AlertSourceProfileClient
 	// ChatSession is the client for interacting with the ChatSession builders.
 	ChatSession *ChatSessionClient
+	// ChatSessionSummary is the client for interacting with the ChatSessionSummary builders.
+	ChatSessionSummary *ChatSessionSummaryClient
 	// ChatTurn is the client for interacting with the ChatTurn builders.
 	ChatTurn *ChatTurnClient
 	// DiagnosisAuthTicket is the client for interacting with the DiagnosisAuthTicket builders.
@@ -191,6 +193,7 @@ func (tx *Tx) init() {
 	tx.AlertGroup = NewAlertGroupClient(tx.config)
 	tx.AlertSourceProfile = NewAlertSourceProfileClient(tx.config)
 	tx.ChatSession = NewChatSessionClient(tx.config)
+	tx.ChatSessionSummary = NewChatSessionSummaryClient(tx.config)
 	tx.ChatTurn = NewChatTurnClient(tx.config)
 	tx.DiagnosisAuthTicket = NewDiagnosisAuthTicketClient(tx.config)
 	tx.DiagnosisTask = NewDiagnosisTaskClient(tx.config)

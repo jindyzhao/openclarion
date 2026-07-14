@@ -68,6 +68,8 @@ const (
 	diagnosisRoomManualEvidenceVersion             = 1
 	diagnosisRoomManualEvidenceCollectedChangeID   = "diagnosis-room-manual-evidence-collected-event"
 	diagnosisRoomManualEvidenceCollectedVersion    = 1
+	diagnosisRoomConversationSummaryChangeID       = "diagnosis-room-conversation-summary"
+	diagnosisRoomConversationSummaryVersion        = 1
 	diagnosisRoomTurnStreamingChangeID             = "diagnosis-room-turn-streaming"
 	diagnosisRoomTurnStreamingVersion              = 1
 
@@ -253,6 +255,7 @@ type DiagnosisRoomWorkflowState struct {
 	ClosedAt                  *time.Time
 	CloseReason               string
 	FinalConclusion           *DiagnosisRoomFinalConclusion
+	ConversationSummary       *DiagnosisRoomConversationSummary
 	LatestInsight             *diagnosisroom.ConsultationInsight
 	LatestConfidence          string
 	LatestRequiresHumanReview *bool
@@ -280,6 +283,7 @@ type diagnosisRoomState struct {
 	closeReason               string
 	closeActorSubject         string
 	finalConclusion           *DiagnosisRoomFinalConclusion
+	conversationSummary       *DiagnosisRoomConversationSummary
 	latestInsight             *diagnosisroom.ConsultationInsight
 	latestConfidence          string
 	latestRequiresHumanReview *bool
@@ -559,6 +563,16 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 	}
 
 	if state.status == diagnosisRoomStatusClosed {
+		// Keep the patch at the changed command boundary. A workflow that was
+		// already open before deployment can record the new version when it
+		// closes, while replay of an older terminal history uses the legacy
+		// activity payload.
+		conversationSummaryVersion := workflow.GetVersion(
+			ctx,
+			diagnosisRoomConversationSummaryChangeID,
+			workflow.DefaultVersion,
+			diagnosisRoomConversationSummaryVersion,
+		)
 		closeCtxBase := ctx
 		if state.closeReason == diagnosisRoomCloseContextCanceled {
 			disconnectedCtx, _ := workflow.NewDisconnectedContext(ctx)
@@ -581,11 +595,13 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			CloseNotificationChannelProfileID: state.input.CloseNotificationChannelProfileID,
 			DiagnosisTaskStatus:               state.closeDiagnosisTaskStatus(),
 			DiagnosisTaskFailureReason:        state.closeDiagnosisTaskFailureReason(),
+			GenerateConversationSummary:       conversationSummaryVersion != workflow.DefaultVersion,
 		}).Get(closeCtx, &closeResult); err != nil {
 			return DiagnosisRoomWorkflowResult{}, err
 		}
 		state.chatSessionID = closeResult.ChatSessionID
 		state.finalConclusion = copyDiagnosisRoomFinalConclusion(closeResult.FinalConclusion)
+		state.conversationSummary = copyDiagnosisRoomConversationSummary(closeResult.ConversationSummary)
 		if state.input.CloseNotificationChannelProfileID > 0 {
 			var notificationResult SendDiagnosisRoomCloseNotificationResult
 			if err := workflow.ExecuteActivity(closeCtx, (*Activities).SendDiagnosisRoomCloseNotification, CloseDiagnosisChatSessionInput{
@@ -882,6 +898,7 @@ func (s *diagnosisRoomState) snapshot() DiagnosisRoomWorkflowState {
 		ClosedAt:                  s.closedAt,
 		CloseReason:               s.closeReason,
 		FinalConclusion:           s.finalConclusion,
+		ConversationSummary:       copyDiagnosisRoomConversationSummary(s.conversationSummary),
 		LatestInsight:             copyDiagnosisRoomConsultationInsightPtr(s.latestInsight),
 		LatestConfidence:          s.latestConfidence,
 		LatestRequiresHumanReview: copyBoolPtr(s.latestRequiresHumanReview),
@@ -2221,6 +2238,15 @@ func copyDiagnosisRoomFinalConclusion(in DiagnosisRoomFinalConclusion) *Diagnosi
 		requiresHumanReview := *in.RequiresHumanReview
 		out.RequiresHumanReview = &requiresHumanReview
 	}
+	return &out
+}
+
+func copyDiagnosisRoomConversationSummary(in *DiagnosisRoomConversationSummary) *DiagnosisRoomConversationSummary {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Content = append(json.RawMessage(nil), in.Content...)
 	return &out
 }
 

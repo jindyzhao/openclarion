@@ -190,8 +190,13 @@
 - [x] WS ticket PostgreSQL store persists only token hash and enforces one
   concurrent consume winner (`make diagnosis-auth-test`)
 - [x] WS ticket endpoint and upgrade handler consume the usecase ticket
-- [x] ChatSession and ChatTurn Ent schemas plus repository boundary exist
+- [x] ChatSession, ChatTurn, and ChatSessionSummary Ent schemas plus repository
+  boundary exist
   (`make diagnosis-chat-persistence-test`)
+- [x] lifecycle-end conversation compression persists an immutable versioned
+  ChatSessionSummary, retains every source turn, and exposes the summary through
+  workflow, WebSocket, REST, and frontend review state
+  (`make diagnosis-chat-persistence-test`, `make diagnosis-room-workflow-test`)
 - [x] DiagnosisRoomWorkflow uses Temporal Update (primary), Signals
   (close/cancel), Queries, durable timers (`make diagnosis-room-workflow-test`)
 - [x] per-turn `RunDiagnosisTurn` Activity calls `ContainerProvider.Run` and
@@ -250,4 +255,5 @@
   (`make diagnosis-room-workflow-test`)
 - [x] live browser acceptance evidence captured against a real backend/worker
   stack
-- [x] no automatic compression in V1 path
+- [x] lifecycle-end compression is version-guarded and preserves every source
+  turn; active-session context remains bounded

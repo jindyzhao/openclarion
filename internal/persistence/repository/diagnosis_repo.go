@@ -11,6 +11,7 @@ import (
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/persistence/ent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
@@ -714,4 +715,70 @@ func (r *diagnosisRepo) ListChatTurnsBySession(ctx context.Context, sessionID do
 		out[i] = chatTurnToDomain(row)
 	}
 	return out, nil
+}
+
+// SaveChatSessionSummary appends one immutable conversation summary.
+func (r *diagnosisRepo) SaveChatSessionSummary(ctx context.Context, summary domain.ChatSessionSummary) (domain.ChatSessionSummary, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.ChatSessionSummary{}, err
+	}
+	saved, err := r.tx.ChatSessionSummary.Create().
+		SetChatSessionID(int(summary.SessionID)).
+		SetVersion(summary.Version).
+		SetSchemaVersion(summary.SchemaVersion).
+		SetSourceFirstSequence(summary.SourceFirstSequence).
+		SetSourceLastSequence(summary.SourceLastSequence).
+		SetSourceTurnCount(summary.SourceTurnCount).
+		SetSourceDigest(summary.SourceDigest).
+		SetContent(summary.Content).
+		SetGeneratedAt(summary.GeneratedAt).
+		Save(ctx)
+	if err != nil {
+		return domain.ChatSessionSummary{}, asAlreadyExists(err)
+	}
+	return chatSessionSummaryToDomain(saved), nil
+}
+
+// FindChatSessionSummaryBySessionAndVersion returns one exact checkpoint.
+func (r *diagnosisRepo) FindChatSessionSummaryBySessionAndVersion(ctx context.Context, sessionID domain.ChatSessionID, version int) (domain.ChatSessionSummary, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.ChatSessionSummary{}, err
+	}
+	if sessionID == 0 {
+		return domain.ChatSessionSummary{}, fmt.Errorf("find chat session summary by version: session_id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	if version <= 0 {
+		return domain.ChatSessionSummary{}, fmt.Errorf("find chat session summary by version: version must be > 0 (got %d): %w", version, domain.ErrInvariantViolation)
+	}
+	row, err := r.tx.ChatSessionSummary.Query().
+		Where(
+			chatsessionsummary.ChatSessionIDEQ(int(sessionID)),
+			chatsessionsummary.VersionEQ(version),
+		).
+		Only(ctx)
+	if err != nil {
+		return domain.ChatSessionSummary{}, asNotFound(err)
+	}
+	return chatSessionSummaryToDomain(row), nil
+}
+
+// FindLatestChatSessionSummary returns the highest persisted revision.
+func (r *diagnosisRepo) FindLatestChatSessionSummary(ctx context.Context, sessionID domain.ChatSessionID) (domain.ChatSessionSummary, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.ChatSessionSummary{}, err
+	}
+	if sessionID == 0 {
+		return domain.ChatSessionSummary{}, fmt.Errorf("find latest chat session summary: session_id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	row, err := r.tx.ChatSessionSummary.Query().
+		Where(chatsessionsummary.ChatSessionIDEQ(int(sessionID))).
+		Order(
+			chatsessionsummary.ByVersion(sql.OrderDesc()),
+			chatsessionsummary.ByID(sql.OrderDesc()),
+		).
+		First(ctx)
+	if err != nil {
+		return domain.ChatSessionSummary{}, asNotFound(err)
+	}
+	return chatSessionSummaryToDomain(row), nil
 }

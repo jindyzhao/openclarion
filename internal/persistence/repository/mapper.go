@@ -154,6 +154,24 @@ func chatTurnToDomain(t *ent.ChatTurn) domain.ChatTurn {
 	}
 }
 
+// chatSessionSummaryToDomain converts an Ent summary checkpoint to its domain
+// representation.
+func chatSessionSummaryToDomain(s *ent.ChatSessionSummary) domain.ChatSessionSummary {
+	return domain.ChatSessionSummary{
+		ID:                  domain.ChatSessionSummaryID(s.ID),
+		SessionID:           domain.ChatSessionID(s.ChatSessionID),
+		Version:             s.Version,
+		SchemaVersion:       s.SchemaVersion,
+		SourceFirstSequence: s.SourceFirstSequence,
+		SourceLastSequence:  s.SourceLastSequence,
+		SourceTurnCount:     s.SourceTurnCount,
+		SourceDigest:        s.SourceDigest,
+		Content:             s.Content,
+		GeneratedAt:         s.GeneratedAt,
+		CreatedAt:           s.CreatedAt,
+	}
+}
+
 // subReportToDomain converts an Ent SubReport row to a domain entity.
 func subReportToDomain(r *ent.SubReport) domain.SubReport {
 	return domain.SubReport{

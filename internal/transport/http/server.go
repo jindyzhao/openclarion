@@ -23,6 +23,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/alertmanagerwebhook"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosiscompression"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisnotification"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomclose"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomstart"
@@ -1404,6 +1405,17 @@ func diagnosisRoomSummariesWithOptions(
 ) ([]api.DiagnosisRoomSummary, error) {
 	items := diagnosisRoomSummaries(rooms)
 	for i, room := range rooms {
+		summary, err := repo.FindLatestChatSessionSummary(ctx, room.Session.ID)
+		if err != nil && !errors.Is(err, domain.ErrNotFound) {
+			return nil, err
+		}
+		if err == nil {
+			mapped, err := diagnosisRoomConversationSummary(summary)
+			if err != nil {
+				return nil, err
+			}
+			items[i].ConversationSummary = &mapped
+		}
 		conclusion, _, ok, err := latestDiagnosisConclusionForTask(ctx, repo, room.Task.ID)
 		if err != nil {
 			return nil, err
@@ -1446,6 +1458,40 @@ func diagnosisRoomSummariesWithOptions(
 		}
 	}
 	return items, nil
+}
+
+func diagnosisRoomConversationSummary(summary domain.ChatSessionSummary) (api.DiagnosisRoomConversationSummary, error) {
+	content, err := diagnosiscompression.ParseContent(summary.Content)
+	if err != nil {
+		return api.DiagnosisRoomConversationSummary{}, err
+	}
+	if summary.SchemaVersion != content.SchemaVersion || summary.SourceTurnCount != content.SourceTurnCount {
+		return api.DiagnosisRoomConversationSummary{}, fmt.Errorf(
+			"diagnosis conversation summary %d metadata does not match content: %w",
+			summary.ID,
+			domain.ErrInvariantViolation,
+		)
+	}
+	return api.DiagnosisRoomConversationSummary{
+		ID:                  int64(summary.ID),
+		Version:             summary.Version,
+		SchemaVersion:       content.SchemaVersion,
+		SourceFirstSequence: summary.SourceFirstSequence,
+		SourceLastSequence:  summary.SourceLastSequence,
+		SourceTurnCount:     summary.SourceTurnCount,
+		SourceDigest:        summary.SourceDigest,
+		Content: api.DiagnosisRoomConversationSummaryContent{
+			SchemaVersion:           content.SchemaVersion,
+			CompressionMethod:       content.CompressionMethod,
+			SourceTurnCount:         content.SourceTurnCount,
+			OpeningRequest:          optionalStringPtr(content.OpeningRequest),
+			LatestRequest:           optionalStringPtr(content.LatestRequest),
+			LatestAssistantResponse: optionalStringPtr(content.LatestAssistantResponse),
+			AssistantHighlights:     content.AssistantHighlights,
+			TruncatedFields:         content.TruncatedFields,
+		},
+		GeneratedAt: summary.GeneratedAt,
+	}, nil
 }
 
 func diagnosisRoomSummary(room domain.ChatSessionWithTask) api.DiagnosisRoomSummary {

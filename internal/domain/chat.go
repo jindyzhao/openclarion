@@ -188,6 +188,83 @@ type ChatTurn struct {
 	CreatedAt    time.Time
 }
 
+// ChatSessionSummary is one immutable compression checkpoint for a diagnosis
+// room transcript. SourceDigest binds the summary to the exact ordered turn
+// contents while Content retains the versioned, provider-neutral summary JSON.
+// Original ChatTurn rows remain the audit source of truth.
+type ChatSessionSummary struct {
+	ID                  ChatSessionSummaryID
+	SessionID           ChatSessionID
+	Version             int
+	SchemaVersion       string
+	SourceFirstSequence int
+	SourceLastSequence  int
+	SourceTurnCount     int
+	SourceDigest        string
+	Content             json.RawMessage
+	GeneratedAt         time.Time
+	CreatedAt           time.Time
+}
+
+// NewChatSessionSummary validates an append-only conversation summary before
+// persistence. Empty transcripts use zero source bounds and the SHA-256 digest
+// of the canonical empty source document.
+func NewChatSessionSummary(in ChatSessionSummary) (ChatSessionSummary, error) {
+	if in.SessionID == 0 {
+		return ChatSessionSummary{}, fmt.Errorf("chat session summary: session_id must be non-zero: %w", ErrInvariantViolation)
+	}
+	if in.Version <= 0 {
+		return ChatSessionSummary{}, fmt.Errorf("chat session summary: version must be > 0 (got %d): %w", in.Version, ErrInvariantViolation)
+	}
+	in.SchemaVersion = strings.TrimSpace(in.SchemaVersion)
+	if in.SchemaVersion == "" || len(in.SchemaVersion) > 64 {
+		return ChatSessionSummary{}, fmt.Errorf("chat session summary: schema_version must contain 1-64 bytes: %w", ErrInvariantViolation)
+	}
+	if in.SourceTurnCount < 0 {
+		return ChatSessionSummary{}, fmt.Errorf("chat session summary: source_turn_count must be >= 0 (got %d): %w", in.SourceTurnCount, ErrInvariantViolation)
+	}
+	if in.SourceTurnCount == 0 {
+		if in.SourceFirstSequence != 0 || in.SourceLastSequence != 0 {
+			return ChatSessionSummary{}, fmt.Errorf("chat session summary: empty source must use zero sequence bounds: %w", ErrInvariantViolation)
+		}
+	} else {
+		if in.SourceFirstSequence <= 0 || in.SourceLastSequence < in.SourceFirstSequence {
+			return ChatSessionSummary{}, fmt.Errorf("chat session summary: invalid source sequence range [%d,%d]: %w", in.SourceFirstSequence, in.SourceLastSequence, ErrInvariantViolation)
+		}
+		if in.SourceLastSequence-in.SourceFirstSequence+1 != in.SourceTurnCount {
+			return ChatSessionSummary{}, fmt.Errorf("chat session summary: source sequence range [%d,%d] does not contain %d turns: %w", in.SourceFirstSequence, in.SourceLastSequence, in.SourceTurnCount, ErrInvariantViolation)
+		}
+	}
+	in.SourceDigest = strings.TrimSpace(in.SourceDigest)
+	if len(in.SourceDigest) != 64 || !isLowerHex(in.SourceDigest) {
+		return ChatSessionSummary{}, fmt.Errorf("chat session summary: source_digest must be a lowercase SHA-256 hex digest: %w", ErrInvariantViolation)
+	}
+	if len(in.Content) == 0 {
+		return ChatSessionSummary{}, fmt.Errorf("chat session summary: content must be set: %w", ErrInvariantViolation)
+	}
+	if err := requireValidJSON("chat session summary: content", in.Content); err != nil {
+		return ChatSessionSummary{}, err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(in.Content, &object); err != nil || object == nil {
+		return ChatSessionSummary{}, fmt.Errorf("chat session summary: content must be a JSON object: %w", ErrInvariantViolation)
+	}
+	if in.GeneratedAt.IsZero() {
+		return ChatSessionSummary{}, fmt.Errorf("chat session summary: generated_at must be set: %w", ErrInvariantViolation)
+	}
+	in.GeneratedAt = NormalizeUTCMicro(in.GeneratedAt)
+	return in, nil
+}
+
+func isLowerHex(value string) bool {
+	for _, r := range value {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // NewChatTurn constructs an append-only turn ready for persistence.
 // MessageID is unique per session and Sequence is the monotonically
 // increasing transcript order.

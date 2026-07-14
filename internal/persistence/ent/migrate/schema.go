@@ -185,6 +185,51 @@ var (
 			},
 		},
 	}
+	// ChatSessionSummariesColumns holds the columns for the "chat_session_summaries" table.
+	ChatSessionSummariesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "version", Type: field.TypeInt},
+		{Name: "schema_version", Type: field.TypeString, Size: 64},
+		{Name: "source_first_sequence", Type: field.TypeInt},
+		{Name: "source_last_sequence", Type: field.TypeInt},
+		{Name: "source_turn_count", Type: field.TypeInt},
+		{Name: "source_digest", Type: field.TypeString, Size: 64},
+		{Name: "content", Type: field.TypeJSON},
+		{Name: "generated_at", Type: field.TypeTime},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "chat_session_id", Type: field.TypeInt},
+	}
+	// ChatSessionSummariesTable holds the schema information for the "chat_session_summaries" table.
+	ChatSessionSummariesTable = &schema.Table{
+		Name:       "chat_session_summaries",
+		Columns:    ChatSessionSummariesColumns,
+		PrimaryKey: []*schema.Column{ChatSessionSummariesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "chat_session_summaries_chat_sessions_summaries",
+				Columns:    []*schema.Column{ChatSessionSummariesColumns[10]},
+				RefColumns: []*schema.Column{ChatSessionsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "chatsessionsummary_chat_session_id_version",
+				Unique:  true,
+				Columns: []*schema.Column{ChatSessionSummariesColumns[10], ChatSessionSummariesColumns[1]},
+			},
+			{
+				Name:    "chatsessionsummary_chat_session_id_source_digest",
+				Unique:  true,
+				Columns: []*schema.Column{ChatSessionSummariesColumns[10], ChatSessionSummariesColumns[6]},
+			},
+			{
+				Name:    "chatsessionsummary_chat_session_id_generated_at",
+				Unique:  false,
+				Columns: []*schema.Column{ChatSessionSummariesColumns[10], ChatSessionSummariesColumns[8]},
+			},
+		},
+	}
 	// ChatTurnsColumns holds the columns for the "chat_turns" table.
 	ChatTurnsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
@@ -973,6 +1018,7 @@ var (
 		AlertGroupsTable,
 		AlertSourceProfilesTable,
 		ChatSessionsTable,
+		ChatSessionSummariesTable,
 		ChatTurnsTable,
 		DiagnosisAuthTicketsTable,
 		DiagnosisTasksTable,
@@ -998,6 +1044,7 @@ var (
 
 func init() {
 	ChatSessionsTable.ForeignKeys[0].RefTable = DiagnosisTasksTable
+	ChatSessionSummariesTable.ForeignKeys[0].RefTable = ChatSessionsTable
 	ChatTurnsTable.ForeignKeys[0].RefTable = ChatSessionsTable
 	DiagnosisTasksTable.ForeignKeys[0].RefTable = EvidenceSnapshotsTable
 	DiagnosisTaskEventsTable.ForeignKeys[0].RefTable = DiagnosisTasksTable

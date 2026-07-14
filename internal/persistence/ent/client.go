@@ -19,6 +19,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertsourceprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
@@ -52,6 +53,8 @@ type Client struct {
 	AlertSourceProfile *AlertSourceProfileClient
 	// ChatSession is the client for interacting with the ChatSession builders.
 	ChatSession *ChatSessionClient
+	// ChatSessionSummary is the client for interacting with the ChatSessionSummary builders.
+	ChatSessionSummary *ChatSessionSummaryClient
 	// ChatTurn is the client for interacting with the ChatTurn builders.
 	ChatTurn *ChatTurnClient
 	// DiagnosisAuthTicket is the client for interacting with the DiagnosisAuthTicket builders.
@@ -103,6 +106,7 @@ func (c *Client) init() {
 	c.AlertGroup = NewAlertGroupClient(c.config)
 	c.AlertSourceProfile = NewAlertSourceProfileClient(c.config)
 	c.ChatSession = NewChatSessionClient(c.config)
+	c.ChatSessionSummary = NewChatSessionSummaryClient(c.config)
 	c.ChatTurn = NewChatTurnClient(c.config)
 	c.DiagnosisAuthTicket = NewDiagnosisAuthTicketClient(c.config)
 	c.DiagnosisTask = NewDiagnosisTaskClient(c.config)
@@ -217,6 +221,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		AlertGroup:                   NewAlertGroupClient(cfg),
 		AlertSourceProfile:           NewAlertSourceProfileClient(cfg),
 		ChatSession:                  NewChatSessionClient(cfg),
+		ChatSessionSummary:           NewChatSessionSummaryClient(cfg),
 		ChatTurn:                     NewChatTurnClient(cfg),
 		DiagnosisAuthTicket:          NewDiagnosisAuthTicketClient(cfg),
 		DiagnosisTask:                NewDiagnosisTaskClient(cfg),
@@ -258,6 +263,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		AlertGroup:                   NewAlertGroupClient(cfg),
 		AlertSourceProfile:           NewAlertSourceProfileClient(cfg),
 		ChatSession:                  NewChatSessionClient(cfg),
+		ChatSessionSummary:           NewChatSessionSummaryClient(cfg),
 		ChatTurn:                     NewChatTurnClient(cfg),
 		DiagnosisAuthTicket:          NewDiagnosisAuthTicketClient(cfg),
 		DiagnosisTask:                NewDiagnosisTaskClient(cfg),
@@ -305,13 +311,13 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession, c.ChatTurn,
-		c.DiagnosisAuthTicket, c.DiagnosisTask, c.DiagnosisTaskEvent,
-		c.DiagnosisToolTemplate, c.DirectoryDepartment, c.DirectorySyncRun,
-		c.DirectoryUser, c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
-		c.NotificationChannelProfile, c.NotificationChannelTestProof, c.RBACAssignment,
-		c.ReportNotificationDelivery, c.ReportWorkflowPolicy, c.ReportWorkflowSchedule,
-		c.SubReport,
+		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession,
+		c.ChatSessionSummary, c.ChatTurn, c.DiagnosisAuthTicket, c.DiagnosisTask,
+		c.DiagnosisTaskEvent, c.DiagnosisToolTemplate, c.DirectoryDepartment,
+		c.DirectorySyncRun, c.DirectoryUser, c.EvidenceSnapshot, c.FinalReport,
+		c.GroupingPolicy, c.NotificationChannelProfile, c.NotificationChannelTestProof,
+		c.RBACAssignment, c.ReportNotificationDelivery, c.ReportWorkflowPolicy,
+		c.ReportWorkflowSchedule, c.SubReport,
 	} {
 		n.Use(hooks...)
 	}
@@ -321,13 +327,13 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession, c.ChatTurn,
-		c.DiagnosisAuthTicket, c.DiagnosisTask, c.DiagnosisTaskEvent,
-		c.DiagnosisToolTemplate, c.DirectoryDepartment, c.DirectorySyncRun,
-		c.DirectoryUser, c.EvidenceSnapshot, c.FinalReport, c.GroupingPolicy,
-		c.NotificationChannelProfile, c.NotificationChannelTestProof, c.RBACAssignment,
-		c.ReportNotificationDelivery, c.ReportWorkflowPolicy, c.ReportWorkflowSchedule,
-		c.SubReport,
+		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession,
+		c.ChatSessionSummary, c.ChatTurn, c.DiagnosisAuthTicket, c.DiagnosisTask,
+		c.DiagnosisTaskEvent, c.DiagnosisToolTemplate, c.DirectoryDepartment,
+		c.DirectorySyncRun, c.DirectoryUser, c.EvidenceSnapshot, c.FinalReport,
+		c.GroupingPolicy, c.NotificationChannelProfile, c.NotificationChannelTestProof,
+		c.RBACAssignment, c.ReportNotificationDelivery, c.ReportWorkflowPolicy,
+		c.ReportWorkflowSchedule, c.SubReport,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -344,6 +350,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.AlertSourceProfile.mutate(ctx, m)
 	case *ChatSessionMutation:
 		return c.ChatSession.mutate(ctx, m)
+	case *ChatSessionSummaryMutation:
+		return c.ChatSessionSummary.mutate(ctx, m)
 	case *ChatTurnMutation:
 		return c.ChatTurn.mutate(ctx, m)
 	case *DiagnosisAuthTicketMutation:
@@ -972,6 +980,22 @@ func (c *ChatSessionClient) QueryTurns(_m *ChatSession) *ChatTurnQuery {
 	return query
 }
 
+// QuerySummaries queries the summaries edge of a ChatSession.
+func (c *ChatSessionClient) QuerySummaries(_m *ChatSession) *ChatSessionSummaryQuery {
+	query := (&ChatSessionSummaryClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsession.Table, chatsession.FieldID, id),
+			sqlgraph.To(chatsessionsummary.Table, chatsessionsummary.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, chatsession.SummariesTable, chatsession.SummariesColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *ChatSessionClient) Hooks() []Hook {
 	return c.hooks.ChatSession
@@ -994,6 +1018,155 @@ func (c *ChatSessionClient) mutate(ctx context.Context, m *ChatSessionMutation) 
 		return (&ChatSessionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown ChatSession mutation op: %q", m.Op())
+	}
+}
+
+// ChatSessionSummaryClient is a client for the ChatSessionSummary schema.
+type ChatSessionSummaryClient struct {
+	config
+}
+
+// NewChatSessionSummaryClient returns a client for the ChatSessionSummary from the given config.
+func NewChatSessionSummaryClient(c config) *ChatSessionSummaryClient {
+	return &ChatSessionSummaryClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `chatsessionsummary.Hooks(f(g(h())))`.
+func (c *ChatSessionSummaryClient) Use(hooks ...Hook) {
+	c.hooks.ChatSessionSummary = append(c.hooks.ChatSessionSummary, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `chatsessionsummary.Intercept(f(g(h())))`.
+func (c *ChatSessionSummaryClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ChatSessionSummary = append(c.inters.ChatSessionSummary, interceptors...)
+}
+
+// Create returns a builder for creating a ChatSessionSummary entity.
+func (c *ChatSessionSummaryClient) Create() *ChatSessionSummaryCreate {
+	mutation := newChatSessionSummaryMutation(c.config, OpCreate)
+	return &ChatSessionSummaryCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ChatSessionSummary entities.
+func (c *ChatSessionSummaryClient) CreateBulk(builders ...*ChatSessionSummaryCreate) *ChatSessionSummaryCreateBulk {
+	return &ChatSessionSummaryCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ChatSessionSummaryClient) MapCreateBulk(slice any, setFunc func(*ChatSessionSummaryCreate, int)) *ChatSessionSummaryCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ChatSessionSummaryCreateBulk{err: fmt.Errorf("calling to ChatSessionSummaryClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ChatSessionSummaryCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ChatSessionSummaryCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ChatSessionSummary.
+func (c *ChatSessionSummaryClient) Update() *ChatSessionSummaryUpdate {
+	mutation := newChatSessionSummaryMutation(c.config, OpUpdate)
+	return &ChatSessionSummaryUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ChatSessionSummaryClient) UpdateOne(_m *ChatSessionSummary) *ChatSessionSummaryUpdateOne {
+	mutation := newChatSessionSummaryMutation(c.config, OpUpdateOne, withChatSessionSummary(_m))
+	return &ChatSessionSummaryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ChatSessionSummaryClient) UpdateOneID(id int) *ChatSessionSummaryUpdateOne {
+	mutation := newChatSessionSummaryMutation(c.config, OpUpdateOne, withChatSessionSummaryID(id))
+	return &ChatSessionSummaryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ChatSessionSummary.
+func (c *ChatSessionSummaryClient) Delete() *ChatSessionSummaryDelete {
+	mutation := newChatSessionSummaryMutation(c.config, OpDelete)
+	return &ChatSessionSummaryDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ChatSessionSummaryClient) DeleteOne(_m *ChatSessionSummary) *ChatSessionSummaryDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ChatSessionSummaryClient) DeleteOneID(id int) *ChatSessionSummaryDeleteOne {
+	builder := c.Delete().Where(chatsessionsummary.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ChatSessionSummaryDeleteOne{builder}
+}
+
+// Query returns a query builder for ChatSessionSummary.
+func (c *ChatSessionSummaryClient) Query() *ChatSessionSummaryQuery {
+	return &ChatSessionSummaryQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeChatSessionSummary},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ChatSessionSummary entity by its id.
+func (c *ChatSessionSummaryClient) Get(ctx context.Context, id int) (*ChatSessionSummary, error) {
+	return c.Query().Where(chatsessionsummary.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ChatSessionSummaryClient) GetX(ctx context.Context, id int) *ChatSessionSummary {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QuerySession queries the session edge of a ChatSessionSummary.
+func (c *ChatSessionSummaryClient) QuerySession(_m *ChatSessionSummary) *ChatSessionQuery {
+	query := (&ChatSessionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsessionsummary.Table, chatsessionsummary.FieldID, id),
+			sqlgraph.To(chatsession.Table, chatsession.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, chatsessionsummary.SessionTable, chatsessionsummary.SessionColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ChatSessionSummaryClient) Hooks() []Hook {
+	return c.hooks.ChatSessionSummary
+}
+
+// Interceptors returns the client interceptors.
+func (c *ChatSessionSummaryClient) Interceptors() []Interceptor {
+	return c.inters.ChatSessionSummary
+}
+
+func (c *ChatSessionSummaryClient) mutate(ctx context.Context, m *ChatSessionSummaryMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ChatSessionSummaryCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ChatSessionSummaryUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ChatSessionSummaryUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ChatSessionSummaryDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ChatSessionSummary mutation op: %q", m.Op())
 	}
 }
 
@@ -3634,18 +3807,18 @@ func (c *SubReportClient) mutate(ctx context.Context, m *SubReportMutation) (Val
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatTurn,
-		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, DiagnosisToolTemplate,
-		DirectoryDepartment, DirectorySyncRun, DirectoryUser, EvidenceSnapshot,
-		FinalReport, GroupingPolicy, NotificationChannelProfile,
+		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatSessionSummary,
+		ChatTurn, DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent,
+		DiagnosisToolTemplate, DirectoryDepartment, DirectorySyncRun, DirectoryUser,
+		EvidenceSnapshot, FinalReport, GroupingPolicy, NotificationChannelProfile,
 		NotificationChannelTestProof, RBACAssignment, ReportNotificationDelivery,
 		ReportWorkflowPolicy, ReportWorkflowSchedule, SubReport []ent.Hook
 	}
 	inters struct {
-		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatTurn,
-		DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent, DiagnosisToolTemplate,
-		DirectoryDepartment, DirectorySyncRun, DirectoryUser, EvidenceSnapshot,
-		FinalReport, GroupingPolicy, NotificationChannelProfile,
+		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatSessionSummary,
+		ChatTurn, DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent,
+		DiagnosisToolTemplate, DirectoryDepartment, DirectorySyncRun, DirectoryUser,
+		EvidenceSnapshot, FinalReport, GroupingPolicy, NotificationChannelProfile,
 		NotificationChannelTestProof, RBACAssignment, ReportNotificationDelivery,
 		ReportWorkflowPolicy, ReportWorkflowSchedule, SubReport []ent.Interceptor
 	}
