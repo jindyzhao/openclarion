@@ -172,6 +172,8 @@ export type DiagnosisConfidenceTimelineEntry = {
   requires_human_review: boolean;
   conclusion_status?: string;
   confidence_rationale?: string;
+  context_bytes?: number;
+  retrieval_refs?: string[];
   evidence_requests?: DiagnosisEvidenceRequest[];
   evidence_collection_results?: DiagnosisEvidenceCollectionResult[];
   missing_evidence_requests?: DiagnosisConsultationEvidenceRequest[];
@@ -227,6 +229,7 @@ type DiagnosisTurnResultFrame = {
   assistant_message: string;
   requires_human_review: boolean;
   confidence: string;
+  retrieval_refs?: string[];
   evidence_requests?: DiagnosisEvidenceRequest[];
   evidence_collection_results?: DiagnosisEvidenceCollectionResult[];
   evidence_timeline?: DiagnosisEvidenceTimelineEntry[];
@@ -249,6 +252,7 @@ type DiagnosisFollowUpTurn = {
   assistant_message: string;
   requires_human_review: boolean;
   confidence: string;
+  retrieval_refs?: string[];
   evidence_requests?: DiagnosisEvidenceRequest[];
   evidence_collection_results?: DiagnosisEvidenceCollectionResult[];
   consultation_insight?: DiagnosisConsultationInsight;

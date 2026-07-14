@@ -103,6 +103,7 @@ type PersistDiagnosisTurnInput struct {
 	UserOccurredAt       time.Time
 	AssistantOccurredAt  time.Time
 	ContextBytes         int
+	RetrievalRefs        []string `json:"RetrievalRefs,omitempty"`
 	InvocationID         string
 	RuntimeID            string
 	ContainerStartedAt   time.Time
@@ -1560,8 +1561,24 @@ func validatePersistDiagnosisTurnInput(req PersistDiagnosisTurnInput) (diagnosis
 	if req.AssistantOccurredAt.Before(req.UserOccurredAt) {
 		return diagnosisroom.TurnOutput{}, fmt.Errorf("persist diagnosis turn: assistant_occurred_at precedes user_occurred_at: %w", domain.ErrInvariantViolation)
 	}
-	if req.ContextBytes <= 0 {
-		return diagnosisroom.TurnOutput{}, fmt.Errorf("persist diagnosis turn: context_bytes must be > 0: %w", domain.ErrInvariantViolation)
+	if req.ContextBytes <= 0 || req.ContextBytes > diagnosisroom.HardMaxContextBytes {
+		return diagnosisroom.TurnOutput{}, fmt.Errorf("persist diagnosis turn: context_bytes must be in [1,%d]: %w", diagnosisroom.HardMaxContextBytes, domain.ErrInvariantViolation)
+	}
+	if len(req.RetrievalRefs) > domain.RetrievalReferenceLimit {
+		return diagnosisroom.TurnOutput{}, fmt.Errorf("persist diagnosis turn: retrieval_refs exceed %d values: %w", domain.RetrievalReferenceLimit, domain.ErrInvariantViolation)
+	}
+	seenRetrievalRefs := make(map[string]struct{}, len(req.RetrievalRefs))
+	for i, ref := range req.RetrievalRefs {
+		if ref != strings.TrimSpace(ref) {
+			return diagnosisroom.TurnOutput{}, fmt.Errorf("persist diagnosis turn: retrieval_refs[%d] must be normalized: %w", i, domain.ErrInvariantViolation)
+		}
+		if _, _, err := domain.ParseRetrievalSourceRef(ref); err != nil {
+			return diagnosisroom.TurnOutput{}, fmt.Errorf("persist diagnosis turn: retrieval_refs[%d]: %w", i, err)
+		}
+		if _, duplicate := seenRetrievalRefs[ref]; duplicate {
+			return diagnosisroom.TurnOutput{}, fmt.Errorf("persist diagnosis turn: retrieval_refs[%d] duplicates %q: %w", i, ref, domain.ErrInvariantViolation)
+		}
+		seenRetrievalRefs[ref] = struct{}{}
 	}
 	if strings.TrimSpace(req.InvocationID) == "" {
 		return diagnosisroom.TurnOutput{}, fmt.Errorf("persist diagnosis turn: invocation_id must be non-empty: %w", domain.ErrInvariantViolation)
@@ -2004,22 +2021,23 @@ func diagnosisUserTurnMetadata(req PersistDiagnosisTurnInput) (json.RawMessage, 
 
 func diagnosisAssistantTurnMetadata(req PersistDiagnosisTurnInput, output diagnosisroom.TurnOutput) (json.RawMessage, error) {
 	return marshalDiagnosisTurnMetadata(map[string]any{
-		"source":                "DiagnosisRoomWorkflow",
-		"kind":                  "assistant",
-		"diagnosis_task_id":     req.DiagnosisTaskID,
-		"invocation_id":         req.InvocationID,
-		"runtime_id":            req.RuntimeID,
-		"container_started_at":  req.ContainerStartedAt,
-		"container_finished_at": req.ContainerFinishedAt,
-		"context_bytes":         req.ContextBytes,
-		"schema_version":        output.SchemaVersion,
-		"confidence":            output.Confidence,
-		"requires_human_review": output.RequiresHumanReview,
-		"findings":              output.Findings,
-		"recommended_actions":   output.RecommendedActions,
-		"evidence_requests":     output.EvidenceRequests,
-		"consultation_insight":  output.Insight(),
-		"raw_output":            req.RawOutput,
+		"source":                 "DiagnosisRoomWorkflow",
+		"kind":                   "assistant",
+		"diagnosis_task_id":      req.DiagnosisTaskID,
+		"invocation_id":          req.InvocationID,
+		"runtime_id":             req.RuntimeID,
+		"container_started_at":   req.ContainerStartedAt,
+		"container_finished_at":  req.ContainerFinishedAt,
+		"context_bytes":          req.ContextBytes,
+		"historical_report_refs": req.RetrievalRefs,
+		"schema_version":         output.SchemaVersion,
+		"confidence":             output.Confidence,
+		"requires_human_review":  output.RequiresHumanReview,
+		"findings":               output.Findings,
+		"recommended_actions":    output.RecommendedActions,
+		"evidence_requests":      output.EvidenceRequests,
+		"consultation_insight":   output.Insight(),
+		"raw_output":             req.RawOutput,
 	})
 }
 
@@ -2048,25 +2066,26 @@ func (a *Activities) recordDiagnosisRoomOpened(ctx context.Context, req EnsureDi
 
 func (a *Activities) recordDiagnosisRoomTurnPersisted(ctx context.Context, req PersistDiagnosisTurnInput, result PersistDiagnosisTurnResult) (domain.DiagnosisTaskEvent, error) {
 	payload, err := diagnosisRoomLifecyclePayload(map[string]any{
-		"kind":                  diagnosisRoomEventTurnPersisted,
-		"session_id":            req.SessionID,
-		"chat_session_id":       result.ChatSessionID,
-		"diagnosis_task_id":     req.DiagnosisTaskID,
-		"owner_subject":         req.OwnerSubject,
-		"actor_subject":         req.ActorSubject,
-		"user_message_id":       req.UserMessageID,
-		"assistant_message_id":  req.AssistantMessageID,
-		"user_turn_id":          result.UserTurnID,
-		"assistant_turn_id":     result.AssistantTurnID,
-		"user_sequence":         req.UserSequence,
-		"assistant_sequence":    req.AssistantSequence,
-		"turn_count":            result.TurnCount,
-		"context_bytes":         req.ContextBytes,
-		"invocation_id":         req.InvocationID,
-		"confidence":            result.Confidence,
-		"requires_human_review": result.RequiresHumanReview,
-		"evidence_requests":     result.EvidenceRequests,
-		"consultation_insight":  result.Insight,
+		"kind":                   diagnosisRoomEventTurnPersisted,
+		"session_id":             req.SessionID,
+		"chat_session_id":        result.ChatSessionID,
+		"diagnosis_task_id":      req.DiagnosisTaskID,
+		"owner_subject":          req.OwnerSubject,
+		"actor_subject":          req.ActorSubject,
+		"user_message_id":        req.UserMessageID,
+		"assistant_message_id":   req.AssistantMessageID,
+		"user_turn_id":           result.UserTurnID,
+		"assistant_turn_id":      result.AssistantTurnID,
+		"user_sequence":          req.UserSequence,
+		"assistant_sequence":     req.AssistantSequence,
+		"turn_count":             result.TurnCount,
+		"context_bytes":          req.ContextBytes,
+		"historical_report_refs": req.RetrievalRefs,
+		"invocation_id":          req.InvocationID,
+		"confidence":             result.Confidence,
+		"requires_human_review":  result.RequiresHumanReview,
+		"evidence_requests":      result.EvidenceRequests,
+		"consultation_insight":   result.Insight,
 	})
 	if err != nil {
 		return domain.DiagnosisTaskEvent{}, err

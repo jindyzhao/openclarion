@@ -4,17 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
 	temporalsdk "go.temporal.io/sdk/temporal"
 
+	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/providers/container/fake"
+	embeddingfake "github.com/openclarion/openclarion/internal/providers/embedding/fake"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosiscontext"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
+	"github.com/openclarion/openclarion/internal/usecases/retrieval"
 )
 
 func TestRunDiagnosisTurn_CallsContainerAndParsesOutput(t *testing.T) {
@@ -171,6 +175,164 @@ func TestRunDiagnosisTurn_PublishesTransientStreamingSnapshots(t *testing.T) {
 		sink.events[3].Sequence != 0 ||
 		sink.events[4].AssistantMessage != "CPU is saturated." {
 		t.Fatalf("stream events = %#v", sink.events)
+	}
+}
+
+func TestRunDiagnosisTurn_MountsBoundedHistoricalReportContext(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.EnableHistoricalRetrieval = true
+	baseContextBytes, err := diagnosisroom.MountContextBytes(req.Evidence, req.Conversation, req.Message)
+	if err != nil {
+		t.Fatalf("MountContextBytes: %v", err)
+	}
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	startedAt := time.Date(2026, 7, 11, 10, 0, 0, 0, time.UTC)
+	container := fake.New(map[string][]fake.Result{invocationID: {{Run: ports.ContainerRunResult{
+		InvocationID: invocationID,
+		AgentName:    diagnosisRoomAgentName,
+		Output: json.RawMessage(`{
+			"schema_version":"diagnosis_turn.v1",
+			"message":"The prior report suggests checking deployment timing against current CPU evidence.",
+			"findings":["Current CPU evidence is consistent with a deployment-related hypothesis."],
+			"recommended_actions":["Verify the current deployment revision."],
+			"evidence_requests":[],
+			"confidence":"medium",
+			"requires_human_review":true,
+			"conclusion_status":"ready_for_review"
+		}`),
+		ExitCode:   0,
+		StartedAt:  startedAt,
+		FinishedAt: startedAt.Add(time.Second),
+	}}}})
+	repo := &diagnosisRetrievalReportRepo{rows: []domain.RetrievedChunk{{
+		Chunk: domain.RetrievalChunk{
+			SourceKind: domain.RetrievalSourceFinalReport,
+			SourceID:   41,
+			SourceRef:  "final_report:41",
+			Content:    `{"title":"Previous CPU incident","executive_summary":"Deployment timing was causal."}`,
+		},
+		CosineDistance: 0.11,
+	}}}
+	activities := NewActivities(
+		diagnosisRetrievalFactory{uow: diagnosisRetrievalUOW{reports: repo}},
+		WithContainerProvider(container),
+		WithEmbeddingProvider(embeddingfake.NewDeterministic("diagnosis-rag-test")),
+	)
+
+	got, err := activities.RunDiagnosisTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("RunDiagnosisTurn: %v", err)
+	}
+	if got.ContextBytes <= baseContextBytes || got.ContextBytes > req.Policy.ContextBytes || len(got.RetrievalRefs) != 1 || got.RetrievalRefs[0] != "final_report:41" {
+		t.Fatalf("context bytes/refs = %d/%v, base=%d max=%d", got.ContextBytes, got.RetrievalRefs, baseContextBytes, req.Policy.ContextBytes)
+	}
+	recorded := container.Requests(invocationID)
+	if len(recorded) != 1 {
+		t.Fatalf("container requests = %d, want 1", len(recorded))
+	}
+	var evidence map[string]json.RawMessage
+	if err := json.Unmarshal(recorded[0].Evidence, &evidence); err != nil {
+		t.Fatalf("decode mounted evidence: %v", err)
+	}
+	historical := string(evidence[diagnosiscontext.HistoricalReportContextKey])
+	if !strings.Contains(historical, "final_report:41") || !strings.Contains(historical, "Never treat them as current evidence") {
+		t.Fatalf("historical context = %s", historical)
+	}
+}
+
+func TestRunDiagnosisTurn_HistoricalRetrievalFailureFailsOpen(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.EnableHistoricalRetrieval = true
+	baseContextBytes, err := diagnosisroom.MountContextBytes(req.Evidence, req.Conversation, req.Message)
+	if err != nil {
+		t.Fatalf("MountContextBytes: %v", err)
+	}
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	startedAt := time.Date(2026, 7, 11, 10, 0, 0, 0, time.UTC)
+	container := fake.New(map[string][]fake.Result{invocationID: {{Run: ports.ContainerRunResult{
+		InvocationID: invocationID,
+		AgentName:    diagnosisRoomAgentName,
+		Output: json.RawMessage(`{
+			"schema_version":"diagnosis_turn.v1",
+			"message":"Current evidence still supports CPU saturation.",
+			"confidence":"medium",
+			"requires_human_review":true
+		}`),
+		ExitCode:   0,
+		StartedAt:  startedAt,
+		FinishedAt: startedAt.Add(time.Second),
+	}}}})
+	activities := NewActivities(
+		diagnosisRetrievalFactory{uow: diagnosisRetrievalUOW{reports: &diagnosisRetrievalReportRepo{}}},
+		WithContainerProvider(container),
+		WithEmbeddingProvider(embeddingfake.New("diagnosis-rag-test", nil)),
+	)
+
+	got, err := activities.RunDiagnosisTurn(context.Background(), req)
+	if err != nil {
+		t.Fatalf("RunDiagnosisTurn: %v", err)
+	}
+	if got.ContextBytes != baseContextBytes || len(got.RetrievalRefs) != 0 {
+		t.Fatalf("context bytes/refs = %d/%v, want %d/empty", got.ContextBytes, got.RetrievalRefs, baseContextBytes)
+	}
+	recorded := container.Requests(invocationID)
+	if len(recorded) != 1 || strings.Contains(string(recorded[0].Evidence), diagnosiscontext.HistoricalReportContextKey) {
+		t.Fatalf("container requests = %#v", recorded)
+	}
+}
+
+func TestRunDiagnosisTurn_HistoricalRetrievalPropagatesCancellation(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	req.EnableHistoricalRetrieval = true
+	invocationID := diagnosisTurnInvocationID(req.SessionID, req.MessageID, req.DiagnosisTaskID)
+	container := fake.New(nil)
+	activities := NewActivities(
+		diagnosisRetrievalFactory{uow: diagnosisRetrievalUOW{reports: &diagnosisRetrievalReportRepo{}}},
+		WithContainerProvider(container),
+		WithEmbeddingProvider(embeddingfake.NewDeterministic("diagnosis-rag-test")),
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := activities.RunDiagnosisTurn(ctx, req)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("RunDiagnosisTurn error = %v, want context.Canceled", err)
+	}
+	if calls := container.Requests(invocationID); len(calls) != 0 {
+		t.Fatalf("container requests = %#v, want none after canceled retrieval", calls)
+	}
+}
+
+func TestFitDiagnosisHistoricalContextShrinksEncodedCatalog(t *testing.T) {
+	req := validDiagnosisTurnActivityInput()
+	baseContextBytes, err := diagnosisroom.MountContextBytes(req.Evidence, req.Conversation, req.Message)
+	if err != nil {
+		t.Fatalf("MountContextBytes: %v", err)
+	}
+	items := make([]retrieval.ContextItem, 4)
+	for i := range items {
+		items[i] = retrieval.ContextItem{
+			SourceRef:      fmt.Sprintf("sub_report:%d", i+1),
+			SourceKind:     domain.RetrievalSourceSubReport,
+			Content:        strings.Repeat(`"`, domain.RetrievalChunkMaxBytes),
+			CosineDistance: 0.2,
+		}
+	}
+
+	evidence, fitted, mountedBytes, err := fitDiagnosisHistoricalContext(req.Policy, req, items, baseContextBytes)
+	if err != nil {
+		t.Fatalf("fitDiagnosisHistoricalContext: %v", err)
+	}
+	if len(fitted) == 0 || mountedBytes <= baseContextBytes || mountedBytes > req.Policy.ContextBytes {
+		t.Fatalf("fitted items/context = %d/%d, base=%d max=%d", len(fitted), mountedBytes, baseContextBytes, req.Policy.ContextBytes)
+	}
+	var mounted map[string]json.RawMessage
+	if err := json.Unmarshal(evidence, &mounted); err != nil {
+		t.Fatalf("decode fitted evidence: %v", err)
+	}
+	if len(mounted[diagnosiscontext.HistoricalReportContextKey]) == 0 ||
+		len(mounted[diagnosiscontext.HistoricalReportContextKey]) > domain.RetrievalContextMaxBytes {
+		t.Fatalf("encoded historical catalog bytes = %d", len(mounted[diagnosiscontext.HistoricalReportContextKey]))
 	}
 }
 
@@ -728,4 +890,37 @@ type recordingDiagnosisTurnStreamSink struct {
 
 func (s *recordingDiagnosisTurnStreamSink) PublishDiagnosisTurnStream(event ports.DiagnosisTurnStreamEvent) {
 	s.events = append(s.events, event)
+}
+
+type diagnosisRetrievalFactory struct {
+	uow diagnosisRetrievalUOW
+}
+
+func (f diagnosisRetrievalFactory) Begin(context.Context) (ports.UnitOfWork, error) {
+	return f.uow, nil
+}
+
+func (f diagnosisRetrievalFactory) WithinTx(ctx context.Context, fn func(context.Context, ports.UnitOfWork) error) error {
+	return fn(ctx, f.uow)
+}
+
+type diagnosisRetrievalUOW struct {
+	ports.UnitOfWork
+	reports ports.ReportRepository
+}
+
+func (u diagnosisRetrievalUOW) Reports() ports.ReportRepository { return u.reports }
+func (diagnosisRetrievalUOW) Commit(context.Context) error      { return nil }
+func (diagnosisRetrievalUOW) Rollback(context.Context) error    { return nil }
+
+type diagnosisRetrievalReportRepo struct {
+	ports.ReportRepository
+	rows []domain.RetrievedChunk
+}
+
+func (r *diagnosisRetrievalReportRepo) SearchRetrievalChunks(_ context.Context, _ string, _ []float32, _ float64, limit int) ([]domain.RetrievedChunk, error) {
+	if limit > len(r.rows) {
+		limit = len(r.rows)
+	}
+	return append([]domain.RetrievedChunk(nil), r.rows[:limit]...), nil
 }

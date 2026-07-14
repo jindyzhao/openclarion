@@ -206,6 +206,37 @@ func TestEvidenceSnapshotQueryIsDeterministicAndBounded(t *testing.T) {
 	}
 }
 
+func TestDiagnosisTurnQueryAndContextLimit(t *testing.T) {
+	query, err := DiagnosisTurnQuery(json.RawMessage(`{ "cpu": 95 }`), " Why is checkout slow? ")
+	if err != nil {
+		t.Fatalf("DiagnosisTurnQuery: %v", err)
+	}
+	if query != `operator request:Why is checkout slow? current diagnosis evidence:{"cpu":95}` {
+		t.Fatalf("query = %q", query)
+	}
+	bounded, err := DiagnosisTurnQuery(
+		json.RawMessage(`{"detail":"`+strings.Repeat("x", domain.RetrievalChunkMaxBytes)+`"}`),
+		"Preserve this operator intent",
+	)
+	if err != nil {
+		t.Fatalf("DiagnosisTurnQuery bounded: %v", err)
+	}
+	if len([]byte(bounded)) > domain.RetrievalChunkMaxBytes || !strings.HasPrefix(bounded, "operator request:Preserve this operator intent") {
+		t.Fatalf("bounded query lost operator intent: bytes=%d prefix=%q", len([]byte(bounded)), bounded[:min(len(bounded), 64)])
+	}
+	items := []ContextItem{
+		{SourceRef: "sub_report:1", Content: "alpha"},
+		{SourceRef: "sub_report:2", Content: "bravo"},
+	}
+	limited := LimitContextItems(items, 8)
+	if len(limited) != 2 || limited[0].Content != "alpha" || limited[1].Content != "bra" {
+		t.Fatalf("limited = %+v", limited)
+	}
+	if items[1].Content != "bravo" {
+		t.Fatalf("LimitContextItems mutated input: %+v", items)
+	}
+}
+
 func retrieved(ref, content string, distance float64) domain.RetrievedChunk {
 	kind, id, err := domain.ParseRetrievalSourceRef(ref)
 	if err != nil {

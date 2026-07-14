@@ -155,6 +155,7 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 	}
 
 	req := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-persist", startedAt)
+	req.RetrievalRefs = []string{"sub_report:17", "final_report:21"}
 	first, err := activities.PersistDiagnosisTurn(ctx, req)
 	if err != nil {
 		t.Fatalf("PersistDiagnosisTurn first: %v", err)
@@ -204,11 +205,12 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 			t.Fatalf("turns = %+v", turns)
 		}
 		var assistantMeta struct {
-			InvocationID        string                            `json:"invocation_id"`
-			Confidence          string                            `json:"confidence"`
-			RequiresHumanReview bool                              `json:"requires_human_review"`
-			EvidenceRequests    []diagnosisroom.EvidenceRequest   `json:"evidence_requests"`
-			ConsultationInsight diagnosisroom.ConsultationInsight `json:"consultation_insight"`
+			InvocationID         string                            `json:"invocation_id"`
+			Confidence           string                            `json:"confidence"`
+			RequiresHumanReview  bool                              `json:"requires_human_review"`
+			HistoricalReportRefs []string                          `json:"historical_report_refs"`
+			EvidenceRequests     []diagnosisroom.EvidenceRequest   `json:"evidence_requests"`
+			ConsultationInsight  diagnosisroom.ConsultationInsight `json:"consultation_insight"`
 		}
 		if err := json.Unmarshal(turns[1].Metadata, &assistantMeta); err != nil {
 			t.Fatalf("assistant metadata: %v", err)
@@ -216,6 +218,7 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 		if assistantMeta.InvocationID != req.InvocationID ||
 			assistantMeta.Confidence != "high" ||
 			!assistantMeta.RequiresHumanReview ||
+			len(assistantMeta.HistoricalReportRefs) != 2 || assistantMeta.HistoricalReportRefs[0] != "sub_report:17" ||
 			len(assistantMeta.EvidenceRequests) != 1 ||
 			assistantMeta.EvidenceRequests[0].Reason != "Need current active sibling alerts." ||
 			assistantMeta.ConsultationInsight.ConfidenceRationale != "Confidence depends on sibling alert and restart evidence." ||
@@ -231,11 +234,12 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 			t.Fatalf("events = %+v, want opened + turn_persisted", events)
 		}
 		var turnPayload struct {
-			UserMessageID       string                            `json:"user_message_id"`
-			AssistantMessageID  string                            `json:"assistant_message_id"`
-			TurnCount           int                               `json:"turn_count"`
-			EvidenceRequests    []diagnosisroom.EvidenceRequest   `json:"evidence_requests"`
-			ConsultationInsight diagnosisroom.ConsultationInsight `json:"consultation_insight"`
+			UserMessageID        string                            `json:"user_message_id"`
+			AssistantMessageID   string                            `json:"assistant_message_id"`
+			TurnCount            int                               `json:"turn_count"`
+			HistoricalReportRefs []string                          `json:"historical_report_refs"`
+			EvidenceRequests     []diagnosisroom.EvidenceRequest   `json:"evidence_requests"`
+			ConsultationInsight  diagnosisroom.ConsultationInsight `json:"consultation_insight"`
 		}
 		if err := json.Unmarshal(events[1].Payload, &turnPayload); err != nil {
 			t.Fatalf("turn event payload: %v", err)
@@ -243,6 +247,7 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 		if turnPayload.UserMessageID != req.UserMessageID ||
 			turnPayload.AssistantMessageID != req.AssistantMessageID ||
 			turnPayload.TurnCount != 1 ||
+			len(turnPayload.HistoricalReportRefs) != 2 || turnPayload.HistoricalReportRefs[1] != "final_report:21" ||
 			len(turnPayload.EvidenceRequests) != 1 ||
 			turnPayload.EvidenceRequests[0].Limit != 5 ||
 			turnPayload.ConsultationInsight.ConclusionStatus != "needs_evidence" {
@@ -252,6 +257,48 @@ func TestDiagnosisRoomPersistenceActivities_PersistTurnIsIdempotent(t *testing.T
 	})
 	if err != nil {
 		t.Fatalf("verify persisted turns: %v", err)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_RejectsInvalidHistoricalRetrievalMetadata(t *testing.T) {
+	activities := temporalpkg.NewActivities(env.factory)
+	valid := validPersistDiagnosisTurnInput(1, "session-invalid-retrieval", time.Date(2026, 7, 14, 10, 0, 0, 0, time.UTC))
+	tests := []struct {
+		name   string
+		mutate func(*temporalpkg.PersistDiagnosisTurnInput)
+		want   string
+	}{
+		{
+			name: "context exceeds hard maximum",
+			mutate: func(req *temporalpkg.PersistDiagnosisTurnInput) {
+				req.ContextBytes = diagnosisroom.HardMaxContextBytes + 1
+			},
+			want: "context_bytes",
+		},
+		{
+			name: "duplicate retrieval ref",
+			mutate: func(req *temporalpkg.PersistDiagnosisTurnInput) {
+				req.RetrievalRefs = []string{"final_report:91", "final_report:91"}
+			},
+			want: "duplicates",
+		},
+		{
+			name: "unnormalized retrieval ref",
+			mutate: func(req *temporalpkg.PersistDiagnosisTurnInput) {
+				req.RetrievalRefs = []string{" final_report:91"}
+			},
+			want: "normalized",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := valid
+			tc.mutate(&req)
+			_, err := activities.PersistDiagnosisTurn(context.Background(), req)
+			if !errors.Is(err, domain.ErrInvariantViolation) || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("PersistDiagnosisTurn error = %v, want invariant containing %q", err, tc.want)
+			}
+		})
 	}
 }
 

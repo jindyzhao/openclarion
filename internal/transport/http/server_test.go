@@ -3640,6 +3640,8 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 								"turn_count":2,
 								"confidence":"high",
 								"requires_human_review":false,
+								"context_bytes":2048,
+								"historical_report_refs":["sub_report:18","final_report:9"],
 								"evidence_requests":[],
 								"consultation_insight":{
 									"confidence_rationale":"Deployment evidence explains the latency onset.",
@@ -3667,6 +3669,8 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 								"turn_count":1,
 								"confidence":"low",
 								"requires_human_review":true,
+								"context_bytes":1536,
+								"historical_report_refs":["final_report:8"],
 								"evidence_requests":[{
 									"tool":"metric_range_query",
 									"reason":"Need checkout deployment timing.",
@@ -3919,6 +3923,9 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 		conclusion.ConfidenceTimeline[0].Confidence != api.ReportConfidenceLow ||
 		conclusion.ConfidenceTimeline[0].ConclusionStatus == nil ||
 		*conclusion.ConfidenceTimeline[0].ConclusionStatus != "needs_evidence" ||
+		conclusion.ConfidenceTimeline[0].ContextBytes == nil ||
+		*conclusion.ConfidenceTimeline[0].ContextBytes != 1536 ||
+		!slices.Equal(conclusion.ConfidenceTimeline[0].RetrievalRefs, []string{"final_report:8"}) ||
 		conclusion.ConfidenceTimeline[0].EvidenceRequestCount != 1 ||
 		len(conclusion.ConfidenceTimeline[0].EvidenceRequests) != 1 ||
 		conclusion.ConfidenceTimeline[0].EvidenceRequests[0].Tool != "metric_range_query" ||
@@ -3937,6 +3944,9 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 		conclusion.ConfidenceTimeline[1].Confidence != api.ReportConfidenceHigh ||
 		conclusion.ConfidenceTimeline[1].ConclusionStatus == nil ||
 		*conclusion.ConfidenceTimeline[1].ConclusionStatus != "ready_for_review" ||
+		conclusion.ConfidenceTimeline[1].ContextBytes == nil ||
+		*conclusion.ConfidenceTimeline[1].ContextBytes != 2048 ||
+		!slices.Equal(conclusion.ConfidenceTimeline[1].RetrievalRefs, []string{"sub_report:18", "final_report:9"}) ||
 		conclusion.ConfidenceTimeline[1].EvidenceRequestCount != 0 {
 		t.Fatalf("unexpected confidence timeline: %+v", conclusion.ConfidenceTimeline)
 	}
@@ -3972,6 +3982,9 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 		*progress.ConclusionStatus != "ready_for_review" ||
 		progress.ConfidenceRationale == nil ||
 		*progress.ConfidenceRationale != "Deployment evidence explains the latency onset." ||
+		progress.ContextBytes == nil ||
+		*progress.ContextBytes != 2048 ||
+		!slices.Equal(progress.RetrievalRefs, []string{"sub_report:18", "final_report:9"}) ||
 		progress.EvidenceRequestCount != 0 ||
 		len(progress.ConfidenceTimeline) != 2 ||
 		len(progress.SupplementalEvidence) != 1 {
@@ -4013,6 +4026,67 @@ func TestGetReport_ReturnsDetailWithLinkedSubReports(t *testing.T) {
 	}
 	if factory.diagnosisRepo.lastChatSessionKey != "diagnosis-session-31" {
 		t.Fatalf("last chat session key = %q, want diagnosis-session-31", factory.diagnosisRepo.lastChatSessionKey)
+	}
+}
+
+func TestConfidenceTimelineEntryFromDiagnosisEventValidatesHistoricalReportRefs(t *testing.T) {
+	eventWithRefs := func(rawRefs string) domain.DiagnosisTaskEvent {
+		return domain.DiagnosisTaskEvent{
+			ID:     77,
+			TaskID: 31,
+			Kind:   diagnosisConclusionEventTurnPersisted,
+			Payload: json.RawMessage(fmt.Sprintf(`{
+				"kind":"diagnosis_room.turn_persisted",
+				"diagnosis_task_id":31,
+				"confidence":"medium",
+				"requires_human_review":true,
+				"context_bytes":1024,
+				"historical_report_refs":%s
+			}`, rawRefs)),
+			OccurredAt: time.Date(2026, 7, 14, 10, 0, 0, 0, time.UTC),
+		}
+	}
+
+	got, ok, err := confidenceTimelineEntryFromDiagnosisEvent(
+		eventWithRefs(`["sub_report:44","final_report:91"]`),
+	)
+	if err != nil || !ok {
+		t.Fatalf("valid historical refs: ok=%t err=%v", ok, err)
+	}
+	if got.ContextBytes == nil ||
+		*got.ContextBytes != 1024 ||
+		!slices.Equal(got.RetrievalRefs, []string{"sub_report:44", "final_report:91"}) {
+		t.Fatalf("confidence timeline historical retrieval = %+v", got)
+	}
+
+	for _, tc := range []struct {
+		name string
+		refs string
+	}{
+		{name: "duplicate", refs: `["final_report:91","final_report:91"]`},
+		{name: "unnormalized", refs: `[" final_report:91"]`},
+		{name: "unsupported kind", refs: `["incident:91"]`},
+		{name: "invalid id", refs: `["sub_report:0"]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := confidenceTimelineEntryFromDiagnosisEvent(eventWithRefs(tc.refs)); err == nil {
+				t.Fatalf("historical refs %s: want invariant error", tc.refs)
+			}
+		})
+	}
+	for _, contextBytes := range []int{-1, diagnosisroom.HardMaxContextBytes + 1} {
+		t.Run(fmt.Sprintf("context_bytes_%d", contextBytes), func(t *testing.T) {
+			event := eventWithRefs(`["final_report:91"]`)
+			event.Payload = json.RawMessage(strings.Replace(
+				string(event.Payload),
+				`"context_bytes":1024`,
+				fmt.Sprintf(`"context_bytes":%d`, contextBytes),
+				1,
+			))
+			if _, _, err := confidenceTimelineEntryFromDiagnosisEvent(event); err == nil {
+				t.Fatalf("context_bytes %d: want invariant error", contextBytes)
+			}
+		})
 	}
 }
 
@@ -9347,6 +9421,37 @@ func TestDiagnosisWSEvidenceTimelineFromTurnResultFallbackPreservesActorSubject(
 	}
 }
 
+func TestDiagnosisWSHistoricalRetrievalProjection(t *testing.T) {
+	followUpRefs := []string{"final_report:91"}
+	timelineRefs := []string{"sub_report:44", "final_report:91"}
+	followUps := diagnosisWSFollowUpTurns([]ports.DiagnosisRoomFollowUpTurnResult{{
+		ContextBytes:  1536,
+		RetrievalRefs: followUpRefs,
+	}})
+	timeline := diagnosisWSConfidenceTimeline([]ports.DiagnosisRoomConfidenceTimelineEntry{{
+		ContextBytes:  1536,
+		RetrievalRefs: timelineRefs,
+	}})
+
+	if len(followUps) != 1 ||
+		followUps[0].ContextBytes != 1536 ||
+		!slices.Equal(followUps[0].RetrievalRefs, followUpRefs) {
+		t.Fatalf("follow-up historical retrieval frame = %+v", followUps)
+	}
+	if len(timeline) != 1 ||
+		timeline[0].ContextBytes != 1536 ||
+		!slices.Equal(timeline[0].RetrievalRefs, timelineRefs) {
+		t.Fatalf("confidence timeline historical retrieval frame = %+v", timeline)
+	}
+
+	followUpRefs[0] = "final_report:999"
+	timelineRefs[0] = "sub_report:998"
+	if followUps[0].RetrievalRefs[0] != "final_report:91" ||
+		timeline[0].RetrievalRefs[0] != "sub_report:44" {
+		t.Fatalf("websocket retrieval refs alias use-case results: follow_ups=%+v timeline=%+v", followUps, timeline)
+	}
+}
+
 func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
 	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("H", diagnosisauth.DefaultTokenBytes)))
@@ -9508,6 +9613,7 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 			AssistantMessage:    "CPU alert is still firing.",
 			RequiresHumanReview: true,
 			Confidence:          "medium",
+			RetrievalRefs:       []string{"sub_report:44", "final_report:91"},
 			EvidenceRequests: []ports.DiagnosisRoomEvidenceRequest{{
 				AlertSourceProfileID: domain.AlertSourceProfileID(3),
 				Tool:                 domain.DiagnosisToolKindActiveAlerts,
@@ -9663,7 +9769,10 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	if err := conn.ReadJSON(&turn); err != nil {
 		t.Fatalf("ReadJSON turn: %v", err)
 	}
-	if turn.Type != diagnosisWSServerTurnResult || turn.MessageID != "msg-1" || turn.AssistantMessage != "CPU alert is still firing." {
+	if turn.Type != diagnosisWSServerTurnResult ||
+		turn.MessageID != "msg-1" ||
+		turn.AssistantMessage != "CPU alert is still firing." ||
+		!slices.Equal(turn.RetrievalRefs, []string{"sub_report:44", "final_report:91"}) {
 		t.Fatalf("turn = %+v", turn)
 	}
 	if turn.ConsultationInsight.ConfidenceRationale != "CPU evidence is present but restart evidence is missing." ||

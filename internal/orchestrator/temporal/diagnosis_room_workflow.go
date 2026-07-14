@@ -73,6 +73,8 @@ const (
 	diagnosisRoomConversationSummaryVersion        = 1
 	diagnosisRoomMultiStakeholderApprovalChangeID  = "diagnosis-room-multi-stakeholder-approval"
 	diagnosisRoomMultiStakeholderApprovalVersion   = 1
+	diagnosisRoomHistoricalRetrievalChangeID       = "diagnosis-room-historical-report-retrieval"
+	diagnosisRoomHistoricalRetrievalVersion        = 1
 	diagnosisRoomTurnStreamingChangeID             = "diagnosis-room-turn-streaming"
 	diagnosisRoomTurnStreamingVersion              = 1
 
@@ -141,9 +143,8 @@ type DiagnosisRoomSupplementalEvidenceRecord struct {
 	ProvidedAt         time.Time
 }
 
-// SubmitDiagnosisTurnResult is returned after the workflow accepts a user
-// message into its durable conversation state. The sandbox activity and
-// assistant response are still separate M5 work.
+// SubmitDiagnosisTurnResult is returned after the workflow durably persists
+// the accepted user and assistant turn pair.
 type SubmitDiagnosisTurnResult struct {
 	SessionID           string
 	ChatSessionID       int64
@@ -159,6 +160,7 @@ type SubmitDiagnosisTurnResult struct {
 	AssistantMessage    string
 	RequiresHumanReview bool
 	Confidence          string
+	RetrievalRefs       []string
 	EvidenceRequests    []diagnosisroom.EvidenceRequest
 	CollectionResults   []diagnosisevidence.Item
 	EvidenceTimeline    []DiagnosisRoomEvidenceTimelineEntry
@@ -192,6 +194,7 @@ type DiagnosisRoomFollowUpTurnResult struct {
 	AssistantMessage    string
 	RequiresHumanReview bool
 	Confidence          string
+	RetrievalRefs       []string
 	EvidenceRequests    []diagnosisroom.EvidenceRequest
 	CollectionResults   []diagnosisevidence.Item
 	Insight             diagnosisroom.ConsultationInsight
@@ -224,6 +227,8 @@ type DiagnosisRoomConfidenceTimelineEntry struct {
 	RequiresHumanReview           bool
 	ConclusionStatus              string
 	ConfidenceRationale           string
+	ContextBytes                  int
+	RetrievalRefs                 []string
 	EvidenceRequests              []diagnosisroom.EvidenceRequest
 	CollectionResults             []diagnosisevidence.Item
 	MissingEvidenceRequests       []diagnosisroom.ConsultationEvidenceRequest
@@ -399,6 +404,12 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		workflow.DefaultVersion,
 		diagnosisRoomMultiStakeholderApprovalVersion,
 	)
+	historicalRetrievalVersion := workflow.GetVersion(
+		ctx,
+		diagnosisRoomHistoricalRetrievalChangeID,
+		workflow.DefaultVersion,
+		diagnosisRoomHistoricalRetrievalVersion,
+	)
 	state.approvalEnabled = multiStakeholderApprovalVersion >= diagnosisRoomMultiStakeholderApprovalVersion
 	var approvalLifecycleCh workflow.Channel
 	if state.approvalEnabled {
@@ -428,6 +439,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 				evidenceCollectedVersion,
 				finalReadyNotificationVersion,
 				assistantTurnNotificationVersion,
+				historicalRetrievalVersion,
 			)
 		},
 		workflow.UpdateHandlerOptions{
@@ -487,6 +499,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 					manualEvidenceCollectedVersion,
 					finalReadyNotificationVersion,
 					assistantTurnNotificationVersion,
+					historicalRetrievalVersion,
 				)
 			},
 			workflow.UpdateHandlerOptions{
@@ -541,6 +554,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			evidenceCollectedVersion,
 			finalReadyNotificationVersion,
 			assistantTurnNotificationVersion,
+			historicalRetrievalVersion,
 		); err != nil {
 			state.latestError = diagnosisRoomLatestErrorFromTurnFailure(workflow.Now(ctx), state.input.InitialTurn.MessageID, err)
 			state.close(workflow.Now(ctx), diagnosisRoomCloseInitialTurnFailed, diagnosisRoomAutoActorSubject)
@@ -763,6 +777,7 @@ func (s *diagnosisRoomState) submitDiagnosisRoomTurn(
 	evidenceCollectedVersion workflow.Version,
 	finalReadyNotificationVersion workflow.Version,
 	assistantTurnNotificationVersion workflow.Version,
+	historicalRetrievalVersion workflow.Version,
 ) (SubmitDiagnosisTurnResult, error) {
 	decision, turnEvidence, err := s.validateSubmit(ctx, req, evidenceContextVersion)
 	if err != nil {
@@ -786,6 +801,7 @@ func (s *diagnosisRoomState) submitDiagnosisRoomTurn(
 		evidenceCollectedVersion,
 		finalReadyNotificationVersion,
 		assistantTurnNotificationVersion,
+		historicalRetrievalVersion,
 	)
 	if err != nil {
 		s.latestError = diagnosisRoomLatestErrorFromTurnFailure(workflow.Now(ctx), req.MessageID, err)
@@ -802,6 +818,7 @@ func (s *diagnosisRoomState) submitDiagnosisRoomTurn(
 			evidenceCollectedVersion,
 			finalReadyNotificationVersion,
 			assistantTurnNotificationVersion,
+			historicalRetrievalVersion,
 		)
 		if err != nil {
 			s.latestError = diagnosisRoomLatestErrorFromTurnFailure(workflow.Now(ctx), result.MessageID, err)
@@ -821,6 +838,7 @@ func (s *diagnosisRoomState) collectDiagnosisEvidence(
 	manualEvidenceCollectedVersion workflow.Version,
 	finalReadyNotificationVersion workflow.Version,
 	assistantTurnNotificationVersion workflow.Version,
+	historicalRetrievalVersion workflow.Version,
 ) (CollectDiagnosisEvidenceUpdateResult, error) {
 	if err := s.validateCollectEvidence(req); err != nil {
 		return CollectDiagnosisEvidenceUpdateResult{}, err
@@ -907,6 +925,7 @@ func (s *diagnosisRoomState) collectDiagnosisEvidence(
 			evidenceCollectedVersion,
 			finalReadyNotificationVersion,
 			assistantTurnNotificationVersion,
+			historicalRetrievalVersion,
 		)
 		if err != nil {
 			s.latestError = diagnosisRoomLatestErrorFromTurnFailure(workflow.Now(ctx), req.MessageID, err)
@@ -1000,6 +1019,7 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 	evidenceCollectedVersion workflow.Version,
 	finalReadyNotificationVersion workflow.Version,
 	assistantTurnNotificationVersion workflow.Version,
+	historicalRetrievalVersion workflow.Version,
 ) (SubmitDiagnosisTurnResult, workflow.Version, error) {
 	streamingVersion := workflow.GetVersion(
 		ctx,
@@ -1016,18 +1036,19 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 	actorSubject := strings.TrimSpace(req.ActorSubject)
 	userMessage := strings.TrimSpace(req.Message)
 	activityReq := DiagnosisTurnActivityInput{
-		SessionID:            s.input.SessionID,
-		DiagnosisTaskID:      s.diagnosisTaskID,
-		MessageID:            messageID,
-		UserSequence:         userSequence,
-		AssistantSequence:    assistantSequence,
-		ActorSubject:         actorSubject,
-		Evidence:             turnEvidence,
-		Conversation:         priorConversation,
-		Message:              req.Message,
-		SupplementalEvidence: copyDiagnosisRoomSupplementalEvidence(req.SupplementalEvidence),
-		Policy:               s.policy,
-		EnableStreaming:      streamingEnabled,
+		SessionID:                 s.input.SessionID,
+		DiagnosisTaskID:           s.diagnosisTaskID,
+		MessageID:                 messageID,
+		UserSequence:              userSequence,
+		AssistantSequence:         assistantSequence,
+		ActorSubject:              actorSubject,
+		Evidence:                  turnEvidence,
+		Conversation:              priorConversation,
+		Message:                   req.Message,
+		SupplementalEvidence:      copyDiagnosisRoomSupplementalEvidence(req.SupplementalEvidence),
+		Policy:                    s.policy,
+		EnableHistoricalRetrieval: historicalRetrievalVersion >= diagnosisRoomHistoricalRetrievalVersion,
+		EnableStreaming:           streamingEnabled,
 	}
 	actCtx := workflow.WithActivityOptions(ctx, diagnosisRoomTurnActivityOptions(s.policy, streamingEnabled))
 	var activityResult DiagnosisTurnActivityResult
@@ -1045,6 +1066,28 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 		activityResult.Confidence = normalized.Confidence
 		activityResult.Insight = normalized.Insight()
 	}
+	contextBytes := decision.ContextBytes
+	retrievalRefs := []string(nil)
+	if historicalRetrievalVersion >= diagnosisRoomHistoricalRetrievalVersion {
+		if activityResult.ContextBytes > s.policy.ContextBytes {
+			return SubmitDiagnosisTurnResult{}, collectionVersion, fmt.Errorf(
+				"diagnosis turn activity context bytes %d exceed policy maximum %d: %w",
+				activityResult.ContextBytes,
+				s.policy.ContextBytes,
+				domain.ErrInvariantViolation,
+			)
+		}
+		if activityResult.ContextBytes <= 0 && len(activityResult.RetrievalRefs) > 0 {
+			return SubmitDiagnosisTurnResult{}, collectionVersion, fmt.Errorf(
+				"diagnosis turn activity returned retrieval refs without mounted context bytes: %w",
+				domain.ErrInvariantViolation,
+			)
+		}
+		if activityResult.ContextBytes > 0 {
+			contextBytes = activityResult.ContextBytes
+		}
+		retrievalRefs = cloneStrings(activityResult.RetrievalRefs)
+	}
 	assistantOccurredAt := workflow.Now(ctx)
 	persistReq := PersistDiagnosisTurnInput{
 		SessionID:            s.input.SessionID,
@@ -1060,7 +1103,8 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 		AssistantMessage:     activityResult.AssistantMessage,
 		UserOccurredAt:       userOccurredAt,
 		AssistantOccurredAt:  assistantOccurredAt,
-		ContextBytes:         decision.ContextBytes,
+		ContextBytes:         contextBytes,
+		RetrievalRefs:        retrievalRefs,
 		InvocationID:         activityResult.InvocationID,
 		RuntimeID:            activityResult.RuntimeID,
 		ContainerStartedAt:   activityResult.StartedAt,
@@ -1152,6 +1196,12 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 	s.latestInsight = copyDiagnosisRoomConsultationInsight(persistResult.Insight)
 	s.latestConfidence = activityResult.Confidence
 	s.latestRequiresHumanReview = boolPtr(activityResult.RequiresHumanReview)
+	timelineContextBytes := 0
+	timelineRetrievalRefs := []string(nil)
+	if historicalRetrievalVersion >= diagnosisRoomHistoricalRetrievalVersion {
+		timelineContextBytes = contextBytes
+		timelineRetrievalRefs = retrievalRefs
+	}
 	s.recordLatestEvidenceCycle(actorSubject, persistResult.EvidenceRequests, collectionResult.Items)
 	s.recordEvidenceTimelineEntry(diagnosisRoomEvidenceTimelineEntry{
 		turnCount:          persistResult.TurnCount,
@@ -1174,6 +1224,8 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 		requiresHumanReview:           activityResult.RequiresHumanReview,
 		conclusionStatus:              persistResult.Insight.ConclusionStatus,
 		confidenceRationale:           persistResult.Insight.ConfidenceRationale,
+		contextBytes:                  timelineContextBytes,
+		retrievalRefs:                 timelineRetrievalRefs,
 		evidenceRequests:              persistResult.EvidenceRequests,
 		collectionResults:             collectionResult.Items,
 		missingEvidenceRequests:       persistResult.Insight.MissingEvidenceRequests,
@@ -1213,11 +1265,12 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 		UserSequence:        userSequence,
 		AssistantSequence:   activityResult.AssistantSequence,
 		TurnCount:           s.turnCount,
-		ContextBytes:        decision.ContextBytes,
+		ContextBytes:        contextBytes,
 		Status:              s.status,
 		AssistantMessage:    activityResult.AssistantMessage,
 		RequiresHumanReview: activityResult.RequiresHumanReview,
 		Confidence:          activityResult.Confidence,
+		RetrievalRefs:       cloneStrings(retrievalRefs),
 		EvidenceRequests:    cloneEvidenceRequests(persistResult.EvidenceRequests),
 		CollectionResults:   diagnosisevidence.CloneItems(collectionResult.Items),
 		EvidenceTimeline:    cloneDiagnosisRoomEvidenceTimeline(s.evidenceTimeline),
@@ -1420,6 +1473,8 @@ type diagnosisRoomConfidenceTimelineEntry struct {
 	requiresHumanReview           bool
 	conclusionStatus              string
 	confidenceRationale           string
+	contextBytes                  int
+	retrievalRefs                 []string
 	evidenceRequests              []diagnosisroom.EvidenceRequest
 	collectionResults             []diagnosisevidence.Item
 	missingEvidenceRequests       []diagnosisroom.ConsultationEvidenceRequest
@@ -1457,6 +1512,8 @@ func (s *diagnosisRoomState) recordConfidenceTimelineEntry(entry diagnosisRoomCo
 		RequiresHumanReview:           entry.requiresHumanReview,
 		ConclusionStatus:              strings.TrimSpace(entry.conclusionStatus),
 		ConfidenceRationale:           strings.TrimSpace(entry.confidenceRationale),
+		ContextBytes:                  entry.contextBytes,
+		RetrievalRefs:                 cloneStrings(entry.retrievalRefs),
 		EvidenceRequests:              cloneEvidenceRequests(entry.evidenceRequests),
 		CollectionResults:             diagnosisevidence.CloneItems(entry.collectionResults),
 		MissingEvidenceRequests:       diagnosisroom.CloneConsultationEvidenceRequests(entry.missingEvidenceRequests),
@@ -2108,6 +2165,7 @@ func (s *diagnosisRoomState) runAutoEvidenceFollowUps(
 	evidenceCollectedVersion workflow.Version,
 	finalReadyNotificationVersion workflow.Version,
 	assistantTurnNotificationVersion workflow.Version,
+	historicalRetrievalVersion workflow.Version,
 ) ([]DiagnosisRoomFollowUpTurnResult, error) {
 	maxFollowUps := s.policy.MaxAutoEvidenceFollowUps
 	if maxFollowUps <= 0 {
@@ -2140,6 +2198,7 @@ func (s *diagnosisRoomState) runAutoEvidenceFollowUps(
 			evidenceCollectedVersion,
 			finalReadyNotificationVersion,
 			assistantTurnNotificationVersion,
+			historicalRetrievalVersion,
 		)
 		if err != nil {
 			return nil, err
@@ -2342,6 +2401,7 @@ func diagnosisRoomFollowUpTurnResult(
 		AssistantMessage:    result.AssistantMessage,
 		RequiresHumanReview: result.RequiresHumanReview,
 		Confidence:          result.Confidence,
+		RetrievalRefs:       cloneStrings(result.RetrievalRefs),
 		EvidenceRequests:    cloneEvidenceRequests(result.EvidenceRequests),
 		CollectionResults:   diagnosisevidence.CloneItems(result.CollectionResults),
 		Insight:             result.Insight,
@@ -2547,6 +2607,8 @@ func cloneDiagnosisRoomConfidenceTimeline(
 			RequiresHumanReview:           item.RequiresHumanReview,
 			ConclusionStatus:              item.ConclusionStatus,
 			ConfidenceRationale:           item.ConfidenceRationale,
+			ContextBytes:                  item.ContextBytes,
+			RetrievalRefs:                 cloneStrings(item.RetrievalRefs),
 			EvidenceRequests:              cloneEvidenceRequests(item.EvidenceRequests),
 			CollectionResults:             diagnosisevidence.CloneItems(item.CollectionResults),
 			MissingEvidenceRequests:       diagnosisroom.CloneConsultationEvidenceRequests(item.MissingEvidenceRequests),

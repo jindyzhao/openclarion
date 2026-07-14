@@ -101,6 +101,7 @@ describe("parseDiagnosisServerFrame", () => {
           assistant_message: "Need restart evidence before finalizing.",
           requires_human_review: true,
           confidence: "medium",
+          retrieval_refs: ["sub_report:44", "final_report:91"],
           evidence_requests: [
             {
               tool: "active_alerts",
@@ -196,6 +197,7 @@ describe("parseDiagnosisServerFrame", () => {
               assistant_message: "Collected evidence confirms CPU saturation.",
               requires_human_review: false,
               confidence: "high",
+              retrieval_refs: ["final_report:91"],
               consultation_insight: {
                 conclusion_status: "final",
               },
@@ -243,11 +245,13 @@ describe("parseDiagnosisServerFrame", () => {
         evidence_collection_suggestions: [{ priority: "medium" }],
         conclusion_status: "needs_evidence",
       },
+      retrieval_refs: ["sub_report:44", "final_report:91"],
       follow_up_turns: [
         {
           message_id: "user-1/auto-evidence-1",
           assistant_message: "Collected evidence confirms CPU saturation.",
           consultation_insight: { conclusion_status: "final" },
+          retrieval_refs: ["final_report:91"],
           trigger: "collected_evidence",
         },
       ],
@@ -256,6 +260,50 @@ describe("parseDiagnosisServerFrame", () => {
         message_id: "assistant-1",
       },
     });
+  });
+
+  it.each([
+    { retrieval_refs: [42] },
+    { retrieval_refs: ["final_report:0"] },
+    { retrieval_refs: ["final_report:91", "final_report:91"] },
+    {
+      follow_up_turns: [
+        {
+          context_bytes: 512,
+          retrieval_refs: ["incident:91"],
+        },
+      ],
+    },
+    {
+      confidence_timeline: [
+        {
+          context_bytes: -1,
+          retrieval_refs: ["sub_report:44"],
+        },
+      ],
+    },
+  ])("rejects malformed historical retrieval metadata", (metadata) => {
+    const frame = {
+      type: "turn_result",
+      session_id: "s1",
+      chat_session_id: 7,
+      message_id: "user-1",
+      assistant_message_id: "assistant-1",
+      user_turn_id: 11,
+      assistant_turn_id: 12,
+      user_sequence: 1,
+      assistant_sequence: 2,
+      turn_count: 1,
+      context_bytes: 256,
+      status: "open",
+      assistant_message: "Result",
+      requires_human_review: false,
+      confidence: "high",
+      ...metadata,
+    };
+    expect(() => parseDiagnosisServerFrame(JSON.stringify(frame))).toThrow(
+      "Invalid turn_result diagnosis frame.",
+    );
   });
 
   it("preserves latest error on state frames", () => {

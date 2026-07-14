@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -403,6 +404,48 @@ func TestDiagnosisRoomClient_SubmitDiagnosisTurnUsesCompletedUpdate(t *testing.T
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("result = %+v, want %+v", got, want)
+	}
+}
+
+func TestDiagnosisRoomSubmitTurnResultPreservesHistoricalRetrievalMetadata(t *testing.T) {
+	rootRefs := []string{"sub_report:44", "final_report:91"}
+	followUpRefs := []string{"final_report:92"}
+	timelineRefs := []string{"sub_report:45"}
+	input := SubmitDiagnosisTurnResult{
+		ContextBytes:  1024,
+		RetrievalRefs: rootRefs,
+		FollowUpTurns: []DiagnosisRoomFollowUpTurnResult{{
+			ContextBytes:  1536,
+			RetrievalRefs: followUpRefs,
+		}},
+		ConfidenceTimeline: []DiagnosisRoomConfidenceTimelineEntry{{
+			ContextBytes:  1536,
+			RetrievalRefs: timelineRefs,
+		}},
+	}
+
+	got := diagnosisRoomSubmitTurnResult(input)
+	if got.ContextBytes != 1024 || !slices.Equal(got.RetrievalRefs, rootRefs) {
+		t.Fatalf("submit historical retrieval = context_bytes=%d refs=%v", got.ContextBytes, got.RetrievalRefs)
+	}
+	if len(got.FollowUpTurns) != 1 ||
+		got.FollowUpTurns[0].ContextBytes != 1536 ||
+		!slices.Equal(got.FollowUpTurns[0].RetrievalRefs, followUpRefs) {
+		t.Fatalf("follow-up historical retrieval = %+v", got.FollowUpTurns)
+	}
+	if len(got.ConfidenceTimeline) != 1 ||
+		got.ConfidenceTimeline[0].ContextBytes != 1536 ||
+		!slices.Equal(got.ConfidenceTimeline[0].RetrievalRefs, timelineRefs) {
+		t.Fatalf("confidence timeline historical retrieval = %+v", got.ConfidenceTimeline)
+	}
+
+	input.RetrievalRefs[0] = "final_report:999"
+	input.FollowUpTurns[0].RetrievalRefs[0] = "final_report:998"
+	input.ConfidenceTimeline[0].RetrievalRefs[0] = "sub_report:997"
+	if got.RetrievalRefs[0] != "sub_report:44" ||
+		got.FollowUpTurns[0].RetrievalRefs[0] != "final_report:92" ||
+		got.ConfidenceTimeline[0].RetrievalRefs[0] != "sub_report:45" {
+		t.Fatalf("mapped retrieval refs alias workflow state: %+v", got)
 	}
 }
 
