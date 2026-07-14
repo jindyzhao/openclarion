@@ -1605,6 +1605,20 @@ func TestListDiagnosisRooms_ReturnsSummaries(t *testing.T) {
 			},
 		},
 		diagnosisRepo: &fakeDiagnosisRepo{
+			chatSessionSummaries: map[domain.ChatSessionID]domain.ChatSessionSummary{
+				353: {
+					ID:                  701,
+					SessionID:           353,
+					Version:             1,
+					SchemaVersion:       "diagnosis-conversation-summary.v1",
+					SourceFirstSequence: 1,
+					SourceLastSequence:  2,
+					SourceTurnCount:     2,
+					SourceDigest:        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+					Content:             json.RawMessage(`{"schema_version":"diagnosis-conversation-summary.v1","compression_method":"deterministic-extractive","source_turn_count":2,"opening_request":"Please investigate","latest_request":"Please investigate","latest_assistant_response":"Storage evidence is needed."}`),
+					GeneratedAt:         closedAt,
+				},
+			},
 			eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
 				353: {
 					diagnosisConclusionEventTurnPersisted: {{
@@ -1730,6 +1744,13 @@ func TestListDiagnosisRooms_ReturnsSummaries(t *testing.T) {
 	}
 	if got.ClosedAt.IsNull() {
 		t.Fatalf("closed_at should be populated for closed rooms")
+	}
+	if got.ConversationSummary == nil ||
+		got.ConversationSummary.ID != 701 ||
+		got.ConversationSummary.SourceTurnCount != 2 ||
+		got.ConversationSummary.Content.LatestAssistantResponse == nil ||
+		*got.ConversationSummary.Content.LatestAssistantResponse != "Storage evidence is needed." {
+		t.Fatalf("conversation summary = %+v", got.ConversationSummary)
 	}
 	if visibility.called != 1 ||
 		len(visibility.requests) != 1 ||
@@ -9679,7 +9700,7 @@ func TestDiagnosisWebSocketRelaySubmitsTurnAndQueriesState(t *testing.T) {
 	}
 }
 
-func TestDiagnosisWSStateFrameIncludesLatestError(t *testing.T) {
+func TestDiagnosisWSStateFrameIncludesLatestErrorAndSummary(t *testing.T) {
 	now := time.Date(2026, 6, 19, 11, 30, 0, 0, time.UTC)
 	frame := diagnosisWSStateFrameFromState(ports.DiagnosisRoomState{
 		SessionID:       "session-1",
@@ -9695,6 +9716,17 @@ func TestDiagnosisWSStateFrameIncludesLatestError(t *testing.T) {
 			MessageID:  "msg-1",
 			OccurredAt: now,
 		},
+		ConversationSummary: &ports.DiagnosisRoomConversationSummary{
+			ID:                  44,
+			Version:             1,
+			SchemaVersion:       "diagnosis-conversation-summary.v1",
+			SourceFirstSequence: 1,
+			SourceLastSequence:  2,
+			SourceTurnCount:     2,
+			SourceDigest:        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			Content:             json.RawMessage(`{"schema_version":"diagnosis-conversation-summary.v1","compression_method":"deterministic-extractive","source_turn_count":2}`),
+			GeneratedAt:         now,
+		},
 		SeenMessageIDs: []string{"msg-1"},
 	})
 
@@ -9705,6 +9737,12 @@ func TestDiagnosisWSStateFrameIncludesLatestError(t *testing.T) {
 		frame.LatestError.MessageID != "msg-1" ||
 		!frame.LatestError.OccurredAt.Equal(now) {
 		t.Fatalf("LatestError = %+v", frame.LatestError)
+	}
+	if frame.ConversationSummary == nil ||
+		frame.ConversationSummary.ID != 44 ||
+		frame.ConversationSummary.SourceTurnCount != 2 ||
+		string(frame.ConversationSummary.Content) != `{"schema_version":"diagnosis-conversation-summary.v1","compression_method":"deterministic-extractive","source_turn_count":2}` {
+		t.Fatalf("ConversationSummary = %+v", frame.ConversationSummary)
 	}
 }
 
@@ -11301,6 +11339,7 @@ type fakeDiagnosisRepo struct {
 	tasksBySnapshot       map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
 	eventsByTaskAndKind   map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
 	chatTurnsBySession    map[domain.ChatSessionID][]domain.ChatTurn
+	chatSessionSummaries  map[domain.ChatSessionID]domain.ChatSessionSummary
 	chatSessions          []domain.ChatSessionWithTask
 	lastSnapshotID        domain.EvidenceSnapshotID
 	lastTaskLimit         int
@@ -11401,6 +11440,13 @@ func (r *fakeDiagnosisRepo) ListChatTurnsBySession(_ context.Context, sessionID 
 		limit = len(turns)
 	}
 	return turns[:limit], nil
+}
+
+func (r *fakeDiagnosisRepo) FindLatestChatSessionSummary(_ context.Context, sessionID domain.ChatSessionID) (domain.ChatSessionSummary, error) {
+	if summary, ok := r.chatSessionSummaries[sessionID]; ok {
+		return summary, nil
+	}
+	return domain.ChatSessionSummary{}, domain.ErrNotFound
 }
 
 type fakeReportRepo struct {

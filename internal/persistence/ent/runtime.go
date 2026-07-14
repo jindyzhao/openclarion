@@ -9,6 +9,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertsourceprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
@@ -298,6 +299,64 @@ func init() {
 	chatsession.DefaultUpdatedAt = chatsessionDescUpdatedAt.Default.(func() time.Time)
 	// chatsession.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	chatsession.UpdateDefaultUpdatedAt = chatsessionDescUpdatedAt.UpdateDefault.(func() time.Time)
+	chatsessionsummaryFields := schema.ChatSessionSummary{}.Fields()
+	_ = chatsessionsummaryFields
+	// chatsessionsummaryDescVersion is the schema descriptor for version field.
+	chatsessionsummaryDescVersion := chatsessionsummaryFields[1].Descriptor()
+	// chatsessionsummary.VersionValidator is a validator for the "version" field. It is called by the builders before save.
+	chatsessionsummary.VersionValidator = chatsessionsummaryDescVersion.Validators[0].(func(int) error)
+	// chatsessionsummaryDescSchemaVersion is the schema descriptor for schema_version field.
+	chatsessionsummaryDescSchemaVersion := chatsessionsummaryFields[2].Descriptor()
+	// chatsessionsummary.SchemaVersionValidator is a validator for the "schema_version" field. It is called by the builders before save.
+	chatsessionsummary.SchemaVersionValidator = func() func(string) error {
+		validators := chatsessionsummaryDescSchemaVersion.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(schema_version string) error {
+			for _, fn := range fns {
+				if err := fn(schema_version); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// chatsessionsummaryDescSourceFirstSequence is the schema descriptor for source_first_sequence field.
+	chatsessionsummaryDescSourceFirstSequence := chatsessionsummaryFields[3].Descriptor()
+	// chatsessionsummary.SourceFirstSequenceValidator is a validator for the "source_first_sequence" field. It is called by the builders before save.
+	chatsessionsummary.SourceFirstSequenceValidator = chatsessionsummaryDescSourceFirstSequence.Validators[0].(func(int) error)
+	// chatsessionsummaryDescSourceLastSequence is the schema descriptor for source_last_sequence field.
+	chatsessionsummaryDescSourceLastSequence := chatsessionsummaryFields[4].Descriptor()
+	// chatsessionsummary.SourceLastSequenceValidator is a validator for the "source_last_sequence" field. It is called by the builders before save.
+	chatsessionsummary.SourceLastSequenceValidator = chatsessionsummaryDescSourceLastSequence.Validators[0].(func(int) error)
+	// chatsessionsummaryDescSourceTurnCount is the schema descriptor for source_turn_count field.
+	chatsessionsummaryDescSourceTurnCount := chatsessionsummaryFields[5].Descriptor()
+	// chatsessionsummary.SourceTurnCountValidator is a validator for the "source_turn_count" field. It is called by the builders before save.
+	chatsessionsummary.SourceTurnCountValidator = chatsessionsummaryDescSourceTurnCount.Validators[0].(func(int) error)
+	// chatsessionsummaryDescSourceDigest is the schema descriptor for source_digest field.
+	chatsessionsummaryDescSourceDigest := chatsessionsummaryFields[6].Descriptor()
+	// chatsessionsummary.SourceDigestValidator is a validator for the "source_digest" field. It is called by the builders before save.
+	chatsessionsummary.SourceDigestValidator = func() func(string) error {
+		validators := chatsessionsummaryDescSourceDigest.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(source_digest string) error {
+			for _, fn := range fns {
+				if err := fn(source_digest); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// chatsessionsummaryDescCreatedAt is the schema descriptor for created_at field.
+	chatsessionsummaryDescCreatedAt := chatsessionsummaryFields[9].Descriptor()
+	// chatsessionsummary.DefaultCreatedAt holds the default value on creation for the created_at field.
+	chatsessionsummary.DefaultCreatedAt = chatsessionsummaryDescCreatedAt.Default.(func() time.Time)
 	chatturnFields := schema.ChatTurn{}.Fields()
 	_ = chatturnFields
 	// chatturnDescMessageID is the schema descriptor for message_id field.

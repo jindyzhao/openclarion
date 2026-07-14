@@ -15,6 +15,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosiscompression"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -165,18 +166,34 @@ type CloseDiagnosisChatSessionInput struct {
 	CloseNotificationChannelProfileID int64
 	DiagnosisTaskStatus               string
 	DiagnosisTaskFailureReason        string
+	GenerateConversationSummary       bool
+}
+
+// DiagnosisRoomConversationSummary is the workflow/read representation of one
+// immutable lifecycle-end compression checkpoint.
+type DiagnosisRoomConversationSummary struct {
+	ID                  int64           `json:"id"`
+	Version             int             `json:"version"`
+	SchemaVersion       string          `json:"schema_version"`
+	SourceFirstSequence int             `json:"source_first_sequence"`
+	SourceLastSequence  int             `json:"source_last_sequence"`
+	SourceTurnCount     int             `json:"source_turn_count"`
+	SourceDigest        string          `json:"source_digest"`
+	Content             json.RawMessage `json:"content"`
+	GeneratedAt         time.Time       `json:"generated_at"`
 }
 
 // CloseDiagnosisChatSessionResult returns the persisted terminal room state.
 type CloseDiagnosisChatSessionResult struct {
-	ChatSessionID    int64
-	LifecycleEventID int64
-	Status           string
-	TurnCount        int
-	ClosedAt         time.Time
-	CloseReason      string
-	LastActivityAt   time.Time
-	FinalConclusion  DiagnosisRoomFinalConclusion
+	ChatSessionID       int64
+	LifecycleEventID    int64
+	Status              string
+	TurnCount           int
+	ClosedAt            time.Time
+	CloseReason         string
+	LastActivityAt      time.Time
+	FinalConclusion     DiagnosisRoomFinalConclusion
+	ConversationSummary *DiagnosisRoomConversationSummary
 }
 
 // SendDiagnosisRoomAssistantTurnNotificationInput sends an operator-facing AI
@@ -367,7 +384,7 @@ func (a *Activities) CloseDiagnosisChatSession(ctx context.Context, req CloseDia
 		return CloseDiagnosisChatSessionResult{}, temporalsdk.NewNonRetryableApplicationError(
 			"close-diagnosis-chat-session: unit of work factory is not configured", errTypeInvalidInput, nil)
 	}
-	session, task, err := a.closeDiagnosisChatSession(ctx, req)
+	session, task, summary, err := a.closeDiagnosisChatSession(ctx, req)
 	if err != nil {
 		return CloseDiagnosisChatSessionResult{}, mapActivityError(err, "close-diagnosis-chat-session")
 	}
@@ -376,11 +393,11 @@ func (a *Activities) CloseDiagnosisChatSession(ctx context.Context, req CloseDia
 			return CloseDiagnosisChatSessionResult{}, mapActivityError(err, "close-diagnosis-chat-session failure event")
 		}
 	}
-	event, finalConclusion, err := a.recordDiagnosisRoomClosed(ctx, req, session)
+	event, finalConclusion, err := a.recordDiagnosisRoomClosed(ctx, req, session, summary)
 	if err != nil {
 		return CloseDiagnosisChatSessionResult{}, mapActivityError(err, "close-diagnosis-chat-session lifecycle event")
 	}
-	return closeDiagnosisChatSessionResult(session, event, finalConclusion), nil
+	return closeDiagnosisChatSessionResult(session, event, finalConclusion, summary), nil
 }
 
 // SendDiagnosisRoomAssistantTurnNotification delivers an AI diagnosis update
@@ -804,16 +821,17 @@ func (a *Activities) lookupDiagnosisTaskByExecution(ctx context.Context, workflo
 	return task, found, err
 }
 
-func (a *Activities) closeDiagnosisChatSession(ctx context.Context, req CloseDiagnosisChatSessionInput) (domain.ChatSession, domain.DiagnosisTask, error) {
+func (a *Activities) closeDiagnosisChatSession(ctx context.Context, req CloseDiagnosisChatSessionInput) (domain.ChatSession, domain.DiagnosisTask, *domain.ChatSessionSummary, error) {
 	if err := validateCloseDiagnosisChatSessionInput(req); err != nil {
-		return domain.ChatSession{}, domain.DiagnosisTask{}, err
+		return domain.ChatSession{}, domain.DiagnosisTask{}, nil, err
 	}
 	taskStatus, failureReason, err := diagnosisTaskTerminalStateForRoomClose(req)
 	if err != nil {
-		return domain.ChatSession{}, domain.DiagnosisTask{}, err
+		return domain.ChatSession{}, domain.DiagnosisTask{}, nil, err
 	}
 	var saved domain.ChatSession
 	var savedTask domain.DiagnosisTask
+	var savedSummary *domain.ChatSessionSummary
 	err = a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
 		session, err := uow.Diagnosis().FindChatSessionByKey(ctx, req.SessionID)
 		if err != nil {
@@ -825,6 +843,13 @@ func (a *Activities) closeDiagnosisChatSession(ctx context.Context, req CloseDia
 		if session.TurnCount != req.TurnCount {
 			return fmt.Errorf("close diagnosis chat session: turn_count %d does not match workflow turn_count %d: %w",
 				session.TurnCount, req.TurnCount, domain.ErrInvariantViolation)
+		}
+		if req.GenerateConversationSummary {
+			summary, err := ensureDiagnosisConversationSummary(ctx, uow.Diagnosis(), session, req)
+			if err != nil {
+				return err
+			}
+			savedSummary = &summary
 		}
 		task, err := uow.Diagnosis().FindTaskByID(ctx, domain.DiagnosisTaskID(req.DiagnosisTaskID))
 		if err != nil {
@@ -845,7 +870,44 @@ func (a *Activities) closeDiagnosisChatSession(ctx context.Context, req CloseDia
 		saved, err = uow.Diagnosis().UpdateChatSession(ctx, closed)
 		return err
 	})
-	return saved, savedTask, err
+	return saved, savedTask, savedSummary, err
+}
+
+func ensureDiagnosisConversationSummary(
+	ctx context.Context,
+	repo ports.DiagnosisRepository,
+	session domain.ChatSession,
+	req CloseDiagnosisChatSessionInput,
+) (domain.ChatSessionSummary, error) {
+	turns, err := repo.ListChatTurnsBySession(ctx, session.ID, diagnosiscompression.MaxSourceTurns+1)
+	if err != nil {
+		return domain.ChatSessionSummary{}, err
+	}
+	wantSourceTurns := req.TurnCount * 2
+	if len(turns) != wantSourceTurns {
+		return domain.ChatSessionSummary{}, fmt.Errorf(
+			"close diagnosis chat session: persisted transcript has %d turns, want %d for workflow turn_count %d: %w",
+			len(turns), wantSourceTurns, req.TurnCount, domain.ErrInvariantViolation,
+		)
+	}
+	candidate, err := diagnosiscompression.Summarize(session.ID, turns, req.ClosedAt)
+	if err != nil {
+		return domain.ChatSessionSummary{}, err
+	}
+	existing, err := repo.FindChatSessionSummaryBySessionAndVersion(ctx, session.ID, diagnosiscompression.SummaryVersion)
+	if err == nil {
+		if !diagnosiscompression.Equivalent(existing, candidate) {
+			return domain.ChatSessionSummary{}, fmt.Errorf(
+				"close diagnosis chat session: existing conversation summary version %d does not match persisted transcript: %w",
+				diagnosiscompression.SummaryVersion, domain.ErrInvariantViolation,
+			)
+		}
+		return existing, nil
+	}
+	if !errors.Is(err, domain.ErrNotFound) {
+		return domain.ChatSessionSummary{}, err
+	}
+	return repo.SaveChatSessionSummary(ctx, candidate)
 }
 
 func diagnosisTaskTerminalStateForRoomClose(req CloseDiagnosisChatSessionInput) (domain.DiagnosisStatus, string, error) {
@@ -1580,20 +1642,39 @@ func closeDiagnosisChatSessionResult(
 	session domain.ChatSession,
 	event domain.DiagnosisTaskEvent,
 	finalConclusion DiagnosisRoomFinalConclusion,
+	summary *domain.ChatSessionSummary,
 ) CloseDiagnosisChatSessionResult {
 	var closedAt time.Time
 	if session.ClosedAt != nil {
 		closedAt = *session.ClosedAt
 	}
 	return CloseDiagnosisChatSessionResult{
-		ChatSessionID:    int64(session.ID),
-		LifecycleEventID: int64(event.ID),
-		Status:           string(session.Status),
-		TurnCount:        session.TurnCount,
-		ClosedAt:         closedAt,
-		CloseReason:      session.CloseReason,
-		LastActivityAt:   session.LastActivityAt,
-		FinalConclusion:  finalConclusion,
+		ChatSessionID:       int64(session.ID),
+		LifecycleEventID:    int64(event.ID),
+		Status:              string(session.Status),
+		TurnCount:           session.TurnCount,
+		ClosedAt:            closedAt,
+		CloseReason:         session.CloseReason,
+		LastActivityAt:      session.LastActivityAt,
+		FinalConclusion:     finalConclusion,
+		ConversationSummary: diagnosisRoomConversationSummary(summary),
+	}
+}
+
+func diagnosisRoomConversationSummary(in *domain.ChatSessionSummary) *DiagnosisRoomConversationSummary {
+	if in == nil {
+		return nil
+	}
+	return &DiagnosisRoomConversationSummary{
+		ID:                  int64(in.ID),
+		Version:             in.Version,
+		SchemaVersion:       in.SchemaVersion,
+		SourceFirstSequence: in.SourceFirstSequence,
+		SourceLastSequence:  in.SourceLastSequence,
+		SourceTurnCount:     in.SourceTurnCount,
+		SourceDigest:        in.SourceDigest,
+		Content:             append(json.RawMessage(nil), in.Content...),
+		GeneratedAt:         in.GeneratedAt,
 	}
 }
 
@@ -1944,6 +2025,7 @@ func (a *Activities) recordDiagnosisRoomClosed(
 	ctx context.Context,
 	req CloseDiagnosisChatSessionInput,
 	session domain.ChatSession,
+	summary *domain.ChatSessionSummary,
 ) (domain.DiagnosisTaskEvent, DiagnosisRoomFinalConclusion, error) {
 	task, err := a.lookupDiagnosisTaskByID(ctx, domain.DiagnosisTaskID(req.DiagnosisTaskID))
 	if err != nil {
@@ -1965,6 +2047,7 @@ func (a *Activities) recordDiagnosisRoomClosed(
 		"close_reason":         session.CloseReason,
 		"closed_at":            session.ClosedAt,
 		"final_conclusion":     finalConclusion,
+		"conversation_summary": diagnosisRoomConversationSummary(summary),
 		"conclusion_version":   "diagnosis-room-close.v1",
 	})
 	if err != nil {

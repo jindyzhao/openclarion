@@ -3,6 +3,7 @@ package domain
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -112,6 +113,63 @@ func TestChatSession_RecordTurnAndClose(t *testing.T) {
 			t.Fatalf("empty reason err = %v, want ErrInvariantViolation", err)
 		}
 	})
+}
+
+func TestNewChatSessionSummary(t *testing.T) {
+	t.Parallel()
+	generatedAt := time.Date(2026, 7, 11, 10, 0, 0, 123456789, time.UTC)
+	digest := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+	got, err := NewChatSessionSummary(ChatSessionSummary{
+		SessionID:           7,
+		Version:             1,
+		SchemaVersion:       " diagnosis-conversation-summary.v1 ",
+		SourceFirstSequence: 1,
+		SourceLastSequence:  2,
+		SourceTurnCount:     2,
+		SourceDigest:        digest,
+		Content:             json.RawMessage(`{"schema_version":"diagnosis-conversation-summary.v1"}`),
+		GeneratedAt:         generatedAt,
+	})
+	if err != nil {
+		t.Fatalf("NewChatSessionSummary: %v", err)
+	}
+	if got.SchemaVersion != "diagnosis-conversation-summary.v1" || got.GeneratedAt.Nanosecond() != 123456000 {
+		t.Fatalf("summary normalization = %+v", got)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*ChatSessionSummary)
+	}{
+		{name: "missing session", mutate: func(in *ChatSessionSummary) { in.SessionID = 0 }},
+		{name: "invalid version", mutate: func(in *ChatSessionSummary) { in.Version = 0 }},
+		{name: "missing schema", mutate: func(in *ChatSessionSummary) { in.SchemaVersion = " " }},
+		{name: "long schema", mutate: func(in *ChatSessionSummary) { in.SchemaVersion = strings.Repeat("x", 65) }},
+		{name: "range mismatch", mutate: func(in *ChatSessionSummary) { in.SourceTurnCount = 3 }},
+		{name: "uppercase digest", mutate: func(in *ChatSessionSummary) { in.SourceDigest = "A" + digest[1:] }},
+		{name: "non object content", mutate: func(in *ChatSessionSummary) { in.Content = json.RawMessage(`[]`) }},
+		{name: "missing generated at", mutate: func(in *ChatSessionSummary) { in.GeneratedAt = time.Time{} }},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := got
+			tc.mutate(&in)
+			_, err := NewChatSessionSummary(in)
+			if !errors.Is(err, ErrInvariantViolation) {
+				t.Fatalf("want ErrInvariantViolation, got %v", err)
+			}
+		})
+	}
+
+	empty := got
+	empty.SourceFirstSequence = 0
+	empty.SourceLastSequence = 0
+	empty.SourceTurnCount = 0
+	if _, err := NewChatSessionSummary(empty); err != nil {
+		t.Fatalf("empty summary: %v", err)
+	}
 }
 
 func TestNewChatTurn(t *testing.T) {

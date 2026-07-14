@@ -127,6 +127,12 @@ func TestDiagnosisRoomWorkflow_SubmitTurnQueryAndCloseSignal(t *testing.T) {
 		result.FinalConclusion.Confidence != "medium" {
 		t.Fatalf("terminal final conclusion = %+v", result.FinalConclusion)
 	}
+	if result.ConversationSummary == nil ||
+		result.ConversationSummary.Version != 1 ||
+		result.ConversationSummary.SourceTurnCount != 2 ||
+		result.ConversationSummary.SchemaVersion != "diagnosis-conversation-summary.v1" {
+		t.Fatalf("terminal conversation summary = %+v", result.ConversationSummary)
+	}
 }
 
 func TestDiagnosisRoomWorkflow_RetainsLatestErrorAfterTurnFailure(t *testing.T) {
@@ -4436,8 +4442,22 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect
 				got.OwnerSubject == "" ||
 				got.TurnCount < 0 ||
 				got.ClosedAt.IsZero() ||
-				got.Reason == "" {
+				got.Reason == "" ||
+				!got.GenerateConversationSummary {
 				t.Fatalf("close session input = %+v", got)
+			}
+			content, err := json.Marshal(map[string]any{
+				"schema_version":     "diagnosis-conversation-summary.v1",
+				"compression_method": "deterministic-extractive",
+				"source_turn_count":  got.TurnCount * 2,
+			})
+			if err != nil {
+				t.Fatalf("marshal conversation summary: %v", err)
+			}
+			firstSequence, lastSequence := 0, 0
+			if got.TurnCount > 0 {
+				firstSequence = 1
+				lastSequence = got.TurnCount * 2
 			}
 			return temporalpkg.CloseDiagnosisChatSessionResult{
 				ChatSessionID:    42,
@@ -4452,6 +4472,17 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect
 					Source:     "latest_assistant_turn",
 					Content:    "CPU alert is still firing.",
 					Confidence: "medium",
+				},
+				ConversationSummary: &temporalpkg.DiagnosisRoomConversationSummary{
+					ID:                  3000 + int64(got.TurnCount),
+					Version:             1,
+					SchemaVersion:       "diagnosis-conversation-summary.v1",
+					SourceFirstSequence: firstSequence,
+					SourceLastSequence:  lastSequence,
+					SourceTurnCount:     got.TurnCount * 2,
+					SourceDigest:        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+					Content:             content,
+					GeneratedAt:         got.ClosedAt,
 				},
 			}, nil
 		},

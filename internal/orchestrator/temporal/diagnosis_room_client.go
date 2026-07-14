@@ -2,6 +2,7 @@ package temporal
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -793,6 +794,7 @@ func diagnosisRoomWorkflowState(state DiagnosisRoomWorkflowState) ports.Diagnosi
 		ClosedAt:                  state.ClosedAt,
 		CloseReason:               state.CloseReason,
 		FinalConclusion:           diagnosisRoomFinalConclusionPort(state.FinalConclusion),
+		ConversationSummary:       diagnosisRoomConversationSummaryPort(state.ConversationSummary),
 		LatestConsultationInsight: diagnosisRoomConsultationInsightPortPtr(state.LatestInsight),
 		LatestConfidence:          state.LatestConfidence,
 		LatestRequiresHumanReview: copyBoolPtr(state.LatestRequiresHumanReview),
@@ -805,6 +807,23 @@ func diagnosisRoomWorkflowState(state DiagnosisRoomWorkflowState) ports.Diagnosi
 		InFlight:                  state.InFlight,
 		SeenMessageIDs:            seen,
 		Conversation:              conversation,
+	}
+}
+
+func diagnosisRoomConversationSummaryPort(in *DiagnosisRoomConversationSummary) *ports.DiagnosisRoomConversationSummary {
+	if in == nil {
+		return nil
+	}
+	return &ports.DiagnosisRoomConversationSummary{
+		ID:                  domain.ChatSessionSummaryID(in.ID),
+		Version:             in.Version,
+		SchemaVersion:       in.SchemaVersion,
+		SourceFirstSequence: in.SourceFirstSequence,
+		SourceLastSequence:  in.SourceLastSequence,
+		SourceTurnCount:     in.SourceTurnCount,
+		SourceDigest:        in.SourceDigest,
+		Content:             append(json.RawMessage(nil), in.Content...),
+		GeneratedAt:         in.GeneratedAt,
 	}
 }
 

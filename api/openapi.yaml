@@ -7651,6 +7651,88 @@ components:
           description: Temporal history size in bytes.
       required:
         - status
+    DiagnosisRoomConversationSummaryContent:
+      type: object
+      description: Bounded deterministic extractive content retained for one diagnosis-room transcript checkpoint.
+      properties:
+        schema_version:
+          type: string
+          const: diagnosis-conversation-summary.v1
+        compression_method:
+          type: string
+          const: deterministic-extractive
+        source_turn_count:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        opening_request:
+          type: string
+          maxLength: 1024
+        latest_request:
+          type: string
+          maxLength: 1024
+        latest_assistant_response:
+          type: string
+          maxLength: 4096
+        assistant_highlights:
+          type: array
+          maxItems: 3
+          items:
+            type: string
+            maxLength: 1024
+        truncated_fields:
+          type: array
+          maxItems: 6
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+      required:
+        - schema_version
+        - compression_method
+        - source_turn_count
+    DiagnosisRoomConversationSummary:
+      type: object
+      description: Immutable versioned conversation compression checkpoint bound to ordered ChatTurn rows by SHA-256.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        version:
+          type: integer
+          minimum: 1
+        schema_version:
+          type: string
+          const: diagnosis-conversation-summary.v1
+        source_first_sequence:
+          type: integer
+          minimum: 0
+        source_last_sequence:
+          type: integer
+          minimum: 0
+        source_turn_count:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        source_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        content:
+          $ref: "#/components/schemas/DiagnosisRoomConversationSummaryContent"
+        generated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - version
+        - schema_version
+        - source_first_sequence
+        - source_last_sequence
+        - source_turn_count
+        - source_digest
+        - content
+        - generated_at
     DiagnosisRoomSummary:
       type: object
       description: Operator-facing diagnosis-room lifecycle summary.
@@ -7770,6 +7852,8 @@ components:
             $ref: "#/components/schemas/DiagnosisRoomParticipantDirectoryUser"
         latest_conclusion:
           $ref: "#/components/schemas/DiagnosisRoomConclusionSummary"
+        conversation_summary:
+          $ref: "#/components/schemas/DiagnosisRoomConversationSummary"
         latest_progress:
           $ref: "#/components/schemas/DiagnosisRoomProgressSummary"
         notification_timeline:

@@ -1644,6 +1644,21 @@ textarea {
   margin-top: 16px;
 }
 
+.diagnosis-conversation-summary {
+  margin-top: 16px;
+}
+
+.diagnosis-conversation-summary-details {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.diagnosis-conversation-summary-details .ant-typography {
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
+}
+
 .diagnosis-final-conclusion-summary {
   display: grid;
   gap: 10px;

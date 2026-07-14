@@ -5,7 +5,7 @@
 > [../roadmap/tasks.md](../roadmap/tasks.md). Decisions intentionally not
 > done live in [DEFERRED_FOLLOWUPS.md](DEFERRED_FOLLOWUPS.md).
 
-> Last updated: 2026-07-13
+> Last updated: 2026-07-14
 > Stage: M4 agent sandbox hardening in progress; the current product direction
 > remains intelligent alert analysis, with alert-first extension boundaries
 > documented for future source/provider growth.
@@ -173,6 +173,7 @@ Provider extension status follows
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-14 | jindyzhao | D3 lifecycle-end conversation compression landed locally: the version-guarded diagnosis-room terminal Activity reads the complete persisted transcript, creates a bounded deterministic extractive summary, binds it to ordered source turns with SHA-256, stores one immutable per-session revision before closure, preserves every ChatTurn, and exposes the summary through Temporal state, WebSocket reconnect frames, REST room history, and the diagnosis-room frontend. |
 | 2026-07-10 | jindyzhao | Alertmanager webhook resolution handling now closes matching firing `AlertEvent` rows idempotently with immutable `ends_at`, reports unmatched resolved entries without synthesizing events, and does not start report or diagnosis workflows from resolution notifications. |
 | 2026-07-10 | jindyzhao | Scheduled weekly and monthly reports were marked complete after re-review: persisted report workflow schedules already support UTC daily, weekly, and monthly calendar cadences through domain validation, generated API contracts, Ent persistence, frontend settings formatting, and Temporal `ScheduleCalendarSpec` registration. This does not claim retained live scheduled-trigger proof. |
 | 2026-07-10 | jindyzhao | NetBox CMDB integration landed locally: a read-only NetBox 4.5.2+ provider for the 4.x series now performs bounded unique device/virtual-machine lookups, maps contacts and topology into sanitized evidence projections, supports current Bearer and legacy Token authentication, retains only allowlisted scalar custom fields, and is selectable through mutually exclusive runtime configuration on every CMDB-enabled replay and diagnosis path. |

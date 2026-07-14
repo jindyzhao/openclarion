@@ -92,6 +92,7 @@ func (ChatSession) Edges() []ent.Edge {
 			Required().
 			Immutable(),
 		edge.To("turns", ChatTurn.Type),
+		edge.To("summaries", ChatSessionSummary.Type),
 	}
 }
 

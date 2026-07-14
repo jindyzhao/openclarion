@@ -40,6 +40,8 @@ const (
 	EdgeTask = "task"
 	// EdgeTurns holds the string denoting the turns edge name in mutations.
 	EdgeTurns = "turns"
+	// EdgeSummaries holds the string denoting the summaries edge name in mutations.
+	EdgeSummaries = "summaries"
 	// Table holds the table name of the chatsession in the database.
 	Table = "chat_sessions"
 	// TaskTable is the table that holds the task relation/edge.
@@ -56,6 +58,13 @@ const (
 	TurnsInverseTable = "chat_turns"
 	// TurnsColumn is the table column denoting the turns relation/edge.
 	TurnsColumn = "chat_session_id"
+	// SummariesTable is the table that holds the summaries relation/edge.
+	SummariesTable = "chat_session_summaries"
+	// SummariesInverseTable is the table name for the ChatSessionSummary entity.
+	// It exists in this package in order to avoid circular dependency with the "chatsessionsummary" package.
+	SummariesInverseTable = "chat_session_summaries"
+	// SummariesColumn is the table column denoting the summaries relation/edge.
+	SummariesColumn = "chat_session_id"
 )
 
 // Columns holds all SQL columns for chatsession fields.
@@ -190,6 +199,20 @@ func ByTurns(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newTurnsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// BySummariesCount orders the results by summaries count.
+func BySummariesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newSummariesStep(), opts...)
+	}
+}
+
+// BySummaries orders the results by summaries terms.
+func BySummaries(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newSummariesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newTaskStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -202,5 +225,12 @@ func newTurnsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(TurnsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, TurnsTable, TurnsColumn),
+	)
+}
+func newSummariesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(SummariesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, SummariesTable, SummariesColumn),
 	)
 }

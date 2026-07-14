@@ -297,6 +297,7 @@ import type {
   DiagnosisConsultationEvidenceRequest,
   DiagnosisConsultationInsight,
   DiagnosisConnectionStatus,
+  DiagnosisConversationSummary,
   DiagnosisEvidenceCollectionResult,
   DiagnosisEvidenceRequest,
   DiagnosisEvidenceTimelineEntry,
@@ -3561,6 +3562,9 @@ export function DiagnosisRoomView({
   });
   const selectedRetainedConclusion =
     selectedRoomState?.final_conclusion ?? selectedRoomSummary?.latest_conclusion;
+  const selectedConversationSummary =
+    selectedRoomState?.conversation_summary ??
+    selectedRoomSummary?.conversation_summary;
   const selectedSummaryEvidence =
     selectedSavedReviewQueueInput === null
       ? null
@@ -4543,6 +4547,19 @@ export function DiagnosisRoomView({
               message="Final conclusion"
               showIcon
               type="success"
+            />
+          ) : null}
+          {selectedConversationSummary ? (
+            <Alert
+              className="diagnosis-conversation-summary"
+              description={
+                <ConversationSummaryDetails
+                  summary={selectedConversationSummary}
+                />
+              }
+              message="Conversation summary"
+              showIcon
+              type="info"
             />
           ) : null}
           {confirmedReportReturnHref ? (
@@ -9952,6 +9969,82 @@ function RetainedFinalConclusionSummary({
       showIcon
       type={finalConclusionTraceabilityAlertType(traceability.status)}
     />
+  );
+}
+
+function ConversationSummaryDetails({
+  summary,
+}: {
+  summary: DiagnosisConversationSummary;
+}) {
+  const content = summary.content;
+  const sourceRange =
+    summary.source_turn_count === 0
+      ? "Empty transcript"
+      : `${summary.source_first_sequence}-${summary.source_last_sequence}`;
+  const items: DescriptionsProps["items"] = [
+    {
+      key: "version",
+      label: "Summary version",
+      children: `${summary.schema_version} / ${summary.version}`,
+    },
+    {
+      key: "source",
+      label: "Source turns",
+      children: `${sourceRange} (${summary.source_turn_count})`,
+    },
+    {
+      key: "generated",
+      label: "Generated",
+      children: formatDateTime(summary.generated_at),
+    },
+    {
+      key: "digest",
+      label: "Source digest",
+      children: <Typography.Text code>{summary.source_digest}</Typography.Text>,
+    },
+  ];
+  return (
+    <div className="diagnosis-conversation-summary-details">
+      {content.latest_assistant_response ? (
+        <Typography.Paragraph>
+          {content.latest_assistant_response}
+        </Typography.Paragraph>
+      ) : null}
+      <Descriptions column={{ xs: 1, md: 2 }} items={items} size="small" />
+      {content.opening_request ? (
+        <section aria-label="Opening request">
+          <Typography.Text strong>Opening request</Typography.Text>
+          <Typography.Paragraph>{content.opening_request}</Typography.Paragraph>
+        </section>
+      ) : null}
+      {content.latest_request &&
+      content.latest_request !== content.opening_request ? (
+        <section aria-label="Latest request">
+          <Typography.Text strong>Latest request</Typography.Text>
+          <Typography.Paragraph>{content.latest_request}</Typography.Paragraph>
+        </section>
+      ) : null}
+      {content.assistant_highlights?.length ? (
+        <section aria-label="Assistant highlights">
+          <Typography.Text strong>Assistant highlights</Typography.Text>
+          <List
+            dataSource={content.assistant_highlights}
+            renderItem={(item) => (
+              <List.Item>
+                <Typography.Text>{item}</Typography.Text>
+              </List.Item>
+            )}
+            size="small"
+          />
+        </section>
+      ) : null}
+      {content.truncated_fields?.length ? (
+        <Typography.Text type="secondary">
+          Bounded fields: {content.truncated_fields.join(", ")}
+        </Typography.Text>
+      ) : null}
+    </div>
   );
 }
 

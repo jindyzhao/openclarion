@@ -18,6 +18,9 @@ type AlertSourceProfile func(*sql.Selector)
 // ChatSession is the predicate function for chatsession builders.
 type ChatSession func(*sql.Selector)
 
+// ChatSessionSummary is the predicate function for chatsessionsummary builders.
+type ChatSessionSummary func(*sql.Selector)
+
 // ChatTurn is the predicate function for chatturn builders.
 type ChatTurn func(*sql.Selector)
 

@@ -3131,6 +3131,34 @@ export interface components {
              */
             history_size_bytes?: number;
         };
+        /** @description Bounded deterministic extractive content retained for one diagnosis-room transcript checkpoint. */
+        DiagnosisRoomConversationSummaryContent: {
+            /** @constant */
+            schema_version: "diagnosis-conversation-summary.v1";
+            /** @constant */
+            compression_method: "deterministic-extractive";
+            source_turn_count: number;
+            opening_request?: string;
+            latest_request?: string;
+            latest_assistant_response?: string;
+            assistant_highlights?: string[];
+            truncated_fields?: string[];
+        };
+        /** @description Immutable versioned conversation compression checkpoint bound to ordered ChatTurn rows by SHA-256. */
+        DiagnosisRoomConversationSummary: {
+            /** Format: int64 */
+            id: number;
+            version: number;
+            /** @constant */
+            schema_version: "diagnosis-conversation-summary.v1";
+            source_first_sequence: number;
+            source_last_sequence: number;
+            source_turn_count: number;
+            source_digest: string;
+            content: components["schemas"]["DiagnosisRoomConversationSummaryContent"];
+            /** Format: date-time */
+            generated_at: string;
+        };
         /** @description Operator-facing diagnosis-room lifecycle summary. */
         DiagnosisRoomSummary: {
             /**
@@ -3243,6 +3271,7 @@ export interface components {
              */
             participant_directory_users?: components["schemas"]["DiagnosisRoomParticipantDirectoryUser"][];
             latest_conclusion?: components["schemas"]["DiagnosisRoomConclusionSummary"];
+            conversation_summary?: components["schemas"]["DiagnosisRoomConversationSummary"];
             latest_progress?: components["schemas"]["DiagnosisRoomProgressSummary"];
             /** @description Sanitized outbound diagnosis-room notification delivery timeline. */
             notification_timeline?: components["schemas"]["DiagnosisRoomNotificationTimelineEntry"][];

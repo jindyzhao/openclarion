@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
@@ -21,12 +22,13 @@ import (
 // ChatSessionQuery is the builder for querying ChatSession entities.
 type ChatSessionQuery struct {
 	config
-	ctx        *QueryContext
-	order      []chatsession.OrderOption
-	inters     []Interceptor
-	predicates []predicate.ChatSession
-	withTask   *DiagnosisTaskQuery
-	withTurns  *ChatTurnQuery
+	ctx           *QueryContext
+	order         []chatsession.OrderOption
+	inters        []Interceptor
+	predicates    []predicate.ChatSession
+	withTask      *DiagnosisTaskQuery
+	withTurns     *ChatTurnQuery
+	withSummaries *ChatSessionSummaryQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -100,6 +102,28 @@ func (_q *ChatSessionQuery) QueryTurns() *ChatTurnQuery {
 			sqlgraph.From(chatsession.Table, chatsession.FieldID, selector),
 			sqlgraph.To(chatturn.Table, chatturn.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, chatsession.TurnsTable, chatsession.TurnsColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QuerySummaries chains the current query on the "summaries" edge.
+func (_q *ChatSessionQuery) QuerySummaries() *ChatSessionSummaryQuery {
+	query := (&ChatSessionSummaryClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsession.Table, chatsession.FieldID, selector),
+			sqlgraph.To(chatsessionsummary.Table, chatsessionsummary.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, chatsession.SummariesTable, chatsession.SummariesColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -294,13 +318,14 @@ func (_q *ChatSessionQuery) Clone() *ChatSessionQuery {
 		return nil
 	}
 	return &ChatSessionQuery{
-		config:     _q.config,
-		ctx:        _q.ctx.Clone(),
-		order:      append([]chatsession.OrderOption{}, _q.order...),
-		inters:     append([]Interceptor{}, _q.inters...),
-		predicates: append([]predicate.ChatSession{}, _q.predicates...),
-		withTask:   _q.withTask.Clone(),
-		withTurns:  _q.withTurns.Clone(),
+		config:        _q.config,
+		ctx:           _q.ctx.Clone(),
+		order:         append([]chatsession.OrderOption{}, _q.order...),
+		inters:        append([]Interceptor{}, _q.inters...),
+		predicates:    append([]predicate.ChatSession{}, _q.predicates...),
+		withTask:      _q.withTask.Clone(),
+		withTurns:     _q.withTurns.Clone(),
+		withSummaries: _q.withSummaries.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -326,6 +351,17 @@ func (_q *ChatSessionQuery) WithTurns(opts ...func(*ChatTurnQuery)) *ChatSession
 		opt(query)
 	}
 	_q.withTurns = query
+	return _q
+}
+
+// WithSummaries tells the query-builder to eager-load the nodes that are connected to
+// the "summaries" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ChatSessionQuery) WithSummaries(opts ...func(*ChatSessionSummaryQuery)) *ChatSessionQuery {
+	query := (&ChatSessionSummaryClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withSummaries = query
 	return _q
 }
 
@@ -407,9 +443,10 @@ func (_q *ChatSessionQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 	var (
 		nodes       = []*ChatSession{}
 		_spec       = _q.querySpec()
-		loadedTypes = [2]bool{
+		loadedTypes = [3]bool{
 			_q.withTask != nil,
 			_q.withTurns != nil,
+			_q.withSummaries != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -440,6 +477,13 @@ func (_q *ChatSessionQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 		if err := _q.loadTurns(ctx, query, nodes,
 			func(n *ChatSession) { n.Edges.Turns = []*ChatTurn{} },
 			func(n *ChatSession, e *ChatTurn) { n.Edges.Turns = append(n.Edges.Turns, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withSummaries; query != nil {
+		if err := _q.loadSummaries(ctx, query, nodes,
+			func(n *ChatSession) { n.Edges.Summaries = []*ChatSessionSummary{} },
+			func(n *ChatSession, e *ChatSessionSummary) { n.Edges.Summaries = append(n.Edges.Summaries, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -490,6 +534,36 @@ func (_q *ChatSessionQuery) loadTurns(ctx context.Context, query *ChatTurnQuery,
 	}
 	query.Where(predicate.ChatTurn(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(chatsession.TurnsColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.ChatSessionID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "chat_session_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *ChatSessionQuery) loadSummaries(ctx context.Context, query *ChatSessionSummaryQuery, nodes []*ChatSession, init func(*ChatSession), assign func(*ChatSession, *ChatSessionSummary)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*ChatSession)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(chatsessionsummary.FieldChatSessionID)
+	}
+	query.Where(predicate.ChatSessionSummary(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(chatsession.SummariesColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

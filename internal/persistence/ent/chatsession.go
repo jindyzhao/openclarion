@@ -52,9 +52,11 @@ type ChatSessionEdges struct {
 	Task *DiagnosisTask `json:"task,omitempty"`
 	// Turns holds the value of the turns edge.
 	Turns []*ChatTurn `json:"turns,omitempty"`
+	// Summaries holds the value of the summaries edge.
+	Summaries []*ChatSessionSummary `json:"summaries,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
 }
 
 // TaskOrErr returns the Task value or an error if the edge
@@ -75,6 +77,15 @@ func (e ChatSessionEdges) TurnsOrErr() ([]*ChatTurn, error) {
 		return e.Turns, nil
 	}
 	return nil, &NotLoadedError{edge: "turns"}
+}
+
+// SummariesOrErr returns the Summaries value or an error if the edge
+// was not loaded in eager-loading.
+func (e ChatSessionEdges) SummariesOrErr() ([]*ChatSessionSummary, error) {
+	if e.loadedTypes[2] {
+		return e.Summaries, nil
+	}
+	return nil, &NotLoadedError{edge: "summaries"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -197,6 +208,11 @@ func (_m *ChatSession) QueryTask() *DiagnosisTaskQuery {
 // QueryTurns queries the "turns" edge of the ChatSession entity.
 func (_m *ChatSession) QueryTurns() *ChatTurnQuery {
 	return NewChatSessionClient(_m.config).QueryTurns(_m)
+}
+
+// QuerySummaries queries the "summaries" edge of the ChatSession entity.
+func (_m *ChatSession) QuerySummaries() *ChatSessionSummaryQuery {
+	return NewChatSessionClient(_m.config).QuerySummaries(_m)
 }
 
 // Update returns a builder for updating this ChatSession.

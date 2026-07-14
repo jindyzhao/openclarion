@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 )
@@ -162,6 +163,21 @@ func (_c *ChatSessionCreate) AddTurns(v ...*ChatTurn) *ChatSessionCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddTurnIDs(ids...)
+}
+
+// AddSummaryIDs adds the "summaries" edge to the ChatSessionSummary entity by IDs.
+func (_c *ChatSessionCreate) AddSummaryIDs(ids ...int) *ChatSessionCreate {
+	_c.mutation.AddSummaryIDs(ids...)
+	return _c
+}
+
+// AddSummaries adds the "summaries" edges to the ChatSessionSummary entity.
+func (_c *ChatSessionCreate) AddSummaries(v ...*ChatSessionSummary) *ChatSessionCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddSummaryIDs(ids...)
 }
 
 // Mutation returns the ChatSessionMutation object of the builder.
@@ -367,6 +383,22 @@ func (_c *ChatSessionCreate) createSpec() (*ChatSession, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(chatturn.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.SummariesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.SummariesTable,
+			Columns: []string{chatsession.SummariesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionsummary.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

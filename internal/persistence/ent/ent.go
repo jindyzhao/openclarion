@@ -16,6 +16,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertsourceprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
@@ -98,6 +99,7 @@ func checkColumn(t, c string) error {
 			alertgroup.Table:                   alertgroup.ValidColumn,
 			alertsourceprofile.Table:           alertsourceprofile.ValidColumn,
 			chatsession.Table:                  chatsession.ValidColumn,
+			chatsessionsummary.Table:           chatsessionsummary.ValidColumn,
 			chatturn.Table:                     chatturn.ValidColumn,
 			diagnosisauthticket.Table:          diagnosisauthticket.ValidColumn,
 			diagnosistask.Table:                diagnosistask.ValidColumn,

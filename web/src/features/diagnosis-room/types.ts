@@ -36,6 +36,29 @@ export type DiagnosisFinalConclusion = {
   evidence_collection_suggestions?: DiagnosisConsultationEvidenceRequest[];
 };
 
+type DiagnosisConversationSummaryContent = {
+  schema_version: string;
+  compression_method: string;
+  source_turn_count: number;
+  opening_request?: string;
+  latest_request?: string;
+  latest_assistant_response?: string;
+  assistant_highlights?: string[];
+  truncated_fields?: string[];
+};
+
+export type DiagnosisConversationSummary = {
+  id: number;
+  version: number;
+  schema_version: string;
+  source_first_sequence: number;
+  source_last_sequence: number;
+  source_turn_count: number;
+  source_digest: string;
+  content: DiagnosisConversationSummaryContent;
+  generated_at: string;
+};
+
 export type DiagnosisConsultationEvidenceRequest = {
   label: string;
   detail: string;
@@ -232,6 +255,7 @@ export type DiagnosisStateFrame = {
   closed_at?: string;
   close_reason?: string;
   final_conclusion?: DiagnosisFinalConclusion;
+  conversation_summary?: DiagnosisConversationSummary;
   confidence?: string;
   requires_human_review?: boolean;
   evidence_requests?: DiagnosisEvidenceRequest[];

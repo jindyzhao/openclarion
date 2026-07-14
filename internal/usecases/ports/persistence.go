@@ -383,6 +383,19 @@ type DiagnosisRepository interface {
 	// ListChatTurnsBySession returns turns for a session ordered by
 	// sequence ascending, capped by limit. limit MUST be > 0.
 	ListChatTurnsBySession(ctx context.Context, sessionID domain.ChatSessionID, limit int) ([]domain.ChatTurn, error)
+
+	// SaveChatSessionSummary appends one immutable conversation compression
+	// checkpoint. Duplicate (chat_session_id, version) or source_digest returns
+	// a wrapped domain.ErrAlreadyExists.
+	SaveChatSessionSummary(ctx context.Context, summary domain.ChatSessionSummary) (domain.ChatSessionSummary, error)
+
+	// FindChatSessionSummaryBySessionAndVersion returns the exact append-only
+	// summary revision for a session, or domain.ErrNotFound.
+	FindChatSessionSummaryBySessionAndVersion(ctx context.Context, sessionID domain.ChatSessionID, version int) (domain.ChatSessionSummary, error)
+
+	// FindLatestChatSessionSummary returns the highest summary version for a
+	// session, or domain.ErrNotFound when no checkpoint has been generated.
+	FindLatestChatSessionSummary(ctx context.Context, sessionID domain.ChatSessionID) (domain.ChatSessionSummary, error)
 }
 
 // ReportRepository covers persisted SubReports, FinalReports, and the
