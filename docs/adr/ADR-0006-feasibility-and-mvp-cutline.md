@@ -36,8 +36,17 @@ first. Agent sandbox exploration is a separate later milestone (M4) that does no
 block MVP acceptance. Interactive diagnosis is a V1 commitment but its initial
 scope is intentionally minimal: a short-conversation diagnosis room with a
 bounded number of turns and a fixed session lifetime. Long-session features
-(automatic compression, multi-day rooms, complex RBAC tiers) are explicitly
-deferred.
+(automatic compression, multi-day rooms, complex RBAC tiers) were explicitly
+deferred from V1 and remain separate post-V1 decisions.
+
+### Amendment 1: Bound the Post-V1 Conclusion Approval Extension
+
+On 2026-07-14, product requirements justified one narrow post-V1 extension:
+diagnosis rooms may require a distinct owner and leader to approve the latest
+assistant conclusion before terminal close. The extension remains inside the
+existing PostgreSQL, Temporal, and local RBAC boundaries. It does not add
+arbitrary role tiers, configurable quorum expressions, external governance
+systems, or production-changing agent actions.
 
 ### Consequences
 
@@ -86,7 +95,7 @@ deferred.
 * realtime alert routing and paging replacement
 * full ticketing system
 * long-running diagnosis rooms (multi-day, conversation compression)
-* complex multi-tier RBAC beyond owner/admin, including leader-tier flows
+* complex multi-tier RBAC beyond the bounded owner-and-leader conclusion quorum
 * SSO-dependent user experience
 * RAG and knowledge-base retrieval
 * multi-tenant SaaS operations
@@ -99,8 +108,11 @@ limited:
 
 * **Required for V1**: short-conversation diagnosis room (bounded turns, fixed
   lifetime, owner+admin RBAC, audit trail, chat persistence)
-* **Deferred beyond V1**: lifecycle-end summarization, long sessions, complex
-  approval flows, advanced unsafe-instruction filtering
+* **Deferred beyond V1**: lifecycle-end summarization, long sessions, arbitrary
+  approval policies, advanced unsafe-instruction filtering
+
+The bounded owner-and-leader conclusion quorum described in Amendment 1 is a
+post-V1 extension and does not change the original V1 acceptance boundary.
 
 The M5 minimum-viable scope justifies the Temporal selection in ADR-0004:
 short-but-real human-signal workflows still benefit from durable execution.

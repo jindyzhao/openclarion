@@ -145,6 +145,7 @@ var (
 		{Name: "last_activity_at", Type: field.TypeTime},
 		{Name: "closed_at", Type: field.TypeTime, Nullable: true},
 		{Name: "close_reason", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "approval_mode", Type: field.TypeString, Size: 32, Default: "single"},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "diagnosis_task_id", Type: field.TypeInt},
@@ -157,7 +158,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "chat_sessions_diagnosis_tasks_chat_sessions",
-				Columns:    []*schema.Column{ChatSessionsColumns[11]},
+				Columns:    []*schema.Column{ChatSessionsColumns[12]},
 				RefColumns: []*schema.Column{DiagnosisTasksColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -166,7 +167,7 @@ var (
 			{
 				Name:    "chatsession_diagnosis_task_id",
 				Unique:  true,
-				Columns: []*schema.Column{ChatSessionsColumns[11]},
+				Columns: []*schema.Column{ChatSessionsColumns[12]},
 			},
 			{
 				Name:    "chatsession_owner_subject_status",
@@ -182,6 +183,53 @@ var (
 				Name:    "chatsession_started_at",
 				Unique:  false,
 				Columns: []*schema.Column{ChatSessionsColumns[5]},
+			},
+		},
+	}
+	// ChatSessionApprovalsColumns holds the columns for the "chat_session_approvals" table.
+	ChatSessionApprovalsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "conclusion_digest", Type: field.TypeString, Size: 64},
+		{Name: "actor_subject", Type: field.TypeString, Size: 256},
+		{Name: "authority", Type: field.TypeString, Size: 32},
+		{Name: "reason", Type: field.TypeString, Size: 512},
+		{Name: "approved_at", Type: field.TypeTime},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "chat_session_id", Type: field.TypeInt},
+	}
+	// ChatSessionApprovalsTable holds the schema information for the "chat_session_approvals" table.
+	ChatSessionApprovalsTable = &schema.Table{
+		Name:       "chat_session_approvals",
+		Columns:    ChatSessionApprovalsColumns,
+		PrimaryKey: []*schema.Column{ChatSessionApprovalsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "chat_session_approvals_chat_sessions_approvals",
+				Columns:    []*schema.Column{ChatSessionApprovalsColumns[7]},
+				RefColumns: []*schema.Column{ChatSessionsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "chatsessionapproval_chat_session_id_conclusion_digest_actor_subject",
+				Unique:  true,
+				Columns: []*schema.Column{ChatSessionApprovalsColumns[7], ChatSessionApprovalsColumns[1], ChatSessionApprovalsColumns[2]},
+			},
+			{
+				Name:    "chatsessionapproval_chat_session_id_conclusion_digest_authority",
+				Unique:  true,
+				Columns: []*schema.Column{ChatSessionApprovalsColumns[7], ChatSessionApprovalsColumns[1], ChatSessionApprovalsColumns[3]},
+			},
+			{
+				Name:    "chatsessionapproval_chat_session_id_conclusion_digest_approved_at",
+				Unique:  false,
+				Columns: []*schema.Column{ChatSessionApprovalsColumns[7], ChatSessionApprovalsColumns[1], ChatSessionApprovalsColumns[5]},
+			},
+			{
+				Name:    "chatsessionapproval_actor_subject_approved_at",
+				Unique:  false,
+				Columns: []*schema.Column{ChatSessionApprovalsColumns[2], ChatSessionApprovalsColumns[5]},
 			},
 		},
 	}
@@ -1018,6 +1066,7 @@ var (
 		AlertGroupsTable,
 		AlertSourceProfilesTable,
 		ChatSessionsTable,
+		ChatSessionApprovalsTable,
 		ChatSessionSummariesTable,
 		ChatTurnsTable,
 		DiagnosisAuthTicketsTable,
@@ -1044,6 +1093,7 @@ var (
 
 func init() {
 	ChatSessionsTable.ForeignKeys[0].RefTable = DiagnosisTasksTable
+	ChatSessionApprovalsTable.ForeignKeys[0].RefTable = ChatSessionsTable
 	ChatSessionSummariesTable.ForeignKeys[0].RefTable = ChatSessionsTable
 	ChatTurnsTable.ForeignKeys[0].RefTable = ChatSessionsTable
 	DiagnosisTasksTable.ForeignKeys[0].RefTable = EvidenceSnapshotsTable

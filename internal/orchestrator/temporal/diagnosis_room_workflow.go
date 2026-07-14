@@ -12,6 +12,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisapproval"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 )
@@ -70,6 +71,8 @@ const (
 	diagnosisRoomManualEvidenceCollectedVersion    = 1
 	diagnosisRoomConversationSummaryChangeID       = "diagnosis-room-conversation-summary"
 	diagnosisRoomConversationSummaryVersion        = 1
+	diagnosisRoomMultiStakeholderApprovalChangeID  = "diagnosis-room-multi-stakeholder-approval"
+	diagnosisRoomMultiStakeholderApprovalVersion   = 1
 	diagnosisRoomTurnStreamingChangeID             = "diagnosis-room-turn-streaming"
 	diagnosisRoomTurnStreamingVersion              = 1
 
@@ -90,6 +93,7 @@ type DiagnosisRoomWorkflowInput struct {
 	OwnerSubject                      string
 	Evidence                          json.RawMessage
 	CloseNotificationChannelProfileID int64
+	ApprovalMode                      domain.DiagnosisApprovalMode
 	Policy                            diagnosisroom.Policy
 	InitialTurn                       *SubmitDiagnosisTurnRequest
 }
@@ -244,30 +248,35 @@ type DiagnosisRoomCloseRequest struct {
 // DiagnosisRoomWorkflowState is the read model returned by the state query
 // and by workflow completion.
 type DiagnosisRoomWorkflowState struct {
-	SessionID                 string
-	ChatSessionID             int64
-	DiagnosisTaskID           int64
-	OwnerSubject              string
-	Status                    string
-	TurnCount                 int
-	StartedAt                 time.Time
-	LastActivityAt            time.Time
-	ClosedAt                  *time.Time
-	CloseReason               string
-	FinalConclusion           *DiagnosisRoomFinalConclusion
-	ConversationSummary       *DiagnosisRoomConversationSummary
-	LatestInsight             *diagnosisroom.ConsultationInsight
-	LatestConfidence          string
-	LatestRequiresHumanReview *bool
-	LatestEvidenceRequests    []diagnosisroom.EvidenceRequest
-	LatestCollectionResults   []diagnosisevidence.Item
-	EvidenceTimeline          []DiagnosisRoomEvidenceTimelineEntry
-	ConfidenceTimeline        []DiagnosisRoomConfidenceTimelineEntry
-	SupplementalEvidence      []DiagnosisRoomSupplementalEvidenceRecord
-	LatestError               *DiagnosisRoomLatestError
-	InFlight                  bool
-	SeenMessageIDs            []string
-	Conversation              []diagnosisroom.ConversationTurn
+	SessionID                  string
+	ChatSessionID              int64
+	DiagnosisTaskID            int64
+	OwnerSubject               string
+	Status                     string
+	TurnCount                  int
+	StartedAt                  time.Time
+	LastActivityAt             time.Time
+	ClosedAt                   *time.Time
+	CloseReason                string
+	FinalConclusion            *DiagnosisRoomFinalConclusion
+	ConversationSummary        *DiagnosisRoomConversationSummary
+	ApprovalMode               domain.DiagnosisApprovalMode
+	ConclusionDigest           string
+	Approvals                  []domain.ChatSessionApproval
+	PendingApprovalAuthorities []domain.DiagnosisApprovalAuthority
+	ApprovalInFlight           bool
+	LatestInsight              *diagnosisroom.ConsultationInsight
+	LatestConfidence           string
+	LatestRequiresHumanReview  *bool
+	LatestEvidenceRequests     []diagnosisroom.EvidenceRequest
+	LatestCollectionResults    []diagnosisevidence.Item
+	EvidenceTimeline           []DiagnosisRoomEvidenceTimelineEntry
+	ConfidenceTimeline         []DiagnosisRoomConfidenceTimelineEntry
+	SupplementalEvidence       []DiagnosisRoomSupplementalEvidenceRecord
+	LatestError                *DiagnosisRoomLatestError
+	InFlight                   bool
+	SeenMessageIDs             []string
+	Conversation               []diagnosisroom.ConversationTurn
 }
 
 // DiagnosisRoomWorkflowResult is the terminal room state.
@@ -282,8 +291,13 @@ type diagnosisRoomState struct {
 	closedAt                  *time.Time
 	closeReason               string
 	closeActorSubject         string
+	conclusionConfirmed       bool
 	finalConclusion           *DiagnosisRoomFinalConclusion
 	conversationSummary       *DiagnosisRoomConversationSummary
+	conclusionDigest          string
+	approvals                 []domain.ChatSessionApproval
+	approvalEnabled           bool
+	approvalInFlight          bool
 	latestInsight             *diagnosisroom.ConsultationInsight
 	latestConfidence          string
 	latestRequiresHumanReview *bool
@@ -312,6 +326,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		return DiagnosisRoomWorkflowResult{}, temporalsdk.NewNonRetryableApplicationError(
 			err.Error(), errTypeInvalidInput, nil)
 	}
+	input.ApprovalMode = diagnosisApprovalModeOrDefault(input.ApprovalMode)
 
 	now := workflow.Now(ctx)
 	state := &diagnosisRoomState{
@@ -378,6 +393,17 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		workflow.DefaultVersion,
 		diagnosisRoomManualEvidenceCollectedVersion,
 	)
+	multiStakeholderApprovalVersion := workflow.GetVersion(
+		ctx,
+		diagnosisRoomMultiStakeholderApprovalChangeID,
+		workflow.DefaultVersion,
+		diagnosisRoomMultiStakeholderApprovalVersion,
+	)
+	state.approvalEnabled = multiStakeholderApprovalVersion >= diagnosisRoomMultiStakeholderApprovalVersion
+	var approvalLifecycleCh workflow.Channel
+	if state.approvalEnabled {
+		approvalLifecycleCh = workflow.NewBufferedChannel(ctx, 1)
+	}
 	startupComplete := false
 
 	if err := workflow.SetQueryHandler(ctx, DiagnosisRoomStateQuery, func() (DiagnosisRoomWorkflowState, error) {
@@ -424,6 +450,11 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			}
 			if err := state.validateConfirmConclusion(req, confirmEvidenceGuardVersion); err != nil {
 				return DiagnosisRoomWorkflowState{}, newDiagnosisRoomConfirmRejectedError(err)
+			}
+			if multiStakeholderApprovalVersion >= diagnosisRoomMultiStakeholderApprovalVersion {
+				state.lastActivityAt = workflow.Now(ctx)
+				defer approvalLifecycleCh.SendAsync(struct{}{})
+				return state.recordConclusionApproval(ctx, req)
 			}
 			confirmCh.Send(ctx, req)
 			return state.snapshot(), nil
@@ -479,6 +510,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			RunID:              info.WorkflowExecution.RunID,
 			OwnerSubject:       state.input.OwnerSubject,
 			StartedAt:          state.startedAt,
+			ApprovalMode:       state.input.ApprovalMode,
 		}).Get(ctx, &ensureResult); err != nil {
 			return DiagnosisRoomWorkflowResult{}, err
 		}
@@ -491,6 +523,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			DiagnosisTaskID: state.diagnosisTaskID,
 			OwnerSubject:    state.input.OwnerSubject,
 			StartedAt:       state.startedAt,
+			ApprovalMode:    state.input.ApprovalMode,
 		}).Get(ctx, &ensureResult); err != nil {
 			return DiagnosisRoomWorkflowResult{}, err
 		}
@@ -542,6 +575,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		selector.AddReceive(confirmCh, func(c workflow.ReceiveChannel, _ bool) {
 			var req DiagnosisRoomCloseRequest
 			c.Receive(ctx, &req)
+			state.conclusionConfirmed = true
 			state.close(workflow.Now(ctx), reasonOrDefault(req.Reason, "human_confirmed"), req.ActorSubject)
 		})
 		selector.AddReceive(cancelCh, func(c workflow.ReceiveChannel, _ bool) {
@@ -549,6 +583,12 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			c.Receive(ctx, &req)
 			state.close(workflow.Now(ctx), reasonOrDefault(req.Reason, diagnosisRoomCloseCancelled), req.ActorSubject)
 		})
+		if approvalLifecycleCh != nil {
+			selector.AddReceive(approvalLifecycleCh, func(c workflow.ReceiveChannel, _ bool) {
+				var ignored struct{}
+				c.Receive(ctx, &ignored)
+			})
+		}
 
 		selector.Select(ctx)
 		cancelTimer()
@@ -584,6 +624,15 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		if state.closedAt != nil {
 			closedAt = *state.closedAt
 		}
+		requireConclusionApproval :=
+			multiStakeholderApprovalVersion >= diagnosisRoomMultiStakeholderApprovalVersion &&
+				state.conclusionConfirmed
+		approvalMode := domain.DiagnosisApprovalMode("")
+		conclusionDigest := ""
+		if requireConclusionApproval {
+			approvalMode = state.input.ApprovalMode
+			conclusionDigest = state.conclusionDigest
+		}
 		if err := workflow.ExecuteActivity(closeCtx, (*Activities).CloseDiagnosisChatSession, CloseDiagnosisChatSessionInput{
 			SessionID:                         state.input.SessionID,
 			DiagnosisTaskID:                   state.diagnosisTaskID,
@@ -596,12 +645,19 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			DiagnosisTaskStatus:               state.closeDiagnosisTaskStatus(),
 			DiagnosisTaskFailureReason:        state.closeDiagnosisTaskFailureReason(),
 			GenerateConversationSummary:       conversationSummaryVersion != workflow.DefaultVersion,
+			RequireConclusionApproval:         requireConclusionApproval,
+			ApprovalMode:                      approvalMode,
+			ConclusionDigest:                  conclusionDigest,
 		}).Get(closeCtx, &closeResult); err != nil {
 			return DiagnosisRoomWorkflowResult{}, err
 		}
 		state.chatSessionID = closeResult.ChatSessionID
 		state.finalConclusion = copyDiagnosisRoomFinalConclusion(closeResult.FinalConclusion)
 		state.conversationSummary = copyDiagnosisRoomConversationSummary(closeResult.ConversationSummary)
+		if requireConclusionApproval {
+			state.conclusionDigest = closeResult.ConclusionDigest
+			state.approvals = cloneChatSessionApprovals(closeResult.Approvals)
+		}
 		if state.input.CloseNotificationChannelProfileID > 0 {
 			var notificationResult SendDiagnosisRoomCloseNotificationResult
 			if err := workflow.ExecuteActivity(closeCtx, (*Activities).SendDiagnosisRoomCloseNotification, CloseDiagnosisChatSessionInput{
@@ -886,31 +942,49 @@ func (s *diagnosisRoomState) snapshot() DiagnosisRoomWorkflowState {
 		seen = append(seen, id)
 	}
 	sort.Strings(seen)
+	conclusionDigest := ""
+	pendingApprovals := []domain.DiagnosisApprovalAuthority(nil)
+	if s.approvalEnabled {
+		conclusionDigest = s.conclusionDigest
+		if conclusionDigest == "" {
+			if digest, _, _, _, err := s.currentConclusionIdentity(); err == nil {
+				conclusionDigest = digest
+			}
+		}
+		if conclusionDigest != "" {
+			pendingApprovals, _ = diagnosisapproval.PendingAuthorities(s.input.ApprovalMode, approvalsForConclusion(s.approvals, conclusionDigest))
+		}
+	}
 	return DiagnosisRoomWorkflowState{
-		SessionID:                 s.input.SessionID,
-		ChatSessionID:             s.chatSessionID,
-		DiagnosisTaskID:           s.diagnosisTaskID,
-		OwnerSubject:              s.input.OwnerSubject,
-		Status:                    s.status,
-		TurnCount:                 s.turnCount,
-		StartedAt:                 s.startedAt,
-		LastActivityAt:            s.lastActivityAt,
-		ClosedAt:                  s.closedAt,
-		CloseReason:               s.closeReason,
-		FinalConclusion:           s.finalConclusion,
-		ConversationSummary:       copyDiagnosisRoomConversationSummary(s.conversationSummary),
-		LatestInsight:             copyDiagnosisRoomConsultationInsightPtr(s.latestInsight),
-		LatestConfidence:          s.latestConfidence,
-		LatestRequiresHumanReview: copyBoolPtr(s.latestRequiresHumanReview),
-		LatestEvidenceRequests:    cloneEvidenceRequests(s.latestEvidenceRequests),
-		LatestCollectionResults:   diagnosisevidence.CloneItems(s.latestCollectionResults),
-		EvidenceTimeline:          cloneDiagnosisRoomEvidenceTimeline(s.evidenceTimeline),
-		ConfidenceTimeline:        cloneDiagnosisRoomConfidenceTimeline(s.confidenceTimeline),
-		SupplementalEvidence:      cloneDiagnosisRoomSupplementalEvidenceRecords(s.supplementalEvidence),
-		LatestError:               cloneDiagnosisRoomLatestErrorPtr(s.latestError),
-		InFlight:                  s.inFlight,
-		SeenMessageIDs:            seen,
-		Conversation:              s.conversationCopy(),
+		SessionID:                  s.input.SessionID,
+		ChatSessionID:              s.chatSessionID,
+		DiagnosisTaskID:            s.diagnosisTaskID,
+		OwnerSubject:               s.input.OwnerSubject,
+		Status:                     s.status,
+		TurnCount:                  s.turnCount,
+		StartedAt:                  s.startedAt,
+		LastActivityAt:             s.lastActivityAt,
+		ClosedAt:                   s.closedAt,
+		CloseReason:                s.closeReason,
+		FinalConclusion:            s.finalConclusion,
+		ConversationSummary:        copyDiagnosisRoomConversationSummary(s.conversationSummary),
+		ApprovalMode:               s.input.ApprovalMode,
+		ConclusionDigest:           conclusionDigest,
+		Approvals:                  cloneChatSessionApprovals(s.approvals),
+		PendingApprovalAuthorities: append([]domain.DiagnosisApprovalAuthority(nil), pendingApprovals...),
+		ApprovalInFlight:           s.approvalInFlight,
+		LatestInsight:              copyDiagnosisRoomConsultationInsightPtr(s.latestInsight),
+		LatestConfidence:           s.latestConfidence,
+		LatestRequiresHumanReview:  copyBoolPtr(s.latestRequiresHumanReview),
+		LatestEvidenceRequests:     cloneEvidenceRequests(s.latestEvidenceRequests),
+		LatestCollectionResults:    diagnosisevidence.CloneItems(s.latestCollectionResults),
+		EvidenceTimeline:           cloneDiagnosisRoomEvidenceTimeline(s.evidenceTimeline),
+		ConfidenceTimeline:         cloneDiagnosisRoomConfidenceTimeline(s.confidenceTimeline),
+		SupplementalEvidence:       cloneDiagnosisRoomSupplementalEvidenceRecords(s.supplementalEvidence),
+		LatestError:                cloneDiagnosisRoomLatestErrorPtr(s.latestError),
+		InFlight:                   s.inFlight,
+		SeenMessageIDs:             seen,
+		Conversation:               s.conversationCopy(),
 	}
 }
 
@@ -1055,6 +1129,9 @@ func (s *diagnosisRoomState) runDiagnosisRoomTurn(
 	s.chatSessionID = persistResult.ChatSessionID
 	s.turnCount++
 	s.lastActivityAt = persistResult.LastActivityAt
+	s.conclusionDigest = ""
+	s.approvals = nil
+	s.finalConclusion = nil
 	if finalConclusionVersion >= diagnosisRoomFinalConclusionVersion && persistResult.FinalConclusion != nil {
 		s.finalConclusion = copyDiagnosisRoomFinalConclusion(*persistResult.FinalConclusion)
 	}
@@ -1418,6 +1495,9 @@ func (s *diagnosisRoomState) validateConfirmConclusion(
 	if s.inFlight {
 		return fmt.Errorf("diagnosis room confirm conclusion: turn is still in progress")
 	}
+	if s.approvalInFlight {
+		return fmt.Errorf("diagnosis room confirm conclusion: another approval is still in progress")
+	}
 	ready := false
 	if s.finalConclusion != nil && strings.TrimSpace(s.finalConclusion.Status) == "available" {
 		ready = true
@@ -1437,6 +1517,120 @@ func (s *diagnosisRoomState) validateConfirmConclusion(
 		}
 	}
 	return nil
+}
+
+func (s *diagnosisRoomState) recordConclusionApproval(
+	ctx workflow.Context,
+	req DiagnosisRoomCloseRequest,
+) (DiagnosisRoomWorkflowState, error) {
+	digest, assistantMessageID, assistantSequence, content, err := s.currentConclusionIdentity()
+	if err != nil {
+		return DiagnosisRoomWorkflowState{}, newDiagnosisRoomConfirmRejectedError(err)
+	}
+	authority := domain.DiagnosisApprovalAuthorityLeader
+	if req.ActorSubject == s.input.OwnerSubject {
+		authority = domain.DiagnosisApprovalAuthorityOwner
+	}
+	for _, approval := range approvalsForConclusion(s.approvals, digest) {
+		if approval.ActorSubject != req.ActorSubject {
+			continue
+		}
+		if approval.Reason != reasonOrDefault(req.Reason, "human_confirmed") {
+			return DiagnosisRoomWorkflowState{}, newDiagnosisRoomConfirmRejectedError(
+				fmt.Errorf("diagnosis room confirm conclusion: actor already approved this conclusion with a different reason"),
+			)
+		}
+		return s.snapshot(), nil
+	}
+	candidateQuorum := append(
+		cloneChatSessionApprovals(approvalsForConclusion(s.approvals, digest)),
+		domain.ChatSessionApproval{
+			ActorSubject: req.ActorSubject,
+			Authority:    authority,
+		},
+	)
+	if _, err := diagnosisapproval.PendingAuthorities(s.input.ApprovalMode, candidateQuorum); err != nil {
+		return DiagnosisRoomWorkflowState{}, newDiagnosisRoomConfirmRejectedError(
+			fmt.Errorf("diagnosis room confirm conclusion: approval authority is already satisfied: %w", err),
+		)
+	}
+
+	s.approvalInFlight = true
+	defer func() { s.approvalInFlight = false }()
+	approvedAt := workflow.Now(ctx)
+	activityCtx := workflow.WithActivityOptions(ctx, diagnosisRoomPersistenceActivityOptions())
+	var result RecordDiagnosisConclusionApprovalResult
+	if err := workflow.ExecuteActivity(activityCtx, (*Activities).RecordDiagnosisConclusionApproval, RecordDiagnosisConclusionApprovalInput{
+		SessionID:          s.input.SessionID,
+		DiagnosisTaskID:    s.diagnosisTaskID,
+		OwnerSubject:       s.input.OwnerSubject,
+		ActorSubject:       req.ActorSubject,
+		Authority:          authority,
+		ApprovalMode:       s.input.ApprovalMode,
+		Reason:             reasonOrDefault(req.Reason, "human_confirmed"),
+		AssistantMessageID: assistantMessageID,
+		AssistantSequence:  assistantSequence,
+		ConclusionContent:  content,
+		ConclusionDigest:   digest,
+		ApprovedAt:         approvedAt,
+	}).Get(activityCtx, &result); err != nil {
+		return DiagnosisRoomWorkflowState{}, err
+	}
+	s.conclusionDigest = digest
+	s.approvals = appendApprovalIfMissing(s.approvals, result.Approval)
+	pending, err := diagnosisapproval.PendingAuthorities(s.input.ApprovalMode, approvalsForConclusion(s.approvals, digest))
+	if err != nil {
+		return DiagnosisRoomWorkflowState{}, err
+	}
+	if len(pending) == 0 && s.status == diagnosisRoomStatusOpen {
+		s.conclusionConfirmed = true
+		s.close(workflow.Now(ctx), reasonOrDefault(req.Reason, "human_confirmed"), req.ActorSubject)
+	}
+	return s.snapshot(), nil
+}
+
+func (s *diagnosisRoomState) currentConclusionIdentity() (string, string, int, string, error) {
+	if s.finalConclusion == nil || strings.TrimSpace(s.finalConclusion.Status) != "available" {
+		return "", "", 0, "", fmt.Errorf("diagnosis room confirm conclusion: retained final conclusion is unavailable")
+	}
+	messageID := strings.TrimSpace(s.finalConclusion.AssistantMessageID)
+	sequence := s.finalConclusion.AssistantSequence
+	if messageID == "" || sequence <= 0 || sequence > len(s.conversation) {
+		return "", "", 0, "", fmt.Errorf("diagnosis room confirm conclusion: retained conclusion source is incomplete")
+	}
+	turn := s.conversation[sequence-1]
+	if turn.Role != string(diagnosisroomRoleAssistant) || strings.TrimSpace(turn.Content) == "" {
+		return "", "", 0, "", fmt.Errorf("diagnosis room confirm conclusion: retained conclusion source turn is invalid")
+	}
+	digest, err := diagnosisapproval.ConclusionDigest(messageID, sequence, turn.Content)
+	if err != nil {
+		return "", "", 0, "", err
+	}
+	return digest, messageID, sequence, turn.Content, nil
+}
+
+func approvalsForConclusion(in []domain.ChatSessionApproval, digest string) []domain.ChatSessionApproval {
+	out := make([]domain.ChatSessionApproval, 0, len(in))
+	for _, approval := range in {
+		if approval.ConclusionDigest == digest {
+			out = append(out, approval)
+		}
+	}
+	return out
+}
+
+func appendApprovalIfMissing(in []domain.ChatSessionApproval, approval domain.ChatSessionApproval) []domain.ChatSessionApproval {
+	for _, existing := range in {
+		if existing.ID == approval.ID ||
+			(existing.ConclusionDigest == approval.ConclusionDigest && existing.ActorSubject == approval.ActorSubject) {
+			return in
+		}
+	}
+	return append(in, approval)
+}
+
+func cloneChatSessionApprovals(in []domain.ChatSessionApproval) []domain.ChatSessionApproval {
+	return append([]domain.ChatSessionApproval(nil), in...)
 }
 
 func (s *diagnosisRoomState) validateCollectEvidence(req CollectDiagnosisEvidenceRequest) error {
@@ -2439,6 +2633,9 @@ func (s *diagnosisRoomState) closeIfExpired(now time.Time) bool {
 		s.close(now, diagnosisRoomCloseSessionTimeout, "")
 		return true
 	}
+	if s.approvalInFlight {
+		return false
+	}
 	if !now.Before(s.lastActivityAt.Add(s.policy.IdleTimeout)) {
 		s.close(now, diagnosisRoomCloseIdleTimeout, "")
 		return true
@@ -2474,8 +2671,14 @@ func (s *diagnosisRoomState) closeDiagnosisTaskFailureReason() string {
 
 func (s *diagnosisRoomState) nextTimerDelay(now time.Time) time.Duration {
 	sessionDelay := s.startedAt.Add(s.policy.SessionTTL).Sub(now)
+	if sessionDelay <= 0 {
+		return time.Nanosecond
+	}
+	if s.approvalInFlight {
+		return sessionDelay
+	}
 	idleDelay := s.lastActivityAt.Add(s.policy.IdleTimeout).Sub(now)
-	if sessionDelay <= 0 || idleDelay <= 0 {
+	if idleDelay <= 0 {
 		return time.Nanosecond
 	}
 	if sessionDelay < idleDelay {
@@ -2496,6 +2699,13 @@ func diagnosisRoomPolicyOrDefault(policy diagnosisroom.Policy) diagnosisroom.Pol
 		return diagnosisroom.DefaultPolicy()
 	}
 	return policy
+}
+
+func diagnosisApprovalModeOrDefault(mode domain.DiagnosisApprovalMode) domain.DiagnosisApprovalMode {
+	if mode == "" {
+		return domain.DiagnosisApprovalModeSingle
+	}
+	return mode
 }
 
 func diagnosisRoomTurnActivityOptions(policy diagnosisroom.Policy, streaming bool) workflow.ActivityOptions {
@@ -2580,6 +2790,9 @@ func validateDiagnosisRoomWorkflowInput(input DiagnosisRoomWorkflowInput, policy
 	}
 	if input.CloseNotificationChannelProfileID < 0 {
 		return fmt.Errorf("diagnosis-room: input.close_notification_channel_profile_id must be non-negative")
+	}
+	if !diagnosisApprovalModeOrDefault(input.ApprovalMode).Valid() {
+		return fmt.Errorf("diagnosis-room: input.approval_mode %q is unsupported", input.ApprovalMode)
 	}
 	if err := validateDiagnosisRoomEvidenceJSON("diagnosis-room: input.evidence", input.Evidence); err != nil {
 		return err

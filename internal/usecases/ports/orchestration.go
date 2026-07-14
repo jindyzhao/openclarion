@@ -91,6 +91,7 @@ type DiagnosisRoomStartRequest struct {
 	OwnerSubject                      string
 	Evidence                          json.RawMessage
 	CloseNotificationChannelProfileID domain.NotificationChannelProfileID
+	ApprovalMode                      domain.DiagnosisApprovalMode
 	InitialTurn                       *DiagnosisRoomInitialTurnRequest
 }
 
@@ -103,6 +104,7 @@ type DiagnosisRoomStartResult struct {
 	DiagnosisTaskID    domain.DiagnosisTaskID
 	ChatSessionID      domain.ChatSessionID
 	Workflow           WorkflowHandle
+	ApprovalMode       domain.DiagnosisApprovalMode
 }
 
 // DiagnosisRoomWorkflowStarter starts a DiagnosisRoomWorkflow without exposing
@@ -379,33 +381,49 @@ type DiagnosisRoomFinalConclusion struct {
 	EvidenceCollectionSuggestions []DiagnosisRoomConsultationEvidenceRequest
 }
 
+// DiagnosisRoomConclusionApproval is the provider-neutral read model for one
+// immutable approval bound to the currently retained conclusion digest.
+type DiagnosisRoomConclusionApproval struct {
+	ID               domain.ChatSessionApprovalID
+	ConclusionDigest string
+	ActorSubject     string
+	Authority        domain.DiagnosisApprovalAuthority
+	Reason           string
+	ApprovedAt       time.Time
+}
+
 // DiagnosisRoomState is the provider-neutral room state returned for
 // WebSocket reconnect/read flows.
 type DiagnosisRoomState struct {
-	SessionID                 string
-	ChatSessionID             domain.ChatSessionID
-	DiagnosisTaskID           domain.DiagnosisTaskID
-	OwnerSubject              string
-	Status                    string
-	TurnCount                 int
-	StartedAt                 time.Time
-	LastActivityAt            time.Time
-	ClosedAt                  *time.Time
-	CloseReason               string
-	FinalConclusion           *DiagnosisRoomFinalConclusion
-	ConversationSummary       *DiagnosisRoomConversationSummary
-	LatestConsultationInsight *DiagnosisRoomConsultationInsight
-	LatestConfidence          string
-	LatestRequiresHumanReview *bool
-	LatestEvidenceRequests    []DiagnosisRoomEvidenceRequest
-	LatestCollectionResults   []DiagnosisRoomEvidenceCollectionResult
-	EvidenceTimeline          []DiagnosisRoomEvidenceTimelineEntry
-	ConfidenceTimeline        []DiagnosisRoomConfidenceTimelineEntry
-	SupplementalEvidence      []DiagnosisRoomSupplementalEvidenceRecord
-	LatestError               *DiagnosisRoomLatestError
-	InFlight                  bool
-	SeenMessageIDs            []string
-	Conversation              []DiagnosisRoomConversationTurn
+	SessionID                  string
+	ChatSessionID              domain.ChatSessionID
+	DiagnosisTaskID            domain.DiagnosisTaskID
+	OwnerSubject               string
+	Status                     string
+	TurnCount                  int
+	StartedAt                  time.Time
+	LastActivityAt             time.Time
+	ClosedAt                   *time.Time
+	CloseReason                string
+	FinalConclusion            *DiagnosisRoomFinalConclusion
+	ConversationSummary        *DiagnosisRoomConversationSummary
+	ApprovalMode               domain.DiagnosisApprovalMode
+	ConclusionDigest           string
+	Approvals                  []DiagnosisRoomConclusionApproval
+	PendingApprovalAuthorities []domain.DiagnosisApprovalAuthority
+	ApprovalInFlight           bool
+	LatestConsultationInsight  *DiagnosisRoomConsultationInsight
+	LatestConfidence           string
+	LatestRequiresHumanReview  *bool
+	LatestEvidenceRequests     []DiagnosisRoomEvidenceRequest
+	LatestCollectionResults    []DiagnosisRoomEvidenceCollectionResult
+	EvidenceTimeline           []DiagnosisRoomEvidenceTimelineEntry
+	ConfidenceTimeline         []DiagnosisRoomConfidenceTimelineEntry
+	SupplementalEvidence       []DiagnosisRoomSupplementalEvidenceRecord
+	LatestError                *DiagnosisRoomLatestError
+	InFlight                   bool
+	SeenMessageIDs             []string
+	Conversation               []DiagnosisRoomConversationTurn
 }
 
 // DiagnosisRoomConversationSummary is the provider-neutral read model for an

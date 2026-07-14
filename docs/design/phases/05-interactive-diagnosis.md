@@ -10,7 +10,8 @@
 
 ## Status
 
-V1 required. Minimum-viable scope only. Long-session features are deferred.
+V1 required with post-V1 approval extensions. Long-session features remain
+deferred.
 
 ## Goal
 
@@ -31,7 +32,7 @@ authorization boundary stay separate from report fan-out/fan-in workflows. See
 |---------------|--------------------|
 | short conversation, bounded turn count (e.g. <= 20 turns) | unbounded long sessions |
 | fixed session lifetime (e.g. 30 minutes) + idle timeout | multi-day rooms |
-| owner / admin RBAC enforcement | leader-tier multi-stakeholder approval |
+| owner/admin room access plus configurable single or owner-and-leader conclusion approval | arbitrary quorum policies and external governance integration |
 | chat persistence, audit trail, and lifecycle-end deterministic compression | periodic semantic compression for unbounded long sessions |
 | basic unsafe-instruction filter (deny list) | adaptive policy / model-graded safety |
 | Temporal workflow with signals, updates, and queries | per-tenant workflow isolation |
@@ -52,11 +53,13 @@ ChatTurn rows remain complete.
 ## Deliverables
 
 - AuthProvider interface and OIDC implementation
-- RBAC enforcement: owner and admin (leader is deferred)
+- RBAC enforcement: owner/admin room access plus dedicated owner/leader
+  conclusion approval
 - Next.js short-conversation diagnosis page
 - WebSocket connection: browser <-> Go control plane (per-turn file contract via container)
 - Temporal workflow that owns session lifecycle (Update + durable timer)
-- ChatSession, ChatTurn, and immutable versioned ChatSessionSummary Ent schemas
+- ChatSession, ChatTurn, ChatSessionApproval, and immutable versioned
+  ChatSessionSummary Ent schemas
 - bounded-turn enforcement at the workflow level
 - unsafe-instruction filter (deny-list, defense-in-depth)
 - audit logging for session lifecycle events
@@ -76,7 +79,7 @@ Browser (WebSocket)
     v
 Go Control Plane
     |-- AuthProvider: verify identity and role (OIDC)
-    |-- RBAC: check session ownership (owner/admin)
+    |-- RBAC: check room access and conclusion approval authority
     |-- Deny-list filter: block unsafe instructions before relay
     |-- Audit: log all lifecycle events to PostgreSQL
     |
@@ -360,8 +363,10 @@ this handshake:
   and mapping configured role claims into owner/admin roles
 - `internal/providers/auth/fake` provides deterministic scripted auth for
   transport/usecase tests
-- owner/admin RBAC is enforced by `AuthorizeSessionAccess`
-- leader-tier roles remain rejected in V1
+- owner/admin room access is enforced by `AuthorizeSessionAccess`
+- local directory RBAC exposes a dedicated `diagnosis_room.approve` permission;
+  the room owner receives that capability for the exact session and a leader
+  may receive it through the persisted directory role
 - `Service.IssueTicket` creates cryptographically random URL-safe tickets with
   TTL <= 30s after RBAC passes
 - `Service.ConsumeTicket` atomically consumes one ticket and rechecks scope,
@@ -386,22 +391,29 @@ handshake, and submit/query relay boundary. Lifecycle audit and close
 notification are covered by `make diagnosis-room-workflow-test`, not this
 auth gate.
 
-### Chat Persistence
+### Chat Persistence and Conclusion Approval
 
-`ChatSession` and `ChatTurn` persist the M5 diagnosis-room lifecycle and
-transcript behind `ports.DiagnosisRepository`. The schema remains tied to the
-alert diagnosis path by anchoring each `ChatSession` to one `DiagnosisTask`;
-`session_key` is the external room id used by WebSocket ticket issuance and
-reconnect flows.
+`ChatSession`, `ChatTurn`, and `ChatSessionApproval` persist the M5
+diagnosis-room lifecycle, transcript, and conclusion decisions behind
+`ports.DiagnosisRepository`. The schema remains tied to the alert diagnosis
+path by anchoring each `ChatSession` to one `DiagnosisTask`; `session_key` is
+the external room id used by WebSocket ticket issuance and reconnect flows.
 
 Persistence rules:
 
 - `ChatSession.session_key` is immutable and globally unique
 - one `DiagnosisTask` owns one `ChatSession` in V1
 - `owner_subject` is immutable and backs owner/admin RBAC resolution
+- `approval_mode` is immutable and selects `single` or `owner_and_leader`
 - `ChatTurn` is append-only
 - `(chat_session_id, message_id)` rejects duplicate submitted messages
 - `(chat_session_id, sequence)` preserves canonical transcript order
+- `ChatSessionApproval` is append-only and binds one actor and authority to the
+  exact assistant turn and SHA-256 conclusion digest
+- `(chat_session_id, conclusion_digest, actor_subject)` rejects replayed or
+  conflicting approval by the same actor
+- `(chat_session_id, conclusion_digest, authority)` allows only one actor to
+  occupy each quorum slot
 
 The focused gate is:
 
@@ -436,6 +448,9 @@ budget is enforced at the workflow/Activity boundary before mounting:
   allowlist)
 - unsafe-instruction filter runs server-side before forwarding to sandbox
 - all session actions are auditable
+- terminal human-confirmed close re-reads the latest persisted assistant turn
+  and its immutable approvals, then rejects close until the configured quorum
+  is satisfied by distinct actors
 - bounded turns and lifetime cap bound active-session context independently of
   lifecycle-end compression
 
@@ -445,12 +460,14 @@ budget is enforced at the workflow/Activity boundary before mounting:
 - short-conversation exchange completes within configured turn and time limits
 - chat turns persist to PostgreSQL with full audit trail
 - unauthorized access is denied
+- configured conclusion approval blocks terminal close until the latest
+  assistant conclusion has the required distinct owner/leader approvals
 - session close triggers final group notification
 - audit events are queryable
 
 ## Out-of-Scope Confirmation
 
 - no periodic active-session compression for multi-day rooms
-- no leader-tier approval flows
+- no arbitrary quorum policy or external approval-governance integration
 - no multi-day or multi-region session state
 - no streaming token-level partial responses (turn-by-turn is sufficient)

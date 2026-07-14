@@ -366,6 +366,22 @@ func (r *closeTestRepo) FindLatestChatSessionSummary(context.Context, domain.Cha
 	return domain.ChatSessionSummary{}, errors.New("unexpected FindLatestChatSessionSummary call")
 }
 
+func (r *closeTestRepo) SaveChatSessionApproval(context.Context, domain.ChatSessionApproval) (domain.ChatSessionApproval, error) {
+	return domain.ChatSessionApproval{}, errors.New("unexpected SaveChatSessionApproval call")
+}
+
+func (r *closeTestRepo) FindChatSessionApproval(context.Context, domain.ChatSessionID, string, string) (domain.ChatSessionApproval, error) {
+	return domain.ChatSessionApproval{}, errors.New("unexpected FindChatSessionApproval call")
+}
+
+func (r *closeTestRepo) HasChatSessionApprovals(context.Context, domain.ChatSessionID) (bool, error) {
+	return false, errors.New("unexpected HasChatSessionApprovals call")
+}
+
+func (r *closeTestRepo) ListChatSessionApprovals(context.Context, domain.ChatSessionID, string, int) ([]domain.ChatSessionApproval, error) {
+	return nil, errors.New("unexpected ListChatSessionApprovals call")
+}
+
 func (r *closeTestRepo) failNow(message string) {
 	r.t.Helper()
 	r.t.Fatal(message)

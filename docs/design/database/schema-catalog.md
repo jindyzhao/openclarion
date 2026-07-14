@@ -22,6 +22,7 @@ workflow. Alert operations configuration tables follow
 | `DiagnosisAuthTicket` | shipped at M5 local | short-lived WebSocket ticket metadata; stores `sha256(token)`, never the raw token |
 | `ChatSession` | shipped at M5 local | interactive diagnosis-room lifecycle anchored to `DiagnosisTask` |
 | `ChatTurn` | shipped at M5 local | append-only human, assistant, system, and tool messages |
+| `ChatSessionApproval` | shipped post-V1 local | immutable actor approval bound to one persisted assistant conclusion digest |
 | `ChatSessionSummary` | shipped post-V1 local | immutable versioned lifecycle-end conversation compression checkpoint bound to ordered ChatTurn rows by SHA-256 |
 | `AlertSourceProfile` | shipped at M3.1 local | operator-managed alert source connection metadata; stores `secret_ref`, never secret values |
 | `GroupingPolicy` | shipped at M3.1 local | operator-managed deterministic alert grouping configuration |
@@ -133,11 +134,11 @@ The row is append-mostly:
   successful update; the rest observe `ErrTicketConsumed`
 * expired tickets are not consumed, so replay attempts remain auditable
 
-## ChatSession, ChatTurn, and ChatSessionSummary
+## ChatSession, ChatTurn, ChatSessionApproval, and ChatSessionSummary
 
-`ChatSession`, `ChatTurn`, and `ChatSessionSummary` are the M5
-short-conversation persistence boundary. They remain tied to the intelligent
-alert diagnosis path: every `ChatSession` belongs to exactly one
+`ChatSession`, `ChatTurn`, `ChatSessionApproval`, and `ChatSessionSummary` are
+the M5 short-conversation persistence boundary. They remain tied to the
+intelligent alert diagnosis path: every `ChatSession` belongs to exactly one
 `DiagnosisTask`, while `session_key` is the external room id used by WebSocket
 tickets and reconnect flows.
 
@@ -147,6 +148,7 @@ The V1 model is intentionally small:
 * `chat_sessions.diagnosis_task_id` is UNIQUE, enforcing one diagnosis-room
   session per workflow execution in V1
 * `owner_subject` is immutable and backs owner/admin RBAC resolution
+* `approval_mode` is immutable and stores `single` or `owner_and_leader`
 * `status` is text (`open` / `closed`), not a database enum
 * close metadata is explicit (`closed_at`, `close_reason`) so lifecycle
   ending is queryable
@@ -160,6 +162,17 @@ The V1 model is intentionally small:
 
 Each turn records `role`, `actor_subject`, `content`, `metadata`, and
 `occurred_at`.
+
+`ChatSessionApproval` rows are append-only conclusion decisions:
+
+* each row binds the session, assistant turn `message_id`, lowercase SHA-256
+  conclusion digest, actor subject, and owner/leader authority
+* `UNIQUE (chat_session_id, conclusion_digest, actor_subject)` makes retries
+  idempotent while preventing the same actor from satisfying two authorities
+* `UNIQUE (chat_session_id, conclusion_digest, authority)` prevents multiple
+  subjects from occupying the same quorum slot
+* the close Activity re-derives the latest persisted assistant conclusion
+  digest and checks its persisted rows before changing terminal session state
 
 `ChatSessionSummary` rows are append-only compression checkpoints:
 

@@ -214,7 +214,8 @@ func diagnosisRoomOwnerPermission(permission domain.RBACPermission) bool {
 	switch permission {
 	case domain.RBACPermissionDiagnosisRoomRead,
 		domain.RBACPermissionDiagnosisRoomParticipate,
-		domain.RBACPermissionDiagnosisRoomAdminister:
+		domain.RBACPermissionDiagnosisRoomAdminister,
+		domain.RBACPermissionDiagnosisRoomApprove:
 		return true
 	default:
 		return false

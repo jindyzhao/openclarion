@@ -60,6 +60,7 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomStartsWorkflowAndWaitsReady(t *t
 			SessionID:       "session-1",
 			DiagnosisTaskID: 101,
 			ChatSessionID:   202,
+			ApprovalMode:    domain.DiagnosisApprovalModeOwnerAndLeader,
 		}},
 	}
 	starter := newDiagnosisRoomStarter(
@@ -74,6 +75,7 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomStartsWorkflowAndWaitsReady(t *t
 		OwnerSubject:                      "owner-1",
 		Evidence:                          []byte(`{"alert":"cpu"}`),
 		CloseNotificationChannelProfileID: 9,
+		ApprovalMode:                      domain.DiagnosisApprovalModeOwnerAndLeader,
 		InitialTurn: &ports.DiagnosisRoomInitialTurnRequest{
 			MessageID:    "initial-1",
 			ActorSubject: "openclarion.alertmanager-webhook:7:policy:3",
@@ -87,6 +89,7 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomStartsWorkflowAndWaitsReady(t *t
 		got.EvidenceSnapshotID != 42 ||
 		got.DiagnosisTaskID != 101 ||
 		got.ChatSessionID != 202 ||
+		got.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader ||
 		got.Workflow.WorkflowID != "diagnosis-room-session-1" ||
 		got.Workflow.RunID != "run-1" {
 		t.Fatalf("result = %+v", got)
@@ -110,6 +113,7 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomStartsWorkflowAndWaitsReady(t *t
 	if input.SessionID != "session-1" ||
 		input.EvidenceSnapshotID != 42 ||
 		input.OwnerSubject != "owner-1" ||
+		input.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader ||
 		input.CloseNotificationChannelProfileID != 9 {
 		t.Fatalf("input = %+v", input)
 	}
@@ -144,6 +148,9 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomValidation(t *testing.T) {
 		{name: "zero_snapshot", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.EvidenceSnapshotID = 0 })},
 		{name: "negative_close_channel", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) {
 			req.CloseNotificationChannelProfileID = -1
+		})},
+		{name: "invalid_approval_mode", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) {
+			req.ApprovalMode = domain.DiagnosisApprovalMode("committee")
 		})},
 		{name: "empty_owner", starter: newDiagnosisRoomStarter(&recordingDiagnosisRoomStarterClient{}), req: withStartRequest(good, func(req *ports.DiagnosisRoomStartRequest) { req.OwnerSubject = " " })},
 		{
@@ -200,6 +207,32 @@ func TestDiagnosisRoomStarter_PropagatesExecuteWorkflowError(t *testing.T) {
 	})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("StartDiagnosisRoom error = %v, want %v", err, wantErr)
+	}
+}
+
+func TestDiagnosisRoomStarter_RejectsExistingWorkflowApprovalModeMismatch(t *testing.T) {
+	starter := newDiagnosisRoomStarter(
+		&recordingDiagnosisRoomStarterClient{
+			run: staticWorkflowRun{workflowID: "diagnosis-room-session-1", runID: "run-1"},
+			queryValue: fakeEncodedValue{value: DiagnosisRoomWorkflowState{
+				SessionID:       "session-1",
+				DiagnosisTaskID: 101,
+				ChatSessionID:   202,
+				ApprovalMode:    domain.DiagnosisApprovalModeSingle,
+			}},
+		},
+		WithDiagnosisRoomStarterReadyTimeout(time.Second),
+	)
+
+	_, err := starter.StartDiagnosisRoom(context.Background(), ports.DiagnosisRoomStartRequest{
+		SessionID:          "session-1",
+		EvidenceSnapshotID: 42,
+		OwnerSubject:       "owner-1",
+		Evidence:           []byte(`{"alert":"cpu"}`),
+		ApprovalMode:       domain.DiagnosisApprovalModeOwnerAndLeader,
+	})
+	if !errors.Is(err, domain.ErrInvariantViolation) || !strings.Contains(err.Error(), "existing workflow approval_mode") {
+		t.Fatalf("StartDiagnosisRoom error = %v, want approval mode mismatch", err)
 	}
 }
 

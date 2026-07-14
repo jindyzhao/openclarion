@@ -32,6 +32,7 @@ const (
 type Request struct {
 	EvidenceSnapshotID                domain.EvidenceSnapshotID
 	CloseNotificationChannelProfileID domain.NotificationChannelProfileID
+	ApprovalMode                      domain.DiagnosisApprovalMode
 	Principal                         ports.AuthPrincipal
 }
 
@@ -43,6 +44,7 @@ type Result struct {
 	DiagnosisTaskID    domain.DiagnosisTaskID
 	ChatSessionID      domain.ChatSessionID
 	Workflow           ports.WorkflowHandle
+	ApprovalMode       domain.DiagnosisApprovalMode
 }
 
 // Service creates diagnosis rooms without depending on concrete Temporal or
@@ -98,6 +100,13 @@ func (s *Service) Start(ctx context.Context, req Request) (Result, error) {
 	if req.CloseNotificationChannelProfileID < 0 {
 		return Result{}, fmt.Errorf("diagnosis room start: close_notification_channel_profile_id must be non-negative: %w", domain.ErrInvariantViolation)
 	}
+	approvalMode := req.ApprovalMode
+	if approvalMode == "" {
+		approvalMode = domain.DiagnosisApprovalModeSingle
+	}
+	if !approvalMode.Valid() {
+		return Result{}, fmt.Errorf("diagnosis room start: approval_mode %q is unsupported: %w", approvalMode, domain.ErrInvariantViolation)
+	}
 	subject := strings.TrimSpace(req.Principal.Subject)
 	if subject == "" {
 		return Result{}, fmt.Errorf("diagnosis room start: principal subject is required: %w", diagnosisauth.ErrUnauthenticated)
@@ -134,6 +143,7 @@ func (s *Service) Start(ctx context.Context, req Request) (Result, error) {
 		OwnerSubject:                      subject,
 		Evidence:                          evidence,
 		CloseNotificationChannelProfileID: req.CloseNotificationChannelProfileID,
+		ApprovalMode:                      approvalMode,
 	})
 	if err != nil {
 		return Result{}, err
@@ -144,6 +154,7 @@ func (s *Service) Start(ctx context.Context, req Request) (Result, error) {
 		DiagnosisTaskID:    started.DiagnosisTaskID,
 		ChatSessionID:      started.ChatSessionID,
 		Workflow:           started.Workflow,
+		ApprovalMode:       started.ApprovalMode,
 	}, nil
 }
 

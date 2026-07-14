@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionapproval"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
@@ -111,6 +112,20 @@ func (_c *ChatSessionCreate) SetNillableCloseReason(v *string) *ChatSessionCreat
 	return _c
 }
 
+// SetApprovalMode sets the "approval_mode" field.
+func (_c *ChatSessionCreate) SetApprovalMode(v string) *ChatSessionCreate {
+	_c.mutation.SetApprovalMode(v)
+	return _c
+}
+
+// SetNillableApprovalMode sets the "approval_mode" field if the given value is not nil.
+func (_c *ChatSessionCreate) SetNillableApprovalMode(v *string) *ChatSessionCreate {
+	if v != nil {
+		_c.SetApprovalMode(*v)
+	}
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *ChatSessionCreate) SetCreatedAt(v time.Time) *ChatSessionCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -180,6 +195,21 @@ func (_c *ChatSessionCreate) AddSummaries(v ...*ChatSessionSummary) *ChatSession
 	return _c.AddSummaryIDs(ids...)
 }
 
+// AddApprovalIDs adds the "approvals" edge to the ChatSessionApproval entity by IDs.
+func (_c *ChatSessionCreate) AddApprovalIDs(ids ...int) *ChatSessionCreate {
+	_c.mutation.AddApprovalIDs(ids...)
+	return _c
+}
+
+// AddApprovals adds the "approvals" edges to the ChatSessionApproval entity.
+func (_c *ChatSessionCreate) AddApprovals(v ...*ChatSessionApproval) *ChatSessionCreate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddApprovalIDs(ids...)
+}
+
 // Mutation returns the ChatSessionMutation object of the builder.
 func (_c *ChatSessionCreate) Mutation() *ChatSessionMutation {
 	return _c.mutation
@@ -222,6 +252,10 @@ func (_c *ChatSessionCreate) defaults() {
 	if _, ok := _c.mutation.TurnCount(); !ok {
 		v := chatsession.DefaultTurnCount
 		_c.mutation.SetTurnCount(v)
+	}
+	if _, ok := _c.mutation.ApprovalMode(); !ok {
+		v := chatsession.DefaultApprovalMode
+		_c.mutation.SetApprovalMode(v)
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := chatsession.DefaultCreatedAt()
@@ -279,6 +313,14 @@ func (_c *ChatSessionCreate) check() error {
 	if v, ok := _c.mutation.CloseReason(); ok {
 		if err := chatsession.CloseReasonValidator(v); err != nil {
 			return &ValidationError{Name: "close_reason", err: fmt.Errorf(`ent: validator failed for field "ChatSession.close_reason": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.ApprovalMode(); !ok {
+		return &ValidationError{Name: "approval_mode", err: errors.New(`ent: missing required field "ChatSession.approval_mode"`)}
+	}
+	if v, ok := _c.mutation.ApprovalMode(); ok {
+		if err := chatsession.ApprovalModeValidator(v); err != nil {
+			return &ValidationError{Name: "approval_mode", err: fmt.Errorf(`ent: validator failed for field "ChatSession.approval_mode": %w`, err)}
 		}
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
@@ -349,6 +391,10 @@ func (_c *ChatSessionCreate) createSpec() (*ChatSession, *sqlgraph.CreateSpec) {
 		_spec.SetField(chatsession.FieldCloseReason, field.TypeString, value)
 		_node.CloseReason = value
 	}
+	if value, ok := _c.mutation.ApprovalMode(); ok {
+		_spec.SetField(chatsession.FieldApprovalMode, field.TypeString, value)
+		_node.ApprovalMode = value
+	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(chatsession.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
@@ -399,6 +445,22 @@ func (_c *ChatSessionCreate) createSpec() (*ChatSession, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(chatsessionsummary.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ApprovalsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.ApprovalsTable,
+			Columns: []string{chatsession.ApprovalsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionapproval.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {
@@ -570,6 +632,9 @@ func (u *ChatSessionUpsertOne) UpdateNewValues() *ChatSessionUpsertOne {
 		}
 		if _, exists := u.create.mutation.StartedAt(); exists {
 			s.SetIgnore(chatsession.FieldStartedAt)
+		}
+		if _, exists := u.create.mutation.ApprovalMode(); exists {
+			s.SetIgnore(chatsession.FieldApprovalMode)
 		}
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(chatsession.FieldCreatedAt)
@@ -897,6 +962,9 @@ func (u *ChatSessionUpsertBulk) UpdateNewValues() *ChatSessionUpsertBulk {
 			}
 			if _, exists := b.mutation.StartedAt(); exists {
 				s.SetIgnore(chatsession.FieldStartedAt)
+			}
+			if _, exists := b.mutation.ApprovalMode(); exists {
+				s.SetIgnore(chatsession.FieldApprovalMode)
 			}
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(chatsession.FieldCreatedAt)

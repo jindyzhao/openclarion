@@ -1843,7 +1843,7 @@ describe("diagnosis automatic browser-session room creation", () => {
         values: { authMode: "session" },
       }),
     ).toEqual({
-      attemptKey: "create:operator-1:42:17:3",
+      attemptKey: "create:operator-1:42:17:single:3",
       closeNotificationChannelProfileID: 17,
       evidenceSnapshotID: 42,
     });
@@ -1873,7 +1873,7 @@ describe("diagnosis automatic browser-session room creation", () => {
         values: { authMode: "session" },
       }),
     ).toEqual({
-      attemptKey: "create:operator-1:42:none:3",
+      attemptKey: "create:operator-1:42:none:single:3",
       evidenceSnapshotID: 42,
     });
   });
@@ -1952,8 +1952,17 @@ describe("diagnosis automatic browser-session room creation", () => {
     expect(
       diagnosisAutoBrowserSessionCreateRoomPlan({
         ...base,
-        previousAttemptKey: "create:operator-1:42:17:3",
+        previousAttemptKey: "create:operator-1:42:17:single:3",
       }),
     ).toBeNull();
+    expect(
+      diagnosisAutoBrowserSessionCreateRoomPlan({
+        ...base,
+        approvalMode: "owner_and_leader",
+        previousAttemptKey: "create:operator-1:42:17:single:3",
+      }),
+    ).toMatchObject({
+      attemptKey: "create:operator-1:42:17:owner_and_leader:3",
+    });
   });
 });

@@ -208,6 +208,8 @@ function baseStateFrame(): DiagnosisStateFrame {
     turn_count: 2,
     started_at: "2026-06-20T00:00:00Z",
     last_activity_at: "2026-06-20T00:01:00Z",
+    approval_mode: "single",
+    approval_in_flight: false,
     in_flight: false,
     seen_message_ids: ["msg-1"],
     conversation: [],

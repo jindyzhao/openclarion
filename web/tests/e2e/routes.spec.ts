@@ -746,7 +746,7 @@ test("report routes render list, detail, and evidence traceability", async ({
   );
 });
 
-test("diagnosis room route connects, submits a turn, and confirms the conclusion", async ({
+test("diagnosis room route connects, submits a turn, and approves the conclusion", async ({
   page,
 }) => {
   test.setTimeout(60_000);
@@ -957,7 +957,7 @@ test("diagnosis room route connects, submits a turn, and confirms the conclusion
   ).toHaveText("connected");
   await expect(page.getByText("owner-1", { exact: true }).first()).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Confirm Conclusion" }),
+    page.getByRole("button", { name: "Approve Conclusion" }),
   ).toBeDisabled();
   await reviewClosedRoomButton.click();
   await expect(
@@ -1232,7 +1232,7 @@ test("diagnosis room route connects, submits a turn, and confirms the conclusion
   ).toBeVisible();
   await expect(page.getByText("Turn 1 completed.")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Confirm Conclusion" }),
+    page.getByRole("button", { name: "Approve Conclusion" }),
   ).toBeDisabled();
 
   await supplementalEntry
@@ -1261,7 +1261,7 @@ test("diagnosis room route connects, submits a turn, and confirms the conclusion
   ).toBeVisible();
   await expect(page.getByText("Turn 3 completed.")).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Confirm Conclusion" }),
+    page.getByRole("button", { name: "Approve Conclusion" }),
   ).toBeEnabled();
 
   await expect(
@@ -1288,11 +1288,11 @@ test("diagnosis room route connects, submits a turn, and confirms the conclusion
     page.getByText("Owner confirmation", { exact: true }).first(),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Confirm Conclusion" }),
+    page.getByRole("button", { name: "Approve Conclusion" }),
   ).toBeEnabled();
 
-  await page.getByRole("button", { name: "Confirm Conclusion" }).click();
-  await expect(page.getByText("Confirming final conclusion.")).toBeVisible();
+  await page.getByRole("button", { name: "Approve Conclusion" }).click();
+  await expect(page.getByText("Recording conclusion approval.")).toBeVisible();
   await expect(
     page.getByText("Loaded state: closed, 3 turn(s)."),
   ).toBeVisible();
@@ -1304,7 +1304,15 @@ test("diagnosis room route connects, submits a turn, and confirms the conclusion
     "Mock supplemental evidence response for: Restart cause",
   );
   await expect(
-    page.getByText("human_confirmed", { exact: true }),
+    roomStateCard.getByRole("row", {
+      name: /Close reason.*human_confirmed/,
+    }),
+  ).toBeVisible();
+  const conclusionApproval = page.getByLabel("Conclusion approval");
+  await expect(conclusionApproval).toContainText("Quorum satisfied");
+  await expect(conclusionApproval).toContainText("owner-1");
+  await expect(
+    conclusionApproval.getByText("human_confirmed", { exact: true }),
   ).toBeVisible();
   await expect(
     page.getByText("diagnosis-room-close.v1", { exact: true }),
@@ -1313,7 +1321,7 @@ test("diagnosis room route connects, submits a turn, and confirms the conclusion
     page.getByText("Confirmed by", { exact: true }).first(),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: "Confirm Conclusion" }),
+    page.getByRole("button", { name: "Approve Conclusion" }),
   ).toBeDisabled();
 });
 
@@ -1387,7 +1395,7 @@ test("diagnosis room reopens latest request when supplemental evidence remains u
     "Attach previous container logs with restart timestamps and the observed termination reason.",
   );
   await expect(
-    page.getByRole("button", { name: "Confirm Conclusion" }),
+    page.getByRole("button", { name: "Approve Conclusion" }),
   ).toBeDisabled();
   const confirmBlockReason = page.locator(".diagnosis-confirm-block-reason");
   await expect(confirmBlockReason).toContainText("Confirmation blocked");

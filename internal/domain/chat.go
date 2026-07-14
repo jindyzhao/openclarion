@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // ChatSessionStatus is the lifecycle state for an M5 diagnosis-room
@@ -29,6 +30,45 @@ func (s ChatSessionStatus) Valid() bool {
 	default:
 		return false
 	}
+}
+
+// DiagnosisApprovalMode defines the human approval quorum required before a
+// retained conclusion can close a diagnosis room.
+type DiagnosisApprovalMode string
+
+const (
+	// DiagnosisApprovalModeSingle preserves the existing one-authorized-operator
+	// confirmation behavior.
+	DiagnosisApprovalModeSingle DiagnosisApprovalMode = "single"
+	// DiagnosisApprovalModeOwnerAndLeader requires distinct owner and leader
+	// subjects to approve the same conclusion digest.
+	DiagnosisApprovalModeOwnerAndLeader DiagnosisApprovalMode = "owner_and_leader"
+)
+
+// Valid reports whether m is a supported approval policy.
+func (m DiagnosisApprovalMode) Valid() bool {
+	switch m {
+	case DiagnosisApprovalModeSingle, DiagnosisApprovalModeOwnerAndLeader:
+		return true
+	default:
+		return false
+	}
+}
+
+// DiagnosisApprovalAuthority identifies the stakeholder capacity in which an
+// authenticated subject approved a conclusion.
+type DiagnosisApprovalAuthority string
+
+const (
+	// DiagnosisApprovalAuthorityOwner records approval by the room owner.
+	DiagnosisApprovalAuthorityOwner DiagnosisApprovalAuthority = "owner"
+	// DiagnosisApprovalAuthorityLeader records approval by an authorized leader.
+	DiagnosisApprovalAuthorityLeader DiagnosisApprovalAuthority = "leader"
+)
+
+// Valid reports whether a is a supported approval authority.
+func (a DiagnosisApprovalAuthority) Valid() bool {
+	return a == DiagnosisApprovalAuthorityOwner || a == DiagnosisApprovalAuthorityLeader
 }
 
 // IsTerminal reports whether the session is closed to further turns.
@@ -77,6 +117,7 @@ type ChatSession struct {
 	LastActivityAt  time.Time
 	ClosedAt        *time.Time
 	CloseReason     string
+	ApprovalMode    DiagnosisApprovalMode
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -91,7 +132,7 @@ type ChatSessionWithTask struct {
 
 // NewChatSession constructs an open diagnosis-room chat session.
 // Repository insert paths fill ID / CreatedAt / UpdatedAt.
-func NewChatSession(taskID DiagnosisTaskID, sessionKey, ownerSubject string, startedAt time.Time) (ChatSession, error) {
+func NewChatSession(taskID DiagnosisTaskID, sessionKey, ownerSubject string, startedAt time.Time, approvalModes ...DiagnosisApprovalMode) (ChatSession, error) {
 	sessionKey = strings.TrimSpace(sessionKey)
 	ownerSubject = strings.TrimSpace(ownerSubject)
 	if taskID == 0 {
@@ -106,6 +147,16 @@ func NewChatSession(taskID DiagnosisTaskID, sessionKey, ownerSubject string, sta
 	if startedAt.IsZero() {
 		return ChatSession{}, fmt.Errorf("chat session: started_at must be set: %w", ErrInvariantViolation)
 	}
+	if len(approvalModes) > 1 {
+		return ChatSession{}, fmt.Errorf("chat session: at most one approval mode may be provided: %w", ErrInvariantViolation)
+	}
+	approvalMode := DiagnosisApprovalModeSingle
+	if len(approvalModes) == 1 {
+		approvalMode = approvalModes[0]
+	}
+	if !approvalMode.Valid() {
+		return ChatSession{}, fmt.Errorf("chat session: approval_mode %q is unsupported: %w", approvalMode, ErrInvariantViolation)
+	}
 	normalised := NormalizeUTCMicro(startedAt)
 	return ChatSession{
 		DiagnosisTaskID: taskID,
@@ -114,6 +165,7 @@ func NewChatSession(taskID DiagnosisTaskID, sessionKey, ownerSubject string, sta
 		Status:          ChatSessionStatusOpen,
 		StartedAt:       normalised,
 		LastActivityAt:  normalised,
+		ApprovalMode:    approvalMode,
 	}, nil
 }
 
@@ -204,6 +256,47 @@ type ChatSessionSummary struct {
 	Content             json.RawMessage
 	GeneratedAt         time.Time
 	CreatedAt           time.Time
+}
+
+// ChatSessionApproval is one immutable stakeholder approval bound to an exact
+// retained conclusion digest. A later conclusion creates new approvals rather
+// than mutating or deleting prior audit rows.
+type ChatSessionApproval struct {
+	ID               ChatSessionApprovalID
+	SessionID        ChatSessionID
+	ConclusionDigest string
+	ActorSubject     string
+	Authority        DiagnosisApprovalAuthority
+	Reason           string
+	ApprovedAt       time.Time
+	CreatedAt        time.Time
+}
+
+// NewChatSessionApproval validates one append-only conclusion approval.
+func NewChatSessionApproval(in ChatSessionApproval) (ChatSessionApproval, error) {
+	if in.SessionID == 0 {
+		return ChatSessionApproval{}, fmt.Errorf("chat session approval: session_id must be non-zero: %w", ErrInvariantViolation)
+	}
+	in.ConclusionDigest = strings.TrimSpace(in.ConclusionDigest)
+	if len(in.ConclusionDigest) != 64 || !isLowerHex(in.ConclusionDigest) {
+		return ChatSessionApproval{}, fmt.Errorf("chat session approval: conclusion_digest must be a lowercase SHA-256 hex digest: %w", ErrInvariantViolation)
+	}
+	in.ActorSubject = strings.TrimSpace(in.ActorSubject)
+	if in.ActorSubject == "" || len(in.ActorSubject) > 256 {
+		return ChatSessionApproval{}, fmt.Errorf("chat session approval: actor_subject must contain 1-256 bytes: %w", ErrInvariantViolation)
+	}
+	if !in.Authority.Valid() {
+		return ChatSessionApproval{}, fmt.Errorf("chat session approval: authority %q is unsupported: %w", in.Authority, ErrInvariantViolation)
+	}
+	in.Reason = strings.TrimSpace(in.Reason)
+	if in.Reason == "" || len(in.Reason) > 512 || strings.ContainsFunc(in.Reason, unicode.IsControl) {
+		return ChatSessionApproval{}, fmt.Errorf("chat session approval: reason must be a single-line value containing 1-512 bytes: %w", ErrInvariantViolation)
+	}
+	if in.ApprovedAt.IsZero() {
+		return ChatSessionApproval{}, fmt.Errorf("chat session approval: approved_at must be set: %w", ErrInvariantViolation)
+	}
+	in.ApprovedAt = NormalizeUTCMicro(in.ApprovedAt)
+	return in, nil
 }
 
 // NewChatSessionSummary validates an append-only conversation summary before

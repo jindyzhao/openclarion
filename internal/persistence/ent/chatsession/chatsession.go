@@ -32,6 +32,8 @@ const (
 	FieldClosedAt = "closed_at"
 	// FieldCloseReason holds the string denoting the close_reason field in the database.
 	FieldCloseReason = "close_reason"
+	// FieldApprovalMode holds the string denoting the approval_mode field in the database.
+	FieldApprovalMode = "approval_mode"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
@@ -42,6 +44,8 @@ const (
 	EdgeTurns = "turns"
 	// EdgeSummaries holds the string denoting the summaries edge name in mutations.
 	EdgeSummaries = "summaries"
+	// EdgeApprovals holds the string denoting the approvals edge name in mutations.
+	EdgeApprovals = "approvals"
 	// Table holds the table name of the chatsession in the database.
 	Table = "chat_sessions"
 	// TaskTable is the table that holds the task relation/edge.
@@ -65,6 +69,13 @@ const (
 	SummariesInverseTable = "chat_session_summaries"
 	// SummariesColumn is the table column denoting the summaries relation/edge.
 	SummariesColumn = "chat_session_id"
+	// ApprovalsTable is the table that holds the approvals relation/edge.
+	ApprovalsTable = "chat_session_approvals"
+	// ApprovalsInverseTable is the table name for the ChatSessionApproval entity.
+	// It exists in this package in order to avoid circular dependency with the "chatsessionapproval" package.
+	ApprovalsInverseTable = "chat_session_approvals"
+	// ApprovalsColumn is the table column denoting the approvals relation/edge.
+	ApprovalsColumn = "chat_session_id"
 )
 
 // Columns holds all SQL columns for chatsession fields.
@@ -79,6 +90,7 @@ var Columns = []string{
 	FieldLastActivityAt,
 	FieldClosedAt,
 	FieldCloseReason,
+	FieldApprovalMode,
 	FieldCreatedAt,
 	FieldUpdatedAt,
 }
@@ -108,6 +120,10 @@ var (
 	TurnCountValidator func(int) error
 	// CloseReasonValidator is a validator for the "close_reason" field. It is called by the builders before save.
 	CloseReasonValidator func(string) error
+	// DefaultApprovalMode holds the default value on creation for the "approval_mode" field.
+	DefaultApprovalMode string
+	// ApprovalModeValidator is a validator for the "approval_mode" field. It is called by the builders before save.
+	ApprovalModeValidator func(string) error
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
@@ -169,6 +185,11 @@ func ByCloseReason(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCloseReason, opts...).ToFunc()
 }
 
+// ByApprovalMode orders the results by the approval_mode field.
+func ByApprovalMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldApprovalMode, opts...).ToFunc()
+}
+
 // ByCreatedAt orders the results by the created_at field.
 func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
@@ -213,6 +234,20 @@ func BySummaries(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newSummariesStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByApprovalsCount orders the results by approvals count.
+func ByApprovalsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newApprovalsStep(), opts...)
+	}
+}
+
+// ByApprovals orders the results by approvals terms.
+func ByApprovals(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newApprovalsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newTaskStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -232,5 +267,12 @@ func newSummariesStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(SummariesInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, SummariesTable, SummariesColumn),
+	)
+}
+func newApprovalsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ApprovalsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ApprovalsTable, ApprovalsColumn),
 	)
 }

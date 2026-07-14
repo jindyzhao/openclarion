@@ -349,7 +349,7 @@ M5 deliverables:
 
 - Next.js diagnosis room
 - AuthProvider integration (OIDC)
-- RBAC for owner and admin roles (leader is deferred)
+- owner/admin room-access RBAC plus dedicated owner/leader conclusion approval
 - WebSocket connection: browser <-> Go control plane (per-turn file contract)
 - chat turn persistence
 - unsafe instruction filter

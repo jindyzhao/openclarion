@@ -33,6 +33,7 @@ func TestServiceStartLoadsEvidenceAndStartsWorkflow(t *testing.T) {
 			DiagnosisTaskID:    101,
 			ChatSessionID:      202,
 			Workflow:           ports.WorkflowHandle{WorkflowID: "diagnosis-room-1", RunID: "run-1"},
+			ApprovalMode:       domain.DiagnosisApprovalModeOwnerAndLeader,
 		},
 	}
 	service, err := NewService(
@@ -54,6 +55,7 @@ func TestServiceStartLoadsEvidenceAndStartsWorkflow(t *testing.T) {
 	got, err := service.Start(context.Background(), Request{
 		EvidenceSnapshotID:                42,
 		CloseNotificationChannelProfileID: 9,
+		ApprovalMode:                      domain.DiagnosisApprovalModeOwnerAndLeader,
 		Principal: ports.AuthPrincipal{
 			Subject: "responder-1",
 		},
@@ -67,11 +69,13 @@ func TestServiceStartLoadsEvidenceAndStartsWorkflow(t *testing.T) {
 	}
 	if starter.req.EvidenceSnapshotID != 42 ||
 		starter.req.OwnerSubject != "responder-1" ||
+		starter.req.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader ||
 		string(starter.req.Evidence) != string(snapshot.Payload) ||
 		starter.req.CloseNotificationChannelProfileID != 9 {
 		t.Fatalf("starter request = %+v", starter.req)
 	}
-	if got.DiagnosisTaskID != 101 || got.ChatSessionID != 202 || got.Workflow.RunID != "run-1" {
+	if got.DiagnosisTaskID != 101 || got.ChatSessionID != 202 || got.Workflow.RunID != "run-1" ||
+		got.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader {
 		t.Fatalf("result = %+v", got)
 	}
 }
@@ -681,6 +685,29 @@ func TestServiceStartRejectsNegativeNotificationChannelProfileID(t *testing.T) {
 		EvidenceSnapshotID:                42,
 		CloseNotificationChannelProfileID: -1,
 		Principal:                         ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
+	})
+	if !errors.Is(err, domain.ErrInvariantViolation) {
+		t.Fatalf("Start error = %v, want ErrInvariantViolation", err)
+	}
+	if starter.req.SessionID != "" {
+		t.Fatalf("starter was called: %+v", starter.req)
+	}
+}
+
+func TestServiceStartRejectsUnsupportedApprovalMode(t *testing.T) {
+	starter := &recordingStarter{}
+	service, err := NewService(
+		fakeFactory{evidence: fakeEvidenceRepo{}},
+		starter,
+		WithRandomReader(strings.NewReader(strings.Repeat("P", sessionIDBytes))),
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	_, err = service.Start(context.Background(), Request{
+		EvidenceSnapshotID: 42,
+		ApprovalMode:       domain.DiagnosisApprovalMode("committee"),
+		Principal:          ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
 	})
 	if !errors.Is(err, domain.ErrInvariantViolation) {
 		t.Fatalf("Start error = %v, want ErrInvariantViolation", err)

@@ -1756,6 +1756,8 @@ function roleTagColor(role: RBACAssignment["role"]): string {
       return "red";
     case "operator":
       return "blue";
+    case "leader":
+      return "gold";
     case "responder":
       return "green";
     case "viewer":

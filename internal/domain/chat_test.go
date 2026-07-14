@@ -25,6 +25,9 @@ func TestNewChatSession(t *testing.T) {
 		if got.Status != ChatSessionStatusOpen || got.TurnCount != 0 {
 			t.Fatalf("status/turn_count = (%q,%d), want (open,0)", got.Status, got.TurnCount)
 		}
+		if got.ApprovalMode != DiagnosisApprovalModeSingle {
+			t.Fatalf("approval_mode = %q, want single", got.ApprovalMode)
+		}
 		want := NormalizeUTCMicro(startedAt)
 		if !got.StartedAt.Equal(want) || !got.LastActivityAt.Equal(want) {
 			t.Fatalf("times = (%s,%s), want %s", got.StartedAt, got.LastActivityAt, want)
@@ -169,6 +172,55 @@ func TestNewChatSessionSummary(t *testing.T) {
 	empty.SourceTurnCount = 0
 	if _, err := NewChatSessionSummary(empty); err != nil {
 		t.Fatalf("empty summary: %v", err)
+	}
+}
+
+func TestNewChatSessionApproval(t *testing.T) {
+	t.Parallel()
+	digest := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	approvedAt := time.Date(2026, 7, 11, 15, 0, 0, 123456789, time.UTC)
+	got, err := NewChatSessionApproval(ChatSessionApproval{
+		SessionID:        7,
+		ConclusionDigest: digest,
+		ActorSubject:     " leader-1 ",
+		Authority:        DiagnosisApprovalAuthorityLeader,
+		Reason:           " reviewed evidence ",
+		ApprovedAt:       approvedAt,
+	})
+	if err != nil {
+		t.Fatalf("NewChatSessionApproval: %v", err)
+	}
+	if got.ActorSubject != "leader-1" || got.Reason != "reviewed evidence" || got.ApprovedAt.Nanosecond() != 123456000 {
+		t.Fatalf("approval normalization = %+v", got)
+	}
+
+	invalid := got
+	invalid.Reason = "two\nlines"
+	if _, err := NewChatSessionApproval(invalid); !errors.Is(err, ErrInvariantViolation) {
+		t.Fatalf("multiline reason err = %v, want ErrInvariantViolation", err)
+	}
+	invalid = got
+	invalid.Authority = "administrator"
+	if _, err := NewChatSessionApproval(invalid); !errors.Is(err, ErrInvariantViolation) {
+		t.Fatalf("invalid authority err = %v, want ErrInvariantViolation", err)
+	}
+}
+
+func TestNewChatSessionApprovalMode(t *testing.T) {
+	t.Parallel()
+	startedAt := time.Date(2026, 7, 11, 15, 0, 0, 0, time.UTC)
+	got, err := NewChatSession(1, "session-approval", "owner-1", startedAt, DiagnosisApprovalModeOwnerAndLeader)
+	if err != nil {
+		t.Fatalf("NewChatSession: %v", err)
+	}
+	if got.ApprovalMode != DiagnosisApprovalModeOwnerAndLeader {
+		t.Fatalf("ApprovalMode = %q", got.ApprovalMode)
+	}
+	if _, err := NewChatSession(1, "session-bad", "owner-1", startedAt, "bad"); !errors.Is(err, ErrInvariantViolation) {
+		t.Fatalf("invalid mode err = %v, want ErrInvariantViolation", err)
+	}
+	if _, err := NewChatSession(1, "session-many", "owner-1", startedAt, DiagnosisApprovalModeSingle, DiagnosisApprovalModeOwnerAndLeader); !errors.Is(err, ErrInvariantViolation) {
+		t.Fatalf("multiple modes err = %v, want ErrInvariantViolation", err)
 	}
 }
 

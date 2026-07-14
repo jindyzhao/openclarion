@@ -57,6 +57,18 @@ func (f ChatSessionFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value,
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChatSessionMutation", m)
 }
 
+// The ChatSessionApprovalFunc type is an adapter to allow the use of ordinary
+// function as ChatSessionApproval mutator.
+type ChatSessionApprovalFunc func(context.Context, *ent.ChatSessionApprovalMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ChatSessionApprovalFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ChatSessionApprovalMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ChatSessionApprovalMutation", m)
+}
+
 // The ChatSessionSummaryFunc type is an adapter to allow the use of ordinary
 // function as ChatSessionSummary mutator.
 type ChatSessionSummaryFunc func(context.Context, *ent.ChatSessionSummaryMutation) (ent.Value, error)

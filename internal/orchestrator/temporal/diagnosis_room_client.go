@@ -254,9 +254,9 @@ func (c *DiagnosisRoomClient) QueryDiagnosisRoom(ctx context.Context, sessionID 
 	return diagnosisRoomWorkflowState(state), nil
 }
 
-// ConfirmDiagnosisConclusion asks the workflow to validate and accept an
-// operator confirmation, then waits for the terminal workflow state that
-// contains the retained final conclusion.
+// ConfirmDiagnosisConclusion records one approval and returns immediately when
+// the configured quorum still has missing authorities. The final approval waits
+// for the terminal workflow state that contains the retained conclusion.
 func (c *DiagnosisRoomClient) ConfirmDiagnosisConclusion(
 	ctx context.Context,
 	req ports.DiagnosisRoomConfirmConclusionRequest,
@@ -287,6 +287,10 @@ func (c *DiagnosisRoomClient) ConfirmDiagnosisConclusion(
 			"diagnosis-room client: get confirm conclusion result",
 			err,
 		)
+	}
+	acceptedState := diagnosisRoomWorkflowState(accepted)
+	if accepted.Status != diagnosisRoomStatusClosed && len(accepted.PendingApprovalAuthorities) > 0 {
+		return acceptedState, nil
 	}
 	var result DiagnosisRoomWorkflowResult
 	if err := c.client.GetWorkflow(ctx, workflowID, "").Get(ctx, &result); err != nil {
@@ -783,31 +787,51 @@ func diagnosisRoomWorkflowState(state DiagnosisRoomWorkflowState) ports.Diagnosi
 	}
 	seen := append([]string(nil), state.SeenMessageIDs...)
 	return ports.DiagnosisRoomState{
-		SessionID:                 state.SessionID,
-		ChatSessionID:             domain.ChatSessionID(state.ChatSessionID),
-		DiagnosisTaskID:           domain.DiagnosisTaskID(state.DiagnosisTaskID),
-		OwnerSubject:              state.OwnerSubject,
-		Status:                    state.Status,
-		TurnCount:                 state.TurnCount,
-		StartedAt:                 state.StartedAt,
-		LastActivityAt:            state.LastActivityAt,
-		ClosedAt:                  state.ClosedAt,
-		CloseReason:               state.CloseReason,
-		FinalConclusion:           diagnosisRoomFinalConclusionPort(state.FinalConclusion),
-		ConversationSummary:       diagnosisRoomConversationSummaryPort(state.ConversationSummary),
-		LatestConsultationInsight: diagnosisRoomConsultationInsightPortPtr(state.LatestInsight),
-		LatestConfidence:          state.LatestConfidence,
-		LatestRequiresHumanReview: copyBoolPtr(state.LatestRequiresHumanReview),
-		LatestEvidenceRequests:    diagnosisRoomEvidenceRequestsPort(state.LatestEvidenceRequests),
-		LatestCollectionResults:   diagnosisRoomEvidenceCollectionResultsPort(state.LatestCollectionResults),
-		EvidenceTimeline:          diagnosisRoomEvidenceTimelinePort(state.EvidenceTimeline),
-		ConfidenceTimeline:        diagnosisRoomConfidenceTimelinePort(state.ConfidenceTimeline),
-		SupplementalEvidence:      diagnosisRoomSupplementalEvidenceRecordsPort(state.SupplementalEvidence),
-		LatestError:               diagnosisRoomLatestErrorPort(state.LatestError),
-		InFlight:                  state.InFlight,
-		SeenMessageIDs:            seen,
-		Conversation:              conversation,
+		SessionID:                  state.SessionID,
+		ChatSessionID:              domain.ChatSessionID(state.ChatSessionID),
+		DiagnosisTaskID:            domain.DiagnosisTaskID(state.DiagnosisTaskID),
+		OwnerSubject:               state.OwnerSubject,
+		Status:                     state.Status,
+		TurnCount:                  state.TurnCount,
+		StartedAt:                  state.StartedAt,
+		LastActivityAt:             state.LastActivityAt,
+		ClosedAt:                   state.ClosedAt,
+		CloseReason:                state.CloseReason,
+		FinalConclusion:            diagnosisRoomFinalConclusionPort(state.FinalConclusion),
+		ConversationSummary:        diagnosisRoomConversationSummaryPort(state.ConversationSummary),
+		ApprovalMode:               state.ApprovalMode,
+		ConclusionDigest:           state.ConclusionDigest,
+		Approvals:                  diagnosisRoomConclusionApprovalsPort(state.Approvals),
+		PendingApprovalAuthorities: append([]domain.DiagnosisApprovalAuthority(nil), state.PendingApprovalAuthorities...),
+		ApprovalInFlight:           state.ApprovalInFlight,
+		LatestConsultationInsight:  diagnosisRoomConsultationInsightPortPtr(state.LatestInsight),
+		LatestConfidence:           state.LatestConfidence,
+		LatestRequiresHumanReview:  copyBoolPtr(state.LatestRequiresHumanReview),
+		LatestEvidenceRequests:     diagnosisRoomEvidenceRequestsPort(state.LatestEvidenceRequests),
+		LatestCollectionResults:    diagnosisRoomEvidenceCollectionResultsPort(state.LatestCollectionResults),
+		EvidenceTimeline:           diagnosisRoomEvidenceTimelinePort(state.EvidenceTimeline),
+		ConfidenceTimeline:         diagnosisRoomConfidenceTimelinePort(state.ConfidenceTimeline),
+		SupplementalEvidence:       diagnosisRoomSupplementalEvidenceRecordsPort(state.SupplementalEvidence),
+		LatestError:                diagnosisRoomLatestErrorPort(state.LatestError),
+		InFlight:                   state.InFlight,
+		SeenMessageIDs:             seen,
+		Conversation:               conversation,
 	}
+}
+
+func diagnosisRoomConclusionApprovalsPort(in []domain.ChatSessionApproval) []ports.DiagnosisRoomConclusionApproval {
+	out := make([]ports.DiagnosisRoomConclusionApproval, len(in))
+	for i, approval := range in {
+		out[i] = ports.DiagnosisRoomConclusionApproval{
+			ID:               approval.ID,
+			ConclusionDigest: approval.ConclusionDigest,
+			ActorSubject:     approval.ActorSubject,
+			Authority:        approval.Authority,
+			Reason:           approval.Reason,
+			ApprovedAt:       approval.ApprovedAt,
+		}
+	}
+	return out
 }
 
 func diagnosisRoomConversationSummaryPort(in *DiagnosisRoomConversationSummary) *ports.DiagnosisRoomConversationSummary {

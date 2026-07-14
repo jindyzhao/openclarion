@@ -94,6 +94,7 @@ export const rbacSubjectKindOptions: Array<{
 export const rbacRoleOptions: Array<{ label: string; value: RBACRole }> = [
   { label: "Admin", value: "admin" },
   { label: "Operator", value: "operator" },
+  { label: "Leader", value: "leader" },
   { label: "Responder", value: "responder" },
   { label: "Viewer", value: "viewer" },
 ];
@@ -123,6 +124,7 @@ export const rbacPermissionOptions: Array<{
   { label: "Diagnosis room read", value: "diagnosis_room.read" },
   { label: "Diagnosis room participate", value: "diagnosis_room.participate" },
   { label: "Diagnosis room administer", value: "diagnosis_room.administer" },
+  { label: "Diagnosis room approve", value: "diagnosis_room.approve" },
   { label: "Alert source read", value: "alert_source.read" },
   { label: "Alert source manage", value: "alert_source.manage" },
   { label: "Grouping policy read", value: "grouping_policy.read" },

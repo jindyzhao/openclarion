@@ -104,6 +104,13 @@ import {
 } from "./auth-readiness";
 import { DiagnosisAuthModeSelector } from "./auth-mode-selector";
 import {
+  diagnosisActorApprovalBlockReason,
+  diagnosisApprovalAuthorityLabel,
+  diagnosisApprovalModeLabel,
+  diagnosisPendingApprovalAuthorities,
+  diagnosisApprovalStatus,
+} from "./approval-state";
+import {
   diagnosisConnectionTargetSessionID,
   diagnosisReconnectDecision,
 } from "./connection-recovery";
@@ -263,6 +270,7 @@ import { diagnosisReportReturnHref } from "./report-return";
 import {
   canCreateDiagnosisRoomByRBAC,
   diagnosisRoomAdministerAuthorizationKey,
+  diagnosisRoomApproveAuthorizationKey,
   diagnosisRoomParticipateAuthorizationKey,
   diagnosisRoomRBACAuthorizationChecks,
   diagnosisRoomRBACBlockReason,
@@ -292,10 +300,13 @@ import {
 } from "./workflow-readiness";
 import type {
   DiagnosisActiveAlert,
+  DiagnosisApprovalAuthority,
+  DiagnosisApprovalMode,
   DiagnosisClientFrame,
   DiagnosisConfidenceTimelineEntry,
   DiagnosisConsultationEvidenceRequest,
   DiagnosisConsultationInsight,
+  DiagnosisConclusionApproval,
   DiagnosisConnectionStatus,
   DiagnosisConversationSummary,
   DiagnosisEvidenceCollectionResult,
@@ -333,6 +344,7 @@ type ConnectOptions = {
 };
 
 type CreateRoomFormValues = {
+  approvalMode: DiagnosisApprovalMode;
   closeNotificationChannelProfileID?: number | null;
   evidenceSnapshotID?: number | null;
 } & AuthFormValues;
@@ -1171,6 +1183,8 @@ export function DiagnosisRoomView({
     Form.useWatch("ldapPassword", createForm) ?? "";
   const watchedCreateLDAPUsername =
     Form.useWatch("ldapUsername", createForm) ?? "";
+  const watchedCreateApprovalMode =
+    Form.useWatch("approvalMode", createForm) ?? "single";
   const watchedConnectionAuthMode =
     Form.useWatch("authMode", connectionForm) ?? "session";
   const watchedConnectionBearerToken =
@@ -1401,6 +1415,12 @@ export function DiagnosisRoomView({
       diagnosisRoomAuthorization.can(
         diagnosisRoomParticipateAuthorizationKey(selectedSessionID.trim()),
       ));
+  const canApproveSelectedRoomByRBAC =
+    selectedSessionID.trim() !== "" &&
+    (!diagnosisRoomAuthorizationEnforced ||
+      diagnosisRoomAuthorization.can(
+        diagnosisRoomApproveAuthorizationKey(selectedSessionID.trim()),
+      ));
   const canAdministerSelectedRoomByRBAC =
     selectedSessionID.trim() !== "" &&
     (!diagnosisRoomAuthorizationEnforced ||
@@ -1423,6 +1443,13 @@ export function DiagnosisRoomView({
   const selectedReadRBACBlockReason = diagnosisRoomRBACBlockReason({
     action: "read",
     allowed: canReadSelectedRoomByRBAC,
+    checking: diagnosisRoomAuthorizationChecking,
+    enforced:
+      diagnosisRoomAuthorizationEnforced && selectedSessionID.trim() !== "",
+  });
+  const selectedApproveRBACBlockReason = diagnosisRoomRBACBlockReason({
+    action: "approve",
+    allowed: canApproveSelectedRoomByRBAC,
     checking: diagnosisRoomAuthorizationChecking,
     enforced:
       diagnosisRoomAuthorizationEnforced && selectedSessionID.trim() !== "",
@@ -1628,6 +1655,7 @@ export function DiagnosisRoomView({
 
   const createRoomMutation = useMutation({
     mutationFn: async (values: {
+      approvalMode: DiagnosisApprovalMode;
       authorization: DiagnosisAuthorization;
       closeNotificationChannelProfileID?: number;
       evidenceSnapshotID: number;
@@ -1636,6 +1664,7 @@ export function DiagnosisRoomView({
         values.authorization,
         values.evidenceSnapshotID,
         values.closeNotificationChannelProfileID,
+        values.approvalMode,
       );
       if (!result.ok) {
         throw new DiagnosisActionError(
@@ -1858,6 +1887,7 @@ export function DiagnosisRoomView({
   const turnInFlight =
     localTurnInFlight ||
     confirmInFlight ||
+    selectedRoomState?.approval_in_flight === true ||
     selectedRoomState?.in_flight === true;
   const canSubmitTurn =
     connected &&
@@ -2090,7 +2120,7 @@ export function DiagnosisRoomView({
     connected,
     confirmInFlight,
     latestInsight: selectedLatestInsight,
-    rbacBlockReason: selectedAdministerRBACBlockReason,
+    rbacBlockReason: selectedApproveRBACBlockReason,
     state: selectedRoomState,
   });
   const canConfirmConclusion =
@@ -2658,6 +2688,7 @@ export function DiagnosisRoomView({
       diagnosisAuthorizationFromFormValues(values),
     );
     const evidenceSnapshotID = values.evidenceSnapshotID;
+    const approvalMode = values.approvalMode ?? "single";
     const closeNotificationChannelProfileID =
       values.closeNotificationChannelProfileID ?? undefined;
     const notificationChannelBlockReason =
@@ -2671,6 +2702,11 @@ export function DiagnosisRoomView({
         "error",
         "Evidence snapshot and authorization credentials are required.",
       );
+      setStatus("error");
+      return;
+    }
+    if (approvalMode !== "single" && approvalMode !== "owner_and_leader") {
+      pushLog("error", "Select a supported approval quorum.");
       setStatus("error");
       return;
     }
@@ -2714,11 +2750,12 @@ export function DiagnosisRoomView({
         : ` with notification channel #${closeNotificationChannelProfileID}`;
     pushLog(
       "info",
-      `Creating diagnosis room from evidence snapshot #${evidenceSnapshotID}${notificationChannelSuffix}.`,
+      `Creating diagnosis room from evidence snapshot #${evidenceSnapshotID}${notificationChannelSuffix} with ${diagnosisApprovalModeLabel(approvalMode).toLowerCase()} approval.`,
     );
     let room: DiagnosisRoomCreateBundle;
     try {
       room = await createRoomMutation.mutateAsync({
+        approvalMode,
         authorization,
         closeNotificationChannelProfileID,
         evidenceSnapshotID,
@@ -2762,6 +2799,7 @@ export function DiagnosisRoomView({
       return;
     }
     const plan = diagnosisAutoBrowserSessionCreateRoomPlan({
+      approvalMode: watchedCreateApprovalMode,
       authenticatedSubject: sessionResult.data.subject,
       backendStatus: authBackendStatusSnapshot,
       closeNotificationChannelProfileID: watchedCreateNotificationChannelID,
@@ -2779,6 +2817,7 @@ export function DiagnosisRoomView({
     }
     autoBrowserSessionCreateRoomAttemptKeyRef.current = plan.attemptKey;
     void handleCreateRoom({
+      approvalMode: watchedCreateApprovalMode,
       authMode: createAuthValues.authMode,
       bearerToken: createAuthValues.bearerToken,
       closeNotificationChannelProfileID: plan.closeNotificationChannelProfileID,
@@ -2802,6 +2841,7 @@ export function DiagnosisRoomView({
     selectedSessionID,
     status,
     watchedCreateNotificationChannelID,
+    watchedCreateApprovalMode,
   ]);
 
   useEffect(() => {
@@ -3069,7 +3109,7 @@ export function DiagnosisRoomView({
       return;
     }
     setServerError(null);
-    pushLog("info", "Confirming final conclusion.");
+    pushLog("info", "Recording conclusion approval.");
     setConfirmInFlight(true);
     if (!sendFrame({ type: "confirm_conclusion", reason: "human_confirmed" })) {
       setConfirmInFlight(false);
@@ -3967,6 +4007,7 @@ export function DiagnosisRoomView({
             <Form<CreateRoomFormValues>
               form={createForm}
               initialValues={{
+                approvalMode: "single",
                 authMode: pageContext.authMode ?? "session",
                 bearerToken: "",
                 evidenceSnapshotID:
@@ -4004,6 +4045,21 @@ export function DiagnosisRoomView({
                   min={1}
                   precision={0}
                   style={{ width: "100%" }}
+                />
+              </Form.Item>
+              <Form.Item
+                label="Approval quorum"
+                name="approvalMode"
+                rules={[
+                  { required: true, message: "Approval quorum is required." },
+                ]}
+              >
+                <Select
+                  disabled={createBusy}
+                  options={[
+                    { label: "Single operator", value: "single" },
+                    { label: "Owner + leader", value: "owner_and_leader" },
+                  ]}
                 />
               </Form.Item>
               <Form.Item
@@ -4488,7 +4544,7 @@ export function DiagnosisRoomView({
               disabled={!canConfirmConclusion}
               title={
                 confirmConclusionBlockReason ||
-                "Retain this diagnosis conclusion."
+                "Approve this exact diagnosis conclusion."
               }
             >
               <Button
@@ -4497,7 +4553,7 @@ export function DiagnosisRoomView({
                 loading={confirmInFlight}
                 onClick={handleConfirmConclusion}
               >
-                Confirm Conclusion
+                Approve Conclusion
               </Button>
             </TooltipAction>
             }
@@ -4518,6 +4574,29 @@ export function DiagnosisRoomView({
           <CollaborationParticipantsPanel
             directoryUsersBySubject={collaborationDirectoryUsersBySubject}
             participants={selectedCollaborationParticipants}
+          />
+          <ConclusionApprovalPanel
+            approvalInFlight={
+              selectedRoomState?.approval_in_flight === true
+            }
+            approvals={
+              selectedRoomState?.approvals ??
+              selectedRoomSummary?.approvals ??
+              []
+            }
+            conclusionDigest={
+              selectedRoomState?.conclusion_digest ??
+              selectedRoomSummary?.conclusion_digest
+            }
+            directoryUsersBySubject={collaborationDirectoryUsersBySubject}
+            mode={
+              selectedRoomState?.approval_mode ??
+              selectedRoomSummary?.approval_mode ??
+              "single"
+            }
+            pendingAuthorities={
+              selectedRoomState?.pending_approval_authorities
+            }
           />
           {visibleConfirmBlockReason ? (
             <Alert
@@ -6042,6 +6121,118 @@ function CollaborationParticipantsPanel({
         }}
         size="small"
       />
+    </section>
+  );
+}
+
+function ConclusionApprovalPanel({
+  approvalInFlight,
+  approvals,
+  conclusionDigest,
+  directoryUsersBySubject,
+  mode,
+  pendingAuthorities,
+}: {
+  approvalInFlight: boolean;
+  approvals: readonly DiagnosisConclusionApproval[];
+  conclusionDigest: string | undefined;
+  directoryUsersBySubject: ReadonlyMap<string, DiagnosisCollaborationDirectoryUser>;
+  mode: DiagnosisApprovalMode;
+  pendingAuthorities: readonly DiagnosisApprovalAuthority[] | undefined;
+}) {
+  const effectivePendingAuthorities =
+    pendingAuthorities ??
+    diagnosisPendingApprovalAuthorities({
+      approvals,
+      conclusionDigest,
+      mode,
+    });
+  const status = diagnosisApprovalStatus({
+    approvals,
+    conclusionDigest,
+    pendingAuthorities: effectivePendingAuthorities,
+  });
+  const statusLabel =
+    status === "satisfied"
+      ? "Quorum satisfied"
+      : status === "pending"
+        ? "Awaiting approval"
+        : "Not started";
+  const statusColor =
+    status === "satisfied"
+      ? "success"
+      : status === "pending"
+        ? "warning"
+        : "default";
+
+  return (
+    <section aria-label="Conclusion approval" className="diagnosis-collaboration">
+      <div className="diagnosis-collaboration-header">
+        <Typography.Title level={3}>Conclusion approval</Typography.Title>
+        <Space size={[6, 6]} wrap>
+          <Tag>{diagnosisApprovalModeLabel(mode)}</Tag>
+          <Tag color={statusColor}>{statusLabel}</Tag>
+          {approvalInFlight ? <Tag color="processing">Recording</Tag> : null}
+        </Space>
+      </div>
+      {conclusionDigest ? (
+        <Typography.Paragraph type="secondary">
+          Bound conclusion: {" "}
+          <Tooltip title={conclusionDigest}>
+            <Typography.Text code>{conclusionDigest.slice(0, 12)}</Typography.Text>
+          </Tooltip>
+        </Typography.Paragraph>
+      ) : (
+        <Typography.Paragraph type="secondary">
+          Approval begins when a final conclusion is available.
+        </Typography.Paragraph>
+      )}
+      {effectivePendingAuthorities.length > 0 ? (
+        <Space size={[6, 6]} wrap>
+          <Typography.Text type="secondary">Pending:</Typography.Text>
+		  {effectivePendingAuthorities.map((authority) => (
+			<Tag color="warning" key={authority}>
+			  {mode === "single"
+				? "Operator"
+				: diagnosisApprovalAuthorityLabel(authority)}
+			</Tag>
+		  ))}
+        </Space>
+      ) : null}
+      {approvals.length > 0 ? (
+        <List
+          className="diagnosis-collaboration-list"
+          dataSource={[...approvals]}
+          renderItem={(approval) => (
+            <List.Item key={approval.id}>
+              <List.Item.Meta
+                description={
+                  <Space size={[6, 6]} wrap>
+                    <Typography.Text type="secondary">
+                      {formatDateTime(approval.approved_at)}
+                    </Typography.Text>
+                    <Typography.Text type="secondary">
+                      {approval.reason}
+                    </Typography.Text>
+                  </Space>
+                }
+                title={
+                  <Space size={[6, 6]} wrap>
+                    <ActorSubjectTags
+                      directoryUsersBySubject={directoryUsersBySubject}
+                      subject={approval.actor_subject}
+                    />
+                    <Tag color="processing">
+                      {diagnosisApprovalAuthorityLabel(approval.authority)}
+                    </Tag>
+                  </Space>
+                }
+              />
+            </List.Item>
+          )}
+          size="small"
+        />
+      ) : null}
     </section>
   );
 }
@@ -9538,6 +9729,17 @@ function diagnosisConfirmConclusionBlockReason({
   }
   if (state.status === "closed") {
     return "This diagnosis room is already closed.";
+  }
+  const actorApprovalBlockReason = diagnosisActorApprovalBlockReason({
+    actorSubject,
+    approvalInFlight: state.approval_in_flight,
+    approvals: state.approvals ?? [],
+    conclusionDigest: state.conclusion_digest,
+    mode: state.approval_mode,
+    ownerSubject: state.owner_subject,
+  });
+  if (actorApprovalBlockReason !== "") {
+    return actorApprovalBlockReason;
   }
   if (state.in_flight) {
     return "Wait for the current diagnosis turn to finish.";

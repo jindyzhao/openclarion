@@ -23,6 +23,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/alertmanagerwebhook"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisapproval"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosiscompression"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisnotification"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroomclose"
@@ -1416,6 +1417,18 @@ func diagnosisRoomSummariesWithOptions(
 			}
 			items[i].ConversationSummary = &mapped
 		}
+		turns, err := diagnosisRoomParticipantTurns(ctx, repo, room.Session.ID)
+		if err != nil {
+			return nil, err
+		}
+		conclusionDigest, approvals, err := diagnosisRoomApprovalState(ctx, repo, room.Session, turns)
+		if err != nil {
+			return nil, err
+		}
+		if conclusionDigest != "" {
+			items[i].ConclusionDigest = &conclusionDigest
+			items[i].Approvals = approvals
+		}
 		conclusion, _, ok, err := latestDiagnosisConclusionForTask(ctx, repo, room.Task.ID)
 		if err != nil {
 			return nil, err
@@ -1432,10 +1445,6 @@ func diagnosisRoomSummariesWithOptions(
 				items[i].LatestProgress = &progress
 			}
 		}
-		turns, err := diagnosisRoomParticipantTurns(ctx, repo, room.Session.ID)
-		if err != nil {
-			return nil, err
-		}
 		evidenceActors, err := diagnosisRoomEvidenceCollectionActors(ctx, repo, room.Task.ID)
 		if err != nil {
 			return nil, err
@@ -1446,6 +1455,7 @@ func diagnosisRoomSummariesWithOptions(
 			evidenceActors,
 			items[i].LatestProgress,
 			items[i].LatestConclusion,
+			items[i].Approvals,
 		)
 		if includeNotifications {
 			timeline, err := notificationTimelineForDiagnosisTask(ctx, repo, room.Task.ID)
@@ -1458,6 +1468,56 @@ func diagnosisRoomSummariesWithOptions(
 		}
 	}
 	return items, nil
+}
+
+func diagnosisRoomApprovalState(
+	ctx context.Context,
+	repo ports.DiagnosisRepository,
+	session domain.ChatSession,
+	turns []domain.ChatTurn,
+) (string, []api.DiagnosisRoomConclusionApproval, error) {
+	hasApprovals, err := repo.HasChatSessionApprovals(ctx, session.ID)
+	if err != nil {
+		return "", nil, err
+	}
+	if !hasApprovals {
+		return "", nil, nil
+	}
+	_, latestDigest, err := diagnosisapproval.LatestPersistedConclusion(session, turns)
+	if err != nil {
+		return "", nil, err
+	}
+	rows, err := repo.ListChatSessionApprovals(ctx, session.ID, latestDigest, 3)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(rows) == 0 {
+		return "", nil, nil
+	}
+	if len(rows) >= 3 {
+		return "", nil, fmt.Errorf("diagnosis approval state has too many rows: %w", domain.ErrInvariantViolation)
+	}
+	if _, err := diagnosisapproval.PendingAuthorities(session.ApprovalMode, rows); err != nil {
+		return "", nil, fmt.Errorf("diagnosis approval state has an invalid quorum: %w", err)
+	}
+	out := make([]api.DiagnosisRoomConclusionApproval, len(rows))
+	for i, approval := range rows {
+		if _, err := domain.NewChatSessionApproval(approval); err != nil {
+			return "", nil, err
+		}
+		if approval.SessionID != session.ID || approval.ConclusionDigest != latestDigest {
+			return "", nil, fmt.Errorf("diagnosis approval %d identity mismatch: %w", approval.ID, domain.ErrInvariantViolation)
+		}
+		out[i] = api.DiagnosisRoomConclusionApproval{
+			ID:               int64(approval.ID),
+			ConclusionDigest: approval.ConclusionDigest,
+			ActorSubject:     approval.ActorSubject,
+			Authority:        api.DiagnosisRoomApprovalAuthority(approval.Authority),
+			Reason:           approval.Reason,
+			ApprovedAt:       approval.ApprovedAt,
+		}
+	}
+	return latestDigest, out, nil
 }
 
 func diagnosisRoomConversationSummary(summary domain.ChatSessionSummary) (api.DiagnosisRoomConversationSummary, error) {
@@ -1511,10 +1571,18 @@ func diagnosisRoomSummary(room domain.ChatSessionWithTask) api.DiagnosisRoomSumm
 		LastActivityAt:     session.LastActivityAt,
 		ClosedAt:           nullableTime(session.ClosedAt),
 		CloseReason:        session.CloseReason,
-		Participants:       diagnosisRoomParticipantSummaries(session.OwnerSubject, nil, nil, nil, nil),
+		ApprovalMode:       diagnosisRoomApprovalModeSummary(session.ApprovalMode),
+		Participants:       diagnosisRoomParticipantSummaries(session.OwnerSubject, nil, nil, nil, nil, nil),
 		CreatedAt:          session.CreatedAt,
 		UpdatedAt:          session.UpdatedAt,
 	}
+}
+
+func diagnosisRoomApprovalModeSummary(mode domain.DiagnosisApprovalMode) api.DiagnosisRoomApprovalMode {
+	if mode == "" {
+		return api.Single
+	}
+	return api.DiagnosisRoomApprovalMode(mode)
 }
 
 func (s *Server) withDiagnosisRoomParticipantDirectoryUsers(
@@ -1676,6 +1744,7 @@ func diagnosisRoomParticipantSummaries(
 	evidenceActors []string,
 	progress *api.DiagnosisRoomProgressSummary,
 	conclusion *api.DiagnosisRoomConclusionSummary,
+	approvals []api.DiagnosisRoomConclusionApproval,
 ) []api.DiagnosisRoomParticipantSummary {
 	participants := map[string]*diagnosisRoomParticipantAccumulator{}
 	if owner := strings.TrimSpace(ownerSubject); owner != "" {
@@ -1713,6 +1782,14 @@ func diagnosisRoomParticipantSummaries(
 				participant.confirmedConclusion = true
 			}
 		}
+	}
+	for _, approval := range approvals {
+		subject := strings.TrimSpace(approval.ActorSubject)
+		if subject == "" {
+			continue
+		}
+		participant := diagnosisRoomParticipantWithRole(participants, subject, api.DiagnosisRoomParticipantSummaryRolesItemConfirmation)
+		participant.confirmedConclusion = true
 	}
 	if len(participants) == 0 {
 		return nil

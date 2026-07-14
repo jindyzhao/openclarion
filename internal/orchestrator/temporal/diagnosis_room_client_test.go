@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -911,6 +912,57 @@ func TestDiagnosisRoomClient_ConfirmDiagnosisConclusionUsesCompletedUpdateAndWai
 		got.FinalConclusion.RecordedAt == nil ||
 		!got.FinalConclusion.RecordedAt.Equal(closedAt) {
 		t.Fatalf("confirmed state = %+v", got)
+	}
+}
+
+func TestDiagnosisRoomClient_ConfirmDiagnosisConclusionReturnsPendingQuorumWithoutWaiting(t *testing.T) {
+	approvedAt := time.Date(2026, 7, 14, 9, 0, 0, 0, time.UTC)
+	digest := strings.Repeat("a", 64)
+	temporalClient := &recordingDiagnosisRoomTemporalClient{
+		updateHandle: fakeWorkflowUpdateHandle{
+			result: DiagnosisRoomWorkflowState{
+				SessionID:        "session-1",
+				ChatSessionID:    21,
+				DiagnosisTaskID:  11,
+				OwnerSubject:     "owner-1",
+				Status:           diagnosisRoomStatusOpen,
+				ApprovalMode:     domain.DiagnosisApprovalModeOwnerAndLeader,
+				ConclusionDigest: digest,
+				Approvals: []domain.ChatSessionApproval{{
+					ID:               41,
+					SessionID:        21,
+					ConclusionDigest: digest,
+					ActorSubject:     "owner-1",
+					Authority:        domain.DiagnosisApprovalAuthorityOwner,
+					Reason:           "human_confirmed",
+					ApprovedAt:       approvedAt,
+				}},
+				PendingApprovalAuthorities: []domain.DiagnosisApprovalAuthority{
+					domain.DiagnosisApprovalAuthorityLeader,
+				},
+			},
+		},
+	}
+	roomClient := newDiagnosisRoomClient(temporalClient)
+
+	got, err := roomClient.ConfirmDiagnosisConclusion(context.Background(), ports.DiagnosisRoomConfirmConclusionRequest{
+		SessionID:    "session-1",
+		ActorSubject: "owner-1",
+	})
+	if err != nil {
+		t.Fatalf("ConfirmDiagnosisConclusion: %v", err)
+	}
+	if temporalClient.getCalled != 0 {
+		t.Fatalf("GetWorkflow calls = %d, want 0 while approval quorum is pending", temporalClient.getCalled)
+	}
+	if got.Status != diagnosisRoomStatusOpen ||
+		got.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader ||
+		got.ConclusionDigest != digest ||
+		len(got.Approvals) != 1 ||
+		got.Approvals[0].Authority != domain.DiagnosisApprovalAuthorityOwner ||
+		len(got.PendingApprovalAuthorities) != 1 ||
+		got.PendingApprovalAuthorities[0] != domain.DiagnosisApprovalAuthorityLeader {
+		t.Fatalf("pending approval state = %+v", got)
 	}
 }
 

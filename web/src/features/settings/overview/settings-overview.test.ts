@@ -3372,6 +3372,7 @@ function diagnosisRoom(
   >,
 ): AlertEventSummary["linked_evidence_snapshots"][number]["diagnosis_rooms"][number] {
   return {
+    approval_mode: "single",
     chat_session_id: id * 100,
     close_reason: "",
     closed_at: null,

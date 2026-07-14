@@ -907,6 +907,18 @@ func (r *retryTestRepo) FindChatSessionSummaryBySessionAndVersion(context.Contex
 func (r *retryTestRepo) FindLatestChatSessionSummary(context.Context, domain.ChatSessionID) (domain.ChatSessionSummary, error) {
 	return domain.ChatSessionSummary{}, errors.New("unexpected FindLatestChatSessionSummary call")
 }
+func (r *retryTestRepo) SaveChatSessionApproval(context.Context, domain.ChatSessionApproval) (domain.ChatSessionApproval, error) {
+	return domain.ChatSessionApproval{}, errors.New("unexpected SaveChatSessionApproval call")
+}
+func (r *retryTestRepo) FindChatSessionApproval(context.Context, domain.ChatSessionID, string, string) (domain.ChatSessionApproval, error) {
+	return domain.ChatSessionApproval{}, errors.New("unexpected FindChatSessionApproval call")
+}
+func (r *retryTestRepo) HasChatSessionApprovals(context.Context, domain.ChatSessionID) (bool, error) {
+	return false, errors.New("unexpected HasChatSessionApprovals call")
+}
+func (r *retryTestRepo) ListChatSessionApprovals(context.Context, domain.ChatSessionID, string, int) ([]domain.ChatSessionApproval, error) {
+	return nil, errors.New("unexpected ListChatSessionApprovals call")
+}
 func (r *retryTestRepo) failNow(message string) {
 	r.t.Helper()
 	r.t.Fatal(message)

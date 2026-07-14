@@ -1,4 +1,5 @@
 import { containsControlOrWhitespace } from "../settings/validation";
+import type { DiagnosisApprovalMode } from "./types";
 
 export type DiagnosisAuthMode = "ldap" | "bearer" | "session" | "wecom";
 export type DiagnosisAuthBackendMode =
@@ -644,6 +645,7 @@ export function diagnosisAutoBrowserSessionConnectionPlan({
 }
 
 export function diagnosisAutoBrowserSessionCreateRoomPlan({
+  approvalMode = "single",
   authenticatedSubject,
   backendStatus,
   closeNotificationChannelProfileID,
@@ -656,6 +658,7 @@ export function diagnosisAutoBrowserSessionCreateRoomPlan({
   snapshotNeedsRoom,
   values,
 }: {
+  approvalMode?: DiagnosisApprovalMode;
   authenticatedSubject?: string;
   backendStatus?: DiagnosisAuthBackendStatusSnapshot;
   closeNotificationChannelProfileID?: number | null;
@@ -702,6 +705,7 @@ export function diagnosisAutoBrowserSessionCreateRoomPlan({
     subject,
     evidenceSnapshotID,
     channelKey,
+    approvalMode,
     inputRevision,
   ].join(":");
   if (attemptKey === previousAttemptKey) {

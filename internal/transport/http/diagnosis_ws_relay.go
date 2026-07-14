@@ -198,7 +198,7 @@ func diagnosisWSFramePermission(frameType string) (domain.RBACPermission, bool) 
 		diagnosisWSClientCollectEvidence:
 		return domain.RBACPermissionDiagnosisRoomParticipate, true
 	case diagnosisWSClientConfirm:
-		return domain.RBACPermissionDiagnosisRoomAdminister, true
+		return domain.RBACPermissionDiagnosisRoomApprove, true
 	default:
 		return "", false
 	}
@@ -562,6 +562,14 @@ func diagnosisWSStateFrameFromState(state ports.DiagnosisRoomState) diagnosisWSS
 		CloseReason:         state.CloseReason,
 		FinalConclusion:     diagnosisWSFinalConclusionFrame(state.FinalConclusion),
 		ConversationSummary: diagnosisWSConversationSummaryFrame(state.ConversationSummary),
+		ApprovalMode:        state.ApprovalMode,
+		ConclusionDigest:    state.ConclusionDigest,
+		Approvals:           diagnosisWSConclusionApprovals(state.Approvals),
+		PendingApprovalAuthorities: append(
+			[]domain.DiagnosisApprovalAuthority(nil),
+			state.PendingApprovalAuthorities...,
+		),
+		ApprovalInFlight:    state.ApprovalInFlight,
 		Confidence:          state.LatestConfidence,
 		RequiresHumanReview: state.LatestRequiresHumanReview,
 		EvidenceRequests:    diagnosisWSEvidenceRequests(state.LatestEvidenceRequests),
@@ -577,6 +585,21 @@ func diagnosisWSStateFrameFromState(state ports.DiagnosisRoomState) diagnosisWSS
 		SeenMessageIDs:      append([]string(nil), state.SeenMessageIDs...),
 		Conversation:        diagnosisWSConversation(state.Conversation),
 	}
+}
+
+func diagnosisWSConclusionApprovals(in []ports.DiagnosisRoomConclusionApproval) []diagnosisWSConclusionApproval {
+	out := make([]diagnosisWSConclusionApproval, len(in))
+	for i, approval := range in {
+		out[i] = diagnosisWSConclusionApproval{
+			ID:               int64(approval.ID),
+			ConclusionDigest: approval.ConclusionDigest,
+			ActorSubject:     approval.ActorSubject,
+			Authority:        approval.Authority,
+			Reason:           approval.Reason,
+			ApprovedAt:       approval.ApprovedAt,
+		}
+	}
+	return out
 }
 
 func diagnosisWSStateFrameFromCollectResult(result ports.DiagnosisRoomCollectEvidenceResult) diagnosisWSStateFrame {
@@ -1131,32 +1154,46 @@ type diagnosisWSFollowUpTurn struct {
 }
 
 type diagnosisWSStateFrame struct {
-	Type                 string                                  `json:"type"`
-	SessionID            string                                  `json:"session_id"`
-	ChatSessionID        int64                                   `json:"chat_session_id"`
-	DiagnosisTaskID      int64                                   `json:"diagnosis_task_id"`
-	OwnerSubject         string                                  `json:"owner_subject"`
-	Status               string                                  `json:"status"`
-	TurnCount            int                                     `json:"turn_count"`
-	StartedAt            time.Time                               `json:"started_at"`
-	LastActivityAt       time.Time                               `json:"last_activity_at"`
-	ClosedAt             *time.Time                              `json:"closed_at,omitempty"`
-	CloseReason          string                                  `json:"close_reason,omitempty"`
-	FinalConclusion      *diagnosisWSFinalConclusion             `json:"final_conclusion,omitempty"`
-	ConversationSummary  *diagnosisWSConversationSummary         `json:"conversation_summary,omitempty"`
-	Confidence           string                                  `json:"confidence,omitempty"`
-	RequiresHumanReview  *bool                                   `json:"requires_human_review,omitempty"`
-	EvidenceRequests     []diagnosisWSEvidenceRequest            `json:"evidence_requests,omitempty"`
-	CollectionResults    []diagnosisWSEvidenceCollectionResult   `json:"evidence_collection_results,omitempty"`
-	EvidenceTimeline     []diagnosisWSEvidenceTimelineEntry      `json:"evidence_timeline,omitempty"`
-	ConfidenceTimeline   []diagnosisWSConfidenceTimelineEntry    `json:"confidence_timeline,omitempty"`
-	SupplementalEvidence []diagnosisWSSupplementalEvidenceRecord `json:"supplemental_evidence,omitempty"`
-	ConsultationInsight  *diagnosisWSConsultationInsight         `json:"consultation_insight,omitempty"`
-	FollowUpTurns        []diagnosisWSFollowUpTurn               `json:"follow_up_turns,omitempty"`
-	LatestError          *diagnosisWSLatestError                 `json:"latest_error,omitempty"`
-	InFlight             bool                                    `json:"in_flight"`
-	SeenMessageIDs       []string                                `json:"seen_message_ids"`
-	Conversation         []diagnosisWSConversationTurn           `json:"conversation"`
+	Type                       string                                  `json:"type"`
+	SessionID                  string                                  `json:"session_id"`
+	ChatSessionID              int64                                   `json:"chat_session_id"`
+	DiagnosisTaskID            int64                                   `json:"diagnosis_task_id"`
+	OwnerSubject               string                                  `json:"owner_subject"`
+	Status                     string                                  `json:"status"`
+	TurnCount                  int                                     `json:"turn_count"`
+	StartedAt                  time.Time                               `json:"started_at"`
+	LastActivityAt             time.Time                               `json:"last_activity_at"`
+	ClosedAt                   *time.Time                              `json:"closed_at,omitempty"`
+	CloseReason                string                                  `json:"close_reason,omitempty"`
+	FinalConclusion            *diagnosisWSFinalConclusion             `json:"final_conclusion,omitempty"`
+	ConversationSummary        *diagnosisWSConversationSummary         `json:"conversation_summary,omitempty"`
+	ApprovalMode               domain.DiagnosisApprovalMode            `json:"approval_mode"`
+	ConclusionDigest           string                                  `json:"conclusion_digest,omitempty"`
+	Approvals                  []diagnosisWSConclusionApproval         `json:"approvals,omitempty"`
+	PendingApprovalAuthorities []domain.DiagnosisApprovalAuthority     `json:"pending_approval_authorities,omitempty"`
+	ApprovalInFlight           bool                                    `json:"approval_in_flight"`
+	Confidence                 string                                  `json:"confidence,omitempty"`
+	RequiresHumanReview        *bool                                   `json:"requires_human_review,omitempty"`
+	EvidenceRequests           []diagnosisWSEvidenceRequest            `json:"evidence_requests,omitempty"`
+	CollectionResults          []diagnosisWSEvidenceCollectionResult   `json:"evidence_collection_results,omitempty"`
+	EvidenceTimeline           []diagnosisWSEvidenceTimelineEntry      `json:"evidence_timeline,omitempty"`
+	ConfidenceTimeline         []diagnosisWSConfidenceTimelineEntry    `json:"confidence_timeline,omitempty"`
+	SupplementalEvidence       []diagnosisWSSupplementalEvidenceRecord `json:"supplemental_evidence,omitempty"`
+	ConsultationInsight        *diagnosisWSConsultationInsight         `json:"consultation_insight,omitempty"`
+	FollowUpTurns              []diagnosisWSFollowUpTurn               `json:"follow_up_turns,omitempty"`
+	LatestError                *diagnosisWSLatestError                 `json:"latest_error,omitempty"`
+	InFlight                   bool                                    `json:"in_flight"`
+	SeenMessageIDs             []string                                `json:"seen_message_ids"`
+	Conversation               []diagnosisWSConversationTurn           `json:"conversation"`
+}
+
+type diagnosisWSConclusionApproval struct {
+	ID               int64                             `json:"id"`
+	ConclusionDigest string                            `json:"conclusion_digest"`
+	ActorSubject     string                            `json:"actor_subject"`
+	Authority        domain.DiagnosisApprovalAuthority `json:"authority"`
+	Reason           string                            `json:"reason"`
+	ApprovedAt       time.Time                         `json:"approved_at"`
 }
 
 type diagnosisWSConversationSummary struct {
