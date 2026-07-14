@@ -12,6 +12,7 @@ import (
 	"go.temporal.io/sdk/converter"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -125,6 +126,44 @@ func TestDiagnosisRoomStarter_StartDiagnosisRoomStartsWorkflowAndWaitsReady(t *t
 	}
 	if client.queryCalled == 0 || client.queryWorkflowID != "diagnosis-room-session-1" || client.queryRunID != "run-1" || client.queryType != DiagnosisRoomStateQuery {
 		t.Fatalf("query calls=%d workflow=%q run=%q type=%q", client.queryCalled, client.queryWorkflowID, client.queryRunID, client.queryType)
+	}
+}
+
+func TestDiagnosisRoomStarter_StartDiagnosisRoomScopesWorkflowIDByTenant(t *testing.T) {
+	t.Parallel()
+
+	const scopedID = "openclarion-tenant-7-team-seven--diagnosis-room-session-1"
+	temporalClient := &recordingDiagnosisRoomStarterClient{
+		run: staticWorkflowRun{workflowID: scopedID, runID: "run-1"},
+		queryValue: fakeEncodedValue{value: DiagnosisRoomWorkflowState{
+			SessionID:       "session-1",
+			DiagnosisTaskID: 101,
+			ChatSessionID:   202,
+			ApprovalMode:    domain.DiagnosisApprovalModeSingle,
+		}},
+	}
+	ctx, err := tenancy.WithTenant(context.Background(), tenancy.Identity{ID: 7, Key: "team-seven"})
+	if err != nil {
+		t.Fatalf("WithTenant: %v", err)
+	}
+	starter := newDiagnosisRoomStarter(temporalClient, WithDiagnosisRoomStarterReadyTimeout(time.Second))
+	result, err := starter.StartDiagnosisRoom(ctx, ports.DiagnosisRoomStartRequest{
+		SessionID:          "session-1",
+		EvidenceSnapshotID: 42,
+		OwnerSubject:       "owner-1",
+		Evidence:           []byte(`{"alert":"cpu"}`),
+	})
+	if err != nil {
+		t.Fatalf("StartDiagnosisRoom: %v", err)
+	}
+	if temporalClient.options.ID != scopedID || temporalClient.queryWorkflowID != scopedID || result.Workflow.WorkflowID != scopedID {
+		t.Fatalf(
+			"workflow IDs = option:%q query:%q result:%q, want %q",
+			temporalClient.options.ID,
+			temporalClient.queryWorkflowID,
+			result.Workflow.WorkflowID,
+			scopedID,
+		)
 	}
 }
 

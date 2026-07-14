@@ -87,16 +87,60 @@ func (s *Server) UpdateTenantStatus(w http.ResponseWriter, r *http.Request, tena
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "request body contains unknown fields", nil)
 		return
 	}
-	updated, err := s.tenantOperations.UpdateStatus(r.Context(), id, domain.TenantStatus(body.Status))
+	status := domain.TenantStatus(body.Status)
+	if err := domain.ValidateTenantStatus(status); err != nil {
+		s.writeTenantOperationError(r.Context(), w, "update tenant status failed", err)
+		return
+	}
+	if id == domain.DefaultTenantID && status != domain.TenantStatusActive {
+		s.writeTenantOperationError(
+			r.Context(),
+			w,
+			"update tenant status failed",
+			fmt.Errorf("default tenant cannot be disabled: %w", domain.ErrPreconditionFailed),
+		)
+		return
+	}
+	current, err := s.tenantOperations.FindTenant(r.Context(), id)
+	if err != nil {
+		s.writeTenantOperationError(r.Context(), w, "find tenant before status update failed", err)
+		return
+	}
+	if current.Status == status {
+		writeJSON(r.Context(), w, s.logger, http.StatusOK, tenantToAPI(current))
+		return
+	}
+
+	// A disabled tenant must never retain runnable schedules. Pause first when
+	// disabling; when enabling, persist active state before restoring schedules.
+	if status == domain.TenantStatusDisabled {
+		paused := current
+		paused.Status = status
+		if err := s.syncTenantScheduleState(r.Context(), paused); err != nil {
+			writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "pause tenant schedules failed", err)
+			return
+		}
+	}
+	updated, err := s.tenantOperations.UpdateStatus(r.Context(), id, status)
 	if err != nil {
 		s.writeTenantOperationError(r.Context(), w, "update tenant status failed", err)
 		return
 	}
-	if err := s.syncTenantScheduleState(r.Context(), updated); err != nil {
-		writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "synchronize tenant schedules failed", err)
-		return
+	if status == domain.TenantStatusActive {
+		if err := s.syncTenantScheduleState(r.Context(), updated); err != nil {
+			writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "restore tenant schedules failed", err)
+			return
+		}
 	}
 	writeJSON(r.Context(), w, s.logger, http.StatusOK, tenantToAPI(updated))
+}
+
+// The pointer preserves the distinction between a required false value and an
+// omitted property, which the generated value-type model cannot represent.
+type tenantMembershipWriteRequest struct {
+	Subject string `json:"subject"`
+	Role    string `json:"role"`
+	Enabled *bool  `json:"enabled"`
 }
 
 // ListTenantMemberships implements api.ServerInterface.
@@ -134,13 +178,13 @@ func (s *Server) SetTenantMembership(w http.ResponseWriter, r *http.Request, ten
 	if !ok {
 		return
 	}
-	var body api.TenantMembershipWriteRequest
+	var body tenantMembershipWriteRequest
 	if err := decodeStrictJSONRequestBody(w, r, &body); err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, err.Error(), nil)
 		return
 	}
-	if len(body.AdditionalProperties) != 0 {
-		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "request body contains unknown fields", nil)
+	if body.Enabled == nil {
+		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "enabled is required", nil)
 		return
 	}
 	saved, err := s.tenantOperations.SetMembership(
@@ -148,7 +192,7 @@ func (s *Server) SetTenantMembership(w http.ResponseWriter, r *http.Request, ten
 		id,
 		body.Subject,
 		domain.TenantMembershipRole(body.Role),
-		body.Enabled,
+		*body.Enabled,
 		principal.Subject,
 	)
 	if err != nil {

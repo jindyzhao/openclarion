@@ -28,6 +28,21 @@ func NewTenantRegistry(client *ent.Client) (*TenantRegistry, error) {
 	return &TenantRegistry{client: client}, nil
 }
 
+// FindTenantByID returns one tenant by its global registry identifier.
+func (r *TenantRegistry) FindTenantByID(ctx context.Context, id domain.TenantID) (domain.Tenant, error) {
+	if id <= 0 {
+		return domain.Tenant{}, fmt.Errorf("tenant registry: tenant id must be positive: %w", domain.ErrInvariantViolation)
+	}
+	row, err := r.client.Tenant.Get(ctx, int(id))
+	if ent.IsNotFound(err) {
+		return domain.Tenant{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Tenant{}, fmt.Errorf("tenant registry: find tenant by id: %w", err)
+	}
+	return tenantToDomain(row), nil
+}
+
 // FindTenantByKey returns one tenant by its normalized registry key.
 func (r *TenantRegistry) FindTenantByKey(ctx context.Context, key string) (domain.Tenant, error) {
 	normalized, err := domain.NormalizeTenantKey(key)

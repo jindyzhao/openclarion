@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/client"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -126,6 +127,34 @@ func TestReportStarter_StartReportBatchMapsRequestAndOptions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(input.Items, wantItems) {
 		t.Fatalf("input.Items = %+v, want %+v", input.Items, wantItems)
+	}
+}
+
+func TestReportStarter_StartReportBatchScopesWorkflowIDByTenant(t *testing.T) {
+	t.Parallel()
+
+	const scopedID = "openclarion-tenant-7-team-seven--report-batch-1"
+	executor := &recordingWorkflowExecutor{
+		run: staticWorkflowRun{workflowID: scopedID, runID: "run-1"},
+	}
+	ctx, err := tenancy.WithTenant(context.Background(), tenancy.Identity{ID: 7, Key: "team-seven"})
+	if err != nil {
+		t.Fatalf("WithTenant: %v", err)
+	}
+	starter := newReportStarter(executor)
+	handle, err := starter.StartReportBatch(ctx, ports.ReportBatchStartRequest{
+		WorkflowID:     "report-batch-1",
+		CorrelationKey: "window-1",
+		Items: []ports.ReportBatchStartItem{{
+			EvidenceSnapshotID: 101,
+			Scenario:           "single_alert",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("StartReportBatch: %v", err)
+	}
+	if executor.options.ID != scopedID || handle.WorkflowID != scopedID {
+		t.Fatalf("workflow IDs = option:%q handle:%q, want %q", executor.options.ID, handle.WorkflowID, scopedID)
 	}
 }
 

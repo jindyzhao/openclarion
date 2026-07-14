@@ -60,6 +60,42 @@ func TestTenantContextMissingHeaderDefaultsForExistingHistories(t *testing.T) {
 	}
 }
 
+func TestTenantScopedWorkflowIDPreservesDefaultAndSeparatesTenants(t *testing.T) {
+	t.Parallel()
+
+	const base = "report-batch-shared"
+	gotDefault, err := tenantScopedWorkflowID(context.Background(), base)
+	if err != nil {
+		t.Fatalf("default tenantScopedWorkflowID: %v", err)
+	}
+	if gotDefault != base {
+		t.Fatalf("default workflow ID = %q, want %q", gotDefault, base)
+	}
+
+	ctxA, err := tenancy.WithTenant(context.Background(), tenancy.Identity{ID: 7, Key: "team-seven"})
+	if err != nil {
+		t.Fatalf("WithTenant A: %v", err)
+	}
+	ctxB, err := tenancy.WithTenant(context.Background(), tenancy.Identity{ID: 8, Key: "team-eight"})
+	if err != nil {
+		t.Fatalf("WithTenant B: %v", err)
+	}
+	gotA, err := tenantScopedWorkflowID(ctxA, base)
+	if err != nil {
+		t.Fatalf("tenant A workflow ID: %v", err)
+	}
+	gotB, err := tenantScopedWorkflowID(ctxB, base)
+	if err != nil {
+		t.Fatalf("tenant B workflow ID: %v", err)
+	}
+	if gotA != "openclarion-tenant-7-team-seven--report-batch-shared" {
+		t.Fatalf("tenant A workflow ID = %q", gotA)
+	}
+	if gotA == gotB {
+		t.Fatalf("tenant workflow IDs collide: %q", gotA)
+	}
+}
+
 func tenantPropagationWorkflow(ctx workflow.Context) (tenancy.Identity, error) {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{StartToCloseTimeout: time.Minute})
 	var identity tenancy.Identity

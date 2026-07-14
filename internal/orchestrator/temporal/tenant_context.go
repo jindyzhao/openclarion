@@ -3,6 +3,7 @@ package temporal
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/tenancy"
@@ -11,6 +12,8 @@ import (
 )
 
 const tenantContextHeader = "openclarion-tenant-v1"
+
+const tenantWorkflowIDPrefix = "openclarion-tenant"
 
 type workflowTenantContextKey struct{}
 
@@ -91,4 +94,23 @@ func readTenantContextHeader(reader workflow.HeaderReader) (tenancy.Identity, er
 		return tenancy.Identity{}, fmt.Errorf("temporal tenant propagation: validate header: %w", err)
 	}
 	return identity, nil
+}
+
+func tenantScopedWorkflowID(ctx context.Context, base string) (string, error) {
+	trimmed := strings.TrimSpace(base)
+	if trimmed == "" || trimmed != base {
+		return "", fmt.Errorf("temporal tenant workflow id: base must be non-empty and normalized: %w", domain.ErrInvariantViolation)
+	}
+	identity, ok := tenancy.FromContext(ctx)
+	if !ok {
+		identity = tenancy.DefaultIdentity()
+	}
+	validated, err := tenancy.NewIdentity(identity.ID, identity.Key)
+	if err != nil {
+		return "", fmt.Errorf("temporal tenant workflow id: %w", err)
+	}
+	if validated == tenancy.DefaultIdentity() {
+		return base, nil
+	}
+	return fmt.Sprintf("%s-%d-%s--%s", tenantWorkflowIDPrefix, validated.ID, validated.Key, base), nil
 }

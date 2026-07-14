@@ -3,6 +3,8 @@ package http
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -59,6 +61,145 @@ func TestTenantAPIListsAccessibleAndManagesMemberships(t *testing.T) {
 	}
 	if membership.Subject != "operator-2" || membership.Role != string(domain.TenantMembershipRoleMember) || !membership.Enabled {
 		t.Fatalf("membership = %+v", membership)
+	}
+}
+
+func TestTenantAPIMembershipRequiresEnabledProperty(t *testing.T) {
+	t.Parallel()
+
+	registry := newHTTPTestTenantRegistry()
+	service, err := tenantops.NewService(registry)
+	if err != nil {
+		t.Fatalf("tenantops.NewService: %v", err)
+	}
+	opts := testLocalRBACOptions(t, "owner-1", &fakeRBACAuthorizer{})
+	opts = append(opts, WithTenantOperations(service))
+	handler := testHandler(&fakeUOWFactory{}, opts...)
+
+	for _, body := range []string{
+		`{"subject":"operator-2","role":"member"}`,
+		`{"subject":"operator-2","role":"member","enabled":null}`,
+	} {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/api/v1/tenants/2/memberships", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		addTestLocalRBACAuthorization(request)
+		handler.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusBadRequest {
+			t.Fatalf("membership status = %d, want 400; body=%s", recorder.Code, recorder.Body.String())
+		}
+		if !strings.Contains(recorder.Body.String(), "enabled is required") {
+			t.Fatalf("membership body = %s, want enabled required error", recorder.Body.String())
+		}
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPut,
+		"/api/v1/tenants/2/memberships",
+		strings.NewReader(`{"subject":"operator-2","role":"member","enabled":false}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	addTestLocalRBACAuthorization(request)
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("explicit false membership status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	var membership api.TenantMembership
+	if err := json.NewDecoder(recorder.Body).Decode(&membership); err != nil {
+		t.Fatalf("decode explicit false membership: %v", err)
+	}
+	if membership.Enabled {
+		t.Fatal("explicit false membership was enabled")
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPut,
+		"/api/v1/tenants/2/memberships",
+		strings.NewReader(`{"subject":"operator-2","role":"member","enabled":true,"extra":true}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	addTestLocalRBACAuthorization(request)
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "unknown field") {
+		t.Fatalf("unknown field response = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestTenantAPIStatusTransitionUsesFailSafeScheduleOrder(t *testing.T) {
+	t.Parallel()
+
+	registry := newHTTPTestTenantRegistry()
+	service, err := tenantops.NewService(registry)
+	if err != nil {
+		t.Fatalf("tenantops.NewService: %v", err)
+	}
+	syncer := &tenantStatusRecordingSyncer{registry: registry}
+	factory := &fakeUOWFactory{configRepo: &fakeConfigRepo{reportWorkflowSchedules: []domain.ReportWorkflowSchedule{{ID: 7, Enabled: true}}}}
+	opts := testLocalRBACOptions(t, "owner-1", &fakeRBACAuthorizer{})
+	opts = append(opts, WithTenantOperations(service), WithReportWorkflowScheduleSynchronizer(syncer))
+	handler := testHandler(factory, opts...)
+
+	updateTenantStatus(t, handler, 2, domain.TenantStatusDisabled, http.StatusOK)
+	if got := mustHTTPTestTenant(t, registry, 2).Status; got != domain.TenantStatusDisabled {
+		t.Fatalf("disabled tenant status = %q", got)
+	}
+	if len(syncer.observedStatuses) != 1 || syncer.observedStatuses[0] != domain.TenantStatusActive {
+		t.Fatalf("disable sync observed statuses = %v, want [active]", syncer.observedStatuses)
+	}
+	if syncer.schedules[0].Enabled {
+		t.Fatal("disable sync received an enabled schedule")
+	}
+
+	updateTenantStatus(t, handler, 2, domain.TenantStatusActive, http.StatusOK)
+	if got := mustHTTPTestTenant(t, registry, 2).Status; got != domain.TenantStatusActive {
+		t.Fatalf("enabled tenant status = %q", got)
+	}
+	if len(syncer.observedStatuses) != 2 || syncer.observedStatuses[1] != domain.TenantStatusActive {
+		t.Fatalf("enable sync observed statuses = %v, want active after persistence", syncer.observedStatuses)
+	}
+	if !syncer.schedules[1].Enabled {
+		t.Fatal("enable sync did not restore the persisted schedule state")
+	}
+}
+
+func TestTenantAPIStatusTransitionFailsSafeWhenScheduleSyncFails(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name       string
+		initial    domain.TenantStatus
+		target     domain.TenantStatus
+		wantStored domain.TenantStatus
+	}{
+		{name: "disable", initial: domain.TenantStatusActive, target: domain.TenantStatusDisabled, wantStored: domain.TenantStatusActive},
+		{name: "enable", initial: domain.TenantStatusDisabled, target: domain.TenantStatusActive, wantStored: domain.TenantStatusActive},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			registry := newHTTPTestTenantRegistry()
+			registry.tenants[1].Status = tc.initial
+			service, err := tenantops.NewService(registry)
+			if err != nil {
+				t.Fatalf("tenantops.NewService: %v", err)
+			}
+			syncer := &tenantStatusRecordingSyncer{registry: registry, err: errors.New("temporal unavailable")}
+			factory := &fakeUOWFactory{configRepo: &fakeConfigRepo{reportWorkflowSchedules: []domain.ReportWorkflowSchedule{{ID: 7, Enabled: true}}}}
+			opts := testLocalRBACOptions(t, "owner-1", &fakeRBACAuthorizer{})
+			opts = append(opts, WithTenantOperations(service), WithReportWorkflowScheduleSynchronizer(syncer))
+			handler := testHandler(factory, opts...)
+
+			updateTenantStatus(t, handler, 2, tc.target, http.StatusInternalServerError)
+			if got := mustHTTPTestTenant(t, registry, 2).Status; got != tc.wantStored {
+				t.Fatalf("stored status = %q, want %q", got, tc.wantStored)
+			}
+			if len(syncer.observedStatuses) != 1 || syncer.observedStatuses[0] != domain.TenantStatusActive {
+				t.Fatalf("sync observed statuses = %v, want [active]", syncer.observedStatuses)
+			}
+		})
 	}
 }
 
@@ -244,6 +385,15 @@ func newHTTPTestTenantRegistry() *httpTestTenantRegistry {
 	}
 }
 
+func (r *httpTestTenantRegistry) FindTenantByID(_ context.Context, id domain.TenantID) (domain.Tenant, error) {
+	for _, tenant := range r.tenants {
+		if tenant.ID == id {
+			return tenant, nil
+		}
+	}
+	return domain.Tenant{}, domain.ErrNotFound
+}
+
 func (r *httpTestTenantRegistry) FindTenantByKey(_ context.Context, key string) (domain.Tenant, error) {
 	for _, tenant := range r.tenants {
 		if tenant.Key == key {
@@ -338,4 +488,51 @@ func (r *httpTestTenantRegistry) SetTenantMembership(_ context.Context, input do
 	input.UpdatedAt = input.CreatedAt
 	r.memberships = append(r.memberships, input)
 	return input, nil
+}
+
+type tenantStatusRecordingSyncer struct {
+	registry         *httpTestTenantRegistry
+	observedStatuses []domain.TenantStatus
+	schedules        []domain.ReportWorkflowSchedule
+	err              error
+}
+
+func (s *tenantStatusRecordingSyncer) SyncReportWorkflowSchedule(ctx context.Context, schedule domain.ReportWorkflowSchedule) error {
+	identity, err := tenancy.Require(ctx)
+	if err != nil {
+		return err
+	}
+	tenant, err := s.registry.FindTenantByID(ctx, identity.ID)
+	if err != nil {
+		return err
+	}
+	s.observedStatuses = append(s.observedStatuses, tenant.Status)
+	s.schedules = append(s.schedules, schedule)
+	return s.err
+}
+
+func updateTenantStatus(t *testing.T, handler http.Handler, tenantID int64, status domain.TenantStatus, wantStatus int) {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequestWithContext(
+		t.Context(),
+		http.MethodPatch,
+		fmt.Sprintf("/api/v1/tenants/%d", tenantID),
+		strings.NewReader(fmt.Sprintf(`{"status":%q}`, status)),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	addTestLocalRBACAuthorization(request)
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != wantStatus {
+		t.Fatalf("status update = %d, want %d; body=%s", recorder.Code, wantStatus, recorder.Body.String())
+	}
+}
+
+func mustHTTPTestTenant(t *testing.T, registry *httpTestTenantRegistry, id domain.TenantID) domain.Tenant {
+	t.Helper()
+	tenant, err := registry.FindTenantByID(t.Context(), id)
+	if err != nil {
+		t.Fatalf("FindTenantByID(%d): %v", id, err)
+	}
+	return tenant
 }

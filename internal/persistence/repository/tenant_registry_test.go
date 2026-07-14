@@ -34,6 +34,10 @@ func TestTenantRegistryLifecycle(t *testing.T) {
 	if created.ID <= 1 || owner.TenantID != created.ID || owner.Subject != "owner-1" || !owner.Enabled {
 		t.Fatalf("created tenant/member = %+v / %+v", created, owner)
 	}
+	foundByID, err := registry.FindTenantByID(ctx, created.ID)
+	if err != nil || foundByID.ID != created.ID || foundByID.Key != created.Key || foundByID.Status != created.Status {
+		t.Fatalf("FindTenantByID = %+v, %v; want %+v", foundByID, err, created)
+	}
 	if _, _, err := registry.CreateTenantWithOwner(ctx, domain.Tenant{
 		Key:    created.Key,
 		Name:   "Duplicate",

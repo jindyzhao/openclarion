@@ -77,6 +77,7 @@ var ErrNestedTransaction = errors.New("ports: nested WithinTx is not supported")
 // UnitOfWork because these rows select a tenant before any tenant-scoped
 // business transaction can begin.
 type TenantRegistry interface {
+	FindTenantByID(ctx context.Context, id domain.TenantID) (domain.Tenant, error)
 	FindTenantByKey(ctx context.Context, key string) (domain.Tenant, error)
 	ListTenants(ctx context.Context, limit int) ([]domain.Tenant, error)
 	ListTenantsForSubject(ctx context.Context, subject string, limit int) ([]domain.Tenant, error)

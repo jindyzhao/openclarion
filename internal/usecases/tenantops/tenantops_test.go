@@ -129,6 +129,15 @@ type fakeRegistry struct {
 	lastSubjectLimit int
 }
 
+func (f *fakeRegistry) FindTenantByID(_ context.Context, id domain.TenantID) (domain.Tenant, error) {
+	for _, tenant := range f.tenants {
+		if tenant.ID == id {
+			return tenant, nil
+		}
+	}
+	return domain.Tenant{}, domain.ErrNotFound
+}
+
 func (f *fakeRegistry) FindTenantByKey(_ context.Context, key string) (domain.Tenant, error) {
 	for _, tenant := range f.tenants {
 		if tenant.Key == key {

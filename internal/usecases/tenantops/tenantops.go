@@ -153,6 +153,11 @@ func (s *Service) CreateTenant(ctx context.Context, key, name, actorSubject stri
 	return s.registry.CreateTenantWithOwner(ctx, domain.Tenant{Key: key, Name: name, Status: domain.TenantStatusActive}, actorSubject)
 }
 
+// FindTenant returns one global tenant registry entry.
+func (s *Service) FindTenant(ctx context.Context, id domain.TenantID) (domain.Tenant, error) {
+	return s.registry.FindTenantByID(ctx, id)
+}
+
 // UpdateStatus changes a non-default tenant lifecycle state.
 func (s *Service) UpdateStatus(ctx context.Context, id domain.TenantID, status domain.TenantStatus) (domain.Tenant, error) {
 	return s.registry.UpdateTenantStatus(ctx, id, status)
