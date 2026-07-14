@@ -191,6 +191,7 @@ describe("diagnosis collaboration helpers", () => {
     expect(
       diagnosisCollaborationDirectoryUsersFromRooms([
         {
+          approval_mode: "single",
           session_id: "room-1",
           chat_session_id: 1,
           diagnosis_task_id: 1,
@@ -215,6 +216,7 @@ describe("diagnosis collaboration helpers", () => {
           updated_at: "2026-06-26T08:01:00Z",
         },
         {
+          approval_mode: "single",
           session_id: "room-1-list",
           chat_session_id: 2,
           diagnosis_task_id: 2,

@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionapproval"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
@@ -155,6 +156,21 @@ func (_u *ChatSessionUpdate) AddSummaries(v ...*ChatSessionSummary) *ChatSession
 	return _u.AddSummaryIDs(ids...)
 }
 
+// AddApprovalIDs adds the "approvals" edge to the ChatSessionApproval entity by IDs.
+func (_u *ChatSessionUpdate) AddApprovalIDs(ids ...int) *ChatSessionUpdate {
+	_u.mutation.AddApprovalIDs(ids...)
+	return _u
+}
+
+// AddApprovals adds the "approvals" edges to the ChatSessionApproval entity.
+func (_u *ChatSessionUpdate) AddApprovals(v ...*ChatSessionApproval) *ChatSessionUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddApprovalIDs(ids...)
+}
+
 // Mutation returns the ChatSessionMutation object of the builder.
 func (_u *ChatSessionUpdate) Mutation() *ChatSessionMutation {
 	return _u.mutation
@@ -200,6 +216,27 @@ func (_u *ChatSessionUpdate) RemoveSummaries(v ...*ChatSessionSummary) *ChatSess
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveSummaryIDs(ids...)
+}
+
+// ClearApprovals clears all "approvals" edges to the ChatSessionApproval entity.
+func (_u *ChatSessionUpdate) ClearApprovals() *ChatSessionUpdate {
+	_u.mutation.ClearApprovals()
+	return _u
+}
+
+// RemoveApprovalIDs removes the "approvals" edge to ChatSessionApproval entities by IDs.
+func (_u *ChatSessionUpdate) RemoveApprovalIDs(ids ...int) *ChatSessionUpdate {
+	_u.mutation.RemoveApprovalIDs(ids...)
+	return _u
+}
+
+// RemoveApprovals removes "approvals" edges to ChatSessionApproval entities.
+func (_u *ChatSessionUpdate) RemoveApprovals(v ...*ChatSessionApproval) *ChatSessionUpdate {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveApprovalIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -390,6 +427,51 @@ func (_u *ChatSessionUpdate) sqlSave(ctx context.Context) (_node int, err error)
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.ApprovalsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.ApprovalsTable,
+			Columns: []string{chatsession.ApprovalsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionapproval.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedApprovalsIDs(); len(nodes) > 0 && !_u.mutation.ApprovalsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.ApprovalsTable,
+			Columns: []string{chatsession.ApprovalsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionapproval.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ApprovalsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.ApprovalsTable,
+			Columns: []string{chatsession.ApprovalsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionapproval.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{chatsession.Label}
@@ -535,6 +617,21 @@ func (_u *ChatSessionUpdateOne) AddSummaries(v ...*ChatSessionSummary) *ChatSess
 	return _u.AddSummaryIDs(ids...)
 }
 
+// AddApprovalIDs adds the "approvals" edge to the ChatSessionApproval entity by IDs.
+func (_u *ChatSessionUpdateOne) AddApprovalIDs(ids ...int) *ChatSessionUpdateOne {
+	_u.mutation.AddApprovalIDs(ids...)
+	return _u
+}
+
+// AddApprovals adds the "approvals" edges to the ChatSessionApproval entity.
+func (_u *ChatSessionUpdateOne) AddApprovals(v ...*ChatSessionApproval) *ChatSessionUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddApprovalIDs(ids...)
+}
+
 // Mutation returns the ChatSessionMutation object of the builder.
 func (_u *ChatSessionUpdateOne) Mutation() *ChatSessionMutation {
 	return _u.mutation
@@ -580,6 +677,27 @@ func (_u *ChatSessionUpdateOne) RemoveSummaries(v ...*ChatSessionSummary) *ChatS
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveSummaryIDs(ids...)
+}
+
+// ClearApprovals clears all "approvals" edges to the ChatSessionApproval entity.
+func (_u *ChatSessionUpdateOne) ClearApprovals() *ChatSessionUpdateOne {
+	_u.mutation.ClearApprovals()
+	return _u
+}
+
+// RemoveApprovalIDs removes the "approvals" edge to ChatSessionApproval entities by IDs.
+func (_u *ChatSessionUpdateOne) RemoveApprovalIDs(ids ...int) *ChatSessionUpdateOne {
+	_u.mutation.RemoveApprovalIDs(ids...)
+	return _u
+}
+
+// RemoveApprovals removes "approvals" edges to ChatSessionApproval entities.
+func (_u *ChatSessionUpdateOne) RemoveApprovals(v ...*ChatSessionApproval) *ChatSessionUpdateOne {
+	ids := make([]int, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveApprovalIDs(ids...)
 }
 
 // Where appends a list predicates to the ChatSessionUpdate builder.
@@ -793,6 +911,51 @@ func (_u *ChatSessionUpdateOne) sqlSave(ctx context.Context) (_node *ChatSession
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(chatsessionsummary.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.ApprovalsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.ApprovalsTable,
+			Columns: []string{chatsession.ApprovalsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionapproval.FieldID, field.TypeInt),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedApprovalsIDs(); len(nodes) > 0 && !_u.mutation.ApprovalsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.ApprovalsTable,
+			Columns: []string{chatsession.ApprovalsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionapproval.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.ApprovalsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   chatsession.ApprovalsTable,
+			Columns: []string{chatsession.ApprovalsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(chatsessionapproval.FieldID, field.TypeInt),
 			},
 		}
 		for _, k := range nodes {

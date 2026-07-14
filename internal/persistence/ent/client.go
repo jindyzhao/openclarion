@@ -19,6 +19,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertsourceprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionapproval"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
@@ -53,6 +54,8 @@ type Client struct {
 	AlertSourceProfile *AlertSourceProfileClient
 	// ChatSession is the client for interacting with the ChatSession builders.
 	ChatSession *ChatSessionClient
+	// ChatSessionApproval is the client for interacting with the ChatSessionApproval builders.
+	ChatSessionApproval *ChatSessionApprovalClient
 	// ChatSessionSummary is the client for interacting with the ChatSessionSummary builders.
 	ChatSessionSummary *ChatSessionSummaryClient
 	// ChatTurn is the client for interacting with the ChatTurn builders.
@@ -106,6 +109,7 @@ func (c *Client) init() {
 	c.AlertGroup = NewAlertGroupClient(c.config)
 	c.AlertSourceProfile = NewAlertSourceProfileClient(c.config)
 	c.ChatSession = NewChatSessionClient(c.config)
+	c.ChatSessionApproval = NewChatSessionApprovalClient(c.config)
 	c.ChatSessionSummary = NewChatSessionSummaryClient(c.config)
 	c.ChatTurn = NewChatTurnClient(c.config)
 	c.DiagnosisAuthTicket = NewDiagnosisAuthTicketClient(c.config)
@@ -221,6 +225,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		AlertGroup:                   NewAlertGroupClient(cfg),
 		AlertSourceProfile:           NewAlertSourceProfileClient(cfg),
 		ChatSession:                  NewChatSessionClient(cfg),
+		ChatSessionApproval:          NewChatSessionApprovalClient(cfg),
 		ChatSessionSummary:           NewChatSessionSummaryClient(cfg),
 		ChatTurn:                     NewChatTurnClient(cfg),
 		DiagnosisAuthTicket:          NewDiagnosisAuthTicketClient(cfg),
@@ -263,6 +268,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		AlertGroup:                   NewAlertGroupClient(cfg),
 		AlertSourceProfile:           NewAlertSourceProfileClient(cfg),
 		ChatSession:                  NewChatSessionClient(cfg),
+		ChatSessionApproval:          NewChatSessionApprovalClient(cfg),
 		ChatSessionSummary:           NewChatSessionSummaryClient(cfg),
 		ChatTurn:                     NewChatTurnClient(cfg),
 		DiagnosisAuthTicket:          NewDiagnosisAuthTicketClient(cfg),
@@ -312,12 +318,12 @@ func (c *Client) Close() error {
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
 		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession,
-		c.ChatSessionSummary, c.ChatTurn, c.DiagnosisAuthTicket, c.DiagnosisTask,
-		c.DiagnosisTaskEvent, c.DiagnosisToolTemplate, c.DirectoryDepartment,
-		c.DirectorySyncRun, c.DirectoryUser, c.EvidenceSnapshot, c.FinalReport,
-		c.GroupingPolicy, c.NotificationChannelProfile, c.NotificationChannelTestProof,
-		c.RBACAssignment, c.ReportNotificationDelivery, c.ReportWorkflowPolicy,
-		c.ReportWorkflowSchedule, c.SubReport,
+		c.ChatSessionApproval, c.ChatSessionSummary, c.ChatTurn, c.DiagnosisAuthTicket,
+		c.DiagnosisTask, c.DiagnosisTaskEvent, c.DiagnosisToolTemplate,
+		c.DirectoryDepartment, c.DirectorySyncRun, c.DirectoryUser, c.EvidenceSnapshot,
+		c.FinalReport, c.GroupingPolicy, c.NotificationChannelProfile,
+		c.NotificationChannelTestProof, c.RBACAssignment, c.ReportNotificationDelivery,
+		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.SubReport,
 	} {
 		n.Use(hooks...)
 	}
@@ -328,12 +334,12 @@ func (c *Client) Use(hooks ...Hook) {
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
 		c.AlertEvent, c.AlertGroup, c.AlertSourceProfile, c.ChatSession,
-		c.ChatSessionSummary, c.ChatTurn, c.DiagnosisAuthTicket, c.DiagnosisTask,
-		c.DiagnosisTaskEvent, c.DiagnosisToolTemplate, c.DirectoryDepartment,
-		c.DirectorySyncRun, c.DirectoryUser, c.EvidenceSnapshot, c.FinalReport,
-		c.GroupingPolicy, c.NotificationChannelProfile, c.NotificationChannelTestProof,
-		c.RBACAssignment, c.ReportNotificationDelivery, c.ReportWorkflowPolicy,
-		c.ReportWorkflowSchedule, c.SubReport,
+		c.ChatSessionApproval, c.ChatSessionSummary, c.ChatTurn, c.DiagnosisAuthTicket,
+		c.DiagnosisTask, c.DiagnosisTaskEvent, c.DiagnosisToolTemplate,
+		c.DirectoryDepartment, c.DirectorySyncRun, c.DirectoryUser, c.EvidenceSnapshot,
+		c.FinalReport, c.GroupingPolicy, c.NotificationChannelProfile,
+		c.NotificationChannelTestProof, c.RBACAssignment, c.ReportNotificationDelivery,
+		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.SubReport,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -350,6 +356,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.AlertSourceProfile.mutate(ctx, m)
 	case *ChatSessionMutation:
 		return c.ChatSession.mutate(ctx, m)
+	case *ChatSessionApprovalMutation:
+		return c.ChatSessionApproval.mutate(ctx, m)
 	case *ChatSessionSummaryMutation:
 		return c.ChatSessionSummary.mutate(ctx, m)
 	case *ChatTurnMutation:
@@ -996,6 +1004,22 @@ func (c *ChatSessionClient) QuerySummaries(_m *ChatSession) *ChatSessionSummaryQ
 	return query
 }
 
+// QueryApprovals queries the approvals edge of a ChatSession.
+func (c *ChatSessionClient) QueryApprovals(_m *ChatSession) *ChatSessionApprovalQuery {
+	query := (&ChatSessionApprovalClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsession.Table, chatsession.FieldID, id),
+			sqlgraph.To(chatsessionapproval.Table, chatsessionapproval.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, chatsession.ApprovalsTable, chatsession.ApprovalsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *ChatSessionClient) Hooks() []Hook {
 	return c.hooks.ChatSession
@@ -1018,6 +1042,155 @@ func (c *ChatSessionClient) mutate(ctx context.Context, m *ChatSessionMutation) 
 		return (&ChatSessionDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown ChatSession mutation op: %q", m.Op())
+	}
+}
+
+// ChatSessionApprovalClient is a client for the ChatSessionApproval schema.
+type ChatSessionApprovalClient struct {
+	config
+}
+
+// NewChatSessionApprovalClient returns a client for the ChatSessionApproval from the given config.
+func NewChatSessionApprovalClient(c config) *ChatSessionApprovalClient {
+	return &ChatSessionApprovalClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `chatsessionapproval.Hooks(f(g(h())))`.
+func (c *ChatSessionApprovalClient) Use(hooks ...Hook) {
+	c.hooks.ChatSessionApproval = append(c.hooks.ChatSessionApproval, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `chatsessionapproval.Intercept(f(g(h())))`.
+func (c *ChatSessionApprovalClient) Intercept(interceptors ...Interceptor) {
+	c.inters.ChatSessionApproval = append(c.inters.ChatSessionApproval, interceptors...)
+}
+
+// Create returns a builder for creating a ChatSessionApproval entity.
+func (c *ChatSessionApprovalClient) Create() *ChatSessionApprovalCreate {
+	mutation := newChatSessionApprovalMutation(c.config, OpCreate)
+	return &ChatSessionApprovalCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of ChatSessionApproval entities.
+func (c *ChatSessionApprovalClient) CreateBulk(builders ...*ChatSessionApprovalCreate) *ChatSessionApprovalCreateBulk {
+	return &ChatSessionApprovalCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *ChatSessionApprovalClient) MapCreateBulk(slice any, setFunc func(*ChatSessionApprovalCreate, int)) *ChatSessionApprovalCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &ChatSessionApprovalCreateBulk{err: fmt.Errorf("calling to ChatSessionApprovalClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*ChatSessionApprovalCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &ChatSessionApprovalCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for ChatSessionApproval.
+func (c *ChatSessionApprovalClient) Update() *ChatSessionApprovalUpdate {
+	mutation := newChatSessionApprovalMutation(c.config, OpUpdate)
+	return &ChatSessionApprovalUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *ChatSessionApprovalClient) UpdateOne(_m *ChatSessionApproval) *ChatSessionApprovalUpdateOne {
+	mutation := newChatSessionApprovalMutation(c.config, OpUpdateOne, withChatSessionApproval(_m))
+	return &ChatSessionApprovalUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *ChatSessionApprovalClient) UpdateOneID(id int) *ChatSessionApprovalUpdateOne {
+	mutation := newChatSessionApprovalMutation(c.config, OpUpdateOne, withChatSessionApprovalID(id))
+	return &ChatSessionApprovalUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for ChatSessionApproval.
+func (c *ChatSessionApprovalClient) Delete() *ChatSessionApprovalDelete {
+	mutation := newChatSessionApprovalMutation(c.config, OpDelete)
+	return &ChatSessionApprovalDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *ChatSessionApprovalClient) DeleteOne(_m *ChatSessionApproval) *ChatSessionApprovalDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *ChatSessionApprovalClient) DeleteOneID(id int) *ChatSessionApprovalDeleteOne {
+	builder := c.Delete().Where(chatsessionapproval.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &ChatSessionApprovalDeleteOne{builder}
+}
+
+// Query returns a query builder for ChatSessionApproval.
+func (c *ChatSessionApprovalClient) Query() *ChatSessionApprovalQuery {
+	return &ChatSessionApprovalQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeChatSessionApproval},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a ChatSessionApproval entity by its id.
+func (c *ChatSessionApprovalClient) Get(ctx context.Context, id int) (*ChatSessionApproval, error) {
+	return c.Query().Where(chatsessionapproval.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *ChatSessionApprovalClient) GetX(ctx context.Context, id int) *ChatSessionApproval {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QuerySession queries the session edge of a ChatSessionApproval.
+func (c *ChatSessionApprovalClient) QuerySession(_m *ChatSessionApproval) *ChatSessionQuery {
+	query := (&ChatSessionClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsessionapproval.Table, chatsessionapproval.FieldID, id),
+			sqlgraph.To(chatsession.Table, chatsession.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, chatsessionapproval.SessionTable, chatsessionapproval.SessionColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *ChatSessionApprovalClient) Hooks() []Hook {
+	return c.hooks.ChatSessionApproval
+}
+
+// Interceptors returns the client interceptors.
+func (c *ChatSessionApprovalClient) Interceptors() []Interceptor {
+	return c.inters.ChatSessionApproval
+}
+
+func (c *ChatSessionApprovalClient) mutate(ctx context.Context, m *ChatSessionApprovalMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&ChatSessionApprovalCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&ChatSessionApprovalUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&ChatSessionApprovalUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&ChatSessionApprovalDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown ChatSessionApproval mutation op: %q", m.Op())
 	}
 }
 
@@ -3807,19 +3980,21 @@ func (c *SubReportClient) mutate(ctx context.Context, m *SubReportMutation) (Val
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatSessionSummary,
-		ChatTurn, DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent,
-		DiagnosisToolTemplate, DirectoryDepartment, DirectorySyncRun, DirectoryUser,
-		EvidenceSnapshot, FinalReport, GroupingPolicy, NotificationChannelProfile,
-		NotificationChannelTestProof, RBACAssignment, ReportNotificationDelivery,
-		ReportWorkflowPolicy, ReportWorkflowSchedule, SubReport []ent.Hook
+		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatSessionApproval,
+		ChatSessionSummary, ChatTurn, DiagnosisAuthTicket, DiagnosisTask,
+		DiagnosisTaskEvent, DiagnosisToolTemplate, DirectoryDepartment,
+		DirectorySyncRun, DirectoryUser, EvidenceSnapshot, FinalReport, GroupingPolicy,
+		NotificationChannelProfile, NotificationChannelTestProof, RBACAssignment,
+		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
+		SubReport []ent.Hook
 	}
 	inters struct {
-		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatSessionSummary,
-		ChatTurn, DiagnosisAuthTicket, DiagnosisTask, DiagnosisTaskEvent,
-		DiagnosisToolTemplate, DirectoryDepartment, DirectorySyncRun, DirectoryUser,
-		EvidenceSnapshot, FinalReport, GroupingPolicy, NotificationChannelProfile,
-		NotificationChannelTestProof, RBACAssignment, ReportNotificationDelivery,
-		ReportWorkflowPolicy, ReportWorkflowSchedule, SubReport []ent.Interceptor
+		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatSessionApproval,
+		ChatSessionSummary, ChatTurn, DiagnosisAuthTicket, DiagnosisTask,
+		DiagnosisTaskEvent, DiagnosisToolTemplate, DirectoryDepartment,
+		DirectorySyncRun, DirectoryUser, EvidenceSnapshot, FinalReport, GroupingPolicy,
+		NotificationChannelProfile, NotificationChannelTestProof, RBACAssignment,
+		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
+		SubReport []ent.Interceptor
 	}
 )

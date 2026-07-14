@@ -16,6 +16,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertsourceprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionapproval"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
@@ -51,6 +52,7 @@ const (
 	TypeAlertGroup                   = "AlertGroup"
 	TypeAlertSourceProfile           = "AlertSourceProfile"
 	TypeChatSession                  = "ChatSession"
+	TypeChatSessionApproval          = "ChatSessionApproval"
 	TypeChatSessionSummary           = "ChatSessionSummary"
 	TypeChatTurn                     = "ChatTurn"
 	TypeDiagnosisAuthTicket          = "DiagnosisAuthTicket"
@@ -2906,6 +2908,7 @@ type ChatSessionMutation struct {
 	last_activity_at *time.Time
 	closed_at        *time.Time
 	close_reason     *string
+	approval_mode    *string
 	created_at       *time.Time
 	updated_at       *time.Time
 	clearedFields    map[string]struct{}
@@ -2917,6 +2920,9 @@ type ChatSessionMutation struct {
 	summaries        map[int]struct{}
 	removedsummaries map[int]struct{}
 	clearedsummaries bool
+	approvals        map[int]struct{}
+	removedapprovals map[int]struct{}
+	clearedapprovals bool
 	done             bool
 	oldValue         func(context.Context) (*ChatSession, error)
 	predicates       []predicate.ChatSession
@@ -3390,6 +3396,42 @@ func (m *ChatSessionMutation) ResetCloseReason() {
 	delete(m.clearedFields, chatsession.FieldCloseReason)
 }
 
+// SetApprovalMode sets the "approval_mode" field.
+func (m *ChatSessionMutation) SetApprovalMode(s string) {
+	m.approval_mode = &s
+}
+
+// ApprovalMode returns the value of the "approval_mode" field in the mutation.
+func (m *ChatSessionMutation) ApprovalMode() (r string, exists bool) {
+	v := m.approval_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldApprovalMode returns the old "approval_mode" field's value of the ChatSession entity.
+// If the ChatSession object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChatSessionMutation) OldApprovalMode(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldApprovalMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldApprovalMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldApprovalMode: %w", err)
+	}
+	return oldValue.ApprovalMode, nil
+}
+
+// ResetApprovalMode resets all changes to the "approval_mode" field.
+func (m *ChatSessionMutation) ResetApprovalMode() {
+	m.approval_mode = nil
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *ChatSessionMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -3610,6 +3652,60 @@ func (m *ChatSessionMutation) ResetSummaries() {
 	m.removedsummaries = nil
 }
 
+// AddApprovalIDs adds the "approvals" edge to the ChatSessionApproval entity by ids.
+func (m *ChatSessionMutation) AddApprovalIDs(ids ...int) {
+	if m.approvals == nil {
+		m.approvals = make(map[int]struct{})
+	}
+	for i := range ids {
+		m.approvals[ids[i]] = struct{}{}
+	}
+}
+
+// ClearApprovals clears the "approvals" edge to the ChatSessionApproval entity.
+func (m *ChatSessionMutation) ClearApprovals() {
+	m.clearedapprovals = true
+}
+
+// ApprovalsCleared reports if the "approvals" edge to the ChatSessionApproval entity was cleared.
+func (m *ChatSessionMutation) ApprovalsCleared() bool {
+	return m.clearedapprovals
+}
+
+// RemoveApprovalIDs removes the "approvals" edge to the ChatSessionApproval entity by IDs.
+func (m *ChatSessionMutation) RemoveApprovalIDs(ids ...int) {
+	if m.removedapprovals == nil {
+		m.removedapprovals = make(map[int]struct{})
+	}
+	for i := range ids {
+		delete(m.approvals, ids[i])
+		m.removedapprovals[ids[i]] = struct{}{}
+	}
+}
+
+// RemovedApprovals returns the removed IDs of the "approvals" edge to the ChatSessionApproval entity.
+func (m *ChatSessionMutation) RemovedApprovalsIDs() (ids []int) {
+	for id := range m.removedapprovals {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ApprovalsIDs returns the "approvals" edge IDs in the mutation.
+func (m *ChatSessionMutation) ApprovalsIDs() (ids []int) {
+	for id := range m.approvals {
+		ids = append(ids, id)
+	}
+	return
+}
+
+// ResetApprovals resets all changes to the "approvals" edge.
+func (m *ChatSessionMutation) ResetApprovals() {
+	m.approvals = nil
+	m.clearedapprovals = false
+	m.removedapprovals = nil
+}
+
 // Where appends a list predicates to the ChatSessionMutation builder.
 func (m *ChatSessionMutation) Where(ps ...predicate.ChatSession) {
 	m.predicates = append(m.predicates, ps...)
@@ -3644,7 +3740,7 @@ func (m *ChatSessionMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *ChatSessionMutation) Fields() []string {
-	fields := make([]string, 0, 11)
+	fields := make([]string, 0, 12)
 	if m.task != nil {
 		fields = append(fields, chatsession.FieldDiagnosisTaskID)
 	}
@@ -3671,6 +3767,9 @@ func (m *ChatSessionMutation) Fields() []string {
 	}
 	if m.close_reason != nil {
 		fields = append(fields, chatsession.FieldCloseReason)
+	}
+	if m.approval_mode != nil {
+		fields = append(fields, chatsession.FieldApprovalMode)
 	}
 	if m.created_at != nil {
 		fields = append(fields, chatsession.FieldCreatedAt)
@@ -3704,6 +3803,8 @@ func (m *ChatSessionMutation) Field(name string) (ent.Value, bool) {
 		return m.ClosedAt()
 	case chatsession.FieldCloseReason:
 		return m.CloseReason()
+	case chatsession.FieldApprovalMode:
+		return m.ApprovalMode()
 	case chatsession.FieldCreatedAt:
 		return m.CreatedAt()
 	case chatsession.FieldUpdatedAt:
@@ -3735,6 +3836,8 @@ func (m *ChatSessionMutation) OldField(ctx context.Context, name string) (ent.Va
 		return m.OldClosedAt(ctx)
 	case chatsession.FieldCloseReason:
 		return m.OldCloseReason(ctx)
+	case chatsession.FieldApprovalMode:
+		return m.OldApprovalMode(ctx)
 	case chatsession.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	case chatsession.FieldUpdatedAt:
@@ -3810,6 +3913,13 @@ func (m *ChatSessionMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetCloseReason(v)
+		return nil
+	case chatsession.FieldApprovalMode:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetApprovalMode(v)
 		return nil
 	case chatsession.FieldCreatedAt:
 		v, ok := value.(time.Time)
@@ -3931,6 +4041,9 @@ func (m *ChatSessionMutation) ResetField(name string) error {
 	case chatsession.FieldCloseReason:
 		m.ResetCloseReason()
 		return nil
+	case chatsession.FieldApprovalMode:
+		m.ResetApprovalMode()
+		return nil
 	case chatsession.FieldCreatedAt:
 		m.ResetCreatedAt()
 		return nil
@@ -3943,7 +4056,7 @@ func (m *ChatSessionMutation) ResetField(name string) error {
 
 // AddedEdges returns all edge names that were set/added in this mutation.
 func (m *ChatSessionMutation) AddedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.task != nil {
 		edges = append(edges, chatsession.EdgeTask)
 	}
@@ -3952,6 +4065,9 @@ func (m *ChatSessionMutation) AddedEdges() []string {
 	}
 	if m.summaries != nil {
 		edges = append(edges, chatsession.EdgeSummaries)
+	}
+	if m.approvals != nil {
+		edges = append(edges, chatsession.EdgeApprovals)
 	}
 	return edges
 }
@@ -3976,18 +4092,27 @@ func (m *ChatSessionMutation) AddedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case chatsession.EdgeApprovals:
+		ids := make([]ent.Value, 0, len(m.approvals))
+		for id := range m.approvals {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // RemovedEdges returns all edge names that were removed in this mutation.
 func (m *ChatSessionMutation) RemovedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.removedturns != nil {
 		edges = append(edges, chatsession.EdgeTurns)
 	}
 	if m.removedsummaries != nil {
 		edges = append(edges, chatsession.EdgeSummaries)
+	}
+	if m.removedapprovals != nil {
+		edges = append(edges, chatsession.EdgeApprovals)
 	}
 	return edges
 }
@@ -4008,13 +4133,19 @@ func (m *ChatSessionMutation) RemovedIDs(name string) []ent.Value {
 			ids = append(ids, id)
 		}
 		return ids
+	case chatsession.EdgeApprovals:
+		ids := make([]ent.Value, 0, len(m.removedapprovals))
+		for id := range m.removedapprovals {
+			ids = append(ids, id)
+		}
+		return ids
 	}
 	return nil
 }
 
 // ClearedEdges returns all edge names that were cleared in this mutation.
 func (m *ChatSessionMutation) ClearedEdges() []string {
-	edges := make([]string, 0, 3)
+	edges := make([]string, 0, 4)
 	if m.clearedtask {
 		edges = append(edges, chatsession.EdgeTask)
 	}
@@ -4023,6 +4154,9 @@ func (m *ChatSessionMutation) ClearedEdges() []string {
 	}
 	if m.clearedsummaries {
 		edges = append(edges, chatsession.EdgeSummaries)
+	}
+	if m.clearedapprovals {
+		edges = append(edges, chatsession.EdgeApprovals)
 	}
 	return edges
 }
@@ -4037,6 +4171,8 @@ func (m *ChatSessionMutation) EdgeCleared(name string) bool {
 		return m.clearedturns
 	case chatsession.EdgeSummaries:
 		return m.clearedsummaries
+	case chatsession.EdgeApprovals:
+		return m.clearedapprovals
 	}
 	return false
 }
@@ -4065,8 +4201,731 @@ func (m *ChatSessionMutation) ResetEdge(name string) error {
 	case chatsession.EdgeSummaries:
 		m.ResetSummaries()
 		return nil
+	case chatsession.EdgeApprovals:
+		m.ResetApprovals()
+		return nil
 	}
 	return fmt.Errorf("unknown ChatSession edge %s", name)
+}
+
+// ChatSessionApprovalMutation represents an operation that mutates the ChatSessionApproval nodes in the graph.
+type ChatSessionApprovalMutation struct {
+	config
+	op                Op
+	typ               string
+	id                *int
+	conclusion_digest *string
+	actor_subject     *string
+	authority         *string
+	reason            *string
+	approved_at       *time.Time
+	created_at        *time.Time
+	clearedFields     map[string]struct{}
+	session           *int
+	clearedsession    bool
+	done              bool
+	oldValue          func(context.Context) (*ChatSessionApproval, error)
+	predicates        []predicate.ChatSessionApproval
+}
+
+var _ ent.Mutation = (*ChatSessionApprovalMutation)(nil)
+
+// chatsessionapprovalOption allows management of the mutation configuration using functional options.
+type chatsessionapprovalOption func(*ChatSessionApprovalMutation)
+
+// newChatSessionApprovalMutation creates new mutation for the ChatSessionApproval entity.
+func newChatSessionApprovalMutation(c config, op Op, opts ...chatsessionapprovalOption) *ChatSessionApprovalMutation {
+	m := &ChatSessionApprovalMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeChatSessionApproval,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withChatSessionApprovalID sets the ID field of the mutation.
+func withChatSessionApprovalID(id int) chatsessionapprovalOption {
+	return func(m *ChatSessionApprovalMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ChatSessionApproval
+		)
+		m.oldValue = func(ctx context.Context) (*ChatSessionApproval, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ChatSessionApproval.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withChatSessionApproval sets the old ChatSessionApproval of the mutation.
+func withChatSessionApproval(node *ChatSessionApproval) chatsessionapprovalOption {
+	return func(m *ChatSessionApprovalMutation) {
+		m.oldValue = func(context.Context) (*ChatSessionApproval, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ChatSessionApprovalMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ChatSessionApprovalMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ChatSessionApprovalMutation) ID() (id int, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ChatSessionApprovalMutation) IDs(ctx context.Context) ([]int, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ChatSessionApproval.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetChatSessionID sets the "chat_session_id" field.
+func (m *ChatSessionApprovalMutation) SetChatSessionID(i int) {
+	m.session = &i
+}
+
+// ChatSessionID returns the value of the "chat_session_id" field in the mutation.
+func (m *ChatSessionApprovalMutation) ChatSessionID() (r int, exists bool) {
+	v := m.session
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldChatSessionID returns the old "chat_session_id" field's value of the ChatSessionApproval entity.
+// If the ChatSessionApproval object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChatSessionApprovalMutation) OldChatSessionID(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldChatSessionID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldChatSessionID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldChatSessionID: %w", err)
+	}
+	return oldValue.ChatSessionID, nil
+}
+
+// ResetChatSessionID resets all changes to the "chat_session_id" field.
+func (m *ChatSessionApprovalMutation) ResetChatSessionID() {
+	m.session = nil
+}
+
+// SetConclusionDigest sets the "conclusion_digest" field.
+func (m *ChatSessionApprovalMutation) SetConclusionDigest(s string) {
+	m.conclusion_digest = &s
+}
+
+// ConclusionDigest returns the value of the "conclusion_digest" field in the mutation.
+func (m *ChatSessionApprovalMutation) ConclusionDigest() (r string, exists bool) {
+	v := m.conclusion_digest
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldConclusionDigest returns the old "conclusion_digest" field's value of the ChatSessionApproval entity.
+// If the ChatSessionApproval object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChatSessionApprovalMutation) OldConclusionDigest(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldConclusionDigest is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldConclusionDigest requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldConclusionDigest: %w", err)
+	}
+	return oldValue.ConclusionDigest, nil
+}
+
+// ResetConclusionDigest resets all changes to the "conclusion_digest" field.
+func (m *ChatSessionApprovalMutation) ResetConclusionDigest() {
+	m.conclusion_digest = nil
+}
+
+// SetActorSubject sets the "actor_subject" field.
+func (m *ChatSessionApprovalMutation) SetActorSubject(s string) {
+	m.actor_subject = &s
+}
+
+// ActorSubject returns the value of the "actor_subject" field in the mutation.
+func (m *ChatSessionApprovalMutation) ActorSubject() (r string, exists bool) {
+	v := m.actor_subject
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldActorSubject returns the old "actor_subject" field's value of the ChatSessionApproval entity.
+// If the ChatSessionApproval object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChatSessionApprovalMutation) OldActorSubject(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldActorSubject is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldActorSubject requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldActorSubject: %w", err)
+	}
+	return oldValue.ActorSubject, nil
+}
+
+// ResetActorSubject resets all changes to the "actor_subject" field.
+func (m *ChatSessionApprovalMutation) ResetActorSubject() {
+	m.actor_subject = nil
+}
+
+// SetAuthority sets the "authority" field.
+func (m *ChatSessionApprovalMutation) SetAuthority(s string) {
+	m.authority = &s
+}
+
+// Authority returns the value of the "authority" field in the mutation.
+func (m *ChatSessionApprovalMutation) Authority() (r string, exists bool) {
+	v := m.authority
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAuthority returns the old "authority" field's value of the ChatSessionApproval entity.
+// If the ChatSessionApproval object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChatSessionApprovalMutation) OldAuthority(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAuthority is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAuthority requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAuthority: %w", err)
+	}
+	return oldValue.Authority, nil
+}
+
+// ResetAuthority resets all changes to the "authority" field.
+func (m *ChatSessionApprovalMutation) ResetAuthority() {
+	m.authority = nil
+}
+
+// SetReason sets the "reason" field.
+func (m *ChatSessionApprovalMutation) SetReason(s string) {
+	m.reason = &s
+}
+
+// Reason returns the value of the "reason" field in the mutation.
+func (m *ChatSessionApprovalMutation) Reason() (r string, exists bool) {
+	v := m.reason
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReason returns the old "reason" field's value of the ChatSessionApproval entity.
+// If the ChatSessionApproval object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChatSessionApprovalMutation) OldReason(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReason is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReason requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReason: %w", err)
+	}
+	return oldValue.Reason, nil
+}
+
+// ResetReason resets all changes to the "reason" field.
+func (m *ChatSessionApprovalMutation) ResetReason() {
+	m.reason = nil
+}
+
+// SetApprovedAt sets the "approved_at" field.
+func (m *ChatSessionApprovalMutation) SetApprovedAt(t time.Time) {
+	m.approved_at = &t
+}
+
+// ApprovedAt returns the value of the "approved_at" field in the mutation.
+func (m *ChatSessionApprovalMutation) ApprovedAt() (r time.Time, exists bool) {
+	v := m.approved_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldApprovedAt returns the old "approved_at" field's value of the ChatSessionApproval entity.
+// If the ChatSessionApproval object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChatSessionApprovalMutation) OldApprovedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldApprovedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldApprovedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldApprovedAt: %w", err)
+	}
+	return oldValue.ApprovedAt, nil
+}
+
+// ResetApprovedAt resets all changes to the "approved_at" field.
+func (m *ChatSessionApprovalMutation) ResetApprovedAt() {
+	m.approved_at = nil
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ChatSessionApprovalMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ChatSessionApprovalMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ChatSessionApproval entity.
+// If the ChatSessionApproval object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ChatSessionApprovalMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ChatSessionApprovalMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetSessionID sets the "session" edge to the ChatSession entity by id.
+func (m *ChatSessionApprovalMutation) SetSessionID(id int) {
+	m.session = &id
+}
+
+// ClearSession clears the "session" edge to the ChatSession entity.
+func (m *ChatSessionApprovalMutation) ClearSession() {
+	m.clearedsession = true
+	m.clearedFields[chatsessionapproval.FieldChatSessionID] = struct{}{}
+}
+
+// SessionCleared reports if the "session" edge to the ChatSession entity was cleared.
+func (m *ChatSessionApprovalMutation) SessionCleared() bool {
+	return m.clearedsession
+}
+
+// SessionID returns the "session" edge ID in the mutation.
+func (m *ChatSessionApprovalMutation) SessionID() (id int, exists bool) {
+	if m.session != nil {
+		return *m.session, true
+	}
+	return
+}
+
+// SessionIDs returns the "session" edge IDs in the mutation.
+// Note that IDs always returns len(IDs) <= 1 for unique edges, and you should use
+// SessionID instead. It exists only for internal usage by the builders.
+func (m *ChatSessionApprovalMutation) SessionIDs() (ids []int) {
+	if id := m.session; id != nil {
+		ids = append(ids, *id)
+	}
+	return
+}
+
+// ResetSession resets all changes to the "session" edge.
+func (m *ChatSessionApprovalMutation) ResetSession() {
+	m.session = nil
+	m.clearedsession = false
+}
+
+// Where appends a list predicates to the ChatSessionApprovalMutation builder.
+func (m *ChatSessionApprovalMutation) Where(ps ...predicate.ChatSessionApproval) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ChatSessionApprovalMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ChatSessionApprovalMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ChatSessionApproval, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ChatSessionApprovalMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ChatSessionApprovalMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ChatSessionApproval).
+func (m *ChatSessionApprovalMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ChatSessionApprovalMutation) Fields() []string {
+	fields := make([]string, 0, 7)
+	if m.session != nil {
+		fields = append(fields, chatsessionapproval.FieldChatSessionID)
+	}
+	if m.conclusion_digest != nil {
+		fields = append(fields, chatsessionapproval.FieldConclusionDigest)
+	}
+	if m.actor_subject != nil {
+		fields = append(fields, chatsessionapproval.FieldActorSubject)
+	}
+	if m.authority != nil {
+		fields = append(fields, chatsessionapproval.FieldAuthority)
+	}
+	if m.reason != nil {
+		fields = append(fields, chatsessionapproval.FieldReason)
+	}
+	if m.approved_at != nil {
+		fields = append(fields, chatsessionapproval.FieldApprovedAt)
+	}
+	if m.created_at != nil {
+		fields = append(fields, chatsessionapproval.FieldCreatedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ChatSessionApprovalMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case chatsessionapproval.FieldChatSessionID:
+		return m.ChatSessionID()
+	case chatsessionapproval.FieldConclusionDigest:
+		return m.ConclusionDigest()
+	case chatsessionapproval.FieldActorSubject:
+		return m.ActorSubject()
+	case chatsessionapproval.FieldAuthority:
+		return m.Authority()
+	case chatsessionapproval.FieldReason:
+		return m.Reason()
+	case chatsessionapproval.FieldApprovedAt:
+		return m.ApprovedAt()
+	case chatsessionapproval.FieldCreatedAt:
+		return m.CreatedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ChatSessionApprovalMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case chatsessionapproval.FieldChatSessionID:
+		return m.OldChatSessionID(ctx)
+	case chatsessionapproval.FieldConclusionDigest:
+		return m.OldConclusionDigest(ctx)
+	case chatsessionapproval.FieldActorSubject:
+		return m.OldActorSubject(ctx)
+	case chatsessionapproval.FieldAuthority:
+		return m.OldAuthority(ctx)
+	case chatsessionapproval.FieldReason:
+		return m.OldReason(ctx)
+	case chatsessionapproval.FieldApprovedAt:
+		return m.OldApprovedAt(ctx)
+	case chatsessionapproval.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown ChatSessionApproval field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ChatSessionApprovalMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case chatsessionapproval.FieldChatSessionID:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetChatSessionID(v)
+		return nil
+	case chatsessionapproval.FieldConclusionDigest:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetConclusionDigest(v)
+		return nil
+	case chatsessionapproval.FieldActorSubject:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetActorSubject(v)
+		return nil
+	case chatsessionapproval.FieldAuthority:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAuthority(v)
+		return nil
+	case chatsessionapproval.FieldReason:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReason(v)
+		return nil
+	case chatsessionapproval.FieldApprovedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetApprovedAt(v)
+		return nil
+	case chatsessionapproval.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ChatSessionApproval field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ChatSessionApprovalMutation) AddedFields() []string {
+	var fields []string
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ChatSessionApprovalMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ChatSessionApprovalMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	}
+	return fmt.Errorf("unknown ChatSessionApproval numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ChatSessionApprovalMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ChatSessionApprovalMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ChatSessionApprovalMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown ChatSessionApproval nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ChatSessionApprovalMutation) ResetField(name string) error {
+	switch name {
+	case chatsessionapproval.FieldChatSessionID:
+		m.ResetChatSessionID()
+		return nil
+	case chatsessionapproval.FieldConclusionDigest:
+		m.ResetConclusionDigest()
+		return nil
+	case chatsessionapproval.FieldActorSubject:
+		m.ResetActorSubject()
+		return nil
+	case chatsessionapproval.FieldAuthority:
+		m.ResetAuthority()
+		return nil
+	case chatsessionapproval.FieldReason:
+		m.ResetReason()
+		return nil
+	case chatsessionapproval.FieldApprovedAt:
+		m.ResetApprovedAt()
+		return nil
+	case chatsessionapproval.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown ChatSessionApproval field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ChatSessionApprovalMutation) AddedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.session != nil {
+		edges = append(edges, chatsessionapproval.EdgeSession)
+	}
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ChatSessionApprovalMutation) AddedIDs(name string) []ent.Value {
+	switch name {
+	case chatsessionapproval.EdgeSession:
+		if id := m.session; id != nil {
+			return []ent.Value{*id}
+		}
+	}
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ChatSessionApprovalMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 1)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ChatSessionApprovalMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ChatSessionApprovalMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 1)
+	if m.clearedsession {
+		edges = append(edges, chatsessionapproval.EdgeSession)
+	}
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ChatSessionApprovalMutation) EdgeCleared(name string) bool {
+	switch name {
+	case chatsessionapproval.EdgeSession:
+		return m.clearedsession
+	}
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ChatSessionApprovalMutation) ClearEdge(name string) error {
+	switch name {
+	case chatsessionapproval.EdgeSession:
+		m.ClearSession()
+		return nil
+	}
+	return fmt.Errorf("unknown ChatSessionApproval unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ChatSessionApprovalMutation) ResetEdge(name string) error {
+	switch name {
+	case chatsessionapproval.EdgeSession:
+		m.ResetSession()
+		return nil
+	}
+	return fmt.Errorf("unknown ChatSessionApproval edge %s", name)
 }
 
 // ChatSessionSummaryMutation represents an operation that mutates the ChatSessionSummary nodes in the graph.

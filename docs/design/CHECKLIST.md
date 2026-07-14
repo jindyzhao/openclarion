@@ -184,15 +184,21 @@
   authorization and short-lived single-use tickets (`make diagnosis-auth-test`)
 - [x] AuthProvider OIDC integration verifies signed ID tokens and maps role
   claims (`make diagnosis-auth-test`)
-- [x] RBAC checks pass for owner and admin (leader deferred)
+- [x] room-access RBAC checks pass for owner/admin and conclusion approval uses
+  the dedicated owner/leader `diagnosis_room.approve` permission
 - [x] WS ticket-based auth usecase rule: single-use, TTL<=30s, consumed once,
   no long-lived JWT in ticket
 - [x] WS ticket PostgreSQL store persists only token hash and enforces one
   concurrent consume winner (`make diagnosis-auth-test`)
 - [x] WS ticket endpoint and upgrade handler consume the usecase ticket
-- [x] ChatSession, ChatTurn, and ChatSessionSummary Ent schemas plus repository
-  boundary exist
+- [x] ChatSession, ChatTurn, ChatSessionApproval, and ChatSessionSummary Ent
+  schemas plus repository boundary exist
   (`make diagnosis-chat-persistence-test`)
+- [x] per-room `single` / `owner_and_leader` approval modes persist immutable
+  digest-bound approvals, require distinct actors, recheck the latest persisted
+  conclusion before close, and project state through WebSocket, REST, and UI
+  (`make diagnosis-chat-persistence-test`, `make diagnosis-room-workflow-test`,
+  `make diagnosis-auth-test`)
 - [x] lifecycle-end conversation compression persists an immutable versioned
   ChatSessionSummary, retains every source turn, and exposes the summary through
   workflow, WebSocket, REST, and frontend review state

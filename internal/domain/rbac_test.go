@@ -190,6 +190,41 @@ func TestRBACAuthorizeAllowsGlobalOperationsReadForViewer(t *testing.T) {
 	}
 }
 
+func TestRBACAuthorizeLeaderCanApproveButCannotAdministerRoom(t *testing.T) {
+	t.Parallel()
+	assignment, err := NewRBACAssignment(
+		RBACSubjectKindDepartment,
+		"dep-leads",
+		RBACRoleLeader,
+		RBACScopeKindDiagnosisRoom,
+		"room-1",
+		true,
+	)
+	if err != nil {
+		t.Fatalf("NewRBACAssignment: %v", err)
+	}
+	principal := RBACPrincipal{Subject: "iam-leader", DepartmentKeys: []string{"dep-leads"}}
+	approved, err := RBACAuthorize(principal, RBACRequest{
+		Permission: RBACPermissionDiagnosisRoomApprove,
+		ScopeKind:  RBACScopeKindDiagnosisRoom,
+		ScopeKey:   "room-1",
+	}, []RBACAssignment{assignment})
+	if err != nil {
+		t.Fatalf("RBACAuthorize approve: %v", err)
+	}
+	administered, err := RBACAuthorize(principal, RBACRequest{
+		Permission: RBACPermissionDiagnosisRoomAdminister,
+		ScopeKind:  RBACScopeKindDiagnosisRoom,
+		ScopeKey:   "room-1",
+	}, []RBACAssignment{assignment})
+	if err != nil {
+		t.Fatalf("RBACAuthorize administer: %v", err)
+	}
+	if !approved || administered {
+		t.Fatalf("leader decisions approve=%t administer=%t, want true/false", approved, administered)
+	}
+}
+
 func TestNewRBACAssignmentValidatesScopeShape(t *testing.T) {
 	_, err := NewRBACAssignment(RBACSubjectKindUser, "iam-user-1", RBACRoleViewer, RBACScopeKindGlobal, "not-allowed", true)
 	if !errors.Is(err, ErrInvariantViolation) {

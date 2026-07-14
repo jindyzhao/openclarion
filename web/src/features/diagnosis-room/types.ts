@@ -36,6 +36,19 @@ export type DiagnosisFinalConclusion = {
   evidence_collection_suggestions?: DiagnosisConsultationEvidenceRequest[];
 };
 
+export type DiagnosisApprovalMode = "single" | "owner_and_leader";
+
+export type DiagnosisApprovalAuthority = "owner" | "leader";
+
+export type DiagnosisConclusionApproval = {
+  id: number;
+  conclusion_digest: string;
+  actor_subject: string;
+  authority: DiagnosisApprovalAuthority;
+  reason: string;
+  approved_at: string;
+};
+
 type DiagnosisConversationSummaryContent = {
   schema_version: string;
   compression_method: string;
@@ -258,6 +271,11 @@ export type DiagnosisStateFrame = {
   conversation_summary?: DiagnosisConversationSummary;
   confidence?: string;
   requires_human_review?: boolean;
+  approval_mode: DiagnosisApprovalMode;
+  conclusion_digest?: string;
+  approvals?: DiagnosisConclusionApproval[];
+  pending_approval_authorities?: DiagnosisApprovalAuthority[];
+  approval_in_flight: boolean;
   evidence_requests?: DiagnosisEvidenceRequest[];
   evidence_collection_results?: DiagnosisEvidenceCollectionResult[];
   evidence_timeline?: DiagnosisEvidenceTimelineEntry[];

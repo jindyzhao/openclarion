@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -604,6 +605,7 @@ func TestDiagnosisRepository_SaveChatSessionAndQuery(t *testing.T) {
 	resetDB(t)
 	taskID := makeDiagnosisTaskForChat(t, "session")
 	session := makeChatSessionForDiagnosis(t, taskID, "session-1")
+	session.ApprovalMode = domain.DiagnosisApprovalModeOwnerAndLeader
 
 	var saved domain.ChatSession
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
@@ -616,8 +618,8 @@ func TestDiagnosisRepository_SaveChatSessionAndQuery(t *testing.T) {
 	if saved.ID == 0 {
 		t.Fatalf("saved.ID = 0, want non-zero")
 	}
-	if saved.Status != domain.ChatSessionStatusOpen || saved.TurnCount != 0 {
-		t.Fatalf("saved status/count = (%q,%d), want (open,0)", saved.Status, saved.TurnCount)
+	if saved.Status != domain.ChatSessionStatusOpen || saved.TurnCount != 0 || saved.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader {
+		t.Fatalf("saved status/count/mode = (%q,%d,%q), want (open,0,owner_and_leader)", saved.Status, saved.TurnCount, saved.ApprovalMode)
 	}
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
@@ -887,6 +889,98 @@ func TestDiagnosisRepository_SaveChatSessionSummaryAndFind(t *testing.T) {
 	if !errors.Is(duplicateDigest, domain.ErrAlreadyExists) {
 		t.Fatalf("duplicate digest: want ErrAlreadyExists, got %v", duplicateDigest)
 	}
+}
+
+func TestDiagnosisRepository_SaveChatSessionApprovalAndList(t *testing.T) {
+	resetDB(t)
+	taskID := makeDiagnosisTaskForChat(t, "approval")
+	var session domain.ChatSession
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		var err error
+		session, err = uow.Diagnosis().SaveChatSession(ctx, makeChatSessionForDiagnosis(t, taskID, "session-approval"))
+		if err != nil {
+			t.Fatalf("SaveChatSession: %v", err)
+		}
+	})
+	digest := strings.Repeat("a", 64)
+	approvedAt := time.Date(2026, 7, 11, 11, 0, 0, 0, time.UTC)
+	approval := func(actor string, authority domain.DiagnosisApprovalAuthority, at time.Time) domain.ChatSessionApproval {
+		got, err := domain.NewChatSessionApproval(domain.ChatSessionApproval{
+			SessionID:        session.ID,
+			ConclusionDigest: digest,
+			ActorSubject:     actor,
+			Authority:        authority,
+			Reason:           "human_confirmed",
+			ApprovedAt:       at,
+		})
+		if err != nil {
+			t.Fatalf("NewChatSessionApproval: %v", err)
+		}
+		return got
+	}
+	var owner, leader domain.ChatSessionApproval
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		var err error
+		owner, err = uow.Diagnosis().SaveChatSessionApproval(ctx, approval("owner-1", domain.DiagnosisApprovalAuthorityOwner, approvedAt))
+		if err != nil {
+			t.Fatalf("SaveChatSessionApproval owner: %v", err)
+		}
+		leader, err = uow.Diagnosis().SaveChatSessionApproval(ctx, approval("leader-1", domain.DiagnosisApprovalAuthorityLeader, approvedAt.Add(time.Second)))
+		if err != nil {
+			t.Fatalf("SaveChatSessionApproval leader: %v", err)
+		}
+	})
+	if owner.ID == 0 || leader.ID == 0 || owner.CreatedAt.IsZero() || leader.CreatedAt.IsZero() {
+		t.Fatalf("saved approvals owner=%+v leader=%+v", owner, leader)
+	}
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		hasApprovals, err := uow.Diagnosis().HasChatSessionApprovals(ctx, session.ID)
+		if err != nil {
+			t.Fatalf("HasChatSessionApprovals: %v", err)
+		}
+		if !hasApprovals {
+			t.Fatal("HasChatSessionApprovals = false, want true")
+		}
+		found, err := uow.Diagnosis().FindChatSessionApproval(ctx, session.ID, digest, "owner-1")
+		if err != nil {
+			t.Fatalf("FindChatSessionApproval: %v", err)
+		}
+		if found.ID != owner.ID || found.Authority != domain.DiagnosisApprovalAuthorityOwner {
+			t.Fatalf("found approval = %+v", found)
+		}
+		rows, err := uow.Diagnosis().ListChatSessionApprovals(ctx, session.ID, digest, 3)
+		if err != nil {
+			t.Fatalf("ListChatSessionApprovals: %v", err)
+		}
+		if len(rows) != 2 || rows[0].ID != owner.ID || rows[1].ID != leader.ID {
+			t.Fatalf("approval rows = %+v", rows)
+		}
+	})
+	duplicateErr := integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, err := uow.Diagnosis().SaveChatSessionApproval(ctx, approval("owner-1", domain.DiagnosisApprovalAuthorityOwner, approvedAt))
+		return err
+	})
+	if !errors.Is(duplicateErr, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate approval error = %v, want ErrAlreadyExists", duplicateErr)
+	}
+	duplicateAuthorityErr := integration.factory.WithinTx(context.Background(), func(ctx context.Context, uow ports.UnitOfWork) error {
+		_, err := uow.Diagnosis().SaveChatSessionApproval(ctx, approval("leader-2", domain.DiagnosisApprovalAuthorityLeader, approvedAt.Add(2*time.Second)))
+		return err
+	})
+	if !errors.Is(duplicateAuthorityErr, domain.ErrAlreadyExists) {
+		t.Fatalf("duplicate approval authority error = %v, want ErrAlreadyExists", duplicateAuthorityErr)
+	}
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		if _, err := uow.Diagnosis().HasChatSessionApprovals(ctx, 0); !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("HasChatSessionApprovals zero session error = %v", err)
+		}
+		if _, err := uow.Diagnosis().FindChatSessionApproval(ctx, 0, digest, "owner-1"); !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("FindChatSessionApproval zero session error = %v", err)
+		}
+		if _, err := uow.Diagnosis().ListChatSessionApprovals(ctx, session.ID, digest, 0); !errors.Is(err, domain.ErrInvariantViolation) {
+			t.Fatalf("ListChatSessionApprovals zero limit error = %v", err)
+		}
+	})
 }
 
 func TestDiagnosisRepository_ChatInvariantGuards(t *testing.T) {

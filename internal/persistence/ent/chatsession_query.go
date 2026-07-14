@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionapproval"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
@@ -29,6 +30,7 @@ type ChatSessionQuery struct {
 	withTask      *DiagnosisTaskQuery
 	withTurns     *ChatTurnQuery
 	withSummaries *ChatSessionSummaryQuery
+	withApprovals *ChatSessionApprovalQuery
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -124,6 +126,28 @@ func (_q *ChatSessionQuery) QuerySummaries() *ChatSessionSummaryQuery {
 			sqlgraph.From(chatsession.Table, chatsession.FieldID, selector),
 			sqlgraph.To(chatsessionsummary.Table, chatsessionsummary.FieldID),
 			sqlgraph.Edge(sqlgraph.O2M, false, chatsession.SummariesTable, chatsession.SummariesColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
+}
+
+// QueryApprovals chains the current query on the "approvals" edge.
+func (_q *ChatSessionQuery) QueryApprovals() *ChatSessionApprovalQuery {
+	query := (&ChatSessionApprovalClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsession.Table, chatsession.FieldID, selector),
+			sqlgraph.To(chatsessionapproval.Table, chatsessionapproval.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, chatsession.ApprovalsTable, chatsession.ApprovalsColumn),
 		)
 		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
 		return fromU, nil
@@ -326,6 +350,7 @@ func (_q *ChatSessionQuery) Clone() *ChatSessionQuery {
 		withTask:      _q.withTask.Clone(),
 		withTurns:     _q.withTurns.Clone(),
 		withSummaries: _q.withSummaries.Clone(),
+		withApprovals: _q.withApprovals.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
@@ -362,6 +387,17 @@ func (_q *ChatSessionQuery) WithSummaries(opts ...func(*ChatSessionSummaryQuery)
 		opt(query)
 	}
 	_q.withSummaries = query
+	return _q
+}
+
+// WithApprovals tells the query-builder to eager-load the nodes that are connected to
+// the "approvals" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ChatSessionQuery) WithApprovals(opts ...func(*ChatSessionApprovalQuery)) *ChatSessionQuery {
+	query := (&ChatSessionApprovalClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withApprovals = query
 	return _q
 }
 
@@ -443,10 +479,11 @@ func (_q *ChatSessionQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 	var (
 		nodes       = []*ChatSession{}
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [4]bool{
 			_q.withTask != nil,
 			_q.withTurns != nil,
 			_q.withSummaries != nil,
+			_q.withApprovals != nil,
 		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
@@ -484,6 +521,13 @@ func (_q *ChatSessionQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 		if err := _q.loadSummaries(ctx, query, nodes,
 			func(n *ChatSession) { n.Edges.Summaries = []*ChatSessionSummary{} },
 			func(n *ChatSession, e *ChatSessionSummary) { n.Edges.Summaries = append(n.Edges.Summaries, e) }); err != nil {
+			return nil, err
+		}
+	}
+	if query := _q.withApprovals; query != nil {
+		if err := _q.loadApprovals(ctx, query, nodes,
+			func(n *ChatSession) { n.Edges.Approvals = []*ChatSessionApproval{} },
+			func(n *ChatSession, e *ChatSessionApproval) { n.Edges.Approvals = append(n.Edges.Approvals, e) }); err != nil {
 			return nil, err
 		}
 	}
@@ -564,6 +608,36 @@ func (_q *ChatSessionQuery) loadSummaries(ctx context.Context, query *ChatSessio
 	}
 	query.Where(predicate.ChatSessionSummary(func(s *sql.Selector) {
 		s.Where(sql.InValues(s.C(chatsession.SummariesColumn), fks...))
+	}))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		fk := n.ChatSessionID
+		node, ok := nodeids[fk]
+		if !ok {
+			return fmt.Errorf(`unexpected referenced foreign-key "chat_session_id" returned %v for node %v`, fk, n.ID)
+		}
+		assign(node, n)
+	}
+	return nil
+}
+func (_q *ChatSessionQuery) loadApprovals(ctx context.Context, query *ChatSessionApprovalQuery, nodes []*ChatSession, init func(*ChatSession), assign func(*ChatSession, *ChatSessionApproval)) error {
+	fks := make([]driver.Value, 0, len(nodes))
+	nodeids := make(map[int]*ChatSession)
+	for i := range nodes {
+		fks = append(fks, nodes[i].ID)
+		nodeids[nodes[i].ID] = nodes[i]
+		if init != nil {
+			init(nodes[i])
+		}
+	}
+	if len(query.ctx.Fields) > 0 {
+		query.ctx.AppendFieldOnce(chatsessionapproval.FieldChatSessionID)
+	}
+	query.Where(predicate.ChatSessionApproval(func(s *sql.Selector) {
+		s.Where(sql.InValues(s.C(chatsession.ApprovalsColumn), fks...))
 	}))
 	neighbors, err := query.All(ctx)
 	if err != nil {

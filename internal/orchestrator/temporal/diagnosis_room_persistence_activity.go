@@ -15,6 +15,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisapproval"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosiscompression"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
@@ -29,11 +30,13 @@ const (
 	diagnosisRoomEventFinalConclusionReady       = "diagnosis_room.final_conclusion_ready"
 	diagnosisRoomEventFailed                     = "diagnosis_room.failed"
 	diagnosisRoomEventClosed                     = "diagnosis_room.closed"
+	diagnosisRoomEventConclusionApproved         = "diagnosis_room.conclusion_approved"
 	diagnosisRoomEventCloseNotificationSent      = "diagnosis_room.close_notification_sent"
 	diagnosisRoomEventFinalReadyNotificationSent = "diagnosis_room.final_ready_notification_sent"
 	diagnosisRoomEventAssistantTurnNotification  = "diagnosis_room.assistant_turn_notification_sent"
 
 	diagnosisRoomFinalConclusionMaxRunes          = 4096
+	diagnosisRoomApprovalReadLimit                = 3
 	diagnosisRoomNotificationEventLookupLimit     = 100
 	diagnosisRoomNotificationRetryDedupeComponent = "retry"
 	diagnosisRoomNotificationDeliveryErrType      = "NotificationDeliveryFailed"
@@ -46,6 +49,7 @@ type EnsureDiagnosisChatSessionInput struct {
 	DiagnosisTaskID int64
 	OwnerSubject    string
 	StartedAt       time.Time
+	ApprovalMode    domain.DiagnosisApprovalMode
 }
 
 // EnsureDiagnosisChatSessionResult returns the persisted ChatSession identity.
@@ -67,6 +71,7 @@ type EnsureDiagnosisRoomSessionInput struct {
 	RunID              string
 	OwnerSubject       string
 	StartedAt          time.Time
+	ApprovalMode       domain.DiagnosisApprovalMode
 }
 
 // EnsureDiagnosisRoomSessionResult returns both task and chat-session
@@ -153,6 +158,30 @@ type RecordDiagnosisEvidenceCollectedResult struct {
 	LifecycleEventID int64
 }
 
+// RecordDiagnosisConclusionApprovalInput persists one stakeholder approval for
+// the exact assistant conclusion currently retained by the workflow.
+type RecordDiagnosisConclusionApprovalInput struct {
+	SessionID          string
+	DiagnosisTaskID    int64
+	OwnerSubject       string
+	ActorSubject       string
+	Authority          domain.DiagnosisApprovalAuthority
+	ApprovalMode       domain.DiagnosisApprovalMode
+	Reason             string
+	AssistantMessageID string
+	AssistantSequence  int
+	ConclusionContent  string
+	ConclusionDigest   string
+	ApprovedAt         time.Time
+}
+
+// RecordDiagnosisConclusionApprovalResult returns the immutable approval and
+// lifecycle-event identities.
+type RecordDiagnosisConclusionApprovalResult struct {
+	Approval         domain.ChatSessionApproval
+	LifecycleEventID int64
+}
+
 // CloseDiagnosisChatSessionInput closes the persisted room session and records
 // the terminal lifecycle audit event.
 type CloseDiagnosisChatSessionInput struct {
@@ -167,6 +196,9 @@ type CloseDiagnosisChatSessionInput struct {
 	DiagnosisTaskStatus               string
 	DiagnosisTaskFailureReason        string
 	GenerateConversationSummary       bool
+	RequireConclusionApproval         bool
+	ApprovalMode                      domain.DiagnosisApprovalMode
+	ConclusionDigest                  string
 }
 
 // DiagnosisRoomConversationSummary is the workflow/read representation of one
@@ -194,6 +226,9 @@ type CloseDiagnosisChatSessionResult struct {
 	LastActivityAt      time.Time
 	FinalConclusion     DiagnosisRoomFinalConclusion
 	ConversationSummary *DiagnosisRoomConversationSummary
+	ApprovalMode        domain.DiagnosisApprovalMode
+	ConclusionDigest    string
+	Approvals           []domain.ChatSessionApproval
 }
 
 // SendDiagnosisRoomAssistantTurnNotificationInput sends an operator-facing AI
@@ -298,6 +333,7 @@ func (a *Activities) EnsureDiagnosisRoomSession(ctx context.Context, req EnsureD
 		DiagnosisTaskID: int64(task.ID),
 		OwnerSubject:    req.OwnerSubject,
 		StartedAt:       req.StartedAt,
+		ApprovalMode:    req.ApprovalMode,
 	}
 	event, err := a.recordDiagnosisRoomOpened(ctx, eventReq, session)
 	if err != nil {
@@ -377,6 +413,131 @@ func (a *Activities) RecordDiagnosisEvidenceCollected(
 	return RecordDiagnosisEvidenceCollectedResult{LifecycleEventID: int64(event.ID)}, nil
 }
 
+// RecordDiagnosisConclusionApproval verifies the persisted assistant turn and
+// appends an idempotent stakeholder approval plus lifecycle event.
+func (a *Activities) RecordDiagnosisConclusionApproval(
+	ctx context.Context,
+	req RecordDiagnosisConclusionApprovalInput,
+) (RecordDiagnosisConclusionApprovalResult, error) {
+	if a.uowFactory == nil {
+		return RecordDiagnosisConclusionApprovalResult{}, temporalsdk.NewNonRetryableApplicationError(
+			"record-diagnosis-conclusion-approval: unit of work factory is not configured", errTypeInvalidInput, nil)
+	}
+	approval, err := a.recordDiagnosisConclusionApproval(ctx, req)
+	if err != nil {
+		return RecordDiagnosisConclusionApprovalResult{}, mapActivityError(err, "record-diagnosis-conclusion-approval")
+	}
+	event, err := a.recordDiagnosisConclusionApprovedEvent(ctx, req, approval)
+	if err != nil {
+		return RecordDiagnosisConclusionApprovalResult{}, mapActivityError(err, "record-diagnosis-conclusion-approval lifecycle event")
+	}
+	return RecordDiagnosisConclusionApprovalResult{Approval: approval, LifecycleEventID: int64(event.ID)}, nil
+}
+
+func (a *Activities) recordDiagnosisConclusionApproval(
+	ctx context.Context,
+	req RecordDiagnosisConclusionApprovalInput,
+) (domain.ChatSessionApproval, error) {
+	if err := validateRecordDiagnosisConclusionApprovalInput(req); err != nil {
+		return domain.ChatSessionApproval{}, err
+	}
+	var saved domain.ChatSessionApproval
+	err := a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		repo := uow.Diagnosis()
+		session, err := repo.FindChatSessionByKey(ctx, req.SessionID)
+		if err != nil {
+			return err
+		}
+		if err := validateChatSessionBinding(session, req.SessionID, req.DiagnosisTaskID, req.OwnerSubject); err != nil {
+			return err
+		}
+		if session.ApprovalMode != req.ApprovalMode {
+			return fmt.Errorf("record diagnosis conclusion approval: approval_mode %q does not match session mode %q: %w", req.ApprovalMode, session.ApprovalMode, domain.ErrInvariantViolation)
+		}
+		if req.Authority == domain.DiagnosisApprovalAuthorityOwner && req.ActorSubject != session.OwnerSubject {
+			return fmt.Errorf("record diagnosis conclusion approval: owner authority requires the room owner: %w", domain.ErrInvariantViolation)
+		}
+		if req.Authority == domain.DiagnosisApprovalAuthorityLeader && req.ActorSubject == session.OwnerSubject {
+			return fmt.Errorf("record diagnosis conclusion approval: owner cannot also satisfy leader authority: %w", domain.ErrInvariantViolation)
+		}
+		turn, persistedDigest, err := latestPersistedDiagnosisConclusion(ctx, repo, session)
+		if err != nil {
+			return err
+		}
+		if persistedDigest != req.ConclusionDigest ||
+			turn.MessageID != req.AssistantMessageID ||
+			turn.Sequence != req.AssistantSequence ||
+			strings.TrimSpace(turn.Content) != strings.TrimSpace(req.ConclusionContent) {
+			return fmt.Errorf("record diagnosis conclusion approval: persisted assistant turn does not match conclusion: %w", domain.ErrInvariantViolation)
+		}
+		existing, err := repo.FindChatSessionApproval(ctx, session.ID, req.ConclusionDigest, req.ActorSubject)
+		if err == nil {
+			if existing.Authority != req.Authority || existing.Reason != strings.TrimSpace(req.Reason) {
+				return fmt.Errorf("record diagnosis conclusion approval: existing actor approval is immutable: %w", domain.ErrInvariantViolation)
+			}
+			saved = existing
+			return nil
+		}
+		if !errors.Is(err, domain.ErrNotFound) {
+			return err
+		}
+		candidate, err := domain.NewChatSessionApproval(domain.ChatSessionApproval{
+			SessionID:        session.ID,
+			ConclusionDigest: req.ConclusionDigest,
+			ActorSubject:     req.ActorSubject,
+			Authority:        req.Authority,
+			Reason:           req.Reason,
+			ApprovedAt:       req.ApprovedAt,
+		})
+		if err != nil {
+			return err
+		}
+		existingApprovals, err := repo.ListChatSessionApprovals(
+			ctx,
+			session.ID,
+			req.ConclusionDigest,
+			diagnosisRoomApprovalReadLimit,
+		)
+		if err != nil {
+			return err
+		}
+		candidateQuorum := append(cloneChatSessionApprovals(existingApprovals), candidate)
+		if _, err := diagnosisapproval.PendingAuthorities(session.ApprovalMode, candidateQuorum); err != nil {
+			return fmt.Errorf("record diagnosis conclusion approval: invalid candidate quorum: %w", err)
+		}
+		saved, err = repo.SaveChatSessionApproval(ctx, candidate)
+		return err
+	})
+	return saved, err
+}
+
+func validateRecordDiagnosisConclusionApprovalInput(req RecordDiagnosisConclusionApprovalInput) error {
+	if strings.TrimSpace(req.SessionID) == "" || req.SessionID != strings.TrimSpace(req.SessionID) ||
+		req.DiagnosisTaskID == 0 || strings.TrimSpace(req.OwnerSubject) == "" ||
+		strings.TrimSpace(req.ActorSubject) == "" || req.ActorSubject != strings.TrimSpace(req.ActorSubject) {
+		return fmt.Errorf("record diagnosis conclusion approval: room and actor identity must be set and normalized: %w", domain.ErrInvariantViolation)
+	}
+	if !req.Authority.Valid() || !req.ApprovalMode.Valid() {
+		return fmt.Errorf("record diagnosis conclusion approval: authority and approval_mode must be valid: %w", domain.ErrInvariantViolation)
+	}
+	wantDigest, err := diagnosisapproval.ConclusionDigest(req.AssistantMessageID, req.AssistantSequence, req.ConclusionContent)
+	if err != nil {
+		return err
+	}
+	if wantDigest != req.ConclusionDigest {
+		return fmt.Errorf("record diagnosis conclusion approval: conclusion_digest does not match conclusion: %w", domain.ErrInvariantViolation)
+	}
+	_, err = domain.NewChatSessionApproval(domain.ChatSessionApproval{
+		SessionID:        1,
+		ConclusionDigest: req.ConclusionDigest,
+		ActorSubject:     req.ActorSubject,
+		Authority:        req.Authority,
+		Reason:           req.Reason,
+		ApprovedAt:       req.ApprovedAt,
+	})
+	return err
+}
+
 // CloseDiagnosisChatSession persists terminal room lifecycle metadata and an
 // idempotent close audit event.
 func (a *Activities) CloseDiagnosisChatSession(ctx context.Context, req CloseDiagnosisChatSessionInput) (CloseDiagnosisChatSessionResult, error) {
@@ -384,7 +545,7 @@ func (a *Activities) CloseDiagnosisChatSession(ctx context.Context, req CloseDia
 		return CloseDiagnosisChatSessionResult{}, temporalsdk.NewNonRetryableApplicationError(
 			"close-diagnosis-chat-session: unit of work factory is not configured", errTypeInvalidInput, nil)
 	}
-	session, task, summary, err := a.closeDiagnosisChatSession(ctx, req)
+	session, task, summary, approvals, err := a.closeDiagnosisChatSession(ctx, req)
 	if err != nil {
 		return CloseDiagnosisChatSessionResult{}, mapActivityError(err, "close-diagnosis-chat-session")
 	}
@@ -393,11 +554,11 @@ func (a *Activities) CloseDiagnosisChatSession(ctx context.Context, req CloseDia
 			return CloseDiagnosisChatSessionResult{}, mapActivityError(err, "close-diagnosis-chat-session failure event")
 		}
 	}
-	event, finalConclusion, err := a.recordDiagnosisRoomClosed(ctx, req, session, summary)
+	event, finalConclusion, err := a.recordDiagnosisRoomClosed(ctx, req, session, summary, approvals)
 	if err != nil {
 		return CloseDiagnosisChatSessionResult{}, mapActivityError(err, "close-diagnosis-chat-session lifecycle event")
 	}
-	return closeDiagnosisChatSessionResult(session, event, finalConclusion, summary), nil
+	return closeDiagnosisChatSessionResult(session, event, finalConclusion, summary, req.ConclusionDigest, approvals), nil
 }
 
 // SendDiagnosisRoomAssistantTurnNotification delivers an AI diagnosis update
@@ -611,6 +772,9 @@ func (a *Activities) ensureDiagnosisChatSession(ctx context.Context, req EnsureD
 		if err := validateChatSessionBinding(session, req.SessionID, req.DiagnosisTaskID, req.OwnerSubject); err != nil {
 			return domain.ChatSession{}, err
 		}
+		if session.ApprovalMode != diagnosisApprovalModeOrDefault(req.ApprovalMode) {
+			return domain.ChatSession{}, fmt.Errorf("chat session binding: approval_mode %q does not match %q: %w", session.ApprovalMode, req.ApprovalMode, domain.ErrInvariantViolation)
+		}
 		return session, nil
 	}
 
@@ -619,6 +783,7 @@ func (a *Activities) ensureDiagnosisChatSession(ctx context.Context, req EnsureD
 		req.SessionID,
 		req.OwnerSubject,
 		req.StartedAt,
+		diagnosisApprovalModeOrDefault(req.ApprovalMode),
 	)
 	if err != nil {
 		return domain.ChatSession{}, err
@@ -649,6 +814,9 @@ func (a *Activities) ensureDiagnosisChatSession(ctx context.Context, req EnsureD
 	}
 	if err := validateChatSessionBinding(session, req.SessionID, req.DiagnosisTaskID, req.OwnerSubject); err != nil {
 		return domain.ChatSession{}, err
+	}
+	if session.ApprovalMode != diagnosisApprovalModeOrDefault(req.ApprovalMode) {
+		return domain.ChatSession{}, fmt.Errorf("chat session binding: approval_mode %q does not match %q: %w", session.ApprovalMode, req.ApprovalMode, domain.ErrInvariantViolation)
 	}
 	return session, nil
 }
@@ -742,6 +910,7 @@ func (a *Activities) ensureDiagnosisRoomChatSession(ctx context.Context, req Ens
 		req.SessionID,
 		req.OwnerSubject,
 		req.StartedAt,
+		diagnosisApprovalModeOrDefault(req.ApprovalMode),
 	)
 	if err != nil {
 		return domain.ChatSession{}, err
@@ -821,17 +990,18 @@ func (a *Activities) lookupDiagnosisTaskByExecution(ctx context.Context, workflo
 	return task, found, err
 }
 
-func (a *Activities) closeDiagnosisChatSession(ctx context.Context, req CloseDiagnosisChatSessionInput) (domain.ChatSession, domain.DiagnosisTask, *domain.ChatSessionSummary, error) {
+func (a *Activities) closeDiagnosisChatSession(ctx context.Context, req CloseDiagnosisChatSessionInput) (domain.ChatSession, domain.DiagnosisTask, *domain.ChatSessionSummary, []domain.ChatSessionApproval, error) {
 	if err := validateCloseDiagnosisChatSessionInput(req); err != nil {
-		return domain.ChatSession{}, domain.DiagnosisTask{}, nil, err
+		return domain.ChatSession{}, domain.DiagnosisTask{}, nil, nil, err
 	}
 	taskStatus, failureReason, err := diagnosisTaskTerminalStateForRoomClose(req)
 	if err != nil {
-		return domain.ChatSession{}, domain.DiagnosisTask{}, nil, err
+		return domain.ChatSession{}, domain.DiagnosisTask{}, nil, nil, err
 	}
 	var saved domain.ChatSession
 	var savedTask domain.DiagnosisTask
 	var savedSummary *domain.ChatSessionSummary
+	var savedApprovals []domain.ChatSessionApproval
 	err = a.uowFactory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
 		session, err := uow.Diagnosis().FindChatSessionByKey(ctx, req.SessionID)
 		if err != nil {
@@ -844,6 +1014,11 @@ func (a *Activities) closeDiagnosisChatSession(ctx context.Context, req CloseDia
 			return fmt.Errorf("close diagnosis chat session: turn_count %d does not match workflow turn_count %d: %w",
 				session.TurnCount, req.TurnCount, domain.ErrInvariantViolation)
 		}
+		approvals, err := verifyDiagnosisConclusionApproval(ctx, uow.Diagnosis(), session, req)
+		if err != nil {
+			return err
+		}
+		savedApprovals = approvals
 		if req.GenerateConversationSummary {
 			summary, err := ensureDiagnosisConversationSummary(ctx, uow.Diagnosis(), session, req)
 			if err != nil {
@@ -870,7 +1045,104 @@ func (a *Activities) closeDiagnosisChatSession(ctx context.Context, req CloseDia
 		saved, err = uow.Diagnosis().UpdateChatSession(ctx, closed)
 		return err
 	})
-	return saved, savedTask, savedSummary, err
+	return saved, savedTask, savedSummary, savedApprovals, err
+}
+
+func verifyDiagnosisConclusionApproval(
+	ctx context.Context,
+	repo ports.DiagnosisRepository,
+	session domain.ChatSession,
+	req CloseDiagnosisChatSessionInput,
+) ([]domain.ChatSessionApproval, error) {
+	if !req.RequireConclusionApproval {
+		if req.ApprovalMode != "" || strings.TrimSpace(req.ConclusionDigest) != "" {
+			return nil, fmt.Errorf("close diagnosis chat session: approval metadata requires approval enforcement: %w", domain.ErrInvariantViolation)
+		}
+		return nil, nil
+	}
+	if !req.ApprovalMode.Valid() || session.ApprovalMode != req.ApprovalMode {
+		return nil, fmt.Errorf(
+			"close diagnosis chat session: approval_mode %q does not match session mode %q: %w",
+			req.ApprovalMode, session.ApprovalMode, domain.ErrInvariantViolation,
+		)
+	}
+	if err := diagnosisapproval.ValidateConclusionDigest(req.ConclusionDigest); err != nil {
+		return nil, fmt.Errorf("close diagnosis chat session: %w", err)
+	}
+	_, persistedDigest, err := latestPersistedDiagnosisConclusion(ctx, repo, session)
+	if err != nil {
+		return nil, err
+	}
+	if persistedDigest != req.ConclusionDigest {
+		return nil, fmt.Errorf("close diagnosis chat session: approval digest does not match the latest assistant conclusion: %w", domain.ErrInvariantViolation)
+	}
+	approvals, err := repo.ListChatSessionApprovals(
+		ctx,
+		session.ID,
+		req.ConclusionDigest,
+		diagnosisRoomApprovalReadLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(approvals) >= diagnosisRoomApprovalReadLimit {
+		return nil, fmt.Errorf("close diagnosis chat session: approval quorum contains too many records: %w", domain.ErrInvariantViolation)
+	}
+	confirmedByFound := false
+	for _, approval := range approvals {
+		if _, err := domain.NewChatSessionApproval(approval); err != nil {
+			return nil, err
+		}
+		if approval.SessionID != session.ID || approval.ConclusionDigest != req.ConclusionDigest {
+			return nil, fmt.Errorf("close diagnosis chat session: approval is bound to a different conclusion: %w", domain.ErrInvariantViolation)
+		}
+		if approval.Authority == domain.DiagnosisApprovalAuthorityOwner && approval.ActorSubject != session.OwnerSubject {
+			return nil, fmt.Errorf("close diagnosis chat session: owner approval is not from the room owner: %w", domain.ErrInvariantViolation)
+		}
+		if approval.Authority == domain.DiagnosisApprovalAuthorityLeader && approval.ActorSubject == session.OwnerSubject {
+			return nil, fmt.Errorf("close diagnosis chat session: room owner cannot satisfy leader approval: %w", domain.ErrInvariantViolation)
+		}
+		confirmedByFound = confirmedByFound || approval.ActorSubject == req.ConfirmedBy
+	}
+	pending, err := diagnosisapproval.PendingAuthorities(req.ApprovalMode, approvals)
+	if err != nil {
+		return nil, err
+	}
+	if len(pending) > 0 {
+		return nil, fmt.Errorf("close diagnosis chat session: conclusion approval quorum is incomplete: %w", domain.ErrInvariantViolation)
+	}
+	if !confirmedByFound {
+		return nil, fmt.Errorf("close diagnosis chat session: confirmed_by is not part of the persisted quorum: %w", domain.ErrInvariantViolation)
+	}
+	return approvals, nil
+}
+
+func latestPersistedDiagnosisConclusion(
+	ctx context.Context,
+	repo ports.DiagnosisRepository,
+	session domain.ChatSession,
+) (domain.ChatTurn, string, error) {
+	if session.TurnCount <= 0 || session.TurnCount > diagnosisroom.HardMaxTurns {
+		return domain.ChatTurn{}, "", fmt.Errorf(
+			"diagnosis conclusion: turn_count %d is outside the supported range: %w",
+			session.TurnCount,
+			domain.ErrInvariantViolation,
+		)
+	}
+	wantTurns := session.TurnCount * 2
+	turns, err := repo.ListChatTurnsBySession(ctx, session.ID, wantTurns+1)
+	if err != nil {
+		return domain.ChatTurn{}, "", err
+	}
+	if len(turns) != wantTurns {
+		return domain.ChatTurn{}, "", fmt.Errorf(
+			"diagnosis conclusion: persisted transcript has %d turns, want %d: %w",
+			len(turns),
+			wantTurns,
+			domain.ErrInvariantViolation,
+		)
+	}
+	return diagnosisapproval.LatestPersistedConclusion(session, turns)
 }
 
 func ensureDiagnosisConversationSummary(
@@ -1211,6 +1483,9 @@ func validateEnsureDiagnosisChatSessionInput(req EnsureDiagnosisChatSessionInput
 	if req.StartedAt.IsZero() {
 		return fmt.Errorf("ensure diagnosis chat session: started_at must be set: %w", domain.ErrInvariantViolation)
 	}
+	if !diagnosisApprovalModeOrDefault(req.ApprovalMode).Valid() {
+		return fmt.Errorf("ensure diagnosis chat session: approval_mode %q is unsupported: %w", req.ApprovalMode, domain.ErrInvariantViolation)
+	}
 	return nil
 }
 
@@ -1235,6 +1510,9 @@ func validateEnsureDiagnosisRoomSessionInput(req EnsureDiagnosisRoomSessionInput
 	}
 	if req.StartedAt.IsZero() {
 		return fmt.Errorf("ensure diagnosis room session: started_at must be set: %w", domain.ErrInvariantViolation)
+	}
+	if !diagnosisApprovalModeOrDefault(req.ApprovalMode).Valid() {
+		return fmt.Errorf("ensure diagnosis room session: approval_mode %q is unsupported: %w", req.ApprovalMode, domain.ErrInvariantViolation)
 	}
 	return nil
 }
@@ -1422,6 +1700,9 @@ func validateCloseDiagnosisChatSessionInput(req CloseDiagnosisChatSessionInput) 
 	if req.CloseNotificationChannelProfileID < 0 {
 		return fmt.Errorf("close diagnosis chat session: close_notification_channel_profile_id must be non-negative: %w", domain.ErrInvariantViolation)
 	}
+	if req.RequireConclusionApproval && strings.TrimSpace(req.ConfirmedBy) == "" {
+		return fmt.Errorf("close diagnosis chat session: confirmed_by must be set when conclusion approval is required: %w", domain.ErrInvariantViolation)
+	}
 	return nil
 }
 
@@ -1544,6 +1825,9 @@ func validateDiagnosisRoomSessionTaskBinding(req EnsureDiagnosisRoomSessionInput
 	if err := validateChatSessionBinding(session, req.SessionID, int64(task.ID), req.OwnerSubject); err != nil {
 		return err
 	}
+	if session.ApprovalMode != diagnosisApprovalModeOrDefault(req.ApprovalMode) {
+		return fmt.Errorf("diagnosis room session binding: approval_mode %q does not match %q: %w", session.ApprovalMode, req.ApprovalMode, domain.ErrInvariantViolation)
+	}
 	return validateDiagnosisRoomTaskBinding(req, task)
 }
 
@@ -1643,6 +1927,8 @@ func closeDiagnosisChatSessionResult(
 	event domain.DiagnosisTaskEvent,
 	finalConclusion DiagnosisRoomFinalConclusion,
 	summary *domain.ChatSessionSummary,
+	conclusionDigest string,
+	approvals []domain.ChatSessionApproval,
 ) CloseDiagnosisChatSessionResult {
 	var closedAt time.Time
 	if session.ClosedAt != nil {
@@ -1658,7 +1944,34 @@ func closeDiagnosisChatSessionResult(
 		LastActivityAt:      session.LastActivityAt,
 		FinalConclusion:     finalConclusion,
 		ConversationSummary: diagnosisRoomConversationSummary(summary),
+		ApprovalMode:        session.ApprovalMode,
+		ConclusionDigest:    conclusionDigest,
+		Approvals:           cloneChatSessionApprovals(approvals),
 	}
+}
+
+type diagnosisRoomApprovalPayload struct {
+	ID               int64                             `json:"id"`
+	ConclusionDigest string                            `json:"conclusion_digest"`
+	ActorSubject     string                            `json:"actor_subject"`
+	Authority        domain.DiagnosisApprovalAuthority `json:"authority"`
+	Reason           string                            `json:"reason"`
+	ApprovedAt       time.Time                         `json:"approved_at"`
+}
+
+func diagnosisRoomApprovalPayloads(approvals []domain.ChatSessionApproval) []diagnosisRoomApprovalPayload {
+	out := make([]diagnosisRoomApprovalPayload, len(approvals))
+	for i, approval := range approvals {
+		out[i] = diagnosisRoomApprovalPayload{
+			ID:               int64(approval.ID),
+			ConclusionDigest: approval.ConclusionDigest,
+			ActorSubject:     approval.ActorSubject,
+			Authority:        approval.Authority,
+			Reason:           approval.Reason,
+			ApprovedAt:       approval.ApprovedAt,
+		}
+	}
+	return out
 }
 
 func diagnosisRoomConversationSummary(in *domain.ChatSessionSummary) *DiagnosisRoomConversationSummary {
@@ -1719,6 +2032,7 @@ func (a *Activities) recordDiagnosisRoomOpened(ctx context.Context, req EnsureDi
 		"owner_subject":     req.OwnerSubject,
 		"status":            string(session.Status),
 		"turn_count":        session.TurnCount,
+		"approval_mode":     session.ApprovalMode,
 	})
 	if err != nil {
 		return domain.DiagnosisTaskEvent{}, err
@@ -2026,6 +2340,7 @@ func (a *Activities) recordDiagnosisRoomClosed(
 	req CloseDiagnosisChatSessionInput,
 	session domain.ChatSession,
 	summary *domain.ChatSessionSummary,
+	approvals []domain.ChatSessionApproval,
 ) (domain.DiagnosisTaskEvent, DiagnosisRoomFinalConclusion, error) {
 	task, err := a.lookupDiagnosisTaskByID(ctx, domain.DiagnosisTaskID(req.DiagnosisTaskID))
 	if err != nil {
@@ -2048,6 +2363,9 @@ func (a *Activities) recordDiagnosisRoomClosed(
 		"closed_at":            session.ClosedAt,
 		"final_conclusion":     finalConclusion,
 		"conversation_summary": diagnosisRoomConversationSummary(summary),
+		"approval_mode":        session.ApprovalMode,
+		"conclusion_digest":    req.ConclusionDigest,
+		"approvals":            diagnosisRoomApprovalPayloads(approvals),
 		"conclusion_version":   "diagnosis-room-close.v1",
 	})
 	if err != nil {
@@ -2064,6 +2382,42 @@ func (a *Activities) recordDiagnosisRoomClosed(
 		return domain.DiagnosisTaskEvent{}, DiagnosisRoomFinalConclusion{}, err
 	}
 	return event, finalConclusion, nil
+}
+
+func (a *Activities) recordDiagnosisConclusionApprovedEvent(
+	ctx context.Context,
+	req RecordDiagnosisConclusionApprovalInput,
+	approval domain.ChatSessionApproval,
+) (domain.DiagnosisTaskEvent, error) {
+	payload, err := diagnosisRoomLifecyclePayload(map[string]any{
+		"kind":                 diagnosisRoomEventConclusionApproved,
+		"session_id":           req.SessionID,
+		"chat_session_id":      int64(approval.SessionID),
+		"diagnosis_task_id":    req.DiagnosisTaskID,
+		"approval_id":          int64(approval.ID),
+		"approval_mode":        req.ApprovalMode,
+		"conclusion_digest":    approval.ConclusionDigest,
+		"actor_subject":        approval.ActorSubject,
+		"authority":            approval.Authority,
+		"reason":               approval.Reason,
+		"approved_at":          approval.ApprovedAt,
+		"assistant_message_id": req.AssistantMessageID,
+		"assistant_sequence":   req.AssistantSequence,
+	})
+	if err != nil {
+		return domain.DiagnosisTaskEvent{}, err
+	}
+	return a.appendDiagnosisRoomLifecycleEvent(ctx, diagnosisRoomLifecycleEventInput{
+		TaskID: req.DiagnosisTaskID,
+		Kind:   diagnosisRoomEventConclusionApproved,
+		DedupeKey: diagnosisRoomEventDedupeKey(
+			diagnosisRoomEventConclusionApproved,
+			req.SessionID,
+			approval.ConclusionDigest+"\x00"+approval.ActorSubject,
+		),
+		Payload:    payload,
+		OccurredAt: approval.ApprovedAt,
+	})
 }
 
 // DiagnosisRoomFinalConclusion is the persisted close-time diagnosis summary
@@ -2596,6 +2950,8 @@ func diagnosisRoomEventDedupePrefix(kind string) string {
 		return "failed"
 	case diagnosisRoomEventClosed:
 		return "close"
+	case diagnosisRoomEventConclusionApproved:
+		return "approve"
 	case diagnosisRoomEventCloseNotificationSent:
 		return "notify"
 	case diagnosisRoomEventFinalReadyNotificationSent:

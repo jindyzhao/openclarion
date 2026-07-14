@@ -98,6 +98,10 @@ func TestDiagnosisRoomWorkflow_SubmitTurnQueryAndCloseSignal(t *testing.T) {
 	if queried.FinalConclusion != nil {
 		t.Fatalf("open queried final conclusion = %+v, want nil", queried.FinalConclusion)
 	}
+	if queried.ConclusionDigest != "" || len(queried.Approvals) != 0 || len(queried.PendingApprovalAuthorities) != 0 {
+		t.Fatalf("open queried approval state = digest %q approvals %+v pending %+v, want not started",
+			queried.ConclusionDigest, queried.Approvals, queried.PendingApprovalAuthorities)
+	}
 	if len(queried.LatestEvidenceRequests) != 1 ||
 		queried.LatestEvidenceRequests[0].Tool != "active_alerts" ||
 		len(queried.LatestCollectionResults) != 0 {
@@ -731,6 +735,257 @@ func TestDiagnosisRoomWorkflow_ConfirmConclusionUpdateClosesReadyRoom(t *testing
 	}
 	if result.Status != "closed" || result.CloseReason != "human_confirmed" || result.FinalConclusion == nil {
 		t.Fatalf("terminal result = %+v, want confirmed closed with final conclusion", result)
+	}
+}
+
+func TestDiagnosisRoomWorkflow_OwnerAndLeaderApprovalRequiresDistinctQuorum(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 10, 45, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+	registerFinalDiagnosisTurnActivity(t, env)
+
+	var submit captureSubmitTurnUpdate
+	var ownerApproval captureConfirmConclusionUpdate
+	var leaderApproval captureConfirmConclusionUpdate
+	ownerCallback := ownerApproval.callback(t)
+	ownerComplete := ownerCallback.OnComplete
+	ownerCallback.OnComplete = func(success interface{}, err error) {
+		ownerComplete(success, err)
+		if err != nil {
+			return
+		}
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomConfirmConclusionUpdate,
+			"approve-final-leader",
+			leaderApproval.callback(t),
+			temporalpkg.DiagnosisRoomCloseRequest{Reason: "human_confirmed", ActorSubject: "leader-1"},
+		)
+	}
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-final-multi",
+			submit.callbackOnSuccess(t, func() {
+				env.UpdateWorkflow(
+					temporalpkg.DiagnosisRoomConfirmConclusionUpdate,
+					"approve-final-owner",
+					ownerCallback,
+					temporalpkg.DiagnosisRoomCloseRequest{Reason: "human_confirmed", ActorSubject: "owner-1"},
+				)
+			}),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "msg-final-multi",
+				ActorSubject: "owner-1",
+				Message:      "Finalize the diagnosis for multi-party approval.",
+			},
+		)
+	}, time.Millisecond)
+
+	input := defaultRoomInput()
+	input.ApprovalMode = domain.DiagnosisApprovalModeOwnerAndLeader
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+	if submit.rejected != nil || submit.completeErr != nil {
+		t.Fatalf("submit update rejected=%v completeErr=%v", submit.rejected, submit.completeErr)
+	}
+	if ownerApproval.rejected != nil || ownerApproval.completeErr != nil {
+		t.Fatalf("owner approval rejected=%v completeErr=%v", ownerApproval.rejected, ownerApproval.completeErr)
+	}
+	if ownerApproval.result.Status != "open" ||
+		len(ownerApproval.result.Approvals) != 1 ||
+		len(ownerApproval.result.PendingApprovalAuthorities) != 1 ||
+		ownerApproval.result.PendingApprovalAuthorities[0] != domain.DiagnosisApprovalAuthorityLeader {
+		t.Fatalf("owner approval state = %+v, want open pending leader", ownerApproval.result)
+	}
+	if leaderApproval.rejected != nil || leaderApproval.completeErr != nil {
+		t.Fatalf("leader approval rejected=%v completeErr=%v", leaderApproval.rejected, leaderApproval.completeErr)
+	}
+
+	var result temporalpkg.DiagnosisRoomWorkflowResult
+	if err := env.GetWorkflowResult(&result); err != nil {
+		t.Fatalf("GetWorkflowResult: %v", err)
+	}
+	if result.Status != "closed" ||
+		result.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader ||
+		result.ConclusionDigest == "" ||
+		len(result.Approvals) != 2 ||
+		len(result.PendingApprovalAuthorities) != 0 {
+		t.Fatalf("terminal approval state = %+v", result)
+	}
+	if result.Approvals[0].ActorSubject == result.Approvals[1].ActorSubject {
+		t.Fatalf("approval actors = %+v, want distinct subjects", result.Approvals)
+	}
+}
+
+func TestDiagnosisRoomWorkflow_OwnerAndLeaderApprovalRejectsDuplicateAuthority(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 10, 46, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+	registerFinalDiagnosisTurnActivity(t, env)
+
+	var submit captureSubmitTurnUpdate
+	var firstLeader captureConfirmConclusionUpdate
+	var duplicateLeader captureConfirmConclusionUpdate
+	var ownerApproval captureConfirmConclusionUpdate
+
+	duplicateLeaderCallback := duplicateLeader.callbackOnTerminal(t, func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomConfirmConclusionUpdate,
+			"approve-final-owner-after-duplicate-leader",
+			ownerApproval.callback(t),
+			temporalpkg.DiagnosisRoomCloseRequest{Reason: "human_confirmed", ActorSubject: "owner-1"},
+		)
+	})
+	firstLeaderCallback := firstLeader.callback(t)
+	firstLeaderComplete := firstLeaderCallback.OnComplete
+	firstLeaderCallback.OnComplete = func(success interface{}, err error) {
+		firstLeaderComplete(success, err)
+		if err != nil {
+			return
+		}
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomConfirmConclusionUpdate,
+			"approve-final-duplicate-leader",
+			duplicateLeaderCallback,
+			temporalpkg.DiagnosisRoomCloseRequest{Reason: "human_confirmed", ActorSubject: "leader-2"},
+		)
+	}
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-final-duplicate-authority",
+			submit.callbackOnSuccess(t, func() {
+				env.UpdateWorkflow(
+					temporalpkg.DiagnosisRoomConfirmConclusionUpdate,
+					"approve-final-first-leader",
+					firstLeaderCallback,
+					temporalpkg.DiagnosisRoomCloseRequest{Reason: "human_confirmed", ActorSubject: "leader-1"},
+				)
+			}),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "msg-final-duplicate-authority",
+				ActorSubject: "owner-1",
+				Message:      "Finalize the diagnosis with a unique approval authority.",
+			},
+		)
+	}, time.Millisecond)
+
+	input := defaultRoomInput()
+	input.ApprovalMode = domain.DiagnosisApprovalModeOwnerAndLeader
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+	if submit.rejected != nil || submit.completeErr != nil {
+		t.Fatalf("submit update rejected=%v completeErr=%v", submit.rejected, submit.completeErr)
+	}
+	if firstLeader.rejected != nil || firstLeader.completeErr != nil ||
+		len(firstLeader.result.PendingApprovalAuthorities) != 1 ||
+		firstLeader.result.PendingApprovalAuthorities[0] != domain.DiagnosisApprovalAuthorityOwner {
+		t.Fatalf("first leader approval = %+v rejected=%v completeErr=%v", firstLeader.result, firstLeader.rejected, firstLeader.completeErr)
+	}
+	if duplicateLeader.completeErr == nil || !strings.Contains(duplicateLeader.completeErr.Error(), "approval authority is already satisfied") {
+		t.Fatalf("duplicate leader rejected=%v completeErr=%v", duplicateLeader.rejected, duplicateLeader.completeErr)
+	}
+	if ownerApproval.rejected != nil || ownerApproval.completeErr != nil {
+		t.Fatalf("owner approval rejected=%v completeErr=%v", ownerApproval.rejected, ownerApproval.completeErr)
+	}
+
+	var result temporalpkg.DiagnosisRoomWorkflowResult
+	if err := env.GetWorkflowResult(&result); err != nil {
+		t.Fatalf("GetWorkflowResult: %v", err)
+	}
+	if result.Status != "closed" || len(result.Approvals) != 2 {
+		t.Fatalf("terminal approval state = %+v, want closed with two approvals", result)
+	}
+}
+
+func TestDiagnosisRoomWorkflow_NewConclusionInvalidatesEarlierApproval(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 10, 47, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+	registerFinalDiagnosisTurnActivity(t, env)
+
+	var firstSubmit captureSubmitTurnUpdate
+	var ownerApproval captureConfirmConclusionUpdate
+	var secondSubmit captureSubmitTurnUpdate
+	var queried temporalpkg.DiagnosisRoomWorkflowState
+	var queryErr error
+
+	ownerCallback := ownerApproval.callback(t)
+	ownerComplete := ownerCallback.OnComplete
+	ownerCallback.OnComplete = func(success interface{}, err error) {
+		ownerComplete(success, err)
+		if err != nil {
+			return
+		}
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-revised-final",
+			secondSubmit.callbackWithQueryAndClose(t, env, &queried, &queryErr, "test_complete"),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "msg-revised-final",
+				ActorSubject: "owner-1",
+				Message:      "Revise the final diagnosis with the latest evidence.",
+			},
+		)
+	}
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-original-final",
+			firstSubmit.callbackOnSuccess(t, func() {
+				env.UpdateWorkflow(
+					temporalpkg.DiagnosisRoomConfirmConclusionUpdate,
+					"approve-original-final-owner",
+					ownerCallback,
+					temporalpkg.DiagnosisRoomCloseRequest{Reason: "human_confirmed", ActorSubject: "owner-1"},
+				)
+			}),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    "msg-original-final",
+				ActorSubject: "owner-1",
+				Message:      "Finalize the current diagnosis.",
+			},
+		)
+	}, time.Millisecond)
+
+	input := defaultRoomInput()
+	input.ApprovalMode = domain.DiagnosisApprovalModeOwnerAndLeader
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+
+	if firstSubmit.rejected != nil || firstSubmit.completeErr != nil ||
+		ownerApproval.rejected != nil || ownerApproval.completeErr != nil ||
+		secondSubmit.rejected != nil || secondSubmit.completeErr != nil {
+		t.Fatalf(
+			"updates first=(%v,%v) owner=(%v,%v) second=(%v,%v)",
+			firstSubmit.rejected,
+			firstSubmit.completeErr,
+			ownerApproval.rejected,
+			ownerApproval.completeErr,
+			secondSubmit.rejected,
+			secondSubmit.completeErr,
+		)
+	}
+	if queryErr != nil {
+		t.Fatalf("query revised state: %v", queryErr)
+	}
+	if ownerApproval.result.ConclusionDigest == "" ||
+		queried.ConclusionDigest == "" ||
+		queried.ConclusionDigest == ownerApproval.result.ConclusionDigest {
+		t.Fatalf(
+			"conclusion digests original=%q revised=%q",
+			ownerApproval.result.ConclusionDigest,
+			queried.ConclusionDigest,
+		)
+	}
+	if len(queried.Approvals) != 0 ||
+		len(queried.PendingApprovalAuthorities) != 2 ||
+		queried.PendingApprovalAuthorities[0] != domain.DiagnosisApprovalAuthorityOwner ||
+		queried.PendingApprovalAuthorities[1] != domain.DiagnosisApprovalAuthorityLeader {
+		t.Fatalf("revised approval state = %+v, want fresh owner and leader quorum", queried)
 	}
 }
 
@@ -4202,6 +4457,7 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect
 	assistantTurnFailed bool,
 ) {
 	t.Helper()
+	approvals := make([]domain.ChatSessionApproval, 0, 2)
 	env.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.EnsureDiagnosisRoomSessionInput) (temporalpkg.EnsureDiagnosisRoomSessionResult, error) {
 			if got.SessionID == "" ||
@@ -4366,6 +4622,47 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect
 		activity.RegisterOptions{Name: "RecordDiagnosisEvidenceCollected"},
 	)
 	env.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.RecordDiagnosisConclusionApprovalInput) (temporalpkg.RecordDiagnosisConclusionApprovalResult, error) {
+			if got.SessionID == "" ||
+				got.DiagnosisTaskID == 0 ||
+				got.OwnerSubject == "" ||
+				got.ActorSubject == "" ||
+				!got.Authority.Valid() ||
+				!got.ApprovalMode.Valid() ||
+				got.AssistantMessageID == "" ||
+				got.AssistantSequence <= 0 ||
+				got.ConclusionContent == "" ||
+				len(got.ConclusionDigest) != 64 ||
+				got.ApprovedAt.IsZero() {
+				t.Fatalf("record conclusion approval input = %+v", got)
+			}
+			for _, approval := range approvals {
+				if approval.ConclusionDigest == got.ConclusionDigest && approval.ActorSubject == got.ActorSubject {
+					return temporalpkg.RecordDiagnosisConclusionApprovalResult{
+						Approval:         approval,
+						LifecycleEventID: 1900 + int64(approval.ID),
+					}, nil
+				}
+			}
+			approval := domain.ChatSessionApproval{
+				ID:               domain.ChatSessionApprovalID(1 + len(approvals)),
+				SessionID:        42,
+				ConclusionDigest: got.ConclusionDigest,
+				ActorSubject:     got.ActorSubject,
+				Authority:        got.Authority,
+				Reason:           got.Reason,
+				ApprovedAt:       got.ApprovedAt,
+				CreatedAt:        got.ApprovedAt,
+			}
+			approvals = append(approvals, approval)
+			return temporalpkg.RecordDiagnosisConclusionApprovalResult{
+				Approval:         approval,
+				LifecycleEventID: 1900 + int64(approval.ID),
+			}, nil
+		},
+		activity.RegisterOptions{Name: "RecordDiagnosisConclusionApproval"},
+	)
+	env.RegisterActivityWithOptions(
 		func(_ context.Context, got temporalpkg.SendDiagnosisRoomAssistantTurnNotificationInput) (temporalpkg.SendDiagnosisRoomAssistantTurnNotificationResult, error) {
 			if got.SessionID == "" ||
 				got.DiagnosisTaskID == 0 ||
@@ -4459,6 +4756,12 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect
 				firstSequence = 1
 				lastSequence = got.TurnCount * 2
 			}
+			persistedApprovals := make([]domain.ChatSessionApproval, 0, len(approvals))
+			for _, approval := range approvals {
+				if approval.ConclusionDigest == got.ConclusionDigest {
+					persistedApprovals = append(persistedApprovals, approval)
+				}
+			}
 			return temporalpkg.CloseDiagnosisChatSessionResult{
 				ChatSessionID:    42,
 				LifecycleEventID: 1000 + int64(got.TurnCount),
@@ -4468,10 +4771,11 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect
 				CloseReason:      got.Reason,
 				LastActivityAt:   got.ClosedAt,
 				FinalConclusion: temporalpkg.DiagnosisRoomFinalConclusion{
-					Status:     "available",
-					Source:     "latest_assistant_turn",
-					Content:    "CPU alert is still firing.",
-					Confidence: "medium",
+					Status:      "available",
+					Source:      "latest_assistant_turn",
+					ConfirmedBy: got.ConfirmedBy,
+					Content:     "CPU alert is still firing.",
+					Confidence:  "medium",
 				},
 				ConversationSummary: &temporalpkg.DiagnosisRoomConversationSummary{
 					ID:                  3000 + int64(got.TurnCount),
@@ -4484,6 +4788,9 @@ func registerDiagnosisRoomPersistenceActivitiesWithNotificationCaptureAndCollect
 					Content:             content,
 					GeneratedAt:         got.ClosedAt,
 				},
+				ApprovalMode:     got.ApprovalMode,
+				ConclusionDigest: got.ConclusionDigest,
+				Approvals:        persistedApprovals,
 			}, nil
 		},
 		activity.RegisterOptions{Name: "CloseDiagnosisChatSession"},

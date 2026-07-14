@@ -5,7 +5,7 @@
 > prevents deferred items from being silently lost and prevents past
 > discussions from being re-litigated without new information.
 
-> Last updated: 2026-07-08
+> Last updated: 2026-07-14
 
 ## How To Use This File
 
@@ -25,16 +25,6 @@
 | Decided | 2026-05-19 |
 | Reason | M5 V1 scope is short-conversation only. Bounded turns and fixed lifetime cap session size, so automatic compression is not needed for V1. |
 | Trigger | revisit when long-session product validation justifies multi-day rooms |
-| Target | post-V1 |
-
-### D4: Leader-Tier RBAC and Approval Flows (M5)
-
-| Field | Value |
-|-------|-------|
-| Status | open |
-| Decided | 2026-05-19 |
-| Reason | Owner + admin RBAC suffices for V1 short-conversation diagnosis. Multi-stakeholder approval adds significant complexity without proportional V1 value. |
-| Trigger | post-V1 product feedback identifies multi-approver scenarios |
 | Target | post-V1 |
 
 ### D5: Streaming Token-Level Partial Responses (M5)
@@ -102,6 +92,17 @@
 | Trigger | closed after M2/M5 handler growth did not materialize into adapter pain; reopen only if upstream generates a stable strict interface for the pinned OpenAPI 3.1 path, or if repeated handler request/response boilerplate is measured in review |
 | Target | closed by V1 API handler evidence |
 
+### D4: Leader-Tier RBAC and Approval Flows (M5)
+
+| Field | Value |
+|-------|-------|
+| Status | closed |
+| Decided | 2026-05-19 |
+| Updated | 2026-07-14 |
+| Reason | Product requirements now include an explicit owner-and-leader conclusion quorum. Diagnosis rooms support a per-room `single` or `owner_and_leader` approval mode, a dedicated conclusion-approval permission, immutable actor approvals bound to the current assistant conclusion digest, and a persisted quorum check before terminal close. |
+| Trigger | closed after the product requirement and implementation landed; reopen only for new quorum types or external governance integration |
+| Target | landed post-V1 |
+
 ### D6: Concrete Version Pinning for Temporal SDK / Ent / Atlas / OTel
 
 | Field | Value |
@@ -137,6 +138,7 @@
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-14 | jindyzhao | Close D4 after configurable single-party and owner-plus-leader conclusion approval landed with digest-bound immutable approvals and persisted quorum enforcement. |
 | 2026-05-19 | jindyzhao | Initial set of deferrals: spike, Strict adapter, M5 long-session features, version pinning, future providers |
 | 2026-05-22 | jindyzhao | Update D6: replace "must pin at M0" policy with the `first-import pin` rule (DEPENDENCIES.md). Temporal/Ent/Atlas pinning targets shift to M1; OTel to M3. ADR-0012 amended in the same window. |
 | 2026-05-22 | jindyzhao | D6 partially closed at M1-PR1 start: Ent v0.14.6 pinned (direct require + tool directive); Atlas pinned via `arigaio/atlas:1.2.0` Docker image under the original Plan A draft (Dockerized Atlas with mounted Docker socket; later superseded by the wrapper redesign in the same milestone window). Temporal SDK and OTel remain open. |

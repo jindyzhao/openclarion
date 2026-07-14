@@ -79,6 +79,9 @@ const (
 	RBACRoleAdmin RBACRole = "admin"
 	// RBACRoleOperator allows operational read and runbook actions without configuration writes.
 	RBACRoleOperator RBACRole = "operator"
+	// RBACRoleLeader allows cross-owner diagnosis review and conclusion approval
+	// without configuration writes or forced room administration.
+	RBACRoleLeader RBACRole = "leader"
 	// RBACRoleResponder allows diagnosis-room participation.
 	RBACRoleResponder RBACRole = "responder"
 	// RBACRoleViewer allows read-only access.
@@ -88,7 +91,7 @@ const (
 // Valid reports whether r is a supported local role.
 func (r RBACRole) Valid() bool {
 	switch r {
-	case RBACRoleAdmin, RBACRoleOperator, RBACRoleResponder, RBACRoleViewer:
+	case RBACRoleAdmin, RBACRoleOperator, RBACRoleLeader, RBACRoleResponder, RBACRoleViewer:
 		return true
 	}
 	return false
@@ -113,6 +116,9 @@ const (
 	RBACPermissionDiagnosisRoomParticipate RBACPermission = "diagnosis_room.participate"
 	// RBACPermissionDiagnosisRoomAdminister allows administrative diagnosis-room actions.
 	RBACPermissionDiagnosisRoomAdminister RBACPermission = "diagnosis_room.administer"
+	// RBACPermissionDiagnosisRoomApprove allows approving a retained diagnosis
+	// conclusion without granting forced close or other administration actions.
+	RBACPermissionDiagnosisRoomApprove RBACPermission = "diagnosis_room.approve"
 	// RBACPermissionAlertSourceRead allows reading alert source configuration.
 	RBACPermissionAlertSourceRead RBACPermission = "alert_source.read"
 	// RBACPermissionAlertSourceManage allows managing alert source configuration.
@@ -147,6 +153,7 @@ func (p RBACPermission) Valid() bool {
 		RBACPermissionDiagnosisRoomRead,
 		RBACPermissionDiagnosisRoomParticipate,
 		RBACPermissionDiagnosisRoomAdminister,
+		RBACPermissionDiagnosisRoomApprove,
 		RBACPermissionAlertSourceRead,
 		RBACPermissionAlertSourceManage,
 		RBACPermissionGroupingPolicyRead,
@@ -324,6 +331,13 @@ func rbacRoleAllows(role RBACRole, permission RBACPermission) bool {
 			RBACPermissionDirectoryRead,
 			RBACPermissionDiagnosisRoomRead,
 			RBACPermissionDiagnosisRoomParticipate,
+		},
+		RBACRoleLeader: {
+			RBACPermissionDirectoryRead,
+			RBACPermissionOperationsRead,
+			RBACPermissionDiagnosisRoomRead,
+			RBACPermissionDiagnosisRoomParticipate,
+			RBACPermissionDiagnosisRoomApprove,
 		},
 		RBACRoleViewer: {
 			RBACPermissionDirectoryRead,

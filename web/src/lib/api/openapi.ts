@@ -1759,12 +1759,12 @@ export interface components {
          * @description OpenClarion-local role.
          * @enum {string}
          */
-        RBACRole: "admin" | "operator" | "responder" | "viewer";
+        RBACRole: "admin" | "operator" | "leader" | "responder" | "viewer";
         /**
          * @description OpenClarion-local action-level permission.
          * @enum {string}
          */
-        RBACPermission: "directory.read" | "directory.manage" | "rbac.manage" | "operations.read" | "diagnosis_room.read" | "diagnosis_room.participate" | "diagnosis_room.administer" | "alert_source.read" | "alert_source.manage" | "grouping_policy.read" | "grouping_policy.manage" | "report_workflow.read" | "report_workflow.manage" | "notification_channel.read" | "notification_channel.manage" | "notification_channel.test" | "diagnosis_tool_template.read" | "diagnosis_tool_template.manage";
+        RBACPermission: "directory.read" | "directory.manage" | "rbac.manage" | "operations.read" | "diagnosis_room.read" | "diagnosis_room.participate" | "diagnosis_room.administer" | "diagnosis_room.approve" | "alert_source.read" | "alert_source.manage" | "grouping_policy.read" | "grouping_policy.manage" | "report_workflow.read" | "report_workflow.manage" | "notification_channel.read" | "notification_channel.manage" | "notification_channel.test" | "diagnosis_tool_template.read" | "diagnosis_tool_template.manage";
         /** @description Local OpenClarion role assignment. */
         RBACAssignment: {
             /**
@@ -3015,6 +3015,29 @@ export interface components {
          */
         DiagnosisRoomStatus: "open" | "closed";
         /**
+         * @description Human approval quorum required before a retained conclusion closes the room.
+         * @example single
+         * @enum {string}
+         */
+        DiagnosisRoomApprovalMode: "single" | "owner_and_leader";
+        /**
+         * @description Stakeholder capacity satisfied by one conclusion approval.
+         * @example owner
+         * @enum {string}
+         */
+        DiagnosisRoomApprovalAuthority: "owner" | "leader";
+        /** @description Immutable stakeholder approval bound to one exact assistant conclusion digest. */
+        DiagnosisRoomConclusionApproval: {
+            /** Format: int64 */
+            id: number;
+            conclusion_digest: string;
+            actor_subject: string;
+            authority: components["schemas"]["DiagnosisRoomApprovalAuthority"];
+            reason: string;
+            /** Format: date-time */
+            approved_at: string;
+        };
+        /**
          * @description Reason a diagnosis handoff item is waiting for operator action.
          * @example missing_diagnosis_room
          * @enum {string}
@@ -3086,6 +3109,7 @@ export interface components {
              *         "last_activity_at": "2026-06-18T02:20:31Z",
              *         "closed_at": null,
              *         "close_reason": "",
+             *         "approval_mode": "single",
              *         "created_at": "2026-06-18T02:20:28Z",
              *         "updated_at": "2026-06-18T02:20:31Z"
              *       }
@@ -3224,6 +3248,26 @@ export interface components {
              * @example
              */
             close_reason: string;
+            approval_mode: components["schemas"]["DiagnosisRoomApprovalMode"];
+            /**
+             * @description Exact retained conclusion identity for the displayed approvals, when any approval has been recorded.
+             * @example 6f7d34c34f2dbe95cb7b34a099f50c4b983b1a7ad4b4b3fa6efba262f36b21a0
+             */
+            conclusion_digest?: string;
+            /**
+             * @description Immutable approvals for conclusion_digest, ordered by approval time and row identity.
+             * @example [
+             *       {
+             *         "id": 901,
+             *         "conclusion_digest": "6f7d34c34f2dbe95cb7b34a099f50c4b983b1a7ad4b4b3fa6efba262f36b21a0",
+             *         "actor_subject": "operator:alice",
+             *         "authority": "owner",
+             *         "reason": "human_confirmed",
+             *         "approved_at": "2026-06-18T02:21:00Z"
+             *       }
+             *     ]
+             */
+            approvals?: components["schemas"]["DiagnosisRoomConclusionApproval"][];
             /**
              * @description Sanitized participant summary derived from room ownership, transcript turns, supplemental evidence, and confirmation metadata.
              * @example [
@@ -3366,6 +3410,7 @@ export interface components {
              * @example 2
              */
             close_notification_channel_profile_id?: number;
+            approval_mode?: components["schemas"]["DiagnosisRoomApprovalMode"];
         };
         /** @description Request to close a local diagnosis-room lifecycle row after backend workflow visibility proves the workflow is unavailable. */
         DiagnosisRoomCloseUnavailableRequest: {
@@ -3410,6 +3455,7 @@ export interface components {
              * @example run-42
              */
             run_id: string;
+            approval_mode: components["schemas"]["DiagnosisRoomApprovalMode"];
         };
         /** @description Sanitized diagnosis authentication principal summary. */
         DiagnosisAuthCheckResponse: {
@@ -4225,6 +4271,7 @@ export interface components {
              *           "last_activity_at": "2026-05-27T09:08:01Z",
              *           "closed_at": null,
              *           "close_reason": "",
+             *           "approval_mode": "single",
              *           "notification_timeline": [
              *             {
              *               "event_kind": "diagnosis_room.final_ready_notification_sent",

@@ -483,6 +483,7 @@ function room(
   overrides: Partial<DiagnosisRoomSummary> = {},
 ): DiagnosisRoomSummary {
   return {
+    approval_mode: "single",
     session_id: "diagnosis-session-1",
     chat_session_id: 202,
     diagnosis_task_id: 101,

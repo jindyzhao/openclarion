@@ -100,6 +100,11 @@ func CloseReason(v string) predicate.ChatSession {
 	return predicate.ChatSession(sql.FieldEQ(FieldCloseReason, v))
 }
 
+// ApprovalMode applies equality check predicate on the "approval_mode" field. It's identical to ApprovalModeEQ.
+func ApprovalMode(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldEQ(FieldApprovalMode, v))
+}
+
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.ChatSession {
 	return predicate.ChatSession(sql.FieldEQ(FieldCreatedAt, v))
@@ -570,6 +575,71 @@ func CloseReasonContainsFold(v string) predicate.ChatSession {
 	return predicate.ChatSession(sql.FieldContainsFold(FieldCloseReason, v))
 }
 
+// ApprovalModeEQ applies the EQ predicate on the "approval_mode" field.
+func ApprovalModeEQ(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldEQ(FieldApprovalMode, v))
+}
+
+// ApprovalModeNEQ applies the NEQ predicate on the "approval_mode" field.
+func ApprovalModeNEQ(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldNEQ(FieldApprovalMode, v))
+}
+
+// ApprovalModeIn applies the In predicate on the "approval_mode" field.
+func ApprovalModeIn(vs ...string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldIn(FieldApprovalMode, vs...))
+}
+
+// ApprovalModeNotIn applies the NotIn predicate on the "approval_mode" field.
+func ApprovalModeNotIn(vs ...string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldNotIn(FieldApprovalMode, vs...))
+}
+
+// ApprovalModeGT applies the GT predicate on the "approval_mode" field.
+func ApprovalModeGT(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldGT(FieldApprovalMode, v))
+}
+
+// ApprovalModeGTE applies the GTE predicate on the "approval_mode" field.
+func ApprovalModeGTE(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldGTE(FieldApprovalMode, v))
+}
+
+// ApprovalModeLT applies the LT predicate on the "approval_mode" field.
+func ApprovalModeLT(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldLT(FieldApprovalMode, v))
+}
+
+// ApprovalModeLTE applies the LTE predicate on the "approval_mode" field.
+func ApprovalModeLTE(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldLTE(FieldApprovalMode, v))
+}
+
+// ApprovalModeContains applies the Contains predicate on the "approval_mode" field.
+func ApprovalModeContains(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldContains(FieldApprovalMode, v))
+}
+
+// ApprovalModeHasPrefix applies the HasPrefix predicate on the "approval_mode" field.
+func ApprovalModeHasPrefix(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldHasPrefix(FieldApprovalMode, v))
+}
+
+// ApprovalModeHasSuffix applies the HasSuffix predicate on the "approval_mode" field.
+func ApprovalModeHasSuffix(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldHasSuffix(FieldApprovalMode, v))
+}
+
+// ApprovalModeEqualFold applies the EqualFold predicate on the "approval_mode" field.
+func ApprovalModeEqualFold(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldEqualFold(FieldApprovalMode, v))
+}
+
+// ApprovalModeContainsFold applies the ContainsFold predicate on the "approval_mode" field.
+func ApprovalModeContainsFold(v string) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldContainsFold(FieldApprovalMode, v))
+}
+
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.
 func CreatedAtEQ(v time.Time) predicate.ChatSession {
 	return predicate.ChatSession(sql.FieldEQ(FieldCreatedAt, v))
@@ -711,6 +781,29 @@ func HasSummaries() predicate.ChatSession {
 func HasSummariesWith(preds ...predicate.ChatSessionSummary) predicate.ChatSession {
 	return predicate.ChatSession(func(s *sql.Selector) {
 		step := newSummariesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasApprovals applies the HasEdge predicate on the "approvals" edge.
+func HasApprovals() predicate.ChatSession {
+	return predicate.ChatSession(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ApprovalsTable, ApprovalsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasApprovalsWith applies the HasEdge predicate on the "approvals" edge with a given conditions (other predicates).
+func HasApprovalsWith(preds ...predicate.ChatSessionApproval) predicate.ChatSession {
+	return predicate.ChatSession(func(s *sql.Selector) {
+		step := newApprovalsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

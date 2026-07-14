@@ -496,6 +496,7 @@ function linkedSubReport(
 
 function diagnosisRoom(overrides: Partial<DiagnosisRoomSummary> = {}): DiagnosisRoomSummary {
   return {
+    approval_mode: "single",
     chat_session_id: 401,
     close_reason: "",
     closed_at: null,

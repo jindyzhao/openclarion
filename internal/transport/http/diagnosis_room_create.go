@@ -40,6 +40,7 @@ func (s *Server) CreateDiagnosisRoom(w http.ResponseWriter, r *http.Request) {
 	result, err := s.roomStarter.Start(r.Context(), diagnosisroomstart.Request{
 		EvidenceSnapshotID:                domain.EvidenceSnapshotID(body.EvidenceSnapshotID),
 		CloseNotificationChannelProfileID: diagnosisRoomCreateNotificationChannelProfileID(body),
+		ApprovalMode:                      diagnosisRoomCreateApprovalMode(body),
 		Principal:                         principal,
 	})
 	if err != nil {
@@ -63,7 +64,17 @@ func decodeDiagnosisRoomCreateRequest(w http.ResponseWriter, r *http.Request) (a
 	if body.CloseNotificationChannelProfileID != nil && *body.CloseNotificationChannelProfileID <= 0 {
 		return body, fmt.Errorf("close_notification_channel_profile_id must be positive when provided")
 	}
+	if body.ApprovalMode != nil && !domain.DiagnosisApprovalMode(*body.ApprovalMode).Valid() {
+		return body, fmt.Errorf("approval_mode %q is unsupported", *body.ApprovalMode)
+	}
 	return body, nil
+}
+
+func diagnosisRoomCreateApprovalMode(body api.DiagnosisRoomCreateRequest) domain.DiagnosisApprovalMode {
+	if body.ApprovalMode == nil {
+		return domain.DiagnosisApprovalModeSingle
+	}
+	return domain.DiagnosisApprovalMode(*body.ApprovalMode)
 }
 
 func diagnosisRoomCreateNotificationChannelProfileID(body api.DiagnosisRoomCreateRequest) domain.NotificationChannelProfileID {
@@ -114,6 +125,7 @@ func diagnosisRoomCreateResponse(result diagnosisroomstart.Result) api.Diagnosis
 		ChatSessionID:      int64(result.ChatSessionID),
 		WorkflowID:         result.Workflow.WorkflowID,
 		RunID:              result.Workflow.RunID,
+		ApprovalMode:       api.DiagnosisRoomApprovalMode(result.ApprovalMode),
 	}
 }
 

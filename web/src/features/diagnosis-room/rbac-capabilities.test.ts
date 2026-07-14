@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   canCreateDiagnosisRoomByRBAC,
   diagnosisRoomAdministerAuthorizationKey,
+  diagnosisRoomApproveAuthorizationKey,
   diagnosisRoomCreateAuthorizationKey,
   diagnosisRoomCreateNotificationChannelAuthorizationKey,
   diagnosisRoomCreateOperationsReadAuthorizationKey,
@@ -44,6 +45,12 @@ describe("diagnosis room rbac capabilities", () => {
         scopeKind: "diagnosis_room",
       },
       {
+        key: diagnosisRoomApproveAuthorizationKey("session-1"),
+        permission: "diagnosis_room.approve",
+        scopeKey: "session-1",
+        scopeKind: "diagnosis_room",
+      },
+      {
         key: diagnosisRoomAdministerAuthorizationKey("session-1"),
         permission: "diagnosis_room.administer",
         scopeKey: "session-1",
@@ -58,6 +65,12 @@ describe("diagnosis room rbac capabilities", () => {
       {
         key: diagnosisRoomParticipateAuthorizationKey("session-2"),
         permission: "diagnosis_room.participate",
+        scopeKey: "session-2",
+        scopeKind: "diagnosis_room",
+      },
+      {
+        key: diagnosisRoomApproveAuthorizationKey("session-2"),
+        permission: "diagnosis_room.approve",
         scopeKey: "session-2",
         scopeKind: "diagnosis_room",
       },
@@ -110,6 +123,7 @@ describe("diagnosis room rbac capabilities", () => {
       diagnosisRoomCreateOperationsReadAuthorizationKey,
       diagnosisRoomCreateNotificationChannelAuthorizationKey(5),
       diagnosisRoomReadAuthorizationKey("session-1"),
+      diagnosisRoomApproveAuthorizationKey("session-1"),
       diagnosisRoomAdministerAuthorizationKey("session-1"),
     ]);
 
@@ -160,6 +174,12 @@ describe("diagnosis room rbac capabilities", () => {
         status: "denied",
       },
       {
+        action: "approve",
+        key: diagnosisRoomApproveAuthorizationKey("session-1"),
+        scopeLabel: "session-1",
+        status: "allowed",
+      },
+      {
         action: "administer",
         key: diagnosisRoomAdministerAuthorizationKey("session-1"),
         scopeLabel: "session-1",
@@ -182,6 +202,7 @@ describe("diagnosis room rbac capabilities", () => {
       "not-selected",
       "not-selected",
       "not-selected",
+      "not-selected",
     ]);
   });
 
@@ -194,6 +215,7 @@ describe("diagnosis room rbac capabilities", () => {
     });
 
     expect(items.map((item) => item.status)).toEqual([
+      "not-enforced",
       "not-enforced",
       "not-enforced",
       "not-enforced",
@@ -240,6 +262,16 @@ describe("diagnosis room rbac capabilities", () => {
         enforced: true,
       }),
     ).toBe("Current user is not authorized to administer this diagnosis room.");
+    expect(
+      diagnosisRoomRBACBlockReason({
+        action: "approve",
+        allowed: false,
+        checking: false,
+        enforced: true,
+      }),
+    ).toBe(
+      "Current user is not authorized to approve this diagnosis conclusion.",
+    );
     expect(
       diagnosisRoomRBACBlockReason({
         action: "create",

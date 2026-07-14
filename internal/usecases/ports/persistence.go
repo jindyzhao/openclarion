@@ -396,6 +396,23 @@ type DiagnosisRepository interface {
 	// FindLatestChatSessionSummary returns the highest summary version for a
 	// session, or domain.ErrNotFound when no checkpoint has been generated.
 	FindLatestChatSessionSummary(ctx context.Context, sessionID domain.ChatSessionID) (domain.ChatSessionSummary, error)
+
+	// SaveChatSessionApproval appends one immutable stakeholder approval. A
+	// duplicate actor or authority within one (session, conclusion digest)
+	// quorum returns domain.ErrAlreadyExists.
+	SaveChatSessionApproval(ctx context.Context, approval domain.ChatSessionApproval) (domain.ChatSessionApproval, error)
+
+	// FindChatSessionApproval returns one idempotency hit for an actor and exact
+	// conclusion digest, or domain.ErrNotFound.
+	FindChatSessionApproval(ctx context.Context, sessionID domain.ChatSessionID, conclusionDigest, actorSubject string) (domain.ChatSessionApproval, error)
+
+	// HasChatSessionApprovals reports whether any immutable approval exists for
+	// the session, including approvals superseded by a later conclusion.
+	HasChatSessionApprovals(ctx context.Context, sessionID domain.ChatSessionID) (bool, error)
+
+	// ListChatSessionApprovals returns approvals for an exact conclusion digest
+	// ordered by approval time and ID, capped by limit.
+	ListChatSessionApprovals(ctx context.Context, sessionID domain.ChatSessionID, conclusionDigest string, limit int) ([]domain.ChatSessionApproval, error)
 }
 
 // ReportRepository covers persisted SubReports, FinalReports, and the

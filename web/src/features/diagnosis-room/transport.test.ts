@@ -268,9 +268,23 @@ describe("parseDiagnosisServerFrame", () => {
           diagnosis_task_id: 11,
           owner_subject: "owner",
           status: "open",
-          turn_count: 0,
+          turn_count: 1,
           started_at: "2026-06-19T10:00:00Z",
           last_activity_at: "2026-06-19T10:01:00Z",
+          approval_mode: "owner_and_leader",
+          conclusion_digest: "a".repeat(64),
+          approvals: [
+            {
+              id: 31,
+              conclusion_digest: "a".repeat(64),
+              actor_subject: "owner",
+              authority: "owner",
+              reason: "human_confirmed",
+              approved_at: "2026-06-19T10:01:00Z",
+            },
+          ],
+          pending_approval_authorities: ["leader"],
+          approval_in_flight: false,
           latest_error: {
             code: "llm_timeout",
             message:
@@ -360,6 +374,14 @@ describe("parseDiagnosisServerFrame", () => {
         },
       ],
       in_flight: false,
+      approval_mode: "owner_and_leader",
+      approvals: [
+        {
+          actor_subject: "owner",
+          authority: "owner",
+        },
+      ],
+      pending_approval_authorities: ["leader"],
     });
   });
 
@@ -367,6 +389,117 @@ describe("parseDiagnosisServerFrame", () => {
     expect(() => parseDiagnosisServerFrame(`{"type":"unexpected"}`)).toThrow(
       /Unsupported/,
     );
+  });
+
+  it("rejects inconsistent conclusion approval state", () => {
+    const base = {
+      type: "state",
+      session_id: "s1",
+      chat_session_id: 7,
+      diagnosis_task_id: 11,
+      owner_subject: "owner",
+      status: "open",
+      turn_count: 1,
+      started_at: "2026-06-20T00:00:00Z",
+      last_activity_at: "2026-06-20T00:01:00Z",
+      approval_mode: "owner_and_leader",
+      conclusion_digest: "a".repeat(64),
+      approval_in_flight: false,
+      in_flight: false,
+      seen_message_ids: [],
+      conversation: [],
+    };
+    const approval = {
+      id: 31,
+      conclusion_digest: "b".repeat(64),
+      actor_subject: "owner",
+      authority: "owner",
+      reason: "human_confirmed",
+      approved_at: "2026-06-20T00:01:00Z",
+    };
+
+    expect(() =>
+      parseDiagnosisServerFrame(
+        JSON.stringify({ ...base, approvals: [approval] }),
+      ),
+    ).toThrow(/Invalid state/);
+    expect(() =>
+      parseDiagnosisServerFrame(
+        JSON.stringify({
+          ...base,
+          pending_approval_authorities: ["leader", "leader"],
+        }),
+      ),
+    ).toThrow(/Invalid state/);
+    expect(() =>
+      parseDiagnosisServerFrame(
+        JSON.stringify({
+          ...base,
+          approvals: [
+            {
+              ...approval,
+              conclusion_digest: "a".repeat(64),
+            },
+            {
+              ...approval,
+              id: 32,
+              conclusion_digest: "a".repeat(64),
+              actor_subject: "owner-2",
+            },
+          ],
+        }),
+      ),
+    ).toThrow(/Invalid state/);
+    expect(() =>
+      parseDiagnosisServerFrame(
+        JSON.stringify({
+          ...base,
+          approvals: [
+            {
+              ...approval,
+              conclusion_digest: "a".repeat(64),
+            },
+          ],
+          pending_approval_authorities: ["owner"],
+        }),
+      ),
+    ).toThrow(/Invalid state/);
+    expect(() =>
+      parseDiagnosisServerFrame(
+        JSON.stringify({
+          ...base,
+          approvals: [
+            {
+              ...approval,
+              conclusion_digest: "a".repeat(64),
+              actor_subject: "not-the-owner",
+            },
+          ],
+          pending_approval_authorities: ["leader"],
+        }),
+      ),
+    ).toThrow(/Invalid state/);
+    expect(() =>
+      parseDiagnosisServerFrame(
+        JSON.stringify({
+          ...base,
+          approval_mode: "single",
+          approvals: [
+            {
+              ...approval,
+              conclusion_digest: "a".repeat(64),
+            },
+            {
+              ...approval,
+              id: 32,
+              conclusion_digest: "a".repeat(64),
+              actor_subject: "leader",
+              authority: "leader",
+            },
+          ],
+        }),
+      ),
+    ).toThrow(/Invalid state/);
   });
 
   it("rejects known frame types when required fields are missing", () => {
@@ -406,6 +539,8 @@ describe("parseDiagnosisServerFrame", () => {
           turn_count: 1,
           started_at: "2026-06-20T00:00:00Z",
           last_activity_at: "2026-06-20T00:01:00Z",
+          approval_mode: "single",
+          approval_in_flight: false,
           in_flight: false,
           seen_message_ids: ["msg-1"],
         }),
@@ -753,7 +888,7 @@ describe("issueDiagnosisWSTicket", () => {
 });
 
 describe("createDiagnosisRoom", () => {
-  it("posts an optional notification channel profile id", async () => {
+  it("posts the approval mode and an optional notification channel profile id", async () => {
     const originalFetch = globalThis.fetch;
     const fetcher = vi.fn(async () => {
       return new Response(
@@ -764,6 +899,7 @@ describe("createDiagnosisRoom", () => {
           chat_session_id: 202,
           workflow_id: "diagnosis-room-diagnosis-session-1",
           run_id: "run-1",
+          approval_mode: "owner_and_leader",
         }),
         { status: 201, headers: { "content-type": "application/json" } },
       );
@@ -775,6 +911,7 @@ describe("createDiagnosisRoom", () => {
         { mode: "bearer", token: " token-1 " },
         42,
         5,
+        "owner_and_leader",
       );
 
       expect(result).toEqual({
@@ -786,6 +923,7 @@ describe("createDiagnosisRoom", () => {
           chat_session_id: 202,
           workflow_id: "diagnosis-room-diagnosis-session-1",
           run_id: "run-1",
+          approval_mode: "owner_and_leader",
         },
       });
       expect(fetcher).toHaveBeenCalledWith(
@@ -794,6 +932,7 @@ describe("createDiagnosisRoom", () => {
           method: "POST",
           headers: expect.any(Headers),
           body: JSON.stringify({
+            approval_mode: "owner_and_leader",
             evidence_snapshot_id: 42,
             close_notification_channel_profile_id: 5,
           }),

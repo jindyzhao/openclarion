@@ -129,6 +129,7 @@ func chatSessionToDomain(s *ent.ChatSession) domain.ChatSession {
 		LastActivityAt:  s.LastActivityAt,
 		ClosedAt:        s.ClosedAt,
 		CloseReason:     s.CloseReason,
+		ApprovalMode:    domain.DiagnosisApprovalMode(s.ApprovalMode),
 		CreatedAt:       s.CreatedAt,
 		UpdatedAt:       s.UpdatedAt,
 	}
@@ -169,6 +170,19 @@ func chatSessionSummaryToDomain(s *ent.ChatSessionSummary) domain.ChatSessionSum
 		Content:             s.Content,
 		GeneratedAt:         s.GeneratedAt,
 		CreatedAt:           s.CreatedAt,
+	}
+}
+
+func chatSessionApprovalToDomain(a *ent.ChatSessionApproval) domain.ChatSessionApproval {
+	return domain.ChatSessionApproval{
+		ID:               domain.ChatSessionApprovalID(a.ID),
+		SessionID:        domain.ChatSessionID(a.ChatSessionID),
+		ConclusionDigest: a.ConclusionDigest,
+		ActorSubject:     a.ActorSubject,
+		Authority:        domain.DiagnosisApprovalAuthority(a.Authority),
+		Reason:           a.Reason,
+		ApprovedAt:       a.ApprovedAt,
+		CreatedAt:        a.CreatedAt,
 	}
 }
 

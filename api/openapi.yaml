@@ -3743,6 +3743,7 @@ paths:
                         last_activity_at: "2026-06-18T02:20:31Z"
                         closed_at: null
                         close_reason: ""
+                        approval_mode: single
                         latest_conclusion:
                           diagnosis_task_id: 353
                           session_id: diagnosis-session-auto-p3-s247
@@ -3807,6 +3808,7 @@ paths:
               evidence:
                 value:
                   evidence_snapshot_id: 7
+                  approval_mode: single
       responses:
         "201":
           description: Diagnosis room created and ready for WebSocket ticket issuance
@@ -3823,6 +3825,7 @@ paths:
                     chat_session_id: 202
                     workflow_id: diagnosis-room-diagnosis-session-42
                     run_id: run-42
+                    approval_mode: single
         "400":
           description: Room create request is invalid
           content:
@@ -3924,6 +3927,7 @@ paths:
                     last_activity_at: "2026-06-18T02:20:31Z"
                     closed_at: null
                     close_reason: ""
+                    approval_mode: single
                     latest_conclusion:
                       diagnosis_task_id: 353
                       session_id: diagnosis-session-auto-p3-s247
@@ -4222,6 +4226,7 @@ paths:
                     last_activity_at: "2026-05-28T06:05:00Z"
                     closed_at: "2026-05-28T06:05:00Z"
                     close_reason: workflow_unavailable
+                    approval_mode: single
                     notification_timeline: []
                     created_at: "2026-05-28T06:03:30Z"
                     updated_at: "2026-05-28T06:05:00Z"
@@ -5665,6 +5670,7 @@ components:
       enum:
         - admin
         - operator
+        - leader
         - responder
         - viewer
     RBACPermission:
@@ -5678,6 +5684,7 @@ components:
         - diagnosis_room.read
         - diagnosis_room.participate
         - diagnosis_room.administer
+        - diagnosis_room.approve
         - alert_source.read
         - alert_source.manage
         - grouping_policy.read
@@ -7526,6 +7533,53 @@ components:
         - closed
       examples:
         - open
+    DiagnosisRoomApprovalMode:
+      type: string
+      description: Human approval quorum required before a retained conclusion closes the room.
+      enum:
+        - single
+        - owner_and_leader
+      examples:
+        - single
+    DiagnosisRoomApprovalAuthority:
+      type: string
+      description: Stakeholder capacity satisfied by one conclusion approval.
+      enum:
+        - owner
+        - leader
+      examples:
+        - owner
+    DiagnosisRoomConclusionApproval:
+      type: object
+      description: Immutable stakeholder approval bound to one exact assistant conclusion digest.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        conclusion_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+        actor_subject:
+          type: string
+          minLength: 1
+          maxLength: 256
+        authority:
+          $ref: "#/components/schemas/DiagnosisRoomApprovalAuthority"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 512
+        approved_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - conclusion_digest
+        - actor_subject
+        - authority
+        - reason
+        - approved_at
     DiagnosisHandoffReason:
       type: string
       description: Reason a diagnosis handoff item is waiting for operator action.
@@ -7606,6 +7660,7 @@ components:
                 last_activity_at: "2026-06-18T02:20:31Z"
                 closed_at: null
                 close_reason: ""
+                approval_mode: single
                 created_at: "2026-06-18T02:20:28Z"
                 updated_at: "2026-06-18T02:20:31Z"
           items:
@@ -7811,6 +7866,27 @@ components:
           description: Workflow, user, or system reason that closed the room.
           examples:
             - ""
+        approval_mode:
+          $ref: "#/components/schemas/DiagnosisRoomApprovalMode"
+        conclusion_digest:
+          type: string
+          pattern: "^[0-9a-f]{64}$"
+          description: Exact retained conclusion identity for the displayed approvals, when any approval has been recorded.
+          examples:
+            - 6f7d34c34f2dbe95cb7b34a099f50c4b983b1a7ad4b4b3fa6efba262f36b21a0
+        approvals:
+          type: array
+          maxItems: 2
+          description: Immutable approvals for conclusion_digest, ordered by approval time and row identity.
+          examples:
+            - - id: 901
+                conclusion_digest: 6f7d34c34f2dbe95cb7b34a099f50c4b983b1a7ad4b4b3fa6efba262f36b21a0
+                actor_subject: operator:alice
+                authority: owner
+                reason: human_confirmed
+                approved_at: "2026-06-18T02:21:00Z"
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomConclusionApproval"
         participants:
           type: array
           description: Sanitized participant summary derived from room ownership, transcript turns, supplemental evidence, and confirmation metadata.
@@ -7889,6 +7965,7 @@ components:
         - last_activity_at
         - closed_at
         - close_reason
+        - approval_mode
         - created_at
         - updated_at
     DiagnosisRoomParticipantSummary:
@@ -8022,6 +8099,8 @@ components:
           description: Optional notification channel profile used for AI diagnosis update, final-ready, and close notifications from this room.
           examples:
             - 2
+        approval_mode:
+          $ref: "#/components/schemas/DiagnosisRoomApprovalMode"
       required:
         - evidence_snapshot_id
       additionalProperties: false
@@ -8081,6 +8160,8 @@ components:
           description: Temporal run ID for the room.
           examples:
             - run-42
+        approval_mode:
+          $ref: "#/components/schemas/DiagnosisRoomApprovalMode"
       required:
         - session_id
         - evidence_snapshot_id
@@ -8088,6 +8169,7 @@ components:
         - chat_session_id
         - workflow_id
         - run_id
+        - approval_mode
     DiagnosisAuthCheckResponse:
       type: object
       description: Sanitized diagnosis authentication principal summary.
@@ -9160,6 +9242,7 @@ components:
                   last_activity_at: "2026-05-27T09:08:01Z"
                   closed_at: null
                   close_reason: ""
+                  approval_mode: single
                   notification_timeline:
                     - event_kind: diagnosis_room.final_ready_notification_sent
                       notification_channel_profile_id: 2

@@ -11,6 +11,7 @@ import (
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/persistence/ent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionapproval"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
@@ -523,6 +524,9 @@ func (r *diagnosisRepo) SaveChatSession(ctx context.Context, s domain.ChatSessio
 		SetOwnerSubject(s.OwnerSubject).
 		SetStartedAt(s.StartedAt).
 		SetLastActivityAt(s.LastActivityAt)
+	if s.ApprovalMode != "" {
+		builder = builder.SetApprovalMode(string(s.ApprovalMode))
+	}
 	if s.Status != "" {
 		builder = builder.SetStatus(string(s.Status))
 	}
@@ -781,4 +785,96 @@ func (r *diagnosisRepo) FindLatestChatSessionSummary(ctx context.Context, sessio
 		return domain.ChatSessionSummary{}, asNotFound(err)
 	}
 	return chatSessionSummaryToDomain(row), nil
+}
+
+// SaveChatSessionApproval appends one immutable stakeholder approval.
+func (r *diagnosisRepo) SaveChatSessionApproval(ctx context.Context, approval domain.ChatSessionApproval) (domain.ChatSessionApproval, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.ChatSessionApproval{}, err
+	}
+	saved, err := r.tx.ChatSessionApproval.Create().
+		SetChatSessionID(int(approval.SessionID)).
+		SetConclusionDigest(approval.ConclusionDigest).
+		SetActorSubject(approval.ActorSubject).
+		SetAuthority(string(approval.Authority)).
+		SetReason(approval.Reason).
+		SetApprovedAt(approval.ApprovedAt).
+		Save(ctx)
+	if err != nil {
+		return domain.ChatSessionApproval{}, asAlreadyExists(err)
+	}
+	return chatSessionApprovalToDomain(saved), nil
+}
+
+// FindChatSessionApproval returns an exact actor/conclusion approval.
+func (r *diagnosisRepo) FindChatSessionApproval(ctx context.Context, sessionID domain.ChatSessionID, conclusionDigest, actorSubject string) (domain.ChatSessionApproval, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return domain.ChatSessionApproval{}, err
+	}
+	conclusionDigest = strings.TrimSpace(conclusionDigest)
+	actorSubject = strings.TrimSpace(actorSubject)
+	if sessionID == 0 || conclusionDigest == "" || actorSubject == "" {
+		return domain.ChatSessionApproval{}, fmt.Errorf("find chat session approval: session_id, conclusion_digest, and actor_subject must be set: %w", domain.ErrInvariantViolation)
+	}
+	row, err := r.tx.ChatSessionApproval.Query().
+		Where(
+			chatsessionapproval.ChatSessionIDEQ(int(sessionID)),
+			chatsessionapproval.ConclusionDigestEQ(conclusionDigest),
+			chatsessionapproval.ActorSubjectEQ(actorSubject),
+		).
+		Only(ctx)
+	if err != nil {
+		return domain.ChatSessionApproval{}, asNotFound(err)
+	}
+	return chatSessionApprovalToDomain(row), nil
+}
+
+// HasChatSessionApprovals reports whether a session has any approval history.
+func (r *diagnosisRepo) HasChatSessionApprovals(ctx context.Context, sessionID domain.ChatSessionID) (bool, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return false, err
+	}
+	if sessionID == 0 {
+		return false, fmt.Errorf("has chat session approvals: session_id must be non-zero: %w", domain.ErrInvariantViolation)
+	}
+	exists, err := r.tx.ChatSessionApproval.Query().
+		Where(chatsessionapproval.ChatSessionIDEQ(int(sessionID))).
+		Exist(ctx)
+	if err != nil {
+		return false, fmt.Errorf("has chat session approvals: %w", err)
+	}
+	return exists, nil
+}
+
+// ListChatSessionApprovals returns the approval quorum for one conclusion.
+func (r *diagnosisRepo) ListChatSessionApprovals(ctx context.Context, sessionID domain.ChatSessionID, conclusionDigest string, limit int) ([]domain.ChatSessionApproval, error) {
+	if err := checkOpen(r.closed); err != nil {
+		return nil, err
+	}
+	conclusionDigest = strings.TrimSpace(conclusionDigest)
+	if sessionID == 0 || conclusionDigest == "" {
+		return nil, fmt.Errorf("list chat session approvals: session_id and conclusion_digest must be set: %w", domain.ErrInvariantViolation)
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("list chat session approvals: limit must be > 0 (got %d): %w", limit, domain.ErrInvariantViolation)
+	}
+	rows, err := r.tx.ChatSessionApproval.Query().
+		Where(
+			chatsessionapproval.ChatSessionIDEQ(int(sessionID)),
+			chatsessionapproval.ConclusionDigestEQ(conclusionDigest),
+		).
+		Order(
+			chatsessionapproval.ByApprovedAt(),
+			chatsessionapproval.ByID(),
+		).
+		Limit(limit).
+		All(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list chat session approvals: %w", err)
+	}
+	out := make([]domain.ChatSessionApproval, len(rows))
+	for i, row := range rows {
+		out[i] = chatSessionApprovalToDomain(row)
+	}
+	return out, nil
 }

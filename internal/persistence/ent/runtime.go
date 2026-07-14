@@ -9,6 +9,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertsourceprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
+	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionapproval"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
@@ -289,16 +290,100 @@ func init() {
 	chatsessionDescCloseReason := chatsessionFields[8].Descriptor()
 	// chatsession.CloseReasonValidator is a validator for the "close_reason" field. It is called by the builders before save.
 	chatsession.CloseReasonValidator = chatsessionDescCloseReason.Validators[0].(func(string) error)
+	// chatsessionDescApprovalMode is the schema descriptor for approval_mode field.
+	chatsessionDescApprovalMode := chatsessionFields[9].Descriptor()
+	// chatsession.DefaultApprovalMode holds the default value on creation for the approval_mode field.
+	chatsession.DefaultApprovalMode = chatsessionDescApprovalMode.Default.(string)
+	// chatsession.ApprovalModeValidator is a validator for the "approval_mode" field. It is called by the builders before save.
+	chatsession.ApprovalModeValidator = chatsessionDescApprovalMode.Validators[0].(func(string) error)
 	// chatsessionDescCreatedAt is the schema descriptor for created_at field.
-	chatsessionDescCreatedAt := chatsessionFields[9].Descriptor()
+	chatsessionDescCreatedAt := chatsessionFields[10].Descriptor()
 	// chatsession.DefaultCreatedAt holds the default value on creation for the created_at field.
 	chatsession.DefaultCreatedAt = chatsessionDescCreatedAt.Default.(func() time.Time)
 	// chatsessionDescUpdatedAt is the schema descriptor for updated_at field.
-	chatsessionDescUpdatedAt := chatsessionFields[10].Descriptor()
+	chatsessionDescUpdatedAt := chatsessionFields[11].Descriptor()
 	// chatsession.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	chatsession.DefaultUpdatedAt = chatsessionDescUpdatedAt.Default.(func() time.Time)
 	// chatsession.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	chatsession.UpdateDefaultUpdatedAt = chatsessionDescUpdatedAt.UpdateDefault.(func() time.Time)
+	chatsessionapprovalFields := schema.ChatSessionApproval{}.Fields()
+	_ = chatsessionapprovalFields
+	// chatsessionapprovalDescConclusionDigest is the schema descriptor for conclusion_digest field.
+	chatsessionapprovalDescConclusionDigest := chatsessionapprovalFields[1].Descriptor()
+	// chatsessionapproval.ConclusionDigestValidator is a validator for the "conclusion_digest" field. It is called by the builders before save.
+	chatsessionapproval.ConclusionDigestValidator = func() func(string) error {
+		validators := chatsessionapprovalDescConclusionDigest.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(conclusion_digest string) error {
+			for _, fn := range fns {
+				if err := fn(conclusion_digest); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// chatsessionapprovalDescActorSubject is the schema descriptor for actor_subject field.
+	chatsessionapprovalDescActorSubject := chatsessionapprovalFields[2].Descriptor()
+	// chatsessionapproval.ActorSubjectValidator is a validator for the "actor_subject" field. It is called by the builders before save.
+	chatsessionapproval.ActorSubjectValidator = func() func(string) error {
+		validators := chatsessionapprovalDescActorSubject.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(actor_subject string) error {
+			for _, fn := range fns {
+				if err := fn(actor_subject); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// chatsessionapprovalDescAuthority is the schema descriptor for authority field.
+	chatsessionapprovalDescAuthority := chatsessionapprovalFields[3].Descriptor()
+	// chatsessionapproval.AuthorityValidator is a validator for the "authority" field. It is called by the builders before save.
+	chatsessionapproval.AuthorityValidator = func() func(string) error {
+		validators := chatsessionapprovalDescAuthority.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(authority string) error {
+			for _, fn := range fns {
+				if err := fn(authority); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// chatsessionapprovalDescReason is the schema descriptor for reason field.
+	chatsessionapprovalDescReason := chatsessionapprovalFields[4].Descriptor()
+	// chatsessionapproval.ReasonValidator is a validator for the "reason" field. It is called by the builders before save.
+	chatsessionapproval.ReasonValidator = func() func(string) error {
+		validators := chatsessionapprovalDescReason.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(reason string) error {
+			for _, fn := range fns {
+				if err := fn(reason); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// chatsessionapprovalDescCreatedAt is the schema descriptor for created_at field.
+	chatsessionapprovalDescCreatedAt := chatsessionapprovalFields[6].Descriptor()
+	// chatsessionapproval.DefaultCreatedAt holds the default value on creation for the created_at field.
+	chatsessionapproval.DefaultCreatedAt = chatsessionapprovalDescCreatedAt.Default.(func() time.Time)
 	chatsessionsummaryFields := schema.ChatSessionSummary{}.Fields()
 	_ = chatsessionsummaryFields
 	// chatsessionsummaryDescVersion is the schema descriptor for version field.

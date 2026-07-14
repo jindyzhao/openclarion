@@ -28,6 +28,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/alertmanagerwebhook"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
 	"github.com/openclarion/openclarion/internal/usecases/alertsourcecheck"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisapproval"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisnotification"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
@@ -63,7 +64,7 @@ func TestDiagnosisWSFramePermissionMapsActions(t *testing.T) {
 		{frameType: diagnosisWSClientSubmitTurn, want: domain.RBACPermissionDiagnosisRoomParticipate, wantOK: true},
 		{frameType: diagnosisWSClientSubmitSupplementalEvidence, want: domain.RBACPermissionDiagnosisRoomParticipate, wantOK: true},
 		{frameType: diagnosisWSClientCollectEvidence, want: domain.RBACPermissionDiagnosisRoomParticipate, wantOK: true},
-		{frameType: diagnosisWSClientConfirm, want: domain.RBACPermissionDiagnosisRoomAdminister, wantOK: true},
+		{frameType: diagnosisWSClientConfirm, want: domain.RBACPermissionDiagnosisRoomApprove, wantOK: true},
 		{frameType: "unsupported", wantOK: false},
 	}
 	for _, tc := range tests {
@@ -73,6 +74,126 @@ func TestDiagnosisWSFramePermissionMapsActions(t *testing.T) {
 				t.Fatalf("permission = %q ok=%t, want %q ok=%t", got, ok, tc.want, tc.wantOK)
 			}
 		})
+	}
+}
+
+func TestDiagnosisWSStateFrameProjectsApprovalQuorum(t *testing.T) {
+	approvedAt := time.Date(2026, 7, 14, 9, 30, 0, 0, time.UTC)
+	digest := strings.Repeat("b", 64)
+	frame := diagnosisWSStateFrameFromState(ports.DiagnosisRoomState{
+		SessionID:        "session-1",
+		ChatSessionID:    42,
+		DiagnosisTaskID:  101,
+		Status:           "open",
+		ApprovalMode:     domain.DiagnosisApprovalModeOwnerAndLeader,
+		ConclusionDigest: digest,
+		Approvals: []ports.DiagnosisRoomConclusionApproval{{
+			ID:               8,
+			ConclusionDigest: digest,
+			ActorSubject:     "owner-1",
+			Authority:        domain.DiagnosisApprovalAuthorityOwner,
+			Reason:           "human_confirmed",
+			ApprovedAt:       approvedAt,
+		}},
+		PendingApprovalAuthorities: []domain.DiagnosisApprovalAuthority{
+			domain.DiagnosisApprovalAuthorityLeader,
+		},
+	})
+
+	if frame.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader ||
+		frame.ConclusionDigest != digest ||
+		len(frame.Approvals) != 1 ||
+		frame.Approvals[0].ActorSubject != "owner-1" ||
+		len(frame.PendingApprovalAuthorities) != 1 ||
+		frame.PendingApprovalAuthorities[0] != domain.DiagnosisApprovalAuthorityLeader {
+		t.Fatalf("approval frame = %+v", frame)
+	}
+}
+
+func TestDiagnosisRoomApprovalStateIgnoresQuorumSupersededByNewTurn(t *testing.T) {
+	digest, err := diagnosisapproval.ConclusionDigest("msg-1/assistant", 2, "Initial conclusion.")
+	if err != nil {
+		t.Fatalf("ConclusionDigest initial: %v", err)
+	}
+	approvedAt := time.Date(2026, 7, 14, 9, 45, 0, 0, time.UTC)
+	repo := &fakeDiagnosisRepo{
+		chatTurnsBySession: map[domain.ChatSessionID][]domain.ChatTurn{
+			7: {
+				{SessionID: 7, MessageID: "msg-1", Sequence: 1, Role: domain.ChatRoleUser, Content: "Investigate."},
+				{SessionID: 7, MessageID: "msg-1/assistant", Sequence: 2, Role: domain.ChatRoleAssistant, Content: "Initial conclusion."},
+				{SessionID: 7, MessageID: "msg-2", Sequence: 3, Role: domain.ChatRoleUser, Content: "Use the new evidence."},
+				{SessionID: 7, MessageID: "msg-2/assistant", Sequence: 4, Role: domain.ChatRoleAssistant, Content: "Revised conclusion."},
+			},
+		},
+		chatApprovalsByKey: map[string][]domain.ChatSessionApproval{
+			chatApprovalTestKey(7, digest): {{
+				ID:               1,
+				SessionID:        7,
+				ConclusionDigest: digest,
+				ActorSubject:     "owner-1",
+				Authority:        domain.DiagnosisApprovalAuthorityOwner,
+				Reason:           "human_confirmed",
+				ApprovedAt:       approvedAt,
+				CreatedAt:        approvedAt,
+			}},
+		},
+	}
+
+	gotDigest, approvals, err := diagnosisRoomApprovalState(context.Background(), repo, domain.ChatSession{
+		ID:           7,
+		SessionKey:   "session-approval",
+		TurnCount:    2,
+		ApprovalMode: domain.DiagnosisApprovalModeOwnerAndLeader,
+	}, repo.chatTurnsBySession[7])
+	if err != nil {
+		t.Fatalf("diagnosisRoomApprovalState: %v", err)
+	}
+	if gotDigest != "" || len(approvals) != 0 || repo.listChatApprovalsCalls != 1 {
+		t.Fatalf("stale approval state digest=%q approvals=%+v row_calls=%d", gotDigest, approvals, repo.listChatApprovalsCalls)
+	}
+}
+
+func TestDiagnosisRoomApprovalStateProjectsCurrentQuorum(t *testing.T) {
+	digest, err := diagnosisapproval.ConclusionDigest("msg-1/assistant", 2, "Current conclusion.")
+	if err != nil {
+		t.Fatalf("ConclusionDigest current: %v", err)
+	}
+	approvedAt := time.Date(2026, 7, 14, 9, 45, 0, 0, time.UTC)
+	repo := &fakeDiagnosisRepo{
+		chatTurnsBySession: map[domain.ChatSessionID][]domain.ChatTurn{
+			7: {
+				{SessionID: 7, MessageID: "msg-1", Sequence: 1, Role: domain.ChatRoleUser, Content: "Investigate."},
+				{SessionID: 7, MessageID: "msg-1/assistant", Sequence: 2, Role: domain.ChatRoleAssistant, Content: "Current conclusion."},
+			},
+		},
+		chatApprovalsByKey: map[string][]domain.ChatSessionApproval{
+			chatApprovalTestKey(7, digest): {{
+				ID:               1,
+				SessionID:        7,
+				ConclusionDigest: digest,
+				ActorSubject:     "owner-1",
+				Authority:        domain.DiagnosisApprovalAuthorityOwner,
+				Reason:           "human_confirmed",
+				ApprovedAt:       approvedAt,
+				CreatedAt:        approvedAt,
+			}},
+		},
+	}
+
+	gotDigest, approvals, err := diagnosisRoomApprovalState(context.Background(), repo, domain.ChatSession{
+		ID:           7,
+		SessionKey:   "session-approval",
+		TurnCount:    1,
+		ApprovalMode: domain.DiagnosisApprovalModeOwnerAndLeader,
+	}, repo.chatTurnsBySession[7])
+	if err != nil {
+		t.Fatalf("diagnosisRoomApprovalState: %v", err)
+	}
+	if gotDigest != digest || len(approvals) != 1 ||
+		approvals[0].ActorSubject != "owner-1" ||
+		approvals[0].Authority != api.DiagnosisRoomApprovalAuthorityOwner ||
+		repo.listChatApprovalsCalls != 1 {
+		t.Fatalf("current approval state digest=%q approvals=%+v row_calls=%d", gotDigest, approvals, repo.listChatApprovalsCalls)
 	}
 }
 
@@ -8582,11 +8703,12 @@ func TestCreateDiagnosisRoomAuthenticatesAndStartsRoom(t *testing.T) {
 			DiagnosisTaskID:    101,
 			ChatSessionID:      202,
 			Workflow:           ports.WorkflowHandle{WorkflowID: "diagnosis-room-diagnosis-session-1", RunID: "run-1"},
+			ApprovalMode:       domain.DiagnosisApprovalModeOwnerAndLeader,
 		},
 	}
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/rooms", strings.NewReader(`{"evidence_snapshot_id":42,"close_notification_channel_profile_id":5}`))
+	req := httptest.NewRequestWithContext(context.Background(), stdhttp.MethodPost, "/api/v1/diagnosis/rooms", strings.NewReader(`{"evidence_snapshot_id":42,"close_notification_channel_profile_id":5,"approval_mode":"owner_and_leader"}`))
 	req.Header.Set("Authorization", "Bearer oidc-token")
 	testHandler(
 		&fakeUOWFactory{configRepo: &fakeConfigRepo{}},
@@ -8622,6 +8744,7 @@ func TestCreateDiagnosisRoomAuthenticatesAndStartsRoom(t *testing.T) {
 	if starter.called != 1 ||
 		starter.req.EvidenceSnapshotID != 42 ||
 		starter.req.CloseNotificationChannelProfileID != 5 ||
+		starter.req.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader ||
 		starter.req.Principal.Subject != "owner-1" {
 		t.Fatalf("starter called=%d req=%+v", starter.called, starter.req)
 	}
@@ -8634,7 +8757,8 @@ func TestCreateDiagnosisRoomAuthenticatesAndStartsRoom(t *testing.T) {
 		body.DiagnosisTaskID != 101 ||
 		body.ChatSessionID != 202 ||
 		body.WorkflowID != "diagnosis-room-diagnosis-session-1" ||
-		body.RunID != "run-1" {
+		body.RunID != "run-1" ||
+		body.ApprovalMode != api.OwnerAndLeader {
 		t.Fatalf("response = %+v", body)
 	}
 }
@@ -8856,6 +8980,16 @@ func TestCreateDiagnosisRoomRejectsBadInputs(t *testing.T) {
 		{
 			name:          "invalid notification channel profile",
 			body:          `{"evidence_snapshot_id":42,"close_notification_channel_profile_id":0}`,
+			authHeader:    "Bearer oidc-token",
+			starter:       &fakeDiagnosisRoomStarter{},
+			principal:     ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
+			withAuth:      true,
+			wantStatus:    stdhttp.StatusBadRequest,
+			wantAuthCalls: 1,
+		},
+		{
+			name:          "invalid approval mode",
+			body:          `{"evidence_snapshot_id":42,"approval_mode":"committee"}`,
 			authHeader:    "Bearer oidc-token",
 			starter:       &fakeDiagnosisRoomStarter{},
 			principal:     ports.AuthPrincipal{Subject: "owner-1", Roles: []ports.AuthRole{ports.AuthRoleOwner}},
@@ -9909,7 +10043,7 @@ func TestDiagnosisWebSocketRelayRejectsUnauthorizedConfirmFrame(t *testing.T) {
 	}
 	if authorizer.called != 1 ||
 		authorizer.req.Principal.Subject != "owner-1" ||
-		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomAdminister ||
+		authorizer.req.Permission != domain.RBACPermissionDiagnosisRoomApprove ||
 		authorizer.req.ScopeKind != domain.RBACScopeKindDiagnosisRoom ||
 		authorizer.req.ScopeKey != "session-1" {
 		t.Fatalf("authorizer request = %+v called=%d", authorizer.req, authorizer.called)
@@ -11336,23 +11470,25 @@ func (r *fakeEvidenceRepo) List(_ context.Context, limit int) ([]domain.Evidence
 
 type fakeDiagnosisRepo struct {
 	ports.DiagnosisRepository
-	tasksBySnapshot       map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
-	eventsByTaskAndKind   map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
-	chatTurnsBySession    map[domain.ChatSessionID][]domain.ChatTurn
-	chatSessionSummaries  map[domain.ChatSessionID]domain.ChatSessionSummary
-	chatSessions          []domain.ChatSessionWithTask
-	lastSnapshotID        domain.EvidenceSnapshotID
-	lastTaskLimit         int
-	lastTaskID            domain.DiagnosisTaskID
-	lastFindTaskID        domain.DiagnosisTaskID
-	lastEventKind         string
-	lastEventLimit        int
-	lastChatSessionLimit  int
-	lastChatSessionOffset int
-	chatSessionPageCalls  []chatSessionPageCall
-	lastChatSessionKey    string
-	lastChatTurnSession   domain.ChatSessionID
-	lastChatTurnLimit     int
+	tasksBySnapshot        map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
+	eventsByTaskAndKind    map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
+	chatTurnsBySession     map[domain.ChatSessionID][]domain.ChatTurn
+	chatSessionSummaries   map[domain.ChatSessionID]domain.ChatSessionSummary
+	chatApprovalsByKey     map[string][]domain.ChatSessionApproval
+	chatSessions           []domain.ChatSessionWithTask
+	lastSnapshotID         domain.EvidenceSnapshotID
+	lastTaskLimit          int
+	lastTaskID             domain.DiagnosisTaskID
+	lastFindTaskID         domain.DiagnosisTaskID
+	lastEventKind          string
+	lastEventLimit         int
+	lastChatSessionLimit   int
+	lastChatSessionOffset  int
+	chatSessionPageCalls   []chatSessionPageCall
+	lastChatSessionKey     string
+	lastChatTurnSession    domain.ChatSessionID
+	lastChatTurnLimit      int
+	listChatApprovalsCalls int
 }
 
 type chatSessionPageCall struct {
@@ -11447,6 +11583,29 @@ func (r *fakeDiagnosisRepo) FindLatestChatSessionSummary(_ context.Context, sess
 		return summary, nil
 	}
 	return domain.ChatSessionSummary{}, domain.ErrNotFound
+}
+
+func chatApprovalTestKey(sessionID domain.ChatSessionID, digest string) string {
+	return fmt.Sprintf("%d/%s", sessionID, digest)
+}
+
+func (r *fakeDiagnosisRepo) HasChatSessionApprovals(_ context.Context, sessionID domain.ChatSessionID) (bool, error) {
+	prefix := fmt.Sprintf("%d/", sessionID)
+	for key, items := range r.chatApprovalsByKey {
+		if strings.HasPrefix(key, prefix) && len(items) > 0 {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (r *fakeDiagnosisRepo) ListChatSessionApprovals(_ context.Context, sessionID domain.ChatSessionID, digest string, limit int) ([]domain.ChatSessionApproval, error) {
+	r.listChatApprovalsCalls++
+	items := r.chatApprovalsByKey[chatApprovalTestKey(sessionID, digest)]
+	if limit > len(items) {
+		limit = len(items)
+	}
+	return append([]domain.ChatSessionApproval(nil), items[:limit]...), nil
 }
 
 type fakeReportRepo struct {

@@ -551,6 +551,7 @@ describe("alert diagnosis delivery helpers", () => {
 
 function room(overrides: Partial<DiagnosisRoomSummary> = {}): DiagnosisRoomSummary {
   return {
+    approval_mode: "single",
     chat_session_id: 202,
     close_reason: "",
     closed_at: null,

@@ -71,6 +71,11 @@ func (ChatSession) Fields() []ent.Field {
 			MaxLen(128).
 			Optional().
 			Comment("workflow/user/system reason that closed the room"),
+		field.String("approval_mode").
+			MaxLen(32).
+			Default("single").
+			Immutable().
+			Comment(`human conclusion quorum: "single" or "owner_and_leader"`),
 		field.Time("created_at").
 			Default(time.Now).
 			Immutable().
@@ -93,6 +98,7 @@ func (ChatSession) Edges() []ent.Edge {
 			Immutable(),
 		edge.To("turns", ChatTurn.Type),
 		edge.To("summaries", ChatSessionSummary.Type),
+		edge.To("approvals", ChatSessionApproval.Type),
 	}
 }
 

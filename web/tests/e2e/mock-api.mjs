@@ -221,6 +221,7 @@ const report = {
       },
       diagnosis_room: {
         session_id: "diagnosis-session-301",
+        approval_mode: "single",
         chat_session_id: 401,
         diagnosis_task_id: 301,
         evidence_snapshot_id: 9001,
@@ -473,6 +474,7 @@ const alertEvents = [
         diagnosis_rooms: [
           {
             session_id: "diagnosis-session-auto-p1-s9001",
+            approval_mode: "single",
             chat_session_id: 401,
             diagnosis_task_id: 301,
             evidence_snapshot_id: 9001,
@@ -535,6 +537,7 @@ const alertEvents = [
           },
           {
             session_id: "diagnosis-session-notification-failed",
+            approval_mode: "single",
             chat_session_id: 408,
             diagnosis_task_id: 308,
             evidence_snapshot_id: 9001,
@@ -580,6 +583,7 @@ const alertEvents = [
           },
           {
             session_id: "diagnosis-session-closed-finalized",
+            approval_mode: "single",
             chat_session_id: 410,
             diagnosis_task_id: 310,
             evidence_snapshot_id: 9001,
@@ -759,6 +763,7 @@ const evidenceSnapshots = [
 const diagnosisRooms = [
   {
     session_id: "diagnosis-session-auto-p1-s9001",
+    approval_mode: "single",
     chat_session_id: 401,
     diagnosis_task_id: 301,
     evidence_snapshot_id: 9001,
@@ -820,6 +825,7 @@ const diagnosisRooms = [
   },
   {
     session_id: "diagnosis-session-notification-failed",
+    approval_mode: "single",
     chat_session_id: 408,
     diagnosis_task_id: 308,
     evidence_snapshot_id: 9001,
@@ -865,6 +871,7 @@ const diagnosisRooms = [
   },
   {
     session_id: "diagnosis-session-closed-finalized",
+    approval_mode: "single",
     chat_session_id: 410,
     diagnosis_task_id: 310,
     evidence_snapshot_id: 9001,
@@ -925,6 +932,7 @@ const diagnosisRooms = [
   },
   {
     session_id: "diagnosis-session-orphaned-workflow",
+    approval_mode: "single",
     chat_session_id: 409,
     diagnosis_task_id: 309,
     evidence_snapshot_id: 9001,
@@ -1600,6 +1608,8 @@ server.on("upgrade", (request, socket) => {
   );
 
   const state = {
+    approvalMode: "single",
+    approvals: [],
     status: "open",
     turnCount: 0,
     conversation: [],
@@ -2511,6 +2521,7 @@ function attachReplaySnapshotToDiskAlert() {
 function replayedDiskDiagnosisRoom() {
   return {
     session_id: "diagnosis-session-auto-p1-s9002",
+    approval_mode: "single",
     chat_session_id: 409,
     diagnosis_task_id: 309,
     evidence_snapshot_id: 9002,
@@ -3412,6 +3423,17 @@ function handleDiagnosisFrame(socket, sessionID, state, payload) {
       typeof frame.reason === "string" && frame.reason.trim() !== ""
         ? frame.reason.trim()
         : "human_confirmed";
+    const conclusionDigest = diagnosisConclusionDigest(state);
+    state.approvals = [
+      {
+        id: 1,
+        conclusion_digest: conclusionDigest,
+        actor_subject: "owner-1",
+        authority: "owner",
+        reason: closeReason,
+        approved_at: "2026-05-28T10:02:00Z",
+      },
+    ];
     state.status = "closed";
     state.closedAt = "2026-05-28T10:02:00Z";
     state.closeReason = closeReason;
@@ -3593,6 +3615,7 @@ function mockDiagnosisConfidenceCheckpoint({
 }
 
 function diagnosisState(sessionID, state) {
+  const conclusionDigest = diagnosisConclusionDigest(state);
   const payload = {
     type: "state",
     session_id: sessionID,
@@ -3603,10 +3626,18 @@ function diagnosisState(sessionID, state) {
     turn_count: state.turnCount,
     started_at: "2026-05-28T10:00:00Z",
     last_activity_at: state.closedAt || "2026-05-28T10:00:05Z",
+    approval_mode: state.approvalMode,
+    approvals: state.approvals,
+    pending_approval_authorities:
+      conclusionDigest === "" || state.approvals.length > 0 ? [] : ["owner"],
+    approval_in_flight: false,
     in_flight: false,
     seen_message_ids: [],
     conversation: state.conversation,
   };
+  if (conclusionDigest !== "") {
+    payload.conclusion_digest = conclusionDigest;
+  }
   if (state.closedAt) {
     payload.closed_at = state.closedAt;
     payload.close_reason = state.closeReason;
@@ -3628,6 +3659,21 @@ function diagnosisState(sessionID, state) {
     payload.latest_error = state.latestError;
   }
   return payload;
+}
+
+function diagnosisConclusionDigest(state) {
+  const conclusionStatus =
+    state.latestConsultationInsight?.conclusion_status ?? "";
+  if (
+    !state.finalConclusion &&
+    conclusionStatus !== "final" &&
+    conclusionStatus !== "ready_for_review"
+  ) {
+    return "";
+  }
+  return createHash("sha256")
+    .update(JSON.stringify(state.conversation))
+    .digest("hex");
 }
 
 function sendWebSocketJSON(socket, payload) {

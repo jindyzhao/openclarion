@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-07-12
+> Last updated: 2026-07-14
 > Author: jindyzhao
 > Status: private incubation
 
@@ -221,11 +221,16 @@ Delivered as part of V1 with intentionally minimal scope. See
 for the V1 scope boundary.
 
 - [x] AuthProvider interface and OIDC implementation
-- [x] RBAC checks (owner and admin; leader is deferred)
+- [x] room-access RBAC checks (owner/admin) and dedicated conclusion approval
+      permission (owner/leader)
 - [x] DiagnosisRoomWorkflow control-plane skeleton (Temporal Update, signals, queries, durable timers)
 - [x] per-turn ContainerProvider Activity boundary with strict diagnosis-turn
       output schema validation
-- [x] ChatSession and ChatTurn Ent schemas + repository boundary
+- [x] ChatSession, ChatTurn, and ChatSessionApproval Ent schemas + repository
+      boundary
+- [x] configurable `single` / `owner_and_leader` conclusion approval with
+      immutable digest-bound records, distinct actors, and persisted quorum
+      enforcement before close
 - [x] DiagnosisRoomWorkflow persists accepted user+assistant ChatTurn pairs
 - [x] bounded-turn enforcement at workflow Update boundary
 - [x] fixed session lifetime + idle timeout
@@ -248,7 +253,7 @@ with sandboxed agent within turn and time limits -> chat persisted, audit
 logged, final notification sent.
 
 **Explicitly Out-of-Scope (V1)**: lifecycle-end compression, multi-day
-sessions, leader-tier approval, streaming partial responses.
+sessions, arbitrary external approval policies, streaming partial responses.
 
 ## Future
 
@@ -267,6 +272,7 @@ sessions, leader-tier approval, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-14 | jindyzhao | Diagnosis rooms now support configurable single-party or owner-plus-leader conclusion approval, with immutable digest-bound approvals, dedicated approval RBAC, persisted quorum enforcement before close, and WebSocket/REST/frontend projection. |
 | 2026-07-12 | jindyzhao | Alert-source adapters now register by kind behind the minimum `ActiveAlertProvider`; metric access is an optional `MetricQueryProvider` capability, so Alertmanager no longer implements unsupported metric placeholders. See [ADR-0003](../adr/ADR-0003-provider-extension-interfaces.md). |
 | 2026-07-10 | jindyzhao | Alertmanager webhook lifecycle ingestion now applies resolved entries to matching profile-scoped `AlertEvent` natural keys, preserves immutable resolution timestamps under repeated or concurrent delivery, reports unmatched resolutions without synthesizing history, and keeps automatic diagnosis firing-only. |
 | 2026-07-10 | jindyzhao | Scheduled weekly/monthly reports were marked complete after re-review: persisted report workflow schedules already support UTC daily, weekly, and monthly calendar cadences through domain validation, generated API contracts, Ent persistence, frontend settings formatting, and Temporal Schedule calendar-spec registration. Retained live scheduled-trigger proof remains separate. |

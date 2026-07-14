@@ -6,6 +6,7 @@ export const diagnosisRoomCreateOperationsReadAuthorizationKey =
 
 type DiagnosisRoomRBACAction =
   | "administer"
+  | "approve"
   | "create"
   | "participate"
   | "read";
@@ -40,6 +41,12 @@ export function diagnosisRoomAdministerAuthorizationKey(
   sessionID: string,
 ): string {
   return `diagnosisRoom.${sessionID}.administer`;
+}
+
+export function diagnosisRoomApproveAuthorizationKey(
+  sessionID: string,
+): string {
+  return `diagnosisRoom.${sessionID}.approve`;
 }
 
 export function diagnosisRoomCreateNotificationChannelAuthorizationKey(
@@ -93,6 +100,12 @@ export function diagnosisRoomRBACAuthorizationChecks(
       {
         key: diagnosisRoomParticipateAuthorizationKey(normalized),
         permission: "diagnosis_room.participate",
+        scopeKey: normalized,
+        scopeKind: "diagnosis_room",
+      },
+      {
+        key: diagnosisRoomApproveAuthorizationKey(normalized),
+        permission: "diagnosis_room.approve",
         scopeKey: normalized,
         scopeKind: "diagnosis_room",
       },
@@ -268,6 +281,13 @@ function diagnosisRoomScopedPermissionItems({
         "diagnosis_room.participate" as CurrentRBACAuthorizationCheck["permission"],
     },
     {
+      action: "approve",
+      key: selected ? diagnosisRoomApproveAuthorizationKey(sessionID) : "",
+      label: "Approve conclusion",
+      permission:
+        "diagnosis_room.approve" as CurrentRBACAuthorizationCheck["permission"],
+    },
+    {
       action: "administer",
       key: selected ? diagnosisRoomAdministerAuthorizationKey(sessionID) : "",
       label: "Administer",
@@ -331,7 +351,7 @@ export function diagnosisRoomRBACBlockReason({
   checking,
   enforced,
 }: {
-  action: "administer" | "create" | "participate" | "read";
+  action: DiagnosisRoomRBACAction;
   allowed: boolean;
   checking: boolean;
   enforced: boolean;
@@ -347,6 +367,8 @@ export function diagnosisRoomRBACBlockReason({
       return "Current user is not authorized to administer this diagnosis room.";
     case "create":
       return "Current user is not authorized to create diagnosis rooms.";
+    case "approve":
+      return "Current user is not authorized to approve this diagnosis conclusion.";
     case "participate":
       return "Current user is not authorized to participate in this diagnosis room.";
     case "read":

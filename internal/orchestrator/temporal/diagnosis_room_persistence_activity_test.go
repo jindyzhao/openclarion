@@ -13,6 +13,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	temporalpkg "github.com/openclarion/openclarion/internal/orchestrator/temporal"
+	"github.com/openclarion/openclarion/internal/usecases/diagnosisapproval"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -981,6 +982,246 @@ func TestDiagnosisRoomPersistenceActivities_CloseSessionIsIdempotentAndAudited(t
 	})
 	if err != nil {
 		t.Fatalf("verify close: %v", err)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_MultiStakeholderApprovalGatesClose(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-approval-quorum")
+	activities := temporalpkg.NewActivities(env.factory)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 7, 11, 9, 30, 0, 0, time.UTC)
+	ensure, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-approval-quorum",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+		ApprovalMode:    domain.DiagnosisApprovalModeOwnerAndLeader,
+	})
+	if err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+	persistReq := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-approval-quorum", startedAt)
+	persisted, err := activities.PersistDiagnosisTurn(ctx, persistReq)
+	if err != nil {
+		t.Fatalf("PersistDiagnosisTurn: %v", err)
+	}
+	digest, err := diagnosisapproval.ConclusionDigest(
+		persistReq.AssistantMessageID,
+		persistReq.AssistantSequence,
+		persistReq.AssistantMessage,
+	)
+	if err != nil {
+		t.Fatalf("ConclusionDigest: %v", err)
+	}
+	ownerReq := temporalpkg.RecordDiagnosisConclusionApprovalInput{
+		SessionID:          "session-room-approval-quorum",
+		DiagnosisTaskID:    int64(seed.TaskID),
+		OwnerSubject:       "owner-1",
+		ActorSubject:       "owner-1",
+		Authority:          domain.DiagnosisApprovalAuthorityOwner,
+		ApprovalMode:       domain.DiagnosisApprovalModeOwnerAndLeader,
+		Reason:             "human_confirmed",
+		AssistantMessageID: persistReq.AssistantMessageID,
+		AssistantSequence:  persistReq.AssistantSequence,
+		ConclusionContent:  persistReq.AssistantMessage,
+		ConclusionDigest:   digest,
+		ApprovedAt:         persisted.LastActivityAt.Add(time.Second),
+	}
+	ownerApproval, err := activities.RecordDiagnosisConclusionApproval(ctx, ownerReq)
+	if err != nil {
+		t.Fatalf("RecordDiagnosisConclusionApproval owner: %v", err)
+	}
+	closeReq := temporalpkg.CloseDiagnosisChatSessionInput{
+		SessionID:                 "session-room-approval-quorum",
+		DiagnosisTaskID:           int64(seed.TaskID),
+		OwnerSubject:              "owner-1",
+		ConfirmedBy:               "owner-1",
+		TurnCount:                 1,
+		ClosedAt:                  ownerReq.ApprovedAt.Add(time.Minute),
+		Reason:                    "human_confirmed",
+		RequireConclusionApproval: true,
+		ApprovalMode:              domain.DiagnosisApprovalModeOwnerAndLeader,
+		ConclusionDigest:          digest,
+	}
+	if _, err := activities.CloseDiagnosisChatSession(ctx, closeReq); err == nil || !strings.Contains(err.Error(), "quorum is incomplete") {
+		t.Fatalf("CloseDiagnosisChatSession incomplete quorum error = %v", err)
+	}
+
+	leaderReq := ownerReq
+	leaderReq.ActorSubject = "leader-1"
+	leaderReq.Authority = domain.DiagnosisApprovalAuthorityLeader
+	leaderReq.ApprovedAt = ownerReq.ApprovedAt.Add(time.Second)
+	leaderApproval, err := activities.RecordDiagnosisConclusionApproval(ctx, leaderReq)
+	if err != nil {
+		t.Fatalf("RecordDiagnosisConclusionApproval leader: %v", err)
+	}
+	leaderApprovalRetry, err := activities.RecordDiagnosisConclusionApproval(ctx, leaderReq)
+	if err != nil {
+		t.Fatalf("RecordDiagnosisConclusionApproval leader retry: %v", err)
+	}
+	if ownerApproval.Approval.ID == 0 ||
+		leaderApproval.Approval.ID == 0 ||
+		leaderApprovalRetry.Approval.ID != leaderApproval.Approval.ID ||
+		leaderApprovalRetry.LifecycleEventID != leaderApproval.LifecycleEventID {
+		t.Fatalf("approval results owner=%+v leader=%+v retry=%+v", ownerApproval, leaderApproval, leaderApprovalRetry)
+	}
+	duplicateLeaderReq := leaderReq
+	duplicateLeaderReq.ActorSubject = "leader-2"
+	duplicateLeaderReq.ApprovedAt = leaderReq.ApprovedAt.Add(time.Second)
+	if _, err := activities.RecordDiagnosisConclusionApproval(ctx, duplicateLeaderReq); err == nil ||
+		!strings.Contains(err.Error(), "one authority cannot be satisfied by multiple subjects") {
+		t.Fatalf("duplicate leader authority error = %v", err)
+	}
+	closeReq.ConfirmedBy = "leader-1"
+	closeReq.ClosedAt = leaderReq.ApprovedAt.Add(time.Minute)
+	closed, err := activities.CloseDiagnosisChatSession(ctx, closeReq)
+	if err != nil {
+		t.Fatalf("CloseDiagnosisChatSession complete quorum: %v", err)
+	}
+	if closed.ChatSessionID != ensure.ChatSessionID ||
+		closed.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader ||
+		closed.ConclusionDigest != digest ||
+		len(closed.Approvals) != 2 {
+		t.Fatalf("closed approval state = %+v", closed)
+	}
+
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		session, err := uow.Diagnosis().FindChatSessionByKey(ctx, closeReq.SessionID)
+		if err != nil {
+			return err
+		}
+		if session.Status != domain.ChatSessionStatusClosed || session.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader {
+			t.Fatalf("stored session = %+v", session)
+		}
+		rows, err := uow.Diagnosis().ListChatSessionApprovals(ctx, session.ID, digest, 3)
+		if err != nil {
+			return err
+		}
+		if len(rows) != 2 || rows[0].ActorSubject != "owner-1" || rows[1].ActorSubject != "leader-1" {
+			t.Fatalf("stored approvals = %+v", rows)
+		}
+		events, err := uow.Diagnosis().ListEventsByTaskAndKind(ctx, seed.TaskID, "diagnosis_room.conclusion_approved", 10)
+		if err != nil {
+			return err
+		}
+		if len(events) != 2 {
+			t.Fatalf("approval events = %+v, want two idempotent events", events)
+		}
+		closedEvents, err := uow.Diagnosis().ListEventsByTaskAndKind(ctx, seed.TaskID, "diagnosis_room.closed", 1)
+		if err != nil {
+			return err
+		}
+		if len(closedEvents) != 1 {
+			t.Fatalf("closed events = %+v", closedEvents)
+		}
+		var payload struct {
+			ApprovalMode     domain.DiagnosisApprovalMode `json:"approval_mode"`
+			ConclusionDigest string                       `json:"conclusion_digest"`
+			Approvals        []json.RawMessage            `json:"approvals"`
+		}
+		if err := json.Unmarshal(closedEvents[0].Payload, &payload); err != nil {
+			return err
+		}
+		if payload.ApprovalMode != domain.DiagnosisApprovalModeOwnerAndLeader ||
+			payload.ConclusionDigest != digest ||
+			len(payload.Approvals) != 2 {
+			t.Fatalf("closed approval payload = %+v raw=%s", payload, closedEvents[0].Payload)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("verify approval quorum: %v", err)
+	}
+}
+
+func TestDiagnosisRoomPersistenceActivities_CloseRejectsSupersededConclusionApprovals(t *testing.T) {
+	seed := seedDiagnosisTask(t, "room-superseded-approval")
+	activities := temporalpkg.NewActivities(env.factory)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 7, 11, 10, 30, 0, 0, time.UTC)
+	if _, err := activities.EnsureDiagnosisChatSession(ctx, temporalpkg.EnsureDiagnosisChatSessionInput{
+		SessionID:       "session-room-superseded-approval",
+		DiagnosisTaskID: int64(seed.TaskID),
+		OwnerSubject:    "owner-1",
+		StartedAt:       startedAt,
+		ApprovalMode:    domain.DiagnosisApprovalModeOwnerAndLeader,
+	}); err != nil {
+		t.Fatalf("EnsureDiagnosisChatSession: %v", err)
+	}
+
+	firstTurn := validPersistDiagnosisTurnInput(seed.TaskID, "session-room-superseded-approval", startedAt)
+	if _, err := activities.PersistDiagnosisTurn(ctx, firstTurn); err != nil {
+		t.Fatalf("PersistDiagnosisTurn first: %v", err)
+	}
+	oldDigest, err := diagnosisapproval.ConclusionDigest(
+		firstTurn.AssistantMessageID,
+		firstTurn.AssistantSequence,
+		firstTurn.AssistantMessage,
+	)
+	if err != nil {
+		t.Fatalf("ConclusionDigest first: %v", err)
+	}
+	approval := temporalpkg.RecordDiagnosisConclusionApprovalInput{
+		SessionID:          firstTurn.SessionID,
+		DiagnosisTaskID:    int64(seed.TaskID),
+		OwnerSubject:       "owner-1",
+		ActorSubject:       "owner-1",
+		Authority:          domain.DiagnosisApprovalAuthorityOwner,
+		ApprovalMode:       domain.DiagnosisApprovalModeOwnerAndLeader,
+		Reason:             "human_confirmed",
+		AssistantMessageID: firstTurn.AssistantMessageID,
+		AssistantSequence:  firstTurn.AssistantSequence,
+		ConclusionContent:  firstTurn.AssistantMessage,
+		ConclusionDigest:   oldDigest,
+		ApprovedAt:         firstTurn.AssistantOccurredAt.Add(time.Second),
+	}
+	if _, err := activities.RecordDiagnosisConclusionApproval(ctx, approval); err != nil {
+		t.Fatalf("RecordDiagnosisConclusionApproval owner: %v", err)
+	}
+	approval.ActorSubject = "leader-1"
+	approval.Authority = domain.DiagnosisApprovalAuthorityLeader
+	approval.ApprovedAt = approval.ApprovedAt.Add(time.Second)
+	if _, err := activities.RecordDiagnosisConclusionApproval(ctx, approval); err != nil {
+		t.Fatalf("RecordDiagnosisConclusionApproval leader: %v", err)
+	}
+
+	secondTurn := validPersistDiagnosisTurnInput(seed.TaskID, firstTurn.SessionID, startedAt)
+	secondTurn.UserMessageID = "msg-2"
+	secondTurn.AssistantMessageID = "msg-2/assistant"
+	secondTurn.UserSequence = 3
+	secondTurn.AssistantSequence = 4
+	secondTurn.TurnCount = 2
+	secondTurn.UserMessage = "Reassess with the latest deployment evidence."
+	secondTurn.AssistantMessage = "The revised conclusion is deployment saturation."
+	secondTurn.UserOccurredAt = startedAt.Add(3 * time.Minute)
+	secondTurn.AssistantOccurredAt = startedAt.Add(3*time.Minute + 2*time.Second)
+	secondTurn.ContainerStartedAt = secondTurn.UserOccurredAt
+	secondTurn.ContainerFinishedAt = secondTurn.UserOccurredAt.Add(time.Second)
+	secondTurn.InvocationID = "diagnosis-room/task-1/msg-revised"
+	secondTurn.RawOutput = json.RawMessage(strings.Replace(
+		string(secondTurn.RawOutput),
+		"CPU saturation is concentrated on api-1.",
+		secondTurn.AssistantMessage,
+		1,
+	))
+	if _, err := activities.PersistDiagnosisTurn(ctx, secondTurn); err != nil {
+		t.Fatalf("PersistDiagnosisTurn second: %v", err)
+	}
+
+	_, err = activities.CloseDiagnosisChatSession(ctx, temporalpkg.CloseDiagnosisChatSessionInput{
+		SessionID:                 firstTurn.SessionID,
+		DiagnosisTaskID:           int64(seed.TaskID),
+		OwnerSubject:              "owner-1",
+		ConfirmedBy:               "leader-1",
+		TurnCount:                 2,
+		ClosedAt:                  secondTurn.AssistantOccurredAt.Add(time.Minute),
+		Reason:                    "human_confirmed",
+		RequireConclusionApproval: true,
+		ApprovalMode:              domain.DiagnosisApprovalModeOwnerAndLeader,
+		ConclusionDigest:          oldDigest,
+	})
+	if err == nil || !strings.Contains(err.Error(), "does not match the latest assistant conclusion") {
+		t.Fatalf("CloseDiagnosisChatSession superseded approval error = %v", err)
 	}
 }
 

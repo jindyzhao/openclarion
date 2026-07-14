@@ -117,12 +117,21 @@ func (s *DiagnosisRoomStarter) StartDiagnosisRoom(ctx context.Context, req ports
 	if err != nil {
 		return ports.DiagnosisRoomStartResult{}, err
 	}
+	if state.ApprovalMode != input.ApprovalMode {
+		return ports.DiagnosisRoomStartResult{}, fmt.Errorf(
+			"diagnosis-room starter: existing workflow approval_mode %q does not match requested mode %q: %w",
+			state.ApprovalMode,
+			input.ApprovalMode,
+			domain.ErrInvariantViolation,
+		)
+	}
 	return ports.DiagnosisRoomStartResult{
 		SessionID:          state.SessionID,
 		EvidenceSnapshotID: req.EvidenceSnapshotID,
 		DiagnosisTaskID:    domain.DiagnosisTaskID(state.DiagnosisTaskID),
 		ChatSessionID:      domain.ChatSessionID(state.ChatSessionID),
 		Workflow:           ports.WorkflowHandle{WorkflowID: run.GetID(), RunID: run.GetRunID()},
+		ApprovalMode:       state.ApprovalMode,
 	}, nil
 }
 
@@ -139,6 +148,10 @@ func diagnosisRoomWorkflowInputFromStartRequest(req ports.DiagnosisRoomStartRequ
 	}
 	if req.CloseNotificationChannelProfileID < 0 {
 		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("diagnosis-room starter: close_notification_channel_profile_id must be non-negative: %w", domain.ErrInvariantViolation)
+	}
+	approvalMode := diagnosisApprovalModeOrDefault(req.ApprovalMode)
+	if !approvalMode.Valid() {
+		return DiagnosisRoomWorkflowInput{}, "", fmt.Errorf("diagnosis-room starter: approval_mode %q is unsupported: %w", req.ApprovalMode, domain.ErrInvariantViolation)
 	}
 	ownerSubject := strings.TrimSpace(req.OwnerSubject)
 	if ownerSubject == "" {
@@ -161,6 +174,7 @@ func diagnosisRoomWorkflowInputFromStartRequest(req ports.DiagnosisRoomStartRequ
 		OwnerSubject:                      ownerSubject,
 		Evidence:                          append(json.RawMessage(nil), req.Evidence...),
 		CloseNotificationChannelProfileID: int64(req.CloseNotificationChannelProfileID),
+		ApprovalMode:                      approvalMode,
 		InitialTurn:                       initialTurn,
 	}, workflowID, nil
 }

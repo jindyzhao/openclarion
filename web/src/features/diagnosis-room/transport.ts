@@ -7,7 +7,12 @@ import {
   diagnosisAuthorizationHeaders,
   type DiagnosisAuthorization,
 } from "./authorization";
-import type { DiagnosisServerFrame } from "./types";
+import type {
+  DiagnosisApprovalAuthority,
+  DiagnosisApprovalMode,
+  DiagnosisConclusionApproval,
+  DiagnosisServerFrame,
+} from "./types";
 
 type DiagnosisWSTicketRequest =
   components["schemas"]["DiagnosisWSTicketRequest"];
@@ -122,6 +127,7 @@ export async function createDiagnosisRoom(
   authorization: DiagnosisAuthorization,
   evidenceSnapshotID: number,
   closeNotificationChannelProfileID?: number,
+  approvalMode: DiagnosisApprovalMode = "single",
 ): Promise<ApiResult<DiagnosisRoomCreateResponse>> {
   const headers = diagnosisAuthorizationHeaders(authorization);
   if (headers === null) {
@@ -134,6 +140,7 @@ export async function createDiagnosisRoom(
     };
   }
   const body: DiagnosisRoomCreateRequest = {
+    approval_mode: approvalMode,
     evidence_snapshot_id: evidenceSnapshotID,
   };
   if (closeNotificationChannelProfileID !== undefined) {
@@ -363,19 +370,124 @@ function isDiagnosisTurnResultFrame(
 function isDiagnosisStateFrame(
   value: Record<string, unknown>,
 ): value is Extract<DiagnosisServerFrame, { type: "state" }> {
+  const conclusionDigest = value.conclusion_digest;
+  if (
+    !(
+      isString(value.session_id) &&
+      isFiniteNumber(value.chat_session_id) &&
+      isFiniteNumber(value.diagnosis_task_id) &&
+      isString(value.owner_subject) &&
+      isString(value.status) &&
+      isFiniteNumber(value.turn_count) &&
+      isString(value.started_at) &&
+      isString(value.last_activity_at) &&
+      isDiagnosisApprovalMode(value.approval_mode) &&
+      (conclusionDigest === undefined || isConclusionDigest(conclusionDigest)) &&
+      typeof value.approval_in_flight === "boolean" &&
+      typeof value.in_flight === "boolean" &&
+      Array.isArray(value.seen_message_ids) &&
+      Array.isArray(value.conversation)
+    )
+  ) {
+    return false;
+  }
+  return isConsistentDiagnosisApprovalState({
+    approvals: value.approvals,
+    conclusionDigest,
+    mode: value.approval_mode,
+    ownerSubject: value.owner_subject,
+    pendingAuthorities: value.pending_approval_authorities,
+  });
+}
+
+function isConsistentDiagnosisApprovalState({
+  approvals,
+  conclusionDigest,
+  mode,
+  ownerSubject,
+  pendingAuthorities,
+}: {
+  approvals: unknown;
+  conclusionDigest: string | undefined;
+  mode: DiagnosisApprovalMode;
+  ownerSubject: string;
+  pendingAuthorities: unknown;
+}): boolean {
+  const approvalRows = approvals === undefined ? [] : approvals;
+  const pending = pendingAuthorities === undefined ? [] : pendingAuthorities;
+  if (
+    !Array.isArray(approvalRows) ||
+    !approvalRows.every(isDiagnosisConclusionApproval) ||
+    !Array.isArray(pending) ||
+    !pending.every(isDiagnosisApprovalAuthority) ||
+    new Set(pending).size !== pending.length
+  ) {
+    return false;
+  }
+  if (conclusionDigest === undefined) {
+    return approvalRows.length === 0 && pending.length === 0;
+  }
+  if (
+    approvalRows.length > (mode === "single" ? 1 : 2) ||
+    approvalRows.some(
+      (approval) => approval.conclusion_digest !== conclusionDigest,
+    ) ||
+    new Set(approvalRows.map((approval) => approval.actor_subject)).size !==
+      approvalRows.length ||
+    new Set(approvalRows.map((approval) => approval.authority)).size !==
+      approvalRows.length ||
+    approvalRows.some(
+      (approval) =>
+        (approval.authority === "owner") !==
+        (approval.actor_subject === ownerSubject),
+    )
+  ) {
+    return false;
+  }
+  const approved = new Set(approvalRows.map((approval) => approval.authority));
+  const expectedPending: DiagnosisApprovalAuthority[] =
+    mode === "single"
+      ? approvalRows.length === 0
+        ? ["owner"]
+        : []
+      : (["owner", "leader"] as const).filter(
+          (authority) => !approved.has(authority),
+        );
   return (
-    isString(value.session_id) &&
-    isFiniteNumber(value.chat_session_id) &&
-    isFiniteNumber(value.diagnosis_task_id) &&
-    isString(value.owner_subject) &&
-    isString(value.status) &&
-    isFiniteNumber(value.turn_count) &&
-    isString(value.started_at) &&
-    isString(value.last_activity_at) &&
-    typeof value.in_flight === "boolean" &&
-    Array.isArray(value.seen_message_ids) &&
-    Array.isArray(value.conversation)
+    pending.length === expectedPending.length &&
+    expectedPending.every((authority) => pending.includes(authority))
   );
+}
+
+function isDiagnosisApprovalMode(value: unknown): value is DiagnosisApprovalMode {
+  return value === "single" || value === "owner_and_leader";
+}
+
+function isDiagnosisApprovalAuthority(
+  value: unknown,
+): value is DiagnosisApprovalAuthority {
+  return value === "owner" || value === "leader";
+}
+
+function isDiagnosisConclusionApproval(
+  value: unknown,
+): value is DiagnosisConclusionApproval {
+  return (
+    isRecord(value) &&
+    isPositiveInteger(value.id) &&
+    isConclusionDigest(value.conclusion_digest) &&
+    isString(value.actor_subject) &&
+    value.actor_subject.length > 0 &&
+    isDiagnosisApprovalAuthority(value.authority) &&
+    isString(value.reason) &&
+    value.reason.length > 0 &&
+    isString(value.approved_at) &&
+    value.approved_at.length > 0
+  );
+}
+
+function isConclusionDigest(value: unknown): value is string {
+  return isString(value) && /^[0-9a-f]{64}$/.test(value);
 }
 
 function isDiagnosisErrorFrame(

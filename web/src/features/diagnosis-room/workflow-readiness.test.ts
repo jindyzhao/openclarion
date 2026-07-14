@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   diagnosisRoomAdministerAuthorizationKey,
+  diagnosisRoomApproveAuthorizationKey,
   diagnosisRoomCreateAuthorizationKey,
   diagnosisRoomParticipateAuthorizationKey,
   diagnosisRoomReadAuthorizationKey,
@@ -39,6 +40,14 @@ const selectedRoomPermissions: DiagnosisRoomRBACPermissionItem[] = [
     key: diagnosisRoomParticipateAuthorizationKey("room-1"),
     label: "Participate",
     permission: "diagnosis_room.participate",
+    scopeLabel: "room-1",
+    status: "allowed",
+  },
+  {
+    action: "approve",
+    key: diagnosisRoomApproveAuthorizationKey("room-1"),
+    label: "Approve conclusion",
+    permission: "diagnosis_room.approve",
     scopeLabel: "room-1",
     status: "allowed",
   },
@@ -485,6 +494,8 @@ function retainedConclusionState(): DiagnosisStateFrame {
     in_flight: false,
     last_activity_at: "2026-06-29T01:05:00Z",
     owner_subject: "iam:user-1",
+    approval_mode: "single",
+    approval_in_flight: false,
     seen_message_ids: [],
     session_id: "room-1",
     started_at: "2026-06-29T01:00:00Z",
