@@ -55,8 +55,9 @@ managed service must satisfy it through its own extension-management controls.
 
 ## Standard invocation pattern
 
-Atlas is invoked by `scripts/lib_atlas.sh::atlas::run`, which is called
-from three thin entry scripts:
+Atlas planning and drift detection are invoked by
+`scripts/lib_atlas.sh::atlas::run`, which is called from three thin entry
+scripts:
 
 * `scripts/check_atlas_smoke.sh` -- manual one-shot acceptance gate
   (`make atlas-smoke`).
@@ -94,6 +95,13 @@ resolved through the dedicated network's embedded DNS. The
 `docker://...` dev-url form is intentionally NOT used: the Atlas image
 does not bundle a Docker CLI, so Atlas cannot spawn the dev DB itself.
 
+Runtime application uses `scripts/apply_atlas_migrations.sh` instead of the
+development wrapper. `make atlas-apply` reads the target URL from the
+environment, validates checksums, applies pending migrations in the pinned
+Atlas image with a bounded timeout and lock wait, and verifies final status.
+The URL is forwarded as a container environment variable and never placed in
+process arguments.
+
 ## Make targets
 
 | Target | When to run | What it does |
@@ -103,6 +111,7 @@ does not bundle a Docker CLI, so Atlas cannot spawn the dev DB itself.
 | `make atlas-smoke` | once at the start of M1-PR1 (manual) | proves the pinned Atlas image can read `ent://...` and spawn the dev Postgres; throwaway output |
 | `make atlas-migrate-diff NAME=<name>` | after schema changes (manual) | writes a new migration to `internal/persistence/migrations/` |
 | `make atlas-drift` | CI gate | copies migrations to a temp dir, runs `atlas migrate diff drift_check`, fails if Atlas wants to write a new migration |
+| `make atlas-apply` | before starting an application process against a new or upgraded database (manual) | validates checksums, applies pending committed migrations, and verifies final status against `DATABASE_URL` |
 
 ## Standard workflow for a schema change
 

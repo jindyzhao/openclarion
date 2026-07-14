@@ -1,5 +1,6 @@
 target	reason
 atlas-smoke	manual Atlas acceptance smoke; requires Docker image pulls and a local Docker daemon
+atlas-apply	manual committed migration apply; requires Docker, database network access, and a PostgreSQL DATABASE_URL
 manual-evidence-readiness	manual readiness preflight for remaining live/evidence targets; intentionally operator-run so missing secrets and artifact paths are not evaluated in CI
 openclarion-service-image-build	manual deployment image build; requires a local Go toolchain, a Docker daemon, and an explicit non-latest image tag
 openclarion-service-image-push	manual deployment image publish; requires a local Go toolchain, a Docker daemon, prior registry login, and an explicit non-latest registry tag
@@ -26,6 +27,8 @@ sandbox-m4-evidence-packet-verify	manual M4 retained packet verification; requir
 diagnosis-dev-oidc-issuer	manual M5 local OIDC issuer/token helper; binds a developer-owned loopback listener and mints short-lived tokens outside CI
 stage5-local-worker-check	manual M5 local worker readiness; requires a private env file, Docker daemon/network, digest-pinned sandbox image, and direct diagnosis notification webhook
 stage5-local-worker	manual M5 local worker start; requires local control-plane dependencies, a private env file, Docker daemon/network, digest-pinned sandbox image, and direct diagnosis notification webhook
+local-product-check	manual non-Kubernetes product preflight; builds images, starts local dependencies, applies migrations, and requires a private env file
+local-product	manual non-Kubernetes product start; requires Docker, Go, npm dependencies, a private env file, and external provider credentials
 diagnosis-live-browser-smoke	manual M5 browser smoke; requires a real backend, worker, token, and sandbox-capable runtime
 diagnosis-live-convergence-smoke	manual M5 backend-only convergence smoke; requires a real backend, worker, bearer token, and existing or creatable diagnosis room
 container-provider-smoke	manual M4 Docker Provider smoke; requires a real local Docker daemon
