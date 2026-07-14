@@ -77,7 +77,7 @@ func BuildSubReportRequest(in SubReportInput) (ports.LLMRequest, error) {
 		},
 		OutputSchema:   reportdraft.SubReportSchema(),
 		OutputSchemaID: reportdraft.SubReportSchemaID,
-		IdempotencyKey: subReportIdempotencyKey(in.Snapshot.ID, in.GroupIndex),
+		IdempotencyKey: subReportIdempotencyKey(in.Snapshot.ID, in.GroupIndex, in.Scenario),
 	}, nil
 }
 
@@ -107,8 +107,8 @@ func BuildFinalReportRequest(in FinalReportInput) (ports.LLMRequest, error) {
 	}, nil
 }
 
-func subReportIdempotencyKey(snapshotID domain.EvidenceSnapshotID, groupIndex int) string {
-	return fmt.Sprintf("snapshot:%d/group:%d/sub_report", snapshotID, groupIndex)
+func subReportIdempotencyKey(snapshotID domain.EvidenceSnapshotID, groupIndex int, scenario Scenario) string {
+	return fmt.Sprintf("snapshot:%d/group:%d/scenario:%s/sub_report", snapshotID, groupIndex, scenario)
 }
 
 func subReportUserPrompt(in SubReportInput, payload string) string {

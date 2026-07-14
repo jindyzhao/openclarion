@@ -176,7 +176,7 @@ func assertSubReportRequestShape(t *testing.T, req ports.LLMRequest, snapshotID 
 	if req.OutputSchemaID != reportdraft.SubReportSchemaID {
 		t.Fatalf("OutputSchemaID = %q", req.OutputSchemaID)
 	}
-	wantKey := fmt.Sprintf("snapshot:%d/group:%d/sub_report", snapshotID, groupIndex)
+	wantKey := fmt.Sprintf("snapshot:%d/group:%d/scenario:%s/sub_report", snapshotID, groupIndex, scenario)
 	if req.IdempotencyKey != wantKey {
 		t.Fatalf("IdempotencyKey = %q, want %q", req.IdempotencyKey, wantKey)
 	}
