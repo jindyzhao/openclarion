@@ -18,13 +18,15 @@ type GroupingPolicy struct {
 	ent.Schema
 }
 
+// Mixin of the GroupingPolicy.
+func (GroupingPolicy) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the GroupingPolicy.
 func (GroupingPolicy) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("name").
 			MaxLen(120).
 			NotEmpty().
-			Unique().
 			Comment("operator-facing unique display name"),
 		field.JSON("dimension_keys", []string{}).
 			Comment("alert label keys used as deterministic grouping dimensions"),
@@ -51,6 +53,7 @@ func (GroupingPolicy) Fields() []ent.Field {
 // Indexes of the GroupingPolicy.
 func (GroupingPolicy) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("tenant_id", "name").Unique(),
 		index.Fields("enabled", "updated_at"),
 		index.Fields("source_filter").
 			Annotations(

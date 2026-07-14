@@ -235,6 +235,9 @@ func (_u *DiagnosisTaskUpdate) check() error {
 			return &ValidationError{Name: "failure_reason", err: fmt.Errorf(`ent: validator failed for field "DiagnosisTask.failure_reason": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DiagnosisTask.tenant"`)
+	}
 	if _u.mutation.SnapshotCleared() && len(_u.mutation.SnapshotIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "DiagnosisTask.snapshot"`)
 	}
@@ -604,6 +607,9 @@ func (_u *DiagnosisTaskUpdateOne) check() error {
 		if err := diagnosistask.FailureReasonValidator(v); err != nil {
 			return &ValidationError{Name: "failure_reason", err: fmt.Errorf(`ent: validator failed for field "DiagnosisTask.failure_reason": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DiagnosisTask.tenant"`)
 	}
 	if _u.mutation.SnapshotCleared() && len(_u.mutation.SnapshotIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "DiagnosisTask.snapshot"`)

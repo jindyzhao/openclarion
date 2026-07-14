@@ -1506,6 +1506,8 @@ const server = createServer((request, response) => {
           ),
           roles: principal.roles,
           subject: principal.subject,
+          tenant_id: 1,
+          tenant_key: "default",
           token: diagnosisBrowserSessionToken(principal),
         });
         return;
@@ -1527,6 +1529,8 @@ const server = createServer((request, response) => {
         ),
         roles: principal.roles,
         subject: principal.subject,
+        tenant_id: 1,
+        tenant_key: "default",
       });
       return;
     }

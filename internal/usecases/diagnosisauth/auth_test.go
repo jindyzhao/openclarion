@@ -231,6 +231,8 @@ func TestMemoryStoreDefensivelyCopiesRolesAndConsumedAt(t *testing.T) {
 		Token:     "token-1",
 		Subject:   "owner-1",
 		Roles:     []ports.AuthRole{ports.AuthRoleOwner},
+		TenantID:  1,
+		TenantKey: domain.DefaultTenantKey,
 		SessionID: "session-1",
 		Scope:     DefaultTicketScope,
 		IssuedAt:  now,

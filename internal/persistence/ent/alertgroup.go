@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // AlertGroup is the model entity for the AlertGroup schema.
@@ -18,6 +19,8 @@ type AlertGroup struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// sha256 hex (or equivalent) of canonical(dimensions); deterministic per (configuration, window)
 	GroupKey string `json:"group_key,omitempty"`
 	// jsonb snapshot of the label subset and reserved source scope used to group events
@@ -44,19 +47,32 @@ type AlertGroup struct {
 
 // AlertGroupEdges holds the relations/edges for other nodes in the graph.
 type AlertGroupEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// Events holds the value of the events edge.
 	Events []*AlertEvent `json:"events,omitempty"`
 	// Snapshots holds the value of the snapshots edge.
 	Snapshots []*EvidenceSnapshot `json:"snapshots,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e AlertGroupEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // EventsOrErr returns the Events value or an error if the edge
 // was not loaded in eager-loading.
 func (e AlertGroupEdges) EventsOrErr() ([]*AlertEvent, error) {
-	if e.loadedTypes[0] {
+	if e.loadedTypes[1] {
 		return e.Events, nil
 	}
 	return nil, &NotLoadedError{edge: "events"}
@@ -65,7 +81,7 @@ func (e AlertGroupEdges) EventsOrErr() ([]*AlertEvent, error) {
 // SnapshotsOrErr returns the Snapshots value or an error if the edge
 // was not loaded in eager-loading.
 func (e AlertGroupEdges) SnapshotsOrErr() ([]*EvidenceSnapshot, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[2] {
 		return e.Snapshots, nil
 	}
 	return nil, &NotLoadedError{edge: "snapshots"}
@@ -78,7 +94,7 @@ func (*AlertGroup) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case alertgroup.FieldDimensions:
 			values[i] = new([]byte)
-		case alertgroup.FieldID, alertgroup.FieldEventCount:
+		case alertgroup.FieldID, alertgroup.FieldTenantID, alertgroup.FieldEventCount:
 			values[i] = new(sql.NullInt64)
 		case alertgroup.FieldGroupKey, alertgroup.FieldSeverity, alertgroup.FieldStatus:
 			values[i] = new(sql.NullString)
@@ -105,6 +121,12 @@ func (_m *AlertGroup) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case alertgroup.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case alertgroup.FieldGroupKey:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field group_key", values[i])
@@ -174,6 +196,11 @@ func (_m *AlertGroup) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the AlertGroup entity.
+func (_m *AlertGroup) QueryTenant() *TenantQuery {
+	return NewAlertGroupClient(_m.config).QueryTenant(_m)
+}
+
 // QueryEvents queries the "events" edge of the AlertGroup entity.
 func (_m *AlertGroup) QueryEvents() *AlertEventQuery {
 	return NewAlertGroupClient(_m.config).QueryEvents(_m)
@@ -207,6 +234,9 @@ func (_m *AlertGroup) String() string {
 	var builder strings.Builder
 	builder.WriteString("AlertGroup(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("group_key=")
 	builder.WriteString(_m.GroupKey)
 	builder.WriteString(", ")

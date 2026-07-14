@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // ReportNotificationDelivery is the model entity for the ReportNotificationDelivery schema.
@@ -19,11 +20,13 @@ type ReportNotificationDelivery struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// FK to final_reports.id; the report this delivery belongs to
 	FinalReportID int `json:"final_report_id,omitempty"`
 	// optional notification channel profile used for this report notification attempt
 	ReportNotificationChannelProfileID *int `json:"report_notification_channel_profile_id,omitempty"`
-	// global notification idempotency key
+	// tenant-scoped notification idempotency key
 	IdempotencyKey string `json:"idempotency_key,omitempty"`
 	// stable provider message identifier, when supplied
 	ProviderMessageID string `json:"provider_message_id,omitempty"`
@@ -49,11 +52,24 @@ type ReportNotificationDelivery struct {
 
 // ReportNotificationDeliveryEdges holds the relations/edges for other nodes in the graph.
 type ReportNotificationDeliveryEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// FinalReport holds the value of the final_report edge.
 	FinalReport *FinalReport `json:"final_report,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [2]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e ReportNotificationDeliveryEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // FinalReportOrErr returns the FinalReport value or an error if the edge
@@ -61,7 +77,7 @@ type ReportNotificationDeliveryEdges struct {
 func (e ReportNotificationDeliveryEdges) FinalReportOrErr() (*FinalReport, error) {
 	if e.FinalReport != nil {
 		return e.FinalReport, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: finalreport.Label}
 	}
 	return nil, &NotLoadedError{edge: "final_report"}
@@ -74,7 +90,7 @@ func (*ReportNotificationDelivery) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case reportnotificationdelivery.FieldRaw:
 			values[i] = new([]byte)
-		case reportnotificationdelivery.FieldID, reportnotificationdelivery.FieldFinalReportID, reportnotificationdelivery.FieldReportNotificationChannelProfileID:
+		case reportnotificationdelivery.FieldID, reportnotificationdelivery.FieldTenantID, reportnotificationdelivery.FieldFinalReportID, reportnotificationdelivery.FieldReportNotificationChannelProfileID:
 			values[i] = new(sql.NullInt64)
 		case reportnotificationdelivery.FieldIdempotencyKey, reportnotificationdelivery.FieldProviderMessageID, reportnotificationdelivery.FieldProviderStatus, reportnotificationdelivery.FieldStatus, reportnotificationdelivery.FieldFailureReason:
 			values[i] = new(sql.NullString)
@@ -101,6 +117,12 @@ func (_m *ReportNotificationDelivery) assignValues(columns []string, values []an
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case reportnotificationdelivery.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case reportnotificationdelivery.FieldFinalReportID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field final_report_id", values[i])
@@ -184,6 +206,11 @@ func (_m *ReportNotificationDelivery) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the ReportNotificationDelivery entity.
+func (_m *ReportNotificationDelivery) QueryTenant() *TenantQuery {
+	return NewReportNotificationDeliveryClient(_m.config).QueryTenant(_m)
+}
+
 // QueryFinalReport queries the "final_report" edge of the ReportNotificationDelivery entity.
 func (_m *ReportNotificationDelivery) QueryFinalReport() *FinalReportQuery {
 	return NewReportNotificationDeliveryClient(_m.config).QueryFinalReport(_m)
@@ -212,6 +239,9 @@ func (_m *ReportNotificationDelivery) String() string {
 	var builder strings.Builder
 	builder.WriteString("ReportNotificationDelivery(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("final_report_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.FinalReportID))
 	builder.WriteString(", ")

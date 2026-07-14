@@ -16,13 +16,15 @@ type ReportWorkflowPolicy struct {
 	ent.Schema
 }
 
+// Mixin of the ReportWorkflowPolicy.
+func (ReportWorkflowPolicy) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the ReportWorkflowPolicy.
 func (ReportWorkflowPolicy) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("name").
 			MaxLen(120).
 			NotEmpty().
-			Unique().
 			Comment("operator-facing unique display name"),
 		field.Int("alert_source_profile_id").
 			Positive().
@@ -72,6 +74,7 @@ func (ReportWorkflowPolicy) Fields() []ent.Field {
 // Indexes of the ReportWorkflowPolicy.
 func (ReportWorkflowPolicy) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("tenant_id", "name").Unique(),
 		index.Fields("enabled", "updated_at"),
 		index.Fields("alert_source_profile_id", "grouping_policy_id"),
 		index.Fields("report_notification_channel_profile_id"),

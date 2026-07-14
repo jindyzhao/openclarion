@@ -19,12 +19,15 @@ import (
 //
 // Idempotency contract:
 //
-//	idempotency_key is globally unique for a final-report generation
+//	idempotency_key is unique within one tenant for a final-report generation
 //	attempt. A Temporal retry that re-runs the same reduce step must
 //	collapse to the already-persisted FinalReport row.
 type FinalReport struct {
 	ent.Schema
 }
+
+// Mixin of the FinalReport.
+func (FinalReport) Mixin() []ent.Mixin { return tenantMixins() }
 
 // Fields of the FinalReport.
 func (FinalReport) Fields() []ent.Field {
@@ -37,7 +40,6 @@ func (FinalReport) Fields() []ent.Field {
 		field.String("idempotency_key").
 			MaxLen(256).
 			NotEmpty().
-			Unique().
 			Immutable().
 			Comment("activity idempotency key for final report generation"),
 		field.String("title").
@@ -107,6 +109,7 @@ func (FinalReport) Edges() []ent.Edge {
 // Indexes of the FinalReport.
 func (FinalReport) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("tenant_id", "idempotency_key").Unique(),
 		index.Fields("correlation_key", "created_at"),
 		index.Fields("severity", "created_at"),
 	}

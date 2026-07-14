@@ -33,6 +33,9 @@ type ChatTurn struct {
 	ent.Schema
 }
 
+// Mixin of the ChatTurn.
+func (ChatTurn) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the ChatTurn.
 func (ChatTurn) Fields() []ent.Field {
 	return []ent.Field{
@@ -91,9 +94,9 @@ func (ChatTurn) Edges() []ent.Edge {
 // Indexes of the ChatTurn.
 func (ChatTurn) Indexes() []ent.Index {
 	return []ent.Index{
-		index.Fields("chat_session_id", "message_id").
+		index.Fields("tenant_id", "chat_session_id", "message_id").
 			Unique(),
-		index.Fields("chat_session_id", "sequence").
+		index.Fields("tenant_id", "chat_session_id", "sequence").
 			Unique(),
 		index.Fields("chat_session_id", "occurred_at"),
 		index.Fields("chat_session_id", "created_at"),

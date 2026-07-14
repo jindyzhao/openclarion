@@ -19,6 +19,9 @@ type ChatSessionApproval struct {
 	ent.Schema
 }
 
+// Mixin of the ChatSessionApproval.
+func (ChatSessionApproval) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the ChatSessionApproval.
 func (ChatSessionApproval) Fields() []ent.Field {
 	return []ent.Field{
@@ -70,9 +73,11 @@ func (ChatSessionApproval) Edges() []ent.Edge {
 // Indexes of the ChatSessionApproval.
 func (ChatSessionApproval) Indexes() []ent.Index {
 	return []ent.Index{
-		index.Fields("chat_session_id", "conclusion_digest", "actor_subject").
+		index.Fields("tenant_id", "chat_session_id", "conclusion_digest", "actor_subject").
+			StorageKey("chat_session_approvals_tenant_actor_unique").
 			Unique(),
-		index.Fields("chat_session_id", "conclusion_digest", "authority").
+		index.Fields("tenant_id", "chat_session_id", "conclusion_digest", "authority").
+			StorageKey("chat_session_approvals_tenant_authority_unique").
 			Unique(),
 		index.Fields("chat_session_id", "conclusion_digest", "approved_at"),
 		index.Fields("actor_subject", "approved_at"),

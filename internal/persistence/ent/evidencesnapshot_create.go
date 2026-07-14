@@ -16,6 +16,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // EvidenceSnapshotCreate is the builder for creating a EvidenceSnapshot entity.
@@ -24,6 +25,12 @@ type EvidenceSnapshotCreate struct {
 	mutation *EvidenceSnapshotMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *EvidenceSnapshotCreate) SetTenantID(v int) *EvidenceSnapshotCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetAlertGroupID sets the "alert_group_id" field.
@@ -96,6 +103,11 @@ func (_c *EvidenceSnapshotCreate) SetNillableCreatedAt(v *time.Time) *EvidenceSn
 		_c.SetCreatedAt(*v)
 	}
 	return _c
+}
+
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *EvidenceSnapshotCreate) SetTenant(v *Tenant) *EvidenceSnapshotCreate {
+	return _c.SetTenantID(v.ID)
 }
 
 // SetGroupID sets the "group" edge to the AlertGroup entity by ID.
@@ -186,6 +198,14 @@ func (_c *EvidenceSnapshotCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *EvidenceSnapshotCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "EvidenceSnapshot.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := evidencesnapshot.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "EvidenceSnapshot.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.AlertGroupID(); !ok {
 		return &ValidationError{Name: "alert_group_id", err: errors.New(`ent: missing required field "EvidenceSnapshot.alert_group_id"`)}
 	}
@@ -218,6 +238,9 @@ func (_c *EvidenceSnapshotCreate) check() error {
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "EvidenceSnapshot.created_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "EvidenceSnapshot.tenant"`)}
 	}
 	if len(_c.mutation.GroupIDs()) == 0 {
 		return &ValidationError{Name: "group", err: errors.New(`ent: missing required edge "EvidenceSnapshot.group"`)}
@@ -277,6 +300,23 @@ func (_c *EvidenceSnapshotCreate) createSpec() (*EvidenceSnapshot, *sqlgraph.Cre
 		_spec.SetField(evidencesnapshot.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   evidencesnapshot.TenantTable,
+			Columns: []string{evidencesnapshot.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.GroupIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -333,7 +373,7 @@ func (_c *EvidenceSnapshotCreate) createSpec() (*EvidenceSnapshot, *sqlgraph.Cre
 // of the `INSERT` statement. For example:
 //
 //	client.EvidenceSnapshot.Create().
-//		SetAlertGroupID(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -342,7 +382,7 @@ func (_c *EvidenceSnapshotCreate) createSpec() (*EvidenceSnapshot, *sqlgraph.Cre
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.EvidenceSnapshotUpsert) {
-//			SetAlertGroupID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *EvidenceSnapshotCreate) OnConflict(opts ...sql.ConflictOption) *EvidenceSnapshotUpsertOne {
@@ -449,6 +489,9 @@ func (u *EvidenceSnapshotUpsert) ClearCreatedByWorkflow() *EvidenceSnapshotUpser
 func (u *EvidenceSnapshotUpsertOne) UpdateNewValues() *EvidenceSnapshotUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(evidencesnapshot.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.AlertGroupID(); exists {
 			s.SetIgnore(evidencesnapshot.FieldAlertGroupID)
 		}
@@ -697,7 +740,7 @@ func (_c *EvidenceSnapshotCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.EvidenceSnapshotUpsert) {
-//			SetAlertGroupID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *EvidenceSnapshotCreateBulk) OnConflict(opts ...sql.ConflictOption) *EvidenceSnapshotUpsertBulk {
@@ -738,6 +781,9 @@ func (u *EvidenceSnapshotUpsertBulk) UpdateNewValues() *EvidenceSnapshotUpsertBu
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(evidencesnapshot.FieldTenantID)
+			}
 			if _, exists := b.mutation.AlertGroupID(); exists {
 				s.SetIgnore(evidencesnapshot.FieldAlertGroupID)
 			}

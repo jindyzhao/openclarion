@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/rbacassignment"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // RBACAssignmentCreate is the builder for creating a RBACAssignment entity.
@@ -20,6 +21,12 @@ type RBACAssignmentCreate struct {
 	mutation *RBACAssignmentMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *RBACAssignmentCreate) SetTenantID(v int) *RBACAssignmentCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetSubjectKind sets the "subject_kind" field.
@@ -114,6 +121,11 @@ func (_c *RBACAssignmentCreate) SetNillableUpdatedAt(v *time.Time) *RBACAssignme
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *RBACAssignmentCreate) SetTenant(v *Tenant) *RBACAssignmentCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // Mutation returns the RBACAssignmentMutation object of the builder.
 func (_c *RBACAssignmentCreate) Mutation() *RBACAssignmentMutation {
 	return _c.mutation
@@ -169,6 +181,14 @@ func (_c *RBACAssignmentCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *RBACAssignmentCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "RBACAssignment.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := rbacassignment.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "RBACAssignment.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.SubjectKind(); !ok {
 		return &ValidationError{Name: "subject_kind", err: errors.New(`ent: missing required field "RBACAssignment.subject_kind"`)}
 	}
@@ -233,6 +253,9 @@ func (_c *RBACAssignmentCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "RBACAssignment.updated_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "RBACAssignment.tenant"`)}
 	}
 	return nil
 }
@@ -301,6 +324,23 @@ func (_c *RBACAssignmentCreate) createSpec() (*RBACAssignment, *sqlgraph.CreateS
 		_spec.SetField(rbacassignment.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   rbacassignment.TenantTable,
+			Columns: []string{rbacassignment.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	return _node, _spec
 }
 
@@ -308,7 +348,7 @@ func (_c *RBACAssignmentCreate) createSpec() (*RBACAssignment, *sqlgraph.CreateS
 // of the `INSERT` statement. For example:
 //
 //	client.RBACAssignment.Create().
-//		SetSubjectKind(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -317,7 +357,7 @@ func (_c *RBACAssignmentCreate) createSpec() (*RBACAssignment, *sqlgraph.CreateS
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.RBACAssignmentUpsert) {
-//			SetSubjectKind(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *RBACAssignmentCreate) OnConflict(opts ...sql.ConflictOption) *RBACAssignmentUpsertOne {
@@ -472,6 +512,9 @@ func (u *RBACAssignmentUpsert) UpdateUpdatedAt() *RBACAssignmentUpsert {
 func (u *RBACAssignmentUpsertOne) UpdateNewValues() *RBACAssignmentUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(rbacassignment.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(rbacassignment.FieldCreatedAt)
 		}
@@ -767,7 +810,7 @@ func (_c *RBACAssignmentCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.RBACAssignmentUpsert) {
-//			SetSubjectKind(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *RBACAssignmentCreateBulk) OnConflict(opts ...sql.ConflictOption) *RBACAssignmentUpsertBulk {
@@ -808,6 +851,9 @@ func (u *RBACAssignmentUpsertBulk) UpdateNewValues() *RBACAssignmentUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(rbacassignment.FieldTenantID)
+			}
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(rbacassignment.FieldCreatedAt)
 			}

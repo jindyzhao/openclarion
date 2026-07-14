@@ -319,6 +319,9 @@ func (_u *DiagnosisToolTemplateUpdate) check() error {
 			return &ValidationError{Name: "default_step_ns", err: fmt.Errorf(`ent: validator failed for field "DiagnosisToolTemplate.default_step_ns": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DiagnosisToolTemplate.tenant"`)
+	}
 	return nil
 }
 
@@ -717,6 +720,9 @@ func (_u *DiagnosisToolTemplateUpdateOne) check() error {
 		if err := diagnosistooltemplate.DefaultStepNsValidator(v); err != nil {
 			return &ValidationError{Name: "default_step_ns", err: fmt.Errorf(`ent: validator failed for field "DiagnosisToolTemplate.default_step_ns": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DiagnosisToolTemplate.tenant"`)
 	}
 	return nil
 }

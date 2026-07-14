@@ -15,6 +15,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // SubReportCreate is the builder for creating a SubReport entity.
@@ -23,6 +24,12 @@ type SubReportCreate struct {
 	mutation *SubReportMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *SubReportCreate) SetTenantID(v int) *SubReportCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetEvidenceSnapshotID sets the "evidence_snapshot_id" field.
@@ -153,6 +160,11 @@ func (_c *SubReportCreate) SetNillableCreatedAt(v *time.Time) *SubReportCreate {
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *SubReportCreate) SetTenant(v *Tenant) *SubReportCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // SetSnapshotID sets the "snapshot" edge to the EvidenceSnapshot entity by ID.
 func (_c *SubReportCreate) SetSnapshotID(id int) *SubReportCreate {
 	_c.mutation.SetSnapshotID(id)
@@ -226,6 +238,14 @@ func (_c *SubReportCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *SubReportCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "SubReport.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := subreport.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "SubReport.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.EvidenceSnapshotID(); !ok {
 		return &ValidationError{Name: "evidence_snapshot_id", err: errors.New(`ent: missing required field "SubReport.evidence_snapshot_id"`)}
 	}
@@ -309,6 +329,9 @@ func (_c *SubReportCreate) check() error {
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "SubReport.created_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "SubReport.tenant"`)}
 	}
 	if len(_c.mutation.SnapshotIDs()) == 0 {
 		return &ValidationError{Name: "snapshot", err: errors.New(`ent: missing required edge "SubReport.snapshot"`)}
@@ -400,6 +423,23 @@ func (_c *SubReportCreate) createSpec() (*SubReport, *sqlgraph.CreateSpec) {
 		_spec.SetField(subreport.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   subreport.TenantTable,
+			Columns: []string{subreport.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.SnapshotIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -440,7 +480,7 @@ func (_c *SubReportCreate) createSpec() (*SubReport, *sqlgraph.CreateSpec) {
 // of the `INSERT` statement. For example:
 //
 //	client.SubReport.Create().
-//		SetEvidenceSnapshotID(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -449,7 +489,7 @@ func (_c *SubReportCreate) createSpec() (*SubReport, *sqlgraph.CreateSpec) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.SubReportUpsert) {
-//			SetEvidenceSnapshotID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *SubReportCreate) OnConflict(opts ...sql.ConflictOption) *SubReportUpsertOne {
@@ -496,6 +536,9 @@ type (
 func (u *SubReportUpsertOne) UpdateNewValues() *SubReportUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(subreport.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.EvidenceSnapshotID(); exists {
 			s.SetIgnore(subreport.FieldEvidenceSnapshotID)
 		}
@@ -710,7 +753,7 @@ func (_c *SubReportCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.SubReportUpsert) {
-//			SetEvidenceSnapshotID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *SubReportCreateBulk) OnConflict(opts ...sql.ConflictOption) *SubReportUpsertBulk {
@@ -751,6 +794,9 @@ func (u *SubReportUpsertBulk) UpdateNewValues() *SubReportUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(subreport.FieldTenantID)
+			}
 			if _, exists := b.mutation.EvidenceSnapshotID(); exists {
 				s.SetIgnore(subreport.FieldEvidenceSnapshotID)
 			}

@@ -35,6 +35,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/reportpolicytrigger"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
+	"github.com/openclarion/openclarion/internal/usecases/tenantops"
 )
 
 const (
@@ -87,6 +88,7 @@ type Server struct {
 	directorySyncProvider      string
 	rbacAuthorizer             RBACAuthorizer
 	rbacBootstrapAdminSubjects map[string]bool
+	tenantOperations           *tenantops.Service
 	roomVisibility             ports.DiagnosisRoomWorkflowVisibilityLookup
 	weComAppCallback           DiagnosisWeComAppCallbackVerifier
 	weComAppMessages           DiagnosisWeComAppCallbackMessageHandler

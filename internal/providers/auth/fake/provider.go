@@ -102,9 +102,11 @@ func cloneScripts(in map[string][]Result) map[string][]Result {
 
 func clonePrincipal(in ports.AuthPrincipal) ports.AuthPrincipal {
 	return ports.AuthPrincipal{
-		Subject: in.Subject,
-		Roles:   append([]ports.AuthRole(nil), in.Roles...),
-		Claims:  cloneRawMessage(in.Claims),
+		Subject:   in.Subject,
+		Roles:     append([]ports.AuthRole(nil), in.Roles...),
+		Claims:    cloneRawMessage(in.Claims),
+		TenantID:  in.TenantID,
+		TenantKey: in.TenantKey,
 	}
 }
 

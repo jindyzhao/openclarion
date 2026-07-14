@@ -14,6 +14,8 @@ const (
 	Label = "sub_report"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldTenantID holds the string denoting the tenant_id field in the database.
+	FieldTenantID = "tenant_id"
 	// FieldEvidenceSnapshotID holds the string denoting the evidence_snapshot_id field in the database.
 	FieldEvidenceSnapshotID = "evidence_snapshot_id"
 	// FieldIdempotencyKey holds the string denoting the idempotency_key field in the database.
@@ -46,12 +48,21 @@ const (
 	FieldCreatedByWorkflow = "created_by_workflow"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
+	// EdgeTenant holds the string denoting the tenant edge name in mutations.
+	EdgeTenant = "tenant"
 	// EdgeSnapshot holds the string denoting the snapshot edge name in mutations.
 	EdgeSnapshot = "snapshot"
 	// EdgeFinalReports holds the string denoting the final_reports edge name in mutations.
 	EdgeFinalReports = "final_reports"
 	// Table holds the table name of the subreport in the database.
 	Table = "sub_reports"
+	// TenantTable is the table that holds the tenant relation/edge.
+	TenantTable = "sub_reports"
+	// TenantInverseTable is the table name for the Tenant entity.
+	// It exists in this package in order to avoid circular dependency with the "tenant" package.
+	TenantInverseTable = "tenants"
+	// TenantColumn is the table column denoting the tenant relation/edge.
+	TenantColumn = "tenant_id"
 	// SnapshotTable is the table that holds the snapshot relation/edge.
 	SnapshotTable = "sub_reports"
 	// SnapshotInverseTable is the table name for the EvidenceSnapshot entity.
@@ -69,6 +80,7 @@ const (
 // Columns holds all SQL columns for subreport fields.
 var Columns = []string{
 	FieldID,
+	FieldTenantID,
 	FieldEvidenceSnapshotID,
 	FieldIdempotencyKey,
 	FieldScenario,
@@ -104,6 +116,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	TenantIDValidator func(int) error
 	// IdempotencyKeyValidator is a validator for the "idempotency_key" field. It is called by the builders before save.
 	IdempotencyKeyValidator func(string) error
 	// ScenarioValidator is a validator for the "scenario" field. It is called by the builders before save.
@@ -134,6 +148,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByTenantID orders the results by the tenant_id field.
+func ByTenantID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTenantID, opts...).ToFunc()
 }
 
 // ByEvidenceSnapshotID orders the results by the evidence_snapshot_id field.
@@ -191,6 +210,13 @@ func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
 }
 
+// ByTenantField orders the results by tenant field.
+func ByTenantField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTenantStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // BySnapshotField orders the results by snapshot field.
 func BySnapshotField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -210,6 +236,13 @@ func ByFinalReports(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newFinalReportsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
+}
+func newTenantStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TenantInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+	)
 }
 func newSnapshotStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

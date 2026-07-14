@@ -9,6 +9,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/providers/metrics/fake"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -67,7 +68,7 @@ func countAlertEvents(ctx context.Context, t *testing.T) int {
 // Stats add up to Saved=N.
 func TestIngestOnce_SavesAllFiringAlerts(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 	const n = 3
 
 	provider := fake.New(firingSeed(n))
@@ -85,7 +86,7 @@ func TestIngestOnce_SavesAllFiringAlerts(t *testing.T) {
 
 func TestIngestAlerts_SavesMaterializedAlerts(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 	const n = 2
 
 	stats, err := alertingest.IngestAlerts(ctx, firingSeed(n), integration.factory)
@@ -108,7 +109,7 @@ func TestIngestAlerts_SavesMaterializedAlerts(t *testing.T) {
 // back" rule documented in ingest.go.
 func TestIngestOnce_DuplicateRunCountsAsDuplicate(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 	const n = 3
 
 	provider := fake.New(firingSeed(n))
@@ -150,7 +151,7 @@ func TestIngestOnce_DuplicateRunCountsAsDuplicate(t *testing.T) {
 // non-empty fingerprints).
 func TestIngestOnce_InvariantViolationCountsAsFailedAndDoesNotBlockOthers(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	seed := firingSeed(2)
 	bad := ports.ActiveAlert{

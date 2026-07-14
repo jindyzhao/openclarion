@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 )
 
@@ -54,6 +55,16 @@ func IDLTE(id int) predicate.DiagnosisAuthTicket {
 	return predicate.DiagnosisAuthTicket(sql.FieldLTE(FieldID, id))
 }
 
+// TenantID applies equality check predicate on the "tenant_id" field. It's identical to TenantIDEQ.
+func TenantID(v int) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldEQ(FieldTenantID, v))
+}
+
+// TenantKey applies equality check predicate on the "tenant_key" field. It's identical to TenantKeyEQ.
+func TenantKey(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldEQ(FieldTenantKey, v))
+}
+
 // TokenHash applies equality check predicate on the "token_hash" field. It's identical to TokenHashEQ.
 func TokenHash(v string) predicate.DiagnosisAuthTicket {
 	return predicate.DiagnosisAuthTicket(sql.FieldEQ(FieldTokenHash, v))
@@ -97,6 +108,91 @@ func CreatedAt(v time.Time) predicate.DiagnosisAuthTicket {
 // UpdatedAt applies equality check predicate on the "updated_at" field. It's identical to UpdatedAtEQ.
 func UpdatedAt(v time.Time) predicate.DiagnosisAuthTicket {
 	return predicate.DiagnosisAuthTicket(sql.FieldEQ(FieldUpdatedAt, v))
+}
+
+// TenantIDEQ applies the EQ predicate on the "tenant_id" field.
+func TenantIDEQ(v int) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldEQ(FieldTenantID, v))
+}
+
+// TenantIDNEQ applies the NEQ predicate on the "tenant_id" field.
+func TenantIDNEQ(v int) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldNEQ(FieldTenantID, v))
+}
+
+// TenantIDIn applies the In predicate on the "tenant_id" field.
+func TenantIDIn(vs ...int) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldIn(FieldTenantID, vs...))
+}
+
+// TenantIDNotIn applies the NotIn predicate on the "tenant_id" field.
+func TenantIDNotIn(vs ...int) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldNotIn(FieldTenantID, vs...))
+}
+
+// TenantKeyEQ applies the EQ predicate on the "tenant_key" field.
+func TenantKeyEQ(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldEQ(FieldTenantKey, v))
+}
+
+// TenantKeyNEQ applies the NEQ predicate on the "tenant_key" field.
+func TenantKeyNEQ(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldNEQ(FieldTenantKey, v))
+}
+
+// TenantKeyIn applies the In predicate on the "tenant_key" field.
+func TenantKeyIn(vs ...string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldIn(FieldTenantKey, vs...))
+}
+
+// TenantKeyNotIn applies the NotIn predicate on the "tenant_key" field.
+func TenantKeyNotIn(vs ...string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldNotIn(FieldTenantKey, vs...))
+}
+
+// TenantKeyGT applies the GT predicate on the "tenant_key" field.
+func TenantKeyGT(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldGT(FieldTenantKey, v))
+}
+
+// TenantKeyGTE applies the GTE predicate on the "tenant_key" field.
+func TenantKeyGTE(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldGTE(FieldTenantKey, v))
+}
+
+// TenantKeyLT applies the LT predicate on the "tenant_key" field.
+func TenantKeyLT(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldLT(FieldTenantKey, v))
+}
+
+// TenantKeyLTE applies the LTE predicate on the "tenant_key" field.
+func TenantKeyLTE(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldLTE(FieldTenantKey, v))
+}
+
+// TenantKeyContains applies the Contains predicate on the "tenant_key" field.
+func TenantKeyContains(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldContains(FieldTenantKey, v))
+}
+
+// TenantKeyHasPrefix applies the HasPrefix predicate on the "tenant_key" field.
+func TenantKeyHasPrefix(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldHasPrefix(FieldTenantKey, v))
+}
+
+// TenantKeyHasSuffix applies the HasSuffix predicate on the "tenant_key" field.
+func TenantKeyHasSuffix(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldHasSuffix(FieldTenantKey, v))
+}
+
+// TenantKeyEqualFold applies the EqualFold predicate on the "tenant_key" field.
+func TenantKeyEqualFold(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldEqualFold(FieldTenantKey, v))
+}
+
+// TenantKeyContainsFold applies the ContainsFold predicate on the "tenant_key" field.
+func TenantKeyContainsFold(v string) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(sql.FieldContainsFold(FieldTenantKey, v))
 }
 
 // TokenHashEQ applies the EQ predicate on the "token_hash" field.
@@ -567,6 +663,29 @@ func UpdatedAtLT(v time.Time) predicate.DiagnosisAuthTicket {
 // UpdatedAtLTE applies the LTE predicate on the "updated_at" field.
 func UpdatedAtLTE(v time.Time) predicate.DiagnosisAuthTicket {
 	return predicate.DiagnosisAuthTicket(sql.FieldLTE(FieldUpdatedAt, v))
+}
+
+// HasTenant applies the HasEdge predicate on the "tenant" edge.
+func HasTenant() predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasTenantWith applies the HasEdge predicate on the "tenant" edge with a given conditions (other predicates).
+func HasTenantWith(preds ...predicate.Tenant) predicate.DiagnosisAuthTicket {
+	return predicate.DiagnosisAuthTicket(func(s *sql.Selector) {
+		step := newTenantStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
 }
 
 // And groups predicates with the AND operator between them.

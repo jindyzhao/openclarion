@@ -14,6 +14,8 @@ const (
 	Label = "notification_channel_test_proof"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldTenantID holds the string denoting the tenant_id field in the database.
+	FieldTenantID = "tenant_id"
 	// FieldNotificationChannelProfileID holds the string denoting the notification_channel_profile_id field in the database.
 	FieldNotificationChannelProfileID = "notification_channel_profile_id"
 	// FieldKind holds the string denoting the kind field in the database.
@@ -36,10 +38,19 @@ const (
 	FieldProviderStatus = "provider_status"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
+	// EdgeTenant holds the string denoting the tenant edge name in mutations.
+	EdgeTenant = "tenant"
 	// EdgeNotificationChannelProfile holds the string denoting the notification_channel_profile edge name in mutations.
 	EdgeNotificationChannelProfile = "notification_channel_profile"
 	// Table holds the table name of the notificationchanneltestproof in the database.
 	Table = "notification_channel_test_proofs"
+	// TenantTable is the table that holds the tenant relation/edge.
+	TenantTable = "notification_channel_test_proofs"
+	// TenantInverseTable is the table name for the Tenant entity.
+	// It exists in this package in order to avoid circular dependency with the "tenant" package.
+	TenantInverseTable = "tenants"
+	// TenantColumn is the table column denoting the tenant relation/edge.
+	TenantColumn = "tenant_id"
 	// NotificationChannelProfileTable is the table that holds the notification_channel_profile relation/edge.
 	NotificationChannelProfileTable = "notification_channel_test_proofs"
 	// NotificationChannelProfileInverseTable is the table name for the NotificationChannelProfile entity.
@@ -52,6 +63,7 @@ const (
 // Columns holds all SQL columns for notificationchanneltestproof fields.
 var Columns = []string{
 	FieldID,
+	FieldTenantID,
 	FieldNotificationChannelProfileID,
 	FieldKind,
 	FieldStatus,
@@ -76,6 +88,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	TenantIDValidator func(int) error
 	// KindValidator is a validator for the "kind" field. It is called by the builders before save.
 	KindValidator func(string) error
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
@@ -102,6 +116,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByTenantID orders the results by the tenant_id field.
+func ByTenantID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTenantID, opts...).ToFunc()
 }
 
 // ByNotificationChannelProfileID orders the results by the notification_channel_profile_id field.
@@ -159,11 +178,25 @@ func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
 }
 
+// ByTenantField orders the results by tenant field.
+func ByTenantField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTenantStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByNotificationChannelProfileField orders the results by notification_channel_profile field.
 func ByNotificationChannelProfileField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newNotificationChannelProfileStep(), sql.OrderByField(field, opts...))
 	}
+}
+func newTenantStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TenantInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+	)
 }
 func newNotificationChannelProfileStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

@@ -447,7 +447,7 @@ func (r *diagnosisRepo) FindEventByTaskAndDedupeKey(ctx context.Context, taskID 
 	return diagnosisTaskEventToDomain(row), nil
 }
 
-// ListEvents returns the events for a task ordered by occurred_at
+// ListEvents returns the events for a task ordered by occurred_at and ID
 // ascending, capped by limit.
 func (r *diagnosisRepo) ListEvents(ctx context.Context, taskID domain.DiagnosisTaskID, limit int) ([]domain.DiagnosisTaskEvent, error) {
 	if err := checkOpen(r.closed); err != nil {
@@ -461,7 +461,10 @@ func (r *diagnosisRepo) ListEvents(ctx context.Context, taskID domain.DiagnosisT
 	}
 	rows, err := r.tx.DiagnosisTaskEvent.Query().
 		Where(diagnosistaskevent.TaskIDEQ(int(taskID))).
-		Order(diagnosistaskevent.ByOccurredAt()).
+		Order(
+			diagnosistaskevent.ByOccurredAt(),
+			diagnosistaskevent.ByID(),
+		).
 		Limit(limit).
 		All(ctx)
 	if err != nil {

@@ -28,6 +28,8 @@ tags:
     description: Operational dashboard read models.
   - name: config
     description: Operator-managed alert source and workflow configuration.
+  - name: tenants
+    description: Tenant lifecycle, membership, and authenticated workspace selection.
 
 paths:
   /healthz:
@@ -457,6 +459,7 @@ paths:
         - alerts
       parameters:
         - $ref: "#/components/parameters/AlertSourceProfileID"
+        - $ref: "#/components/parameters/TenantKeyHeader"
       requestBody:
         description: Alertmanager webhook receiver payload.
         required: true
@@ -3528,6 +3531,8 @@ paths:
       description: Authenticates diagnosis Authorization credentials and returns a sanitized principal summary without issuing a WebSocket ticket.
       tags:
         - diagnosis
+      parameters:
+        - $ref: "#/components/parameters/TenantKeyHeader"
       responses:
         "200":
           description: Diagnosis authorization accepted
@@ -3544,6 +3549,14 @@ paths:
                     mode: ldap
                     checked_at: "2026-06-21T04:00:00Z"
                     role_authorized: true
+                    tenant_id: 1
+                    tenant_key: default
+        "400":
+          description: Tenant selection header is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "401":
           description: Authorization credentials are missing or invalid
           content:
@@ -3554,6 +3567,18 @@ paths:
                 unauthenticated:
                   value:
                     error: authentication failed
+        "403":
+          description: The authenticated subject cannot access the selected tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Tenant access resolution failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: Diagnosis auth provider wiring is not configured
           content:
@@ -3571,6 +3596,8 @@ paths:
       description: Authenticates diagnosis Authorization credentials and returns a short-lived OpenClarion session token for the trusted browser BFF to store in an HTTP-only cookie. IAM OIDC bearer tokens are the standard browser path; explicit compatibility modes such as LDAP Basic can still be exchanged without persisting upstream credentials in browser state.
       tags:
         - diagnosis
+      parameters:
+        - $ref: "#/components/parameters/TenantKeyHeader"
       responses:
         "201":
           description: Diagnosis browser session issued
@@ -3589,6 +3616,8 @@ paths:
                     role_authorized: true
                     checked_at: "2026-06-01T00:00:00Z"
                     expires_at: "2026-06-01T08:00:00Z"
+                    tenant_id: 2
+                    tenant_key: platform
                 ldap:
                   value:
                     token: openclarion.session.token
@@ -3599,6 +3628,14 @@ paths:
                     checked_at: "2026-06-21T04:00:00Z"
                     expires_at: "2026-06-21T12:00:00Z"
                     role_authorized: true
+                    tenant_id: 1
+                    tenant_key: default
+        "400":
+          description: Tenant selection header is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "401":
           description: Authorization credentials are missing or invalid
           content:
@@ -3609,6 +3646,18 @@ paths:
                 unauthenticated:
                   value:
                     error: authentication failed
+        "403":
+          description: The authenticated subject cannot access the selected tenant
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Tenant access resolution or session issuance failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
         "503":
           description: Diagnosis auth provider or browser-session signer is not configured
           content:
@@ -4526,6 +4575,311 @@ paths:
                   value:
                     error: retry report notification failed
 
+  /api/v1/tenants:
+    get:
+      operationId: listAccessibleTenants
+      summary: List tenants visible to the authenticated subject
+      description: Returns the default tenant plus membership-visible tenants. Disabled tenants remain visible for lifecycle administration but cannot receive a new authenticated session.
+      tags:
+        - tenants
+      responses:
+        "200":
+          description: Tenants visible to the subject, including disabled memberships for lifecycle administration
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantListResponse"
+              examples:
+                visible-workspaces:
+                  value:
+                    items:
+                      - id: 1
+                        key: default
+                        name: Default
+                        status: active
+                        created_at: "2026-07-11T10:00:00Z"
+                        updated_at: "2026-07-11T10:00:00Z"
+                      - id: 2
+                        key: platform
+                        name: Platform
+                        status: disabled
+                        created_at: "2026-07-11T10:05:00Z"
+                        updated_at: "2026-07-11T11:00:00Z"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Tenant list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    post:
+      operationId: createTenant
+      summary: Create a tenant and owner membership
+      description: Restricted to configured bootstrap administrators because tenant creation changes the global isolation registry.
+      tags:
+        - tenants
+      requestBody:
+        description: Stable tenant key and operator-facing workspace name.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantCreateRequest"
+            examples:
+              platform:
+                value:
+                  key: platform
+                  name: Platform
+      responses:
+        "201":
+          description: Tenant created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+              examples:
+                created:
+                  value:
+                    id: 2
+                    key: platform
+                    name: Platform
+                    status: active
+                    created_at: "2026-07-11T10:05:00Z"
+                    updated_at: "2026-07-11T10:05:00Z"
+        "400":
+          description: Tenant request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Global tenant creation is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Tenant key already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Tenant creation failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/tenants/{tenant_id}:
+    patch:
+      operationId: updateTenantStatus
+      summary: Update tenant lifecycle status
+      description: Enables or disables a non-default tenant after tenant-owner or bootstrap-admin authorization.
+      tags:
+        - tenants
+      parameters:
+        - $ref: "#/components/parameters/TenantID"
+      requestBody:
+        description: Desired tenant lifecycle status.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantStatusUpdateRequest"
+            examples:
+              disable:
+                value:
+                  status: disabled
+      responses:
+        "200":
+          description: Tenant status updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Tenant"
+              examples:
+                disabled:
+                  value:
+                    id: 2
+                    key: platform
+                    name: Platform
+                    status: disabled
+                    created_at: "2026-07-11T10:05:00Z"
+                    updated_at: "2026-07-11T11:00:00Z"
+        "400":
+          description: Tenant status request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Tenant administration is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: The requested lifecycle transition violates tenant invariants
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Tenant update failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+  /api/v1/tenants/{tenant_id}/memberships:
+    get:
+      operationId: listTenantMemberships
+      summary: List tenant memberships
+      description: Returns bounded membership records after tenant-owner or bootstrap-admin authorization.
+      tags:
+        - tenants
+      parameters:
+        - $ref: "#/components/parameters/TenantID"
+      responses:
+        "200":
+          description: Tenant memberships
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantMembershipListResponse"
+              examples:
+                owners:
+                  value:
+                    items:
+                      - id: 3
+                        tenant_id: 2
+                        subject: operator-1
+                        role: owner
+                        enabled: true
+                        created_by: bootstrap-1
+                        created_at: "2026-07-11T10:05:00Z"
+                        updated_at: "2026-07-11T10:05:00Z"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Tenant administration is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Tenant membership list failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: setTenantMembership
+      summary: Create or update a tenant membership
+      description: Upserts one subject membership while preserving at least one enabled tenant owner.
+      tags:
+        - tenants
+      parameters:
+        - $ref: "#/components/parameters/TenantID"
+      requestBody:
+        description: Stable authentication subject, tenant role, and enabled state.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TenantMembershipWriteRequest"
+            examples:
+              responder:
+                value:
+                  subject: operator-2
+                  role: member
+                  enabled: true
+      responses:
+        "200":
+          description: Tenant membership saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantMembership"
+              examples:
+                saved:
+                  value:
+                    id: 4
+                    tenant_id: 2
+                    subject: operator-2
+                    role: member
+                    enabled: true
+                    created_by: operator-1
+                    created_at: "2026-07-11T11:10:00Z"
+                    updated_at: "2026-07-11T11:10:00Z"
+        "400":
+          description: Tenant membership request is invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Tenant administration is not authorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Tenant not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Membership update would remove the last enabled owner
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "500":
+          description: Tenant membership update failed server-side
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 components:
   parameters:
     ListLimit:
@@ -4539,6 +4893,24 @@ components:
         minimum: 1
         maximum: 500
         default: 100
+    TenantID:
+      name: tenant_id
+      in: path
+      description: Tenant identifier.
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    TenantKeyHeader:
+      name: X-OpenClarion-Tenant
+      in: header
+      description: Optional tenant workspace selection. Signed browser sessions cannot be overridden on normal requests; session issuance may exchange a valid session into another accessible tenant without extending its expiry. Non-default machine ingress still requires a bearer-authenticated source profile.
+      required: false
+      schema:
+        type: string
+        pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+        maxLength: 63
     ReportID:
       name: report_id
       in: path
@@ -4615,6 +4987,212 @@ components:
         ops-iam:
           value: ops_iam
   schemas:
+    Tenant:
+      type: object
+      description: One isolated OpenClarion workspace and its lifecycle state.
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 2
+        key:
+          type: string
+          pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+          maxLength: 63
+          examples:
+            - platform
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - Platform
+        status:
+          type: string
+          enum:
+            - active
+            - disabled
+          examples:
+            - active
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-07-11T10:05:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-07-11T11:00:00Z"
+      required:
+        - id
+        - key
+        - name
+        - status
+        - created_at
+        - updated_at
+    TenantListResponse:
+      type: object
+      description: Bounded tenant registry view for an authenticated subject.
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/Tenant"
+          examples:
+            - - id: 1
+                key: default
+                name: Default
+                status: active
+                created_at: "2026-07-11T10:00:00Z"
+                updated_at: "2026-07-11T10:00:00Z"
+      required:
+        - items
+    TenantCreateRequest:
+      type: object
+      description: Bootstrap-admin request to create an active tenant and owner membership.
+      additionalProperties: false
+      properties:
+        key:
+          type: string
+          pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+          maxLength: 63
+          examples:
+            - platform
+        name:
+          type: string
+          minLength: 1
+          maxLength: 120
+          examples:
+            - Platform
+      required:
+        - key
+        - name
+    TenantStatusUpdateRequest:
+      type: object
+      description: Tenant lifecycle transition requested by an authorized owner.
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum:
+            - active
+            - disabled
+          examples:
+            - disabled
+      required:
+        - status
+    TenantMembership:
+      type: object
+      description: One stable authentication subject's role in a tenant.
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 3
+        tenant_id:
+          type: integer
+          format: int64
+          minimum: 1
+          examples:
+            - 2
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 256
+          examples:
+            - operator-1
+        role:
+          type: string
+          enum:
+            - owner
+            - member
+          examples:
+            - owner
+        enabled:
+          type: boolean
+          examples:
+            - true
+        created_by:
+          type: string
+          minLength: 1
+          maxLength: 256
+          examples:
+            - bootstrap-1
+        created_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-07-11T10:05:00Z"
+        updated_at:
+          type: string
+          format: date-time
+          examples:
+            - "2026-07-11T10:05:00Z"
+      required:
+        - id
+        - tenant_id
+        - subject
+        - role
+        - enabled
+        - created_by
+        - created_at
+        - updated_at
+    TenantMembershipListResponse:
+      type: object
+      description: Bounded membership list for one tenant.
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/TenantMembership"
+          examples:
+            - - id: 3
+                tenant_id: 2
+                subject: operator-1
+                role: owner
+                enabled: true
+                created_by: bootstrap-1
+                created_at: "2026-07-11T10:05:00Z"
+                updated_at: "2026-07-11T10:05:00Z"
+      required:
+        - items
+    TenantMembershipWriteRequest:
+      type: object
+      description: Authorized tenant membership create or update request.
+      additionalProperties: false
+      properties:
+        subject:
+          type: string
+          minLength: 1
+          maxLength: 256
+          examples:
+            - operator-2
+        role:
+          type: string
+          enum:
+            - owner
+            - member
+          examples:
+            - member
+        enabled:
+          type: boolean
+          examples:
+            - true
+      required:
+        - subject
+        - role
+        - enabled
     HealthResponse:
       type: object
       description: Health check response payload.
@@ -8209,12 +8787,28 @@ components:
           description: Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
           examples:
             - true
+        tenant_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Tenant bound to the authenticated request.
+          examples:
+            - 1
+        tenant_key:
+          type: string
+          pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+          maxLength: 63
+          description: Stable key of the tenant bound to the authenticated request.
+          examples:
+            - default
       required:
         - subject
         - roles
         - mode
         - checked_at
         - role_authorized
+        - tenant_id
+        - tenant_key
     DiagnosisAuthSessionResponse:
       type: object
       description: Short-lived diagnosis browser session issued after accepted Authorization credentials. The token is intended only for the trusted browser BFF to store in an HTTP-only cookie and must not be exposed to page JavaScript.
@@ -8266,6 +8860,20 @@ components:
           description: Whether the mapped roles include owner or admin and can be used for diagnosis-room create/connect attempts.
           examples:
             - true
+        tenant_id:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Tenant cryptographically bound into the session token.
+          examples:
+            - 1
+        tenant_key:
+          type: string
+          pattern: "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$"
+          maxLength: 63
+          description: Stable key cryptographically bound into the session token.
+          examples:
+            - default
       required:
         - token
         - subject
@@ -8274,6 +8882,8 @@ components:
         - checked_at
         - expires_at
         - role_authorized
+        - tenant_id
+        - tenant_key
     DiagnosisAuthStatusResponse:
       type: object
       description: Non-sensitive diagnosis auth provider wiring status.

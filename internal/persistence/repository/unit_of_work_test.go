@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -194,7 +195,7 @@ func TestUnitOfWork_BeginCommitAndRollback(t *testing.T) {
 	resetDB(t)
 	startsAt := time.Date(2026, 5, 22, 19, 0, 0, 0, time.UTC)
 
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	// --- Commit path ---
 	uow, err := integration.factory.Begin(ctx)

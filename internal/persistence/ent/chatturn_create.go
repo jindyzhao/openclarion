@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // ChatTurnCreate is the builder for creating a ChatTurn entity.
@@ -22,6 +23,12 @@ type ChatTurnCreate struct {
 	mutation *ChatTurnMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *ChatTurnCreate) SetTenantID(v int) *ChatTurnCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetChatSessionID sets the "chat_session_id" field.
@@ -86,6 +93,11 @@ func (_c *ChatTurnCreate) SetNillableCreatedAt(v *time.Time) *ChatTurnCreate {
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *ChatTurnCreate) SetTenant(v *Tenant) *ChatTurnCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // SetSessionID sets the "session" edge to the ChatSession entity by ID.
 func (_c *ChatTurnCreate) SetSessionID(id int) *ChatTurnCreate {
 	_c.mutation.SetSessionID(id)
@@ -140,6 +152,14 @@ func (_c *ChatTurnCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *ChatTurnCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "ChatTurn.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := chatturn.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "ChatTurn.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.ChatSessionID(); !ok {
 		return &ValidationError{Name: "chat_session_id", err: errors.New(`ent: missing required field "ChatTurn.chat_session_id"`)}
 	}
@@ -188,6 +208,9 @@ func (_c *ChatTurnCreate) check() error {
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "ChatTurn.created_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "ChatTurn.tenant"`)}
 	}
 	if len(_c.mutation.SessionIDs()) == 0 {
 		return &ValidationError{Name: "session", err: errors.New(`ent: missing required edge "ChatTurn.session"`)}
@@ -251,6 +274,23 @@ func (_c *ChatTurnCreate) createSpec() (*ChatTurn, *sqlgraph.CreateSpec) {
 		_spec.SetField(chatturn.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   chatturn.TenantTable,
+			Columns: []string{chatturn.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.SessionIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -275,7 +315,7 @@ func (_c *ChatTurnCreate) createSpec() (*ChatTurn, *sqlgraph.CreateSpec) {
 // of the `INSERT` statement. For example:
 //
 //	client.ChatTurn.Create().
-//		SetChatSessionID(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -284,7 +324,7 @@ func (_c *ChatTurnCreate) createSpec() (*ChatTurn, *sqlgraph.CreateSpec) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ChatTurnUpsert) {
-//			SetChatSessionID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ChatTurnCreate) OnConflict(opts ...sql.ConflictOption) *ChatTurnUpsertOne {
@@ -331,6 +371,9 @@ type (
 func (u *ChatTurnUpsertOne) UpdateNewValues() *ChatTurnUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(chatturn.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.ChatSessionID(); exists {
 			s.SetIgnore(chatturn.FieldChatSessionID)
 		}
@@ -524,7 +567,7 @@ func (_c *ChatTurnCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ChatTurnUpsert) {
-//			SetChatSessionID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ChatTurnCreateBulk) OnConflict(opts ...sql.ConflictOption) *ChatTurnUpsertBulk {
@@ -565,6 +608,9 @@ func (u *ChatTurnUpsertBulk) UpdateNewValues() *ChatTurnUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(chatturn.FieldTenantID)
+			}
 			if _, exists := b.mutation.ChatSessionID(); exists {
 				s.SetIgnore(chatturn.FieldChatSessionID)
 			}

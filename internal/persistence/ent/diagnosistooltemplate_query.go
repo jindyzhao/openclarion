@@ -8,11 +8,13 @@ import (
 	"math"
 
 	"entgo.io/ent"
+	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistooltemplate"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // DiagnosisToolTemplateQuery is the builder for querying DiagnosisToolTemplate entities.
@@ -22,6 +24,8 @@ type DiagnosisToolTemplateQuery struct {
 	order      []diagnosistooltemplate.OrderOption
 	inters     []Interceptor
 	predicates []predicate.DiagnosisToolTemplate
+	withTenant *TenantQuery
+	modifiers  []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -56,6 +60,28 @@ func (_q *DiagnosisToolTemplateQuery) Unique(unique bool) *DiagnosisToolTemplate
 func (_q *DiagnosisToolTemplateQuery) Order(o ...diagnosistooltemplate.OrderOption) *DiagnosisToolTemplateQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryTenant chains the current query on the "tenant" edge.
+func (_q *DiagnosisToolTemplateQuery) QueryTenant() *TenantQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(diagnosistooltemplate.Table, diagnosistooltemplate.FieldID, selector),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, diagnosistooltemplate.TenantTable, diagnosistooltemplate.TenantColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // First returns the first DiagnosisToolTemplate entity from the query.
@@ -250,10 +276,22 @@ func (_q *DiagnosisToolTemplateQuery) Clone() *DiagnosisToolTemplateQuery {
 		order:      append([]diagnosistooltemplate.OrderOption{}, _q.order...),
 		inters:     append([]Interceptor{}, _q.inters...),
 		predicates: append([]predicate.DiagnosisToolTemplate{}, _q.predicates...),
+		withTenant: _q.withTenant.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithTenant tells the query-builder to eager-load the nodes that are connected to
+// the "tenant" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *DiagnosisToolTemplateQuery) WithTenant(opts ...func(*TenantQuery)) *DiagnosisToolTemplateQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTenant = query
+	return _q
 }
 
 // GroupBy is used to group vertices by one or more fields/columns.
@@ -262,12 +300,12 @@ func (_q *DiagnosisToolTemplateQuery) Clone() *DiagnosisToolTemplateQuery {
 // Example:
 //
 //	var v []struct {
-//		Name string `json:"name,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.DiagnosisToolTemplate.Query().
-//		GroupBy(diagnosistooltemplate.FieldName).
+//		GroupBy(diagnosistooltemplate.FieldTenantID).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *DiagnosisToolTemplateQuery) GroupBy(field string, fields ...string) *DiagnosisToolTemplateGroupBy {
@@ -285,11 +323,11 @@ func (_q *DiagnosisToolTemplateQuery) GroupBy(field string, fields ...string) *D
 // Example:
 //
 //	var v []struct {
-//		Name string `json:"name,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //	}
 //
 //	client.DiagnosisToolTemplate.Query().
-//		Select(diagnosistooltemplate.FieldName).
+//		Select(diagnosistooltemplate.FieldTenantID).
 //		Scan(ctx, &v)
 func (_q *DiagnosisToolTemplateQuery) Select(fields ...string) *DiagnosisToolTemplateSelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)
@@ -332,8 +370,11 @@ func (_q *DiagnosisToolTemplateQuery) prepareQuery(ctx context.Context) error {
 
 func (_q *DiagnosisToolTemplateQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*DiagnosisToolTemplate, error) {
 	var (
-		nodes = []*DiagnosisToolTemplate{}
-		_spec = _q.querySpec()
+		nodes       = []*DiagnosisToolTemplate{}
+		_spec       = _q.querySpec()
+		loadedTypes = [1]bool{
+			_q.withTenant != nil,
+		}
 	)
 	_spec.ScanValues = func(columns []string) ([]any, error) {
 		return (*DiagnosisToolTemplate).scanValues(nil, columns)
@@ -341,7 +382,11 @@ func (_q *DiagnosisToolTemplateQuery) sqlAll(ctx context.Context, hooks ...query
 	_spec.Assign = func(columns []string, values []any) error {
 		node := &DiagnosisToolTemplate{config: _q.config}
 		nodes = append(nodes, node)
+		node.Edges.loadedTypes = loadedTypes
 		return node.assignValues(columns, values)
+	}
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
 	}
 	for i := range hooks {
 		hooks[i](ctx, _spec)
@@ -352,11 +397,50 @@ func (_q *DiagnosisToolTemplateQuery) sqlAll(ctx context.Context, hooks ...query
 	if len(nodes) == 0 {
 		return nodes, nil
 	}
+	if query := _q.withTenant; query != nil {
+		if err := _q.loadTenant(ctx, query, nodes, nil,
+			func(n *DiagnosisToolTemplate, e *Tenant) { n.Edges.Tenant = e }); err != nil {
+			return nil, err
+		}
+	}
 	return nodes, nil
+}
+
+func (_q *DiagnosisToolTemplateQuery) loadTenant(ctx context.Context, query *TenantQuery, nodes []*DiagnosisToolTemplate, init func(*DiagnosisToolTemplate), assign func(*DiagnosisToolTemplate, *Tenant)) error {
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*DiagnosisToolTemplate)
+	for i := range nodes {
+		fk := nodes[i].TenantID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(tenant.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "tenant_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
 }
 
 func (_q *DiagnosisToolTemplateQuery) sqlCount(ctx context.Context) (int, error) {
 	_spec := _q.querySpec()
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
+	}
 	_spec.Node.Columns = _q.ctx.Fields
 	if len(_q.ctx.Fields) > 0 {
 		_spec.Unique = _q.ctx.Unique != nil && *_q.ctx.Unique
@@ -379,6 +463,9 @@ func (_q *DiagnosisToolTemplateQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != diagnosistooltemplate.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if _q.withTenant != nil {
+			_spec.Node.AddColumnOnce(diagnosistooltemplate.FieldTenantID)
 		}
 	}
 	if ps := _q.predicates; len(ps) > 0 {
@@ -419,6 +506,9 @@ func (_q *DiagnosisToolTemplateQuery) sqlQuery(ctx context.Context) *sql.Selecto
 	if _q.ctx.Unique != nil && *_q.ctx.Unique {
 		selector.Distinct()
 	}
+	for _, m := range _q.modifiers {
+		m(selector)
+	}
 	for _, p := range _q.predicates {
 		p(selector)
 	}
@@ -434,6 +524,32 @@ func (_q *DiagnosisToolTemplateQuery) sqlQuery(ctx context.Context) *sql.Selecto
 		selector.Limit(*limit)
 	}
 	return selector
+}
+
+// ForUpdate locks the selected rows against concurrent updates, and prevent them from being
+// updated, deleted or "selected ... for update" by other sessions, until the transaction is
+// either committed or rolled-back.
+func (_q *DiagnosisToolTemplateQuery) ForUpdate(opts ...sql.LockOption) *DiagnosisToolTemplateQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForUpdate(opts...)
+	})
+	return _q
+}
+
+// ForShare behaves similarly to ForUpdate, except that it acquires a shared mode lock
+// on any rows that are read. Other sessions can read the rows, but cannot modify them
+// until your transaction commits.
+func (_q *DiagnosisToolTemplateQuery) ForShare(opts ...sql.LockOption) *DiagnosisToolTemplateQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForShare(opts...)
+	})
+	return _q
 }
 
 // DiagnosisToolTemplateGroupBy is the group-by builder for DiagnosisToolTemplate entities.

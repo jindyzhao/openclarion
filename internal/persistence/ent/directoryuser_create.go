@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/directoryuser"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // DirectoryUserCreate is the builder for creating a DirectoryUser entity.
@@ -20,6 +21,12 @@ type DirectoryUserCreate struct {
 	mutation *DirectoryUserMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *DirectoryUserCreate) SetTenantID(v int) *DirectoryUserCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetProvider sets the "provider" field.
@@ -196,6 +203,11 @@ func (_c *DirectoryUserCreate) SetNillableUpdatedAt(v *time.Time) *DirectoryUser
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *DirectoryUserCreate) SetTenant(v *Tenant) *DirectoryUserCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // Mutation returns the DirectoryUserMutation object of the builder.
 func (_c *DirectoryUserCreate) Mutation() *DirectoryUserMutation {
 	return _c.mutation
@@ -247,6 +259,14 @@ func (_c *DirectoryUserCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *DirectoryUserCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "DirectoryUser.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := directoryuser.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "DirectoryUser.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Provider(); !ok {
 		return &ValidationError{Name: "provider", err: errors.New(`ent: missing required field "DirectoryUser.provider"`)}
 	}
@@ -329,6 +349,9 @@ func (_c *DirectoryUserCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "DirectoryUser.updated_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "DirectoryUser.tenant"`)}
 	}
 	return nil
 }
@@ -425,6 +448,23 @@ func (_c *DirectoryUserCreate) createSpec() (*DirectoryUser, *sqlgraph.CreateSpe
 		_spec.SetField(directoryuser.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   directoryuser.TenantTable,
+			Columns: []string{directoryuser.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	return _node, _spec
 }
 
@@ -432,7 +472,7 @@ func (_c *DirectoryUserCreate) createSpec() (*DirectoryUser, *sqlgraph.CreateSpe
 // of the `INSERT` statement. For example:
 //
 //	client.DirectoryUser.Create().
-//		SetProvider(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -441,7 +481,7 @@ func (_c *DirectoryUserCreate) createSpec() (*DirectoryUser, *sqlgraph.CreateSpe
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.DirectoryUserUpsert) {
-//			SetProvider(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *DirectoryUserCreate) OnConflict(opts ...sql.ConflictOption) *DirectoryUserUpsertOne {
@@ -716,6 +756,9 @@ func (u *DirectoryUserUpsert) UpdateUpdatedAt() *DirectoryUserUpsert {
 func (u *DirectoryUserUpsertOne) UpdateNewValues() *DirectoryUserUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(directoryuser.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(directoryuser.FieldCreatedAt)
 		}
@@ -1151,7 +1194,7 @@ func (_c *DirectoryUserCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.DirectoryUserUpsert) {
-//			SetProvider(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *DirectoryUserCreateBulk) OnConflict(opts ...sql.ConflictOption) *DirectoryUserUpsertBulk {
@@ -1192,6 +1235,9 @@ func (u *DirectoryUserUpsertBulk) UpdateNewValues() *DirectoryUserUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(directoryuser.FieldTenantID)
+			}
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(directoryuser.FieldCreatedAt)
 			}

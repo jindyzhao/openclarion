@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // AlertEventCreate is the builder for creating a AlertEvent entity.
@@ -22,6 +23,12 @@ type AlertEventCreate struct {
 	mutation *AlertEventMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *AlertEventCreate) SetTenantID(v int) *AlertEventCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetSource sets the "source" field.
@@ -122,6 +129,11 @@ func (_c *AlertEventCreate) SetNillableCreatedAt(v *time.Time) *AlertEventCreate
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *AlertEventCreate) SetTenant(v *Tenant) *AlertEventCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // AddGroupIDs adds the "groups" edge to the AlertGroup entity by IDs.
 func (_c *AlertEventCreate) AddGroupIDs(ids ...int) *AlertEventCreate {
 	_c.mutation.AddGroupIDs(ids...)
@@ -188,6 +200,14 @@ func (_c *AlertEventCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *AlertEventCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "AlertEvent.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := alertevent.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "AlertEvent.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Source(); !ok {
 		return &ValidationError{Name: "source", err: errors.New(`ent: missing required field "AlertEvent.source"`)}
 	}
@@ -239,6 +259,9 @@ func (_c *AlertEventCreate) check() error {
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "AlertEvent.created_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "AlertEvent.tenant"`)}
 	}
 	return nil
 }
@@ -311,6 +334,23 @@ func (_c *AlertEventCreate) createSpec() (*AlertEvent, *sqlgraph.CreateSpec) {
 		_spec.SetField(alertevent.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   alertevent.TenantTable,
+			Columns: []string{alertevent.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.GroupsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2M,
@@ -334,7 +374,7 @@ func (_c *AlertEventCreate) createSpec() (*AlertEvent, *sqlgraph.CreateSpec) {
 // of the `INSERT` statement. For example:
 //
 //	client.AlertEvent.Create().
-//		SetSource(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -343,7 +383,7 @@ func (_c *AlertEventCreate) createSpec() (*AlertEvent, *sqlgraph.CreateSpec) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.AlertEventUpsert) {
-//			SetSource(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *AlertEventCreate) OnConflict(opts ...sql.ConflictOption) *AlertEventUpsertOne {
@@ -462,6 +502,9 @@ func (u *AlertEventUpsert) ClearEndsAt() *AlertEventUpsert {
 func (u *AlertEventUpsertOne) UpdateNewValues() *AlertEventUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(alertevent.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.Source(); exists {
 			s.SetIgnore(alertevent.FieldSource)
 		}
@@ -730,7 +773,7 @@ func (_c *AlertEventCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.AlertEventUpsert) {
-//			SetSource(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *AlertEventCreateBulk) OnConflict(opts ...sql.ConflictOption) *AlertEventUpsertBulk {
@@ -771,6 +814,9 @@ func (u *AlertEventUpsertBulk) UpdateNewValues() *AlertEventUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(alertevent.FieldTenantID)
+			}
 			if _, exists := b.mutation.Source(); exists {
 				s.SetIgnore(alertevent.FieldSource)
 			}

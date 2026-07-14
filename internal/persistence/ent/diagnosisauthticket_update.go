@@ -95,7 +95,18 @@ func (_u *DiagnosisAuthTicketUpdate) defaults() {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (_u *DiagnosisAuthTicketUpdate) check() error {
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DiagnosisAuthTicket.tenant"`)
+	}
+	return nil
+}
+
 func (_u *DiagnosisAuthTicketUpdate) sqlSave(ctx context.Context) (_node int, err error) {
+	if err := _u.check(); err != nil {
+		return _node, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(diagnosisauthticket.Table, diagnosisauthticket.Columns, sqlgraph.NewFieldSpec(diagnosisauthticket.FieldID, field.TypeInt))
 	if ps := _u.mutation.predicates; len(ps) > 0 {
 		_spec.Predicate = func(selector *sql.Selector) {
@@ -213,7 +224,18 @@ func (_u *DiagnosisAuthTicketUpdateOne) defaults() {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (_u *DiagnosisAuthTicketUpdateOne) check() error {
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DiagnosisAuthTicket.tenant"`)
+	}
+	return nil
+}
+
 func (_u *DiagnosisAuthTicketUpdateOne) sqlSave(ctx context.Context) (_node *DiagnosisAuthTicket, err error) {
+	if err := _u.check(); err != nil {
+		return _node, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(diagnosisauthticket.Table, diagnosisauthticket.Columns, sqlgraph.NewFieldSpec(diagnosisauthticket.FieldID, field.TypeInt))
 	id, ok := _u.mutation.ID()
 	if !ok {

@@ -9,12 +9,14 @@ import (
 	"math"
 
 	"entgo.io/ent"
+	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchanneltestproof"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // NotificationChannelProfileQuery is the builder for querying NotificationChannelProfile entities.
@@ -24,7 +26,9 @@ type NotificationChannelProfileQuery struct {
 	order          []notificationchannelprofile.OrderOption
 	inters         []Interceptor
 	predicates     []predicate.NotificationChannelProfile
+	withTenant     *TenantQuery
 	withTestProofs *NotificationChannelTestProofQuery
+	modifiers      []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -59,6 +63,28 @@ func (_q *NotificationChannelProfileQuery) Unique(unique bool) *NotificationChan
 func (_q *NotificationChannelProfileQuery) Order(o ...notificationchannelprofile.OrderOption) *NotificationChannelProfileQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryTenant chains the current query on the "tenant" edge.
+func (_q *NotificationChannelProfileQuery) QueryTenant() *TenantQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(notificationchannelprofile.Table, notificationchannelprofile.FieldID, selector),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, notificationchannelprofile.TenantTable, notificationchannelprofile.TenantColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QueryTestProofs chains the current query on the "test_proofs" edge.
@@ -275,11 +301,23 @@ func (_q *NotificationChannelProfileQuery) Clone() *NotificationChannelProfileQu
 		order:          append([]notificationchannelprofile.OrderOption{}, _q.order...),
 		inters:         append([]Interceptor{}, _q.inters...),
 		predicates:     append([]predicate.NotificationChannelProfile{}, _q.predicates...),
+		withTenant:     _q.withTenant.Clone(),
 		withTestProofs: _q.withTestProofs.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithTenant tells the query-builder to eager-load the nodes that are connected to
+// the "tenant" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *NotificationChannelProfileQuery) WithTenant(opts ...func(*TenantQuery)) *NotificationChannelProfileQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTenant = query
+	return _q
 }
 
 // WithTestProofs tells the query-builder to eager-load the nodes that are connected to
@@ -299,12 +337,12 @@ func (_q *NotificationChannelProfileQuery) WithTestProofs(opts ...func(*Notifica
 // Example:
 //
 //	var v []struct {
-//		Name string `json:"name,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.NotificationChannelProfile.Query().
-//		GroupBy(notificationchannelprofile.FieldName).
+//		GroupBy(notificationchannelprofile.FieldTenantID).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *NotificationChannelProfileQuery) GroupBy(field string, fields ...string) *NotificationChannelProfileGroupBy {
@@ -322,11 +360,11 @@ func (_q *NotificationChannelProfileQuery) GroupBy(field string, fields ...strin
 // Example:
 //
 //	var v []struct {
-//		Name string `json:"name,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //	}
 //
 //	client.NotificationChannelProfile.Query().
-//		Select(notificationchannelprofile.FieldName).
+//		Select(notificationchannelprofile.FieldTenantID).
 //		Scan(ctx, &v)
 func (_q *NotificationChannelProfileQuery) Select(fields ...string) *NotificationChannelProfileSelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)
@@ -371,7 +409,8 @@ func (_q *NotificationChannelProfileQuery) sqlAll(ctx context.Context, hooks ...
 	var (
 		nodes       = []*NotificationChannelProfile{}
 		_spec       = _q.querySpec()
-		loadedTypes = [1]bool{
+		loadedTypes = [2]bool{
+			_q.withTenant != nil,
 			_q.withTestProofs != nil,
 		}
 	)
@@ -384,6 +423,9 @@ func (_q *NotificationChannelProfileQuery) sqlAll(ctx context.Context, hooks ...
 		node.Edges.loadedTypes = loadedTypes
 		return node.assignValues(columns, values)
 	}
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
+	}
 	for i := range hooks {
 		hooks[i](ctx, _spec)
 	}
@@ -392,6 +434,12 @@ func (_q *NotificationChannelProfileQuery) sqlAll(ctx context.Context, hooks ...
 	}
 	if len(nodes) == 0 {
 		return nodes, nil
+	}
+	if query := _q.withTenant; query != nil {
+		if err := _q.loadTenant(ctx, query, nodes, nil,
+			func(n *NotificationChannelProfile, e *Tenant) { n.Edges.Tenant = e }); err != nil {
+			return nil, err
+		}
 	}
 	if query := _q.withTestProofs; query != nil {
 		if err := _q.loadTestProofs(ctx, query, nodes,
@@ -405,6 +453,35 @@ func (_q *NotificationChannelProfileQuery) sqlAll(ctx context.Context, hooks ...
 	return nodes, nil
 }
 
+func (_q *NotificationChannelProfileQuery) loadTenant(ctx context.Context, query *TenantQuery, nodes []*NotificationChannelProfile, init func(*NotificationChannelProfile), assign func(*NotificationChannelProfile, *Tenant)) error {
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*NotificationChannelProfile)
+	for i := range nodes {
+		fk := nodes[i].TenantID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(tenant.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "tenant_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
 func (_q *NotificationChannelProfileQuery) loadTestProofs(ctx context.Context, query *NotificationChannelTestProofQuery, nodes []*NotificationChannelProfile, init func(*NotificationChannelProfile), assign func(*NotificationChannelProfile, *NotificationChannelTestProof)) error {
 	fks := make([]driver.Value, 0, len(nodes))
 	nodeids := make(map[int]*NotificationChannelProfile)
@@ -438,6 +515,9 @@ func (_q *NotificationChannelProfileQuery) loadTestProofs(ctx context.Context, q
 
 func (_q *NotificationChannelProfileQuery) sqlCount(ctx context.Context) (int, error) {
 	_spec := _q.querySpec()
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
+	}
 	_spec.Node.Columns = _q.ctx.Fields
 	if len(_q.ctx.Fields) > 0 {
 		_spec.Unique = _q.ctx.Unique != nil && *_q.ctx.Unique
@@ -460,6 +540,9 @@ func (_q *NotificationChannelProfileQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != notificationchannelprofile.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if _q.withTenant != nil {
+			_spec.Node.AddColumnOnce(notificationchannelprofile.FieldTenantID)
 		}
 	}
 	if ps := _q.predicates; len(ps) > 0 {
@@ -500,6 +583,9 @@ func (_q *NotificationChannelProfileQuery) sqlQuery(ctx context.Context) *sql.Se
 	if _q.ctx.Unique != nil && *_q.ctx.Unique {
 		selector.Distinct()
 	}
+	for _, m := range _q.modifiers {
+		m(selector)
+	}
 	for _, p := range _q.predicates {
 		p(selector)
 	}
@@ -515,6 +601,32 @@ func (_q *NotificationChannelProfileQuery) sqlQuery(ctx context.Context) *sql.Se
 		selector.Limit(*limit)
 	}
 	return selector
+}
+
+// ForUpdate locks the selected rows against concurrent updates, and prevent them from being
+// updated, deleted or "selected ... for update" by other sessions, until the transaction is
+// either committed or rolled-back.
+func (_q *NotificationChannelProfileQuery) ForUpdate(opts ...sql.LockOption) *NotificationChannelProfileQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForUpdate(opts...)
+	})
+	return _q
+}
+
+// ForShare behaves similarly to ForUpdate, except that it acquires a shared mode lock
+// on any rows that are read. Other sessions can read the rows, but cannot modify them
+// until your transaction commits.
+func (_q *NotificationChannelProfileQuery) ForShare(opts ...sql.LockOption) *NotificationChannelProfileQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForShare(opts...)
+	})
+	return _q
 }
 
 // NotificationChannelProfileGroupBy is the group-by builder for NotificationChannelProfile entities.

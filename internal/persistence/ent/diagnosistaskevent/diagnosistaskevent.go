@@ -14,6 +14,8 @@ const (
 	Label = "diagnosis_task_event"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldTenantID holds the string denoting the tenant_id field in the database.
+	FieldTenantID = "tenant_id"
 	// FieldTaskID holds the string denoting the task_id field in the database.
 	FieldTaskID = "task_id"
 	// FieldKind holds the string denoting the kind field in the database.
@@ -26,10 +28,19 @@ const (
 	FieldOccurredAt = "occurred_at"
 	// FieldRecordedAt holds the string denoting the recorded_at field in the database.
 	FieldRecordedAt = "recorded_at"
+	// EdgeTenant holds the string denoting the tenant edge name in mutations.
+	EdgeTenant = "tenant"
 	// EdgeTask holds the string denoting the task edge name in mutations.
 	EdgeTask = "task"
 	// Table holds the table name of the diagnosistaskevent in the database.
 	Table = "diagnosis_task_events"
+	// TenantTable is the table that holds the tenant relation/edge.
+	TenantTable = "diagnosis_task_events"
+	// TenantInverseTable is the table name for the Tenant entity.
+	// It exists in this package in order to avoid circular dependency with the "tenant" package.
+	TenantInverseTable = "tenants"
+	// TenantColumn is the table column denoting the tenant relation/edge.
+	TenantColumn = "tenant_id"
 	// TaskTable is the table that holds the task relation/edge.
 	TaskTable = "diagnosis_task_events"
 	// TaskInverseTable is the table name for the DiagnosisTask entity.
@@ -42,6 +53,7 @@ const (
 // Columns holds all SQL columns for diagnosistaskevent fields.
 var Columns = []string{
 	FieldID,
+	FieldTenantID,
 	FieldTaskID,
 	FieldKind,
 	FieldPayload,
@@ -61,6 +73,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	TenantIDValidator func(int) error
 	// KindValidator is a validator for the "kind" field. It is called by the builders before save.
 	KindValidator func(string) error
 	// DedupeKeyValidator is a validator for the "dedupe_key" field. It is called by the builders before save.
@@ -75,6 +89,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByTenantID orders the results by the tenant_id field.
+func ByTenantID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTenantID, opts...).ToFunc()
 }
 
 // ByTaskID orders the results by the task_id field.
@@ -102,11 +121,25 @@ func ByRecordedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldRecordedAt, opts...).ToFunc()
 }
 
+// ByTenantField orders the results by tenant field.
+func ByTenantField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTenantStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByTaskField orders the results by task field.
 func ByTaskField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newTaskStep(), sql.OrderByField(field, opts...))
 	}
+}
+func newTenantStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TenantInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+	)
 }
 func newTaskStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

@@ -25,13 +25,17 @@ export function normalizedDiagnosisAuthCheckResponse(
   const mode = value.mode;
   const checkedAt = value.checked_at;
   const roleAuthorized = value.role_authorized;
+  const tenantID = value.tenant_id;
+  const tenantKey = value.tenant_key;
   if (
     !isCleanText(subject) ||
     !isDiagnosisAuthMode(mode) ||
     !Array.isArray(roles) ||
     !roles.every(isDiagnosisAuthRole) ||
     typeof roleAuthorized !== "boolean" ||
-    !isValidDateTime(checkedAt)
+    !isValidDateTime(checkedAt) ||
+    !isPositiveInteger(tenantID) ||
+    !isTenantKey(tenantKey)
   ) {
     return null;
   }
@@ -41,6 +45,8 @@ export function normalizedDiagnosisAuthCheckResponse(
     role_authorized: roleAuthorized,
     roles,
     subject,
+    tenant_id: tenantID,
+    tenant_key: tenantKey,
   };
 }
 
@@ -59,6 +65,8 @@ export function normalizedDiagnosisAuthSessionResponse(
   const checkedAt = value.checked_at;
   const expiresAt = value.expires_at;
   const roleAuthorized = value.role_authorized;
+  const tenantID = value.tenant_id;
+  const tenantKey = value.tenant_key;
   if (
     token === null ||
     !isCleanText(subject) ||
@@ -67,7 +75,9 @@ export function normalizedDiagnosisAuthSessionResponse(
     !roles.every(isDiagnosisAuthRole) ||
     typeof roleAuthorized !== "boolean" ||
     !isValidDateTime(checkedAt) ||
-    !isValidDateTime(expiresAt)
+    !isValidDateTime(expiresAt) ||
+    !isPositiveInteger(tenantID) ||
+    !isTenantKey(tenantKey)
   ) {
     return null;
   }
@@ -78,6 +88,8 @@ export function normalizedDiagnosisAuthSessionResponse(
     role_authorized: roleAuthorized,
     roles,
     subject,
+    tenant_id: tenantID,
+    tenant_key: tenantKey,
     token,
   };
 }
@@ -314,6 +326,18 @@ function isDiagnosisAuthRole(value: unknown): value is DiagnosisAuthRole {
 
 function isNonNegativeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && typeof value === "number" && value >= 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return Number.isSafeInteger(value) && typeof value === "number" && value > 0;
+}
+
+function isTenantKey(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 63 &&
+    /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/u.test(value)
+  );
 }
 
 function isCleanText(value: unknown): value is string {

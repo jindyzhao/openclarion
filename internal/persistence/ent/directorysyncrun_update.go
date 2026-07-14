@@ -302,6 +302,9 @@ func (_u *DirectorySyncRunUpdate) check() error {
 			return &ValidationError{Name: "users_upserted", err: fmt.Errorf(`ent: validator failed for field "DirectorySyncRun.users_upserted": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DirectorySyncRun.tenant"`)
+	}
 	return nil
 }
 
@@ -674,6 +677,9 @@ func (_u *DirectorySyncRunUpdateOne) check() error {
 		if err := directorysyncrun.UsersUpsertedValidator(v); err != nil {
 			return &ValidationError{Name: "users_upserted", err: fmt.Errorf(`ent: validator failed for field "DirectorySyncRun.users_upserted": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DirectorySyncRun.tenant"`)
 	}
 	return nil
 }

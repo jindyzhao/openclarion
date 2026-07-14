@@ -73,6 +73,22 @@ import (
 // existing WithinTx boundary.
 var ErrNestedTransaction = errors.New("ports: nested WithinTx is not supported")
 
+// TenantRegistry owns global tenant and membership records. It sits outside
+// UnitOfWork because these rows select a tenant before any tenant-scoped
+// business transaction can begin.
+type TenantRegistry interface {
+	FindTenantByKey(ctx context.Context, key string) (domain.Tenant, error)
+	ListTenants(ctx context.Context, limit int) ([]domain.Tenant, error)
+	ListTenantsForSubject(ctx context.Context, subject string, limit int) ([]domain.Tenant, error)
+	FindTenantMembership(ctx context.Context, tenantID domain.TenantID, subject string) (domain.TenantMembership, error)
+	CreateTenantWithOwner(ctx context.Context, tenant domain.Tenant, ownerSubject string) (domain.Tenant, domain.TenantMembership, error)
+	UpdateTenantStatus(ctx context.Context, id domain.TenantID, status domain.TenantStatus) (domain.Tenant, error)
+	ListTenantMemberships(ctx context.Context, tenantID domain.TenantID, limit int) ([]domain.TenantMembership, error)
+	// SetTenantMembership atomically creates or updates a membership and must
+	// reject disabling or demoting the tenant's last enabled owner.
+	SetTenantMembership(ctx context.Context, membership domain.TenantMembership) (domain.TenantMembership, error)
+}
+
 // AlertRepository covers the AlertEvent and AlertGroup aggregate
 // root, including the many-to-many event<->group link materialised
 // via the alert_event_groups join table and the active/window
@@ -817,8 +833,9 @@ type UnitOfWork interface {
 // Postgres transaction. Two entry points are provided to balance
 // safety (default WithinTx) against flexibility (escape-hatch Begin).
 type UnitOfWorkFactory interface {
-	// Begin starts a new transaction and returns a UnitOfWork
-	// scoped to it. Callers MUST exactly one of Commit / Rollback
+	// Begin starts a new transaction and returns a UnitOfWork scoped to it.
+	// Callers MUST pass the same tenant-bound ctx to every repository method and
+	// call exactly one of Commit / Rollback
 	// before the context is cancelled or the program exits. Use
 	// WithinTx unless the transaction's lifetime must span control
 	// boundaries that prevent a single function from owning it.

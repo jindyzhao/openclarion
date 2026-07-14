@@ -17,6 +17,9 @@ type DirectoryDepartment struct {
 	ent.Schema
 }
 
+// Mixin of the DirectoryDepartment.
+func (DirectoryDepartment) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the DirectoryDepartment.
 func (DirectoryDepartment) Fields() []ent.Field {
 	return []ent.Field{
@@ -80,7 +83,7 @@ func (DirectoryDepartment) Fields() []ent.Field {
 // Indexes of the DirectoryDepartment.
 func (DirectoryDepartment) Indexes() []ent.Index {
 	return []ent.Index{
-		index.Fields("provider", "external_id").
+		index.Fields("tenant_id", "provider", "external_id").
 			Unique(),
 		index.Fields("provider", "path"),
 		index.Fields("path"),

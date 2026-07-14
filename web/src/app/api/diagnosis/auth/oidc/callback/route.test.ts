@@ -9,6 +9,8 @@ import { diagnosisSessionCookieName } from "@/lib/api/diagnosis-session";
 
 import { GET } from "./route";
 
+const defaultTenantBinding = { tenant_id: 1, tenant_key: "default" } as const;
+
 describe("diagnosis OIDC callback route", () => {
   const originalEnv = oidcEnvSnapshot();
 
@@ -44,6 +46,7 @@ describe("diagnosis OIDC callback route", () => {
         )
         .mockResolvedValueOnce(
           Response.json({
+            ...defaultTenantBinding,
             checked_at: "2026-06-25T02:00:00Z",
             expires_at: "2099-06-25T02:00:00Z",
             mode: "oidc",
@@ -121,6 +124,7 @@ describe("diagnosis OIDC callback route", () => {
         )
         .mockResolvedValueOnce(
           Response.json({
+            ...defaultTenantBinding,
             checked_at: "2026-06-25T02:00:00Z",
             expires_at: "2099-06-25T02:00:00Z",
             mode: "oidc",
@@ -194,6 +198,7 @@ describe("diagnosis OIDC callback route", () => {
         .mockResolvedValueOnce(Response.json({ id_token: fakeIDToken("nonce-1") }))
         .mockResolvedValueOnce(
           Response.json({
+            ...defaultTenantBinding,
             checked_at: "2026-06-25T02:00:00Z",
             expires_at: "2099-06-25T02:00:00Z",
             mode: "oidc",

@@ -308,6 +308,13 @@ func (s *Server) AuthorizeCurrentRBAC(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
 		return
 	}
+	principal.Subject = subject
+	principal, tenantCtx, err := s.bindAuthenticatedTenant(r.Context(), r.Header, principal)
+	if err != nil {
+		s.writeTenantBindingError(r.Context(), w, err)
+		return
+	}
+	*r = *r.WithContext(tenantCtx)
 	directoryUsers, err := s.localRBACDirectoryUsersBySubject(r.Context(), subject)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "resolve local rbac principal failed", err)

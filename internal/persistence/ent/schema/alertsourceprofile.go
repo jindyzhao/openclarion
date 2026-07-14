@@ -20,13 +20,15 @@ type AlertSourceProfile struct {
 	ent.Schema
 }
 
+// Mixin of the AlertSourceProfile.
+func (AlertSourceProfile) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the AlertSourceProfile.
 func (AlertSourceProfile) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("name").
 			MaxLen(120).
 			NotEmpty().
-			Unique().
 			Comment("operator-facing unique display name"),
 		field.String("kind").
 			MaxLen(32).
@@ -63,6 +65,7 @@ func (AlertSourceProfile) Fields() []ent.Field {
 // Indexes of the AlertSourceProfile.
 func (AlertSourceProfile) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("tenant_id", "name").Unique(),
 		index.Fields("kind", "enabled"),
 		index.Fields("labels").
 			Annotations(

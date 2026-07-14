@@ -232,6 +232,9 @@ func (_u *ReportNotificationDeliveryUpdate) check() error {
 			return &ValidationError{Name: "failure_reason", err: fmt.Errorf(`ent: validator failed for field "ReportNotificationDelivery.failure_reason": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "ReportNotificationDelivery.tenant"`)
+	}
 	if _u.mutation.FinalReportCleared() && len(_u.mutation.FinalReportIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "ReportNotificationDelivery.final_report"`)
 	}
@@ -531,6 +534,9 @@ func (_u *ReportNotificationDeliveryUpdateOne) check() error {
 		if err := reportnotificationdelivery.FailureReasonValidator(v); err != nil {
 			return &ValidationError{Name: "failure_reason", err: fmt.Errorf(`ent: validator failed for field "ReportNotificationDelivery.failure_reason": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "ReportNotificationDelivery.tenant"`)
 	}
 	if _u.mutation.FinalReportCleared() && len(_u.mutation.FinalReportIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "ReportNotificationDelivery.final_report"`)

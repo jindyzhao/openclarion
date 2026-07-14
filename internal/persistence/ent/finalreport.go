@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // FinalReport is the model entity for the FinalReport schema.
@@ -18,6 +19,8 @@ type FinalReport struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// business correlation key for the reduced incident/window
 	CorrelationKey string `json:"correlation_key,omitempty"`
 	// activity idempotency key for final report generation
@@ -54,19 +57,32 @@ type FinalReport struct {
 
 // FinalReportEdges holds the relations/edges for other nodes in the graph.
 type FinalReportEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// SubReports holds the value of the sub_reports edge.
 	SubReports []*SubReport `json:"sub_reports,omitempty"`
 	// NotificationDeliveries holds the value of the notification_deliveries edge.
 	NotificationDeliveries []*ReportNotificationDelivery `json:"notification_deliveries,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e FinalReportEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // SubReportsOrErr returns the SubReports value or an error if the edge
 // was not loaded in eager-loading.
 func (e FinalReportEdges) SubReportsOrErr() ([]*SubReport, error) {
-	if e.loadedTypes[0] {
+	if e.loadedTypes[1] {
 		return e.SubReports, nil
 	}
 	return nil, &NotLoadedError{edge: "sub_reports"}
@@ -75,7 +91,7 @@ func (e FinalReportEdges) SubReportsOrErr() ([]*SubReport, error) {
 // NotificationDeliveriesOrErr returns the NotificationDeliveries value or an error if the edge
 // was not loaded in eager-loading.
 func (e FinalReportEdges) NotificationDeliveriesOrErr() ([]*ReportNotificationDelivery, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[2] {
 		return e.NotificationDeliveries, nil
 	}
 	return nil, &NotLoadedError{edge: "notification_deliveries"}
@@ -88,7 +104,7 @@ func (*FinalReport) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case finalreport.FieldSubreportSummaries, finalreport.FieldRecommendedActions, finalreport.FieldContent:
 			values[i] = new([]byte)
-		case finalreport.FieldID:
+		case finalreport.FieldID, finalreport.FieldTenantID:
 			values[i] = new(sql.NullInt64)
 		case finalreport.FieldCorrelationKey, finalreport.FieldIdempotencyKey, finalreport.FieldTitle, finalreport.FieldExecutiveSummary, finalreport.FieldSeverity, finalreport.FieldConfidence, finalreport.FieldNotificationText, finalreport.FieldModel, finalreport.FieldOutputMode, finalreport.FieldCreatedByWorkflow:
 			values[i] = new(sql.NullString)
@@ -115,6 +131,12 @@ func (_m *FinalReport) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case finalreport.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case finalreport.FieldCorrelationKey:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field correlation_key", values[i])
@@ -218,6 +240,11 @@ func (_m *FinalReport) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the FinalReport entity.
+func (_m *FinalReport) QueryTenant() *TenantQuery {
+	return NewFinalReportClient(_m.config).QueryTenant(_m)
+}
+
 // QuerySubReports queries the "sub_reports" edge of the FinalReport entity.
 func (_m *FinalReport) QuerySubReports() *SubReportQuery {
 	return NewFinalReportClient(_m.config).QuerySubReports(_m)
@@ -251,6 +278,9 @@ func (_m *FinalReport) String() string {
 	var builder strings.Builder
 	builder.WriteString("FinalReport(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("correlation_key=")
 	builder.WriteString(_m.CorrelationKey)
 	builder.WriteString(", ")

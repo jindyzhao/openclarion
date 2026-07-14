@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // ChatTurn is the model entity for the ChatTurn schema.
@@ -19,6 +20,8 @@ type ChatTurn struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// FK to chat_sessions.id
 	ChatSessionID int `json:"chat_session_id,omitempty"`
 	// caller-supplied idempotency key; UNIQUE per chat session
@@ -45,11 +48,24 @@ type ChatTurn struct {
 
 // ChatTurnEdges holds the relations/edges for other nodes in the graph.
 type ChatTurnEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// Session holds the value of the session edge.
 	Session *ChatSession `json:"session,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [2]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e ChatTurnEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // SessionOrErr returns the Session value or an error if the edge
@@ -57,7 +73,7 @@ type ChatTurnEdges struct {
 func (e ChatTurnEdges) SessionOrErr() (*ChatSession, error) {
 	if e.Session != nil {
 		return e.Session, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: chatsession.Label}
 	}
 	return nil, &NotLoadedError{edge: "session"}
@@ -70,7 +86,7 @@ func (*ChatTurn) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case chatturn.FieldMetadata:
 			values[i] = new([]byte)
-		case chatturn.FieldID, chatturn.FieldChatSessionID, chatturn.FieldSequence:
+		case chatturn.FieldID, chatturn.FieldTenantID, chatturn.FieldChatSessionID, chatturn.FieldSequence:
 			values[i] = new(sql.NullInt64)
 		case chatturn.FieldMessageID, chatturn.FieldRole, chatturn.FieldActorSubject, chatturn.FieldContent:
 			values[i] = new(sql.NullString)
@@ -97,6 +113,12 @@ func (_m *ChatTurn) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case chatturn.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case chatturn.FieldChatSessionID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field chat_session_id", values[i])
@@ -166,6 +188,11 @@ func (_m *ChatTurn) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the ChatTurn entity.
+func (_m *ChatTurn) QueryTenant() *TenantQuery {
+	return NewChatTurnClient(_m.config).QueryTenant(_m)
+}
+
 // QuerySession queries the "session" edge of the ChatTurn entity.
 func (_m *ChatTurn) QuerySession() *ChatSessionQuery {
 	return NewChatTurnClient(_m.config).QuerySession(_m)
@@ -194,6 +221,9 @@ func (_m *ChatTurn) String() string {
 	var builder strings.Builder
 	builder.WriteString("ChatTurn(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("chat_session_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ChatSessionID))
 	builder.WriteString(", ")

@@ -15,6 +15,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // AlertGroupCreate is the builder for creating a AlertGroup entity.
@@ -23,6 +24,12 @@ type AlertGroupCreate struct {
 	mutation *AlertGroupMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *AlertGroupCreate) SetTenantID(v int) *AlertGroupCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetGroupKey sets the "group_key" field.
@@ -119,6 +126,11 @@ func (_c *AlertGroupCreate) SetNillableUpdatedAt(v *time.Time) *AlertGroupCreate
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *AlertGroupCreate) SetTenant(v *Tenant) *AlertGroupCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // AddEventIDs adds the "events" edge to the AlertEvent entity by IDs.
 func (_c *AlertGroupCreate) AddEventIDs(ids ...int) *AlertGroupCreate {
 	_c.mutation.AddEventIDs(ids...)
@@ -208,6 +220,14 @@ func (_c *AlertGroupCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *AlertGroupCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "AlertGroup.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := alertgroup.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "AlertGroup.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.GroupKey(); !ok {
 		return &ValidationError{Name: "group_key", err: errors.New(`ent: missing required field "AlertGroup.group_key"`)}
 	}
@@ -254,6 +274,9 @@ func (_c *AlertGroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "AlertGroup.updated_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "AlertGroup.tenant"`)}
 	}
 	return nil
 }
@@ -318,6 +341,23 @@ func (_c *AlertGroupCreate) createSpec() (*AlertGroup, *sqlgraph.CreateSpec) {
 		_spec.SetField(alertgroup.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   alertgroup.TenantTable,
+			Columns: []string{alertgroup.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.EventsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2M,
@@ -357,7 +397,7 @@ func (_c *AlertGroupCreate) createSpec() (*AlertGroup, *sqlgraph.CreateSpec) {
 // of the `INSERT` statement. For example:
 //
 //	client.AlertGroup.Create().
-//		SetGroupKey(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -366,7 +406,7 @@ func (_c *AlertGroupCreate) createSpec() (*AlertGroup, *sqlgraph.CreateSpec) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.AlertGroupUpsert) {
-//			SetGroupKey(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *AlertGroupCreate) OnConflict(opts ...sql.ConflictOption) *AlertGroupUpsertOne {
@@ -491,6 +531,9 @@ func (u *AlertGroupUpsert) UpdateUpdatedAt() *AlertGroupUpsert {
 func (u *AlertGroupUpsertOne) UpdateNewValues() *AlertGroupUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(alertgroup.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.GroupKey(); exists {
 			s.SetIgnore(alertgroup.FieldGroupKey)
 		}
@@ -757,7 +800,7 @@ func (_c *AlertGroupCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.AlertGroupUpsert) {
-//			SetGroupKey(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *AlertGroupCreateBulk) OnConflict(opts ...sql.ConflictOption) *AlertGroupUpsertBulk {
@@ -798,6 +841,9 @@ func (u *AlertGroupUpsertBulk) UpdateNewValues() *AlertGroupUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(alertgroup.FieldTenantID)
+			}
 			if _, exists := b.mutation.GroupKey(); exists {
 				s.SetIgnore(alertgroup.FieldGroupKey)
 			}

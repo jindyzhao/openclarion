@@ -59,7 +59,18 @@ func (_u *RetrievalChunkUpdate) ExecX(ctx context.Context) {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (_u *RetrievalChunkUpdate) check() error {
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "RetrievalChunk.tenant"`)
+	}
+	return nil
+}
+
 func (_u *RetrievalChunkUpdate) sqlSave(ctx context.Context) (_node int, err error) {
+	if err := _u.check(); err != nil {
+		return _node, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(retrievalchunk.Table, retrievalchunk.Columns, sqlgraph.NewFieldSpec(retrievalchunk.FieldID, field.TypeInt))
 	if ps := _u.mutation.predicates; len(ps) > 0 {
 		_spec.Predicate = func(selector *sql.Selector) {
@@ -133,7 +144,18 @@ func (_u *RetrievalChunkUpdateOne) ExecX(ctx context.Context) {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (_u *RetrievalChunkUpdateOne) check() error {
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "RetrievalChunk.tenant"`)
+	}
+	return nil
+}
+
 func (_u *RetrievalChunkUpdateOne) sqlSave(ctx context.Context) (_node *RetrievalChunk, err error) {
+	if err := _u.check(); err != nil {
+		return _node, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(retrievalchunk.Table, retrievalchunk.Columns, sqlgraph.NewFieldSpec(retrievalchunk.FieldID, field.TypeInt))
 	id, ok := _u.mutation.ID()
 	if !ok {

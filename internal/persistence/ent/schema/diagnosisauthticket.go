@@ -4,11 +4,15 @@
 package schema
 
 import (
+	"fmt"
 	"time"
 
 	"entgo.io/ent"
+	"entgo.io/ent/schema/edge"
 	"entgo.io/ent/schema/field"
 	"entgo.io/ent/schema/index"
+
+	"github.com/openclarion/openclarion/internal/domain"
 )
 
 // DiagnosisAuthTicket stores short-lived diagnosis WebSocket ticket metadata.
@@ -29,6 +33,25 @@ type DiagnosisAuthTicket struct {
 // Fields of the DiagnosisAuthTicket.
 func (DiagnosisAuthTicket) Fields() []ent.Field {
 	return []ent.Field{
+		field.Int("tenant_id").
+			Positive().
+			Immutable().
+			Comment("tenant bound into the authenticated ticket"),
+		field.String("tenant_key").
+			MaxLen(domain.MaxTenantKeyLength).
+			NotEmpty().
+			Immutable().
+			Validate(func(value string) error {
+				normalized, err := domain.NormalizeTenantKey(value)
+				if err != nil {
+					return err
+				}
+				if normalized != value {
+					return fmt.Errorf("tenant key must already be normalized")
+				}
+				return nil
+			}).
+			Comment("stable tenant key bound into the authenticated ticket"),
 		field.String("token_hash").
 			MaxLen(64).
 			NotEmpty().
@@ -74,9 +97,21 @@ func (DiagnosisAuthTicket) Fields() []ent.Field {
 	}
 }
 
+// Edges of the DiagnosisAuthTicket.
+func (DiagnosisAuthTicket) Edges() []ent.Edge {
+	return []ent.Edge{
+		edge.To("tenant", Tenant.Type).
+			Field("tenant_id").
+			Unique().
+			Required().
+			Immutable(),
+	}
+}
+
 // Indexes of the DiagnosisAuthTicket.
 func (DiagnosisAuthTicket) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("tenant_id", "session_id", "expires_at"),
 		index.Fields("session_id", "expires_at"),
 		index.Fields("expires_at"),
 		index.Fields("consumed_at", "expires_at"),

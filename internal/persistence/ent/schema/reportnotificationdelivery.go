@@ -18,7 +18,7 @@ import (
 //
 // Idempotency contract:
 //
-//	idempotency_key is globally unique. Activity retries must update the
+//	idempotency_key is unique within one tenant. Activity retries must update the
 //	same row instead of appending duplicate delivery records.
 //
 // Status discipline:
@@ -28,6 +28,9 @@ import (
 type ReportNotificationDelivery struct {
 	ent.Schema
 }
+
+// Mixin of the ReportNotificationDelivery.
+func (ReportNotificationDelivery) Mixin() []ent.Mixin { return tenantMixins() }
 
 // Fields of the ReportNotificationDelivery.
 func (ReportNotificationDelivery) Fields() []ent.Field {
@@ -42,9 +45,8 @@ func (ReportNotificationDelivery) Fields() []ent.Field {
 		field.String("idempotency_key").
 			MaxLen(256).
 			NotEmpty().
-			Unique().
 			Immutable().
-			Comment("global notification idempotency key"),
+			Comment("tenant-scoped notification idempotency key"),
 		field.String("provider_message_id").
 			MaxLen(256).
 			Optional().
@@ -93,6 +95,7 @@ func (ReportNotificationDelivery) Edges() []ent.Edge {
 // Indexes of the ReportNotificationDelivery.
 func (ReportNotificationDelivery) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("tenant_id", "idempotency_key").Unique(),
 		index.Fields("final_report_id", "created_at"),
 		index.Fields("status", "updated_at"),
 	}

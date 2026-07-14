@@ -19,6 +19,9 @@ type NotificationChannelTestProof struct {
 	ent.Schema
 }
 
+// Mixin of the NotificationChannelTestProof.
+func (NotificationChannelTestProof) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the NotificationChannelTestProof.
 func (NotificationChannelTestProof) Fields() []ent.Field {
 	return []ent.Field{

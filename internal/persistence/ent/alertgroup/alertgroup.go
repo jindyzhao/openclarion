@@ -14,6 +14,8 @@ const (
 	Label = "alert_group"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldTenantID holds the string denoting the tenant_id field in the database.
+	FieldTenantID = "tenant_id"
 	// FieldGroupKey holds the string denoting the group_key field in the database.
 	FieldGroupKey = "group_key"
 	// FieldDimensions holds the string denoting the dimensions field in the database.
@@ -32,12 +34,21 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
+	// EdgeTenant holds the string denoting the tenant edge name in mutations.
+	EdgeTenant = "tenant"
 	// EdgeEvents holds the string denoting the events edge name in mutations.
 	EdgeEvents = "events"
 	// EdgeSnapshots holds the string denoting the snapshots edge name in mutations.
 	EdgeSnapshots = "snapshots"
 	// Table holds the table name of the alertgroup in the database.
 	Table = "alert_groups"
+	// TenantTable is the table that holds the tenant relation/edge.
+	TenantTable = "alert_groups"
+	// TenantInverseTable is the table name for the Tenant entity.
+	// It exists in this package in order to avoid circular dependency with the "tenant" package.
+	TenantInverseTable = "tenants"
+	// TenantColumn is the table column denoting the tenant relation/edge.
+	TenantColumn = "tenant_id"
 	// EventsTable is the table that holds the events relation/edge. The primary key declared below.
 	EventsTable = "alert_event_groups"
 	// EventsInverseTable is the table name for the AlertEvent entity.
@@ -55,6 +66,7 @@ const (
 // Columns holds all SQL columns for alertgroup fields.
 var Columns = []string{
 	FieldID,
+	FieldTenantID,
 	FieldGroupKey,
 	FieldDimensions,
 	FieldSeverity,
@@ -83,6 +95,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	TenantIDValidator func(int) error
 	// GroupKeyValidator is a validator for the "group_key" field. It is called by the builders before save.
 	GroupKeyValidator func(string) error
 	// DefaultSeverity holds the default value on creation for the "severity" field.
@@ -111,6 +125,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByTenantID orders the results by the tenant_id field.
+func ByTenantID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTenantID, opts...).ToFunc()
 }
 
 // ByGroupKey orders the results by the group_key field.
@@ -153,6 +172,13 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
+// ByTenantField orders the results by tenant field.
+func ByTenantField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTenantStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByEventsCount orders the results by events count.
 func ByEventsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -179,6 +205,13 @@ func BySnapshots(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newSnapshotsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
+}
+func newTenantStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TenantInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+	)
 }
 func newEventsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

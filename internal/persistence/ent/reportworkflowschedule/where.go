@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 )
 
@@ -52,6 +53,11 @@ func IDLT(id int) predicate.ReportWorkflowSchedule {
 // IDLTE applies the LTE predicate on the ID field.
 func IDLTE(id int) predicate.ReportWorkflowSchedule {
 	return predicate.ReportWorkflowSchedule(sql.FieldLTE(FieldID, id))
+}
+
+// TenantID applies equality check predicate on the "tenant_id" field. It's identical to TenantIDEQ.
+func TenantID(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldTenantID, v))
 }
 
 // Name applies equality check predicate on the "name" field. It's identical to NameEQ.
@@ -147,6 +153,26 @@ func CreatedAt(v time.Time) predicate.ReportWorkflowSchedule {
 // UpdatedAt applies equality check predicate on the "updated_at" field. It's identical to UpdatedAtEQ.
 func UpdatedAt(v time.Time) predicate.ReportWorkflowSchedule {
 	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldUpdatedAt, v))
+}
+
+// TenantIDEQ applies the EQ predicate on the "tenant_id" field.
+func TenantIDEQ(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldEQ(FieldTenantID, v))
+}
+
+// TenantIDNEQ applies the NEQ predicate on the "tenant_id" field.
+func TenantIDNEQ(v int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNEQ(FieldTenantID, v))
+}
+
+// TenantIDIn applies the In predicate on the "tenant_id" field.
+func TenantIDIn(vs ...int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldIn(FieldTenantID, vs...))
+}
+
+// TenantIDNotIn applies the NotIn predicate on the "tenant_id" field.
+func TenantIDNotIn(vs ...int) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(sql.FieldNotIn(FieldTenantID, vs...))
 }
 
 // NameEQ applies the EQ predicate on the "name" field.
@@ -972,6 +998,29 @@ func UpdatedAtLT(v time.Time) predicate.ReportWorkflowSchedule {
 // UpdatedAtLTE applies the LTE predicate on the "updated_at" field.
 func UpdatedAtLTE(v time.Time) predicate.ReportWorkflowSchedule {
 	return predicate.ReportWorkflowSchedule(sql.FieldLTE(FieldUpdatedAt, v))
+}
+
+// HasTenant applies the HasEdge predicate on the "tenant" edge.
+func HasTenant() predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasTenantWith applies the HasEdge predicate on the "tenant" edge with a given conditions (other predicates).
+func HasTenantWith(preds ...predicate.Tenant) predicate.ReportWorkflowSchedule {
+	return predicate.ReportWorkflowSchedule(func(s *sql.Selector) {
+		step := newTenantStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
 }
 
 // And groups predicates with the AND operator between them.

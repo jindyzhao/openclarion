@@ -442,6 +442,7 @@ func TestReportRepository_FinalReportIdempotencyKey(t *testing.T) {
 
 func TestReportRepository_NotificationDeliveryLifecycle(t *testing.T) {
 	resetDB(t)
+	seedNotificationChannelProfiles(t, 3)
 	snapshotID := makeSnapshotForReport(t, "report-delivery-lifecycle", "digest-report-delivery-lifecycle")
 	var final domain.FinalReport
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {

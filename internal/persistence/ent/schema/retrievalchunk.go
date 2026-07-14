@@ -22,6 +22,9 @@ type RetrievalChunk struct {
 	ent.Schema
 }
 
+// Mixin of the RetrievalChunk.
+func (RetrievalChunk) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the RetrievalChunk.
 func (RetrievalChunk) Fields() []ent.Field {
 	return []ent.Field{
@@ -64,7 +67,7 @@ func (RetrievalChunk) Fields() []ent.Field {
 // Indexes of the RetrievalChunk.
 func (RetrievalChunk) Indexes() []ent.Index {
 	return []ent.Index{
-		index.Fields("source_kind", "source_id", "embedding_model").Unique(),
+		index.Fields("tenant_id", "source_kind", "source_id", "embedding_model").Unique(),
 		index.Fields("embedding_model", "created_at"),
 		index.Fields("embedding").Annotations(
 			entsql.IndexType("hnsw"),

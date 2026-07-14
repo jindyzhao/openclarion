@@ -14,6 +14,8 @@ const (
 	Label = "diagnosis_task"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldTenantID holds the string denoting the tenant_id field in the database.
+	FieldTenantID = "tenant_id"
 	// FieldEvidenceSnapshotID holds the string denoting the evidence_snapshot_id field in the database.
 	FieldEvidenceSnapshotID = "evidence_snapshot_id"
 	// FieldWorkflowID holds the string denoting the workflow_id field in the database.
@@ -32,6 +34,8 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
+	// EdgeTenant holds the string denoting the tenant edge name in mutations.
+	EdgeTenant = "tenant"
 	// EdgeSnapshot holds the string denoting the snapshot edge name in mutations.
 	EdgeSnapshot = "snapshot"
 	// EdgeEvents holds the string denoting the events edge name in mutations.
@@ -40,6 +44,13 @@ const (
 	EdgeChatSessions = "chat_sessions"
 	// Table holds the table name of the diagnosistask in the database.
 	Table = "diagnosis_tasks"
+	// TenantTable is the table that holds the tenant relation/edge.
+	TenantTable = "diagnosis_tasks"
+	// TenantInverseTable is the table name for the Tenant entity.
+	// It exists in this package in order to avoid circular dependency with the "tenant" package.
+	TenantInverseTable = "tenants"
+	// TenantColumn is the table column denoting the tenant relation/edge.
+	TenantColumn = "tenant_id"
 	// SnapshotTable is the table that holds the snapshot relation/edge.
 	SnapshotTable = "diagnosis_tasks"
 	// SnapshotInverseTable is the table name for the EvidenceSnapshot entity.
@@ -66,6 +77,7 @@ const (
 // Columns holds all SQL columns for diagnosistask fields.
 var Columns = []string{
 	FieldID,
+	FieldTenantID,
 	FieldEvidenceSnapshotID,
 	FieldWorkflowID,
 	FieldRunID,
@@ -88,6 +100,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	TenantIDValidator func(int) error
 	// WorkflowIDValidator is a validator for the "workflow_id" field. It is called by the builders before save.
 	WorkflowIDValidator func(string) error
 	// RunIDValidator is a validator for the "run_id" field. It is called by the builders before save.
@@ -112,6 +126,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByTenantID orders the results by the tenant_id field.
+func ByTenantID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTenantID, opts...).ToFunc()
 }
 
 // ByEvidenceSnapshotID orders the results by the evidence_snapshot_id field.
@@ -159,6 +178,13 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
+// ByTenantField orders the results by tenant field.
+func ByTenantField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTenantStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // BySnapshotField orders the results by snapshot field.
 func BySnapshotField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -192,6 +218,13 @@ func ByChatSessions(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newChatSessionsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
+}
+func newTenantStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TenantInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+	)
 }
 func newSnapshotStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchanneltestproof"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // NotificationChannelTestProof is the model entity for the NotificationChannelTestProof schema.
@@ -18,6 +19,8 @@ type NotificationChannelTestProof struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// FK to notification_channel_profiles.id; channel tested
 	NotificationChannelProfileID int `json:"notification_channel_profile_id,omitempty"`
 	// notification channel kind at test time, such as "wecom"
@@ -48,11 +51,24 @@ type NotificationChannelTestProof struct {
 
 // NotificationChannelTestProofEdges holds the relations/edges for other nodes in the graph.
 type NotificationChannelTestProofEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// NotificationChannelProfile holds the value of the notification_channel_profile edge.
 	NotificationChannelProfile *NotificationChannelProfile `json:"notification_channel_profile,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [2]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e NotificationChannelTestProofEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // NotificationChannelProfileOrErr returns the NotificationChannelProfile value or an error if the edge
@@ -60,7 +76,7 @@ type NotificationChannelTestProofEdges struct {
 func (e NotificationChannelTestProofEdges) NotificationChannelProfileOrErr() (*NotificationChannelProfile, error) {
 	if e.NotificationChannelProfile != nil {
 		return e.NotificationChannelProfile, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: notificationchannelprofile.Label}
 	}
 	return nil, &NotLoadedError{edge: "notification_channel_profile"}
@@ -71,7 +87,7 @@ func (*NotificationChannelTestProof) scanValues(columns []string) ([]any, error)
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case notificationchanneltestproof.FieldID, notificationchanneltestproof.FieldNotificationChannelProfileID:
+		case notificationchanneltestproof.FieldID, notificationchanneltestproof.FieldTenantID, notificationchanneltestproof.FieldNotificationChannelProfileID:
 			values[i] = new(sql.NullInt64)
 		case notificationchanneltestproof.FieldKind, notificationchanneltestproof.FieldStatus, notificationchanneltestproof.FieldReasonCode, notificationchanneltestproof.FieldMessage, notificationchanneltestproof.FieldContentKind, notificationchanneltestproof.FieldContentSha256, notificationchanneltestproof.FieldProviderMessageID, notificationchanneltestproof.FieldProviderStatus:
 			values[i] = new(sql.NullString)
@@ -98,6 +114,12 @@ func (_m *NotificationChannelTestProof) assignValues(columns []string, values []
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case notificationchanneltestproof.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case notificationchanneltestproof.FieldNotificationChannelProfileID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field notification_channel_profile_id", values[i])
@@ -177,6 +199,11 @@ func (_m *NotificationChannelTestProof) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the NotificationChannelTestProof entity.
+func (_m *NotificationChannelTestProof) QueryTenant() *TenantQuery {
+	return NewNotificationChannelTestProofClient(_m.config).QueryTenant(_m)
+}
+
 // QueryNotificationChannelProfile queries the "notification_channel_profile" edge of the NotificationChannelTestProof entity.
 func (_m *NotificationChannelTestProof) QueryNotificationChannelProfile() *NotificationChannelProfileQuery {
 	return NewNotificationChannelTestProofClient(_m.config).QueryNotificationChannelProfile(_m)
@@ -205,6 +232,9 @@ func (_m *NotificationChannelTestProof) String() string {
 	var builder strings.Builder
 	builder.WriteString("NotificationChannelTestProof(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("notification_channel_profile_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.NotificationChannelProfileID))
 	builder.WriteString(", ")

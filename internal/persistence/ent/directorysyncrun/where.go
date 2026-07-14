@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 )
 
@@ -52,6 +53,11 @@ func IDLT(id int) predicate.DirectorySyncRun {
 // IDLTE applies the LTE predicate on the ID field.
 func IDLTE(id int) predicate.DirectorySyncRun {
 	return predicate.DirectorySyncRun(sql.FieldLTE(FieldID, id))
+}
+
+// TenantID applies equality check predicate on the "tenant_id" field. It's identical to TenantIDEQ.
+func TenantID(v int) predicate.DirectorySyncRun {
+	return predicate.DirectorySyncRun(sql.FieldEQ(FieldTenantID, v))
 }
 
 // Provider applies equality check predicate on the "provider" field. It's identical to ProviderEQ.
@@ -112,6 +118,26 @@ func SyncedAt(v time.Time) predicate.DirectorySyncRun {
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.DirectorySyncRun {
 	return predicate.DirectorySyncRun(sql.FieldEQ(FieldCreatedAt, v))
+}
+
+// TenantIDEQ applies the EQ predicate on the "tenant_id" field.
+func TenantIDEQ(v int) predicate.DirectorySyncRun {
+	return predicate.DirectorySyncRun(sql.FieldEQ(FieldTenantID, v))
+}
+
+// TenantIDNEQ applies the NEQ predicate on the "tenant_id" field.
+func TenantIDNEQ(v int) predicate.DirectorySyncRun {
+	return predicate.DirectorySyncRun(sql.FieldNEQ(FieldTenantID, v))
+}
+
+// TenantIDIn applies the In predicate on the "tenant_id" field.
+func TenantIDIn(vs ...int) predicate.DirectorySyncRun {
+	return predicate.DirectorySyncRun(sql.FieldIn(FieldTenantID, vs...))
+}
+
+// TenantIDNotIn applies the NotIn predicate on the "tenant_id" field.
+func TenantIDNotIn(vs ...int) predicate.DirectorySyncRun {
+	return predicate.DirectorySyncRun(sql.FieldNotIn(FieldTenantID, vs...))
 }
 
 // ProviderEQ applies the EQ predicate on the "provider" field.
@@ -702,6 +728,29 @@ func CreatedAtLT(v time.Time) predicate.DirectorySyncRun {
 // CreatedAtLTE applies the LTE predicate on the "created_at" field.
 func CreatedAtLTE(v time.Time) predicate.DirectorySyncRun {
 	return predicate.DirectorySyncRun(sql.FieldLTE(FieldCreatedAt, v))
+}
+
+// HasTenant applies the HasEdge predicate on the "tenant" edge.
+func HasTenant() predicate.DirectorySyncRun {
+	return predicate.DirectorySyncRun(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasTenantWith applies the HasEdge predicate on the "tenant" edge with a given conditions (other predicates).
+func HasTenantWith(preds ...predicate.Tenant) predicate.DirectorySyncRun {
+	return predicate.DirectorySyncRun(func(s *sql.Selector) {
+		step := newTenantStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
 }
 
 // And groups predicates with the AND operator between them.

@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertevent"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // AlertEvent is the model entity for the AlertEvent schema.
@@ -18,6 +19,8 @@ type AlertEvent struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// upstream provider identifier, e.g. "alertmanager", "datadog"
 	Source string `json:"source,omitempty"`
 	// optional operator-managed alert source profile that produced the event; 0 means unbound
@@ -48,17 +51,30 @@ type AlertEvent struct {
 
 // AlertEventEdges holds the relations/edges for other nodes in the graph.
 type AlertEventEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// Groups holds the value of the groups edge.
 	Groups []*AlertGroup `json:"groups,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [2]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e AlertEventEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // GroupsOrErr returns the Groups value or an error if the edge
 // was not loaded in eager-loading.
 func (e AlertEventEdges) GroupsOrErr() ([]*AlertGroup, error) {
-	if e.loadedTypes[0] {
+	if e.loadedTypes[1] {
 		return e.Groups, nil
 	}
 	return nil, &NotLoadedError{edge: "groups"}
@@ -71,7 +87,7 @@ func (*AlertEvent) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case alertevent.FieldLabels, alertevent.FieldAnnotations, alertevent.FieldRawPayload:
 			values[i] = new([]byte)
-		case alertevent.FieldID, alertevent.FieldAlertSourceProfileID:
+		case alertevent.FieldID, alertevent.FieldTenantID, alertevent.FieldAlertSourceProfileID:
 			values[i] = new(sql.NullInt64)
 		case alertevent.FieldSource, alertevent.FieldSourceFingerprint, alertevent.FieldCanonicalFingerprint, alertevent.FieldStatus:
 			values[i] = new(sql.NullString)
@@ -98,6 +114,12 @@ func (_m *AlertEvent) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case alertevent.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case alertevent.FieldSource:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field source", values[i])
@@ -184,6 +206,11 @@ func (_m *AlertEvent) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the AlertEvent entity.
+func (_m *AlertEvent) QueryTenant() *TenantQuery {
+	return NewAlertEventClient(_m.config).QueryTenant(_m)
+}
+
 // QueryGroups queries the "groups" edge of the AlertEvent entity.
 func (_m *AlertEvent) QueryGroups() *AlertGroupQuery {
 	return NewAlertEventClient(_m.config).QueryGroups(_m)
@@ -212,6 +239,9 @@ func (_m *AlertEvent) String() string {
 	var builder strings.Builder
 	builder.WriteString("AlertEvent(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("source=")
 	builder.WriteString(_m.Source)
 	builder.WriteString(", ")

@@ -9,6 +9,7 @@ import (
 	"math"
 
 	"entgo.io/ent"
+	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
@@ -17,6 +18,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // EvidenceSnapshotQuery is the builder for querying EvidenceSnapshot entities.
@@ -26,9 +28,11 @@ type EvidenceSnapshotQuery struct {
 	order          []evidencesnapshot.OrderOption
 	inters         []Interceptor
 	predicates     []predicate.EvidenceSnapshot
+	withTenant     *TenantQuery
 	withGroup      *AlertGroupQuery
 	withTasks      *DiagnosisTaskQuery
 	withSubReports *SubReportQuery
+	modifiers      []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -63,6 +67,28 @@ func (_q *EvidenceSnapshotQuery) Unique(unique bool) *EvidenceSnapshotQuery {
 func (_q *EvidenceSnapshotQuery) Order(o ...evidencesnapshot.OrderOption) *EvidenceSnapshotQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryTenant chains the current query on the "tenant" edge.
+func (_q *EvidenceSnapshotQuery) QueryTenant() *TenantQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(evidencesnapshot.Table, evidencesnapshot.FieldID, selector),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, evidencesnapshot.TenantTable, evidencesnapshot.TenantColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QueryGroup chains the current query on the "group" edge.
@@ -323,6 +349,7 @@ func (_q *EvidenceSnapshotQuery) Clone() *EvidenceSnapshotQuery {
 		order:          append([]evidencesnapshot.OrderOption{}, _q.order...),
 		inters:         append([]Interceptor{}, _q.inters...),
 		predicates:     append([]predicate.EvidenceSnapshot{}, _q.predicates...),
+		withTenant:     _q.withTenant.Clone(),
 		withGroup:      _q.withGroup.Clone(),
 		withTasks:      _q.withTasks.Clone(),
 		withSubReports: _q.withSubReports.Clone(),
@@ -330,6 +357,17 @@ func (_q *EvidenceSnapshotQuery) Clone() *EvidenceSnapshotQuery {
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithTenant tells the query-builder to eager-load the nodes that are connected to
+// the "tenant" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *EvidenceSnapshotQuery) WithTenant(opts ...func(*TenantQuery)) *EvidenceSnapshotQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTenant = query
+	return _q
 }
 
 // WithGroup tells the query-builder to eager-load the nodes that are connected to
@@ -371,12 +409,12 @@ func (_q *EvidenceSnapshotQuery) WithSubReports(opts ...func(*SubReportQuery)) *
 // Example:
 //
 //	var v []struct {
-//		AlertGroupID int `json:"alert_group_id,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.EvidenceSnapshot.Query().
-//		GroupBy(evidencesnapshot.FieldAlertGroupID).
+//		GroupBy(evidencesnapshot.FieldTenantID).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *EvidenceSnapshotQuery) GroupBy(field string, fields ...string) *EvidenceSnapshotGroupBy {
@@ -394,11 +432,11 @@ func (_q *EvidenceSnapshotQuery) GroupBy(field string, fields ...string) *Eviden
 // Example:
 //
 //	var v []struct {
-//		AlertGroupID int `json:"alert_group_id,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //	}
 //
 //	client.EvidenceSnapshot.Query().
-//		Select(evidencesnapshot.FieldAlertGroupID).
+//		Select(evidencesnapshot.FieldTenantID).
 //		Scan(ctx, &v)
 func (_q *EvidenceSnapshotQuery) Select(fields ...string) *EvidenceSnapshotSelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)
@@ -443,7 +481,8 @@ func (_q *EvidenceSnapshotQuery) sqlAll(ctx context.Context, hooks ...queryHook)
 	var (
 		nodes       = []*EvidenceSnapshot{}
 		_spec       = _q.querySpec()
-		loadedTypes = [3]bool{
+		loadedTypes = [4]bool{
+			_q.withTenant != nil,
 			_q.withGroup != nil,
 			_q.withTasks != nil,
 			_q.withSubReports != nil,
@@ -458,6 +497,9 @@ func (_q *EvidenceSnapshotQuery) sqlAll(ctx context.Context, hooks ...queryHook)
 		node.Edges.loadedTypes = loadedTypes
 		return node.assignValues(columns, values)
 	}
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
+	}
 	for i := range hooks {
 		hooks[i](ctx, _spec)
 	}
@@ -466,6 +508,12 @@ func (_q *EvidenceSnapshotQuery) sqlAll(ctx context.Context, hooks ...queryHook)
 	}
 	if len(nodes) == 0 {
 		return nodes, nil
+	}
+	if query := _q.withTenant; query != nil {
+		if err := _q.loadTenant(ctx, query, nodes, nil,
+			func(n *EvidenceSnapshot, e *Tenant) { n.Edges.Tenant = e }); err != nil {
+			return nil, err
+		}
 	}
 	if query := _q.withGroup; query != nil {
 		if err := _q.loadGroup(ctx, query, nodes, nil,
@@ -490,6 +538,35 @@ func (_q *EvidenceSnapshotQuery) sqlAll(ctx context.Context, hooks ...queryHook)
 	return nodes, nil
 }
 
+func (_q *EvidenceSnapshotQuery) loadTenant(ctx context.Context, query *TenantQuery, nodes []*EvidenceSnapshot, init func(*EvidenceSnapshot), assign func(*EvidenceSnapshot, *Tenant)) error {
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*EvidenceSnapshot)
+	for i := range nodes {
+		fk := nodes[i].TenantID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(tenant.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "tenant_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
 func (_q *EvidenceSnapshotQuery) loadGroup(ctx context.Context, query *AlertGroupQuery, nodes []*EvidenceSnapshot, init func(*EvidenceSnapshot), assign func(*EvidenceSnapshot, *AlertGroup)) error {
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*EvidenceSnapshot)
@@ -582,6 +659,9 @@ func (_q *EvidenceSnapshotQuery) loadSubReports(ctx context.Context, query *SubR
 
 func (_q *EvidenceSnapshotQuery) sqlCount(ctx context.Context) (int, error) {
 	_spec := _q.querySpec()
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
+	}
 	_spec.Node.Columns = _q.ctx.Fields
 	if len(_q.ctx.Fields) > 0 {
 		_spec.Unique = _q.ctx.Unique != nil && *_q.ctx.Unique
@@ -604,6 +684,9 @@ func (_q *EvidenceSnapshotQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != evidencesnapshot.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if _q.withTenant != nil {
+			_spec.Node.AddColumnOnce(evidencesnapshot.FieldTenantID)
 		}
 		if _q.withGroup != nil {
 			_spec.Node.AddColumnOnce(evidencesnapshot.FieldAlertGroupID)
@@ -647,6 +730,9 @@ func (_q *EvidenceSnapshotQuery) sqlQuery(ctx context.Context) *sql.Selector {
 	if _q.ctx.Unique != nil && *_q.ctx.Unique {
 		selector.Distinct()
 	}
+	for _, m := range _q.modifiers {
+		m(selector)
+	}
 	for _, p := range _q.predicates {
 		p(selector)
 	}
@@ -662,6 +748,32 @@ func (_q *EvidenceSnapshotQuery) sqlQuery(ctx context.Context) *sql.Selector {
 		selector.Limit(*limit)
 	}
 	return selector
+}
+
+// ForUpdate locks the selected rows against concurrent updates, and prevent them from being
+// updated, deleted or "selected ... for update" by other sessions, until the transaction is
+// either committed or rolled-back.
+func (_q *EvidenceSnapshotQuery) ForUpdate(opts ...sql.LockOption) *EvidenceSnapshotQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForUpdate(opts...)
+	})
+	return _q
+}
+
+// ForShare behaves similarly to ForUpdate, except that it acquires a shared mode lock
+// on any rows that are read. Other sessions can read the rows, but cannot modify them
+// until your transaction commits.
+func (_q *EvidenceSnapshotQuery) ForShare(opts ...sql.LockOption) *EvidenceSnapshotQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForShare(opts...)
+	})
+	return _q
 }
 
 // EvidenceSnapshotGroupBy is the group-by builder for EvidenceSnapshot entities.

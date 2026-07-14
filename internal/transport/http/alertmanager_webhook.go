@@ -7,12 +7,13 @@ import (
 
 	"github.com/openclarion/openclarion/api"
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertmanagerwebhook"
 )
 
 // IngestAlertmanagerWebhook implements api.ServerInterface.
-func (s *Server) IngestAlertmanagerWebhook(w http.ResponseWriter, r *http.Request, sourceID int64) {
+func (s *Server) IngestAlertmanagerWebhook(w http.ResponseWriter, r *http.Request, sourceID int64, params api.IngestAlertmanagerWebhookParams) {
 	if s.webhookIngestor == nil {
 		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "alertmanager webhook ingest is not configured", nil)
 		return
@@ -20,6 +21,23 @@ func (s *Server) IngestAlertmanagerWebhook(w http.ResponseWriter, r *http.Reques
 	if sourceID <= 0 {
 		writeError(r.Context(), w, s.logger, http.StatusBadRequest, "source_id must be positive", nil)
 		return
+	}
+	if s.tenantOperations != nil {
+		tenantKey := ""
+		if params.XOpenClarionTenant != nil {
+			tenantKey = *params.XOpenClarionTenant
+		}
+		identity, tenantErr := s.tenantOperations.ResolveIngress(r.Context(), tenantKey)
+		if tenantErr != nil {
+			s.writeTenantBindingError(r.Context(), w, tenantErr)
+			return
+		}
+		tenantCtx, tenantErr := tenancy.WithTenant(r.Context(), identity)
+		if tenantErr != nil {
+			s.writeTenantBindingError(r.Context(), w, tenantErr)
+			return
+		}
+		*r = *r.WithContext(tenantCtx)
 	}
 	raw, err := readJSONRequestBody(w, r)
 	if err != nil {

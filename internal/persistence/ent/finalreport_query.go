@@ -9,6 +9,7 @@ import (
 	"math"
 
 	"entgo.io/ent"
+	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
@@ -16,6 +17,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // FinalReportQuery is the builder for querying FinalReport entities.
@@ -25,8 +27,10 @@ type FinalReportQuery struct {
 	order                      []finalreport.OrderOption
 	inters                     []Interceptor
 	predicates                 []predicate.FinalReport
+	withTenant                 *TenantQuery
 	withSubReports             *SubReportQuery
 	withNotificationDeliveries *ReportNotificationDeliveryQuery
+	modifiers                  []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -61,6 +65,28 @@ func (_q *FinalReportQuery) Unique(unique bool) *FinalReportQuery {
 func (_q *FinalReportQuery) Order(o ...finalreport.OrderOption) *FinalReportQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryTenant chains the current query on the "tenant" edge.
+func (_q *FinalReportQuery) QueryTenant() *TenantQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(finalreport.Table, finalreport.FieldID, selector),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, finalreport.TenantTable, finalreport.TenantColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QuerySubReports chains the current query on the "sub_reports" edge.
@@ -299,12 +325,24 @@ func (_q *FinalReportQuery) Clone() *FinalReportQuery {
 		order:                      append([]finalreport.OrderOption{}, _q.order...),
 		inters:                     append([]Interceptor{}, _q.inters...),
 		predicates:                 append([]predicate.FinalReport{}, _q.predicates...),
+		withTenant:                 _q.withTenant.Clone(),
 		withSubReports:             _q.withSubReports.Clone(),
 		withNotificationDeliveries: _q.withNotificationDeliveries.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithTenant tells the query-builder to eager-load the nodes that are connected to
+// the "tenant" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *FinalReportQuery) WithTenant(opts ...func(*TenantQuery)) *FinalReportQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTenant = query
+	return _q
 }
 
 // WithSubReports tells the query-builder to eager-load the nodes that are connected to
@@ -335,12 +373,12 @@ func (_q *FinalReportQuery) WithNotificationDeliveries(opts ...func(*ReportNotif
 // Example:
 //
 //	var v []struct {
-//		CorrelationKey string `json:"correlation_key,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.FinalReport.Query().
-//		GroupBy(finalreport.FieldCorrelationKey).
+//		GroupBy(finalreport.FieldTenantID).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *FinalReportQuery) GroupBy(field string, fields ...string) *FinalReportGroupBy {
@@ -358,11 +396,11 @@ func (_q *FinalReportQuery) GroupBy(field string, fields ...string) *FinalReport
 // Example:
 //
 //	var v []struct {
-//		CorrelationKey string `json:"correlation_key,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //	}
 //
 //	client.FinalReport.Query().
-//		Select(finalreport.FieldCorrelationKey).
+//		Select(finalreport.FieldTenantID).
 //		Scan(ctx, &v)
 func (_q *FinalReportQuery) Select(fields ...string) *FinalReportSelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)
@@ -407,7 +445,8 @@ func (_q *FinalReportQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 	var (
 		nodes       = []*FinalReport{}
 		_spec       = _q.querySpec()
-		loadedTypes = [2]bool{
+		loadedTypes = [3]bool{
+			_q.withTenant != nil,
 			_q.withSubReports != nil,
 			_q.withNotificationDeliveries != nil,
 		}
@@ -421,6 +460,9 @@ func (_q *FinalReportQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 		node.Edges.loadedTypes = loadedTypes
 		return node.assignValues(columns, values)
 	}
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
+	}
 	for i := range hooks {
 		hooks[i](ctx, _spec)
 	}
@@ -429,6 +471,12 @@ func (_q *FinalReportQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 	}
 	if len(nodes) == 0 {
 		return nodes, nil
+	}
+	if query := _q.withTenant; query != nil {
+		if err := _q.loadTenant(ctx, query, nodes, nil,
+			func(n *FinalReport, e *Tenant) { n.Edges.Tenant = e }); err != nil {
+			return nil, err
+		}
 	}
 	if query := _q.withSubReports; query != nil {
 		if err := _q.loadSubReports(ctx, query, nodes,
@@ -449,6 +497,35 @@ func (_q *FinalReportQuery) sqlAll(ctx context.Context, hooks ...queryHook) ([]*
 	return nodes, nil
 }
 
+func (_q *FinalReportQuery) loadTenant(ctx context.Context, query *TenantQuery, nodes []*FinalReport, init func(*FinalReport), assign func(*FinalReport, *Tenant)) error {
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*FinalReport)
+	for i := range nodes {
+		fk := nodes[i].TenantID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(tenant.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "tenant_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
 func (_q *FinalReportQuery) loadSubReports(ctx context.Context, query *SubReportQuery, nodes []*FinalReport, init func(*FinalReport), assign func(*FinalReport, *SubReport)) error {
 	edgeIDs := make([]driver.Value, len(nodes))
 	byID := make(map[int]*FinalReport)
@@ -543,6 +620,9 @@ func (_q *FinalReportQuery) loadNotificationDeliveries(ctx context.Context, quer
 
 func (_q *FinalReportQuery) sqlCount(ctx context.Context) (int, error) {
 	_spec := _q.querySpec()
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
+	}
 	_spec.Node.Columns = _q.ctx.Fields
 	if len(_q.ctx.Fields) > 0 {
 		_spec.Unique = _q.ctx.Unique != nil && *_q.ctx.Unique
@@ -565,6 +645,9 @@ func (_q *FinalReportQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != finalreport.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if _q.withTenant != nil {
+			_spec.Node.AddColumnOnce(finalreport.FieldTenantID)
 		}
 	}
 	if ps := _q.predicates; len(ps) > 0 {
@@ -605,6 +688,9 @@ func (_q *FinalReportQuery) sqlQuery(ctx context.Context) *sql.Selector {
 	if _q.ctx.Unique != nil && *_q.ctx.Unique {
 		selector.Distinct()
 	}
+	for _, m := range _q.modifiers {
+		m(selector)
+	}
 	for _, p := range _q.predicates {
 		p(selector)
 	}
@@ -620,6 +706,32 @@ func (_q *FinalReportQuery) sqlQuery(ctx context.Context) *sql.Selector {
 		selector.Limit(*limit)
 	}
 	return selector
+}
+
+// ForUpdate locks the selected rows against concurrent updates, and prevent them from being
+// updated, deleted or "selected ... for update" by other sessions, until the transaction is
+// either committed or rolled-back.
+func (_q *FinalReportQuery) ForUpdate(opts ...sql.LockOption) *FinalReportQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForUpdate(opts...)
+	})
+	return _q
+}
+
+// ForShare behaves similarly to ForUpdate, except that it acquires a shared mode lock
+// on any rows that are read. Other sessions can read the rows, but cannot modify them
+// until your transaction commits.
+func (_q *FinalReportQuery) ForShare(opts ...sql.LockOption) *FinalReportQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForShare(opts...)
+	})
+	return _q
 }
 
 // FinalReportGroupBy is the group-by builder for FinalReport entities.

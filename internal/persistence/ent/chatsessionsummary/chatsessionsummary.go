@@ -14,6 +14,8 @@ const (
 	Label = "chat_session_summary"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldTenantID holds the string denoting the tenant_id field in the database.
+	FieldTenantID = "tenant_id"
 	// FieldChatSessionID holds the string denoting the chat_session_id field in the database.
 	FieldChatSessionID = "chat_session_id"
 	// FieldVersion holds the string denoting the version field in the database.
@@ -34,10 +36,19 @@ const (
 	FieldGeneratedAt = "generated_at"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
+	// EdgeTenant holds the string denoting the tenant edge name in mutations.
+	EdgeTenant = "tenant"
 	// EdgeSession holds the string denoting the session edge name in mutations.
 	EdgeSession = "session"
 	// Table holds the table name of the chatsessionsummary in the database.
 	Table = "chat_session_summaries"
+	// TenantTable is the table that holds the tenant relation/edge.
+	TenantTable = "chat_session_summaries"
+	// TenantInverseTable is the table name for the Tenant entity.
+	// It exists in this package in order to avoid circular dependency with the "tenant" package.
+	TenantInverseTable = "tenants"
+	// TenantColumn is the table column denoting the tenant relation/edge.
+	TenantColumn = "tenant_id"
 	// SessionTable is the table that holds the session relation/edge.
 	SessionTable = "chat_session_summaries"
 	// SessionInverseTable is the table name for the ChatSession entity.
@@ -50,6 +61,7 @@ const (
 // Columns holds all SQL columns for chatsessionsummary fields.
 var Columns = []string{
 	FieldID,
+	FieldTenantID,
 	FieldChatSessionID,
 	FieldVersion,
 	FieldSchemaVersion,
@@ -73,6 +85,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	TenantIDValidator func(int) error
 	// VersionValidator is a validator for the "version" field. It is called by the builders before save.
 	VersionValidator func(int) error
 	// SchemaVersionValidator is a validator for the "schema_version" field. It is called by the builders before save.
@@ -95,6 +109,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByTenantID orders the results by the tenant_id field.
+func ByTenantID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTenantID, opts...).ToFunc()
 }
 
 // ByChatSessionID orders the results by the chat_session_id field.
@@ -142,11 +161,25 @@ func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
 }
 
+// ByTenantField orders the results by tenant field.
+func ByTenantField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTenantStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // BySessionField orders the results by session field.
 func BySessionField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newSessionStep(), sql.OrderByField(field, opts...))
 	}
+}
+func newTenantStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TenantInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+	)
 }
 func newSessionStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

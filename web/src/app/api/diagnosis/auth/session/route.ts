@@ -26,6 +26,8 @@ type DiagnosisSessionStatusResponse =
       role_authorized: boolean;
       roles: string[];
       subject: string;
+      tenant_id: number;
+      tenant_key: string;
     }
   | {
       authenticated: false;
@@ -75,6 +77,8 @@ export async function POST(request: Request) {
       role_authorized: session.role_authorized,
       roles: session.roles,
       subject: session.subject,
+      tenant_id: session.tenant_id,
+      tenant_key: session.tenant_key,
     },
     { status: 201 },
   );
@@ -127,6 +131,8 @@ export async function GET(request: Request) {
     role_authorized: session.role_authorized,
     roles: session.roles,
     subject: session.subject,
+    tenant_id: session.tenant_id,
+    tenant_key: session.tenant_key,
   });
 }
 

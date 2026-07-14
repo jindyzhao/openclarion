@@ -42,6 +42,9 @@ type AlertGroup struct {
 	ent.Schema
 }
 
+// Mixin of the AlertGroup.
+func (AlertGroup) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the AlertGroup.
 func (AlertGroup) Fields() []ent.Field {
 	return []ent.Field{
@@ -100,7 +103,7 @@ func (AlertGroup) Indexes() []ent.Index {
 	return []ent.Index{
 		// Natural unique key: same group_key recurring in a later
 		// window is a new row, not an upsert.
-		index.Fields("group_key", "first_seen_at").
+		index.Fields("tenant_id", "group_key", "first_seen_at").
 			Unique(),
 		// Hot read path: list active groups, recent-first.
 		index.Fields("status", "last_seen_at"),

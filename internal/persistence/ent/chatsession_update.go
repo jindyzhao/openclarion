@@ -292,6 +292,9 @@ func (_u *ChatSessionUpdate) check() error {
 			return &ValidationError{Name: "close_reason", err: fmt.Errorf(`ent: validator failed for field "ChatSession.close_reason": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "ChatSession.tenant"`)
+	}
 	if _u.mutation.TaskCleared() && len(_u.mutation.TaskIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "ChatSession.task"`)
 	}
@@ -765,6 +768,9 @@ func (_u *ChatSessionUpdateOne) check() error {
 		if err := chatsession.CloseReasonValidator(v); err != nil {
 			return &ValidationError{Name: "close_reason", err: fmt.Errorf(`ent: validator failed for field "ChatSession.close_reason": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "ChatSession.tenant"`)
 	}
 	if _u.mutation.TaskCleared() && len(_u.mutation.TaskIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "ChatSession.task"`)

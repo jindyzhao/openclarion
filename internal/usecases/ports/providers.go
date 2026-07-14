@@ -300,9 +300,11 @@ const (
 // authentication. Subject is the stable user identifier used for ownership
 // checks and audit records.
 type AuthPrincipal struct {
-	Subject string
-	Roles   []AuthRole
-	Claims  json.RawMessage
+	Subject   string
+	Roles     []AuthRole
+	Claims    json.RawMessage
+	TenantID  domain.TenantID
+	TenantKey string
 }
 
 // AuthProvider authenticates inbound HTTP Authorization credentials and maps

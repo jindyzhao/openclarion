@@ -55,6 +55,11 @@ func IDLTE(id int) predicate.ChatSession {
 	return predicate.ChatSession(sql.FieldLTE(FieldID, id))
 }
 
+// TenantID applies equality check predicate on the "tenant_id" field. It's identical to TenantIDEQ.
+func TenantID(v int) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldEQ(FieldTenantID, v))
+}
+
 // DiagnosisTaskID applies equality check predicate on the "diagnosis_task_id" field. It's identical to DiagnosisTaskIDEQ.
 func DiagnosisTaskID(v int) predicate.ChatSession {
 	return predicate.ChatSession(sql.FieldEQ(FieldDiagnosisTaskID, v))
@@ -113,6 +118,26 @@ func CreatedAt(v time.Time) predicate.ChatSession {
 // UpdatedAt applies equality check predicate on the "updated_at" field. It's identical to UpdatedAtEQ.
 func UpdatedAt(v time.Time) predicate.ChatSession {
 	return predicate.ChatSession(sql.FieldEQ(FieldUpdatedAt, v))
+}
+
+// TenantIDEQ applies the EQ predicate on the "tenant_id" field.
+func TenantIDEQ(v int) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldEQ(FieldTenantID, v))
+}
+
+// TenantIDNEQ applies the NEQ predicate on the "tenant_id" field.
+func TenantIDNEQ(v int) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldNEQ(FieldTenantID, v))
+}
+
+// TenantIDIn applies the In predicate on the "tenant_id" field.
+func TenantIDIn(vs ...int) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldIn(FieldTenantID, vs...))
+}
+
+// TenantIDNotIn applies the NotIn predicate on the "tenant_id" field.
+func TenantIDNotIn(vs ...int) predicate.ChatSession {
+	return predicate.ChatSession(sql.FieldNotIn(FieldTenantID, vs...))
 }
 
 // DiagnosisTaskIDEQ applies the EQ predicate on the "diagnosis_task_id" field.
@@ -718,6 +743,29 @@ func UpdatedAtLT(v time.Time) predicate.ChatSession {
 // UpdatedAtLTE applies the LTE predicate on the "updated_at" field.
 func UpdatedAtLTE(v time.Time) predicate.ChatSession {
 	return predicate.ChatSession(sql.FieldLTE(FieldUpdatedAt, v))
+}
+
+// HasTenant applies the HasEdge predicate on the "tenant" edge.
+func HasTenant() predicate.ChatSession {
+	return predicate.ChatSession(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasTenantWith applies the HasEdge predicate on the "tenant" edge with a given conditions (other predicates).
+func HasTenantWith(preds ...predicate.Tenant) predicate.ChatSession {
+	return predicate.ChatSession(func(s *sql.Selector) {
+		step := newTenantStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
 }
 
 // HasTask applies the HasEdge predicate on the "task" edge.

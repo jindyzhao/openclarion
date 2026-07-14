@@ -118,6 +118,12 @@ func (s *Server) resolveLocalRBACPrincipal(
 		return ports.AuthPrincipal{}, domain.RBACPrincipal{}, false
 	}
 	principal.Subject = subject
+	principal, tenantCtx, err := s.bindAuthenticatedTenant(r.Context(), r.Header, principal)
+	if err != nil {
+		s.writeTenantBindingError(r.Context(), w, err)
+		return ports.AuthPrincipal{}, domain.RBACPrincipal{}, false
+	}
+	*r = *r.WithContext(tenantCtx)
 	departmentKeys, err := s.localRBACDepartmentKeys(r.Context(), subject)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusInternalServerError, "resolve local rbac principal failed", err)

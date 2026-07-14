@@ -8,12 +8,14 @@ import (
 	"math"
 
 	"entgo.io/ent"
+	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // DiagnosisTaskEventQuery is the builder for querying DiagnosisTaskEvent entities.
@@ -23,7 +25,9 @@ type DiagnosisTaskEventQuery struct {
 	order      []diagnosistaskevent.OrderOption
 	inters     []Interceptor
 	predicates []predicate.DiagnosisTaskEvent
+	withTenant *TenantQuery
 	withTask   *DiagnosisTaskQuery
+	modifiers  []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -58,6 +62,28 @@ func (_q *DiagnosisTaskEventQuery) Unique(unique bool) *DiagnosisTaskEventQuery 
 func (_q *DiagnosisTaskEventQuery) Order(o ...diagnosistaskevent.OrderOption) *DiagnosisTaskEventQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryTenant chains the current query on the "tenant" edge.
+func (_q *DiagnosisTaskEventQuery) QueryTenant() *TenantQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(diagnosistaskevent.Table, diagnosistaskevent.FieldID, selector),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, diagnosistaskevent.TenantTable, diagnosistaskevent.TenantColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QueryTask chains the current query on the "task" edge.
@@ -274,11 +300,23 @@ func (_q *DiagnosisTaskEventQuery) Clone() *DiagnosisTaskEventQuery {
 		order:      append([]diagnosistaskevent.OrderOption{}, _q.order...),
 		inters:     append([]Interceptor{}, _q.inters...),
 		predicates: append([]predicate.DiagnosisTaskEvent{}, _q.predicates...),
+		withTenant: _q.withTenant.Clone(),
 		withTask:   _q.withTask.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithTenant tells the query-builder to eager-load the nodes that are connected to
+// the "tenant" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *DiagnosisTaskEventQuery) WithTenant(opts ...func(*TenantQuery)) *DiagnosisTaskEventQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTenant = query
+	return _q
 }
 
 // WithTask tells the query-builder to eager-load the nodes that are connected to
@@ -298,12 +336,12 @@ func (_q *DiagnosisTaskEventQuery) WithTask(opts ...func(*DiagnosisTaskQuery)) *
 // Example:
 //
 //	var v []struct {
-//		TaskID int `json:"task_id,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.DiagnosisTaskEvent.Query().
-//		GroupBy(diagnosistaskevent.FieldTaskID).
+//		GroupBy(diagnosistaskevent.FieldTenantID).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *DiagnosisTaskEventQuery) GroupBy(field string, fields ...string) *DiagnosisTaskEventGroupBy {
@@ -321,11 +359,11 @@ func (_q *DiagnosisTaskEventQuery) GroupBy(field string, fields ...string) *Diag
 // Example:
 //
 //	var v []struct {
-//		TaskID int `json:"task_id,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //	}
 //
 //	client.DiagnosisTaskEvent.Query().
-//		Select(diagnosistaskevent.FieldTaskID).
+//		Select(diagnosistaskevent.FieldTenantID).
 //		Scan(ctx, &v)
 func (_q *DiagnosisTaskEventQuery) Select(fields ...string) *DiagnosisTaskEventSelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)
@@ -370,7 +408,8 @@ func (_q *DiagnosisTaskEventQuery) sqlAll(ctx context.Context, hooks ...queryHoo
 	var (
 		nodes       = []*DiagnosisTaskEvent{}
 		_spec       = _q.querySpec()
-		loadedTypes = [1]bool{
+		loadedTypes = [2]bool{
+			_q.withTenant != nil,
 			_q.withTask != nil,
 		}
 	)
@@ -383,6 +422,9 @@ func (_q *DiagnosisTaskEventQuery) sqlAll(ctx context.Context, hooks ...queryHoo
 		node.Edges.loadedTypes = loadedTypes
 		return node.assignValues(columns, values)
 	}
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
+	}
 	for i := range hooks {
 		hooks[i](ctx, _spec)
 	}
@@ -391,6 +433,12 @@ func (_q *DiagnosisTaskEventQuery) sqlAll(ctx context.Context, hooks ...queryHoo
 	}
 	if len(nodes) == 0 {
 		return nodes, nil
+	}
+	if query := _q.withTenant; query != nil {
+		if err := _q.loadTenant(ctx, query, nodes, nil,
+			func(n *DiagnosisTaskEvent, e *Tenant) { n.Edges.Tenant = e }); err != nil {
+			return nil, err
+		}
 	}
 	if query := _q.withTask; query != nil {
 		if err := _q.loadTask(ctx, query, nodes, nil,
@@ -401,6 +449,35 @@ func (_q *DiagnosisTaskEventQuery) sqlAll(ctx context.Context, hooks ...queryHoo
 	return nodes, nil
 }
 
+func (_q *DiagnosisTaskEventQuery) loadTenant(ctx context.Context, query *TenantQuery, nodes []*DiagnosisTaskEvent, init func(*DiagnosisTaskEvent), assign func(*DiagnosisTaskEvent, *Tenant)) error {
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*DiagnosisTaskEvent)
+	for i := range nodes {
+		fk := nodes[i].TenantID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(tenant.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "tenant_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
 func (_q *DiagnosisTaskEventQuery) loadTask(ctx context.Context, query *DiagnosisTaskQuery, nodes []*DiagnosisTaskEvent, init func(*DiagnosisTaskEvent), assign func(*DiagnosisTaskEvent, *DiagnosisTask)) error {
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*DiagnosisTaskEvent)
@@ -433,6 +510,9 @@ func (_q *DiagnosisTaskEventQuery) loadTask(ctx context.Context, query *Diagnosi
 
 func (_q *DiagnosisTaskEventQuery) sqlCount(ctx context.Context) (int, error) {
 	_spec := _q.querySpec()
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
+	}
 	_spec.Node.Columns = _q.ctx.Fields
 	if len(_q.ctx.Fields) > 0 {
 		_spec.Unique = _q.ctx.Unique != nil && *_q.ctx.Unique
@@ -455,6 +535,9 @@ func (_q *DiagnosisTaskEventQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != diagnosistaskevent.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if _q.withTenant != nil {
+			_spec.Node.AddColumnOnce(diagnosistaskevent.FieldTenantID)
 		}
 		if _q.withTask != nil {
 			_spec.Node.AddColumnOnce(diagnosistaskevent.FieldTaskID)
@@ -498,6 +581,9 @@ func (_q *DiagnosisTaskEventQuery) sqlQuery(ctx context.Context) *sql.Selector {
 	if _q.ctx.Unique != nil && *_q.ctx.Unique {
 		selector.Distinct()
 	}
+	for _, m := range _q.modifiers {
+		m(selector)
+	}
 	for _, p := range _q.predicates {
 		p(selector)
 	}
@@ -513,6 +599,32 @@ func (_q *DiagnosisTaskEventQuery) sqlQuery(ctx context.Context) *sql.Selector {
 		selector.Limit(*limit)
 	}
 	return selector
+}
+
+// ForUpdate locks the selected rows against concurrent updates, and prevent them from being
+// updated, deleted or "selected ... for update" by other sessions, until the transaction is
+// either committed or rolled-back.
+func (_q *DiagnosisTaskEventQuery) ForUpdate(opts ...sql.LockOption) *DiagnosisTaskEventQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForUpdate(opts...)
+	})
+	return _q
+}
+
+// ForShare behaves similarly to ForUpdate, except that it acquires a shared mode lock
+// on any rows that are read. Other sessions can read the rows, but cannot modify them
+// until your transaction commits.
+func (_q *DiagnosisTaskEventQuery) ForShare(opts ...sql.LockOption) *DiagnosisTaskEventQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForShare(opts...)
+	})
+	return _q
 }
 
 // DiagnosisTaskEventGroupBy is the group-by builder for DiagnosisTaskEvent entities.

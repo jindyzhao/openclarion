@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // DiagnosisAuthTicketCreate is the builder for creating a DiagnosisAuthTicket entity.
@@ -20,6 +21,18 @@ type DiagnosisAuthTicketCreate struct {
 	mutation *DiagnosisAuthTicketMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *DiagnosisAuthTicketCreate) SetTenantID(v int) *DiagnosisAuthTicketCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
+}
+
+// SetTenantKey sets the "tenant_key" field.
+func (_c *DiagnosisAuthTicketCreate) SetTenantKey(v string) *DiagnosisAuthTicketCreate {
+	_c.mutation.SetTenantKey(v)
+	return _c
 }
 
 // SetTokenHash sets the "token_hash" field.
@@ -106,6 +119,11 @@ func (_c *DiagnosisAuthTicketCreate) SetNillableUpdatedAt(v *time.Time) *Diagnos
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *DiagnosisAuthTicketCreate) SetTenant(v *Tenant) *DiagnosisAuthTicketCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // Mutation returns the DiagnosisAuthTicketMutation object of the builder.
 func (_c *DiagnosisAuthTicketCreate) Mutation() *DiagnosisAuthTicketMutation {
 	return _c.mutation
@@ -153,6 +171,22 @@ func (_c *DiagnosisAuthTicketCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *DiagnosisAuthTicketCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "DiagnosisAuthTicket.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := diagnosisauthticket.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "DiagnosisAuthTicket.tenant_id": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.TenantKey(); !ok {
+		return &ValidationError{Name: "tenant_key", err: errors.New(`ent: missing required field "DiagnosisAuthTicket.tenant_key"`)}
+	}
+	if v, ok := _c.mutation.TenantKey(); ok {
+		if err := diagnosisauthticket.TenantKeyValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_key", err: fmt.Errorf(`ent: validator failed for field "DiagnosisAuthTicket.tenant_key": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.TokenHash(); !ok {
 		return &ValidationError{Name: "token_hash", err: errors.New(`ent: missing required field "DiagnosisAuthTicket.token_hash"`)}
 	}
@@ -200,6 +234,9 @@ func (_c *DiagnosisAuthTicketCreate) check() error {
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "DiagnosisAuthTicket.updated_at"`)}
 	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "DiagnosisAuthTicket.tenant"`)}
+	}
 	return nil
 }
 
@@ -227,6 +264,10 @@ func (_c *DiagnosisAuthTicketCreate) createSpec() (*DiagnosisAuthTicket, *sqlgra
 		_spec = sqlgraph.NewCreateSpec(diagnosisauthticket.Table, sqlgraph.NewFieldSpec(diagnosisauthticket.FieldID, field.TypeInt))
 	)
 	_spec.OnConflict = _c.conflict
+	if value, ok := _c.mutation.TenantKey(); ok {
+		_spec.SetField(diagnosisauthticket.FieldTenantKey, field.TypeString, value)
+		_node.TenantKey = value
+	}
 	if value, ok := _c.mutation.TokenHash(); ok {
 		_spec.SetField(diagnosisauthticket.FieldTokenHash, field.TypeString, value)
 		_node.TokenHash = value
@@ -267,6 +308,23 @@ func (_c *DiagnosisAuthTicketCreate) createSpec() (*DiagnosisAuthTicket, *sqlgra
 		_spec.SetField(diagnosisauthticket.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   diagnosisauthticket.TenantTable,
+			Columns: []string{diagnosisauthticket.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	return _node, _spec
 }
 
@@ -274,7 +332,7 @@ func (_c *DiagnosisAuthTicketCreate) createSpec() (*DiagnosisAuthTicket, *sqlgra
 // of the `INSERT` statement. For example:
 //
 //	client.DiagnosisAuthTicket.Create().
-//		SetTokenHash(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -283,7 +341,7 @@ func (_c *DiagnosisAuthTicketCreate) createSpec() (*DiagnosisAuthTicket, *sqlgra
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.DiagnosisAuthTicketUpsert) {
-//			SetTokenHash(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *DiagnosisAuthTicketCreate) OnConflict(opts ...sql.ConflictOption) *DiagnosisAuthTicketUpsertOne {
@@ -360,6 +418,12 @@ func (u *DiagnosisAuthTicketUpsert) UpdateUpdatedAt() *DiagnosisAuthTicketUpsert
 func (u *DiagnosisAuthTicketUpsertOne) UpdateNewValues() *DiagnosisAuthTicketUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(diagnosisauthticket.FieldTenantID)
+		}
+		if _, exists := u.create.mutation.TenantKey(); exists {
+			s.SetIgnore(diagnosisauthticket.FieldTenantKey)
+		}
 		if _, exists := u.create.mutation.TokenHash(); exists {
 			s.SetIgnore(diagnosisauthticket.FieldTokenHash)
 		}
@@ -585,7 +649,7 @@ func (_c *DiagnosisAuthTicketCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.DiagnosisAuthTicketUpsert) {
-//			SetTokenHash(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *DiagnosisAuthTicketCreateBulk) OnConflict(opts ...sql.ConflictOption) *DiagnosisAuthTicketUpsertBulk {
@@ -626,6 +690,12 @@ func (u *DiagnosisAuthTicketUpsertBulk) UpdateNewValues() *DiagnosisAuthTicketUp
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(diagnosisauthticket.FieldTenantID)
+			}
+			if _, exists := b.mutation.TenantKey(); exists {
+				s.SetIgnore(diagnosisauthticket.FieldTenantKey)
+			}
 			if _, exists := b.mutation.TokenHash(); exists {
 				s.SetIgnore(diagnosisauthticket.FieldTokenHash)
 			}

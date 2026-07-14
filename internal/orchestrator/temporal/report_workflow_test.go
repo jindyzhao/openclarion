@@ -560,6 +560,25 @@ func TestReportActivities_SendReportNotificationUsesProfileResolver(t *testing.T
 	provider := newReportLLMProvider()
 	activities := temporalpkg.NewActivities(env.factory, temporalpkg.WithLLMProvider(provider))
 	ctx := context.Background()
+	profile, err := domain.NewNotificationChannelProfile(
+		"Report profile resolver",
+		domain.NotificationChannelKindWebhook,
+		"secret/report-profile-resolver",
+		[]domain.NotificationDeliveryScope{domain.NotificationDeliveryScopeReport},
+		true,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewNotificationChannelProfile: %v", err)
+	}
+	err = env.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var saveErr error
+		profile, saveErr = uow.Config().SaveNotificationChannelProfile(ctx, profile)
+		return saveErr
+	})
+	if err != nil {
+		t.Fatalf("SaveNotificationChannelProfile: %v", err)
+	}
 
 	sub, err := activities.GenerateSubReport(ctx, temporalpkg.ReportFanOutWorkflowInput{
 		EvidenceSnapshotID: int64(seed.SnapshotID),
@@ -590,14 +609,14 @@ func TestReportActivities_SendReportNotificationUsesProfileResolver(t *testing.T
 
 	notification, err := notifyActivities.SendReportNotification(ctx, temporalpkg.ReportNotificationActivityInput{
 		FinalReportID:                      final.FinalReportID,
-		ReportNotificationChannelProfileID: 3,
+		ReportNotificationChannelProfileID: int64(profile.ID),
 	})
 	if err != nil {
 		t.Fatalf("SendReportNotification: %v", err)
 	}
 	calls, profileID := resolver.LastCall()
-	if calls != 1 || profileID != 3 {
-		t.Fatalf("resolver calls=%d profileID=%d, want 1/3", calls, profileID)
+	if calls != 1 || profileID != profile.ID {
+		t.Fatalf("resolver calls=%d profileID=%d, want 1/%d", calls, profileID, profile.ID)
 	}
 	if scope := resolver.LastScope(); scope != domain.NotificationDeliveryScopeReport {
 		t.Fatalf("resolver scope = %s, want %s", scope, domain.NotificationDeliveryScopeReport)

@@ -55,6 +55,11 @@ func IDLTE(id int) predicate.EvidenceSnapshot {
 	return predicate.EvidenceSnapshot(sql.FieldLTE(FieldID, id))
 }
 
+// TenantID applies equality check predicate on the "tenant_id" field. It's identical to TenantIDEQ.
+func TenantID(v int) predicate.EvidenceSnapshot {
+	return predicate.EvidenceSnapshot(sql.FieldEQ(FieldTenantID, v))
+}
+
 // AlertGroupID applies equality check predicate on the "alert_group_id" field. It's identical to AlertGroupIDEQ.
 func AlertGroupID(v int) predicate.EvidenceSnapshot {
 	return predicate.EvidenceSnapshot(sql.FieldEQ(FieldAlertGroupID, v))
@@ -78,6 +83,26 @@ func CreatedByWorkflow(v string) predicate.EvidenceSnapshot {
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.EvidenceSnapshot {
 	return predicate.EvidenceSnapshot(sql.FieldEQ(FieldCreatedAt, v))
+}
+
+// TenantIDEQ applies the EQ predicate on the "tenant_id" field.
+func TenantIDEQ(v int) predicate.EvidenceSnapshot {
+	return predicate.EvidenceSnapshot(sql.FieldEQ(FieldTenantID, v))
+}
+
+// TenantIDNEQ applies the NEQ predicate on the "tenant_id" field.
+func TenantIDNEQ(v int) predicate.EvidenceSnapshot {
+	return predicate.EvidenceSnapshot(sql.FieldNEQ(FieldTenantID, v))
+}
+
+// TenantIDIn applies the In predicate on the "tenant_id" field.
+func TenantIDIn(vs ...int) predicate.EvidenceSnapshot {
+	return predicate.EvidenceSnapshot(sql.FieldIn(FieldTenantID, vs...))
+}
+
+// TenantIDNotIn applies the NotIn predicate on the "tenant_id" field.
+func TenantIDNotIn(vs ...int) predicate.EvidenceSnapshot {
+	return predicate.EvidenceSnapshot(sql.FieldNotIn(FieldTenantID, vs...))
 }
 
 // AlertGroupIDEQ applies the EQ predicate on the "alert_group_id" field.
@@ -353,6 +378,29 @@ func CreatedAtLT(v time.Time) predicate.EvidenceSnapshot {
 // CreatedAtLTE applies the LTE predicate on the "created_at" field.
 func CreatedAtLTE(v time.Time) predicate.EvidenceSnapshot {
 	return predicate.EvidenceSnapshot(sql.FieldLTE(FieldCreatedAt, v))
+}
+
+// HasTenant applies the HasEdge predicate on the "tenant" edge.
+func HasTenant() predicate.EvidenceSnapshot {
+	return predicate.EvidenceSnapshot(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasTenantWith applies the HasEdge predicate on the "tenant" edge with a given conditions (other predicates).
+func HasTenantWith(preds ...predicate.Tenant) predicate.EvidenceSnapshot {
+	return predicate.EvidenceSnapshot(func(s *sql.Selector) {
+		step := newTenantStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
 }
 
 // HasGroup applies the HasEdge predicate on the "group" edge.

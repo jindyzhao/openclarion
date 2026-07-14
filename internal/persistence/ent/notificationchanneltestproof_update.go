@@ -61,6 +61,9 @@ func (_u *NotificationChannelTestProofUpdate) ExecX(ctx context.Context) {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *NotificationChannelTestProofUpdate) check() error {
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "NotificationChannelTestProof.tenant"`)
+	}
 	if _u.mutation.NotificationChannelProfileCleared() && len(_u.mutation.NotificationChannelProfileIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "NotificationChannelTestProof.notification_channel_profile"`)
 	}
@@ -158,6 +161,9 @@ func (_u *NotificationChannelTestProofUpdateOne) ExecX(ctx context.Context) {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *NotificationChannelTestProofUpdateOne) check() error {
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "NotificationChannelTestProof.tenant"`)
+	}
 	if _u.mutation.NotificationChannelProfileCleared() && len(_u.mutation.NotificationChannelProfileIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "NotificationChannelTestProof.notification_channel_profile"`)
 	}

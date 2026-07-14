@@ -4,6 +4,8 @@ import { diagnosisSessionCookieName } from "@/lib/api/diagnosis-session";
 
 import { DELETE, GET, POST } from "./route";
 
+const defaultTenantBinding = { tenant_id: 1, tenant_key: "default" } as const;
+
 describe("diagnosis browser session route", () => {
   const originalAPIBaseURL = process.env.OPENCLARION_API_BASE_URL;
 
@@ -13,6 +15,7 @@ describe("diagnosis browser session route", () => {
       "fetch",
       vi.fn(async () =>
         Response.json({
+          ...defaultTenantBinding,
           checked_at: "2026-06-22T10:00:00Z",
           mode: "oidc",
           role_authorized: true,
@@ -51,6 +54,7 @@ describe("diagnosis browser session route", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       authenticated: true,
+      ...defaultTenantBinding,
       checked_at: "2026-06-22T10:00:00Z",
       mode: "oidc",
       role_authorized: true,
@@ -73,6 +77,7 @@ describe("diagnosis browser session route", () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json(
         {
+          ...defaultTenantBinding,
           token: "ldap.session.token",
           checked_at: "2026-06-22T10:00:00Z",
           expires_at: "2099-06-22T18:00:00Z",
@@ -97,6 +102,7 @@ describe("diagnosis browser session route", () => {
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({
       authenticated: true,
+      ...defaultTenantBinding,
       checked_at: "2026-06-22T10:00:00Z",
       mode: "ldap",
       role_authorized: true,
@@ -147,6 +153,7 @@ describe("diagnosis browser session route", () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json(
         {
+          ...defaultTenantBinding,
           token: "ldap.session.token",
           checked_at: "2026-06-22T10:00:00Z",
           expires_at: "2099-06-22T18:00:00Z",
@@ -179,6 +186,7 @@ describe("diagnosis browser session route", () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json(
         {
+          ...defaultTenantBinding,
           token: "ldap.session.token",
           checked_at: "2026-06-22T10:00:00Z",
           expires_at: "2000-01-01T00:00:00Z",
@@ -211,6 +219,7 @@ describe("diagnosis browser session route", () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       Response.json(
         {
+          ...defaultTenantBinding,
           token: "ldap.session.token",
           checked_at: "2026-06-22T10:00:00Z",
           expires_at: "2099-06-22T18:00:00Z",
@@ -235,6 +244,7 @@ describe("diagnosis browser session route", () => {
     expect(response.status).toBe(201);
     await expect(response.json()).resolves.toEqual({
       authenticated: true,
+      ...defaultTenantBinding,
       checked_at: "2026-06-22T10:00:00Z",
       mode: "ldap",
       role_authorized: false,
@@ -249,6 +259,7 @@ describe("diagnosis browser session route", () => {
   it("rejects malformed backend session status without clearing the cookie", async () => {
     for (const body of [
       {
+        ...defaultTenantBinding,
         checked_at: "2026-06-22T10:00:00Z",
         mode: "none",
         role_authorized: true,
@@ -256,6 +267,7 @@ describe("diagnosis browser session route", () => {
         subject: "operator-1",
       },
       {
+        ...defaultTenantBinding,
         checked_at: "2026-06-22T10:00:00Z",
         mode: "oidc",
         role_authorized: true,
@@ -263,6 +275,7 @@ describe("diagnosis browser session route", () => {
         subject: "operator-1",
       },
       {
+        ...defaultTenantBinding,
         checked_at: "invalid",
         mode: "oidc",
         role_authorized: true,
@@ -270,6 +283,7 @@ describe("diagnosis browser session route", () => {
         subject: "operator-1",
       },
       {
+        ...defaultTenantBinding,
         checked_at: "2026-06-22T10:00:00Z",
         mode: "oidc",
         role_authorized: "yes",
@@ -277,6 +291,7 @@ describe("diagnosis browser session route", () => {
         subject: "operator-1",
       },
       {
+        ...defaultTenantBinding,
         checked_at: "2026-06-22T10:00:00Z",
         mode: "oidc",
         role_authorized: true,

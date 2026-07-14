@@ -27,6 +27,9 @@ type SubReport struct {
 	ent.Schema
 }
 
+// Mixin of the SubReport.
+func (SubReport) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the SubReport.
 func (SubReport) Fields() []ent.Field {
 	return []ent.Field{
@@ -118,7 +121,7 @@ func (SubReport) Edges() []ent.Edge {
 // Indexes of the SubReport.
 func (SubReport) Indexes() []ent.Index {
 	return []ent.Index{
-		index.Fields("evidence_snapshot_id", "idempotency_key").
+		index.Fields("tenant_id", "evidence_snapshot_id", "idempotency_key").
 			Unique(),
 		index.Fields("evidence_snapshot_id", "created_at"),
 		index.Fields("severity", "created_at"),

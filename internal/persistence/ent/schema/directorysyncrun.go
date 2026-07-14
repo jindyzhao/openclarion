@@ -18,6 +18,9 @@ type DirectorySyncRun struct {
 	ent.Schema
 }
 
+// Mixin of the DirectorySyncRun.
+func (DirectorySyncRun) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the DirectorySyncRun.
 func (DirectorySyncRun) Fields() []ent.Field {
 	return []ent.Field{

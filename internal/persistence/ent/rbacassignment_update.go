@@ -224,6 +224,9 @@ func (_u *RBACAssignmentUpdate) check() error {
 			return &ValidationError{Name: "updated_by", err: fmt.Errorf(`ent: validator failed for field "RBACAssignment.updated_by": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "RBACAssignment.tenant"`)
+	}
 	return nil
 }
 
@@ -494,6 +497,9 @@ func (_u *RBACAssignmentUpdateOne) check() error {
 		if err := rbacassignment.UpdatedByValidator(v); err != nil {
 			return &ValidationError{Name: "updated_by", err: fmt.Errorf(`ent: validator failed for field "RBACAssignment.updated_by": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "RBACAssignment.tenant"`)
 	}
 	return nil
 }

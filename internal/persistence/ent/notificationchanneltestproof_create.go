@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchanneltestproof"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // NotificationChannelTestProofCreate is the builder for creating a NotificationChannelTestProof entity.
@@ -21,6 +22,12 @@ type NotificationChannelTestProofCreate struct {
 	mutation *NotificationChannelTestProofMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *NotificationChannelTestProofCreate) SetTenantID(v int) *NotificationChannelTestProofCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetNotificationChannelProfileID sets the "notification_channel_profile_id" field.
@@ -129,6 +136,11 @@ func (_c *NotificationChannelTestProofCreate) SetNillableCreatedAt(v *time.Time)
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *NotificationChannelTestProofCreate) SetTenant(v *Tenant) *NotificationChannelTestProofCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // SetNotificationChannelProfile sets the "notification_channel_profile" edge to the NotificationChannelProfile entity.
 func (_c *NotificationChannelTestProofCreate) SetNotificationChannelProfile(v *NotificationChannelProfile) *NotificationChannelTestProofCreate {
 	return _c.SetNotificationChannelProfileID(v.ID)
@@ -177,6 +189,14 @@ func (_c *NotificationChannelTestProofCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *NotificationChannelTestProofCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "NotificationChannelTestProof.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := notificationchanneltestproof.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "NotificationChannelTestProof.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.NotificationChannelProfileID(); !ok {
 		return &ValidationError{Name: "notification_channel_profile_id", err: errors.New(`ent: missing required field "NotificationChannelTestProof.notification_channel_profile_id"`)}
 	}
@@ -237,6 +257,9 @@ func (_c *NotificationChannelTestProofCreate) check() error {
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "NotificationChannelTestProof.created_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "NotificationChannelTestProof.tenant"`)}
 	}
 	if len(_c.mutation.NotificationChannelProfileIDs()) == 0 {
 		return &ValidationError{Name: "notification_channel_profile", err: errors.New(`ent: missing required edge "NotificationChannelTestProof.notification_channel_profile"`)}
@@ -308,6 +331,23 @@ func (_c *NotificationChannelTestProofCreate) createSpec() (*NotificationChannel
 		_spec.SetField(notificationchanneltestproof.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   notificationchanneltestproof.TenantTable,
+			Columns: []string{notificationchanneltestproof.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.NotificationChannelProfileIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -332,7 +372,7 @@ func (_c *NotificationChannelTestProofCreate) createSpec() (*NotificationChannel
 // of the `INSERT` statement. For example:
 //
 //	client.NotificationChannelTestProof.Create().
-//		SetNotificationChannelProfileID(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -341,7 +381,7 @@ func (_c *NotificationChannelTestProofCreate) createSpec() (*NotificationChannel
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.NotificationChannelTestProofUpsert) {
-//			SetNotificationChannelProfileID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *NotificationChannelTestProofCreate) OnConflict(opts ...sql.ConflictOption) *NotificationChannelTestProofUpsertOne {
@@ -388,6 +428,9 @@ type (
 func (u *NotificationChannelTestProofUpsertOne) UpdateNewValues() *NotificationChannelTestProofUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(notificationchanneltestproof.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.NotificationChannelProfileID(); exists {
 			s.SetIgnore(notificationchanneltestproof.FieldNotificationChannelProfileID)
 		}
@@ -587,7 +630,7 @@ func (_c *NotificationChannelTestProofCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.NotificationChannelTestProofUpsert) {
-//			SetNotificationChannelProfileID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *NotificationChannelTestProofCreateBulk) OnConflict(opts ...sql.ConflictOption) *NotificationChannelTestProofUpsertBulk {
@@ -628,6 +671,9 @@ func (u *NotificationChannelTestProofUpsertBulk) UpdateNewValues() *Notification
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(notificationchanneltestproof.FieldTenantID)
+			}
 			if _, exists := b.mutation.NotificationChannelProfileID(); exists {
 				s.SetIgnore(notificationchanneltestproof.FieldNotificationChannelProfileID)
 			}
