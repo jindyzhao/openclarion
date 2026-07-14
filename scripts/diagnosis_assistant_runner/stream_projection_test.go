@@ -34,12 +34,18 @@ func TestPreviewWriterUsesContiguousVisibleGenerationsAndBoundedRecords(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	writer.BeginGeneration()
-	writer.BeginGeneration()
+	if err := writer.BeginGeneration(); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.BeginGeneration(); err != nil {
+		t.Fatal(err)
+	}
 	if err := writer.WriteText("Corrected"); err != nil {
 		t.Fatal(err)
 	}
-	writer.BeginGeneration()
+	if err := writer.BeginGeneration(); err != nil {
+		t.Fatal(err)
+	}
 	if err := writer.WriteText("Final"); err != nil {
 		t.Fatal(err)
 	}
@@ -60,20 +66,26 @@ func TestPreviewWriterUsesContiguousVisibleGenerationsAndBoundedRecords(t *testi
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
-	if len(lines) != 2 {
+	if len(lines) != 3 {
 		t.Fatalf("stream = %s", raw)
 	}
-	for index, line := range lines {
-		var record struct {
-			GenerationAttempt int `json:"generation_attempt"`
-			Sequence          int `json:"sequence"`
-		}
+	type streamRecord struct {
+		GenerationAttempt int  `json:"generation_attempt"`
+		Sequence          int  `json:"sequence"`
+		Reset             bool `json:"reset"`
+	}
+	records := make([]streamRecord, 0, len(lines))
+	for _, line := range lines {
+		var record streamRecord
 		if err := json.Unmarshal([]byte(line), &record); err != nil {
 			t.Fatal(err)
 		}
-		if record.GenerationAttempt != index+1 || record.Sequence != 1 {
-			t.Fatalf("record[%d] = %+v", index, record)
-		}
+		records = append(records, record)
+	}
+	if records[0] != (streamRecord{GenerationAttempt: 1, Sequence: 1}) ||
+		records[1] != (streamRecord{GenerationAttempt: 2, Reset: true}) ||
+		records[2] != (streamRecord{GenerationAttempt: 2, Sequence: 1}) {
+		t.Fatalf("records = %+v", records)
 	}
 }
 
@@ -83,7 +95,9 @@ func TestPreviewWriterSplitsUTF8WithoutExceedingDeltaLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	writer.BeginGeneration()
+	if err := writer.BeginGeneration(); err != nil {
+		t.Fatal(err)
+	}
 	text := strings.Repeat("界", ports.MaxContainerStreamDeltaBytes/3+1)
 	if err := writer.WriteText(text); err != nil {
 		t.Fatal(err)

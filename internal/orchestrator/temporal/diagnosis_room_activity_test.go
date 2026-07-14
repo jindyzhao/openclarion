@@ -125,6 +125,8 @@ func TestRunDiagnosisTurn_PublishesTransientStreamingSnapshots(t *testing.T) {
 			Stream: []ports.ContainerStreamChunk{
 				{GenerationAttempt: 1, Sequence: 1, Delta: "CPU ", Text: "CPU "},
 				{GenerationAttempt: 1, Sequence: 2, Delta: "is saturated.", Text: "CPU is saturated."},
+				{GenerationAttempt: 2, Reset: true},
+				{GenerationAttempt: 2, Sequence: 1, Delta: "CPU is saturated.", Text: "CPU is saturated."},
 			},
 			Run: ports.ContainerRunResult{
 				InvocationID: invocationID,
@@ -156,13 +158,18 @@ func TestRunDiagnosisTurn_PublishesTransientStreamingSnapshots(t *testing.T) {
 	if result.AssistantMessage != "CPU is saturated." {
 		t.Fatalf("AssistantMessage = %q", result.AssistantMessage)
 	}
-	if len(sink.events) != 3 {
+	if len(sink.events) != 5 {
 		t.Fatalf("stream events = %#v", sink.events)
 	}
 	if sink.events[0].Phase != ports.DiagnosisTurnStreamStarted ||
 		sink.events[1].AssistantMessage != "CPU " ||
 		sink.events[2].AssistantMessage != "CPU is saturated." ||
-		sink.events[2].Sequence != 2 {
+		sink.events[2].Sequence != 2 ||
+		sink.events[3].Phase != ports.DiagnosisTurnStreamReset ||
+		sink.events[3].AssistantMessage != "" ||
+		sink.events[3].GenerationAttempt != 2 ||
+		sink.events[3].Sequence != 0 ||
+		sink.events[4].AssistantMessage != "CPU is saturated." {
 		t.Fatalf("stream events = %#v", sink.events)
 	}
 }

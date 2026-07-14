@@ -45,6 +45,25 @@ describe("parseDiagnosisServerFrame", () => {
       generation_attempt: 2,
       sequence: 3,
     });
+    expect(
+      parseDiagnosisServerFrame(
+        JSON.stringify({
+          type: "turn_stream",
+          phase: "reset",
+          session_id: "s1",
+          message_id: "message-1",
+          assistant_message_id: "message-1/assistant",
+          activity_attempt: 1,
+          generation_attempt: 3,
+          sequence: 0,
+          assistant_message: "",
+        }),
+      ),
+    ).toMatchObject({
+      phase: "reset",
+      generation_attempt: 3,
+      sequence: 0,
+    });
 
     expect(() =>
       parseDiagnosisServerFrame(

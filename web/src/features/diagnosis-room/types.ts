@@ -165,7 +165,7 @@ type DiagnosisReadyFrame = {
 
 export type DiagnosisTurnStreamFrame = {
   type: "turn_stream";
-  phase: "started" | "delta";
+  phase: "started" | "reset" | "delta";
   session_id: string;
   message_id: string;
   assistant_message_id: string;

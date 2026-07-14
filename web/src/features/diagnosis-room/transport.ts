@@ -324,6 +324,13 @@ function isDiagnosisTurnStreamFrame(
       value.assistant_message === ""
     );
   }
+  if (value.phase === "reset") {
+    return (
+      value.generation_attempt > 0 &&
+      value.sequence === 0 &&
+      value.assistant_message === ""
+    );
+  }
   return (
     value.phase === "delta" &&
     value.generation_attempt > 0 &&

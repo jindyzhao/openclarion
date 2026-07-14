@@ -234,6 +234,8 @@ persistence, lifecycle audit, and final close-notification Activity boundary.
 - the process-local preview hub keeps one latest snapshot per subscriber, so a
   slow or disconnected browser cannot backpressure the Activity; reconnect
   recovery still comes from Temporal Query and persisted turns
+- a preview write failure releases the WebSocket handler immediately while the
+  bounded workflow Update continues independently to its durable outcome
 
 `internal/orchestrator/temporal/diagnosis_room_client.go` is the Temporal
 adapter behind that port. It uses `UpdateWorkflow` with
@@ -250,7 +252,8 @@ browser entry point. It delegates the ticket/bootstrap/transcript UI to
   `POST /api/v1/diagnosis/ws-ticket`
 - non-OpenAPI WebSocket frame types stay local to the diagnosis-room feature
 - transient `turn_stream` snapshots render as a replaceable assistant draft;
-  Activity/model retries reset the draft and `turn_result` replaces it
+  an explicit generation `reset` frame removes an invalid retry draft before
+  corrected text arrives, and `turn_result` replaces the final draft
 - the route smoke runs against a mocked API/WebSocket endpoint and proves
   `ready`, `state`, `submit_turn`, and `turn_result` in a production Next.js
   server

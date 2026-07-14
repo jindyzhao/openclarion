@@ -108,8 +108,12 @@ func (a *Activities) RunDiagnosisTurn(ctx context.Context, req DiagnosisTurnActi
 				return err
 			}
 			heartbeats.Update(chunk)
+			phase := ports.DiagnosisTurnStreamDelta
+			if chunk.Reset {
+				phase = ports.DiagnosisTurnStreamReset
+			}
 			a.publishDiagnosisTurnStream(ports.DiagnosisTurnStreamEvent{
-				Phase:              ports.DiagnosisTurnStreamDelta,
+				Phase:              phase,
 				SessionID:          req.SessionID,
 				MessageID:          req.MessageID,
 				AssistantMessageID: assistantMessageID(req.MessageID),
@@ -242,12 +246,15 @@ func (h *diagnosisTurnStreamHeartbeats) Update(chunk ports.ContainerStreamChunk)
 	if h == nil || !h.enabled {
 		return
 	}
-	digest := sha256.Sum256([]byte(chunk.Text))
 	h.mu.Lock()
 	h.details.GenerationAttempt = chunk.GenerationAttempt
 	h.details.Sequence = chunk.Sequence
 	h.details.AssistantBytes = len([]byte(chunk.Text))
-	h.details.AssistantSHA256 = hex.EncodeToString(digest[:])
+	h.details.AssistantSHA256 = ""
+	if !chunk.Reset {
+		digest := sha256.Sum256([]byte(chunk.Text))
+		h.details.AssistantSHA256 = hex.EncodeToString(digest[:])
+	}
 	h.mu.Unlock()
 	h.record()
 }

@@ -50,6 +50,22 @@ describe("nextDiagnosisTurnPreview", () => {
       nextDiagnosisTurnPreview(
         current,
         frame({
+          phase: "reset",
+          generation_attempt: 2,
+          sequence: 0,
+          assistant_message: "",
+        }),
+      ).assistant_message,
+    ).toBe("");
+    expect(
+      nextDiagnosisTurnPreview(
+        frame({
+          phase: "reset",
+          generation_attempt: 2,
+          sequence: 0,
+          assistant_message: "",
+        }),
+        frame({
           generation_attempt: 2,
           sequence: 1,
           assistant_message: "Corrected",

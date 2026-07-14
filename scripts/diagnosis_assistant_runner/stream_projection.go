@@ -246,10 +246,16 @@ func newPreviewWriter(outputDir string) (*previewWriter, error) {
 	return &previewWriter{file: file, buffer: bufio.NewWriterSize(file, 16*1024)}, nil
 }
 
-func (w *previewWriter) BeginGeneration() {
-	w.generationPending = true
+func (w *previewWriter) BeginGeneration() error {
 	w.sequence = 0
 	w.previousText = ""
+	if !w.wroteAnyGeneration {
+		w.generationPending = true
+		return nil
+	}
+	w.generation++
+	w.generationPending = false
+	return w.writeRecord("", true)
 }
 
 func (w *previewWriter) WriteText(text string) error {
@@ -284,16 +290,22 @@ func (w *previewWriter) writeDelta(delta string) error {
 		w.wroteAnyGeneration = true
 	}
 	w.sequence++
+	return w.writeRecord(delta, false)
+}
+
+func (w *previewWriter) writeRecord(delta string, reset bool) error {
 	record := struct {
 		SchemaVersion     string `json:"schema_version"`
 		GenerationAttempt int    `json:"generation_attempt"`
 		Sequence          int    `json:"sequence"`
 		Delta             string `json:"delta"`
+		Reset             bool   `json:"reset,omitempty"`
 	}{
 		SchemaVersion:     ports.ContainerStreamSchemaVersion,
 		GenerationAttempt: w.generation,
 		Sequence:          w.sequence,
 		Delta:             delta,
+		Reset:             reset,
 	}
 	raw, err := json.Marshal(record)
 	if err != nil {
@@ -310,7 +322,9 @@ func (w *previewWriter) writeDelta(delta string) error {
 		return fmt.Errorf("flush preview stream: %w", err)
 	}
 	w.writtenBytes += recordBytes
-	w.previousText += delta
+	if !reset {
+		w.previousText += delta
+	}
 	return nil
 }
 

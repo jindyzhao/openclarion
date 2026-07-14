@@ -14,6 +14,8 @@ type DiagnosisTurnStreamPhase string
 const (
 	// DiagnosisTurnStreamStarted resets transient preview state for one Activity attempt.
 	DiagnosisTurnStreamStarted DiagnosisTurnStreamPhase = "started"
+	// DiagnosisTurnStreamReset clears a stale draft when model validation retries.
+	DiagnosisTurnStreamReset DiagnosisTurnStreamPhase = "reset"
 	// DiagnosisTurnStreamDelta replaces the preview with a validated text snapshot.
 	DiagnosisTurnStreamDelta DiagnosisTurnStreamPhase = "delta"
 )

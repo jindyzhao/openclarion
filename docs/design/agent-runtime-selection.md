@@ -100,9 +100,13 @@ strict diagnosis schema, idempotency key, and bounded validation retry, then
 writes schema-valid `/workspace/out/output.json`. When streaming is enabled,
 the runner projects only the growing structured `message` property into a
 bounded NDJSON preview file; raw model JSON is never sent to the browser, and
-preview failure does not bypass final schema validation. Application-owned
-retry feedback is merged into the system instructions, so the latest operator
-turn remains the language anchor after a validation failure.
+preview failure does not bypass final schema validation. A provider rejection
+falls back to the non-streaming request only when it explicitly identifies
+streaming as an unsupported capability and no preview delta was received.
+Application-owned retry feedback is merged into the system instructions, so
+the latest operator turn remains the language anchor after a validation
+failure. Before retry output arrives, the runner emits a generation reset that
+removes the invalid transient draft.
 
 V1 registers no Eino tools, framework persistence, multi-agent router, or
 custom Agent loop. Inputs are direct regular files with explicit size limits;

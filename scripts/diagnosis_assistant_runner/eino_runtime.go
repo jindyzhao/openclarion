@@ -100,6 +100,8 @@ func (p *einoDiagnosisProvider) run(
 		if variant.Role != schema.Assistant {
 			return ports.LLMResponse{}, fmt.Errorf("diagnosis agent emitted unsupported %q event", variant.Role)
 		}
+		// Eino emits one streaming MessageVariant per model response. GetMessage
+		// drains and concatenates its MessageStream into the authoritative message.
 		message, err := variant.GetMessage()
 		if err != nil {
 			return ports.LLMResponse{}, fmt.Errorf("read diagnosis agent output: %w", err)

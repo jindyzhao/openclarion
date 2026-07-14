@@ -122,13 +122,14 @@ type ContainerRunResult struct {
 }
 
 // ContainerStreamChunk is one validated semantic assistant-message snapshot
-// from an optional sandbox preview stream. Sequence restarts at one whenever
-// a visible preview generation replaces an earlier draft.
+// from an optional sandbox preview stream. A Reset chunk has sequence zero and
+// empty text; subsequent deltas for that generation start at sequence one.
 type ContainerStreamChunk struct {
 	GenerationAttempt int    `json:"generation_attempt"`
 	Sequence          int    `json:"sequence"`
 	Delta             string `json:"delta"`
 	Text              string `json:"-"`
+	Reset             bool   `json:"reset,omitempty"`
 }
 
 // ContainerStreamHandler receives ordered chunks while a container is still

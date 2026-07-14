@@ -463,6 +463,12 @@ type LLMStreamDelta struct {
 // LLMStreamHandler receives ordered content deltas while generation is active.
 type LLMStreamHandler func(LLMStreamDelta) error
 
+// ErrLLMStreamingUnsupported marks an upstream capability rejection that is
+// safe for a caller to retry through the provider's non-streaming contract.
+// Transport failures and malformed streams must not wrap this sentinel because
+// retrying them could duplicate an in-flight model generation.
+var ErrLLMStreamingUnsupported = errors.New("llm streaming is unsupported")
+
 // StreamingLLMProvider is an optional extension for OpenAI-compatible
 // providers that support server-sent Chat Completions chunks.
 type StreamingLLMProvider interface {

@@ -92,18 +92,20 @@ func WithDiagnosisTurnStreamSource(source ports.DiagnosisTurnStreamSource) Diagn
 // DiagnosisWebSocketRelay forwards authenticated WebSocket frames to the
 // diagnosis-room workflow Update/Query boundary.
 type DiagnosisWebSocketRelay struct {
-	workflows       ports.DiagnosisRoomWorkflowClient
-	frameAuthorizer diagnosisWebSocketFrameAuthorizer
-	streamSource    ports.DiagnosisTurnStreamSource
-	updateTimeout   time.Duration
-	queryTimeout    time.Duration
+	workflows        ports.DiagnosisRoomWorkflowClient
+	frameAuthorizer  diagnosisWebSocketFrameAuthorizer
+	streamSource     ports.DiagnosisTurnStreamSource
+	writeTurnPreview func(*websocket.Conn, diagnosisWSTurnStreamFrame) error
+	updateTimeout    time.Duration
+	queryTimeout     time.Duration
 }
 
 func newDiagnosisWebSocketRelay(workflows ports.DiagnosisRoomWorkflowClient, opts ...DiagnosisWebSocketRelayOption) *DiagnosisWebSocketRelay {
 	relay := &DiagnosisWebSocketRelay{
-		workflows:     workflows,
-		updateTimeout: defaultDiagnosisWSUpdateTimeout,
-		queryTimeout:  defaultDiagnosisWSQueryTimeout,
+		workflows:        workflows,
+		writeTurnPreview: writeDiagnosisWSTurnStream,
+		updateTimeout:    defaultDiagnosisWSUpdateTimeout,
+		queryTimeout:     defaultDiagnosisWSQueryTimeout,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -204,7 +206,9 @@ func diagnosisWSFramePermission(frameType string) (domain.RBACPermission, bool) 
 func (r *DiagnosisWebSocketRelay) handleSubmitTurn(ctx context.Context, conn *websocket.Conn, ticket diagnosisauth.Ticket, frame diagnosisWSClientFrame) error {
 	updateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.updateTimeout)
 	var updateGroup errgroup.Group
-	defer func() { _ = updateGroup.Wait() }()
+	// The bounded Update intentionally outlives a disconnected browser. Do not
+	// wait for this group on a preview write failure; its buffered outcome lets
+	// the detached call finish without retaining the WebSocket relay.
 
 	var stream <-chan ports.DiagnosisTurnStreamEvent
 	cancelStream := func() {}
@@ -218,9 +222,10 @@ func (r *DiagnosisWebSocketRelay) handleSubmitTurn(ctx context.Context, conn *we
 		err    error
 	}
 	outcomes := make(chan updateOutcome, 1)
+	workflows := r.workflows
 	updateGroup.Go(func() error {
 		defer cancel()
-		result, err := r.workflows.SubmitDiagnosisTurn(updateCtx, ports.DiagnosisRoomSubmitTurnRequest{
+		result, err := workflows.SubmitDiagnosisTurn(updateCtx, ports.DiagnosisRoomSubmitTurnRequest{
 			SessionID:            ticket.SessionID,
 			MessageID:            frame.MessageID,
 			ActorSubject:         ticket.Subject,
@@ -240,7 +245,7 @@ func (r *DiagnosisWebSocketRelay) handleSubmitTurn(ctx context.Context, conn *we
 			}
 			preview, ok := diagnosisWSTurnStreamFrameFromEvent(ticket.SessionID, frame.MessageID, event)
 			if ok {
-				if err := writeDiagnosisWSJSON(conn, preview); err != nil {
+				if err := r.writeTurnPreview(conn, preview); err != nil {
 					return err
 				}
 			}
@@ -251,6 +256,10 @@ func (r *DiagnosisWebSocketRelay) handleSubmitTurn(ctx context.Context, conn *we
 			return writeDiagnosisWSTurnResult(conn, outcome.result, ticket.Subject)
 		}
 	}
+}
+
+func writeDiagnosisWSTurnStream(conn *websocket.Conn, frame diagnosisWSTurnStreamFrame) error {
+	return writeDiagnosisWSJSON(conn, frame)
 }
 
 func writeDiagnosisWSTurnResult(conn *websocket.Conn, result ports.DiagnosisRoomSubmitTurnResult, actorSubject string) error {
@@ -300,6 +309,10 @@ func diagnosisWSTurnStreamFrameFromEvent(
 	switch event.Phase {
 	case ports.DiagnosisTurnStreamStarted:
 		if event.GenerationAttempt != 0 || event.Sequence != 0 || event.AssistantMessage != "" {
+			return diagnosisWSTurnStreamFrame{}, false
+		}
+	case ports.DiagnosisTurnStreamReset:
+		if event.GenerationAttempt <= 0 || event.Sequence != 0 || event.AssistantMessage != "" {
 			return diagnosisWSTurnStreamFrame{}, false
 		}
 	case ports.DiagnosisTurnStreamDelta:

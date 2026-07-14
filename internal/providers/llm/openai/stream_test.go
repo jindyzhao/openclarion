@@ -67,6 +67,54 @@ func TestGenerateJSONStreamingAccumulatesOrderedContent(t *testing.T) {
 	}
 }
 
+func TestGenerateJSONStreamingClassifiesOnlyCapabilityRejections(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{
+			name:   "stream parameter rejected",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"stream is not supported","type":"invalid_request_error","param":"stream","code":"unsupported_value"}}`,
+			want:   true,
+		},
+		{
+			name:   "unrelated bad request",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"response_format is invalid","type":"invalid_request_error","param":"response_format","code":"invalid_value"}}`,
+			want:   false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+			provider, err := NewProvider(Config{
+				BaseURL:    server.URL + "/v1",
+				Model:      "test-model",
+				OutputMode: ports.LLMOutputModeJSONObject,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = provider.GenerateJSONStreaming(context.Background(), ports.LLMRequest{
+				Messages:       []ports.LLMMessage{{Role: ports.LLMRoleUser, Content: "Diagnose."}},
+				OutputSchema:   json.RawMessage(`{"type":"object"}`),
+				OutputSchemaID: "diagnosis_turn_v1",
+				IdempotencyKey: "stream-capability",
+			}, func(ports.LLMStreamDelta) error { return nil })
+			if got := errors.Is(err, ports.ErrLLMStreamingUnsupported); got != tt.want {
+				t.Fatalf("GenerateJSONStreaming error = %v, unsupported=%t want %t", err, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGenerateJSONStreamingPropagatesCallbackAndProtocolErrors(t *testing.T) {
 	tests := []struct {
 		name        string

@@ -541,8 +541,9 @@ func requireOutputDir(dir string) error {
 }
 
 type projectedStreamingProvider struct {
-	provider ports.StreamingLLMProvider
-	writer   *previewWriter
+	provider             ports.StreamingLLMProvider
+	writer               *previewWriter
+	streamingUnsupported bool
 }
 
 var _ ports.LLMProvider = (*projectedStreamingProvider)(nil)
@@ -551,10 +552,17 @@ func (p *projectedStreamingProvider) GenerateJSON(ctx context.Context, req ports
 	if p == nil || p.provider == nil || p.writer == nil {
 		return ports.LLMResponse{}, errors.New("diagnosis streaming provider is not configured")
 	}
+	if p.streamingUnsupported {
+		return p.provider.GenerateJSON(ctx, req)
+	}
 	projector := newMessageProjector()
 	projectionDisabled := false
-	p.writer.BeginGeneration()
-	return p.provider.GenerateJSONStreaming(ctx, req, func(delta ports.LLMStreamDelta) error {
+	if err := p.writer.BeginGeneration(); err != nil {
+		projectionDisabled = true
+	}
+	receivedDelta := false
+	response, err := p.provider.GenerateJSONStreaming(ctx, req, func(delta ports.LLMStreamDelta) error {
+		receivedDelta = true
 		if projectionDisabled {
 			return nil
 		}
@@ -573,4 +581,9 @@ func (p *projectedStreamingProvider) GenerateJSON(ctx context.Context, req ports
 		}
 		return nil
 	})
+	if err == nil || receivedDelta || !errors.Is(err, ports.ErrLLMStreamingUnsupported) {
+		return response, err
+	}
+	p.streamingUnsupported = true
+	return p.provider.GenerateJSON(ctx, req)
 }

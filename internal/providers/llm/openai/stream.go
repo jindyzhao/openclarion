@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -92,7 +93,14 @@ func (p *Provider) postStreaming(
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return ports.LLMResponse{}, apiStatusError(resp)
+		statusErr := apiStatusError(resp)
+		if isUnsupportedStreaming(statusErr) {
+			return ports.LLMResponse{}, fmt.Errorf(
+				"openai llm: streaming capability rejected: %w",
+				errors.Join(ports.ErrLLMStreamingUnsupported, statusErr),
+			)
+		}
+		return ports.LLMResponse{}, statusErr
 	}
 	if contentType := strings.ToLower(resp.Header.Get("Content-Type")); contentType != "" && !strings.HasPrefix(contentType, "text/event-stream") {
 		return ports.LLMResponse{}, fmt.Errorf("openai llm: streaming response content type %q is not text/event-stream", contentType)
@@ -123,6 +131,35 @@ func (p *Provider) postStreaming(
 		OutputMode:   p.outputMode,
 		Model:        accumulator.model,
 	}, nil
+}
+
+func isUnsupportedStreaming(err error) bool {
+	var status *statusError
+	if !errors.As(err, &status) {
+		return false
+	}
+	switch status.StatusCode {
+	case http.StatusBadRequest,
+		http.StatusMethodNotAllowed,
+		http.StatusNotAcceptable,
+		http.StatusUnsupportedMediaType,
+		http.StatusUnprocessableEntity,
+		http.StatusNotImplemented:
+	default:
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(status.Param), "stream") {
+		return true
+	}
+	text := strings.ToLower(strings.Join([]string{status.Message, status.Type, status.Code}, " "))
+	if !strings.Contains(text, "stream") {
+		return false
+	}
+	return strings.Contains(text, "unsupported") ||
+		strings.Contains(text, "not support") ||
+		strings.Contains(text, "not available") ||
+		strings.Contains(text, "not implemented") ||
+		strings.Contains(text, "invalid parameter")
 }
 
 func (a *chatCompletionAccumulator) accept(raw []byte) error {

@@ -19,6 +19,7 @@ func TestContainerStreamReaderEmitsOrderedSnapshotsAndResetsRetries(t *testing.T
 	stream := strings.Join([]string{
 		`{"schema_version":"container_stream.v1","generation_attempt":1,"sequence":1,"delta":"Need "}`,
 		`{"schema_version":"container_stream.v1","generation_attempt":1,"sequence":2,"delta":"evidence."}`,
+		`{"schema_version":"container_stream.v1","generation_attempt":2,"sequence":0,"delta":"","reset":true}`,
 		`{"schema_version":"container_stream.v1","generation_attempt":2,"sequence":1,"delta":"Corrected."}`,
 		"",
 	}, "\n")
@@ -28,7 +29,9 @@ func TestContainerStreamReaderEmitsOrderedSnapshotsAndResetsRetries(t *testing.T
 	if err := reader.poll(true); err != nil {
 		t.Fatalf("poll: %v", err)
 	}
-	if len(chunks) != 3 || chunks[1].Text != "Need evidence." || chunks[2].Text != "Corrected." {
+	if len(chunks) != 4 || chunks[1].Text != "Need evidence." ||
+		!chunks[2].Reset || chunks[2].Text != "" || chunks[2].Sequence != 0 ||
+		chunks[3].Text != "Corrected." {
 		t.Fatalf("chunks = %#v", chunks)
 	}
 }
@@ -42,6 +45,12 @@ func TestContainerStreamReaderRejectsMalformedOrDiscontinuousRecords(t *testing.
 		{"unknown field", `{"schema_version":"container_stream.v1","generation_attempt":1,"sequence":1,"delta":"ok","token":"leak"}` + "\n", "unknown field"},
 		{"duplicate key", `{"schema_version":"container_stream.v1","generation_attempt":1,"sequence":1,"sequence":2,"delta":"ok"}` + "\n", "duplicate object key"},
 		{"sequence gap", `{"schema_version":"container_stream.v1","generation_attempt":1,"sequence":2,"delta":"ok"}` + "\n", "must start"},
+		{"reset before preview", `{"schema_version":"container_stream.v1","generation_attempt":1,"sequence":0,"delta":"","reset":true}` + "\n", "not contiguous"},
+		{"reset with delta", strings.Join([]string{
+			`{"schema_version":"container_stream.v1","generation_attempt":1,"sequence":1,"delta":"old"}`,
+			`{"schema_version":"container_stream.v1","generation_attempt":2,"sequence":0,"delta":"leak","reset":true}`,
+			"",
+		}, "\n"), "empty delta"},
 		{"partial final", `{"schema_version":"container_stream.v1","generation_attempt":1`, "end with a newline"},
 	}
 	for _, tt := range tests {

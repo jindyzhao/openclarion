@@ -111,6 +111,68 @@ func TestRunPublishesValidatedOutput(t *testing.T) {
 	}
 }
 
+func TestRunFallsBackWhenStreamingIsUnsupported(t *testing.T) {
+	providerOutput := `{"schema_version":"diagnosis_turn.v1","message":"Use the validated fallback.","findings":[],"recommended_actions":[],"confidence":"medium","requires_human_review":false,"conclusion_status":"final"}`
+	var mu sync.Mutex
+	streamCalls := 0
+	nonStreamingCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Stream bool `json:"stream"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		mu.Lock()
+		if request.Stream {
+			streamCalls++
+		} else {
+			nonStreamingCalls++
+		}
+		mu.Unlock()
+		if request.Stream {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprint(w, `{"error":{"message":"stream is not supported","type":"invalid_request_error","param":"stream","code":"unsupported_value"}}`)
+			return
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"model": "test-model",
+			"choices": []map[string]any{{
+				"message":       map[string]any{"content": providerOutput},
+				"finish_reason": "stop",
+			}},
+		}); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+
+	paths := writeRunnerFixture(t)
+	env := map[string]string{
+		"OPENCLARION_DIAGNOSIS_LLM_BASE_URL": server.URL + "/v1",
+		"OPENCLARION_DIAGNOSIS_LLM_API_KEY":  "test-key",
+		"OPENCLARION_DIAGNOSIS_LLM_MODEL":    "test-model",
+	}
+	if err := run(context.Background(), paths, func(key string) string { return env[key] }); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	rawOutput, err := os.ReadFile(paths.Output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := diagnosisroom.ParseTurnOutput(rawOutput)
+	if err != nil || parsed.Message != "Use the validated fallback." {
+		t.Fatalf("fallback output = %s parsed=%+v err=%v", rawOutput, parsed, err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if streamCalls != 1 || nonStreamingCalls != 1 {
+		t.Fatalf("provider calls stream=%d non-streaming=%d, want 1/1", streamCalls, nonStreamingCalls)
+	}
+}
+
 func TestCheckSandboxReadinessChecksAllowlistAndProxy(t *testing.T) {
 	const allowedTarget = "llm.example.invalid:443"
 	fingerprint, err := ports.ContainerEgressAllowlistFingerprint([]string{allowedTarget})

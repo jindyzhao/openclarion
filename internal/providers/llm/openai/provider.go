@@ -304,6 +304,7 @@ func apiStatusError(resp *http.Response) error {
 			Message:    apiErr.Error.Message,
 			Type:       apiErr.Error.Type,
 			Code:       apiErr.Error.Code,
+			Param:      apiErr.Error.Param,
 		}
 	}
 	return &statusError{
@@ -429,6 +430,7 @@ type apiError struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
 	Code    string `json:"code"`
+	Param   string `json:"param"`
 }
 
 type statusError struct {
@@ -436,6 +438,7 @@ type statusError struct {
 	Message    string
 	Type       string
 	Code       string
+	Param      string
 }
 
 func (e *statusError) Error() string {

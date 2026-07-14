@@ -21,6 +21,7 @@ type containerStreamRecord struct {
 	GenerationAttempt int    `json:"generation_attempt"`
 	Sequence          int    `json:"sequence"`
 	Delta             string `json:"delta"`
+	Reset             bool   `json:"reset,omitempty"`
 }
 
 type containerStreamReader struct {
@@ -146,6 +147,26 @@ func (r *containerStreamReader) accept(line []byte) error {
 	}
 	if record.GenerationAttempt <= 0 {
 		return fmt.Errorf("sandbox stream generation_attempt must be positive")
+	}
+	if record.Reset {
+		if record.Sequence != 0 || record.Delta != "" {
+			return fmt.Errorf("sandbox stream reset must use sequence zero and an empty delta")
+		}
+		if r.generationAttempt == 0 || record.GenerationAttempt != r.generationAttempt+1 {
+			return fmt.Errorf("sandbox stream reset generation_attempt %d is not contiguous after %d", record.GenerationAttempt, r.generationAttempt)
+		}
+		r.generationAttempt = record.GenerationAttempt
+		r.sequence = 0
+		r.text = ""
+		if r.onChunk != nil {
+			if err := r.onChunk(ports.ContainerStreamChunk{
+				GenerationAttempt: record.GenerationAttempt,
+				Reset:             true,
+			}); err != nil {
+				return fmt.Errorf("sandbox stream callback: %w", err)
+			}
+		}
+		return nil
 	}
 	if record.Sequence <= 0 {
 		return fmt.Errorf("sandbox stream sequence must be positive")
