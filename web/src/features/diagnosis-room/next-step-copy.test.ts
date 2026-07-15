@@ -89,6 +89,7 @@ describe("diagnosis room presentation copy", () => {
   it("localizes only known status values", () => {
     expect(localizeDiagnosisRoomStatus("available", tStatus)).toBe("可用");
     expect(localizeDiagnosisRoomStatus("delivered", tStatus)).toBe("已送达");
+    expect(localizeDiagnosisRoomStatus("in_progress", tStatus)).toBe("进行中");
     expect(localizeDiagnosisRoomStatus("vendor-specific", tStatus)).toBe(
       "vendor-specific",
     );

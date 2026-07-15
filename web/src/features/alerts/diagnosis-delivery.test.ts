@@ -66,12 +66,15 @@ describe("alert diagnosis delivery helpers", () => {
           ],
         }),
       ),
-    ).toEqual({
+    ).toMatchObject({
+      coverage: {
+        readyCount: 1,
+        requiredCount: 3,
+        status: "review",
+      },
       danger: false,
-      detail:
-        "1 of 3 AI notification phases are complete. Retain assistant update, final conclusion, and close notification proof before accepting delivery.",
       href: "/diagnosis-room?evidence_snapshot_id=7&session_id=diagnosis-session-1#diagnosis-notification-timeline",
-      label: "Review notification proof",
+      kind: "proof",
     });
   });
 
@@ -89,7 +92,7 @@ describe("alert diagnosis delivery helpers", () => {
       ),
     ).toMatchObject({
       danger: true,
-      label: "Review notification failure",
+      kind: "failure",
     });
   });
 
@@ -148,11 +151,9 @@ describe("alert diagnosis delivery helpers", () => {
       ]),
     ).toEqual({
       danger: true,
-      hint:
-        "Review failed AI notification delivery before relying on downstream handoff.",
       href: "/settings/notification-channels?channel_id=9",
       iconKind: "attention",
-      label: "Review channel",
+      kind: "review_channel",
     });
   });
 
@@ -174,13 +175,16 @@ describe("alert diagnosis delivery helpers", () => {
           turn_count: 1,
         }),
       ]),
-    ).toEqual({
+    ).toMatchObject({
       danger: false,
-      hint: "AI requested evidence: 2 planned, 1 missing.",
       href:
         "/diagnosis-room?evidence_snapshot_id=7&intent=confidence_review&session_id=diagnosis-session-1&follow_up_detail=Attach+current+DBA+remediation+status.&follow_up_label=DBA+status&follow_up_priority=high",
       iconKind: "attention",
-      label: "Collect evidence",
+      kind: "room_step",
+      step: {
+        code: "collect_evidence",
+        detail: "AI requested evidence: 2 planned, 1 missing.",
+      },
     });
   });
 
@@ -203,8 +207,11 @@ describe("alert diagnosis delivery helpers", () => {
     ]);
 
     expect(action).toMatchObject({
-      label: "Collect evidence",
-      hint: "AI requested evidence: 1 planned.",
+      kind: "room_step",
+      step: {
+        code: "collect_evidence",
+        detail: "AI requested evidence: 1 planned.",
+      },
     });
     const params = actionParams(action);
     expect(params.get("intent")).toBe("confidence_review");
@@ -236,8 +243,11 @@ describe("alert diagnosis delivery helpers", () => {
     ]);
 
     expect(action).toMatchObject({
-      label: "Collect evidence",
-      hint: "AI requested evidence: 1 missing.",
+      kind: "room_step",
+      step: {
+        code: "collect_evidence",
+        detail: "AI requested evidence: 1 missing.",
+      },
     });
     const params = actionParams(action);
     expect(params.get("intent")).toBe("confidence_review");
@@ -247,6 +257,31 @@ describe("alert diagnosis delivery helpers", () => {
     );
     expect(params.get("follow_up_priority")).toBe("high");
     expect(params.get("evidence_tool")).toBeNull();
+  });
+
+  it("routes supplemental evidence reassessment by semantic code", () => {
+    const action = alertDiagnosisRoomPrimaryAction([
+      room({
+        latest_progress: progress({
+          assistant_sequence: 1,
+          supplemental_evidence: [
+            {
+              detail: "DBA team expanded tablespace.",
+              evidence: "Tablespace expansion completed.",
+              label: "DBA status",
+              priority: "high",
+              provided_at: "2026-06-21T01:02:00Z",
+            },
+          ],
+        }),
+      }),
+    ]);
+
+    expect(action).toMatchObject({
+      kind: "room_step",
+      step: { code: "reassess_evidence" },
+    });
+    expect(actionParams(action).get("intent")).toBe("confidence_review");
   });
 
   it("lists executable and operator evidence actions from AI progress", () => {
@@ -274,13 +309,13 @@ describe("alert diagnosis delivery helpers", () => {
 
     expect(actions).toHaveLength(2);
     expect(actions[0]).toMatchObject({
-      actionLabel: "Collect",
+      action: "collect",
       detail: "Collect current sibling alerts.",
       kind: "executable",
       label: "active_alerts",
     });
     expect(actions[1]).toMatchObject({
-      actionLabel: "Provide",
+      action: "provide",
       detail: "Attach current DBA remediation status.",
       kind: "operator",
       label: "DBA status",
@@ -325,7 +360,7 @@ describe("alert diagnosis delivery helpers", () => {
 
     expect(actions).toHaveLength(1);
     expect(actions[0]).toMatchObject({
-      actionLabel: "Review",
+      action: "review",
       detail: "Attach the approved capacity change.",
       kind: "operator",
       label: "Capacity change",
@@ -394,9 +429,7 @@ describe("alert diagnosis delivery helpers", () => {
       ),
     ).toEqual({
       collectedEvidence: 1,
-      confidenceLabel: "low -> medium",
-      detail: "1 collected, 1 supplemental, 1 open, 2 confidence updates.",
-      evidenceLabel: "Evidence needed",
+      evidenceState: "needed",
       initialConfidence: "low",
       latestConfidence: "medium",
       openEvidence: 1,
@@ -433,8 +466,7 @@ describe("alert diagnosis delivery helpers", () => {
       ),
     ).toMatchObject({
       collectedEvidence: 1,
-      confidenceLabel: "high",
-      evidenceLabel: "Evidence retained",
+      evidenceState: "retained",
       latestConfidence: "high",
       openEvidence: 0,
     });
@@ -474,14 +506,14 @@ describe("alert diagnosis delivery helpers", () => {
         }),
       ),
     ).toMatchObject({
-      closeProofLabel: "Close: delivered",
       closeProofStatus: "delivered",
-      color: "success",
       confirmedBy: "owner-1",
-      label: "Closure traceability complete",
-      notificationLabel: "AI delivery complete",
+      deliveryCoverage: { status: "ready" },
       roomClosed: true,
-      status: "complete",
+      traceability: {
+        label: "Closure traceability complete",
+        status: "complete",
+      },
     });
   });
 
@@ -497,14 +529,14 @@ describe("alert diagnosis delivery helpers", () => {
         }),
       ),
     ).toMatchObject({
-      closeProofLabel: "Close: missing",
       closeProofStatus: "missing",
-      color: "warning",
       confirmedBy: "",
-      label: "Closure traceability needs review",
-      notificationLabel: "AI delivery not started",
+      deliveryCoverage: { status: "pending" },
       roomClosed: false,
-      status: "review",
+      traceability: {
+        label: "Closure traceability needs review",
+        status: "review",
+      },
     });
   });
 
@@ -518,13 +550,16 @@ describe("alert diagnosis delivery helpers", () => {
           }),
         }),
       ]),
-    ).toEqual({
+    ).toMatchObject({
       danger: false,
-      hint: "Collect more evidence before final confirmation.",
       href:
         "/diagnosis-room?evidence_snapshot_id=7&intent=confidence_review&session_id=diagnosis-session-1",
       iconKind: "attention",
-      label: "Improve confidence",
+      kind: "room_step",
+      step: {
+        code: "improve_confidence",
+        detail: "Collect more evidence before final confirmation.",
+      },
     });
   });
 
@@ -538,13 +573,16 @@ describe("alert diagnosis delivery helpers", () => {
           }),
         }),
       ]),
-    ).toEqual({
+    ).toMatchObject({
       danger: false,
-      hint: "AI produced a conclusion. Review it before closing the room.",
       href:
         "/diagnosis-room?evidence_snapshot_id=7&intent=review_conclusion&session_id=diagnosis-session-1",
       iconKind: "review",
-      label: "Review conclusion",
+      kind: "room_step",
+      step: {
+        code: "review_conclusion",
+        detail: "AI produced a conclusion. Review it before closing the room.",
+      },
     });
   });
 });

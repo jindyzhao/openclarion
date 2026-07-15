@@ -6,10 +6,18 @@ import type {
   DiagnosisConsultationEvidenceRequest,
   DiagnosisEvidenceRequest,
 } from "@/features/diagnosis-room/types";
-import { diagnosisFinalConclusionTraceabilityStatus } from "@/features/diagnosis-room/final-conclusion";
-import { diagnosisRoomNextStep } from "@/features/diagnosis-room/next-step";
+import {
+  diagnosisFinalConclusionTraceabilityStatus,
+  type DiagnosisFinalConclusionTraceabilityStatus,
+} from "@/features/diagnosis-room/final-conclusion";
+import {
+  diagnosisRoomNextStep,
+  type DiagnosisRoomNextStep,
+  type DiagnosisRoomNextStepCode,
+} from "@/features/diagnosis-room/next-step";
 import {
   diagnosisNotificationDeliveryCoverage,
+  type DiagnosisNotificationDeliveryCoverage,
   type DiagnosisNotificationDeliveryCoveragePhaseStatus,
   diagnosisNotificationTimelineAnchorID,
 } from "@/features/diagnosis-room/notification-content-proof";
@@ -21,22 +29,33 @@ import {
 import { notificationChannelEditHref } from "@/features/settings/notification-channels/format";
 
 export type AlertDiagnosisDeliveryReviewAction = {
+  coverage: DiagnosisNotificationDeliveryCoverage;
   danger: boolean;
-  detail: string;
   href: string;
-  label: string;
+  kind: "failure" | "proof";
 };
 
-export type AlertDiagnosisRoomPrimaryAction = {
+type AlertDiagnosisRoomPrimaryActionBase = {
   danger: boolean;
-  hint: string;
   href: string;
   iconKind: "attention" | "closed" | "review" | "room";
-  label: string;
 };
 
+export type AlertDiagnosisRoomPrimaryAction =
+  | (AlertDiagnosisRoomPrimaryActionBase & {
+      kind: "review_channel";
+    })
+  | (AlertDiagnosisRoomPrimaryActionBase & {
+      kind: "review_delivery";
+      reviewAction: AlertDiagnosisDeliveryReviewAction;
+    })
+  | (AlertDiagnosisRoomPrimaryActionBase & {
+      kind: "room_step";
+      step: DiagnosisRoomNextStep;
+    });
+
 export type AlertDiagnosisEvidenceAction = {
-  actionLabel: string;
+  action: "collect" | "provide" | "review";
   detail: string;
   href: string;
   key: string;
@@ -48,9 +67,7 @@ export type AlertDiagnosisEvidenceAction = {
 
 export type AlertDiagnosisEvidenceProgressSummary = {
   collectedEvidence: number;
-  confidenceLabel: string;
-  detail: string;
-  evidenceLabel: string;
+  evidenceState: "needed" | "pending" | "retained";
   initialConfidence?: string;
   latestConfidence: string;
   openEvidence: number;
@@ -59,15 +76,11 @@ export type AlertDiagnosisEvidenceProgressSummary = {
 };
 
 export type AlertDiagnosisClosureSummary = {
-  closeProofLabel: string;
   closeProofStatus: DiagnosisNotificationDeliveryCoveragePhaseStatus;
-  color: "success" | "warning" | "error" | "default";
   confirmedBy: string;
-  detail: string;
-  label: string;
-  notificationLabel: string;
+  deliveryCoverage: DiagnosisNotificationDeliveryCoverage;
   roomClosed: boolean;
-  status: "complete" | "review" | "blocked" | "pending";
+  traceability: DiagnosisFinalConclusionTraceabilityStatus;
 };
 
 export function latestDiagnosisRoomNotification(
@@ -102,17 +115,14 @@ export function alertDiagnosisDeliveryReviewAction(
     return null;
   }
   return {
+    coverage,
     danger: coverage.status === "blocked",
-    detail: coverage.detail,
     href: diagnosisRoomAnchorHref({
       anchorID: diagnosisNotificationTimelineAnchorID,
       evidenceSnapshotID: room.evidence_snapshot_id,
       sessionID: room.session_id,
     }),
-    label:
-      coverage.status === "blocked"
-        ? "Review notification failure"
-        : "Review notification proof",
+    kind: coverage.status === "blocked" ? "failure" : "proof",
   };
 }
 
@@ -129,11 +139,9 @@ export function alertDiagnosisRoomPrimaryAction(
     if (notification !== null) {
       return {
         danger: true,
-        hint:
-          "Review failed AI notification delivery before relying on downstream handoff.",
         href: diagnosisRoomNotificationChannelReviewHref(notification),
         iconKind: "attention",
-        label: "Review channel",
+        kind: "review_channel",
       };
     }
   }
@@ -146,10 +154,10 @@ export function alertDiagnosisRoomPrimaryAction(
     if (action !== null) {
       return {
         danger: action.danger,
-        hint: action.detail,
         href: action.href,
         iconKind: "attention",
-        label: action.label,
+        kind: "review_delivery",
+        reviewAction: action,
       };
     }
   }
@@ -161,10 +169,10 @@ export function alertDiagnosisRoomPrimaryAction(
   const { room, step } = prioritizedRoom;
   return {
     danger: step.bucket === "attention" && step.color === "error",
-    hint: step.detail,
-    href: diagnosisRoomPrimaryActionHref(room, step.label),
+    href: diagnosisRoomPrimaryActionHref(room, step.code),
     iconKind: diagnosisRoomPrimaryActionIconKind(step.bucket),
-    label: diagnosisRoomPrimaryActionLabel(step.label),
+    kind: "room_step",
+    step,
   };
 }
 
@@ -201,10 +209,6 @@ export function alertDiagnosisEvidenceProgressSummary(
   const latestConfidence =
     source.confidence ?? latestTimeline?.confidence ?? "pending";
   const initialConfidence = firstTimeline?.confidence;
-  const confidenceLabel =
-    initialConfidence !== undefined && initialConfidence !== latestConfidence
-      ? `${initialConfidence} -> ${latestConfidence}`
-      : latestConfidence;
   const plannedEvidence = sourceEvidenceRequestCount(source, latestTimeline);
   const missingEvidence =
     source.missing_evidence_requests?.length ??
@@ -220,14 +224,7 @@ export function alertDiagnosisEvidenceProgressSummary(
   const supplementalEvidence = source.supplemental_evidence?.length ?? 0;
   return {
     collectedEvidence,
-    confidenceLabel,
-    detail: evidenceProgressDetail({
-      collectedEvidence,
-      openEvidence,
-      supplementalEvidence,
-      timelineEntries: timeline.length,
-    }),
-    evidenceLabel: evidenceProgressLabel({
+    evidenceState: evidenceProgressState({
       collectedEvidence,
       openEvidence,
       supplementalEvidence,
@@ -258,17 +255,11 @@ export function alertDiagnosisClosureSummary(
     (phase) => phase.key === "close",
   );
   return {
-    closeProofLabel: closePhase
-      ? `${closePhase.label}: ${closePhase.status}`
-      : "Close: missing",
     closeProofStatus: closePhase?.status ?? "missing",
-    color: traceability.color,
     confirmedBy: conclusion.confirmed_by?.trim() ?? "",
-    detail: traceability.detail,
-    label: traceability.label,
-    notificationLabel: traceability.notificationLabel,
+    deliveryCoverage,
     roomClosed: room.room_status === "closed",
-    status: traceability.status,
+    traceability,
   };
 }
 
@@ -296,7 +287,7 @@ function executableEvidenceAction(
   index: number,
 ): AlertDiagnosisEvidenceAction {
   return {
-    actionLabel: "Collect",
+    action: "collect",
     detail: request.reason,
     href: diagnosisRoomLinkHref({
       evidencePlan: request,
@@ -318,7 +309,7 @@ function operatorEvidenceAction(
   index: number,
 ): AlertDiagnosisEvidenceAction {
   return {
-    actionLabel: prefix === "missing" ? "Provide" : "Review",
+    action: prefix === "missing" ? "provide" : "review",
     detail: request.detail,
     href: diagnosisRoomLinkHref({
       evidenceSnapshotID: room.evidence_snapshot_id,
@@ -371,42 +362,18 @@ function sourceCollectedEvidenceCount(
   return results.filter((result) => result.status === "collected").length;
 }
 
-function evidenceProgressLabel(input: {
+function evidenceProgressState(input: {
   collectedEvidence: number;
   openEvidence: number;
   supplementalEvidence: number;
-}): string {
+}): AlertDiagnosisEvidenceProgressSummary["evidenceState"] {
   if (input.openEvidence > 0) {
-    return "Evidence needed";
+    return "needed";
   }
   if (input.collectedEvidence > 0 || input.supplementalEvidence > 0) {
-    return "Evidence retained";
+    return "retained";
   }
-  return "Evidence pending";
-}
-
-function evidenceProgressDetail(input: {
-  collectedEvidence: number;
-  openEvidence: number;
-  supplementalEvidence: number;
-  timelineEntries: number;
-}): string {
-  const parts = [
-    input.collectedEvidence > 0
-      ? `${input.collectedEvidence} collected`
-      : "",
-    input.supplementalEvidence > 0
-      ? `${input.supplementalEvidence} supplemental`
-      : "",
-    input.openEvidence > 0 ? `${input.openEvidence} open` : "",
-    input.timelineEntries > 1
-      ? `${input.timelineEntries} confidence updates`
-      : "",
-  ].filter(Boolean);
-  if (parts.length === 0) {
-    return "No collected evidence has been retained yet.";
-  }
-  return `${parts.join(", ")}.`;
+  return "pending";
 }
 
 function firstConfidenceTimelineEntry(
@@ -464,34 +431,35 @@ function diagnosisRoomByNextStepPriority(rooms: DiagnosisRoomSummary[]) {
 
 function diagnosisRoomPrimaryActionHref(
   room: DiagnosisRoomSummary,
-  label: string,
+  code: DiagnosisRoomNextStepCode,
 ): string {
-  const evidencePlan = diagnosisRoomPrimaryEvidencePlan(room, label);
+  const evidencePlan = diagnosisRoomPrimaryEvidencePlan(room, code);
   const supplementalFollowUp =
     evidencePlan === undefined
-      ? diagnosisRoomPrimarySupplementalFollowUp(room, label)
+      ? diagnosisRoomPrimarySupplementalFollowUp(room, code)
       : undefined;
   return diagnosisRoomLinkHref({
     evidencePlan,
     evidenceSnapshotID: room.evidence_snapshot_id,
-    intent: diagnosisRoomPrimaryActionIntent(label),
+    intent: diagnosisRoomPrimaryActionIntent(code),
     sessionID: room.session_id,
     supplementalFollowUp,
   });
 }
 
 function diagnosisRoomPrimaryActionIntent(
-  label: string,
+  code: DiagnosisRoomNextStepCode,
 ): DiagnosisRoomIntent | undefined {
-  switch (label) {
-    case "Collect evidence":
-    case "Continue AI review":
-    case "Improve confidence":
-    case "Start AI review":
+  switch (code) {
+    case "collect_evidence":
+    case "continue_ai_review":
+    case "improve_confidence":
+    case "reassess_evidence":
+    case "start_ai_review":
       return "confidence_review";
-    case "Human review":
-    case "Review AI report":
-    case "Review conclusion":
+    case "human_review":
+    case "review_ai_report":
+    case "review_conclusion":
       return "review_conclusion";
     default:
       return undefined;
@@ -513,31 +481,17 @@ function diagnosisRoomPrimaryActionIconKind(
   }
 }
 
-function diagnosisRoomPrimaryActionLabel(label: string): string {
-  switch (label) {
-    case "AI review in progress":
-    case "Continue AI review":
-      return "Open room";
-    case "Review AI report":
-      return "Review report";
-    case "Start AI review":
-      return "Start review";
-    default:
-      return label;
-  }
-}
-
 function diagnosisRoomPrimaryEvidencePlan(
   room: DiagnosisRoomSummary,
-  label: string,
+  code: DiagnosisRoomNextStepCode,
 ): DiagnosisEvidenceRequest | undefined {
-  switch (label) {
-    case "Collect evidence":
+  switch (code) {
+    case "collect_evidence":
       return firstEvidenceRequest(room.latest_progress?.evidence_requests);
-    case "Human review":
-    case "Improve confidence":
-    case "Review AI report":
-    case "Review conclusion":
+    case "human_review":
+    case "improve_confidence":
+    case "review_ai_report":
+    case "review_conclusion":
       return firstEvidenceRequest(room.latest_conclusion?.evidence_requests);
     default:
       return undefined;
@@ -546,10 +500,10 @@ function diagnosisRoomPrimaryEvidencePlan(
 
 function diagnosisRoomPrimarySupplementalFollowUp(
   room: DiagnosisRoomSummary,
-  label: string,
+  code: DiagnosisRoomNextStepCode,
 ): DiagnosisConsultationEvidenceRequest | undefined {
-  switch (label) {
-    case "Collect evidence":
+  switch (code) {
+    case "collect_evidence":
       return (
         firstSupplementalFollowUp(
           room.latest_progress?.missing_evidence_requests,
@@ -558,10 +512,10 @@ function diagnosisRoomPrimarySupplementalFollowUp(
           room.latest_progress?.evidence_collection_suggestions,
         )
       );
-    case "Human review":
-    case "Improve confidence":
-    case "Review AI report":
-    case "Review conclusion":
+    case "human_review":
+    case "improve_confidence":
+    case "review_ai_report":
+    case "review_conclusion":
       return (
         firstSupplementalFollowUp(
           room.latest_conclusion?.missing_evidence_requests,

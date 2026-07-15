@@ -41,7 +41,7 @@ describe("report replay proof trace", () => {
     });
     expect(notificationProof.detail).toContain("2 automatic diagnosis rooms started");
     expect(notificationProof.detail).toContain("diagnosis-room notification timeline");
-    expect(notificationProof.actions).toEqual([
+    expect(notificationProof.actions).toMatchObject([
       {
         detail: "Open the automatic diagnosis room and review its notification timeline.",
         href: "/diagnosis-room?evidence_snapshot_id=101&intent=review_conclusion&session_id=diagnosis-session-auto-p7-s101",
@@ -81,7 +81,7 @@ describe("report replay proof trace", () => {
       value: "Room timeline"
     });
     expect(notificationProof.detail).toContain("1 snapshot remains without automatic room timelines");
-    expect(notificationProof.actions).toEqual([
+    expect(notificationProof.actions).toMatchObject([
       {
         detail: "Open the automatic diagnosis room and review its notification timeline.",
         href: "/diagnosis-room?evidence_snapshot_id=101&intent=review_conclusion&session_id=diagnosis-session-auto-p7-s101",
@@ -115,7 +115,7 @@ describe("report replay proof trace", () => {
       })
     );
 
-    expect(proofItem(trace, "Notification proof").actions).toEqual([
+    expect(proofItem(trace, "Notification proof").actions).toMatchObject([
       {
         detail: "Open the automatic diagnosis room and review its notification timeline.",
         href: "/diagnosis-room?evidence_snapshot_id=102&intent=review_conclusion&session_id=diagnosis-session-auto-p7-s102",
