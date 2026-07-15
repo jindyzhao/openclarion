@@ -1330,7 +1330,6 @@
       "supportedModes": "支持的认证方式",
       "noBackendCheck": "尚未针对当前表单执行后端认证检查。",
       "noRoles": "无角色",
-      "authCheckRoles": "{message} 角色：{roles}。",
       "lastAuthCheckFailed": "最近一次认证检查失败：{message}",
       "browserSession": "IAM 浏览器会话",
       "noBrowserSession": "当前没有 OpenClarion 浏览器会话。使用诊断室认证前，请先通过 IAM 登录。",

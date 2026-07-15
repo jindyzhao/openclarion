@@ -1330,7 +1330,6 @@
       "supportedModes": "Supported modes",
       "noBackendCheck": "No backend auth check has been run for this form.",
       "noRoles": "no roles",
-      "authCheckRoles": "{message} Roles: {roles}.",
       "lastAuthCheckFailed": "Last auth check failed: {message}",
       "browserSession": "IAM browser session",
       "noBrowserSession": "No OpenClarion browser session is active. Sign in with IAM before using diagnosis-room auth.",

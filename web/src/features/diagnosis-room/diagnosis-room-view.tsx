@@ -479,10 +479,6 @@ function DiagnosisAuthReadinessPreview({
     backendAuthStatus,
     authT,
   );
-  const roles =
-    displayedLastCheck === null || displayedLastCheck.roles.length === 0
-      ? t("noRoles")
-      : displayedLastCheck.roles.join(", ");
   return (
     <div
       aria-label={t("authReadiness")}
@@ -534,22 +530,13 @@ function DiagnosisAuthReadinessPreview({
           <Typography.Text type="secondary">
             {t("noBackendCheck")}
           </Typography.Text>
-        ) : (
-          <Typography.Text
-            type={
-              displayedLastCheck.status === "success" ? "secondary" : "danger"
-            }
-          >
-            {displayedLastCheck.status === "success"
-              ? t("authCheckRoles", {
-                  message: displayedLastCheck.message,
-                  roles,
-                })
-              : t("lastAuthCheckFailed", {
-                  message: displayedLastCheck.message,
-                })}
+        ) : displayedLastCheck.status === "failed" ? (
+          <Typography.Text type="danger">
+            {t("lastAuthCheckFailed", {
+              message: displayedLastCheck.message,
+            })}
           </Typography.Text>
-        )}
+        ) : null}
       </Space>
     </div>
   );

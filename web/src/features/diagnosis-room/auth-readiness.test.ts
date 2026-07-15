@@ -1203,13 +1203,13 @@ describe("diagnosis auth backend readiness", () => {
     );
   });
 
-  it("reports verified backend LDAP auth with sanitized subject and roles", () => {
+  it("renders verified backend auth from semantic subject and roles", () => {
     expect(
       diagnosisAuthBackendReadiness({
         checking: false,
         lastCheck: {
           checkedAt: "2026-06-21T04:00:00Z",
-          message: "Authenticated as operator-1.",
+          message: "",
           mode: "ldap",
           roleAuthorized: true,
           roles: ["owner"],
