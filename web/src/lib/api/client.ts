@@ -12,7 +12,7 @@ export type ApiResult<T> =
   | { ok: false; error: ApiError };
 
 export type RequestJSONOptions = {
-  method?: "DELETE" | "GET" | "POST" | "PUT";
+  method?: "DELETE" | "GET" | "PATCH" | "POST" | "PUT";
   body?: unknown;
   headers?: HeadersInit;
 };

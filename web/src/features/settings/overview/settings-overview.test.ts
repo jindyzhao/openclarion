@@ -260,6 +260,8 @@ describe("settings overview diagnosis auth status", () => {
       message: "",
       status: {
         authenticated: true,
+        tenant_id: 1,
+        tenant_key: "default",
         checked_at: "2026-06-22T10:00:00Z",
         mode: "ldap",
         role_authorized: true,
@@ -317,6 +319,8 @@ describe("settings overview diagnosis auth status", () => {
       message: "",
       status: {
         authenticated: true,
+        tenant_id: 1,
+        tenant_key: "default",
         checked_at: "2026-06-22T10:00:00Z",
         mode: "oidc",
         role_authorized: false,
@@ -351,6 +355,8 @@ describe("settings overview diagnosis auth status", () => {
       message: "",
       status: {
         authenticated: true,
+        tenant_id: 1,
+        tenant_key: "default",
         checked_at: "2026-06-22T10:00:00Z",
         mode: "oidc",
         role_authorized: true,
@@ -576,6 +582,8 @@ describe("settings overview diagnosis auth status", () => {
     expect(
       diagnosisAuthLiveProofFromBrowserSession({
         authenticated: true,
+        tenant_id: 1,
+        tenant_key: "default",
         checked_at: "2026-06-22T10:00:00Z",
         mode: "oidc",
         role_authorized: true,
@@ -598,6 +606,8 @@ describe("settings overview diagnosis auth status", () => {
     expect(
       diagnosisAuthLiveProofFromBrowserSession({
         authenticated: true,
+        tenant_id: 1,
+        tenant_key: "default",
         checked_at: "2026-06-22T10:00:00Z",
         mode: "oidc",
         role_authorized: false,
@@ -621,6 +631,8 @@ describe("settings overview diagnosis auth status", () => {
     expect(
       diagnosisAuthLiveProofFromBrowserSession({
         authenticated: true,
+        tenant_id: 1,
+        tenant_key: "default",
         checked_at: "2026-06-22T10:00:00Z",
         mode: "ldap",
         role_authorized: true,
@@ -643,6 +655,8 @@ describe("settings overview diagnosis auth status", () => {
         },
         browserSession: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "ldap",
           role_authorized: true,
@@ -661,6 +675,8 @@ describe("settings overview diagnosis auth status", () => {
     expect(
       diagnosisAuthProbeResultFromBrowserSessionStatus({
         authenticated: true,
+        tenant_id: 1,
+        tenant_key: "default",
         checked_at: "2026-06-22T10:00:00Z",
         mode: "ldap",
         role_authorized: true,
@@ -683,6 +699,8 @@ describe("settings overview diagnosis auth status", () => {
     expect(
       diagnosisAuthLiveProofFromBrowserSession({
         authenticated: true,
+        tenant_id: 1,
+        tenant_key: "default",
         checked_at: "2026-06-22T10:00:00Z",
         mode: "oidc",
         role_authorized: true,
@@ -702,6 +720,8 @@ describe("settings overview diagnosis auth status", () => {
     expect(
       diagnosisAuthProbeResultFromBrowserSessionStatus({
         authenticated: true,
+        tenant_id: 1,
+        tenant_key: "default",
         checked_at: "2026-06-22T10:00:00Z",
         mode: "oidc",
         role_authorized: true,
@@ -726,6 +746,8 @@ describe("settings overview diagnosis auth status", () => {
         ok: true,
         data: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "oidc",
           role_authorized: true,
@@ -738,6 +760,8 @@ describe("settings overview diagnosis auth status", () => {
       message: "",
       status: {
         authenticated: true,
+        tenant_id: 1,
+        tenant_key: "default",
         checked_at: "2026-06-22T10:00:00Z",
         mode: "oidc",
         role_authorized: true,
@@ -774,6 +798,8 @@ describe("settings overview diagnosis auth status", () => {
         message: "",
         status: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "oidc",
           role_authorized: true,
@@ -790,6 +816,8 @@ describe("settings overview diagnosis auth status", () => {
         message: "",
         status: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "ldap",
           role_authorized: false,
@@ -823,6 +851,8 @@ describe("settings overview diagnosis auth status", () => {
         message: "",
         status: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "oidc",
           role_authorized: true,
@@ -846,6 +876,8 @@ describe("settings overview diagnosis auth status", () => {
         message: "",
         status: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "oidc",
           role_authorized: true,
@@ -1073,6 +1105,8 @@ describe("settings overview diagnosis auth status", () => {
         message: "",
         status: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "oidc",
           role_authorized: false,
@@ -1431,6 +1465,8 @@ describe("settings overview diagnosis auth status", () => {
         message: "",
         status: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "oidc",
           role_authorized: true,
@@ -1489,6 +1525,8 @@ describe("settings overview diagnosis auth status", () => {
         message: "",
         status: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "oidc",
           role_authorized: true,
@@ -1547,6 +1585,8 @@ describe("settings overview diagnosis auth status", () => {
         message: "",
         status: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "oidc",
           role_authorized: true,
@@ -1620,6 +1660,8 @@ describe("settings overview diagnosis auth status", () => {
         message: "",
         status: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "ldap",
           role_authorized: true,
@@ -1684,6 +1726,8 @@ describe("settings overview diagnosis auth status", () => {
         backendStatus,
         browserSession: {
           authenticated: true,
+          tenant_id: 1,
+          tenant_key: "default",
           checked_at: "2026-06-22T10:00:00Z",
           mode: "oidc",
           role_authorized: true,
@@ -1725,6 +1769,8 @@ describe("settings overview diagnosis auth status", () => {
           loading: false,
           status: {
             authenticated: true,
+            tenant_id: 1,
+            tenant_key: "default",
             checked_at: "2026-06-22T10:00:00Z",
             mode: "ldap",
             role_authorized: true,
@@ -1744,6 +1790,8 @@ describe("settings overview diagnosis auth status", () => {
           loading: false,
           status: {
             authenticated: true,
+            tenant_id: 1,
+            tenant_key: "default",
             checked_at: "2026-06-22T10:00:00Z",
             mode: "ldap",
             role_authorized: true,

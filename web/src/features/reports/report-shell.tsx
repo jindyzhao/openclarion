@@ -2,6 +2,7 @@
 
 import {
   ApiOutlined,
+  ApartmentOutlined,
   AppstoreOutlined,
   AuditOutlined,
   BellOutlined,
@@ -22,7 +23,14 @@ import type { MenuProps } from "antd";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useMemo, useState, type ReactNode } from "react";
+import { useTranslations } from "next-intl";
+import { Suspense, useMemo, useState, type ReactNode } from "react";
+
+import { LocaleSwitcher } from "@/features/console/locale-switcher";
+import {
+  ConsoleSessionControl,
+  ConsoleSessionControlFallback,
+} from "@/features/console/session-control";
 
 type ConsoleSection =
   | "dashboard"
@@ -30,6 +38,7 @@ type ConsoleSection =
   | "reports"
   | "diagnosis"
   | "settings"
+  | "workspaces"
   | "directory-rbac"
   | "sources"
   | "grouping"
@@ -46,73 +55,79 @@ type NavigationItem = {
   href: Route;
   icon: ReactNode;
   key: ConsoleSection;
-  label: string;
+  labelKey: string;
 };
 
 type NavigationSection = {
   key: string;
-  label: string;
+  labelKey: string;
   items: NavigationItem[];
 };
 
 const navigationSections: NavigationSection[] = [
   {
     key: "workspace",
-    label: "Workspace",
+    labelKey: "sections.workspace",
     items: [
-      { href: "/dashboard", icon: <AppstoreOutlined aria-hidden aria-label="" />, key: "dashboard", label: "Overview" },
-      { href: "/alerts", icon: <WarningOutlined aria-hidden aria-label="" />, key: "alerts", label: "Alerts" },
-      { href: "/reports", icon: <FileTextOutlined aria-hidden aria-label="" />, key: "reports", label: "Reports" },
-      { href: "/diagnosis-room", icon: <MessageOutlined aria-hidden aria-label="" />, key: "diagnosis", label: "Diagnosis" }
+      { href: "/dashboard", icon: <AppstoreOutlined aria-hidden aria-label="" />, key: "dashboard", labelKey: "items.dashboard" },
+      { href: "/alerts", icon: <WarningOutlined aria-hidden aria-label="" />, key: "alerts", labelKey: "items.alerts" },
+      { href: "/reports", icon: <FileTextOutlined aria-hidden aria-label="" />, key: "reports", labelKey: "items.reports" },
+      { href: "/diagnosis-room", icon: <MessageOutlined aria-hidden aria-label="" />, key: "diagnosis", labelKey: "items.diagnosis" }
     ]
   },
   {
     key: "automation",
-    label: "Automation",
+    labelKey: "sections.automation",
     items: [
       {
         href: "/settings/report-workflow-policies",
         icon: <BranchesOutlined aria-hidden aria-label="" />,
         key: "workflow",
-        label: "Workflows"
+        labelKey: "items.workflow"
       },
       {
         href: "/settings/report-workflow-schedules",
         icon: <CalendarOutlined aria-hidden aria-label="" />,
         key: "schedules",
-        label: "Schedules"
+        labelKey: "items.schedules"
       }
     ]
   },
   {
     key: "configuration",
-    label: "Configuration",
+    labelKey: "sections.configuration",
     items: [
-      { href: "/settings", icon: <SettingOutlined aria-hidden aria-label="" />, key: "settings", label: "Overview" },
-      { href: "/settings/alert-sources", icon: <ApiOutlined aria-hidden aria-label="" />, key: "sources", label: "Alert sources" },
+      { href: "/settings", icon: <SettingOutlined aria-hidden aria-label="" />, key: "settings", labelKey: "items.settings" },
+      {
+        href: "/settings/workspaces",
+        icon: <ApartmentOutlined aria-hidden aria-label="" />,
+        key: "workspaces",
+        labelKey: "items.workspaces"
+      },
+      { href: "/settings/alert-sources", icon: <ApiOutlined aria-hidden aria-label="" />, key: "sources", labelKey: "items.sources" },
       {
         href: "/settings/grouping-policies",
         icon: <PartitionOutlined aria-hidden aria-label="" />,
         key: "grouping",
-        label: "Grouping"
+        labelKey: "items.grouping"
       },
       {
         href: "/settings/diagnosis-tool-templates",
         icon: <ToolOutlined aria-hidden aria-label="" />,
         key: "tools",
-        label: "Diagnosis tools"
+        labelKey: "items.tools"
       },
       {
         href: "/settings/notification-channels",
         icon: <BellOutlined aria-hidden aria-label="" />,
         key: "channels",
-        label: "Channels"
+        labelKey: "items.channels"
       },
       {
         href: "/settings/directory-rbac",
         icon: <AuditOutlined aria-hidden aria-label="" />,
         key: "directory-rbac",
-        label: "Access"
+        labelKey: "items.access"
       }
     ]
   }
@@ -120,12 +135,13 @@ const navigationSections: NavigationSection[] = [
 
 const navigationByKey = new Map(
   navigationSections.flatMap((section) =>
-    section.items.map((item) => [item.key, { ...item, sectionLabel: section.label }] as const)
+    section.items.map((item) => [item.key, { ...item, sectionLabelKey: section.labelKey }] as const)
   )
 );
 
 export function ConsoleShell({ children }: ConsoleShellProps) {
   const pathname = usePathname();
+  const t = useTranslations("Shell");
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const current = consoleSectionForPathname(pathname);
@@ -139,16 +155,16 @@ export function ConsoleShell({ children }: ConsoleShellProps) {
           key: item.key,
           label: (
             <Link href={item.href} prefetch={false}>
-              {item.label}
+              {t(item.labelKey)}
             </Link>
           ),
-          title: item.label
+          title: t(item.labelKey)
         })),
         key: section.key,
-        label: section.label,
+        label: t(section.labelKey),
         type: "group"
       })),
-    []
+    [t]
   );
 
   function renderNavigation(isCollapsed: boolean) {
@@ -165,11 +181,11 @@ export function ConsoleShell({ children }: ConsoleShellProps) {
           </span>
           <span className="app-console-brand-copy">
             <Typography.Text className="app-console-title">OpenClarion</Typography.Text>
-            <Typography.Text className="app-console-context">Operations workspace</Typography.Text>
+            <Typography.Text className="app-console-context">{t("brandContext")}</Typography.Text>
           </span>
         </Link>
         <Menu
-          aria-label="Primary navigation"
+          aria-label={t("navigation")}
           className="app-console-nav"
           inlineCollapsed={isCollapsed}
           items={menuItems}
@@ -193,15 +209,15 @@ export function ConsoleShell({ children }: ConsoleShellProps) {
       >
         <div className="app-console-sider-inner">
           <div className="app-console-navigation">{renderNavigation(collapsed)}</div>
-          <Tooltip placement="right" title={collapsed ? "Show navigation" : "Hide navigation"}>
+          <Tooltip placement="right" title={collapsed ? t("showNavigation") : t("hideNavigation")}>
             <Button
-              aria-label={collapsed ? "Show navigation" : "Hide navigation"}
+              aria-label={collapsed ? t("showNavigation") : t("hideNavigation")}
               className="app-console-collapse"
               icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               onClick={() => setCollapsed((currentValue) => !currentValue)}
               type="text"
             >
-              {collapsed ? null : "Hide navigation"}
+              {collapsed ? null : t("hideNavigation")}
             </Button>
           </Tooltip>
         </div>
@@ -214,7 +230,7 @@ export function ConsoleShell({ children }: ConsoleShellProps) {
         open={mobileOpen}
         placement="left"
         styles={{ body: { padding: 0 } }}
-        title="Navigation"
+        title={t("navigationTitle")}
         width={280}
       >
         <div className="app-console-mobile-navigation">{renderNavigation(false)}</div>
@@ -223,15 +239,21 @@ export function ConsoleShell({ children }: ConsoleShellProps) {
       <Layout className="app-console-main">
         <Layout.Header className="app-console-header">
           <Button
-            aria-label="Open navigation"
+            aria-label={t("openNavigation")}
             className="app-console-mobile-trigger"
             icon={<MenuOutlined />}
             onClick={() => setMobileOpen(true)}
             type="text"
           />
           <div className="app-console-location">
-            <span className="app-console-location-section">{currentItem.label}</span>
-            <span className="app-console-location-context">{currentItem.sectionLabel}</span>
+            <span className="app-console-location-section">{t(currentItem.labelKey)}</span>
+            <span className="app-console-location-context">{t(currentItem.sectionLabelKey)}</span>
+          </div>
+          <div className="app-console-session">
+            <LocaleSwitcher />
+            <Suspense fallback={<ConsoleSessionControlFallback />}>
+              <ConsoleSessionControl />
+            </Suspense>
           </div>
         </Layout.Header>
         <Layout.Content className="app-console-content">{children}</Layout.Content>
@@ -261,6 +283,9 @@ function consoleSectionForPathname(pathname: string): ConsoleSection {
   }
   if (pathname.startsWith("/settings/directory-rbac")) {
     return "directory-rbac";
+  }
+  if (pathname.startsWith("/settings/workspaces")) {
+    return "workspaces";
   }
   if (pathname.startsWith("/settings")) {
     return "settings";
