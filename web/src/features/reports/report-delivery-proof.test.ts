@@ -4,18 +4,16 @@ import {
   reportDeliveryProofCurrentDeliveries,
   reportDeliveryProofCanRetry,
   reportDeliveryProofCanSubmit,
-  reportDeliveryProofRetryLabel,
   reportDeliveryProofState,
   reportNotificationDeliveryForPurpose,
   reportNotificationDeliveryPurpose,
-  reportNotificationPurposeLabel,
   reportNotificationRetryChannelOptions,
-  reportNotificationRetrySuccessMessage,
   selectedReportNotificationRetryChannelID,
   defaultReportNotificationRetryChannelValue,
   upsertReportNotificationDeliveryOverlay,
   upsertReportNotificationDeliveryProof,
 } from "./report-delivery-proof";
+import type { ReportFinalNotificationReadiness } from "./diagnosis-readiness";
 import type { NotificationChannelProfile } from "@/features/settings/notification-channels/types";
 import type { FinalReportDetail } from "./types";
 
@@ -26,10 +24,9 @@ describe("report delivery proof state", () => {
   it("offers report workflow policy review when no delivery proof exists", () => {
     expect(reportDeliveryProofState(null)).toEqual({
       actionHref: "/settings/report-workflow-policies",
-      actionLabel: "Review report workflow policies",
-      detail: "No final report notification delivery proof is retained for this report yet.",
+      delivery: null,
+      purpose: "final",
       status: "missing",
-      statusLabel: "No delivery proof",
     });
   });
 
@@ -43,10 +40,11 @@ describe("report delivery proof state", () => {
       ),
     ).toEqual({
       actionHref: "/settings/notification-channels",
-      actionLabel: "Review notification settings",
-      detail: "send-report-notification: im provider is not configured",
+      delivery: expect.objectContaining({
+        failure_reason: "send-report-notification: im provider is not configured",
+      }),
+      purpose: "final",
       status: "failed",
-      statusLabel: "Failed",
     });
   });
 
@@ -60,26 +58,17 @@ describe("report delivery proof state", () => {
       ),
     ).toMatchObject({
       actionHref: "",
-      actionLabel: "",
-      detail:
-        "Latest final report notification was delivered with provider message wecom-final-report-101.",
+      delivery: expect.objectContaining({
+        provider_message_id: "wecom-final-report-101",
+      }),
+      purpose: "final",
       status: "delivered",
     });
   });
 
   it("allows retry only when delivery proof is missing or failed", () => {
     expect(reportDeliveryProofCanRetry(null)).toBe(true);
-    expect(reportDeliveryProofRetryLabel(null)).toBe("Send final report notification");
-    expect(reportDeliveryProofRetryLabel(null, "handoff")).toBe(
-      "Send report handoff notification",
-    );
     expect(reportDeliveryProofCanRetry(delivery({ status: "failed" }))).toBe(true);
-    expect(reportDeliveryProofRetryLabel(delivery({ status: "failed" }))).toBe(
-      "Retry final report notification",
-    );
-    expect(reportDeliveryProofRetryLabel(delivery({ status: "failed" }), "handoff")).toBe(
-      "Retry report handoff notification",
-    );
     expect(reportDeliveryProofCanRetry(delivery({ status: "pending" }))).toBe(false);
     expect(reportDeliveryProofCanRetry(delivery({ status: "delivered" }))).toBe(false);
   });
@@ -122,8 +111,7 @@ describe("report delivery proof state", () => {
 
   it("describes delivery proof as a handoff before diagnosis confirmation completes", () => {
     expect(reportDeliveryProofState(null, "handoff")).toMatchObject({
-      detail:
-        "No report handoff notification delivery proof is retained for this report yet.",
+      purpose: "handoff",
       status: "missing",
     });
     expect(
@@ -136,20 +124,15 @@ describe("report delivery proof state", () => {
         "handoff",
       ),
     ).toMatchObject({
-      detail:
-        "Latest report handoff notification was delivered with provider message wecom-handoff-101.",
+      purpose: "handoff",
       status: "delivered",
     });
     expect(
       reportDeliveryProofState(delivery({ status: "pending" }), "handoff"),
     ).toMatchObject({
-      detail:
-        "Report handoff notification delivery has been queued but no provider result is retained yet.",
+      purpose: "handoff",
       status: "pending",
     });
-    expect(reportNotificationPurposeLabel("handoff")).toBe(
-      "report handoff notification",
-    );
   });
 
   it("places retried delivery proof first and replaces matching rows", () => {
@@ -253,13 +236,15 @@ describe("report delivery proof state", () => {
 
     expect(options).toEqual([
       {
-        detail: "Server fallback provider",
-        label: "Legacy fallback",
+        detail: "",
+        kind: "legacy",
+        label: "",
         profileID: null,
         value: "legacy",
       },
       {
         detail: "#4 / webhook",
+        kind: "profile",
         label: "Report webhook",
         profileID: 4,
         value: "4",
@@ -272,21 +257,6 @@ describe("report delivery proof state", () => {
     expect(selectedReportNotificationRetryChannelID(options, "legacy")).toBeNull();
   });
 
-  it("explains whether a retry actually sent or reused retained proof", () => {
-    expect(reportNotificationRetrySuccessMessage("sent", "final")).toBe(
-      "Final report notification sent.",
-    );
-    expect(
-      reportNotificationRetrySuccessMessage("already_pending", "handoff"),
-    ).toBe(
-      "Report handoff notification is already pending; no duplicate send was started.",
-    );
-    expect(
-      reportNotificationRetrySuccessMessage("already_delivered", "final"),
-    ).toBe(
-      "Final report notification was already delivered; no duplicate send was started.",
-    );
-  });
 });
 
 function delivery(
@@ -308,12 +278,15 @@ function delivery(
 }
 
 function finalNotificationReadiness(
-  overrides: Partial<FinalReportDetail["final_notification_readiness"]> = {},
-): FinalReportDetail["final_notification_readiness"] {
+  overrides: Partial<
+    Extract<ReportFinalNotificationReadiness, { source: "api" }>
+  > = {},
+): ReportFinalNotificationReadiness {
   return {
     detail: "Checkout API latency has no operator-confirmed AI conclusion yet.",
     notification_purpose: "handoff",
     ready: false,
+    source: "api",
     status: "blocked",
     status_label: "Final notification blocked",
     ...overrides,

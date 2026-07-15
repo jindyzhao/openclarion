@@ -2,35 +2,29 @@ import type { Route } from "next";
 
 import type { NotificationChannelProfile } from "@/features/settings/notification-channels/types";
 
+import type { ReportFinalNotificationReadiness } from "./diagnosis-readiness";
 import type {
   FinalReportDetail,
   ReportNotificationDeliveryProof,
   ReportNotificationPurpose,
-  ReportNotificationRetryResponse,
 } from "./types";
 
 type ReportNotificationDelivery =
   FinalReportDetail["notification_deliveries"][number];
-type ReportNotificationRetryState =
-  ReportNotificationRetryResponse["retry_state"];
-
 export type ReportDeliveryProofState = {
   actionHref: Route | "";
-  actionLabel: string;
-  detail: string;
+  delivery: ReportNotificationDelivery | null;
+  purpose: ReportNotificationPurpose;
   status: ReportNotificationDelivery["status"] | "missing";
-  statusLabel: string;
 };
 
 export type ReportNotificationRetryChannelOption = {
   detail: string;
+  kind: "legacy" | "profile";
   label: string;
   profileID: number | null;
   value: string;
 };
-
-export type ReportFinalNotificationReadiness =
-  FinalReportDetail["final_notification_readiness"];
 
 export type ReportDeliveryProofOverlay = {
   deliveries: ReportNotificationDelivery[];
@@ -43,42 +37,35 @@ export function reportDeliveryProofState(
   delivery: ReportNotificationDelivery | null,
   purpose: ReportNotificationPurpose = "final",
 ): ReportDeliveryProofState {
-  const notificationLabel = reportNotificationPurposeLabel(purpose);
   if (!delivery) {
     return {
       actionHref: "/settings/report-workflow-policies",
-      actionLabel: "Review report workflow policies",
-      detail: `No ${notificationLabel} delivery proof is retained for this report yet.`,
+      delivery: null,
+      purpose,
       status: "missing",
-      statusLabel: "No delivery proof",
     };
   }
   switch (delivery.status) {
     case "delivered":
       return {
         actionHref: "",
-        actionLabel: "",
-        detail: delivery.provider_message_id
-          ? `Latest ${notificationLabel} was delivered with provider message ${delivery.provider_message_id}.`
-          : `Latest ${notificationLabel} was delivered.`,
+        delivery,
+        purpose,
         status: "delivered",
-        statusLabel: "Delivered",
       };
     case "failed":
       return {
         actionHref: "/settings/notification-channels",
-        actionLabel: "Review notification settings",
-        detail: delivery.failure_reason || `Latest ${notificationLabel} delivery failed.`,
+        delivery,
+        purpose,
         status: "failed",
-        statusLabel: "Failed",
       };
     case "pending":
       return {
         actionHref: "",
-        actionLabel: "",
-        detail: `${sentenceCase(notificationLabel)} delivery has been queued but no provider result is retained yet.`,
+        delivery,
+        purpose,
         status: "pending",
-        statusLabel: "Pending",
       };
   }
 }
@@ -98,29 +85,6 @@ export function reportDeliveryProofCanSubmit(
     return false;
   }
   return purpose !== "final" || finalReadiness?.ready === true;
-}
-
-export function reportDeliveryProofRetryLabel(
-  delivery: ReportNotificationDelivery | null,
-  purpose: ReportNotificationPurpose = "final",
-): string {
-  const notificationLabel = reportNotificationPurposeLabel(purpose);
-  return delivery ? `Retry ${notificationLabel}` : `Send ${notificationLabel}`;
-}
-
-export function reportNotificationRetrySuccessMessage(
-  retryState: ReportNotificationRetryState,
-  purpose: ReportNotificationPurpose,
-): string {
-  const notificationLabel = sentenceCase(reportNotificationPurposeLabel(purpose));
-  switch (retryState) {
-    case "already_delivered":
-      return `${notificationLabel} was already delivered; no duplicate send was started.`;
-    case "already_pending":
-      return `${notificationLabel} is already pending; no duplicate send was started.`;
-    case "sent":
-      return `${notificationLabel} sent.`;
-  }
 }
 
 export function reportNotificationDeliveryForPurpose(
@@ -185,14 +149,16 @@ export function reportNotificationRetryChannelOptions(
     .filter((channel) => channel.enabled && channel.delivery_scopes.includes("report"))
     .map((channel) => ({
       detail: `#${channel.id} / ${channel.kind}`,
+      kind: "profile" as const,
       label: channel.name,
       profileID: channel.id,
       value: String(channel.id),
     }));
   return [
     {
-      detail: "Server fallback provider",
-      label: "Legacy fallback",
+      detail: "",
+      kind: "legacy",
+      label: "",
       profileID: null,
       value: legacyRetryChannelValue,
     },
@@ -218,19 +184,4 @@ export function selectedReportNotificationRetryChannelID(
   selectedValue: string,
 ): number | null {
   return options.find((option) => option.value === selectedValue)?.profileID ?? null;
-}
-
-export function reportNotificationPurposeLabel(
-  purpose: ReportNotificationPurpose,
-): string {
-  switch (purpose) {
-    case "final":
-      return "final report notification";
-    case "handoff":
-      return "report handoff notification";
-  }
-}
-
-function sentenceCase(value: string): string {
-  return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
 }

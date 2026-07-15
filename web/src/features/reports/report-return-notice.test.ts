@@ -1,17 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { reportDiagnosisReviewReturnNotice } from "./report-return-notice";
+import type { ReportFinalNotificationReadiness } from "./diagnosis-readiness";
 import type { FinalReportDetail } from "./types";
 
 describe("report diagnosis review return notice", () => {
   it("keeps reviewed returns focused on diagnosis readiness", () => {
     expect(
       reportDiagnosisReviewReturnNotice("reviewed", finalNotificationReadiness()),
-    ).toEqual({
-      detail:
-        "Latest report data has been loaded. Check Diagnosis Readiness and Evidence Traceability before confirming the final report.",
-      title: "Diagnosis evidence review returned",
-    });
+    ).toBe("reviewed");
   });
 
   it("directs confirmed returns to final delivery when readiness is ready", () => {
@@ -27,11 +24,7 @@ describe("report diagnosis review return notice", () => {
           status_label: "Final notification ready",
         }),
       ),
-    ).toEqual({
-      detail:
-        "Latest report data has been loaded. Report Delivery Proof can send the final report notification.",
-      title: "Diagnosis conclusion confirmed",
-    });
+    ).toBe("confirmed_ready");
   });
 
   it("keeps confirmed returns blocked when other subreports still need confirmation", () => {
@@ -43,21 +36,18 @@ describe("report diagnosis review return notice", () => {
             "Database capacity has no operator-confirmed AI conclusion yet.",
         }),
       ),
-    ).toEqual({
-      detail:
-        "Latest report data has been loaded. Final notification remains blocked: Database capacity has no operator-confirmed AI conclusion yet.",
-      title: "Diagnosis conclusion confirmed",
-    });
+    ).toBe("confirmed_blocked");
   });
 });
 
 function finalNotificationReadiness(
   overrides: Partial<FinalReportDetail["final_notification_readiness"]> = {},
-): FinalReportDetail["final_notification_readiness"] {
+): ReportFinalNotificationReadiness {
   return {
     detail: "Checkout API latency has no operator-confirmed AI conclusion yet.",
     notification_purpose: "handoff",
     ready: false,
+    source: "api",
     status: "blocked",
     status_label: "Final notification blocked",
     ...overrides,
