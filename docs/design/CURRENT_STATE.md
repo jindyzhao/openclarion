@@ -4,6 +4,7 @@
 > truth source for "where are we now". Forward-looking plans live in
 > [../roadmap/tasks.md](../roadmap/tasks.md). Decisions intentionally not
 > done live in [DEFERRED_FOLLOWUPS.md](DEFERRED_FOLLOWUPS.md).
+> Snapshot dates and dated status or changelog rows use Asia/Hong_Kong.
 
 > Last updated: 2026-07-16
 > Stage: M4 agent sandbox hardening in progress; the current product direction
