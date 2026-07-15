@@ -5,11 +5,13 @@ import {
   clearDiagnosisBrowserSession,
   createDiagnosisBrowserSession,
   createDiagnosisRoom,
+  fetchAccessibleTenants,
   fetchDiagnosisBrowserSession,
   fetchDiagnosisAuthStatus,
   issueDiagnosisWSTicket,
   parseDiagnosisServerFrame,
   retryDiagnosisRoomNotification,
+  switchDiagnosisBrowserTenant,
 } from "./transport";
 
 describe("parseDiagnosisServerFrame", () => {
@@ -612,6 +614,8 @@ describe("checkDiagnosisAuthorization", () => {
           role_authorized: true,
           roles: ["owner"],
           subject: "operator-1",
+          tenant_id: 1,
+          tenant_key: "default",
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
@@ -633,6 +637,8 @@ describe("checkDiagnosisAuthorization", () => {
           role_authorized: true,
           roles: ["owner"],
           subject: "operator-1",
+          tenant_id: 1,
+          tenant_key: "default",
         },
       });
       expect(fetcher).toHaveBeenCalledWith(
@@ -712,10 +718,12 @@ describe("diagnosis browser session transport", () => {
         JSON.stringify({
           authenticated: true,
           checked_at: "2026-06-22T10:00:00Z",
-          mode: "wecom",
+          mode: "oidc",
           role_authorized: true,
           roles: ["owner"],
           subject: "operator-1",
+          tenant_id: 1,
+          tenant_key: "default",
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
@@ -730,10 +738,12 @@ describe("diagnosis browser session transport", () => {
         data: {
           authenticated: true,
           checked_at: "2026-06-22T10:00:00Z",
-          mode: "wecom",
+          mode: "oidc",
           role_authorized: true,
           roles: ["owner"],
           subject: "operator-1",
+          tenant_id: 1,
+          tenant_key: "default",
         },
       });
       expect(fetcher).toHaveBeenCalledWith(
@@ -765,6 +775,8 @@ describe("diagnosis browser session transport", () => {
           role_authorized: true,
           roles: ["owner"],
           subject: "operator-1",
+          tenant_id: 1,
+          tenant_key: "default",
         }),
         { status: 201, headers: { "content-type": "application/json" } },
       );
@@ -787,6 +799,8 @@ describe("diagnosis browser session transport", () => {
           role_authorized: true,
           roles: ["owner"],
           subject: "operator-1",
+          tenant_id: 1,
+          tenant_key: "default",
         },
       });
       expect(fetcher).toHaveBeenCalledWith(
@@ -819,6 +833,107 @@ describe("diagnosis browser session transport", () => {
         status: 401,
       },
     });
+  });
+
+  it("switches workspace through the reviewed tenant header boundary", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetcher = vi.fn(async () =>
+      Response.json(
+        {
+          authenticated: true,
+          checked_at: "2026-06-22T10:00:00Z",
+          mode: "oidc",
+          role_authorized: true,
+          roles: ["owner"],
+          subject: "operator-1",
+          tenant_id: 7,
+          tenant_key: "platform",
+        },
+        { status: 201 },
+      ),
+    );
+    globalThis.fetch = fetcher as unknown as typeof fetch;
+
+    try {
+      const result = await switchDiagnosisBrowserTenant("platform");
+
+      expect(result).toMatchObject({
+        ok: true,
+        data: { tenant_id: 7, tenant_key: "platform" },
+      });
+      expect(fetcher).toHaveBeenCalledWith(
+        "/api/diagnosis/auth/session",
+        expect.objectContaining({
+          method: "POST",
+          headers: expect.any(Headers),
+          body: undefined,
+        }),
+      );
+      const calls = fetcher.mock.calls as unknown as Array<
+        [RequestInfo | URL, RequestInit | undefined]
+      >;
+      expect(
+        (calls[0]?.[1]?.headers as Headers).get("x-openclarion-tenant"),
+      ).toBe("platform");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("rejects invalid workspace keys before sending a request", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetcher = vi.fn();
+    globalThis.fetch = fetcher as unknown as typeof fetch;
+
+    try {
+      for (const tenantKey of ["Platform Admin", `a${"b".repeat(63)}`]) {
+        await expect(switchDiagnosisBrowserTenant(tenantKey)).resolves.toEqual({
+          ok: false,
+          error: { message: "Tenant key is invalid.", status: 400 },
+        });
+      }
+      expect(fetcher).not.toHaveBeenCalled();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("fetches accessible workspaces through the same-origin BFF", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetcher = vi.fn(async () =>
+      Response.json({
+        items: [
+          {
+            id: 1,
+            key: "default",
+            name: "Default",
+            status: "active",
+            created_at: "2026-07-11T10:00:00Z",
+            updated_at: "2026-07-11T10:00:00Z",
+          },
+        ],
+      }),
+    );
+    globalThis.fetch = fetcher as unknown as typeof fetch;
+
+    try {
+      const result = await fetchAccessibleTenants();
+
+      expect(result).toMatchObject({
+        ok: true,
+        data: { items: [{ id: 1, key: "default" }] },
+      });
+      expect(fetcher).toHaveBeenCalledWith(
+        "/api/tenants",
+        expect.objectContaining({
+          method: "GET",
+          headers: expect.any(Headers),
+          body: undefined,
+        }),
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it("clears the browser session without a request body", async () => {

@@ -31,6 +31,7 @@ type DiagnosisNotificationRetryRequest =
   components["schemas"]["DiagnosisNotificationRetryRequest"];
 type DiagnosisNotificationRetryResponse =
   components["schemas"]["DiagnosisNotificationRetryResponse"];
+type TenantListResponse = components["schemas"]["TenantListResponse"];
 
 export type DiagnosisWSTicketBundle = DiagnosisWSTicketResponse & {
   websocket_url: string;
@@ -45,6 +46,8 @@ export type DiagnosisBrowserSessionStatus =
       role_authorized: boolean;
       roles: string[];
       subject: string;
+      tenant_id: number;
+      tenant_key: string;
     }
   | {
       authenticated: false;
@@ -121,6 +124,33 @@ export async function clearDiagnosisBrowserSession(): Promise<
   return requestSameOriginJSON<void>("/api/diagnosis/auth/session", {
     method: "DELETE",
   });
+}
+
+export async function switchDiagnosisBrowserTenant(
+  tenantKey: string,
+): Promise<ApiResult<DiagnosisBrowserSessionStatus>> {
+  if (
+    tenantKey.length > 63 ||
+    !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(tenantKey)
+  ) {
+    return {
+      ok: false,
+      error: { message: "Tenant key is invalid.", status: 400 },
+    };
+  }
+  return requestSameOriginJSON<DiagnosisBrowserSessionStatus>(
+    "/api/diagnosis/auth/session",
+    {
+      method: "POST",
+      headers: { "X-OpenClarion-Tenant": tenantKey },
+    },
+  );
+}
+
+export async function fetchAccessibleTenants(): Promise<
+  ApiResult<TenantListResponse>
+> {
+  return requestSameOriginJSON<TenantListResponse>("/api/tenants");
 }
 
 export async function createDiagnosisRoom(
