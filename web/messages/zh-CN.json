@@ -995,6 +995,35 @@
     "alertNumber": "告警 #{id}",
     "requestFailed": "请求失败"
   },
+  "ReportList": {
+    "title": "分析报告",
+    "subtitle": "基于持久化证据快照生成的最终报告。",
+    "count": "共 {count} 份报告",
+    "workspace": "报告工作区",
+    "searchLabel": "搜索报告",
+    "searchPlaceholder": "搜索标题、摘要或关联键",
+    "severityFilterLabel": "按严重度筛选报告",
+    "allSeverities": "全部严重度",
+    "shown": "显示 {count} 份",
+    "report": "报告",
+    "severity": "严重度",
+    "confidence": "置信度",
+    "created": "生成时间",
+    "correlation": "关联键",
+    "noReports": "暂无报告。",
+    "noMatches": "没有符合当前筛选条件的报告。",
+    "requestFailed": "请求失败",
+    "severityValue": {
+      "critical": "严重",
+      "warning": "警告",
+      "info": "提示"
+    },
+    "confidenceValue": {
+      "high": "高",
+      "medium": "中",
+      "low": "低"
+    }
+  },
   "Alerts": {
     "title": "告警",
     "subtitle": "查看近期告警事件、证据快照和 AI 诊断移交状态。",

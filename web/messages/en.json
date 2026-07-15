@@ -995,6 +995,35 @@
     "alertNumber": "Alert #{id}",
     "requestFailed": "Request failed"
   },
+  "ReportList": {
+    "title": "Reports",
+    "subtitle": "Final reports generated from persisted evidence snapshots.",
+    "count": "{count, plural, one {# report} other {# reports}}",
+    "workspace": "Reports workspace",
+    "searchLabel": "Search reports",
+    "searchPlaceholder": "Search title, summary, or correlation",
+    "severityFilterLabel": "Filter reports by severity",
+    "allSeverities": "All severities",
+    "shown": "{count} shown",
+    "report": "Report",
+    "severity": "Severity",
+    "confidence": "Confidence",
+    "created": "Created",
+    "correlation": "Correlation",
+    "noReports": "No reports available.",
+    "noMatches": "No reports match these filters.",
+    "requestFailed": "Request failed",
+    "severityValue": {
+      "critical": "Critical",
+      "warning": "Warning",
+      "info": "Info"
+    },
+    "confidenceValue": {
+      "high": "High",
+      "medium": "Medium",
+      "low": "Low"
+    }
+  },
   "Alerts": {
     "title": "Alerts",
     "subtitle": "Recent alert events with evidence snapshots and AI diagnosis handoffs.",
