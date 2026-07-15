@@ -1,4 +1,7 @@
+import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
+
+import en from "../../../../messages/en.json";
 
 import type { AlertEventSummary } from "@/features/alerts/api";
 import type { AlertSourceProfile } from "../alert-sources/types";
@@ -8,21 +11,23 @@ import type { NotificationChannelProfile } from "../notification-channels/types"
 import type { ReportWorkflowPolicy } from "../report-workflow-policies/types";
 import type { ReportWorkflowSchedule } from "../report-workflow-schedules/types";
 import {
-  diagnosisAuthRoleMappingStatusDetail,
-  diagnosisAuthRoleMappingStatusReadiness,
+  diagnosisAuthRoleMappingStatusDetail as diagnosisAuthRoleMappingStatusDetailWithTranslator,
+  diagnosisAuthRoleMappingStatusReadiness as diagnosisAuthRoleMappingStatusReadinessWithTranslator,
+  type DiagnosisAuthTranslator,
 } from "@/features/diagnosis-room/auth-readiness";
 import {
   alertIngestionStatus,
   buildWorkflowTopology,
   diagnosisAuthLiveProofFromBrowserSession,
-  diagnosisAuthLiveProofFromProbeState,
+  diagnosisAuthLiveProofFromProbeState as diagnosisAuthLiveProofFromProbeStateWithTranslator,
   diagnosisAuthProbeResultFromBrowserSessionStatus,
-  diagnosisAuthProbeBrowserSessionBlockReason,
+  diagnosisAuthProbeBrowserSessionBlockReason as diagnosisAuthProbeBrowserSessionBlockReasonWithTranslator,
   diagnosisAuthProbeCheckBlocked,
   diagnosisAuthProbeModeFromBackendStatus,
-  diagnosisAuthReadinessSummary,
+  diagnosisAuthProbeResultDetail,
+  diagnosisAuthReadinessSummary as diagnosisAuthReadinessSummaryWithTranslator,
   diagnosisBrowserSessionNeedsIAMSignIn,
-  diagnosisBrowserSessionStatusDetail,
+  diagnosisBrowserSessionStatusDetail as diagnosisBrowserSessionStatusDetailWithTranslator,
   diagnosisBrowserSessionStateFromResult,
   defaultDiagnosisAuthLiveProof,
   alertIngestionWebhookProofReadiness,
@@ -35,25 +40,108 @@ import {
   settingsWeComAppCallbackURL,
   settingsWeComBrowserSessionReadiness,
   settingsLDAPDirectorySearchGuidance,
-  settingsOIDCBFFSetupReadiness,
+  settingsOIDCBFFSetupReadiness as settingsOIDCBFFSetupReadinessWithTranslator,
   settingsCurrentRBACAccessSummary,
   settingsLocalAccessReadiness,
   settingsLDAPRoleMappingGuidance,
   settingsLDAPTransportGuidance,
   type DiagnosisAuthLiveProof,
-  workflowIntegrationReadiness,
+  workflowIntegrationReadiness as workflowIntegrationReadinessWithTranslator,
   workflowLiveProofReadiness,
   workflowProofTargets,
   workflowTopologyActions,
 } from "./settings-overview";
 
+const tEn = createTranslator({
+  locale: "en",
+  messages: en,
+  namespace: "DiagnosisAuth",
+});
+
+function bindAuthTranslator<TArgs extends unknown[], TResult>(
+  fn: (...args: [...TArgs, DiagnosisAuthTranslator]) => TResult,
+): (...args: TArgs) => TResult {
+  return (...args) => fn(...args, tEn);
+}
+
+const diagnosisAuthLiveProofFromProbeState = bindAuthTranslator(
+  diagnosisAuthLiveProofFromProbeStateWithTranslator,
+);
+const diagnosisAuthProbeBrowserSessionBlockReason = bindAuthTranslator(
+  diagnosisAuthProbeBrowserSessionBlockReasonWithTranslator,
+);
+const diagnosisAuthReadinessSummary = bindAuthTranslator(
+  diagnosisAuthReadinessSummaryWithTranslator,
+);
+const diagnosisBrowserSessionStatusDetail = bindAuthTranslator(
+  diagnosisBrowserSessionStatusDetailWithTranslator,
+);
+const settingsOIDCBFFSetupReadiness = bindAuthTranslator(
+  settingsOIDCBFFSetupReadinessWithTranslator,
+);
+const diagnosisAuthRoleMappingStatusDetail = (
+  status: Parameters<
+    typeof diagnosisAuthRoleMappingStatusDetailWithTranslator
+  >[0],
+  loading = false,
+) => diagnosisAuthRoleMappingStatusDetailWithTranslator(status, tEn, loading);
+const diagnosisAuthRoleMappingStatusReadiness = (
+  status: Parameters<
+    typeof diagnosisAuthRoleMappingStatusReadinessWithTranslator
+  >[0],
+  loading = false,
+) =>
+  diagnosisAuthRoleMappingStatusReadinessWithTranslator(status, tEn, loading);
+const workflowIntegrationReadiness = (
+  topology: Parameters<typeof workflowIntegrationReadinessWithTranslator>[0],
+  diagnosisAuthProof?: Parameters<
+    typeof workflowIntegrationReadinessWithTranslator
+  >[2],
+  localAccessReadiness?: Parameters<
+    typeof workflowIntegrationReadinessWithTranslator
+  >[3],
+  currentRBACAccess?: Parameters<
+    typeof workflowIntegrationReadinessWithTranslator
+  >[4],
+) =>
+  workflowIntegrationReadinessWithTranslator(
+    topology,
+    tEn,
+    diagnosisAuthProof,
+    localAccessReadiness,
+    currentRBACAccess,
+  );
+
 const timestamp = "2026-06-19T00:00:00Z";
 
 describe("settings overview diagnosis auth status", () => {
+  it("distinguishes local auth blocks from backend rejection", () => {
+    expect(
+      diagnosisAuthProbeResultDetail(
+        {
+          localFailure: "browser_session",
+          message: "",
+          status: "failed",
+        },
+        tEn,
+      ),
+    ).toBe(
+      "Authentication check was not sent because the required browser session is not ready.",
+    );
+    expect(
+      diagnosisAuthProbeResultDetail(
+        {
+          message: "upstream identity rejected",
+          status: "failed",
+        },
+        tEn,
+      ),
+    ).toBe("upstream identity rejected");
+  });
+
   it("resets diagnosis auth proof to pending browser-session readiness", () => {
     expect(defaultDiagnosisAuthLiveProof()).toEqual({
-      detail:
-        "Run Check auth with OpenClarion browser session before accepting live proof.",
+      detail: "",
       mode: "session",
       roles: [],
       status: "pending",
@@ -63,7 +151,7 @@ describe("settings overview diagnosis auth status", () => {
 
   it("can reset diagnosis auth proof to pending bearer readiness", () => {
     expect(defaultDiagnosisAuthLiveProof("bearer")).toEqual({
-      detail: "Run Check auth with Bearer token before accepting live proof.",
+      detail: "",
       mode: "bearer",
       roles: [],
       status: "pending",
@@ -73,8 +161,7 @@ describe("settings overview diagnosis auth status", () => {
 
   it("can reset diagnosis auth proof to pending Enterprise WeChat readiness", () => {
     expect(defaultDiagnosisAuthLiveProof("wecom")).toEqual({
-      detail:
-        "Run Check auth with Enterprise WeChat authentication before accepting live proof.",
+      detail: "",
       mode: "wecom",
       roles: [],
       status: "pending",
@@ -84,8 +171,7 @@ describe("settings overview diagnosis auth status", () => {
 
   it("can reset diagnosis auth proof to pending browser-session readiness", () => {
     expect(defaultDiagnosisAuthLiveProof("session")).toEqual({
-      detail:
-        "Run Check auth with OpenClarion browser session before accepting live proof.",
+      detail: "",
       mode: "session",
       roles: [],
       status: "pending",
@@ -479,8 +565,7 @@ describe("settings overview diagnosis auth status", () => {
         values: { authMode: "session" },
       }),
     ).toEqual({
-      detail:
-        "Run Check auth to verify the current OpenClarion browser session identity against the backend provider. Diagnosis room permissions are enforced by local RBAC.",
+      detail: "",
       mode: "session",
       roles: [],
       status: "needs_check",
@@ -544,7 +629,7 @@ describe("settings overview diagnosis auth status", () => {
         },
       }),
     ).toBe(
-      "Enterprise WeChat reports optional provider role metadata: 2 owner mapping(s), 1 admin mapping(s), and default roles: owner. Diagnosis room permissions are assigned through OpenClarion local RBAC.",
+      "Enterprise WeChat reports optional provider role metadata: 2 owner mappings, 1 admin mapping, and default roles: owner. Diagnosis room permissions are assigned through OpenClarion local RBAC.",
     );
     expect(
       diagnosisAuthRoleMappingStatusReadiness({
@@ -592,8 +677,7 @@ describe("settings overview diagnosis auth status", () => {
       }),
     ).toEqual({
       checkedAt: "2026-06-22T10:00:00Z",
-      detail:
-        "OpenClarion browser session from IAM OIDC is verified against the backend diagnosis auth provider; diagnosis room access is enforced by local RBAC.",
+      detail: "",
       mode: "session",
       roleAuthorized: true,
       roles: ["owner"],
@@ -615,8 +699,7 @@ describe("settings overview diagnosis auth status", () => {
         subject: "operator-1",
       }),
     ).toMatchObject({
-      detail:
-        "OpenClarion browser session from IAM OIDC is verified against the backend diagnosis auth provider; diagnosis room access is enforced by local RBAC.",
+      detail: "",
       mode: "session",
       roleAuthorized: false,
       status: "verified",
@@ -640,8 +723,7 @@ describe("settings overview diagnosis auth status", () => {
         subject: "operator-ldap",
       }),
     ).toMatchObject({
-      detail:
-        "OpenClarion browser session from LDAP is verified against the backend diagnosis auth provider; diagnosis room access is enforced by local RBAC.",
+      detail: "",
       mode: "ldap",
       status: "verified",
       subject: "operator-ldap",
@@ -685,8 +767,7 @@ describe("settings overview diagnosis auth status", () => {
       }),
     ).toEqual({
       checkedAt: "2026-06-22T10:00:00Z",
-      message:
-        "OpenClarion browser session from LDAP is verified against the backend diagnosis auth provider; diagnosis room access is enforced by local RBAC.",
+      message: "",
       mode: "session",
       roleAuthorized: true,
       roles: ["owner"],
@@ -709,8 +790,7 @@ describe("settings overview diagnosis auth status", () => {
       }),
     ).toEqual({
       checkedAt: "2026-06-22T10:00:00Z",
-      detail:
-        "OpenClarion browser session from IAM OIDC is verified against the backend diagnosis auth provider; diagnosis room access is enforced by local RBAC.",
+      detail: "",
       mode: "session",
       roleAuthorized: true,
       roles: ["owner"],
@@ -730,8 +810,7 @@ describe("settings overview diagnosis auth status", () => {
       }),
     ).toEqual({
       checkedAt: "2026-06-22T10:00:00Z",
-      message:
-        "OpenClarion browser session from IAM OIDC is verified against the backend diagnosis auth provider; diagnosis room access is enforced by local RBAC.",
+      message: "",
       mode: "session",
       roleAuthorized: true,
       roles: ["owner"],
@@ -919,7 +998,7 @@ describe("settings overview diagnosis auth status", () => {
       label: "Operator auth blocked",
       status: "blocked",
       items: [
-        { key: "backend", status: "ready", value: "verified" },
+        { key: "backend", status: "ready", value: "Verified" },
         { key: "setup", status: "ready", value: "Callback + RBAC" },
         { key: "session", status: "blocked", value: "IAM OIDC session" },
         { key: "rollout", status: "blocked", value: "Use IAM OIDC" },
@@ -1752,8 +1831,7 @@ describe("settings overview diagnosis auth status", () => {
         values: { authMode: "wecom" },
       }),
     ).toEqual({
-      detail:
-        "Enterprise WeChat browser login has been replaced by IAM OIDC. Use the current IAM browser session for OpenClarion authorization; keep Enterprise WeChat for app messages, notifications, and diagnosis-room collaboration callbacks.",
+      detail: "",
       mode: "wecom",
       roles: [],
       status: "blocked",

@@ -33,6 +33,7 @@ import {
 } from "antd";
 import type { TableColumnsType } from "antd";
 import { useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import {
   useCallback,
   useEffect,
@@ -52,6 +53,7 @@ import type { AlertSourceProfile } from "../alert-sources/types";
 import { formatDateTime } from "../format";
 import {
   diagnosisAuthBackendReadiness,
+  diagnosisAuthBackendReadinessStatusLabel,
   diagnosisAuthBackendCredentialListLabel,
   diagnosisAuthBackendModeDisplayItems,
   diagnosisAuthBackendModeListLabel,
@@ -63,13 +65,17 @@ import {
   type DiagnosisAuthBackendReadiness,
   type DiagnosisAuthBackendStatusSnapshot,
   diagnosisAuthInputReadiness,
+  diagnosisAuthInputReadinessStatusLabel,
   diagnosisAuthLDAPBrowserSessionPromotionNotice,
   diagnosisAuthLDAPSetupReadiness,
   diagnosisAuthModeOptions,
+  diagnosisAuthOIDCBFFMissingLabel,
+  diagnosisAuthOIDCBFFReadinessDetail,
   diagnosisAuthRolloutReadiness,
   type DiagnosisAuthBackendCheck,
   type DiagnosisAuthInputValues,
   type DiagnosisAuthMode,
+  type DiagnosisAuthTranslator,
   type DiagnosisAuthLDAPSetupReadiness,
   type DiagnosisAuthRolloutReadiness,
   diagnosisAuthRoleMappingGuidance,
@@ -283,7 +289,14 @@ export type AutoDiagnosisProofHistory = {
 
 type DiagnosisAuthProbeFormValues = DiagnosisAuthInputValues;
 
-type DiagnosisAuthProbeResult = DiagnosisAuthBackendCheck;
+type DiagnosisAuthProbeLocalFailure =
+  | "backend_readiness"
+  | "browser_session"
+  | "credentials";
+
+type DiagnosisAuthProbeResult = DiagnosisAuthBackendCheck & {
+  localFailure?: DiagnosisAuthProbeLocalFailure;
+};
 
 type DiagnosisAuthStatusState = {
   loading: boolean;
@@ -401,6 +414,7 @@ export function SettingsOverview({
   workflowPolicies,
   workflowSchedules,
 }: SettingsOverviewProps) {
+  const authT = useTranslations("DiagnosisAuth");
   const searchParams = useSearchParams();
   const clientReady = useClientReady();
   const currentRBACAuthorization = useCurrentRBACAuthorizations(
@@ -418,13 +432,13 @@ export function SettingsOverview({
   const [diagnosisAuthStatus, setDiagnosisAuthStatus] =
     useState<DiagnosisAuthStatusState>({
       loading: true,
-      message: "Loading diagnosis auth status.",
+      message: "",
       status: null,
     });
   const [diagnosisBrowserSession, setDiagnosisBrowserSession] =
     useState<DiagnosisBrowserSessionState>({
       loading: true,
-      message: "Loading Enterprise WeChat browser session.",
+      message: "",
       status: null,
     });
   const [diagnosisBrowserSessionClearing, setDiagnosisBrowserSessionClearing] =
@@ -433,7 +447,7 @@ export function SettingsOverview({
     setDiagnosisBrowserSession((current) => ({
       ...current,
       loading: true,
-      message: "Refreshing Enterprise WeChat browser session.",
+      message: "",
     }));
     setDiagnosisBrowserSession(await diagnosisBrowserSessionStateFromFetch());
   }, []);
@@ -635,6 +649,7 @@ export function SettingsOverview({
   });
   const integrationReadiness = workflowIntegrationReadiness(
     topology,
+    authT,
     diagnosisAuthProof,
     localAccessReadiness,
     currentRBACAccess,
@@ -1051,6 +1066,7 @@ function DiagnosisAuthProbePanel({
   onSignOutBrowserSession: () => void;
   weComAuthError?: DiagnosisRoomWeComAuthError;
 }) {
+  const authT = useTranslations("DiagnosisAuth");
   const [form] = Form.useForm<DiagnosisAuthProbeFormValues>();
   const [values, setValues] = useState<DiagnosisAuthProbeFormValues>({
     authMode: "session",
@@ -1062,8 +1078,8 @@ function DiagnosisAuthProbePanel({
     [backendStatus.status],
   );
   const authModeOptions = useMemo(
-    () => diagnosisAuthModeOptions(backendSnapshot),
-    [backendSnapshot],
+    () => diagnosisAuthModeOptions(backendSnapshot, authT),
+    [authT, backendSnapshot],
   );
   const rawMode = values.authMode ?? "session";
   const mode = diagnosisAuthCoercedMode(rawMode, backendSnapshot);
@@ -1071,7 +1087,7 @@ function DiagnosisAuthProbePanel({
     () => (mode === rawMode ? values : { authMode: mode }),
     [mode, rawMode, values],
   );
-  const readiness = diagnosisAuthInputReadiness(effectiveValues);
+  const readiness = diagnosisAuthInputReadiness(effectiveValues, authT);
   const displayedResult = useMemo(
     () =>
       diagnosisAuthProbeDisplayedResult(
@@ -1081,24 +1097,40 @@ function DiagnosisAuthProbePanel({
       ),
     [browserSession.status, effectiveValues, result],
   );
-  const backendReadiness = diagnosisAuthBackendReadiness({
-    backendStatus: backendSnapshot,
-    checking,
-    lastCheck: displayedResult,
-    values: effectiveValues,
-  });
+  const backendReadiness = diagnosisAuthBackendReadiness(
+    {
+      backendStatus: backendSnapshot,
+      checking,
+      lastCheck: displayedResult,
+      values: effectiveValues,
+    },
+    authT,
+  );
   const currentLiveProof = useMemo(
     () =>
-      diagnosisAuthLiveProofFromProbeState({
-        backendStatus: backendSnapshot,
-        browserSession: browserSession.status,
-        checking,
-        result,
-        values: effectiveValues,
-      }),
-    [backendSnapshot, browserSession.status, checking, effectiveValues, result],
+      diagnosisAuthLiveProofFromProbeState(
+        {
+          backendStatus: backendSnapshot,
+          browserSession: browserSession.status,
+          checking,
+          result,
+          values: effectiveValues,
+        },
+        authT,
+      ),
+    [
+      authT,
+      backendSnapshot,
+      browserSession.status,
+      checking,
+      effectiveValues,
+      result,
+    ],
   );
-  const rolloutReadiness = diagnosisAuthRolloutReadiness(currentLiveProof);
+  const rolloutReadiness = diagnosisAuthRolloutReadiness(
+    currentLiveProof,
+    authT,
+  );
   const checkAuthBlocked =
     diagnosisAuthProbeCheckBlocked({
       backendStatusAvailable: backendStatus.status !== null,
@@ -1116,28 +1148,34 @@ function DiagnosisAuthProbePanel({
       : settingsWeComAuthErrorDetail(weComAuthError);
   const weComSetupReadiness = diagnosisAuthWeComSetupReadiness(
     backendStatus.status,
+    authT,
     backendStatus.loading,
   );
   const ldapSetupReadiness = diagnosisAuthLDAPSetupReadiness(
     backendStatus.status,
+    authT,
     backendStatus.loading,
   );
   const oidcSetupReadiness = settingsOIDCBFFSetupReadiness(
     backendStatus.status,
     backendStatus.loading,
+    authT,
   );
   const weComBrowserSessionReadiness =
     settingsWeComBrowserSessionReadiness(browserSession);
-  const authReadinessSummary = diagnosisAuthReadinessSummary({
-    backendReadiness,
-    browserSession,
-    ldapSetupReadiness,
-    localAccessReadiness,
-    mode,
-    oidcSetupReadiness,
-    rolloutReadiness,
-    weComSetupReadiness,
-  });
+  const authReadinessSummary = diagnosisAuthReadinessSummary(
+    {
+      backendReadiness,
+      browserSession,
+      ldapSetupReadiness,
+      localAccessReadiness,
+      mode,
+      oidcSetupReadiness,
+      rolloutReadiness,
+      weComSetupReadiness,
+    },
+    authT,
+  );
 
   useEffect(() => {
     if (backendSnapshot === undefined || checking || result !== null) {
@@ -1183,15 +1221,19 @@ function DiagnosisAuthProbePanel({
       submittedMode === (submitted.authMode ?? "session")
         ? submitted
         : { authMode: submittedMode };
-    const submittedBackendReadiness = diagnosisAuthBackendReadiness({
-      backendStatus: backendSnapshot,
-      checking: false,
-      lastCheck: null,
-      values: submittedValues,
-    });
+    const submittedBackendReadiness = diagnosisAuthBackendReadiness(
+      {
+        backendStatus: backendSnapshot,
+        checking: false,
+        lastCheck: null,
+        values: submittedValues,
+      },
+      authT,
+    );
     if (submittedBackendReadiness.status === "blocked") {
       const failed: DiagnosisAuthProbeResult = {
-        message: submittedBackendReadiness.detail,
+        localFailure: "backend_readiness",
+        message: "",
         mode: submittedMode,
         roles: [],
         status: "failed",
@@ -1204,7 +1246,8 @@ function DiagnosisAuthProbePanel({
     const sessionBlockReason = browserSessionBlockReason(submittedValues);
     if (sessionBlockReason !== "") {
       const failed: DiagnosisAuthProbeResult = {
-        message: sessionBlockReason,
+        localFailure: "browser_session",
+        message: "",
         mode: submittedMode,
         roles: [],
         status: "failed",
@@ -1218,7 +1261,8 @@ function DiagnosisAuthProbePanel({
       diagnosisAuthorizationFromProbeValues(submittedValues);
     if (authorization === null) {
       const failed: DiagnosisAuthProbeResult = {
-        message: diagnosisAuthInputReadiness(submittedValues).detail,
+        localFailure: "credentials",
+        message: "",
         mode: submittedMode,
         roles: [],
         status: "failed",
@@ -1232,7 +1276,7 @@ function DiagnosisAuthProbePanel({
     }
 
     onProofChange({
-      detail: "Backend diagnosis auth check is running.",
+      detail: "",
       mode: submittedMode,
       roles: [],
       status: "checking",
@@ -1255,7 +1299,7 @@ function DiagnosisAuthProbePanel({
       }
       const success: DiagnosisAuthProbeResult = {
         checkedAt: checked.data.checked_at,
-        message: "Backend diagnosis auth check succeeded.",
+        message: "",
         mode: submittedMode,
         roleAuthorized: checked.data.role_authorized,
         roles: checked.data.roles,
@@ -1300,6 +1344,7 @@ function DiagnosisAuthProbePanel({
     return diagnosisAuthProbeBrowserSessionBlockReason(
       currentValues,
       browserSession,
+      authT,
     );
   }
 
@@ -1313,11 +1358,16 @@ function DiagnosisAuthProbePanel({
         <h2>Diagnosis auth readiness</h2>
         <Space size={6} wrap>
           <Tag color={authProbeReadinessColor(readiness.status)}>
-            {authProbeReadinessLabel(readiness.status)}
+            {diagnosisAuthInputReadinessStatusLabel(readiness.status, authT)}
           </Tag>
-          <Tag color={backendReadiness.color}>{backendReadiness.status}</Tag>
+          <Tag color={backendReadiness.color}>
+            {diagnosisAuthBackendReadinessStatusLabel(
+              backendReadiness.status,
+              authT,
+            )}
+          </Tag>
           <Tag color={diagnosisAuthStatusColor(backendStatus)}>
-            {diagnosisAuthStatusLabel(backendStatus)}
+            {diagnosisAuthStatusLabel(backendStatus, authT)}
           </Tag>
         </Space>
       </div>
@@ -1346,12 +1396,15 @@ function DiagnosisAuthProbePanel({
                 setValues(nextValues);
                 setResult(null);
                 onProofChange(
-                  diagnosisAuthLiveProofFromBackend({
-                    backendStatus: backendSnapshot,
-                    checking: false,
-                    lastCheck: null,
-                    values: nextValues,
-                  }),
+                  diagnosisAuthLiveProofFromBackend(
+                    {
+                      backendStatus: backendSnapshot,
+                      checking: false,
+                      lastCheck: null,
+                      values: nextValues,
+                    },
+                    authT,
+                  ),
                 );
               }}
             >
@@ -1439,6 +1492,7 @@ function DiagnosisAuthProbePanel({
                   }
                   description={diagnosisBrowserSessionStatusDetail(
                     browserSession,
+                    authT,
                   )}
                   message="OpenClarion browser session"
                   showIcon
@@ -1505,7 +1559,7 @@ function DiagnosisAuthProbePanel({
                 type={authProbeBackendAlertType(backendReadiness.status)}
               />
               <Alert
-                description={diagnosisAuthStatusDetail(backendStatus)}
+                description={diagnosisAuthStatusDetail(backendStatus, authT)}
                 message="Backend diagnosis auth wiring"
                 showIcon
                 type={diagnosisAuthStatusAlertType(backendStatus)}
@@ -1546,6 +1600,7 @@ function DiagnosisAuthProbePanel({
                   }
                   description={diagnosisBrowserSessionStatusDetail(
                     browserSession,
+                    authT,
                   )}
                   message={
                     mode === "wecom"
@@ -1575,6 +1630,7 @@ function DiagnosisAuthProbePanel({
                 items={diagnosisAuthProbeDescriptions(
                   readiness.mode,
                   displayedResult,
+                  authT,
                 )}
                 size="small"
               />
@@ -1584,6 +1640,7 @@ function DiagnosisAuthProbePanel({
                 items={diagnosisAuthRolloutDescriptions(
                   rolloutReadiness,
                   backendStatus,
+                  authT,
                 )}
                 size="small"
               />
@@ -1599,7 +1656,7 @@ export function defaultDiagnosisAuthLiveProof(
   mode: DiagnosisAuthMode = "session",
 ): DiagnosisAuthLiveProof {
   return {
-    detail: `Run Check auth with ${authProbeModeLabel(mode)} before accepting live proof.`,
+    detail: "",
     mode,
     roles: [],
     status: "pending",
@@ -1636,20 +1693,24 @@ export function diagnosisAuthProbeBrowserSessionBlockReason(
     loading: boolean;
     status: DiagnosisBrowserSessionStatus | null;
   },
+  t: DiagnosisAuthTranslator,
 ): string {
   const authenticated =
     browserSession.status?.authenticated === true
       ? browserSession.status
       : null;
-  return diagnosisAuthBrowserSessionBlockReason({
-    intent: "check",
-    sessionAuthenticated: authenticated !== null,
-    sessionLoading: browserSession.loading,
-    sessionMode: authenticated?.mode,
-    sessionStatusAvailable:
-      browserSession.loading || browserSession.status !== null,
-    values,
-  });
+  return diagnosisAuthBrowserSessionBlockReason(
+    {
+      intent: "check",
+      sessionAuthenticated: authenticated !== null,
+      sessionLoading: browserSession.loading,
+      sessionMode: authenticated?.mode,
+      sessionStatusAvailable:
+        browserSession.loading || browserSession.status !== null,
+      values,
+    },
+    t,
+  );
 }
 
 function diagnosisAuthProbeDisplayedResult(
@@ -1677,29 +1738,35 @@ function diagnosisAuthProbeDisplayedResult(
   });
 }
 
-export function diagnosisAuthLiveProofFromProbeState({
-  backendStatus,
-  browserSession,
-  checking,
-  result,
-  values,
-}: {
-  backendStatus?: DiagnosisAuthBackendStatusSnapshot;
-  browserSession: DiagnosisBrowserSessionStatus | null;
-  checking: boolean;
-  result: DiagnosisAuthBackendCheck | null;
-  values: DiagnosisAuthInputValues;
-}): DiagnosisAuthLiveProof {
-  return diagnosisAuthLiveProofFromBackend({
+export function diagnosisAuthLiveProofFromProbeState(
+  {
     backendStatus,
+    browserSession,
     checking,
-    lastCheck: diagnosisAuthProbeDisplayedResult(
-      values,
-      result,
-      browserSession,
-    ),
+    result,
     values,
-  });
+  }: {
+    backendStatus?: DiagnosisAuthBackendStatusSnapshot;
+    browserSession: DiagnosisBrowserSessionStatus | null;
+    checking: boolean;
+    result: DiagnosisAuthBackendCheck | null;
+    values: DiagnosisAuthInputValues;
+  },
+  t: DiagnosisAuthTranslator,
+): DiagnosisAuthLiveProof {
+  return diagnosisAuthLiveProofFromBackend(
+    {
+      backendStatus,
+      checking,
+      lastCheck: diagnosisAuthProbeDisplayedResult(
+        values,
+        result,
+        browserSession,
+      ),
+      values,
+    },
+    t,
+  );
 }
 
 export function diagnosisAuthProbeCheckBlocked({
@@ -1721,18 +1788,21 @@ export function diagnosisAuthProbeCheckBlocked({
   );
 }
 
-function diagnosisAuthLiveProofFromBackend({
-  backendStatus,
-  checking,
-  lastCheck,
-  values,
-}: {
-  backendStatus?: DiagnosisAuthBackendStatusSnapshot;
-  checking: boolean;
-  lastCheck: DiagnosisAuthProbeResult | null;
-  values: DiagnosisAuthProbeFormValues;
-}): DiagnosisAuthLiveProof {
-  const inputReadiness = diagnosisAuthInputReadiness(values);
+function diagnosisAuthLiveProofFromBackend(
+  {
+    backendStatus,
+    checking,
+    lastCheck,
+    values,
+  }: {
+    backendStatus?: DiagnosisAuthBackendStatusSnapshot;
+    checking: boolean;
+    lastCheck: DiagnosisAuthProbeResult | null;
+    values: DiagnosisAuthProbeFormValues;
+  },
+  t: DiagnosisAuthTranslator,
+): DiagnosisAuthLiveProof {
+  const inputReadiness = diagnosisAuthInputReadiness(values, t);
   const backendBlocked = diagnosisAuthBackendProofBlock(
     backendStatus,
     inputReadiness.mode,
@@ -1740,12 +1810,15 @@ function diagnosisAuthLiveProofFromBackend({
   if (backendBlocked !== null) {
     return backendBlocked;
   }
-  const backendReadiness = diagnosisAuthBackendReadiness({
-    backendStatus,
-    checking,
-    lastCheck,
-    values,
-  });
+  const backendReadiness = diagnosisAuthBackendReadiness(
+    {
+      backendStatus,
+      checking,
+      lastCheck,
+      values,
+    },
+    t,
+  );
   if (
     backendReadiness.status === "verified" &&
     lastCheck?.status === "success"
@@ -1753,7 +1826,7 @@ function diagnosisAuthLiveProofFromBackend({
     return diagnosisAuthLiveProofFromResult(lastCheck);
   }
   return {
-    detail: backendReadiness.detail,
+    detail: "",
     mode: inputReadiness.mode,
     roles: [],
     status: backendReadiness.status,
@@ -1770,7 +1843,7 @@ function diagnosisAuthBackendProofBlock(
   }
   if (!backendStatus.configured || backendStatus.mode === "none") {
     return {
-      detail: "Diagnosis auth is not configured in the running backend.",
+      detail: "",
       mode,
       roles: [],
       status: "blocked",
@@ -1779,8 +1852,7 @@ function diagnosisAuthBackendProofBlock(
   }
   if (backendStatus.mode === "unknown") {
     return {
-      detail:
-        "Backend diagnosis auth mode is unknown; inspect deployment before accepting live proof.",
+      detail: "",
       mode,
       roles: [],
       status: "blocked",
@@ -1816,13 +1888,12 @@ export function diagnosisAuthLiveProofFromBrowserSession(
   if (mode === null) {
     return null;
   }
-  const source = diagnosisAuthBrowserSessionSourceValueLabel(session.mode);
   const roleAuthorized =
     session.role_authorized ??
     session.roles.some((role) => role === "owner" || role === "admin");
   return {
     checkedAt: session.checked_at,
-    detail: `OpenClarion browser session from ${source} is verified against the backend diagnosis auth provider; diagnosis room access is enforced by local RBAC.`,
+    detail: "",
     mode,
     roleAuthorized,
     roles: session.roles,
@@ -2305,6 +2376,7 @@ function DiagnosisAuthWeComSessionSummary({
 function diagnosisAuthProbeDescriptions(
   mode: DiagnosisAuthMode,
   result: DiagnosisAuthProbeResult | null,
+  t: DiagnosisAuthTranslator,
 ) {
   if (result === null) {
     return [
@@ -2339,7 +2411,7 @@ function diagnosisAuthProbeDescriptions(
           <Typography.Text
             type={result.status === "success" ? "secondary" : "danger"}
           >
-            {result.message}
+            {diagnosisAuthProbeResultDetail(result, t)}
           </Typography.Text>
         </Space>
       ),
@@ -2370,9 +2442,35 @@ function diagnosisAuthProbeDescriptions(
   ];
 }
 
+export function diagnosisAuthProbeResultDetail(
+  result: Pick<
+    DiagnosisAuthProbeResult,
+    "localFailure" | "message" | "status"
+  >,
+  t: DiagnosisAuthTranslator,
+): string {
+  if (result.message.trim() !== "") {
+    return result.message;
+  }
+  if (result.status === "success") {
+    return t("feedback.checkSucceeded");
+  }
+  switch (result.localFailure) {
+    case "backend_readiness":
+      return t("feedback.backendReadinessBlocked");
+    case "browser_session":
+      return t("feedback.browserSessionBlocked");
+    case "credentials":
+      return t("feedback.credentialsInvalid");
+    case undefined:
+      return t("backend.checkFailedDetail");
+  }
+}
+
 function diagnosisAuthRolloutDescriptions(
   readiness: DiagnosisAuthRolloutReadiness,
   backendStatus: DiagnosisAuthStatusState,
+  t: DiagnosisAuthTranslator,
 ) {
   return [
     {
@@ -2383,7 +2481,7 @@ function diagnosisAuthRolloutDescriptions(
     {
       key: "backend-provider",
       label: "Backend provider",
-      children: diagnosisAuthStatusLabel(backendStatus),
+      children: diagnosisAuthStatusLabel(backendStatus, t),
     },
     {
       key: "supported-modes",
@@ -2421,7 +2519,7 @@ function diagnosisAuthRolloutDescriptions(
       label: "Role mapping",
       children: (
         <Typography.Text type="secondary">
-          {diagnosisAuthRoleMappingGuidance(readiness)}
+          {diagnosisAuthRoleMappingGuidance(readiness, t)}
         </Typography.Text>
       ),
     },
@@ -2431,7 +2529,7 @@ function diagnosisAuthRolloutDescriptions(
       children: (
         <Space size={6} wrap>
           <Tag color={diagnosisAuthRolloutTagColor(readiness.status)}>
-            {diagnosisAuthRolloutStatusLabel(readiness.status)}
+            {diagnosisAuthRolloutStatusLabel(readiness.status, t)}
           </Tag>
           <Typography.Text type="secondary">
             {readiness.subject === ""
@@ -2456,7 +2554,12 @@ function DiagnosisAuthRoleMappingSummary({
   loading: boolean;
   status: DiagnosisAuthStatus | null;
 }) {
-  const readiness = diagnosisAuthRoleMappingStatusReadiness(status, loading);
+  const authT = useTranslations("DiagnosisAuth");
+  const readiness = diagnosisAuthRoleMappingStatusReadiness(
+    status,
+    authT,
+    loading,
+  );
   return (
     <Space direction="vertical" size={4}>
       <Tag color={readiness.color}>{readiness.label}</Tag>
@@ -2496,7 +2599,8 @@ function DiagnosisAuthReadinessSummaryPanel({
 }
 
 function DiagnosisLDAPBrowserSessionPromotionNotice() {
-  const notice = diagnosisAuthLDAPBrowserSessionPromotionNotice();
+  const authT = useTranslations("DiagnosisAuth");
+  const notice = diagnosisAuthLDAPBrowserSessionPromotionNotice(authT);
   return (
     <Alert
       description={notice.detail}
@@ -2512,6 +2616,7 @@ function DiagnosisAuthLDAPSetupSummary({
 }: {
   readiness: DiagnosisAuthLDAPSetupReadiness;
 }) {
+  const authT = useTranslations("DiagnosisAuth");
   return (
     <Alert
       description={
@@ -2522,7 +2627,7 @@ function DiagnosisAuthLDAPSetupSummary({
               <Descriptions.Item key={item.key} label={item.label}>
                 <Space direction="vertical" size={4}>
                   <Tag color={diagnosisAuthLDAPSetupItemColor(item.status)}>
-                    {diagnosisAuthSetupStatusLabel(item.status)}
+                    {diagnosisAuthSetupStatusLabel(item.status, authT)}
                   </Tag>
                   <Typography.Text type="secondary">
                     {item.detail}
@@ -2587,6 +2692,7 @@ function DiagnosisAuthWeComSetupSummary({
 }: {
   readiness: DiagnosisAuthWeComSetupReadiness;
 }) {
+  const authT = useTranslations("DiagnosisAuth");
   return (
     <Alert
       description={
@@ -2597,7 +2703,7 @@ function DiagnosisAuthWeComSetupSummary({
               <Descriptions.Item key={item.key} label={item.label}>
                 <Space direction="vertical" size={4}>
                   <Tag color={diagnosisAuthWeComSetupItemColor(item.status)}>
-                    {diagnosisAuthSetupStatusLabel(item.status)}
+                    {diagnosisAuthSetupStatusLabel(item.status, authT)}
                   </Tag>
                   <Typography.Text type="secondary">
                     {item.detail}
@@ -2775,7 +2881,8 @@ function DiagnosisAuthSupportedModesSummary({
 }: {
   status: DiagnosisAuthStatus | null;
 }) {
-  const items = diagnosisAuthBackendModeDisplayItems(status);
+  const authT = useTranslations("DiagnosisAuth");
+  const items = diagnosisAuthBackendModeDisplayItems(status, authT);
   if (items.length === 0) {
     return <Typography.Text type="secondary">None reported</Typography.Text>;
   }
@@ -2820,16 +2927,17 @@ function diagnosisAuthRolloutTagColor(
 
 function diagnosisAuthRolloutStatusLabel(
   status: DiagnosisAuthRolloutReadiness["status"],
+  t: DiagnosisAuthTranslator,
 ): string {
   switch (status) {
     case "ready":
-      return "Ready";
+      return t("ui.ready");
     case "review":
-      return "Review";
+      return t("settings.summary.reviewStatus");
     case "pending":
-      return "Pending";
+      return t("ui.pending");
     case "blocked":
-      return "Blocked";
+      return t("ui.blocked");
   }
 }
 
@@ -2869,19 +2977,6 @@ function authProbeReadinessColor(
       return "gold";
     case "blocked":
       return "red";
-  }
-}
-
-function authProbeReadinessLabel(
-  status: ReturnType<typeof diagnosisAuthInputReadiness>["status"],
-): string {
-  switch (status) {
-    case "ready":
-      return "Ready";
-    case "pending":
-      return "Pending";
-    case "blocked":
-      return "Blocked";
   }
 }
 
@@ -2940,63 +3035,74 @@ function diagnosisAuthBackendStatusSnapshot(
   };
 }
 
-function diagnosisAuthStatusLabel(state: DiagnosisAuthStatusState): string {
+function diagnosisAuthStatusLabel(
+  state: DiagnosisAuthStatusState,
+  t: DiagnosisAuthTranslator,
+): string {
   if (state.loading) {
-    return "Backend loading";
+    return t("ui.backendLoading");
   }
   if (state.status === null) {
-    return "Backend unavailable";
+    return t("ui.backendUnavailable");
   }
-  const modesLabel = diagnosisAuthBackendModeListLabel(state.status);
+  const modesLabel = diagnosisAuthBackendModeListLabel(state.status, t);
   if (modesLabel !== "") {
-    return `Backend ${modesLabel}`;
+    return t("ui.backendMode", { modes: modesLabel });
   }
   switch (state.status.mode) {
     case "ldap":
-      return "Backend LDAP";
+      return t("ui.backendLDAP");
     case "static":
-      return "Backend static";
+      return t("ui.backendStatic");
     case "oidc":
-      return "Backend OIDC";
+      return t("ui.backendOIDC");
     case "unknown":
-      return "Backend unknown";
+      return t("ui.backendUnknown");
     case "none":
-      return "Backend not configured";
+      return t("ui.backendNotConfigured");
   }
 }
 
-function diagnosisAuthStatusDetail(state: DiagnosisAuthStatusState): string {
+function diagnosisAuthStatusDetail(
+  state: DiagnosisAuthStatusState,
+  t: DiagnosisAuthTranslator,
+): string {
   if (state.loading) {
-    return "Checking the backend auth wiring status without sending credentials.";
+    return t("ui.statusChecking");
   }
   if (state.status === null) {
-    return `Backend auth status could not be loaded: ${state.message}`;
+    return t("ui.statusLoadFailed", { error: state.message });
   }
   if (!state.status.configured || state.status.mode === "none") {
-    return "Diagnosis auth is not configured in the running backend.";
+    return t("backend.notConfigured");
   }
   const supportedModes = diagnosisAuthBackendStatusModes(state.status);
   if (supportedModes.length > 1) {
-    return diagnosisAuthMixedStatusDetail(state.status);
+    return diagnosisAuthMixedStatusDetail(state.status, t);
   }
   switch (state.status.mode) {
     case "ldap":
-      return "The running backend is configured for LDAP Basic credentials.";
+      return t("settings.statusLDAP");
     case "static":
-      return "The running backend is configured for a static Bearer token.";
+      return t("settings.statusStatic");
     case "oidc":
       if (state.status.oidc_bff?.status === "blocked") {
-        return `The running backend is configured for IAM OIDC authentication, but browser IAM sign-in is not ready: ${diagnosisOIDCBFFReadinessDetail(state.status.oidc_bff)}.`;
+        return t("settings.statusOIDCBlocked", {
+          detail: diagnosisAuthOIDCBFFReadinessDetail(state.status.oidc_bff, t),
+        });
       }
-      return "The running backend is configured for IAM OIDC authentication. Use Sign in with IAM to establish an OpenClarion browser session before accepting diagnosis-room rollout proof.";
+      return t("settings.statusOIDCReady");
     case "unknown":
-      return "The running backend has an auth provider, but it did not report a named mode.";
+      return t("ui.statusUnknown");
   }
 }
 
-function diagnosisAuthMixedStatusDetail(status: DiagnosisAuthStatus): string {
-  const credentialLabel = diagnosisAuthBackendCredentialListLabel(status);
-  return `The running backend accepts ${credentialLabel}.`;
+function diagnosisAuthMixedStatusDetail(
+  status: DiagnosisAuthStatus,
+  t: DiagnosisAuthTranslator,
+): string {
+  const credentialLabel = diagnosisAuthBackendCredentialListLabel(status, t);
+  return t("ui.statusMixed", { credentials: credentialLabel });
 }
 
 function diagnosisAuthStatusColor(state: DiagnosisAuthStatusState): string {
@@ -3049,6 +3155,7 @@ function diagnosisAuthStatusAlertType(state: DiagnosisAuthStatusState) {
 export function settingsOIDCBFFSetupReadiness(
   status: DiagnosisAuthStatus | null,
   loading: boolean,
+  t: DiagnosisAuthTranslator,
 ): SettingsOIDCBFFSetupReadiness | undefined {
   if (loading || status === null) {
     return undefined;
@@ -3062,38 +3169,41 @@ export function settingsOIDCBFFSetupReadiness(
   const readiness = status.oidc_bff;
   if (readiness === undefined) {
     return {
-      detail:
-        "The running backend advertises IAM OIDC, but the console BFF did not report browser sign-in readiness. Check the Next.js runtime env surface before accepting browser-session rollout proof.",
-      label: "IAM browser sign-in blocked",
+      detail: t("settings.oidcStatusMissingDetail"),
+      label: t("settings.oidcBlockedLabel"),
       status: "blocked",
-      value: "BFF status missing",
+      value: t("settings.oidcStatusMissingValue"),
     };
   }
   if (readiness.status === "ready") {
     return {
-      detail:
-        "IAM OIDC browser sign-in prerequisites are configured in the console BFF and backend session issuer.",
-      label: "IAM browser sign-in ready",
+      detail: t("settings.oidcReadyDetail"),
+      label: t("settings.oidcReadyLabel"),
       status: "ready",
-      value: "BFF ready",
+      value: t("settings.oidcReadyValue"),
     };
   }
   return {
-    detail: `IAM OIDC browser sign-in is blocked: ${diagnosisOIDCBFFReadinessDetail(readiness)}.`,
-    label: "IAM browser sign-in blocked",
+    detail: t("settings.oidcBlockedDetail", {
+      detail: diagnosisAuthOIDCBFFReadinessDetail(readiness, t),
+    }),
+    label: t("settings.oidcBlockedLabel"),
     status: "blocked",
-    value: diagnosisOIDCBFFReadinessValue(readiness),
+    value: diagnosisOIDCBFFReadinessValue(readiness, t),
   };
 }
 
 function diagnosisOIDCBFFReadinessValue(
   readiness: NonNullable<DiagnosisAuthStatus["oidc_bff"]>,
+  t: DiagnosisAuthTranslator,
 ): string {
   const [firstMissing] = readiness.missing;
   if (readiness.missing.length === 1 && firstMissing !== undefined) {
-    return `Missing ${diagnosisOIDCBFFMissingLabel(firstMissing)}`;
+    return t("settings.oidcMissingOne", {
+      item: diagnosisAuthOIDCBFFMissingLabel(firstMissing, t),
+    });
   }
-  return `${readiness.missing.length} missing`;
+  return t("settings.oidcMissingCount", { count: readiness.missing.length });
 }
 
 export function settingsLocalAccessReadiness({
@@ -3397,109 +3507,62 @@ function settingsCurrentRBACAccessItemLabel(key: string): string {
   }
 }
 
-function diagnosisOIDCBFFReadinessDetail(
-  readiness: NonNullable<DiagnosisAuthStatus["oidc_bff"]>,
-): string {
-  if (readiness.status === "ready") {
-    return "OIDC browser BFF prerequisites are configured";
-  }
-  const labels = readiness.missing.map(diagnosisOIDCBFFMissingLabel);
-  return `missing ${labels.join(", ")}`;
-}
-
-function diagnosisOIDCBFFMissingLabel(
-  key: NonNullable<DiagnosisAuthStatus["oidc_bff"]>["missing"][number],
-): string {
-  switch (key) {
-    case "client_auth_method":
-      return "client authentication method";
-    case "client_id":
-      return "client ID";
-    case "client_secret":
-      return "client secret";
-    case "email_scope":
-      return "email scope";
-    case "issuer":
-      return "issuer";
-    case "openid_scope":
-      return "openid scope";
-    case "pkce":
-      return "PKCE for public client";
-    case "profile_scope":
-      return "profile scope";
-    case "session_signing_key":
-      return "browser session signing key";
-    case "state_signing_key":
-      return "state signing key";
-  }
-}
-
-export function diagnosisAuthReadinessSummary({
-  backendReadiness,
-  browserSession,
-  ldapSetupReadiness,
-  localAccessReadiness,
-  mode,
-  oidcSetupReadiness,
-  rolloutReadiness,
-  weComSetupReadiness,
-}: {
-  backendReadiness: DiagnosisAuthBackendReadiness;
-  browserSession: DiagnosisBrowserSessionState;
-  ldapSetupReadiness: DiagnosisAuthLDAPSetupReadiness;
-  localAccessReadiness?: SettingsLocalAccessReadiness;
-  mode: DiagnosisAuthMode;
-  oidcSetupReadiness?: SettingsOIDCBFFSetupReadiness;
-  rolloutReadiness: DiagnosisAuthRolloutReadiness;
-  weComSetupReadiness: DiagnosisAuthWeComSetupReadiness;
-}): DiagnosisAuthReadinessSummary {
-  const weComSummaryMode =
-    mode === "wecom";
-  const items = weComSummaryMode
-    ? [
-        diagnosisAuthSummaryBackendItem(backendReadiness),
-        diagnosisAuthSummarySetupItem({
-          ldapSetupReadiness,
-          mode,
-          oidcSetupReadiness,
-          weComSetupReadiness,
-        }),
-        diagnosisAuthSummarySessionItem(mode, browserSession),
-        ...(localAccessReadiness === undefined
-          ? []
-          : [diagnosisAuthSummaryLocalAccessItem(localAccessReadiness)]),
-        diagnosisAuthSummaryRolloutItem(rolloutReadiness, mode, browserSession),
-      ]
-    : [
-        diagnosisAuthSummaryBackendItem(backendReadiness),
-        diagnosisAuthSummarySetupItem({
-          ldapSetupReadiness,
-          mode,
-          oidcSetupReadiness,
-          weComSetupReadiness,
-        }),
-        diagnosisAuthSummarySessionItem(mode, browserSession),
-        ...(localAccessReadiness === undefined
-          ? []
-          : [diagnosisAuthSummaryLocalAccessItem(localAccessReadiness)]),
-        diagnosisAuthSummaryRolloutItem(rolloutReadiness, mode, browserSession),
-      ];
+export function diagnosisAuthReadinessSummary(
+  {
+    backendReadiness,
+    browserSession,
+    ldapSetupReadiness,
+    localAccessReadiness,
+    mode,
+    oidcSetupReadiness,
+    rolloutReadiness,
+    weComSetupReadiness,
+  }: {
+    backendReadiness: DiagnosisAuthBackendReadiness;
+    browserSession: DiagnosisBrowserSessionState;
+    ldapSetupReadiness: DiagnosisAuthLDAPSetupReadiness;
+    localAccessReadiness?: SettingsLocalAccessReadiness;
+    mode: DiagnosisAuthMode;
+    oidcSetupReadiness?: SettingsOIDCBFFSetupReadiness;
+    rolloutReadiness: DiagnosisAuthRolloutReadiness;
+    weComSetupReadiness: DiagnosisAuthWeComSetupReadiness;
+  },
+  t: DiagnosisAuthTranslator,
+): DiagnosisAuthReadinessSummary {
+  const items = [
+    diagnosisAuthSummaryBackendItem(backendReadiness, t),
+    diagnosisAuthSummarySetupItem(
+      {
+        ldapSetupReadiness,
+        mode,
+        oidcSetupReadiness,
+        weComSetupReadiness,
+      },
+      t,
+    ),
+    diagnosisAuthSummarySessionItem(mode, browserSession, t),
+    ...(localAccessReadiness === undefined
+      ? []
+      : [diagnosisAuthSummaryLocalAccessItem(localAccessReadiness, t)]),
+    diagnosisAuthSummaryRolloutItem(rolloutReadiness, mode, browserSession, t),
+  ];
   const status = diagnosisAuthSummaryStatus(items);
   return {
-    detail: diagnosisAuthSummaryDetail(status, items),
+    detail: diagnosisAuthSummaryDetail(status, items, t),
     items,
-    label: diagnosisAuthSummaryLabel(status),
+    label: diagnosisAuthSummaryLabel(status, t),
     status,
   };
 }
 
 function diagnosisAuthSummaryLocalAccessItem(
   readiness: SettingsLocalAccessReadiness,
+  t: DiagnosisAuthTranslator,
 ): DiagnosisAuthReadinessSummaryItem {
   return {
     detail: readiness.detail,
     key: "access",
-    label: "Local access",
+    label: t("settings.summary.localAccess"),
     status: readiness.status,
     value: diagnosisLocalAccessSummaryValue(readiness),
   };
@@ -3507,38 +3570,42 @@ function diagnosisAuthSummaryLocalAccessItem(
 
 function diagnosisAuthSummaryBackendItem(
   readiness: DiagnosisAuthBackendReadiness,
+  t: DiagnosisAuthTranslator,
 ): DiagnosisAuthReadinessSummaryItem {
   return {
     detail: readiness.detail,
     key: "backend",
-    label: "Backend",
+    label: t("settings.summary.backend"),
     status:
       readiness.status === "verified"
         ? "ready"
         : readiness.status === "failed" || readiness.status === "blocked"
           ? "blocked"
           : "pending",
-    value: readiness.status,
+    value: diagnosisAuthBackendReadinessStatusLabel(readiness.status, t),
   };
 }
 
-function diagnosisAuthSummarySetupItem({
-  ldapSetupReadiness,
-  mode,
-  oidcSetupReadiness,
-  weComSetupReadiness,
-}: {
-  ldapSetupReadiness: DiagnosisAuthLDAPSetupReadiness;
-  mode: DiagnosisAuthMode;
-  oidcSetupReadiness?: SettingsOIDCBFFSetupReadiness;
-  weComSetupReadiness: DiagnosisAuthWeComSetupReadiness;
-}): DiagnosisAuthReadinessSummaryItem {
+function diagnosisAuthSummarySetupItem(
+  {
+    ldapSetupReadiness,
+    mode,
+    oidcSetupReadiness,
+    weComSetupReadiness,
+  }: {
+    ldapSetupReadiness: DiagnosisAuthLDAPSetupReadiness;
+    mode: DiagnosisAuthMode;
+    oidcSetupReadiness?: SettingsOIDCBFFSetupReadiness;
+    weComSetupReadiness: DiagnosisAuthWeComSetupReadiness;
+  },
+  t: DiagnosisAuthTranslator,
+): DiagnosisAuthReadinessSummaryItem {
   if (mode === "wecom") {
-    const setupGap = diagnosisAuthWeComSetupGapSummary(weComSetupReadiness, [
-      "backend",
-      "callback",
-      "role_mapping",
-    ]);
+    const setupGap = diagnosisAuthWeComSetupGapSummary(
+      weComSetupReadiness,
+      ["backend", "callback", "role_mapping"],
+      t,
+    );
     const status = diagnosisAuthWeComSetupGroupStatus(weComSetupReadiness, [
       "backend",
       "callback",
@@ -3548,11 +3615,14 @@ function diagnosisAuthSummarySetupItem({
       detail:
         setupGap !== null
           ? setupGap.detail
-          : "Enterprise WeChat callback handling is ready. Provider role metadata is optional because local RBAC controls diagnosis room access.",
+          : t("settings.summary.weComSetupReadyDetail"),
       key: "setup",
-      label: "Callback/RBAC",
+      label: t("settings.summary.callbackRBAC"),
       status,
-      value: setupGap !== null ? setupGap.value : "Callback + RBAC",
+      value:
+        setupGap !== null
+          ? setupGap.value
+          : t("settings.summary.callbackRBACReady"),
     };
   }
   if (mode === "ldap" || mode === "session") {
@@ -3560,7 +3630,7 @@ function diagnosisAuthSummarySetupItem({
       return {
         detail: oidcSetupReadiness.detail,
         key: "setup",
-        label: "IAM OIDC",
+        label: t("provider.iamOIDC"),
         status: oidcSetupReadiness.status,
         value: oidcSetupReadiness.value,
       };
@@ -3568,55 +3638,58 @@ function diagnosisAuthSummarySetupItem({
     return {
       detail: ldapSetupReadiness.detail,
       key: "setup",
-      label: mode === "ldap" ? "LDAP setup" : "Source setup",
+      label:
+        mode === "ldap"
+          ? t("settings.summary.ldapSetup")
+          : t("settings.summary.sourceSetup"),
       status: diagnosisAuthSetupStatus(ldapSetupReadiness.status),
-      value: diagnosisAuthSetupStatusLabel(ldapSetupReadiness.status),
+      value: diagnosisAuthSetupStatusLabel(ldapSetupReadiness.status, t),
     };
   }
   return {
-    detail:
-      "Static bearer auth can support development checks, but operator rollout should use LDAP or Enterprise WeChat.",
+    detail: t("settings.summary.bearerSetupDetail"),
     key: "setup",
-    label: "Operator SSO",
+    label: t("settings.summary.operatorSSO"),
     status: "review",
-    value: "Development only",
+    value: t("settings.summary.developmentOnly"),
   };
 }
 
 function diagnosisAuthSummarySessionItem(
   mode: DiagnosisAuthMode,
   browserSession: DiagnosisBrowserSessionState,
+  t: DiagnosisAuthTranslator,
 ): DiagnosisAuthReadinessSummaryItem {
   if (browserSession.loading) {
     return {
-      detail: "Checking the current OpenClarion browser session.",
+      detail: t("browserSummary.loading"),
       key: "session",
-      label: "Session",
+      label: t("settings.summary.session"),
       status: "pending",
-      value: "Checking",
+      value: t("settings.summary.checking"),
     };
   }
   if (browserSession.status === null) {
     return {
       detail:
         browserSession.message ||
-        "OpenClarion browser session status is unavailable.",
+        t("settings.summary.sessionUnavailableDetail"),
       key: "session",
-      label: "Session",
+      label: t("settings.summary.session"),
       status: "blocked",
-      value: "Unavailable",
+      value: t("roleStatus.unavailableLabel"),
     };
   }
   if (!browserSession.status.authenticated) {
     return {
       detail:
         mode === "ldap"
-          ? "No browser session is active yet. A successful LDAP Check auth will create one."
-          : "No browser session is active. Sign in with IAM before accepting rollout proof.",
+          ? t("settings.summary.noLDAPSession")
+          : t("settings.summary.noIAMSession"),
       key: "session",
-      label: "Session",
+      label: t("settings.summary.session"),
       status: "pending",
-      value: "Not signed in",
+      value: t("settings.summary.notSignedIn"),
     };
   }
   const source = diagnosisAuthBrowserSessionSourceValueLabel(
@@ -3624,20 +3697,19 @@ function diagnosisAuthSummarySessionItem(
   );
   if (mode === "wecom") {
     return {
-      detail:
-        "Enterprise WeChat browser login has been replaced by IAM OIDC. Use IAM sign-in for OpenClarion browser sessions.",
+      detail: t("settings.summary.weComSessionMigrated"),
       key: "session",
-      label: "Session",
+      label: t("settings.summary.session"),
       status: "blocked",
-      value: `${source} session`,
+      value: t("settings.summary.sourceSession", { source }),
     };
   }
   return {
-    detail: diagnosisBrowserSessionStatusDetail(browserSession),
+    detail: diagnosisBrowserSessionStatusDetail(browserSession, t),
     key: "session",
-    label: "Session",
+    label: t("settings.summary.session"),
     status: "ready",
-    value: `${source} ready`,
+    value: t("settings.summary.sourceReady", { source }),
   };
 }
 
@@ -3645,17 +3717,19 @@ function diagnosisAuthSummaryRolloutItem(
   readiness: DiagnosisAuthRolloutReadiness,
   mode: DiagnosisAuthMode,
   browserSession: DiagnosisBrowserSessionState,
+  t: DiagnosisAuthTranslator,
 ): DiagnosisAuthReadinessSummaryItem {
   if (mode === "wecom") {
     const proofGap = diagnosisAuthWeComProofGapSummary(
       readiness,
       browserSession,
+      t,
     );
     if (proofGap !== null) {
       return {
         detail: proofGap.detail,
         key: "rollout",
-        label: "Check auth proof",
+        label: t("settings.summary.checkAuthProof"),
         status: proofGap.status,
         value: proofGap.value,
       };
@@ -3664,11 +3738,14 @@ function diagnosisAuthSummaryRolloutItem(
   return {
     detail: readiness.detail,
     key: "rollout",
-    label: mode === "wecom" ? "Check auth proof" : "Rollout",
+    label:
+      mode === "wecom"
+        ? t("settings.summary.checkAuthProof")
+        : t("settings.summary.rollout"),
     status: readiness.status,
     value:
       readiness.subject.trim() === ""
-        ? diagnosisAuthRolloutStatusLabel(readiness.status)
+        ? diagnosisAuthRolloutStatusLabel(readiness.status, t)
         : readiness.subject,
   };
 }
@@ -3676,20 +3753,19 @@ function diagnosisAuthSummaryRolloutItem(
 function diagnosisAuthWeComProofGapSummary(
   _readiness: DiagnosisAuthRolloutReadiness,
   browserSession: DiagnosisBrowserSessionState,
+  t: DiagnosisAuthTranslator,
 ): { detail: string; status: ProofReadinessStatus; value: string } | null {
   if (browserSession.loading) {
     return {
-      detail:
-        "Check auth proof is waiting for the current OpenClarion browser session check.",
+      detail: t("settings.summary.proofWaitingSession"),
       status: "pending",
-      value: "Checking session",
+      value: t("settings.summary.checkingSession"),
     };
   }
   return {
-    detail:
-      "Enterprise WeChat browser login has been replaced by IAM OIDC. Use IAM sign-in and local RBAC proof for OpenClarion authorization.",
+    detail: t("settings.summary.proofUseIAM"),
     status: "blocked",
-    value: "Use IAM OIDC",
+    value: t("settings.summary.useIAMOIDC"),
   };
 }
 
@@ -3711,26 +3787,30 @@ function diagnosisAuthSummaryStatus(
 function diagnosisAuthSummaryDetail(
   status: ProofReadinessStatus,
   items: DiagnosisAuthReadinessSummaryItem[],
+  t: DiagnosisAuthTranslator,
 ): string {
   if (status === "ready") {
-    return "Operator identity is verified and ready for diagnosis-room rollout proof; room permissions are enforced by local RBAC.";
+    return t("settings.summary.readyDetail");
   }
   const blockingItem =
     items.find((item) => item.status === status) ??
     items.find((item) => item.status !== "ready");
-  return blockingItem?.detail ?? "Review operator authentication readiness.";
+  return blockingItem?.detail ?? t("settings.summary.reviewDetail");
 }
 
-function diagnosisAuthSummaryLabel(status: ProofReadinessStatus): string {
+function diagnosisAuthSummaryLabel(
+  status: ProofReadinessStatus,
+  t: DiagnosisAuthTranslator,
+): string {
   switch (status) {
     case "ready":
-      return "Operator auth ready";
+      return t("settings.summary.readyLabel");
     case "review":
-      return "Operator auth needs review";
+      return t("settings.summary.reviewLabel");
     case "pending":
-      return "Operator auth check pending";
+      return t("settings.summary.pendingLabel");
     case "blocked":
-      return "Operator auth blocked";
+      return t("settings.summary.blockedLabel");
   }
 }
 
@@ -3789,6 +3869,7 @@ function diagnosisAuthWeComSetupGroupStatus(
 function diagnosisAuthWeComSetupGapSummary(
   readiness: DiagnosisAuthWeComSetupReadiness,
   keys: readonly DiagnosisAuthWeComSetupReadinessItem["key"][],
+  t: DiagnosisAuthTranslator,
 ): { detail: string; value: string } | null {
   const items = readiness.items.filter((candidate) =>
     keys.includes(candidate.key),
@@ -3803,46 +3884,53 @@ function diagnosisAuthWeComSetupGapSummary(
   }
   return {
     detail: item.detail || readiness.detail,
-    value: `${item.label} ${diagnosisAuthSetupStatusLabel(item.status).toLowerCase()}`,
+    value: t("settings.summary.itemStatus", {
+      item: item.label,
+      status: item.status,
+    }),
   };
 }
 
 function diagnosisAuthSetupStatusLabel(
   status: DiagnosisAuthLDAPSetupReadiness["status"],
+  t: DiagnosisAuthTranslator,
 ): string {
   switch (status) {
     case "ready":
-      return "Ready";
+      return t("ui.ready");
     case "review":
-      return "Review";
+      return t("settings.summary.reviewStatus");
     case "loading":
-      return "Loading";
+      return t("roleStatus.loadingLabel");
     case "unavailable":
-      return "Unavailable";
+      return t("roleStatus.unavailableLabel");
     case "blocked":
-      return "Blocked";
+      return t("ui.blocked");
   }
 }
 
 export function diagnosisBrowserSessionStatusDetail(
   state: DiagnosisBrowserSessionState,
+  t: DiagnosisAuthTranslator,
 ): string {
   if (state.loading) {
-    return "Checking whether this browser already has an OpenClarion diagnosis session.";
+    return t("settings.browserChecking");
   }
   if (state.status === null) {
-    return `OpenClarion browser session could not be checked: ${state.message}`;
+    return t("settings.browserCheckFailed", { error: state.message });
   }
   if (!state.status.authenticated) {
-    return "No OpenClarion diagnosis session is active in this browser. Sign in with IAM, then run Check auth again.";
+    return t("settings.browserSignedOut");
   }
-  const summary = diagnosisAuthBrowserSessionAuthenticatedSummary({
-    mode: state.status.mode,
-    roleAuthorized: state.status.role_authorized,
-    roles: state.status.roles,
-    subject: state.status.subject,
-  });
-  return `${summary.detail} This session can be used for diagnosis-room identity rollout proof.`;
+  const summary = diagnosisAuthBrowserSessionAuthenticatedSummary(
+    {
+      mode: state.status.mode,
+      roles: state.status.roles,
+      subject: state.status.subject,
+    },
+    t,
+  );
+  return t("settings.browserReady", { detail: summary.detail });
 }
 
 export function diagnosisBrowserSessionNeedsIAMSignIn(
@@ -4929,12 +5017,13 @@ export function workflowLiveProofReadiness(
 
 export function workflowIntegrationReadiness(
   topology: WorkflowTopology,
+  t: DiagnosisAuthTranslator,
   diagnosisAuthProof: DiagnosisAuthLiveProof = defaultDiagnosisAuthLiveProof(),
   localAccessReadiness?: SettingsLocalAccessReadiness,
   currentRBACAccess?: SettingsCurrentRBACAccessSummary,
 ): IntegrationReadiness {
   const items: IntegrationReadinessItem[] = [
-    workflowOperatorAuthReadinessItem(diagnosisAuthProof),
+    workflowOperatorAuthReadinessItem(diagnosisAuthProof, t),
     ...(localAccessReadiness === undefined
       ? []
       : [
@@ -5004,9 +5093,10 @@ function workflowLocalAccessReadinessItem(
 
 function workflowOperatorAuthReadinessItem(
   proof: DiagnosisAuthLiveProof,
+  t: DiagnosisAuthTranslator,
 ): IntegrationReadinessItem {
   const actionHref = "#diagnosis-auth-readiness";
-  const readiness = diagnosisAuthRolloutReadiness(proof);
+  const readiness = diagnosisAuthRolloutReadiness(proof, t);
   if (readiness.status === "ready") {
     return {
       actionHref,
