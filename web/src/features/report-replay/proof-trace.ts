@@ -4,17 +4,20 @@ import type { components } from "@/lib/api/openapi";
 import { autoDiagnosisConfirmedSnapshotCount } from "./replay-response";
 
 type ReportReplayTriggerResponse = components["schemas"]["ReportReplayTriggerResponse"];
-type ReplayProofTraceStatus = "ready" | "review" | "pending" | "blocked";
+export type ReplayProofTraceStatus = "ready" | "review" | "pending" | "blocked";
 
 type ReportReplayProofTraceAction = {
   detail: string;
+  evidenceSnapshotID: number;
   href: string;
+  kind: "create_room" | "review_room";
   label: string;
 };
 
-type ReportReplayProofTraceItem = {
+export type ReportReplayProofTraceItem = {
   actions?: ReportReplayProofTraceAction[];
   detail: string;
+  key: "ai_diagnosis" | "evidence" | "notification_proof" | "trigger";
   status: ReplayProofTraceStatus;
   title: string;
   value: string;
@@ -33,6 +36,7 @@ export function reportReplayProofTrace(result: ReportReplayTriggerResponse): Rep
       detail: result.started
         ? `Report workflow ${result.workflow_id} accepted run ${result.run_id} for correlation ${result.correlation_key}.`
         : `Replay did not start a report workflow for correlation ${result.correlation_key} because no evidence snapshots were available.`,
+      key: "trigger",
       status: result.started ? "ready" : "pending",
       title: "Trigger",
       value: result.started ? "Workflow accepted" : "No workflow"
@@ -42,12 +46,14 @@ export function reportReplayProofTrace(result: ReportReplayTriggerResponse): Rep
         result.snapshots.length > 0
           ? `${result.stats.events_loaded} events loaded, ${result.stats.groups_built} groups built, ${result.stats.snapshots_saved} snapshots saved.`
           : "No evidence snapshots were created for this replay window.",
+      key: "evidence",
       status: result.snapshots.length > 0 ? (result.stats.failed > 0 ? "review" : "ready") : "pending",
       title: "Evidence",
       value: `${result.stats.snapshots_saved} saved`
     },
     {
       detail: replayAutoDiagnosisTraceDetail(autoDiagnosis),
+      key: "ai_diagnosis",
       status: replayAutoDiagnosisTraceStatus(autoDiagnosis),
       title: "AI diagnosis",
       value: replayAutoDiagnosisTraceValue(autoDiagnosis)
@@ -67,6 +73,7 @@ function replayNotificationProofTrace(result: ReportReplayTriggerResponse): Repo
   if (!result.started) {
     return {
       detail: "Notification proof is unavailable until replay starts a report workflow.",
+      key: "notification_proof",
       status: "pending",
       title: "Notification proof",
       value: "Not available"
@@ -78,6 +85,7 @@ function replayNotificationProofTrace(result: ReportReplayTriggerResponse): Repo
     return {
       actions: replayNotificationProofActions(result),
       detail: replayRoomNotificationTraceDetail(autoDiagnosis),
+      key: "notification_proof",
       status: "review",
       title: "Notification proof",
       value: autoDiagnosis.rooms_started === 1 ? "Room timeline" : "Room timelines"
@@ -92,6 +100,7 @@ function replayNotificationProofTrace(result: ReportReplayTriggerResponse): Repo
     const confirmed = autoDiagnosisConfirmedSnapshotCount(autoDiagnosis);
     return {
       detail: `${pluralizeCount(confirmed, "snapshot")} already ${confirmed === 1 ? "has" : "have"} a human-confirmed conclusion, so no new diagnosis room or consultation notification was required.`,
+      key: "notification_proof",
       status: "ready",
       title: "Notification proof",
       value: "Already confirmed"
@@ -103,6 +112,7 @@ function replayNotificationProofTrace(result: ReportReplayTriggerResponse): Repo
       actions: replayNotificationProofActions(result),
       detail:
         "Automatic diagnosis matched this replay, but no room workflow was accepted. Review the AI diagnosis handoff before checking notification delivery.",
+      key: "notification_proof",
       status: "review",
       title: "Notification proof",
       value: "No room timeline"
@@ -112,6 +122,7 @@ function replayNotificationProofTrace(result: ReportReplayTriggerResponse): Repo
   return {
     detail:
       "Replay accepted the report workflow. Verify asynchronous notification delivery in the final report delivery timeline because this response does not include delivery results.",
+    key: "notification_proof",
     status: "pending",
     title: "Notification proof",
     value: "Report delivery"
@@ -126,12 +137,16 @@ function replayNotificationProofActions(result: ReportReplayTriggerResponse): Re
   return [
     ...(autoDiagnosis.rooms ?? []).map((room) => ({
       detail: "Open the automatic diagnosis room and review its notification timeline.",
+      evidenceSnapshotID: room.evidence_snapshot_id,
       href: diagnosisRoomURL(room),
+      kind: "review_room" as const,
       label: `Review room #${room.evidence_snapshot_id}`
     })),
     ...skippedAutoDiagnosisSnapshots(result).map((snapshot) => ({
       detail: "Open the retained evidence snapshot and create a manual diagnosis room.",
+      evidenceSnapshotID: snapshot.id,
       href: diagnosisSnapshotURL(snapshot.id),
+      kind: "create_room" as const,
       label: `Create room #${snapshot.id}`
     }))
   ];

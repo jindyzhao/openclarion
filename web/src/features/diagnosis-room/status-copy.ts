@@ -17,6 +17,7 @@ const statusKeys = {
   error: "error",
   failed: "failed",
   high: "high",
+  in_progress: "in_progress",
   low: "low",
   medium: "medium",
   needs_evidence: "needs_evidence",
