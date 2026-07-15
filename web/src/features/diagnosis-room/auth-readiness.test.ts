@@ -1,33 +1,102 @@
+import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
 
+import en from "../../../messages/en.json";
+
 import {
-  diagnosisAuthActionBlockReason,
-  diagnosisAuthBackendCredentialListLabel,
-  diagnosisAuthBackendModeDisplayItems,
-  diagnosisAuthBackendModeListLabel,
-  diagnosisAuthBackendReadiness,
+  diagnosisAuthActionBlockReason as diagnosisAuthActionBlockReasonWithTranslator,
+  diagnosisAuthBackendCredentialListLabel as diagnosisAuthBackendCredentialListLabelWithTranslator,
+  diagnosisAuthBackendModeDisplayItems as diagnosisAuthBackendModeDisplayItemsWithTranslator,
+  diagnosisAuthBackendModeListLabel as diagnosisAuthBackendModeListLabelWithTranslator,
+  diagnosisAuthBackendReadiness as diagnosisAuthBackendReadinessWithTranslator,
   diagnosisAuthBackendStatusModes,
   diagnosisAuthBackendVerified,
-  diagnosisAuthBrowserSessionAuthenticatedSummary,
-  diagnosisAuthBrowserSessionBlockReason,
-  diagnosisAuthBrowserSessionDisplaySummary,
+  diagnosisAuthBrowserSessionAuthenticatedSummary as diagnosisAuthBrowserSessionAuthenticatedSummaryWithTranslator,
+  diagnosisAuthBrowserSessionBlockReason as diagnosisAuthBrowserSessionBlockReasonWithTranslator,
+  diagnosisAuthBrowserSessionDisplaySummary as diagnosisAuthBrowserSessionDisplaySummaryWithTranslator,
   diagnosisAuthBrowserSessionShouldClearAfterError,
-  diagnosisAuthCheckSuccessFeedback,
-  diagnosisAuthWeComSetupReadiness,
-  diagnosisAuthWeComQuickSignInPrompt,
-  diagnosisAuthCheckBlockReason,
+  diagnosisAuthCheckSuccessFeedback as diagnosisAuthCheckSuccessFeedbackWithTranslator,
+  diagnosisAuthWeComSetupReadiness as diagnosisAuthWeComSetupReadinessWithTranslator,
+  diagnosisAuthCheckBlockReason as diagnosisAuthCheckBlockReasonWithTranslator,
   diagnosisAuthCoercedMode,
   diagnosisAutoBrowserSessionConnectionPlan,
   diagnosisAutoBrowserSessionCreateRoomPlan,
   diagnosisAutoBrowserSessionAuthCheckPlan,
   diagnosisAuthInputFieldsChanged,
-  diagnosisAuthInputReadiness,
-  diagnosisAuthLDAPBrowserSessionPromotionNotice,
-  diagnosisAuthLDAPSetupReadiness,
-  diagnosisAuthModeOptions,
-  diagnosisAuthRoleMappingGuidance,
-  diagnosisAuthRolloutReadiness,
+  diagnosisAuthInputReadiness as diagnosisAuthInputReadinessWithTranslator,
+  diagnosisAuthLDAPBrowserSessionPromotionNotice as diagnosisAuthLDAPBrowserSessionPromotionNoticeWithTranslator,
+  diagnosisAuthLDAPSetupReadiness as diagnosisAuthLDAPSetupReadinessWithTranslator,
+  diagnosisAuthModeOptions as diagnosisAuthModeOptionsWithTranslator,
+  diagnosisAuthRoleMappingGuidance as diagnosisAuthRoleMappingGuidanceWithTranslator,
+  diagnosisAuthRolloutReadiness as diagnosisAuthRolloutReadinessWithTranslator,
+  type DiagnosisAuthTranslator,
 } from "./auth-readiness";
+
+const tEn = createTranslator({
+  locale: "en",
+  messages: en,
+  namespace: "DiagnosisAuth",
+});
+
+function bindAuthTranslator<TArgs extends unknown[], TResult>(
+  fn: (...args: [...TArgs, DiagnosisAuthTranslator]) => TResult,
+): (...args: TArgs) => TResult {
+  return (...args) => fn(...args, tEn);
+}
+
+const diagnosisAuthActionBlockReason = bindAuthTranslator(
+  diagnosisAuthActionBlockReasonWithTranslator,
+);
+const diagnosisAuthBackendCredentialListLabel = bindAuthTranslator(
+  diagnosisAuthBackendCredentialListLabelWithTranslator,
+);
+const diagnosisAuthBackendModeDisplayItems = bindAuthTranslator(
+  diagnosisAuthBackendModeDisplayItemsWithTranslator,
+);
+const diagnosisAuthBackendModeListLabel = bindAuthTranslator(
+  diagnosisAuthBackendModeListLabelWithTranslator,
+);
+const diagnosisAuthBackendReadiness = bindAuthTranslator(
+  diagnosisAuthBackendReadinessWithTranslator,
+);
+const diagnosisAuthBrowserSessionAuthenticatedSummary = bindAuthTranslator(
+  diagnosisAuthBrowserSessionAuthenticatedSummaryWithTranslator,
+);
+const diagnosisAuthBrowserSessionBlockReason = bindAuthTranslator(
+  diagnosisAuthBrowserSessionBlockReasonWithTranslator,
+);
+const diagnosisAuthBrowserSessionDisplaySummary = bindAuthTranslator(
+  diagnosisAuthBrowserSessionDisplaySummaryWithTranslator,
+);
+const diagnosisAuthCheckSuccessFeedback = bindAuthTranslator(
+  diagnosisAuthCheckSuccessFeedbackWithTranslator,
+);
+const diagnosisAuthCheckBlockReason = bindAuthTranslator(
+  diagnosisAuthCheckBlockReasonWithTranslator,
+);
+const diagnosisAuthInputReadiness = bindAuthTranslator(
+  diagnosisAuthInputReadinessWithTranslator,
+);
+const diagnosisAuthLDAPBrowserSessionPromotionNotice = bindAuthTranslator(
+  diagnosisAuthLDAPBrowserSessionPromotionNoticeWithTranslator,
+);
+const diagnosisAuthModeOptions = bindAuthTranslator(
+  diagnosisAuthModeOptionsWithTranslator,
+);
+const diagnosisAuthRoleMappingGuidance = bindAuthTranslator(
+  diagnosisAuthRoleMappingGuidanceWithTranslator,
+);
+const diagnosisAuthRolloutReadiness = bindAuthTranslator(
+  diagnosisAuthRolloutReadinessWithTranslator,
+);
+const diagnosisAuthLDAPSetupReadiness = (
+  status: Parameters<typeof diagnosisAuthLDAPSetupReadinessWithTranslator>[0],
+  loading = false,
+) => diagnosisAuthLDAPSetupReadinessWithTranslator(status, tEn, loading);
+const diagnosisAuthWeComSetupReadiness = (
+  status: Parameters<typeof diagnosisAuthWeComSetupReadinessWithTranslator>[0],
+  loading = false,
+) => diagnosisAuthWeComSetupReadinessWithTranslator(status, tEn, loading);
 
 describe("diagnosis auth input readiness", () => {
   it("describes LDAP browser-session promotion without storing passwords", () => {
@@ -292,54 +361,6 @@ describe("diagnosis LDAP setup readiness", () => {
 });
 
 describe("diagnosis Enterprise WeChat collaboration readiness", () => {
-  it("does not offer a direct WeCom sign-in prompt after IAM migration", () => {
-    expect(
-      diagnosisAuthWeComQuickSignInPrompt({
-        backendStatus: {
-          configured: true,
-          mode: "wecom",
-          supportedModes: ["ldap", "wecom"],
-        },
-        selectedModes: ["ldap"],
-      }),
-    ).toBeNull();
-
-    expect(
-      diagnosisAuthWeComQuickSignInPrompt({
-        backendStatus: {
-          configured: true,
-          mode: "wecom",
-          supportedModes: ["ldap", "wecom"],
-        },
-        selectedModes: ["ldap", "bearer"],
-      }),
-    ).toBeNull();
-  });
-
-  it("hides the quick sign-in prompt when WeCom is selected or unavailable", () => {
-    expect(
-      diagnosisAuthWeComQuickSignInPrompt({
-        backendStatus: {
-          configured: true,
-          mode: "wecom",
-          supportedModes: ["ldap", "wecom"],
-        },
-        selectedModes: ["wecom", "ldap"],
-      }),
-    ).toBeNull();
-
-    expect(
-      diagnosisAuthWeComQuickSignInPrompt({
-        backendStatus: {
-          configured: true,
-          mode: "ldap",
-          supportedModes: ["ldap"],
-        },
-        selectedModes: ["ldap"],
-      }),
-    ).toBeNull();
-  });
-
   it("blocks legacy Enterprise WeChat browser authentication after IAM migration", () => {
     const readiness = diagnosisAuthWeComSetupReadiness({
       configured: true,
@@ -687,11 +708,10 @@ describe("diagnosis auth backend readiness", () => {
     });
   });
 
-  it("summarizes authenticated browser sessions by role authorization", () => {
+  it("summarizes authenticated browser sessions by source and local roles", () => {
     expect(
       diagnosisAuthBrowserSessionAuthenticatedSummary({
         mode: "wecom",
-        roleAuthorized: true,
         roles: ["owner"],
         subject: "wecom-user-1",
       }),
@@ -705,7 +725,6 @@ describe("diagnosis auth backend readiness", () => {
       diagnosisAuthBrowserSessionAuthenticatedSummary({
         expectedMode: "wecom",
         mode: "ldap",
-        roleAuthorized: true,
         roles: ["owner"],
         subject: "operator-ldap",
       }),
@@ -719,7 +738,6 @@ describe("diagnosis auth backend readiness", () => {
       diagnosisAuthBrowserSessionAuthenticatedSummary({
         expectedMode: "wecom",
         mode: "wecom",
-        roleAuthorized: false,
         roles: [],
         subject: "wecom-user-2",
       }),
@@ -731,7 +749,6 @@ describe("diagnosis auth backend readiness", () => {
 
     expect(
       diagnosisAuthBrowserSessionAuthenticatedSummary({
-        roleAuthorized: false,
         roles: [],
         subject: "wecom-user-2",
       }),
@@ -810,7 +827,6 @@ describe("diagnosis auth backend readiness", () => {
         expectedMode: "wecom",
         loading: false,
         mode: "wecom",
-        roleAuthorized: true,
         roles: ["owner"],
         subject: "wecom-user-1",
         unauthenticatedDetail,
@@ -859,8 +875,6 @@ describe("diagnosis auth backend readiness", () => {
   it("treats successful backend auth as identity proof before local RBAC", () => {
     expect(
       diagnosisAuthCheckSuccessFeedback({
-        mode: "wecom",
-        roleAuthorized: false,
         roles: [],
         subject: "wecom-user-2",
       }),
@@ -875,8 +889,6 @@ describe("diagnosis auth backend readiness", () => {
 
     expect(
       diagnosisAuthCheckSuccessFeedback({
-        mode: "ldap",
-        roleAuthorized: true,
         roles: ["owner"],
         subject: "operator-1",
       }),

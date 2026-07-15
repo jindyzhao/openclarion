@@ -83,8 +83,8 @@ import {
   diagnosisAuthBackendModeDisplayItems,
   diagnosisAuthBackendModeListLabel,
   diagnosisAuthBackendReadiness,
+  diagnosisAuthBackendReadinessStatusLabel,
   diagnosisAuthBackendStatusModes,
-  diagnosisAuthWeComQuickSignInPrompt,
   diagnosisAuthCheckSuccessFeedback,
   diagnosisAuthLDAPBrowserSessionPromotionNotice,
   diagnosisAuthBrowserSessionDisplaySummary,
@@ -96,12 +96,15 @@ import {
   diagnosisAutoBrowserSessionAuthCheckPlan,
   diagnosisAuthInputFieldsChanged,
   diagnosisAuthInputReadiness,
+  diagnosisAuthInputReadinessStatusLabel,
   diagnosisAuthModeOptions,
+  diagnosisAuthOIDCBFFReadinessDetail,
   diagnosisAuthRoleMappingStatusReadiness,
   type DiagnosisAuthBackendCheck,
   type DiagnosisAuthBackendStatusSnapshot,
   type DiagnosisAuthMode,
   type DiagnosisAuthInputValues,
+  type DiagnosisAuthTranslator,
   diagnosisAutoBrowserSessionCreateRoomPlan,
 } from "./auth-readiness";
 import { DiagnosisAuthModeSelector } from "./auth-mode-selector";
@@ -456,20 +459,26 @@ function DiagnosisAuthReadinessPreview({
   values: DiagnosisAuthInputValues;
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
-  const readiness = diagnosisAuthInputReadiness(values);
+  const authT = useTranslations("DiagnosisAuth");
+  const readiness = diagnosisAuthInputReadiness(values, authT);
   const displayedLastCheck =
     lastCheck !== null && lastCheck.mode === readiness.mode ? lastCheck : null;
-  const backendReadiness = diagnosisAuthBackendReadiness({
-    backendStatus,
-    checking,
-    expectedSubject,
-    inputRevision,
-    lastCheck: displayedLastCheck,
-    values,
-  });
+  const backendReadiness = diagnosisAuthBackendReadiness(
+    {
+      backendStatus,
+      checking,
+      expectedSubject,
+      inputRevision,
+      lastCheck: displayedLastCheck,
+      values,
+    },
+    authT,
+  );
   const backendAuthStatus = authStatus?.ok === true ? authStatus.data : null;
-  const supportedModeItems =
-    diagnosisAuthBackendModeDisplayItems(backendAuthStatus);
+  const supportedModeItems = diagnosisAuthBackendModeDisplayItems(
+    backendAuthStatus,
+    authT,
+  );
   const roles =
     displayedLastCheck === null || displayedLastCheck.roles.length === 0
       ? t("noRoles")
@@ -482,21 +491,26 @@ function DiagnosisAuthReadinessPreview({
       <Space direction="vertical" size={8}>
         <Space wrap>
           <Tag color={authReadinessTagColor(readiness.status)}>
-            {authReadinessStatusLabel(readiness.status)}
+            {diagnosisAuthInputReadinessStatusLabel(readiness.status, authT)}
           </Tag>
           <Tag color={diagnosisAuthModeTagColor(readiness.mode)}>
-            {diagnosisAuthModeLabel(readiness.mode)}
+            {diagnosisAuthModeLabel(readiness.mode, authT)}
           </Tag>
-          <Tag color={backendReadiness.color}>{backendReadiness.status}</Tag>
+          <Tag color={backendReadiness.color}>
+            {diagnosisAuthBackendReadinessStatusLabel(
+              backendReadiness.status,
+              authT,
+            )}
+          </Tag>
           <Tag
             color={diagnosisAuthStatusTagColor(authStatus, authStatusLoading)}
           >
-            {diagnosisAuthStatusTagLabel(authStatus, authStatusLoading)}
+            {diagnosisAuthStatusTagLabel(authStatus, authT, authStatusLoading)}
           </Tag>
         </Space>
         <Typography.Text strong>{readiness.label}</Typography.Text>
         <Typography.Text type="secondary">
-          {diagnosisAuthStatusDetail(authStatus, authStatusLoading)}
+          {diagnosisAuthStatusDetail(authStatus, authT, authStatusLoading)}
         </Typography.Text>
         <DiagnosisAuthRoleMappingSummary
           loading={authStatusLoading ?? false}
@@ -548,7 +562,12 @@ function DiagnosisAuthRoleMappingSummary({
   loading: boolean;
   status: DiagnosisAuthStatus | null;
 }) {
-  const readiness = diagnosisAuthRoleMappingStatusReadiness(status, loading);
+  const authT = useTranslations("DiagnosisAuth");
+  const readiness = diagnosisAuthRoleMappingStatusReadiness(
+    status,
+    authT,
+    loading,
+  );
   return (
     <Space direction="vertical" size={4}>
       <Tag color={readiness.color}>{readiness.label}</Tag>
@@ -585,18 +604,21 @@ function DiagnosisBrowserSessionActions({
   logoutBusy: boolean;
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
+  const authT = useTranslations("DiagnosisAuth");
   const activeSession =
     session?.ok === true && session.data.authenticated ? session.data : null;
-  const sessionDisplay = diagnosisAuthBrowserSessionDisplaySummary({
-    authenticated: activeSession !== null,
-    checkFailed: session?.ok === false,
-    loading: sessionLoading,
-    mode: activeSession?.mode,
-    roleAuthorized: activeSession?.role_authorized,
-    roles: activeSession?.roles ?? [],
-    subject: activeSession?.subject ?? "",
-    unauthenticatedDetail: t("noBrowserSession"),
-  });
+  const sessionDisplay = diagnosisAuthBrowserSessionDisplaySummary(
+    {
+      authenticated: activeSession !== null,
+      checkFailed: session?.ok === false,
+      loading: sessionLoading,
+      mode: activeSession?.mode,
+      roles: activeSession?.roles ?? [],
+      subject: activeSession?.subject ?? "",
+      unauthenticatedDetail: t("noBrowserSession"),
+    },
+    authT,
+  );
   return (
     <Alert
       className="diagnosis-browser-session-alert"
@@ -663,7 +685,8 @@ function DiagnosisBrowserSessionActions({
 }
 
 function LDAPBrowserSessionPromotionNotice() {
-  const notice = diagnosisAuthLDAPBrowserSessionPromotionNotice();
+  const authT = useTranslations("DiagnosisAuth");
+  const notice = diagnosisAuthLDAPBrowserSessionPromotionNotice(authT);
   return (
     <Alert
       description={notice.detail}
@@ -702,20 +725,23 @@ function DiagnosisWeComLoginActions({
   logoutBusy: boolean;
 }) {
   const t = useTranslations("DiagnosisRoom.workspace");
+  const authT = useTranslations("DiagnosisAuth");
   const activeSession =
     session?.ok === true && session.data.authenticated ? session.data : null;
   const sessionCheckFailed = session?.ok === false;
   const migrationDetail = t("iamMigrationDetail");
-  const sessionDisplay = diagnosisAuthBrowserSessionDisplaySummary({
-    authenticated: activeSession !== null,
-    checkFailed: sessionCheckFailed,
-    loading: sessionLoading,
-    mode: activeSession?.mode,
-    roleAuthorized: activeSession?.role_authorized,
-    roles: activeSession?.roles ?? [],
-    subject: activeSession?.subject ?? "",
-    unauthenticatedDetail: migrationDetail,
-  });
+  const sessionDisplay = diagnosisAuthBrowserSessionDisplaySummary(
+    {
+      authenticated: activeSession !== null,
+      checkFailed: sessionCheckFailed,
+      loading: sessionLoading,
+      mode: activeSession?.mode,
+      roles: activeSession?.roles ?? [],
+      subject: activeSession?.subject ?? "",
+      unauthenticatedDetail: migrationDetail,
+    },
+    authT,
+  );
   const loginDescription =
     sessionDisplay.active || sessionLoading || sessionCheckFailed ? (
       <BrowserSessionDescription
@@ -844,16 +870,19 @@ function diagnosisAuthModeTagColor(mode: DiagnosisAuthMode): string {
   }
 }
 
-function diagnosisAuthModeLabel(mode: DiagnosisAuthMode): string {
+function diagnosisAuthModeLabel(
+  mode: DiagnosisAuthMode,
+  t: DiagnosisAuthTranslator,
+): string {
   switch (mode) {
     case "ldap":
-      return "LDAP";
+      return t("ui.modeLDAP");
     case "bearer":
-      return "Bearer";
+      return t("ui.modeBearer");
     case "session":
-      return "Browser session";
+      return t("ui.modeSession");
     case "wecom":
-      return "WeCom";
+      return t("ui.modeWeCom");
   }
 }
 
@@ -896,102 +925,80 @@ function diagnosisAuthStatusTagColor(
 
 function diagnosisAuthStatusTagLabel(
   result: ApiResult<DiagnosisAuthStatus> | undefined,
+  t: DiagnosisAuthTranslator,
   loading = false,
 ): string {
   if (loading) {
-    return "Backend loading";
+    return t("ui.backendLoading");
   }
   if (result === undefined) {
-    return "Backend unknown";
+    return t("ui.backendUnknown");
   }
   if (!result.ok) {
-    return "Backend unavailable";
+    return t("ui.backendUnavailable");
   }
-  const modesLabel = diagnosisAuthBackendModeListLabel(result.data);
+  const modesLabel = diagnosisAuthBackendModeListLabel(result.data, t);
   if (modesLabel !== "") {
-    return `Backend ${modesLabel}`;
+    return t("ui.backendMode", { modes: modesLabel });
   }
   switch (result.data.mode) {
     case "ldap":
-      return "Backend LDAP";
+      return t("ui.backendLDAP");
     case "static":
-      return "Backend static";
+      return t("ui.backendStatic");
     case "oidc":
-      return "Backend OIDC";
+      return t("ui.backendOIDC");
     case "unknown":
-      return "Backend unknown";
+      return t("ui.backendUnknown");
     case "none":
-      return "Backend not configured";
+      return t("ui.backendNotConfigured");
   }
 }
 
 function diagnosisAuthStatusDetail(
   result: ApiResult<DiagnosisAuthStatus> | undefined,
+  t: DiagnosisAuthTranslator,
   loading = false,
 ): string {
   if (loading) {
-    return "Checking backend diagnosis auth wiring without sending credentials.";
+    return t("ui.statusChecking");
   }
   if (result === undefined) {
-    return "Backend diagnosis auth wiring has not been loaded.";
+    return t("ui.statusNotLoaded");
   }
   if (!result.ok) {
-    return `Backend diagnosis auth wiring could not be loaded: ${result.error.message}`;
+    return t("ui.statusLoadFailed", { error: result.error.message });
   }
   if (!result.data.configured || result.data.mode === "none") {
-    return "Diagnosis auth is not configured in the running backend.";
+    return t("backend.notConfigured");
   }
   const supportedModes = diagnosisAuthBackendStatusModes(result.data);
   if (supportedModes.length > 1) {
-    return diagnosisAuthMixedStatusDetail(result.data);
+    return diagnosisAuthMixedStatusDetail(result.data, t);
   }
   switch (result.data.mode) {
     case "ldap":
-      return "The running backend expects LDAP Basic credentials.";
+      return t("ui.statusLDAP");
     case "static":
-      return "The running backend expects a static Bearer token.";
+      return t("ui.statusStatic");
     case "oidc":
       if (result.data.oidc_bff?.status === "blocked") {
-        return `The running backend expects IAM OIDC authentication, but browser IAM sign-in is not ready: ${diagnosisOIDCBFFReadinessDetail(result.data.oidc_bff)}.`;
+        return t("ui.statusOIDCBlocked", {
+          detail: diagnosisAuthOIDCBFFReadinessDetail(result.data.oidc_bff, t),
+        });
       }
-      return "The running backend expects IAM OIDC authentication. Use Sign in with IAM to establish an OpenClarion browser session before creating or connecting to a diagnosis room.";
+      return t("ui.statusOIDCReady");
     case "unknown":
-      return "The running backend has an auth provider, but it did not report a named mode.";
+      return t("ui.statusUnknown");
   }
 }
 
-function diagnosisAuthMixedStatusDetail(status: DiagnosisAuthStatus): string {
-  const credentialLabel = diagnosisAuthBackendCredentialListLabel(status);
-  return `The running backend accepts ${credentialLabel}.`;
-}
-
-function diagnosisOIDCBFFReadinessDetail(
-  readiness: NonNullable<DiagnosisAuthStatus["oidc_bff"]>,
+function diagnosisAuthMixedStatusDetail(
+  status: DiagnosisAuthStatus,
+  t: DiagnosisAuthTranslator,
 ): string {
-  if (readiness.status === "ready") {
-    return "OIDC browser BFF prerequisites are configured";
-  }
-  const labels = readiness.missing.map((key) => {
-    switch (key) {
-      case "client_auth_method":
-        return "client authentication method";
-      case "client_id":
-        return "client ID";
-      case "client_secret":
-        return "client secret";
-      case "issuer":
-        return "issuer";
-      case "openid_scope":
-        return "openid scope";
-      case "pkce":
-        return "PKCE for public client";
-      case "session_signing_key":
-        return "browser session signing key";
-      case "state_signing_key":
-        return "state signing key";
-    }
-  });
-  return `missing ${labels.join(", ")}`;
+  const credentialLabel = diagnosisAuthBackendCredentialListLabel(status, t);
+  return t("ui.statusMixed", { credentials: credentialLabel });
 }
 
 function diagnosisAuthBackendStatusSnapshot(
@@ -1005,19 +1012,6 @@ function diagnosisAuthBackendStatusSnapshot(
     mode: result.data.mode,
     supportedModes: result.data.supported_modes,
   };
-}
-
-function authReadinessStatusLabel(
-  status: ReturnType<typeof diagnosisAuthInputReadiness>["status"],
-): string {
-  switch (status) {
-    case "ready":
-      return "Ready";
-    case "pending":
-      return "Pending";
-    case "blocked":
-      return "Blocked";
-  }
 }
 
 type SupplementalEvidenceFormValues = {
@@ -1161,6 +1155,7 @@ export function DiagnosisRoomView({
   const locale = useLocale();
   const diagnosisRoomT = useTranslations("DiagnosisRoom");
   const t = useTranslations("DiagnosisRoom.workspace");
+  const authT = useTranslations("DiagnosisAuth");
   const queryClient = useQueryClient();
   const pathname = usePathname();
   const router = useRouter();
@@ -1541,20 +1536,8 @@ export function DiagnosisRoomView({
     ""
   ).trim();
   const authModeOptions = useMemo(
-    () => diagnosisAuthModeOptions(authBackendStatusSnapshot),
-    [authBackendStatusSnapshot],
-  );
-  const weComQuickSignInPrompt = useMemo(
-    () =>
-      diagnosisAuthWeComQuickSignInPrompt({
-        backendStatus: authBackendStatusSnapshot,
-        selectedModes: [watchedCreateAuthMode, watchedConnectionAuthMode],
-      }),
-    [
-      authBackendStatusSnapshot,
-      watchedConnectionAuthMode,
-      watchedCreateAuthMode,
-    ],
+    () => diagnosisAuthModeOptions(authBackendStatusSnapshot, authT),
+    [authBackendStatusSnapshot, authT],
   );
   useEffect(() => {
     if (
@@ -1986,30 +1969,39 @@ export function DiagnosisRoomView({
     ldapPassword: watchedConnectionLDAPPassword,
     ldapUsername: watchedConnectionLDAPUsername,
   });
-  const createBackendAuthCheckDisabledReason = diagnosisAuthCheckBlockReason({
-    backendStatus: authBackendStatusSnapshot,
-    values: createAuthValues,
-  });
+  const createBackendAuthCheckDisabledReason = diagnosisAuthCheckBlockReason(
+    {
+      backendStatus: authBackendStatusSnapshot,
+      values: createAuthValues,
+    },
+    authT,
+  );
   const createAuthCheckDisabledReason =
     createBackendAuthCheckDisabledReason ||
     browserSessionBlockReason(createAuthValues, "check");
   const connectionBackendAuthCheckDisabledReason =
-    diagnosisAuthCheckBlockReason({
-      backendStatus: authBackendStatusSnapshot,
-      values: connectionAuthValues,
-    });
+    diagnosisAuthCheckBlockReason(
+      {
+        backendStatus: authBackendStatusSnapshot,
+        values: connectionAuthValues,
+      },
+      authT,
+    );
   const connectionAuthCheckDisabledReason =
     connectionBackendAuthCheckDisabledReason ||
     browserSessionBlockReason(connectionAuthValues, "check");
-  const createBackendSubmitDisabledReason = diagnosisAuthActionBlockReason({
-    action: "create",
-    backendStatus: authBackendStatusSnapshot,
-    checking: createAuthCheckPending,
-    expectedSubject: authenticatedBrowserSessionSubject,
-    inputRevision: authCheckRevision.create,
-    lastCheck: lastAuthCheck?.context === "create" ? lastAuthCheck : null,
-    values: createAuthValues,
-  });
+  const createBackendSubmitDisabledReason = diagnosisAuthActionBlockReason(
+    {
+      action: "create",
+      backendStatus: authBackendStatusSnapshot,
+      checking: createAuthCheckPending,
+      expectedSubject: authenticatedBrowserSessionSubject,
+      inputRevision: authCheckRevision.create,
+      lastCheck: lastAuthCheck?.context === "create" ? lastAuthCheck : null,
+      values: createAuthValues,
+    },
+    authT,
+  );
   const createSubmitDisabledReason =
     createBackendSubmitDisabledReason ||
     browserSessionBlockReason(createAuthValues, "action");
@@ -2038,15 +2030,18 @@ export function DiagnosisRoomView({
       : createNotificationChannelBlockReason !== ""
         ? createNotificationChannelBlockReason
         : createRBACBlockReason;
-  const connectionBackendAuthBlockReason = diagnosisAuthActionBlockReason({
-    action: "connect",
-    backendStatus: authBackendStatusSnapshot,
-    checking: connectionAuthCheckPending,
-    expectedSubject: authenticatedBrowserSessionSubject,
-    inputRevision: authCheckRevision.connection,
-    lastCheck: lastAuthCheck?.context === "connection" ? lastAuthCheck : null,
-    values: connectionAuthValues,
-  });
+  const connectionBackendAuthBlockReason = diagnosisAuthActionBlockReason(
+    {
+      action: "connect",
+      backendStatus: authBackendStatusSnapshot,
+      checking: connectionAuthCheckPending,
+      expectedSubject: authenticatedBrowserSessionSubject,
+      inputRevision: authCheckRevision.connection,
+      lastCheck: lastAuthCheck?.context === "connection" ? lastAuthCheck : null,
+      values: connectionAuthValues,
+    },
+    authT,
+  );
   const connectionAuthBlockReason =
     connectionBackendAuthBlockReason ||
     browserSessionBlockReason(connectionAuthValues, "action");
@@ -2101,7 +2096,7 @@ export function DiagnosisRoomView({
           checkedAt: result.checked_at,
           context: plan.context,
           inputRevision: plan.inputRevision,
-          message: `Authenticated as ${result.subject}.`,
+          message: "",
           mode: plan.values.authMode ?? "session",
           roleAuthorized: result.role_authorized,
           roles: result.roles,
@@ -2259,10 +2254,13 @@ export function DiagnosisRoomView({
     const mode = values.authMode ?? "session";
     const inputRevision = authCheckRevision[context];
     const blockReason =
-      diagnosisAuthCheckBlockReason({
-        backendStatus: authBackendStatusSnapshot,
-        values,
-      }) || browserSessionBlockReason(values, "check");
+      diagnosisAuthCheckBlockReason(
+        {
+          backendStatus: authBackendStatusSnapshot,
+          values,
+        },
+        authT,
+      ) || browserSessionBlockReason(values, "check");
     if (blockReason !== "") {
       pushLog("error", blockReason);
       message.error(blockReason);
@@ -2272,25 +2270,27 @@ export function DiagnosisRoomView({
       diagnosisAuthorizationFromFormValues(values),
     );
     if (authorization === null) {
-      pushLog("error", "Authorization credentials are required.");
-      message.error("Authorization credentials are required.");
+      const errorMessage = authT("action.credentialsRequired");
+      pushLog("error", errorMessage);
+      message.error(errorMessage);
       return;
     }
 
     setAuthCheckContext(context);
     try {
       const result = await authCheckMutation.mutateAsync(authorization);
-      const feedback = diagnosisAuthCheckSuccessFeedback({
-        mode,
-        roleAuthorized: result.role_authorized,
-        roles: result.roles,
-        subject: result.subject,
-      });
+      const feedback = diagnosisAuthCheckSuccessFeedback(
+        {
+          roles: result.roles,
+          subject: result.subject,
+        },
+        authT,
+      );
       setLastAuthCheck({
         checkedAt: result.checked_at,
         context,
         inputRevision,
-        message: `Authenticated as ${result.subject}.`,
+        message: "",
         mode,
         roleAuthorized: result.role_authorized,
         roles: result.roles,
@@ -2373,7 +2373,7 @@ export function DiagnosisRoomView({
         checkedAt: session.checked_at,
         context,
         inputRevision,
-        message: `Authenticated as ${session.subject}.`,
+        message: "",
         mode: "session",
         roleAuthorized: session.role_authorized,
         roles: session.roles,
@@ -2395,7 +2395,7 @@ export function DiagnosisRoomView({
         checkedAt: result.checked_at,
         context,
         inputRevision,
-        message: `Authenticated as ${result.subject}.`,
+        message: "",
         mode: "ldap",
         roleAuthorized: result.role_authorized,
         roles: result.roles,
@@ -2511,23 +2511,26 @@ export function DiagnosisRoomView({
     values: AuthFormValues,
     intent: "action" | "check",
   ): string {
-    return diagnosisAuthBrowserSessionBlockReason({
-      intent,
-      sessionAuthenticated:
-        diagnosisBrowserSessionQuery.data?.ok === true &&
-        diagnosisBrowserSessionQuery.data.data.authenticated,
-      sessionLoading: diagnosisBrowserSessionQuery.isPending,
-      sessionMode:
-        diagnosisBrowserSessionQuery.data?.ok === true &&
-        diagnosisBrowserSessionQuery.data.data.authenticated
-          ? diagnosisBrowserSessionQuery.data.data.mode
-          : undefined,
-      sessionStatusAvailable:
-        diagnosisBrowserSessionQuery.data === undefined
-          ? diagnosisBrowserSessionQuery.isPending
-          : diagnosisBrowserSessionQuery.data.ok,
-      values,
-    });
+    return diagnosisAuthBrowserSessionBlockReason(
+      {
+        intent,
+        sessionAuthenticated:
+          diagnosisBrowserSessionQuery.data?.ok === true &&
+          diagnosisBrowserSessionQuery.data.data.authenticated,
+        sessionLoading: diagnosisBrowserSessionQuery.isPending,
+        sessionMode:
+          diagnosisBrowserSessionQuery.data?.ok === true &&
+          diagnosisBrowserSessionQuery.data.data.authenticated
+            ? diagnosisBrowserSessionQuery.data.data.mode
+            : undefined,
+        sessionStatusAvailable:
+          diagnosisBrowserSessionQuery.data === undefined
+            ? diagnosisBrowserSessionQuery.isPending
+            : diagnosisBrowserSessionQuery.data.ok,
+        values,
+      },
+      authT,
+    );
   }
 
   function authCheckBlockReasonForContext(
@@ -2535,18 +2538,21 @@ export function DiagnosisRoomView({
     context: AuthCheckContext,
   ): string {
     return (
-      diagnosisAuthActionBlockReason({
-        action: context === "create" ? "create" : "connect",
-        backendStatus: authBackendStatusSnapshot,
-        checking:
-          authCheckContext === context &&
-          (authCheckMutation.isPending ||
-            createBrowserSessionMutation.isPending),
-        expectedSubject: authenticatedBrowserSessionSubject,
-        inputRevision: authCheckRevision[context],
-        lastCheck: lastAuthCheck?.context === context ? lastAuthCheck : null,
-        values,
-      }) || browserSessionBlockReason(values, "action")
+      diagnosisAuthActionBlockReason(
+        {
+          action: context === "create" ? "create" : "connect",
+          backendStatus: authBackendStatusSnapshot,
+          checking:
+            authCheckContext === context &&
+            (authCheckMutation.isPending ||
+              createBrowserSessionMutation.isPending),
+          expectedSubject: authenticatedBrowserSessionSubject,
+          inputRevision: authCheckRevision[context],
+          lastCheck: lastAuthCheck?.context === context ? lastAuthCheck : null,
+          values,
+        },
+        authT,
+      ) || browserSessionBlockReason(values, "action")
     );
   }
 
@@ -4052,23 +4058,6 @@ export function DiagnosisRoomView({
           onClose={() => setServerError(null)}
           showIcon
           type={serverErrorDisplay.type}
-        />
-      ) : null}
-
-      {weComQuickSignInPrompt !== null ? (
-        <Alert
-          action={
-            <Space wrap>
-              <Button href={oidcLoginHref} icon={<LoginOutlined />} type="primary">
-                {t("signInIAM")}
-              </Button>
-            </Space>
-          }
-          className="diagnosis-channel-setup-alert"
-          description={t("iamRequiredDetail")}
-          message={t("iamRequired")}
-          showIcon
-          type="info"
         />
       ) : null}
 

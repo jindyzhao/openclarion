@@ -1,5 +1,12 @@
+import type { useTranslations } from "next-intl";
+
 import { containsControlOrWhitespace } from "../settings/validation";
+import type { DiagnosisAuthStatus } from "./transport";
 import type { DiagnosisApprovalMode } from "./types";
+
+export type DiagnosisAuthTranslator = ReturnType<
+  typeof useTranslations<"DiagnosisAuth">
+>;
 
 export type DiagnosisAuthMode = "ldap" | "bearer" | "session" | "wecom";
 export type DiagnosisAuthBackendMode =
@@ -22,6 +29,21 @@ export type DiagnosisAuthInputReadiness = {
   label: string;
   mode: DiagnosisAuthMode;
   status: "ready" | "pending" | "blocked";
+};
+
+type DiagnosisAuthInputIssue =
+  | "bearer_invalid"
+  | "bearer_required"
+  | "ldap_password_invalid"
+  | "ldap_required"
+  | "ldap_username_invalid"
+  | "wecom_migrated";
+
+type DiagnosisAuthInputState = Pick<
+  DiagnosisAuthInputReadiness,
+  "mode" | "status"
+> & {
+  issue: DiagnosisAuthInputIssue | null;
 };
 
 export type DiagnosisAuthBackendCheck = {
@@ -139,11 +161,6 @@ export type DiagnosisAuthLDAPSetupReadiness = {
   status: "ready" | "review" | "blocked" | "loading" | "unavailable";
 };
 
-export type DiagnosisAuthWeComQuickSignInPrompt = {
-  detail: string;
-  label: string;
-};
-
 export type DiagnosisAuthBrowserSessionAuthenticatedSummary = {
   alertType: "success" | "warning";
   detail: string;
@@ -217,109 +234,146 @@ export type DiagnosisAuthBackendModeDisplayItem = {
   mode: DiagnosisAuthBackendMode;
 };
 
+type DiagnosisAuthOIDCBFFReadiness = NonNullable<
+  DiagnosisAuthStatus["oidc_bff"]
+>;
+export type DiagnosisAuthOIDCBFFMissingKey =
+  DiagnosisAuthOIDCBFFReadiness["missing"][number];
+export type DiagnosisAuthOIDCBFFReadinessSummary = Pick<
+  DiagnosisAuthOIDCBFFReadiness,
+  "missing" | "status"
+>;
+
 export function diagnosisAuthInputReadiness(
   values: DiagnosisAuthInputValues,
+  t: DiagnosisAuthTranslator,
 ): DiagnosisAuthInputReadiness {
+  const state = diagnosisAuthInputState(values);
+  const copy = diagnosisAuthInputCopy(state, t);
+  return { ...copy, mode: state.mode, status: state.status };
+}
+
+export function diagnosisAuthLDAPBrowserSessionPromotionNotice(
+  t: DiagnosisAuthTranslator,
+): DiagnosisAuthLDAPBrowserSessionPromotionNotice {
+  return {
+    detail: t("ldapPromotion.detail"),
+    message: t("ldapPromotion.message"),
+  };
+}
+
+function diagnosisAuthInputState(
+  values: DiagnosisAuthInputValues,
+): DiagnosisAuthInputState {
   const mode = values.authMode ?? "session";
-  if (mode === "bearer") {
-    return bearerInputReadiness(values.bearerToken ?? "");
-  }
   if (mode === "session") {
-    return browserSessionInputReadiness();
+    return { issue: null, mode, status: "ready" };
   }
   if (mode === "wecom") {
-    return {
-      detail:
-        "Enterprise WeChat browser login has been replaced by IAM OIDC. Use the current IAM browser session for OpenClarion authorization; keep Enterprise WeChat for app messages, notifications, and diagnosis-room collaboration callbacks.",
-      label: "Enterprise WeChat browser login migrated.",
-      mode: "wecom",
-      status: "blocked",
-    };
+    return { issue: "wecom_migrated", mode, status: "blocked" };
   }
-  return ldapInputReadiness(
-    values.ldapUsername ?? "",
-    values.ldapPassword ?? "",
-  );
-}
+  if (mode === "bearer") {
+    const token = (values.bearerToken ?? "").trim();
+    if (token === "") {
+      return { issue: "bearer_required", mode, status: "pending" };
+    }
+    if (/\s/.test(token)) {
+      return { issue: "bearer_invalid", mode, status: "blocked" };
+    }
+    return { issue: null, mode, status: "ready" };
+  }
 
-export function diagnosisAuthLDAPBrowserSessionPromotionNotice(): DiagnosisAuthLDAPBrowserSessionPromotionNotice {
-  return {
-    detail:
-      "After Check auth accepts explicitly configured LDAP credentials, OpenClarion exchanges them for an HttpOnly browser session, clears the LDAP password from this form, and uses local RBAC for diagnosis room create or connect actions.",
-    message: "LDAP fallback creates a browser session",
-  };
-}
-
-function browserSessionInputReadiness(): DiagnosisAuthInputReadiness {
-  return {
-    detail:
-      "Use the current OpenClarion browser session from IAM OIDC. Check auth verifies the HttpOnly session cookie through the backend, and diagnosis room access is enforced by local RBAC.",
-    label: "IAM browser session ready to check.",
-    mode: "session",
-    status: "ready",
-  };
-}
-
-function ldapInputReadiness(
-  rawUsername: string,
-  password: string,
-): DiagnosisAuthInputReadiness {
-  const username = rawUsername.trim();
+  const username = (values.ldapUsername ?? "").trim();
+  const password = values.ldapPassword ?? "";
   if (username === "" || password === "") {
-    return {
-      detail:
-        "Use LDAP only as a legacy fallback. Enter LDAP username and password, then run Check auth before creating or connecting to a diagnosis room.",
-      label: "LDAP fallback credentials required.",
-      mode: "ldap",
-      status: "pending",
-    };
+    return { issue: "ldap_required", mode, status: "pending" };
   }
   if (containsControlOrWhitespace(username)) {
-    return {
-      detail:
-        "LDAP username must not contain whitespace or control characters.",
-      label: "LDAP username is invalid.",
-      mode: "ldap",
-      status: "blocked",
-    };
+    return { issue: "ldap_username_invalid", mode, status: "blocked" };
   }
   if (/[\u0000\r\n]/.test(password)) {
-    return {
-      detail: "LDAP password must not contain null bytes or line breaks.",
-      label: "LDAP password is invalid.",
-      mode: "ldap",
-      status: "blocked",
-    };
+    return { issue: "ldap_password_invalid", mode, status: "blocked" };
   }
-  return {
-    detail:
-      "Direct LDAP credentials are locally well-formed; Check auth verifies them against the explicitly configured backend LDAP provider.",
-    label: "LDAP fallback credentials ready to check.",
-    mode: "ldap",
-    status: "ready",
-  };
+  return { issue: null, mode, status: "ready" };
+}
+
+function diagnosisAuthInputCopy(
+  state: DiagnosisAuthInputState,
+  t: DiagnosisAuthTranslator,
+): Pick<DiagnosisAuthInputReadiness, "detail" | "label"> {
+  switch (state.issue) {
+    case "bearer_invalid":
+      return {
+        detail: t("input.bearerInvalidDetail"),
+        label: t("input.bearerInvalidLabel"),
+      };
+    case "bearer_required":
+      return {
+        detail: t("input.bearerRequiredDetail"),
+        label: t("input.bearerRequiredLabel"),
+      };
+    case "ldap_password_invalid":
+      return {
+        detail: t("input.ldapPasswordInvalidDetail"),
+        label: t("input.ldapPasswordInvalidLabel"),
+      };
+    case "ldap_required":
+      return {
+        detail: t("input.ldapRequiredDetail"),
+        label: t("input.ldapRequiredLabel"),
+      };
+    case "ldap_username_invalid":
+      return {
+        detail: t("input.ldapUsernameInvalidDetail"),
+        label: t("input.ldapUsernameInvalidLabel"),
+      };
+    case "wecom_migrated":
+      return {
+        detail: t("input.weComMigratedDetail"),
+        label: t("input.weComMigratedLabel"),
+      };
+    case null:
+      switch (state.mode) {
+        case "bearer":
+          return {
+            detail: t("input.bearerReadyDetail"),
+            label: t("input.bearerReadyLabel"),
+          };
+        case "ldap":
+          return {
+            detail: t("input.ldapReadyDetail"),
+            label: t("input.ldapReadyLabel"),
+          };
+        case "session":
+          return {
+            detail: t("input.sessionReadyDetail"),
+            label: t("input.sessionReadyLabel"),
+          };
+        case "wecom":
+          throw new Error("migrated WeCom input must carry an issue");
+      }
+  }
 }
 
 export function diagnosisAuthModeOptions(
-  backendStatus?: DiagnosisAuthBackendStatusSnapshot,
+  backendStatus: DiagnosisAuthBackendStatusSnapshot | undefined,
+  t: DiagnosisAuthTranslator,
 ): DiagnosisAuthModeOption[] {
   return [
     {
       disabled:
-        diagnosisAuthBackendModeBlockReason("session", backendStatus) !== "",
-      label: "IAM session",
+        diagnosisAuthBackendModeIssue("session", backendStatus) !== null,
+      label: t("mode.session"),
       value: "session",
     },
     {
-      disabled:
-        diagnosisAuthBackendModeBlockReason("ldap", backendStatus) !== "",
-      label: "LDAP fallback",
+      disabled: diagnosisAuthBackendModeIssue("ldap", backendStatus) !== null,
+      label: t("mode.ldap"),
       value: "ldap",
     },
     {
-      disabled:
-        diagnosisAuthBackendModeBlockReason("bearer", backendStatus) !== "",
-      label: "Dev bearer",
+      disabled: diagnosisAuthBackendModeIssue("bearer", backendStatus) !== null,
+      label: t("mode.bearer"),
       value: "bearer",
     },
   ];
@@ -329,13 +383,14 @@ export function diagnosisAuthCoercedMode(
   mode: DiagnosisAuthMode,
   backendStatus?: DiagnosisAuthBackendStatusSnapshot,
 ): DiagnosisAuthMode {
-  if (diagnosisAuthBackendModeBlockReason(mode, backendStatus) === "") {
+  if (diagnosisAuthBackendModeIssue(mode, backendStatus) === null) {
     return mode;
   }
-  const fallback = diagnosisAuthModeOptions(backendStatus).find(
-    (option) => !option.disabled,
+  const fallback = (["session", "ldap", "bearer"] as const).find(
+    (candidate) =>
+      diagnosisAuthBackendModeIssue(candidate, backendStatus) === null,
   );
-  return fallback?.value ?? mode;
+  return fallback ?? mode;
 }
 
 export function diagnosisAuthBackendStatusModes(
@@ -368,15 +423,17 @@ export function diagnosisAuthBackendStatusModes(
 
 export function diagnosisAuthBackendModeListLabel(
   status: DiagnosisAuthBackendStatusWithModes | null | undefined,
+  t: DiagnosisAuthTranslator,
 ): string {
-  const labels = diagnosisAuthBackendStatusModes(status).map(
-    diagnosisAuthBackendShortModeLabel,
+  const labels = diagnosisAuthBackendStatusModes(status).map((mode) =>
+    diagnosisAuthBackendShortModeLabel(mode, t),
   );
-  return diagnosisAuthListLabel(labels, "+");
+  return diagnosisAuthListLabel(labels, t, "+");
 }
 
 export function diagnosisAuthBackendCredentialListLabel(
   status: DiagnosisAuthBackendStatusWithModes | null | undefined,
+  t: DiagnosisAuthTranslator,
 ): string {
   if (status === null || status === undefined) {
     return "";
@@ -384,35 +441,115 @@ export function diagnosisAuthBackendCredentialListLabel(
   return diagnosisAuthBackendCredentialLabels(
     diagnosisAuthBackendStatusModes(status),
     status.mode,
+    t,
   );
 }
 
 export function diagnosisAuthBackendModeDisplayItems(
   status: DiagnosisAuthBackendStatusWithModes | null | undefined,
+  t: DiagnosisAuthTranslator,
 ): DiagnosisAuthBackendModeDisplayItem[] {
   return diagnosisAuthBackendStatusModes(status).map((mode) => ({
     color: diagnosisAuthBackendModeTagColor(mode),
-    label: diagnosisAuthBackendShortModeLabel(mode),
+    label: diagnosisAuthBackendShortModeLabel(mode, t),
     mode,
   }));
 }
 
-export function diagnosisAuthBackendReadiness({
-  backendStatus,
-  checking,
-  expectedSubject,
-  inputRevision,
-  lastCheck,
-  values,
-}: {
-  backendStatus?: DiagnosisAuthBackendStatusSnapshot;
-  checking: boolean;
-  expectedSubject?: string;
-  inputRevision?: number;
-  lastCheck: DiagnosisAuthBackendCheck | null;
-  values: DiagnosisAuthInputValues;
-}): DiagnosisAuthBackendReadiness {
-  const input = diagnosisAuthInputReadiness(values);
+export function diagnosisAuthBackendReadinessStatusLabel(
+  status: DiagnosisAuthBackendReadiness["status"],
+  t: DiagnosisAuthTranslator,
+): string {
+  switch (status) {
+    case "pending":
+      return t("ui.backendStatus.pending");
+    case "blocked":
+      return t("ui.backendStatus.blocked");
+    case "checking":
+      return t("ui.backendStatus.checking");
+    case "needs_check":
+      return t("ui.backendStatus.needsCheck");
+    case "failed":
+      return t("ui.backendStatus.failed");
+    case "verified":
+      return t("ui.backendStatus.verified");
+  }
+}
+
+export function diagnosisAuthInputReadinessStatusLabel(
+  status: DiagnosisAuthInputReadiness["status"],
+  t: DiagnosisAuthTranslator,
+): string {
+  switch (status) {
+    case "ready":
+      return t("ui.ready");
+    case "pending":
+      return t("ui.pending");
+    case "blocked":
+      return t("ui.blocked");
+  }
+}
+
+export function diagnosisAuthOIDCBFFReadinessDetail(
+  readiness: DiagnosisAuthOIDCBFFReadinessSummary,
+  t: DiagnosisAuthTranslator,
+): string {
+  if (readiness.status === "ready") {
+    return t("oidc.ready");
+  }
+  const labels = readiness.missing.map((key) =>
+    diagnosisAuthOIDCBFFMissingLabel(key, t),
+  );
+  return t("oidc.missing", { items: labels.join(t("list.separator")) });
+}
+
+export function diagnosisAuthOIDCBFFMissingLabel(
+  key: DiagnosisAuthOIDCBFFMissingKey,
+  t: DiagnosisAuthTranslator,
+): string {
+  switch (key) {
+    case "client_auth_method":
+      return t("oidc.clientAuthMethod");
+    case "client_id":
+      return t("oidc.clientID");
+    case "client_secret":
+      return t("oidc.clientSecret");
+    case "email_scope":
+      return t("oidc.emailScope");
+    case "issuer":
+      return t("oidc.issuer");
+    case "openid_scope":
+      return t("oidc.openIDScope");
+    case "pkce":
+      return t("oidc.pkce");
+    case "profile_scope":
+      return t("oidc.profileScope");
+    case "session_signing_key":
+      return t("oidc.sessionSigningKey");
+    case "state_signing_key":
+      return t("oidc.stateSigningKey");
+  }
+}
+
+export function diagnosisAuthBackendReadiness(
+  {
+    backendStatus,
+    checking,
+    expectedSubject,
+    inputRevision,
+    lastCheck,
+    values,
+  }: {
+    backendStatus?: DiagnosisAuthBackendStatusSnapshot;
+    checking: boolean;
+    expectedSubject?: string;
+    inputRevision?: number;
+    lastCheck: DiagnosisAuthBackendCheck | null;
+    values: DiagnosisAuthInputValues;
+  },
+  t: DiagnosisAuthTranslator,
+): DiagnosisAuthBackendReadiness {
+  const input = diagnosisAuthInputReadiness(values, t);
   if (input.status === "pending") {
     return {
       color: "default",
@@ -431,21 +568,22 @@ export function diagnosisAuthBackendReadiness({
   }
   const backendModeBlockReason = diagnosisAuthBackendModeBlockReason(
     input.mode,
+    t,
     backendStatus,
   );
   if (backendModeBlockReason !== "") {
     return {
       color: "error",
       detail: backendModeBlockReason,
-      label: "Auth mode does not match backend.",
+      label: t("backend.modeMismatchLabel"),
       status: "blocked",
     };
   }
   if (checking) {
     return {
       color: "processing",
-      detail: "Backend diagnosis auth check is running.",
-      label: "Checking backend auth.",
+      detail: t("backend.checkingDetail"),
+      label: t("backend.checkingLabel"),
       status: "checking",
     };
   }
@@ -456,8 +594,8 @@ export function diagnosisAuthBackendReadiness({
   ) {
     return {
       color: "warning",
-      detail: diagnosisAuthBackendCheckRequiredDetail(input.mode),
-      label: "Backend auth check required.",
+      detail: diagnosisAuthBackendCheckRequiredDetail(input.mode, t),
+      label: t("backend.checkRequiredLabel"),
       status: "needs_check",
     };
   }
@@ -467,23 +605,24 @@ export function diagnosisAuthBackendReadiness({
       detail: diagnosisAuthBackendCheckSubjectChangedDetail(
         lastCheck,
         expectedSubject,
+        t,
       ),
-      label: "Backend auth check required.",
+      label: t("backend.checkRequiredLabel"),
       status: "needs_check",
     };
   }
   if (lastCheck.status === "failed") {
     return {
       color: "error",
-      detail: lastCheck.message,
-      label: "Backend auth check failed.",
+      detail: lastCheck.message || t("backend.checkFailedDetail"),
+      label: t("backend.checkFailedLabel"),
       status: "failed",
     };
   }
   return {
     color: "success",
-    detail: diagnosisAuthVerifiedDetail(lastCheck),
-    label: "Backend auth verified.",
+    detail: diagnosisAuthVerifiedDetail(lastCheck, t),
+    label: t("backend.verifiedLabel"),
     status: "verified",
   };
 }
@@ -503,15 +642,16 @@ export function diagnosisAuthBackendVerified({
   lastCheck: DiagnosisAuthBackendCheck | null;
   values: DiagnosisAuthInputValues;
 }): boolean {
+  const input = diagnosisAuthInputState(values);
   return (
-    diagnosisAuthBackendReadiness({
-      backendStatus,
-      checking,
-      expectedSubject,
-      inputRevision,
-      lastCheck,
-      values,
-    }).status === "verified"
+    input.status === "ready" &&
+    diagnosisAuthBackendModeIssue(input.mode, backendStatus) === null &&
+    !checking &&
+    lastCheck !== null &&
+    lastCheck.mode === input.mode &&
+    !authCheckInputRevisionChanged(lastCheck, inputRevision) &&
+    authCheckMatchesExpectedSubject(input.mode, lastCheck, expectedSubject) &&
+    lastCheck.status === "success"
   );
 }
 
@@ -730,16 +870,15 @@ function positiveSafeInteger(value: unknown): value is number {
 
 export function diagnosisAuthRolloutReadiness(
   proof: DiagnosisAuthRolloutProof,
+  t: DiagnosisAuthTranslator,
 ): DiagnosisAuthRolloutReadiness {
   const roleAuthorized = diagnosisAuthProofHasUsableRole(proof);
   if (proof.status === "verified" && diagnosisAuthRolloutSSOMode(proof.mode)) {
-    const provider = diagnosisAuthProviderDisplayName(proof.mode);
+    const provider = diagnosisAuthProviderDisplayName(proof.mode, t);
     return {
       checkedAt: proof.checkedAt,
-      detail:
-        proof.detail ||
-        `${provider} identity is verified against the running backend; diagnosis room access is enforced by local RBAC.`,
-      label: `${provider} rollout proof ready.`,
+      detail: proof.detail || t("rollout.readyDetail", { provider }),
+      label: t("rollout.readyLabel", { provider }),
       mode: proof.mode,
       roleAuthorized,
       roles: proof.roles,
@@ -752,9 +891,9 @@ export function diagnosisAuthRolloutReadiness(
     return {
       checkedAt: proof.checkedAt,
       detail: legacyWeComBrowserAuth
-        ? "Legacy Enterprise WeChat browser auth proof is no longer accepted for rollout. Use IAM OIDC browser sessions and keep Enterprise WeChat for app messages, notifications, and diagnosis-room collaboration callbacks."
-        : "Static bearer auth is acceptable for development checks, but operator rollout requires IAM or LDAP identity proof with OpenClarion local RBAC configured.",
-      label: "Operator SSO proof required for rollout.",
+        ? t("rollout.legacyWeComReviewDetail")
+        : t("rollout.staticBearerReviewDetail"),
+      label: t("rollout.reviewLabel"),
       mode: proof.mode,
       roleAuthorized,
       roles: proof.roles,
@@ -765,10 +904,8 @@ export function diagnosisAuthRolloutReadiness(
   if (proof.status === "failed" || proof.status === "blocked") {
     return {
       checkedAt: proof.checkedAt,
-      detail:
-        proof.detail ||
-        "Resolve backend diagnosis auth before accepting operator rollout.",
-      label: "Operator auth rollout proof blocked.",
+      detail: proof.detail || t("rollout.blockedDetail"),
+      label: t("rollout.blockedLabel"),
       mode: proof.mode,
       roleAuthorized,
       roles: proof.roles,
@@ -778,10 +915,8 @@ export function diagnosisAuthRolloutReadiness(
   }
   return {
     checkedAt: proof.checkedAt,
-    detail:
-      proof.detail ||
-      "Run Check auth with the current IAM browser session before accepting operator rollout. Direct LDAP and Enterprise WeChat auth remain explicit compatibility paths only where configured.",
-    label: "Operator auth rollout proof pending.",
+    detail: proof.detail || t("rollout.pendingDetail"),
+    label: t("rollout.pendingLabel"),
     mode: proof.mode,
     roleAuthorized,
     roles: proof.roles,
@@ -795,63 +930,66 @@ export function diagnosisAuthRoleMappingGuidance(
     DiagnosisAuthRolloutReadiness,
     "mode" | "roleAuthorized" | "status"
   >,
+  t: DiagnosisAuthTranslator,
 ): string {
   if (readiness.roleAuthorized === true) {
     switch (readiness.mode) {
       case "ldap":
-        return "LDAP provider role metadata is present. Diagnosis room permissions are still enforced by OpenClarion local RBAC.";
+        return t("roleGuidance.ldapPresent");
       case "session":
-        return "The browser session includes legacy owner/admin metadata. Diagnosis room permissions are still enforced by OpenClarion local RBAC.";
+        return t("roleGuidance.sessionPresent");
       case "wecom":
-        return "Enterprise WeChat provider role metadata is present. Diagnosis room permissions are still enforced by OpenClarion local RBAC.";
+        return t("roleGuidance.weComPresent");
       case "bearer":
-        return "Static bearer roles are development-only; operator rollout should use IAM, LDAP, or Enterprise WeChat identity proof plus OpenClarion local RBAC.";
+        return t("roleGuidance.bearerPresent");
     }
   }
   switch (readiness.mode) {
     case "ldap":
-      return "LDAP provider role mapping is optional for identity proof. Assign diagnosis room access in OpenClarion local RBAC.";
+      return t("roleGuidance.ldapAbsent");
     case "session":
-      return "Browser-session provider roles are optional for identity proof. Assign diagnosis room access in OpenClarion local RBAC.";
+      return t("roleGuidance.sessionAbsent");
     case "wecom":
-      return "Enterprise WeChat provider role mapping is optional for identity proof. Assign diagnosis room access in OpenClarion local RBAC.";
+      return t("roleGuidance.weComAbsent");
     case "bearer":
-      return "Static bearer auth is development-only; use IAM, LDAP, or Enterprise WeChat identity proof plus OpenClarion local RBAC for rollout.";
+      return t("roleGuidance.bearerAbsent");
   }
 }
 
 export function diagnosisAuthRoleMappingStatusDetail(
   status: DiagnosisAuthStatusSummary | null | undefined,
+  t: DiagnosisAuthTranslator,
   loading = false,
 ): string {
-  return diagnosisAuthRoleMappingStatusReadiness(status, loading).detail;
+  return diagnosisAuthRoleMappingStatusReadiness(status, t, loading).detail;
 }
 
 export function diagnosisAuthRoleMappingStatusReadiness(
   status: DiagnosisAuthStatusSummary | null | undefined,
+  t: DiagnosisAuthTranslator,
   loading = false,
 ): DiagnosisAuthRoleMappingStatusReadiness {
   if (loading) {
     return {
       color: "processing",
-      detail: "Loading backend role mapping summary.",
-      label: "Loading",
+      detail: t("roleStatus.loadingDetail"),
+      label: t("roleStatus.loadingLabel"),
       status: "loading",
     };
   }
   if (status === null || status === undefined) {
     return {
       color: "default",
-      detail: "Backend role mapping summary is unavailable.",
-      label: "Unavailable",
+      detail: t("roleStatus.unavailableDetail"),
+      label: t("roleStatus.unavailableLabel"),
       status: "unavailable",
     };
   }
   if (!status.configured || status.mode === "none") {
     return {
       color: "error",
-      detail: "Diagnosis auth is not configured in the running backend.",
-      label: "Not configured",
+      detail: t("roleStatus.notConfiguredDetail"),
+      label: t("roleStatus.notConfiguredLabel"),
       status: "blocked",
     };
   }
@@ -859,28 +997,33 @@ export function diagnosisAuthRoleMappingStatusReadiness(
   if (mapping === undefined) {
     return {
       color: "warning",
-      detail: "Backend did not report role mapping metadata.",
-      label: "Not reported",
+      detail: t("roleStatus.notReportedDetail"),
+      label: t("roleStatus.notReportedLabel"),
       status: "unavailable",
     };
   }
   if (!mapping.configured) {
-    const provider = diagnosisAuthProviderDisplayNameForBackend(status.mode);
+    const provider = diagnosisAuthProviderDisplayNameForBackend(status.mode, t);
     return {
       color: "success",
-      detail: `${provider} has no provider role mapping configured. Identity-only authentication is accepted; diagnosis room permissions are assigned through OpenClarion local RBAC.`,
-      label: "Identity-only",
+      detail: t("roleStatus.identityOnlyDetail", { provider }),
+      label: t("roleStatus.identityOnlyLabel"),
       status: "ready",
     };
   }
   const defaultRoles =
     mapping.default_roles.length === 0
-      ? "none"
+      ? t("common.none")
       : mapping.default_roles.join(", ");
   return {
     color: "success",
-    detail: `${diagnosisAuthProviderDisplayNameForBackend(status.mode)} reports optional provider role metadata: ${mapping.owner_mapping_count} owner mapping(s), ${mapping.admin_mapping_count} admin mapping(s), and default roles: ${defaultRoles}. Diagnosis room permissions are assigned through OpenClarion local RBAC.`,
-    label: "Metadata reported",
+    detail: t("roleStatus.metadataDetail", {
+      adminCount: mapping.admin_mapping_count,
+      defaultRoles,
+      ownerCount: mapping.owner_mapping_count,
+      provider: diagnosisAuthProviderDisplayNameForBackend(status.mode, t),
+    }),
+    label: t("roleStatus.metadataLabel"),
     status: "ready",
   };
 }
@@ -889,77 +1032,90 @@ function diagnosisAuthRolloutSSOMode(mode: DiagnosisAuthMode): boolean {
   return mode === "ldap" || mode === "session";
 }
 
-function diagnosisAuthProviderDisplayName(mode: DiagnosisAuthMode): string {
+function diagnosisAuthProviderDisplayName(
+  mode: DiagnosisAuthMode,
+  t: DiagnosisAuthTranslator,
+): string {
   switch (mode) {
     case "ldap":
-      return "LDAP";
+      return t("provider.ldap");
     case "session":
-      return "Browser session";
+      return t("provider.session");
     case "wecom":
-      return "Enterprise WeChat";
+      return t("provider.weCom");
     case "bearer":
-      return "Static bearer";
+      return t("provider.staticBearer");
   }
 }
 
 function diagnosisAuthProviderDisplayNameForBackend(
   mode: DiagnosisAuthBackendMode,
+  t: DiagnosisAuthTranslator,
 ): string {
   switch (mode) {
     case "ldap":
-      return "LDAP";
+      return t("provider.ldap");
     case "wecom":
-      return "Enterprise WeChat";
+      return t("provider.weCom");
     case "static":
-      return "Static bearer";
+      return t("provider.staticBearer");
     case "oidc":
-      return "IAM OIDC";
+      return t("provider.iamOIDC");
     case "unknown":
-      return "Backend auth";
+      return t("provider.backendAuth");
     case "none":
-      return "Diagnosis auth";
+      return t("provider.diagnosisAuth");
   }
 }
 
-export function diagnosisAuthCheckBlockReason({
-  backendStatus,
-  values,
-}: {
-  backendStatus?: DiagnosisAuthBackendStatusSnapshot;
-  values: DiagnosisAuthInputValues;
-}): string {
-  const input = diagnosisAuthInputReadiness(values);
+export function diagnosisAuthCheckBlockReason(
+  {
+    backendStatus,
+    values,
+  }: {
+    backendStatus?: DiagnosisAuthBackendStatusSnapshot;
+    values: DiagnosisAuthInputValues;
+  },
+  t: DiagnosisAuthTranslator,
+): string {
+  const input = diagnosisAuthInputReadiness(values, t);
   if (input.status !== "ready") {
     return input.detail;
   }
-  return diagnosisAuthBackendModeBlockReason(input.mode, backendStatus);
+  return diagnosisAuthBackendModeBlockReason(input.mode, t, backendStatus);
 }
 
-export function diagnosisAuthActionBlockReason({
-  action,
-  backendStatus,
-  checking,
-  expectedSubject,
-  inputRevision,
-  lastCheck,
-  values,
-}: {
-  action: DiagnosisAuthAction;
-  backendStatus?: DiagnosisAuthBackendStatusSnapshot;
-  checking: boolean;
-  expectedSubject?: string;
-  inputRevision?: number;
-  lastCheck: DiagnosisAuthBackendCheck | null;
-  values: DiagnosisAuthInputValues;
-}): string {
-  const readiness = diagnosisAuthBackendReadiness({
+export function diagnosisAuthActionBlockReason(
+  {
+    action,
     backendStatus,
     checking,
     expectedSubject,
     inputRevision,
     lastCheck,
     values,
-  });
+  }: {
+    action: DiagnosisAuthAction;
+    backendStatus?: DiagnosisAuthBackendStatusSnapshot;
+    checking: boolean;
+    expectedSubject?: string;
+    inputRevision?: number;
+    lastCheck: DiagnosisAuthBackendCheck | null;
+    values: DiagnosisAuthInputValues;
+  },
+  t: DiagnosisAuthTranslator,
+): string {
+  const readiness = diagnosisAuthBackendReadiness(
+    {
+      backendStatus,
+      checking,
+      expectedSubject,
+      inputRevision,
+      lastCheck,
+      values,
+    },
+    t,
+  );
   if (readiness.status === "verified") {
     return "";
   }
@@ -969,33 +1125,21 @@ export function diagnosisAuthActionBlockReason({
   switch (action) {
     case "connect":
       if (values.authMode === "wecom") {
-        return "Enterprise WeChat browser login has been replaced by IAM OIDC. Select IAM browser session and run Check auth successfully before connecting to a diagnosis room.";
+        return t("action.connectWeComMigrated");
       }
       if (values.authMode === "session") {
-        return "Run Check auth successfully with the current browser session before connecting to a diagnosis room.";
+        return t("action.connectSessionCheckRequired");
       }
-      return "Run Check auth successfully before connecting to a diagnosis room.";
+      return t("action.connectCheckRequired");
     case "create":
       if (values.authMode === "wecom") {
-        return "Enterprise WeChat browser login has been replaced by IAM OIDC. Select IAM browser session and run Check auth successfully before creating a diagnosis room.";
+        return t("action.createWeComMigrated");
       }
       if (values.authMode === "session") {
-        return "Run Check auth successfully with the current browser session before creating a diagnosis room.";
+        return t("action.createSessionCheckRequired");
       }
-      return "Run Check auth successfully before creating a diagnosis room.";
+      return t("action.createCheckRequired");
   }
-}
-
-export function diagnosisAuthWeComQuickSignInPrompt({
-  selectedModes,
-}: {
-  backendStatus?: DiagnosisAuthBackendStatusSnapshot;
-  selectedModes: readonly DiagnosisAuthMode[];
-}): DiagnosisAuthWeComQuickSignInPrompt | null {
-  if (selectedModes.includes("wecom") || selectedModes.includes("session")) {
-    return null;
-  }
-  return null;
 }
 
 export function diagnosisAuthInputFieldsChanged(
@@ -1009,13 +1153,21 @@ export function diagnosisAuthInputFieldsChanged(
   );
 }
 
-function diagnosisAuthVerifiedDetail(check: DiagnosisAuthBackendCheck): string {
-  const roles = check.roles.length === 0 ? "no roles" : check.roles.join(", ");
+function diagnosisAuthVerifiedDetail(
+  check: DiagnosisAuthBackendCheck,
+  t: DiagnosisAuthTranslator,
+): string {
+  const roles =
+    check.roles.length === 0 ? t("common.noRoles") : check.roles.join(", ");
   const checkedAt = check.checkedAt?.trim();
   if (checkedAt !== undefined && checkedAt !== "") {
-    return `Authenticated as ${check.subject}. Roles: ${roles}. Checked at ${checkedAt}.`;
+    return t("backend.verifiedDetailWithTime", {
+      checkedAt,
+      roles,
+      subject: check.subject,
+    });
   }
-  return `Authenticated as ${check.subject}. Roles: ${roles}.`;
+  return t("backend.verifiedDetail", { roles, subject: check.subject });
 }
 
 function diagnosisAuthProofHasUsableRole({
@@ -1056,75 +1208,138 @@ function authCheckMatchesExpectedSubject(
 function diagnosisAuthBackendCheckSubjectChangedDetail(
   check: DiagnosisAuthBackendCheck,
   expectedSubject: string | undefined,
+  t: DiagnosisAuthTranslator,
 ): string {
   const subject = expectedSubject?.trim() ?? "";
   if (subject === "") {
-    return "Run Check auth again for the current OpenClarion browser session.";
+    return t("backend.subjectChangedCurrent");
   }
-  return `Run Check auth again for the current OpenClarion browser session subject ${subject}; the last backend check was for ${check.subject}.`;
+  return t("backend.subjectChanged", {
+    currentSubject: subject,
+    previousSubject: check.subject,
+  });
 }
 
-function diagnosisAuthBackendModeBlockReason(
+type DiagnosisAuthBackendModeIssue =
+  | { kind: "not_configured" }
+  | { kind: "unknown" }
+  | { kind: "wecom_migrated" }
+  | {
+      fallback: DiagnosisAuthBackendMode;
+      kind: "session_mismatch" | "bearer_mismatch";
+      modes: DiagnosisAuthBackendMode[];
+    }
+  | { kind: "legacy_wecom" }
+  | { kind: "ldap_mismatch"; mode: DiagnosisAuthBackendMode };
+
+function diagnosisAuthBackendModeIssue(
   mode: DiagnosisAuthMode,
   backendStatus?: DiagnosisAuthBackendStatusSnapshot,
-): string {
+): DiagnosisAuthBackendModeIssue | null {
   if (backendStatus === undefined) {
-    return "";
+    return null;
   }
   if (!backendStatus.configured || backendStatus.mode === "none") {
-    return "Diagnosis auth is not configured in the running backend.";
+    return { kind: "not_configured" };
   }
   const supportedModes = diagnosisAuthBackendSupportedModes(backendStatus);
   if (supportedModes.length === 1 && supportedModes[0] === "unknown") {
-    return "Backend diagnosis auth mode is unknown; reload or inspect deployment before sending credentials.";
+    return { kind: "unknown" };
   }
   if (mode === "wecom") {
-    return "Enterprise WeChat browser login has been replaced by IAM OIDC. Use the current IAM browser session for OpenClarion authorization; keep Enterprise WeChat for app messages, notifications, and diagnosis-room collaboration callbacks.";
+    return { kind: "wecom_migrated" };
   }
   if (mode === "session") {
     if (supportedModes.includes("ldap") || supportedModes.includes("oidc")) {
-      return "";
+      return null;
     }
-    return `The running backend expects ${diagnosisAuthBackendCredentialLabels(
-      supportedModes,
-      backendStatus.mode,
-    )}, not an OpenClarion browser session.`;
+    return {
+      fallback: backendStatus.mode,
+      kind: "session_mismatch",
+      modes: supportedModes,
+    };
   }
   const requestedMode = diagnosisAuthBackendModeForInput(mode);
   if (supportedModes.includes(requestedMode)) {
-    return "";
+    return null;
   }
   if (
     supportedModes.length === 1 &&
     supportedModes[0] === "wecom"
   ) {
-    return "The running backend advertises legacy Enterprise WeChat browser authentication. OpenClarion browser login is now handled by IAM OIDC; update the backend auth mode before accepting rollout.";
+    return { kind: "legacy_wecom" };
   }
   if (mode === "ldap") {
-    return `The running backend expects ${backendAuthCredentialLabel(
-      supportedModes[0] ?? backendStatus.mode,
-    )}, not LDAP Basic credentials.`;
+    return {
+      kind: "ldap_mismatch",
+      mode: supportedModes[0] ?? backendStatus.mode,
+    };
   }
-  return `The running backend expects ${diagnosisAuthBackendCredentialLabels(
-    supportedModes,
-    backendStatus.mode,
-  )}, not Bearer credentials.`;
+  return {
+    fallback: backendStatus.mode,
+    kind: "bearer_mismatch",
+    modes: supportedModes,
+  };
 }
 
-function backendAuthCredentialLabel(mode: DiagnosisAuthBackendMode): string {
+function diagnosisAuthBackendModeBlockReason(
+  mode: DiagnosisAuthMode,
+  t: DiagnosisAuthTranslator,
+  backendStatus?: DiagnosisAuthBackendStatusSnapshot,
+): string {
+  const issue = diagnosisAuthBackendModeIssue(mode, backendStatus);
+  if (issue === null) {
+    return "";
+  }
+  switch (issue.kind) {
+    case "not_configured":
+      return t("backend.notConfigured");
+    case "unknown":
+      return t("backend.unknownMode");
+    case "wecom_migrated":
+      return t("input.weComMigratedDetail");
+    case "session_mismatch":
+      return t("backend.sessionMismatch", {
+        credentials: diagnosisAuthBackendCredentialLabels(
+          issue.modes,
+          issue.fallback,
+          t,
+        ),
+      });
+    case "legacy_wecom":
+      return t("backend.legacyWeCom");
+    case "ldap_mismatch":
+      return t("backend.ldapMismatch", {
+        credentials: backendAuthCredentialLabel(issue.mode, t),
+      });
+    case "bearer_mismatch":
+      return t("backend.bearerMismatch", {
+        credentials: diagnosisAuthBackendCredentialLabels(
+          issue.modes,
+          issue.fallback,
+          t,
+        ),
+      });
+  }
+}
+
+function backendAuthCredentialLabel(
+  mode: DiagnosisAuthBackendMode,
+  t: DiagnosisAuthTranslator,
+): string {
   switch (mode) {
     case "ldap":
-      return "LDAP Basic credentials";
+      return t("credential.ldap");
     case "static":
-      return "a static Bearer token";
+      return t("credential.staticBearer");
     case "oidc":
-      return "IAM OIDC authentication";
+      return t("credential.iamOIDC");
     case "wecom":
-      return "Enterprise WeChat authentication";
+      return t("credential.weCom");
     case "none":
-      return "no credentials";
+      return t("credential.none");
     case "unknown":
-      return "an unknown credential type";
+      return t("credential.unknown");
   }
 }
 
@@ -1146,36 +1361,41 @@ function diagnosisAuthBackendSupportedModes(
 function diagnosisAuthBackendCredentialLabels(
   modes: DiagnosisAuthBackendMode[],
   fallback: DiagnosisAuthBackendMode,
+  t: DiagnosisAuthTranslator,
 ): string {
   const labels = (modes.length === 0 ? [fallback] : modes)
     .filter((mode) => mode !== "none")
-    .map(backendAuthCredentialLabel);
+    .map((mode) => backendAuthCredentialLabel(mode, t));
   if (labels.length === 0) {
-    return backendAuthCredentialLabel(fallback);
+    return backendAuthCredentialLabel(fallback, t);
   }
   if (labels.length === 1) {
-    return labels[0] ?? backendAuthCredentialLabel(fallback);
+    return labels[0] ?? backendAuthCredentialLabel(fallback, t);
   }
-  const lastLabel = labels.at(-1) ?? backendAuthCredentialLabel(fallback);
-  return `${labels.slice(0, -1).join(", ")} or ${lastLabel}`;
+  const lastLabel = labels.at(-1) ?? backendAuthCredentialLabel(fallback, t);
+  return t("list.or", {
+    items: labels.slice(0, -1).join(t("list.separator")),
+    last: lastLabel,
+  });
 }
 
 function diagnosisAuthBackendShortModeLabel(
   mode: DiagnosisAuthBackendMode,
+  t: DiagnosisAuthTranslator,
 ): string {
   switch (mode) {
     case "ldap":
-      return "LDAP";
+      return t("backendMode.ldap");
     case "static":
-      return "static";
+      return t("backendMode.static");
     case "oidc":
-      return "OIDC";
+      return t("backendMode.oidc");
     case "wecom":
-      return "WeCom";
+      return t("backendMode.weCom");
     case "unknown":
-      return "unknown";
+      return t("backendMode.unknown");
     case "none":
-      return "not configured";
+      return t("backendMode.notConfigured");
   }
 }
 
@@ -1198,6 +1418,7 @@ function diagnosisAuthBackendModeTagColor(mode: DiagnosisAuthBackendMode): strin
 
 function diagnosisAuthListLabel(
   labels: string[],
+  t: DiagnosisAuthTranslator,
   separator: "and" | "+" = "and",
 ): string {
   if (labels.length === 0) {
@@ -1209,42 +1430,46 @@ function diagnosisAuthListLabel(
   if (labels.length === 1) {
     return labels[0] ?? "";
   }
-  return `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1] ?? ""}`;
+  return t("list.and", {
+    items: labels.slice(0, -1).join(t("list.separator")),
+    last: labels[labels.length - 1] ?? "",
+  });
 }
 
 export function diagnosisAuthLDAPSetupReadiness(
   status: DiagnosisAuthStatusSummary | null | undefined,
+  t: DiagnosisAuthTranslator,
   loading = false,
 ): DiagnosisAuthLDAPSetupReadiness {
   if (loading) {
     return {
       color: "processing",
-      detail: "Loading LDAP authentication setup summary.",
+      detail: t("ldapSetup.loadingDetail"),
       items: [
         {
-          detail: "Backend auth status is still loading.",
+          detail: t("setup.backendLoadingDetail"),
           key: "backend",
-          label: "Backend LDAP mode",
+          label: t("ldapSetup.backendLabel"),
           status: "loading",
         },
       ],
-      label: "LDAP setup loading",
+      label: t("ldapSetup.loadingLabel"),
       status: "loading",
     };
   }
   if (status === null || status === undefined) {
     return {
       color: "default",
-      detail: "LDAP authentication setup could not be loaded.",
+      detail: t("ldapSetup.unavailableDetail"),
       items: [
         {
-          detail: "Backend auth status is unavailable.",
+          detail: t("setup.backendUnavailableDetail"),
           key: "backend",
-          label: "Backend LDAP mode",
+          label: t("ldapSetup.backendLabel"),
           status: "unavailable",
         },
       ],
-      label: "LDAP setup unavailable",
+      label: t("ldapSetup.unavailableLabel"),
       status: "unavailable",
     };
   }
@@ -1254,31 +1479,33 @@ export function diagnosisAuthLDAPSetupReadiness(
   const transportPolicy = diagnosisAuthLDAPTransportPolicySetupItem(
     status.transport_policy,
     ldapSupported,
+    t,
   );
-  const roleMapping = diagnosisAuthRoleMappingStatusReadiness(status);
+  const roleMapping = diagnosisAuthRoleMappingStatusReadiness(status, t);
   const roleMappingItem = diagnosisAuthLDAPRoleMappingSetupItem(
     status.role_mapping,
     roleMapping,
+    t,
   );
   const items: DiagnosisAuthLDAPSetupReadinessItem[] = [
     {
       detail: ldapSupported
-        ? "Backend advertises LDAP diagnosis authentication."
-        : "Backend does not advertise LDAP diagnosis authentication. Configure LDAP bind/search settings and a session signing key before operator rollout.",
+        ? t("ldapSetup.backendReadyDetail")
+        : t("ldapSetup.backendBlockedDetail"),
       key: "backend",
-      label: "Backend LDAP mode",
+      label: t("ldapSetup.backendLabel"),
       status: ldapSupported ? "ready" : "blocked",
     },
     {
       detail: transportPolicy.detail,
       key: "transport_policy",
-      label: "Transport policy",
+      label: t("ldapSetup.transportLabel"),
       status: transportPolicy.status,
     },
     {
       detail: roleMappingItem.detail,
       key: "role_mapping",
-      label: "Role mapping",
+      label: t("setup.roleMappingLabel"),
       status: roleMappingItem.status,
     },
   ];
@@ -1289,10 +1516,9 @@ export function diagnosisAuthLDAPSetupReadiness(
   ) {
     return {
       color: "error",
-      detail:
-        "LDAP rollout is blocked until backend LDAP mode and encrypted credential transport are configured.",
+      detail: t("ldapSetup.blockedDetail"),
       items,
-      label: "LDAP setup blocked",
+      label: t("ldapSetup.blockedLabel"),
       status: "blocked",
     };
   }
@@ -1305,19 +1531,17 @@ export function diagnosisAuthLDAPSetupReadiness(
   ) {
     return {
       color: "warning",
-      detail:
-        "LDAP can be checked from this console, but rollout still needs LDAP transport policy and optional provider role metadata reviewed before acceptance.",
+      detail: t("ldapSetup.reviewDetail"),
       items,
-      label: "LDAP setup needs review",
+      label: t("ldapSetup.reviewLabel"),
       status: "review",
     };
   }
   return {
     color: "success",
-    detail:
-      "LDAP setup advertises backend LDAP auth and encrypted credential transport. Diagnosis room permissions are enforced by OpenClarion local RBAC.",
+    detail: t("ldapSetup.readyDetail"),
     items,
-    label: "LDAP setup ready",
+    label: t("ldapSetup.readyLabel"),
     status: "ready",
   };
 }
@@ -1325,38 +1549,34 @@ export function diagnosisAuthLDAPSetupReadiness(
 function diagnosisAuthLDAPTransportPolicySetupItem(
   policy: DiagnosisAuthTransportPolicyStatusSummary | undefined,
   ldapSupported: boolean,
+  t: DiagnosisAuthTranslator,
 ): Pick<DiagnosisAuthLDAPSetupReadinessItem, "detail" | "status"> {
   if (!ldapSupported) {
     return {
-      detail:
-        "LDAP transport policy cannot be reviewed until the backend advertises LDAP diagnosis authentication.",
+      detail: t("ldapSetup.transportBlockedDetail"),
       status: "blocked",
     };
   }
   if (policy === undefined) {
     return {
-      detail:
-        "Backend did not report LDAP transport policy metadata. Verify privately that production configuration uses LDAPS or LDAP with StartTLS before acceptance.",
+      detail: t("ldapSetup.transportReviewDetail"),
       status: "review",
     };
   }
   switch (policy.security) {
     case "tls":
       return {
-        detail:
-          "Backend reports LDAP credentials use TLS transport, such as LDAPS.",
+        detail: t("ldapSetup.transportTLSDetail"),
         status: "ready",
       };
     case "start_tls":
       return {
-        detail:
-          "Backend reports LDAP credentials use LDAP with a StartTLS upgrade before binds.",
+        detail: t("ldapSetup.transportStartTLSDetail"),
         status: "ready",
       };
     case "insecure_plaintext":
       return {
-        detail:
-          "Backend reports LDAP plaintext transport is explicitly allowed. Use LDAPS or LDAP with StartTLS before production rollout.",
+        detail: t("ldapSetup.transportInsecureDetail"),
         status: "blocked",
       };
   }
@@ -1365,6 +1585,7 @@ function diagnosisAuthLDAPTransportPolicySetupItem(
 function diagnosisAuthLDAPRoleMappingSetupItem(
   mapping: DiagnosisAuthRoleMappingStatusSummary | undefined,
   readiness: DiagnosisAuthRoleMappingStatusReadiness,
+  t: DiagnosisAuthTranslator,
 ): Pick<DiagnosisAuthLDAPSetupReadinessItem, "detail" | "status"> {
   if (readiness.status !== "ready") {
     return {
@@ -1377,8 +1598,7 @@ function diagnosisAuthLDAPRoleMappingSetupItem(
   const defaultRoles = mapping?.default_roles ?? [];
   if (mappedRoles === 0 && defaultRoles.length > 0) {
     return {
-      detail:
-        "LDAP reports only optional default provider roles. Identity proof is accepted; assign diagnosis room access in OpenClarion local RBAC.",
+      detail: t("ldapSetup.defaultRolesOnlyDetail"),
       status: "ready",
     };
   }
@@ -1390,37 +1610,38 @@ function diagnosisAuthLDAPRoleMappingSetupItem(
 
 export function diagnosisAuthWeComSetupReadiness(
   status: DiagnosisAuthStatusSummary | null | undefined,
+  t: DiagnosisAuthTranslator,
   loading = false,
 ): DiagnosisAuthWeComSetupReadiness {
   if (loading) {
     return {
       color: "processing",
-      detail: "Loading Enterprise WeChat collaboration setup summary.",
+      detail: t("weComSetup.loadingDetail"),
       items: [
         {
-          detail: "Backend auth status is still loading.",
+          detail: t("setup.backendLoadingDetail"),
           key: "backend",
-          label: "Browser auth mode",
+          label: t("weComSetup.backendLabel"),
           status: "loading",
         },
       ],
-      label: "Enterprise WeChat collaboration loading",
+      label: t("weComSetup.loadingLabel"),
       status: "loading",
     };
   }
   if (status === null || status === undefined) {
     return {
       color: "default",
-      detail: "Enterprise WeChat collaboration setup could not be loaded.",
+      detail: t("weComSetup.unavailableDetail"),
       items: [
         {
-          detail: "Backend auth status is unavailable.",
+          detail: t("setup.backendUnavailableDetail"),
           key: "backend",
-          label: "Browser auth mode",
+          label: t("weComSetup.backendLabel"),
           status: "unavailable",
         },
       ],
-      label: "Enterprise WeChat collaboration unavailable",
+      label: t("weComSetup.unavailableLabel"),
       status: "unavailable",
     };
   }
@@ -1436,14 +1657,15 @@ export function diagnosisAuthWeComSetupReadiness(
     !authConfigured || legacyWeComAuthAdvertised ? "blocked" : "ready";
   const identityCheckDetail =
     !authConfigured
-      ? "Browser identity cannot be reviewed until diagnosis authentication is configured."
+      ? t("weComSetup.identityNotConfigured")
       : legacyWeComAuthAdvertised
-        ? "Backend still advertises legacy Enterprise WeChat browser identity. Browser sessions must come from IAM OIDC; keep Enterprise WeChat identity only for app-message callbacks and collaboration context."
-        : "Browser identity comes from IAM OIDC claims. Enterprise WeChat callbacks should resolve participants against the local directory projection and OpenClarion RBAC.";
-  const roleMapping = diagnosisAuthRoleMappingStatusReadiness(status);
+        ? t("weComSetup.identityLegacy")
+        : t("weComSetup.identityReady");
+  const roleMapping = diagnosisAuthRoleMappingStatusReadiness(status, t);
   const roleMappingItem = diagnosisAuthWeComRoleMappingSetupItem(
     status.role_mapping,
     roleMapping,
+    t,
   );
   const backendStatus: DiagnosisAuthWeComSetupReadinessItem["status"] =
     !authConfigured
@@ -1455,39 +1677,39 @@ export function diagnosisAuthWeComSetupReadiness(
           : "review";
   const callbackDetail =
     !authConfigured
-      ? "Enterprise WeChat app-message callbacks cannot be reviewed until diagnosis authentication is configured."
+      ? t("weComSetup.callbackNotConfigured")
       : legacyWeComAuthAdvertised
-        ? "Backend still advertises legacy Enterprise WeChat browser callback handling. OpenClarion browser sessions must be minted by IAM OIDC, not Enterprise WeChat SSO callbacks."
-        : "Enterprise WeChat app-message callbacks are outside diagnosis auth status. Verify the dedicated /api/v1/diagnosis/wecom/app-callback endpoint from notification and collaboration settings.";
+        ? t("weComSetup.callbackLegacy")
+        : t("weComSetup.callbackReview");
   const items: DiagnosisAuthWeComSetupReadinessItem[] = [
     {
       detail: !authConfigured
-        ? "Diagnosis browser authentication is not configured in the running backend."
+        ? t("weComSetup.backendNotConfigured")
         : legacyWeComAuthAdvertised
-          ? "Backend still advertises legacy Enterprise WeChat browser authentication. OpenClarion browser login is now handled by IAM OIDC; remove legacy WeCom auth before rollout acceptance."
+          ? t("weComSetup.backendLegacy")
           : oidcSupported
-            ? "Backend advertises IAM OIDC for OpenClarion browser sessions. Enterprise WeChat remains a message and collaboration integration."
-            : "Backend no longer advertises legacy Enterprise WeChat browser authentication, but IAM OIDC is not advertised. Verify the intended browser auth provider before rollout acceptance.",
+            ? t("weComSetup.backendReady")
+            : t("weComSetup.backendReview"),
       key: "backend",
-      label: "Browser auth mode",
+      label: t("weComSetup.backendLabel"),
       status: backendStatus,
     },
     {
       detail: callbackDetail,
       key: "callback",
-      label: "App callback",
+      label: t("weComSetup.callbackLabel"),
       status: callbackStatus,
     },
     {
       detail: identityCheckDetail,
       key: "identity_checks",
-      label: "Identity source",
+      label: t("weComSetup.identityLabel"),
       status: identityCheckStatus,
     },
     {
       detail: roleMappingItem.detail,
       key: "role_mapping",
-      label: "Role mapping",
+      label: t("setup.roleMappingLabel"),
       status: roleMappingItem.status,
     },
   ];
@@ -1500,10 +1722,9 @@ export function diagnosisAuthWeComSetupReadiness(
   ) {
     return {
       color: "error",
-      detail:
-        "Enterprise WeChat browser authentication is migrated to IAM OIDC. Remove legacy WeCom browser auth and keep Enterprise WeChat for app-message callbacks, notifications, and collaboration context.",
+      detail: t("weComSetup.blockedDetail"),
       items,
-      label: "Enterprise WeChat browser auth migrated",
+      label: t("weComSetup.blockedLabel"),
       status: "blocked",
     };
   }
@@ -1516,19 +1737,17 @@ export function diagnosisAuthWeComSetupReadiness(
   ) {
     return {
       color: "warning",
-      detail:
-        "Enterprise WeChat browser login is no longer a rollout target. Review app-message callback handling separately and keep browser authorization on IAM OIDC plus OpenClarion local RBAC.",
+      detail: t("weComSetup.reviewDetail"),
       items,
-      label: "Enterprise WeChat collaboration needs review",
+      label: t("weComSetup.reviewLabel"),
       status: "review",
     };
   }
   return {
     color: "success",
-    detail:
-      "Browser authentication uses IAM OIDC, and Enterprise WeChat is limited to app messages, notifications, and diagnosis-room collaboration context. Diagnosis room permissions are enforced by OpenClarion local RBAC.",
+    detail: t("weComSetup.readyDetail"),
     items,
-    label: "Enterprise WeChat collaboration ready",
+    label: t("weComSetup.readyLabel"),
     status: "ready",
   };
 }
@@ -1536,6 +1755,7 @@ export function diagnosisAuthWeComSetupReadiness(
 function diagnosisAuthWeComRoleMappingSetupItem(
   mapping: DiagnosisAuthRoleMappingStatusSummary | undefined,
   readiness: DiagnosisAuthRoleMappingStatusReadiness,
+  t: DiagnosisAuthTranslator,
 ): Pick<DiagnosisAuthWeComSetupReadinessItem, "detail" | "status"> {
   if (readiness.status !== "ready") {
     return {
@@ -1548,8 +1768,7 @@ function diagnosisAuthWeComRoleMappingSetupItem(
   const defaultRoles = mapping?.default_roles ?? [];
   if (mappedUsers === 0 && defaultRoles.length > 0) {
     return {
-      detail:
-        "Enterprise WeChat reports only optional default provider roles. Identity proof is accepted; assign diagnosis room access in OpenClarion local RBAC.",
+      detail: t("weComSetup.defaultRolesOnlyDetail"),
       status: "ready",
     };
   }
@@ -1559,44 +1778,47 @@ function diagnosisAuthWeComRoleMappingSetupItem(
   };
 }
 
-export function diagnosisAuthBrowserSessionBlockReason({
-  intent,
-  sessionAuthenticated,
-  sessionLoading = false,
-  sessionMode,
-  sessionStatusAvailable = true,
-  values,
-}: {
-  intent: DiagnosisAuthBrowserSessionIntent;
-  sessionAuthenticated: boolean;
-  sessionLoading?: boolean;
-  sessionMode?: string;
-  sessionStatusAvailable?: boolean;
-  values: DiagnosisAuthInputValues;
-}): string {
+export function diagnosisAuthBrowserSessionBlockReason(
+  {
+    intent,
+    sessionAuthenticated,
+    sessionLoading = false,
+    sessionMode,
+    sessionStatusAvailable = true,
+    values,
+  }: {
+    intent: DiagnosisAuthBrowserSessionIntent;
+    sessionAuthenticated: boolean;
+    sessionLoading?: boolean;
+    sessionMode?: string;
+    sessionStatusAvailable?: boolean;
+    values: DiagnosisAuthInputValues;
+  },
+  t: DiagnosisAuthTranslator,
+): string {
   const mode = values.authMode ?? "session";
   if (mode !== "session" && mode !== "wecom") {
     return "";
   }
   if (sessionLoading) {
     return intent === "check"
-      ? "Checking OpenClarion browser session before running Check auth."
-      : "Checking OpenClarion browser session before continuing.";
+      ? t("browserBlock.checkingBeforeCheck")
+      : t("browserBlock.checkingBeforeAction");
   }
   if (!sessionStatusAvailable) {
     return intent === "check"
-      ? "OpenClarion browser session could not be checked. Reload this page or sign in again before running Check auth."
-      : "OpenClarion browser session could not be checked. Reload this page or sign in again before creating or connecting to a diagnosis room.";
+      ? t("browserBlock.unavailableBeforeCheck")
+      : t("browserBlock.unavailableBeforeAction");
   }
   if (!sessionAuthenticated) {
     if (mode === "session") {
       return intent === "check"
-        ? "Sign in with IAM before running Check auth with a browser session."
-        : "Sign in with IAM before creating or connecting to a diagnosis room with a browser session.";
+        ? t("browserBlock.signInBeforeCheck")
+        : t("browserBlock.signInBeforeAction");
     }
     return intent === "check"
-      ? "Enterprise WeChat browser login has been replaced by IAM OIDC. Select IAM browser session and sign in before running Check auth."
-      : "Enterprise WeChat browser login has been replaced by IAM OIDC. Select IAM browser session and sign in before creating or connecting to a diagnosis room.";
+      ? t("browserBlock.weComSignInBeforeCheck")
+      : t("browserBlock.weComSignInBeforeAction");
   }
   if (
     mode === "wecom" &&
@@ -1604,45 +1826,45 @@ export function diagnosisAuthBrowserSessionBlockReason({
     sessionMode.trim() !== "" &&
     sessionMode !== "wecom"
   ) {
-    return "Enterprise WeChat browser login has been replaced by IAM OIDC. Select IAM browser session and use the active IAM session for Check auth.";
+    return t("browserBlock.weComUseIAMSession");
   }
   return "";
 }
 
-export function diagnosisAuthBrowserSessionDisplaySummary({
-  authenticated,
-  checkFailed,
-  expectedMode,
-  loading,
-  mode,
-  roleAuthorized,
-  roles,
-  subject,
-  unauthenticatedDetail,
-}: {
-  authenticated: boolean;
-  checkFailed: boolean;
-  expectedMode?: "wecom";
-  loading: boolean;
-  mode?: string;
-  roleAuthorized?: boolean;
-  roles: readonly string[];
-  subject: string;
-  unauthenticatedDetail: string;
-}): DiagnosisAuthBrowserSessionDisplaySummary {
+export function diagnosisAuthBrowserSessionDisplaySummary(
+  {
+    authenticated,
+    checkFailed,
+    expectedMode,
+    loading,
+    mode,
+    roles,
+    subject,
+    unauthenticatedDetail,
+  }: {
+    authenticated: boolean;
+    checkFailed: boolean;
+    expectedMode?: "wecom";
+    loading: boolean;
+    mode?: string;
+    roles: readonly string[];
+    subject: string;
+    unauthenticatedDetail: string;
+  },
+  t: DiagnosisAuthTranslator,
+): DiagnosisAuthBrowserSessionDisplaySummary {
   if (loading) {
     return {
       active: false,
       alertType: "info",
-      detail: "Checking the current OpenClarion browser session.",
+      detail: t("browserSummary.loading"),
     };
   }
   if (checkFailed) {
     return {
       active: false,
       alertType: "warning",
-      detail:
-        "OpenClarion browser session could not be checked. Reload this page or sign in again before continuing.",
+      detail: t("browserSummary.unavailable"),
     };
   }
   if (!authenticated) {
@@ -1652,13 +1874,15 @@ export function diagnosisAuthBrowserSessionDisplaySummary({
       detail: unauthenticatedDetail,
     };
   }
-  const summary = diagnosisAuthBrowserSessionAuthenticatedSummary({
-    expectedMode,
-    mode,
-    roleAuthorized,
-    roles,
-    subject,
-  });
+  const summary = diagnosisAuthBrowserSessionAuthenticatedSummary(
+    {
+      expectedMode,
+      mode,
+      roles,
+      subject,
+    },
+    t,
+  );
   return {
     active: true,
     alertType: summary.alertType,
@@ -1676,23 +1900,25 @@ export function diagnosisAuthBrowserSessionShouldClearAfterError({
   return authMode === "session" && (status === 401 || status === 403);
 }
 
-export function diagnosisAuthBrowserSessionAuthenticatedSummary({
-  expectedMode,
-  mode,
-  roleAuthorized,
-  roles,
-  subject,
-}: {
-  expectedMode?: "wecom";
-  mode?: string;
-  roleAuthorized?: boolean;
-  roles: readonly string[];
-  subject: string;
-}): DiagnosisAuthBrowserSessionAuthenticatedSummary {
-  const subjectLabel = subject.trim() === "" ? "the current user" : subject;
-  const rolesLabel = roles.length === 0 ? "no roles" : roles.join(", ");
-  const sourceLabel = diagnosisAuthBrowserSessionSourceLabel(mode);
-  const sourceClause = sourceLabel === "" ? "" : ` using ${sourceLabel}`;
+export function diagnosisAuthBrowserSessionAuthenticatedSummary(
+  {
+    expectedMode,
+    mode,
+    roles,
+    subject,
+  }: {
+    expectedMode?: "wecom";
+    mode?: string;
+    roles: readonly string[];
+    subject: string;
+  },
+  t: DiagnosisAuthTranslator,
+): DiagnosisAuthBrowserSessionAuthenticatedSummary {
+  const subjectLabel =
+    subject.trim() === "" ? t("common.currentUser") : subject;
+  const rolesLabel =
+    roles.length === 0 ? t("common.noRoles") : roles.join(", ");
+  const sourceLabel = diagnosisAuthBrowserSessionSourceLabel(mode, t);
   if (
     expectedMode === "wecom" &&
     mode !== undefined &&
@@ -1701,100 +1927,86 @@ export function diagnosisAuthBrowserSessionAuthenticatedSummary({
   ) {
     return {
       alertType: "warning",
-      detail: `Signed in as ${subjectLabel}${sourceClause}. Roles: ${rolesLabel}. Enterprise WeChat browser login has been replaced by IAM OIDC; select IAM browser session before running Check auth.`,
-    };
-  }
-  if (roleAuthorized === false) {
-    return {
-      alertType: "success",
-      detail: `Signed in as ${subjectLabel}${sourceClause}. Roles: ${rolesLabel}. Identity is verified; diagnosis room access is enforced by local RBAC when creating or connecting.`,
-    };
-  }
-  if (roleAuthorized === true) {
-    return {
-      alertType: "success",
-      detail: `Signed in as ${subjectLabel}${sourceClause}. Roles: ${rolesLabel}. Identity is verified; diagnosis room access is enforced by local RBAC when creating or connecting.`,
+      detail:
+        sourceLabel === ""
+          ? t("browserSummary.migrated", {
+              roles: rolesLabel,
+              subject: subjectLabel,
+            })
+          : t("browserSummary.migratedWithSource", {
+              roles: rolesLabel,
+              source: sourceLabel,
+              subject: subjectLabel,
+            }),
     };
   }
   return {
     alertType: "success",
-    detail: `Signed in as ${subjectLabel}${sourceClause}. Roles: ${rolesLabel}. Identity is verified; diagnosis room access is enforced by local RBAC when creating or connecting.`,
+    detail:
+      sourceLabel === ""
+        ? t("browserSummary.authenticated", {
+            roles: rolesLabel,
+            subject: subjectLabel,
+          })
+        : t("browserSummary.authenticatedWithSource", {
+            roles: rolesLabel,
+            source: sourceLabel,
+            subject: subjectLabel,
+          }),
   };
 }
 
-function diagnosisAuthBrowserSessionSourceLabel(mode: string | undefined): string {
+function diagnosisAuthBrowserSessionSourceLabel(
+  mode: string | undefined,
+  t: DiagnosisAuthTranslator,
+): string {
   switch (mode?.trim()) {
     case "ldap":
-      return "LDAP";
+      return t("provider.ldap");
     case "wecom":
-      return "Enterprise WeChat";
+      return t("provider.weCom");
     case "static":
     case "bearer":
-      return "static bearer auth";
+      return t("provider.staticBearerAuth");
     case "oidc":
-      return "IAM OIDC";
+      return t("provider.iamOIDC");
     case "":
     case undefined:
       return "";
     default:
-      return "the configured backend provider";
+      return t("provider.configuredBackend");
   }
 }
 
-export function diagnosisAuthCheckSuccessFeedback({
-  roles,
-  subject,
-}: {
-  mode: DiagnosisAuthMode;
-  roleAuthorized?: boolean;
-  roles: readonly string[];
-  subject: string;
-}): DiagnosisAuthCheckSuccessFeedback {
-  const rolesLabel = roles.length === 0 ? "no roles" : roles.join(", ");
+export function diagnosisAuthCheckSuccessFeedback(
+  {
+    roles,
+    subject,
+  }: {
+    roles: readonly string[];
+    subject: string;
+  },
+  t: DiagnosisAuthTranslator,
+): DiagnosisAuthCheckSuccessFeedback {
+  const rolesLabel =
+    roles.length === 0 ? t("common.noRoles") : roles.join(", ");
   return {
     logLevel: "info",
-    logMessage: `Authentication checked for ${subject} (${rolesLabel}).`,
-    toastMessage: `Authenticated as ${subject}. Local RBAC will authorize diagnosis room actions.`,
+    logMessage: t("feedback.log", { roles: rolesLabel, subject }),
+    toastMessage: t("feedback.toast", { subject }),
     toastType: "success",
   };
 }
 
 function diagnosisAuthBackendCheckRequiredDetail(
   mode: DiagnosisAuthMode,
+  t: DiagnosisAuthTranslator,
 ): string {
   if (mode === "session") {
-    return "Run Check auth to verify the current OpenClarion browser session identity against the backend provider. Diagnosis room permissions are enforced by local RBAC.";
+    return t("backend.checkRequiredSession");
   }
   if (mode === "wecom") {
-    return "Enterprise WeChat browser login has been replaced by IAM OIDC. Select IAM browser session, then run Check auth to verify the HttpOnly browser session identity. Diagnosis room permissions are enforced by local RBAC.";
+    return t("backend.checkRequiredWeCom");
   }
-  return "Run Check auth to verify these credentials against the configured backend provider.";
-}
-
-function bearerInputReadiness(token: string): DiagnosisAuthInputReadiness {
-  const trimmed = token.trim();
-  if (trimmed === "") {
-    return {
-      detail:
-        "Enter a bearer token only when the backend is configured for static bearer diagnosis auth.",
-      label: "Bearer token required.",
-      mode: "bearer",
-      status: "pending",
-    };
-  }
-  if (/[\s]/.test(trimmed)) {
-    return {
-      detail: "Bearer token must not contain whitespace.",
-      label: "Bearer token is invalid.",
-      mode: "bearer",
-      status: "blocked",
-    };
-  }
-  return {
-    detail:
-      "Token is locally well-formed; Check auth verifies it against the configured backend provider.",
-    label: "Bearer token ready to check.",
-    mode: "bearer",
-    status: "ready",
-  };
+  return t("backend.checkRequiredCredentials");
 }
