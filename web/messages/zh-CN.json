@@ -78,6 +78,8 @@
     "enabledNotice": "工作空间已启用。",
     "disabledNotice": "工作空间已停用。",
     "membershipSaved": "成员关系已保存。",
+    "activeMembershipRequired": "不能停用你在当前工作空间中的成员资格。",
+    "verifySessionBeforeMembership": "请先验证浏览器会话，再停用成员资格。",
     "metricsLabel": "工作空间指标",
     "visible": "可见",
     "active": "已启用",

@@ -20,7 +20,7 @@ import {
   consoleBrowserSessionQueryKey,
 } from "./session-state";
 
-const accessibleTenantsQueryKey = ["console", "tenants"] as const;
+export const accessibleTenantsQueryKey = ["console", "tenants"] as const;
 type AuthenticatedConsoleSession = Extract<
   DiagnosisBrowserSessionStatus,
   { authenticated: true }

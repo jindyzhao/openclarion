@@ -63,8 +63,10 @@ export function normalizedTenant(value: unknown): Tenant | null {
 
 export function normalizedTenantMembershipListResponse(
   value: unknown,
+  expectedTenantID: number,
 ): TenantMembershipListResponse | null {
   if (
+    !isPositiveInteger(expectedTenantID) ||
     !isRecord(value) ||
     !Array.isArray(value.items) ||
     value.items.length > 500
@@ -75,7 +77,7 @@ export function normalizedTenantMembershipListResponse(
   const ids = new Set<number>();
   const subjects = new Set<string>();
   for (const item of value.items) {
-    const membership = normalizedTenantMembership(item);
+    const membership = normalizedTenantMembership(item, expectedTenantID);
     if (
       membership === null ||
       ids.has(membership.id) ||
@@ -92,6 +94,7 @@ export function normalizedTenantMembershipListResponse(
 
 export function normalizedTenantMembership(
   value: unknown,
+  expectedTenantID: number,
 ): TenantMembership | null {
   if (!isRecord(value)) {
     return null;
@@ -109,6 +112,7 @@ export function normalizedTenantMembership(
   if (
     !isPositiveInteger(id) ||
     !isPositiveInteger(tenantID) ||
+    tenantID !== expectedTenantID ||
     !isCleanText(subject, 256) ||
     (role !== "owner" && role !== "member") ||
     typeof enabled !== "boolean" ||

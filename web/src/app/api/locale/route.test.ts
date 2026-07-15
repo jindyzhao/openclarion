@@ -7,9 +7,12 @@ import { PUT } from "./route";
 describe("locale preference route", () => {
   it("stores a validated locale in a hardened cookie", async () => {
     const response = await PUT(
-      new Request("https://console.example.com/api/locale", {
+      new Request("http://next.internal/api/locale", {
         method: "PUT",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-proto": "https",
+        },
         body: JSON.stringify({ locale: "zh-CN" }),
       }),
     );

@@ -78,6 +78,8 @@
     "enabledNotice": "Workspace enabled.",
     "disabledNotice": "Workspace disabled.",
     "membershipSaved": "Membership saved.",
+    "activeMembershipRequired": "You cannot disable your membership in the active workspace.",
+    "verifySessionBeforeMembership": "Verify the browser session before disabling a membership.",
     "metricsLabel": "Workspace metrics",
     "visible": "Visible",
     "active": "Active",

@@ -74,20 +74,23 @@ describe("normalizedTenantListResponse", () => {
 describe("normalizedTenantMembershipListResponse", () => {
   it("accepts a unique, bounded membership list", () => {
     expect(
-      normalizedTenantMembershipListResponse({
-        items: [
-          {
-            id: 3,
-            tenant_id: 2,
-            subject: "operator-1",
-            role: "owner",
-            enabled: true,
-            created_by: "bootstrap-1",
-            created_at: "2026-07-11T10:00:00Z",
-            updated_at: "2026-07-11T10:00:00Z",
-          },
-        ],
-      }),
+      normalizedTenantMembershipListResponse(
+        {
+          items: [
+            {
+              id: 3,
+              tenant_id: 2,
+              subject: "operator-1",
+              role: "owner",
+              enabled: true,
+              created_by: "bootstrap-1",
+              created_at: "2026-07-11T10:00:00Z",
+              updated_at: "2026-07-11T10:00:00Z",
+            },
+          ],
+        },
+        2,
+      ),
     ).toMatchObject({ items: [{ id: 3, subject: "operator-1" }] });
   });
 
@@ -103,14 +106,38 @@ describe("normalizedTenantMembershipListResponse", () => {
       updated_at: "2026-07-11T10:00:00Z",
     };
     expect(
-      normalizedTenantMembershipListResponse({
-        items: [membership, { ...membership, id: 4 }],
-      }),
+      normalizedTenantMembershipListResponse(
+        { items: [membership, { ...membership, id: 4 }] },
+        2,
+      ),
     ).toBeNull();
     expect(
-      normalizedTenantMembershipListResponse({
-        items: [{ ...membership, role: "admin" }],
-      }),
+      normalizedTenantMembershipListResponse(
+        { items: [{ ...membership, role: "admin" }] },
+        2,
+      ),
+    ).toBeNull();
+  });
+
+  it("rejects membership rows from another tenant", () => {
+    expect(
+      normalizedTenantMembershipListResponse(
+        {
+          items: [
+            {
+              id: 3,
+              tenant_id: 7,
+              subject: "operator-1",
+              role: "owner",
+              enabled: true,
+              created_by: "bootstrap-1",
+              created_at: "2026-07-11T10:00:00Z",
+              updated_at: "2026-07-11T10:00:00Z",
+            },
+          ],
+        },
+        2,
+      ),
     ).toBeNull();
   });
 });

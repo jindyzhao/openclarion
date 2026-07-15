@@ -5,6 +5,7 @@ import {
   isAppLocale,
   type AppLocale,
 } from "@/i18n/config";
+import { diagnosisSessionCookieSecure } from "@/lib/api/diagnosis-session";
 
 const localeCookieMaxAgeSeconds = 365 * 24 * 60 * 60;
 
@@ -35,7 +36,7 @@ export async function PUT(request: Request): Promise<NextResponse> {
     maxAge: localeCookieMaxAgeSeconds,
     path: "/",
     sameSite: "lax",
-    secure: new URL(request.url).protocol === "https:",
+    secure: diagnosisSessionCookieSecure(request),
   });
   return response;
 }

@@ -95,4 +95,44 @@ describe("tenant membership BFF route", () => {
       error: "Tenant membership list response is invalid.",
     });
   });
+
+  it("rejects membership rows from another tenant", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ items: [{ ...membership, tenant_id: 7 }] }),
+      ),
+    );
+    const response = await GET(
+      new Request("https://console.example.com/api/tenants/2/memberships", {
+        headers: {
+          cookie: `${diagnosisSessionCookieName}=session.token.one`,
+        },
+      }),
+      { params: Promise.resolve({ tenantId: "2" }) },
+    );
+
+    expect(response.status).toBe(502);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
+
+  it("preserves a valid session after a membership authorization denial", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ error: "owner role required" }, { status: 403 }),
+      ),
+    );
+    const response = await GET(
+      new Request("https://console.example.com/api/tenants/2/memberships", {
+        headers: {
+          cookie: `${diagnosisSessionCookieName}=session.token.one`,
+        },
+      }),
+      { params: Promise.resolve({ tenantId: "2" }) },
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
 });

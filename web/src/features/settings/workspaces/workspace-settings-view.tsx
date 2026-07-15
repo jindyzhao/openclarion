@@ -31,7 +31,10 @@ import type { TableColumnsType } from "antd";
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
-import { useConsoleBrowserSessionQuery } from "@/features/console/use-browser-session";
+import {
+  accessibleTenantsQueryKey,
+  useConsoleBrowserSessionQuery,
+} from "@/features/console/use-browser-session";
 import type { ApiResult } from "@/lib/api/client";
 
 import { formatDateTime } from "../format";
@@ -48,7 +51,11 @@ import {
   submitTenantMembership,
   submitTenantStatus,
 } from "./client-api";
-import { selectedWorkspaceID } from "./selection";
+import {
+  membershipDisableBlocked,
+  selectedWorkspaceID,
+  workspaceStatusChangeBlocked,
+} from "./selection";
 import type {
   Tenant,
   TenantCreateRequest,
@@ -123,10 +130,14 @@ export function WorkspaceSettingsManager({
     selectItems: (response) => response.items,
   });
   const sessionQuery = useConsoleBrowserSessionQuery();
-  const currentTenantID =
+  const authenticatedSession =
     sessionQuery.data?.ok === true && sessionQuery.data.data.authenticated
-      ? sessionQuery.data.data.tenant_id
+      ? sessionQuery.data.data
       : null;
+  const currentTenantID = authenticatedSession?.tenant_id ?? null;
+  const currentSubject = authenticatedSession?.subject ?? null;
+  const sessionTenantKnown =
+    sessionQuery.data?.ok === true && !sessionQuery.isFetching;
   const effectiveSelectedTenantID = selectedWorkspaceID(
     tenants,
     selectedTenantID,
@@ -142,11 +153,11 @@ export function WorkspaceSettingsManager({
     retry: false,
   });
   const createMutation = useSettingsMutation<TenantCreateRequest, Tenant>({
-    invalidateQueryKey: tenantQueryKey,
+    invalidateQueryKeys: [tenantQueryKey, accessibleTenantsQueryKey],
     mutationFn: submitTenant,
   });
   const statusMutation = useSettingsMutation<StatusMutationVariables, Tenant>({
-    invalidateQueryKeys: [tenantQueryKey, ["console", "tenants"]],
+    invalidateQueryKeys: [tenantQueryKey, accessibleTenantsQueryKey],
     mutationFn: ({ body, tenantID }) => submitTenantStatus(tenantID, body),
   });
   const membershipMutation = useSettingsMutation<
@@ -218,6 +229,7 @@ export function WorkspaceSettingsManager({
 
   function openMembershipEditor(membership: TenantMembership | null) {
     setEditingMembership(membership);
+    membershipForm.setFields([{ name: "enabled", errors: [] }]);
     membershipForm.setFieldsValue(
       membership === null
         ? { enabled: true, role: "member", subject: "" }
@@ -234,14 +246,39 @@ export function WorkspaceSettingsManager({
     if (effectiveSelectedTenantID === null) {
       return;
     }
+    const body = {
+      enabled: values.enabled,
+      role: values.role,
+      subject: values.subject.trim(),
+    };
+    if (
+      membershipDisableBlocked({
+        currentSubject,
+        currentTenantID,
+        enabled: body.enabled,
+        selectedTenantID: effectiveSelectedTenantID,
+        sessionTenantKnown,
+        subject: body.subject,
+      })
+    ) {
+      membershipForm.setFields([
+        {
+          name: "enabled",
+          errors: [
+            t(
+              sessionTenantKnown
+                ? "activeMembershipRequired"
+                : "verifySessionBeforeMembership",
+            ),
+          ],
+        },
+      ]);
+      return;
+    }
     try {
       await membershipMutation.mutateAsync({
         tenantID: effectiveSelectedTenantID,
-        body: {
-          enabled: values.enabled,
-          role: values.role,
-          subject: values.subject.trim(),
-        },
+        body,
       });
       setMembershipOpen(false);
       setEditingMembership(null);
@@ -297,6 +334,7 @@ export function WorkspaceSettingsManager({
               onSelect={setSelectedTenantID}
               onStatusChange={(tenant) => void handleStatusChange(tenant)}
               selectedTenantID={effectiveSelectedTenantID}
+              sessionTenantKnown={sessionTenantKnown}
               t={t}
               tenants={tenants}
             />
@@ -425,7 +463,19 @@ export function WorkspaceSettingsManager({
             />
           </Form.Item>
           <Form.Item label={t("enabled")} name="enabled" valuePropName="checked">
-            <Switch />
+            <Switch
+              disabled={
+                editingMembership !== null &&
+                membershipDisableBlocked({
+                  currentSubject,
+                  currentTenantID,
+                  enabled: false,
+                  selectedTenantID: effectiveSelectedTenantID,
+                  sessionTenantKnown,
+                  subject: editingMembership.subject,
+                })
+              }
+            />
           </Form.Item>
         </Form>
       </Modal>
@@ -439,6 +489,7 @@ function WorkspaceTable({
   onSelect,
   onStatusChange,
   selectedTenantID,
+  sessionTenantKnown,
   t,
   tenants,
 }: {
@@ -447,6 +498,7 @@ function WorkspaceTable({
   onSelect: (tenantID: number) => void;
   onStatusChange: (tenant: Tenant) => void;
   selectedTenantID: number | null;
+  sessionTenantKnown: boolean;
   t: WorkspaceTranslator;
   tenants: Tenant[];
 }) {
@@ -475,9 +527,11 @@ function WorkspaceTable({
       key: "actions",
       title: t("actions"),
       render: (_value, tenant) => {
-        const isDefault = tenant.id === 1;
-        const isCurrent = tenant.id === currentTenantID;
-        const disableBlocked = tenant.status === "active" && (isDefault || isCurrent);
+        const statusBlocked = workspaceStatusChangeBlocked(
+          tenant,
+          currentTenantID,
+          sessionTenantKnown,
+        );
         return (
           <Space wrap>
             <Button
@@ -488,7 +542,7 @@ function WorkspaceTable({
               {t("members")}
             </Button>
             <Popconfirm
-              disabled={disableBlocked}
+              disabled={busy || statusBlocked}
               okText={tenant.status === "active" ? t("disable") : t("enable")}
               onConfirm={() => onStatusChange(tenant)}
               title={tenant.status === "active"
@@ -497,7 +551,7 @@ function WorkspaceTable({
             >
               <Button
                 danger={tenant.status === "active"}
-                disabled={busy || disableBlocked}
+                disabled={busy || statusBlocked}
                 icon={<PoweroffOutlined />}
                 type="link"
               >

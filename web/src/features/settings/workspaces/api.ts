@@ -77,7 +77,7 @@ export async function fetchTenantMemberships(
     requestJSON<unknown>(`/api/v1/tenants/${tenantID}/memberships`, {
       headers: options.headers,
     }),
-    normalizedTenantMembershipListResponse,
+    (value) => normalizedTenantMembershipListResponse(value, tenantID),
     "Tenant membership list response is invalid.",
   );
 }
@@ -96,7 +96,7 @@ export async function setTenantMembership(
       body,
       headers: options.headers,
     }),
-    normalizedTenantMembership,
+    (value) => normalizedTenantMembership(value, tenantID),
     "Tenant membership response is invalid.",
   );
 }

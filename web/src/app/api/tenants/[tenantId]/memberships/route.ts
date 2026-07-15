@@ -23,6 +23,8 @@ export async function GET(request: Request, context: RouteContext) {
   }
   return authorizedBackendResultResponse(request, (headers) =>
     fetchTenantMemberships(tenantID.data, { headers }),
+    200,
+    { preserveSessionOnForbidden: true },
   );
 }
 
@@ -37,6 +39,8 @@ export async function PUT(request: Request, context: RouteContext) {
   }
   return authorizedBackendResultResponse(request, (headers) =>
     setTenantMembership(tenantID.data, body.data, { headers }),
+    200,
+    { preserveSessionOnForbidden: true },
   );
 }
 
