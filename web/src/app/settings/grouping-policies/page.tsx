@@ -1,3 +1,5 @@
+import { getTranslations } from "next-intl/server";
+
 import { fetchGroupingPolicies } from "@/features/settings/grouping-policies/api";
 import {
   groupingPolicyLaunchIntentFromSearchParams,
@@ -15,6 +17,7 @@ type GroupingPolicySettingsPageProps = {
 export default async function GroupingPolicySettingsPage({
   searchParams
 }: GroupingPolicySettingsPageProps) {
+  const t = await getTranslations("SettingsPages");
   const backendRequestOptions =
     await diagnosisBackendRequestOptionsFromIncomingHeaders();
   const result = await fetchGroupingPolicies(backendRequestOptions);
@@ -25,10 +28,10 @@ export default async function GroupingPolicySettingsPage({
     <>
       <section className="page-heading">
         <div>
-          <h1>Grouping Policies</h1>
-          <p>Alert grouping rules used before report workflow binding.</p>
+          <h1>{t("groupingPoliciesTitle")}</h1>
+          <p>{t("groupingPoliciesSubtitle")}</p>
         </div>
-        <div className="status-line">{count} policies</div>
+        <div className="status-line">{t("policies", { count })}</div>
       </section>
 
       <GroupingPolicySettingsManager

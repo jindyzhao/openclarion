@@ -1,3 +1,5 @@
+import { getTranslations } from "next-intl/server";
+
 import { fetchNotificationChannelProfiles } from "@/features/settings/notification-channels/api";
 import {
   notificationChannelEditIDFromSearchParams,
@@ -17,6 +19,7 @@ type NotificationChannelSettingsPageProps = {
 export default async function NotificationChannelSettingsPage({
   searchParams
 }: NotificationChannelSettingsPageProps) {
+  const t = await getTranslations("SettingsPages");
   const backendRequestOptions =
     await diagnosisBackendRequestOptionsFromIncomingHeaders();
   const result = await fetchNotificationChannelProfiles(backendRequestOptions);
@@ -30,10 +33,10 @@ export default async function NotificationChannelSettingsPage({
     <>
       <section className="page-heading">
         <div>
-          <h1>Notification Channels</h1>
-          <p>Secret-backed operator notification targets.</p>
+          <h1>{t("notificationChannelsTitle")}</h1>
+          <p>{t("notificationChannelsSubtitle")}</p>
         </div>
-        <div className="status-line">{count} channels</div>
+        <div className="status-line">{t("channels", { count })}</div>
       </section>
 
       <NotificationChannelSettingsManager

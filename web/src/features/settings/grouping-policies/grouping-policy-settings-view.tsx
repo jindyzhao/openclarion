@@ -25,6 +25,7 @@ import {
   Typography
 } from "antd";
 import type { TableColumnsType } from "antd";
+import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
 import type { ApiResult } from "@/lib/api/client";
@@ -74,6 +75,8 @@ type SavePolicyVariables = {
   policyID: number | null;
 };
 
+type GroupingTranslator = ReturnType<typeof useTranslations<"GroupingSettings">>;
+
 const groupingPolicyBaseAuthorizationChecks: CurrentRBACAuthorizationCheck[] = [
   { key: "groupingPolicyRead", permission: "grouping_policy.read" },
   { key: "groupingPolicyManage", permission: "grouping_policy.manage" }
@@ -83,13 +86,18 @@ export function GroupingPolicySettingsManager({
   launchIntent = null,
   result
 }: GroupingPolicySettingsManagerProps) {
+  const locale = useLocale();
+  const t = useTranslations("GroupingSettings");
+  const common = useTranslations("Common");
   const [form] = Form.useForm<GroupingPolicyFormState>();
   const clientReady = useClientReady();
   const [editingID, setEditingID] = useState<number | null>(null);
   const [previewingID, setPreviewingID] = useState<number | null>(null);
   const [previewResults, setPreviewResults] = useState<Record<number, GroupingPolicyPreviewResult>>({});
   const [selectedPreviewID, setSelectedPreviewID] = useState<number | null>(null);
-  const [launchNotice, setLaunchNotice] = useState<string | null>(launchIntent?.message ?? null);
+  const [launchNotice, setLaunchNotice] = useState<string | null>(
+    launchIntent?.message ?? null,
+  );
   const {
     errorStatus,
     items: policies,
@@ -101,7 +109,7 @@ export function GroupingPolicySettingsManager({
     initialResult: result,
     queryKey: groupingPoliciesQueryKey,
     queryFn: refreshGroupingPolicies,
-    refreshMessage: "Policies refreshed.",
+    refreshMessage: t("refreshed"),
     selectItems: (response) => response.items
   });
   const savePolicy = useSettingsMutation<SavePolicyVariables, GroupingPolicy>({
@@ -146,16 +154,20 @@ export function GroupingPolicySettingsManager({
   const formPermissionNotice = settingsManagePermissionNotice({
     canManage: canSaveCurrentGroupingPolicy,
     isChecking: !clientReady || currentAuthorization.isChecking,
-    resourceLabel:
-      editingID === null
-        ? "grouping policy creation"
-        : `grouping policy #${editingID}`,
+    message: common("formReadOnly", {
+      resource:
+        editingID === null
+          ? t("creationResource")
+          : t("policyResource", { id: editingID }),
+    }),
   });
   const readPermissionNotice = settingsReadPermissionNotice({
     canRead: canReadGroupingPolicies,
     errorStatus,
     isChecking: !clientReady || currentAuthorization.isChecking,
-    resourceLabel: "grouping policies",
+    message: common("readAccessLimited", {
+      resource: t("policiesResource"),
+    }),
   });
   const visibleNotice =
     currentAuthorization.notice ?? readPermissionNotice ?? notice;
@@ -175,21 +187,24 @@ export function GroupingPolicySettingsManager({
   async function handleSubmit(values: GroupingPolicyFormState) {
     const parsed = formStateToWriteRequest(normalizeFormValues(values));
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: parsed.message });
+      setNotice({ kind: "error", message: localizeGroupingMessage(parsed.message, locale, t) });
       return;
     }
 
     try {
       await savePolicy.mutateAsync({ policyID: editingID, body: parsed.value });
     } catch (error) {
-      setNotice({ kind: "error", message: settingsErrorMessage(error) });
+      setNotice({
+        kind: "error",
+        message: settingsErrorMessage(error, common("requestFailed")),
+      });
       return;
     }
 
     form.setFieldsValue(emptyGroupingPolicyForm());
     setEditingID(null);
     setLaunchNotice(null);
-    setNotice({ kind: "info", message: "Policy saved." });
+    setNotice({ kind: "info", message: t("saved") });
   }
 
   async function handlePreview(policy: GroupingPolicy) {
@@ -205,7 +220,10 @@ export function GroupingPolicySettingsManager({
     setSelectedPreviewID(policy.id);
     setNotice({
       kind: "info",
-      message: `Preview scanned ${previewed.data.events_scanned} events and matched ${previewed.data.events_matched}.`
+      message: t("previewScanned", {
+        matched: previewed.data.events_matched,
+        scanned: previewed.data.events_scanned,
+      })
     });
   }
 
@@ -227,19 +245,19 @@ export function GroupingPolicySettingsManager({
 
   return (
     <div className="stack">
-      <Row aria-label="Grouping policy metrics" gutter={[12, 12]}>
-        <MetricCard label="Policies" value={policies.length} />
-        <MetricCard label="Enabled" value={summary.enabled} />
-        <MetricCard label="Source scoped" value={summary.scoped} />
-        <MetricCard label="Max dimensions" value={summary.maxDimensions} />
+      <Row aria-label={t("metricsLabel")} gutter={[12, 12]}>
+        <MetricCard label={t("policies")} value={policies.length} />
+        <MetricCard label={t("enabled")} value={summary.enabled} />
+        <MetricCard label={t("sourceScoped")} value={summary.scoped} />
+        <MetricCard label={t("maxDimensions")} value={summary.maxDimensions} />
       </Row>
 
-      {visibleNotice ? <Notice notice={visibleNotice} /> : null}
+      {visibleNotice ? <Notice notice={visibleNotice} t={t} /> : null}
       {launchNotice ? (
         <Alert
-          aria-label="Grouping policy launch preset"
-          description={launchNotice}
-          message="Grouping action loaded"
+          aria-label={t("launchPreset")}
+          description={localizeGroupingMessage(launchNotice, locale, t)}
+          message={t("actionLoaded")}
           role="status"
           showIcon
           type="info"
@@ -252,11 +270,11 @@ export function GroupingPolicySettingsManager({
             extra={
               editingID === null ? null : (
                 <Button disabled={busy || !canCreateGroupingPolicy} icon={<PlusOutlined />} onClick={resetForm} type="default">
-                  New
+                  {t("new")}
                 </Button>
               )
             }
-            title={editingID === null ? "New Grouping Policy" : `Edit Policy #${editingID}`}
+            title={editingID === null ? t("newPolicy") : t("editPolicy", { id: editingID })}
           >
             {formPermissionNotice ? (
               <ReadOnlyModeAlert notice={formPermissionNotice} />
@@ -269,49 +287,49 @@ export function GroupingPolicySettingsManager({
               onFinish={handleSubmit}
             >
               <Form.Item
-                label="Name"
+                label={t("name")}
                 name="name"
                 rules={[
-                  { required: true, message: "Policy name is required." },
-                  { max: 120, message: "Policy name must be 120 characters or fewer." }
+                  { required: true, message: t("nameRequired") },
+                  { max: 120, message: t("nameLength") }
                 ]}
               >
                 <Input autoComplete="off" />
               </Form.Item>
 
               <Form.Item
-                label="Dimension keys"
+                label={t("dimensionKeys")}
                 name="dimensionKeysText"
-                rules={[{ required: true, message: "At least one dimension key is required." }]}
+                rules={[{ required: true, message: t("dimensionRequired") }]}
               >
                 <Input.TextArea autoSize={{ minRows: 4, maxRows: 8 }} placeholder={"alertname\nservice"} />
               </Form.Item>
 
               <Form.Item
-                label="Severity key"
+                label={t("severityKey")}
                 name="severityKey"
                 rules={[
-                  { required: true, message: "Severity key is required." },
-                  { max: 64, message: "Severity key must be 64 characters or fewer." }
+                  { required: true, message: t("severityRequired") },
+                  { max: 64, message: t("severityLength") }
                 ]}
               >
                 <Input autoComplete="off" />
               </Form.Item>
 
-              <Form.Item label="Source filter" name="sourceFilterText">
+              <Form.Item label={t("sourceFilter")} name="sourceFilterText">
                 <Input.TextArea autoSize={{ minRows: 3, maxRows: 6 }} placeholder={"prometheus\nalertmanager"} />
               </Form.Item>
 
               <Form.Item name="enabled" valuePropName="checked">
-                <Checkbox>Enabled</Checkbox>
+                <Checkbox>{t("enabled")}</Checkbox>
               </Form.Item>
 
               <Space wrap>
                 <Button disabled={busy || !canSaveCurrentGroupingPolicy} htmlType="submit" icon={<SaveOutlined />} loading={busy} type="primary">
-                  Save Policy
+                  {t("savePolicy")}
                 </Button>
                 <Button disabled={busy} onClick={resetForm} type="default">
-                  Reset
+                  {t("reset")}
                 </Button>
               </Space>
             </Form>
@@ -322,10 +340,10 @@ export function GroupingPolicySettingsManager({
           <Card
             extra={
               <Button disabled={busy || !canReadGroupingPolicies} icon={<ReloadOutlined />} loading={busy} onClick={handleRefresh} type="default">
-                Refresh
+                {t("refresh")}
               </Button>
             }
-            title="Configured Policies"
+            title={t("configuredPolicies")}
           >
             <GroupingPolicyTable
               busy={busy}
@@ -337,8 +355,10 @@ export function GroupingPolicySettingsManager({
               policies={policies}
               previewingID={previewingID}
               previewResults={previewResults}
+              locale={locale}
+              t={t}
             />
-            <PreviewPanel result={selectedPreview} />
+            <PreviewPanel locale={locale} result={selectedPreview} t={t} />
           </Card>
         </Col>
       </Row>
@@ -356,12 +376,12 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-function Notice({ notice }: { notice: SettingsNotice }) {
+function Notice({ notice, t }: { notice: SettingsNotice; t: GroupingTranslator }) {
   const type = notice.kind === "error" ? "error" : notice.kind === "warning" ? "warning" : "success";
   return (
     <Alert
       description={notice.message}
-      message={notice.kind === "error" ? "Request failed" : "Settings"}
+      message={notice.kind === "error" ? t("requestFailed") : t("settings")}
       role={notice.kind === "error" ? "alert" : "status"}
       showIcon
       type={type}
@@ -378,7 +398,9 @@ function GroupingPolicyTable({
   onEdit,
   onPreview,
   previewResults,
-  previewingID
+  previewingID,
+  locale,
+  t,
 }: {
   policies: GroupingPolicy[];
   busy: boolean;
@@ -389,12 +411,15 @@ function GroupingPolicyTable({
   onPreview: (policy: GroupingPolicy) => void;
   previewResults: Record<number, GroupingPolicyPreviewResult>;
   previewingID: number | null;
+  locale: string;
+  t: GroupingTranslator;
 }) {
+  const common = useTranslations("Common");
   const columns: TableColumnsType<GroupingPolicy> = [
     {
       dataIndex: "name",
       key: "name",
-      title: "Name",
+      title: t("name"),
       render: (_value, policy) => (
         <Space direction="vertical" size={0}>
           <Typography.Text strong>{policy.name}</Typography.Text>
@@ -405,43 +430,45 @@ function GroupingPolicyTable({
     {
       dataIndex: "dimension_keys",
       key: "dimensions",
-      title: "Dimensions",
-      render: (_value, policy) => <TokenList emptyText="None" values={policy.dimension_keys} />
+      title: t("dimensions"),
+      render: (_value, policy) => <TokenList emptyText={t("none")} values={policy.dimension_keys} />
     },
     {
       dataIndex: "severity_key",
       key: "severity",
-      title: "Severity",
+      title: t("severity"),
       render: (_value, policy) => <Tag color="gold">{policy.severity_key}</Tag>
     },
     {
       dataIndex: "source_filter",
       key: "source_filter",
-      title: "Sources",
-      render: (_value, policy) => <TokenList emptyText="All sources" values={policy.source_filter} />
+      title: t("sources"),
+      render: (_value, policy) => <TokenList emptyText={t("allSources")} values={policy.source_filter} />
     },
     {
       dataIndex: "enabled",
       key: "state",
-      title: "State",
+      title: t("state"),
       render: (_value, policy) => (
-        <Tag color={policy.enabled ? "green" : "default"}>{policy.enabled ? "enabled" : "disabled"}</Tag>
+        <Tag color={policy.enabled ? "green" : "default"}>
+          {policy.enabled ? t("enabled") : t("disabled")}
+        </Tag>
       )
     },
     {
       key: "last_preview",
-      title: "Last Preview",
-      render: (_value, policy) => <PreviewSummary result={previewResults[policy.id]} />
+      title: t("lastPreview"),
+      render: (_value, policy) => <PreviewSummary result={previewResults[policy.id]} t={t} />
     },
     {
       dataIndex: "updated_at",
       key: "updated",
-      title: "Updated",
-      render: (_value, policy) => formatDateTime(policy.updated_at)
+      title: t("updated"),
+      render: (_value, policy) => formatDateTime(policy.updated_at, locale)
     },
     {
       key: "action",
-      title: "Action",
+      title: t("action"),
       render: (_value, policy) => {
         const canEdit = canEditPolicy(policy.id);
         const canPreview = canPreviewPolicy(policy.id);
@@ -458,7 +485,7 @@ function GroupingPolicyTable({
               onClick={() => onPreview(policy)}
               type="link"
             >
-              Preview
+              {t("preview")}
             </Button>
             <Button
               disabled={busy || !canEdit || previewingID !== null}
@@ -466,7 +493,7 @@ function GroupingPolicyTable({
               onClick={() => onEdit(policy)}
               type="link"
             >
-              Edit
+              {t("edit")}
             </Button>
           </Space>
         );
@@ -484,8 +511,10 @@ function GroupingPolicyTable({
           <Empty
             description={settingsReadPermissionEmptyDescription({
               canRead,
-              emptyDescription: "No grouping policies configured.",
-              resourceLabel: "grouping policies",
+              deniedDescription: common("noReadAccess", {
+                resource: t("policiesResource"),
+              }),
+              emptyDescription: t("noPolicies"),
             })}
           />
         )
@@ -497,21 +526,29 @@ function GroupingPolicyTable({
   );
 }
 
-function PreviewSummary({ result }: { result?: GroupingPolicyPreviewResult }) {
+function PreviewSummary({ result, t }: { result?: GroupingPolicyPreviewResult; t: GroupingTranslator }) {
   if (!result) {
-    return <Typography.Text type="secondary">Not previewed</Typography.Text>;
+    return <Typography.Text type="secondary">{t("notPreviewed")}</Typography.Text>;
   }
   return (
     <Space direction="vertical" size={2}>
-      <Typography.Text>{result.groups.length} groups</Typography.Text>
+      <Typography.Text>{t("groupCount", { count: result.groups.length })}</Typography.Text>
       <Typography.Text type="secondary">
-        {result.events_matched}/{result.events_scanned} events
+        {t("eventRatio", { matched: result.events_matched, scanned: result.events_scanned })}
       </Typography.Text>
     </Space>
   );
 }
 
-function PreviewPanel({ result }: { result?: GroupingPolicyPreviewResult }) {
+function PreviewPanel({
+  locale,
+  result,
+  t,
+}: {
+  locale: string;
+  result?: GroupingPolicyPreviewResult;
+  t: GroupingTranslator;
+}) {
   if (!result) {
     return null;
   }
@@ -520,16 +557,16 @@ function PreviewPanel({ result }: { result?: GroupingPolicyPreviewResult }) {
       <div className="settings-preview-header">
         <Space align="center">
           <PartitionOutlined />
-          <Typography.Text strong>Latest Preview</Typography.Text>
+          <Typography.Text strong>{t("latestPreview")}</Typography.Text>
         </Space>
         <Typography.Text type="secondary">
-          {result.events_matched}/{result.events_scanned} events matched
+          {t("eventsMatched", { matched: result.events_matched, scanned: result.events_scanned })}
         </Typography.Text>
       </div>
       <Table<GroupingPolicyPreviewGroup>
-        columns={previewColumns}
+        columns={previewColumns(locale, t)}
         dataSource={result.groups}
-        locale={{ emptyText: <Empty description="No preview groups." /> }}
+        locale={{ emptyText: <Empty description={t("noPreviewGroups")} /> }}
         pagination={false}
         rowKey={(group) => group.group_key}
         scroll={{ x: 940 }}
@@ -539,45 +576,52 @@ function PreviewPanel({ result }: { result?: GroupingPolicyPreviewResult }) {
   );
 }
 
-const previewColumns: TableColumnsType<GroupingPolicyPreviewGroup> = [
+function previewColumns(
+  locale: string,
+  t: GroupingTranslator,
+): TableColumnsType<GroupingPolicyPreviewGroup> {
+  return [
   {
     dataIndex: "dimensions",
     key: "dimensions",
-    title: "Dimensions",
-    render: (_value, group) => <DimensionTags values={group.dimensions} />
+    title: t("dimensions"),
+    render: (_value, group) => <DimensionTags t={t} values={group.dimensions} />
   },
   {
     dataIndex: "severity",
     key: "severity",
-    title: "Severity",
-    render: (_value, group) => <Tag color={severityColor(group.severity)}>{group.severity}</Tag>
+    title: t("severity"),
+    render: (_value, group) => (
+      <Tag color={severityColor(group.severity)}>{t(`severity_${group.severity}`)}</Tag>
+    )
   },
   {
     dataIndex: "event_count",
     key: "event_count",
-    title: "Events"
+    title: t("events")
   },
   {
     dataIndex: "first_seen_at",
     key: "first_seen_at",
-    title: "First Seen",
-    render: (_value, group) => formatDateTime(group.first_seen_at)
+    title: t("firstSeen"),
+    render: (_value, group) => formatDateTime(group.first_seen_at, locale)
   },
   {
     dataIndex: "last_seen_at",
     key: "last_seen_at",
-    title: "Last Seen",
-    render: (_value, group) => formatDateTime(group.last_seen_at)
+    title: t("lastSeen"),
+    render: (_value, group) => formatDateTime(group.last_seen_at, locale)
   },
   {
     dataIndex: "event_ids",
     key: "event_ids",
-    title: "Event IDs",
+    title: t("eventIds"),
     render: (_value, group) => (
       <Typography.Text className="settings-event-ids">{group.event_ids.join(", ")}</Typography.Text>
     )
   }
-];
+  ];
+}
 
 function TokenList({ values, emptyText }: { values: string[]; emptyText: string }) {
   if (values.length === 0) {
@@ -592,10 +636,10 @@ function TokenList({ values, emptyText }: { values: string[]; emptyText: string 
   );
 }
 
-function DimensionTags({ values }: { values: Record<string, string> }) {
+function DimensionTags({ t, values }: { t: GroupingTranslator; values: Record<string, string> }) {
   const entries = Object.entries(values).sort(([left], [right]) => left.localeCompare(right));
   if (entries.length === 0) {
-    return <Typography.Text type="secondary">None</Typography.Text>;
+    return <Typography.Text type="secondary">{t("none")}</Typography.Text>;
   }
   return (
     <div className="label-stack">
@@ -638,4 +682,49 @@ function severityColor(severity: GroupingPolicyPreviewGroup["severity"]) {
     case "unknown":
       return "default";
   }
+}
+
+function localizeGroupingMessage(
+  message: string,
+  locale: string,
+  t: GroupingTranslator,
+): string {
+  if (locale !== "zh-CN") {
+    return message;
+  }
+  const exact: Readonly<Record<string, string>> = {
+    "At least one dimension key is required.": t("dimensionRequired"),
+    "Dimension key list is required.": t("dimensionRequired"),
+    "Policy name is required.": t("nameRequired"),
+    "Policy name must be 120 bytes or fewer.": t("nameLength"),
+    "Prepared a default alert grouping policy for alert name, service, namespace, and pod dimensions.":
+      t("defaultPrepared"),
+    "Severity key is required.": t("severityRequired"),
+    "Severity key must be 64 characters or fewer.": t("severityLength"),
+    "Severity key must not contain whitespace or control characters.":
+      t("severityCharacters"),
+  };
+  if (exact[message] !== undefined) {
+    return exact[message]!;
+  }
+  const listMatch = message.match(/^(Dimension key|Source filter) list must contain (\d+) entries or fewer\.$/);
+  if (listMatch) {
+    return t("listLength", {
+      count: Number(listMatch[2]),
+      field: listMatch[1] === "Dimension key" ? t("dimensionKeys") : t("sourceFilter"),
+    });
+  }
+  const characterMatch = message.match(/^(Dimension key|Source filter) must not contain whitespace or control characters\.$/);
+  if (characterMatch) {
+    return t("invalidCharacters", {
+      field: characterMatch[1] === "Dimension key" ? t("dimensionKeys") : t("sourceFilter"),
+    });
+  }
+  const byteMatch = message.match(/^(Dimension key|Source filter) must be 64 bytes or fewer\.$/);
+  if (byteMatch) {
+    return t("byteLength", {
+      field: byteMatch[1] === "Dimension key" ? t("dimensionKeys") : t("sourceFilter"),
+    });
+  }
+  return message;
 }

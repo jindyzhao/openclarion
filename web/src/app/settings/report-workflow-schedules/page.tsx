@@ -1,3 +1,5 @@
+import { getTranslations } from "next-intl/server";
+
 import { fetchReportWorkflowPolicies } from "@/features/settings/report-workflow-policies/api";
 import { fetchReportWorkflowSchedules } from "@/features/settings/report-workflow-schedules/api";
 import {
@@ -16,6 +18,7 @@ type ReportWorkflowScheduleSettingsPageProps = {
 export default async function ReportWorkflowScheduleSettingsPage({
   searchParams
 }: ReportWorkflowScheduleSettingsPageProps) {
+  const t = await getTranslations("SettingsPages");
   const launchIntent = reportWorkflowScheduleLaunchIntentFromSearchParams(await searchParams);
   const backendRequestOptions =
     await diagnosisBackendRequestOptionsFromIncomingHeaders();
@@ -29,10 +32,10 @@ export default async function ReportWorkflowScheduleSettingsPage({
     <>
       <section className="page-heading">
         <div>
-          <h1>Workflow Schedules</h1>
-          <p>Server-owned report trigger cadence and explicit enablement.</p>
+          <h1>{t("workflowSchedulesTitle")}</h1>
+          <p>{t("workflowSchedulesSubtitle")}</p>
         </div>
-        <div className="status-line">{count} schedules</div>
+        <div className="status-line">{t("schedules", { count })}</div>
       </section>
 
       <ReportWorkflowScheduleSettingsManager

@@ -1,3 +1,5 @@
+import { getTranslations } from "next-intl/server";
+
 import { fetchAlertSourceProfiles } from "@/features/settings/alert-sources/api";
 import { fetchDiagnosisToolTemplates } from "@/features/settings/diagnosis-tool-templates/api";
 import {
@@ -16,6 +18,7 @@ import { diagnosisBackendRequestOptionsFromIncomingHeaders } from "@/lib/api/ser
 export const dynamic = "force-dynamic";
 
 export default async function DirectoryRBACSettingsPage() {
+  const t = await getTranslations("SettingsPages");
   const backendRequestOptions =
     await diagnosisBackendRequestOptionsFromIncomingHeaders();
   const [
@@ -49,11 +52,11 @@ export default async function DirectoryRBACSettingsPage() {
     <>
       <section className="page-heading">
         <div>
-          <h1>Directory & RBAC</h1>
-          <p>Local IAM directory projection and OpenClarion access rules.</p>
+          <h1>{t("directoryTitle")}</h1>
+          <p>{t("directorySubtitle")}</p>
         </div>
         <div className="status-line">
-          {userCount} users / {departmentCount} departments / {assignmentCount} rules
+          {t("directoryCounts", { assignments: assignmentCount, departments: departmentCount, users: userCount })}
         </div>
       </section>
 

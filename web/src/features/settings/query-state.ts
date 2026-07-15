@@ -40,23 +40,26 @@ class SettingsApiResultError extends Error {
   }
 }
 
-export function settingsErrorMessage(error: unknown): string {
+export function settingsErrorMessage(
+  error: unknown,
+  fallbackMessage = "Request failed.",
+): string {
   if (error instanceof Error && error.message.trim() !== "") {
     return error.message;
   }
-  return "Request failed.";
+  return fallbackMessage;
 }
 
 export function settingsReadPermissionNotice({
   canRead,
   errorStatus,
   isChecking,
-  resourceLabel,
+  message,
 }: {
   canRead: boolean;
   errorStatus?: number;
   isChecking: boolean;
-  resourceLabel: string;
+  message: string;
 }): SettingsNotice | null {
   if (canRead) {
     return null;
@@ -66,40 +69,40 @@ export function settingsReadPermissionNotice({
   }
   return {
     kind: "warning",
-    message: `Read access is limited for ${resourceLabel}. Ask an OpenClarion administrator for the matching read role or scoped assignment.`,
+    message,
   };
 }
 
 export function settingsReadPermissionEmptyDescription({
   canRead,
+  deniedDescription,
   emptyDescription,
-  resourceLabel,
 }: {
   canRead: boolean;
+  deniedDescription: string;
   emptyDescription: string;
-  resourceLabel: string;
 }): string {
   if (canRead) {
     return emptyDescription;
   }
-  return `No read access to ${resourceLabel}.`;
+  return deniedDescription;
 }
 
 export function settingsManagePermissionNotice({
   canManage,
   isChecking,
-  resourceLabel,
+  message,
 }: {
   canManage: boolean;
   isChecking: boolean;
-  resourceLabel: string;
+  message: string;
 }): SettingsNotice | null {
   if (canManage || isChecking) {
     return null;
   }
   return {
     kind: "warning",
-    message: `This form is read-only for ${resourceLabel}. Ask an OpenClarion administrator for the matching manage role or scoped assignment.`,
+    message,
   };
 }
 

@@ -1,3 +1,5 @@
+import { getTranslations } from "next-intl/server";
+
 import { fetchAlertSourceProfiles } from "@/features/settings/alert-sources/api";
 import { fetchDiagnosisToolTemplates } from "@/features/settings/diagnosis-tool-templates/api";
 import { DiagnosisToolTemplateSettingsManager } from "@/features/settings/diagnosis-tool-templates/diagnosis-tool-template-settings-view";
@@ -16,6 +18,7 @@ type DiagnosisToolTemplateSettingsPageProps = {
 export default async function DiagnosisToolTemplateSettingsPage({
   searchParams
 }: DiagnosisToolTemplateSettingsPageProps) {
+  const t = await getTranslations("SettingsPages");
   const launchIntent = diagnosisToolTemplateLaunchIntentFromSearchParams(await searchParams);
   const backendRequestOptions =
     await diagnosisBackendRequestOptionsFromIncomingHeaders();
@@ -29,10 +32,10 @@ export default async function DiagnosisToolTemplateSettingsPage({
     <>
       <section className="page-heading">
         <div>
-          <h1>Diagnosis Tools</h1>
-          <p>Operator-reviewed evidence collection templates for diagnosis rooms.</p>
+          <h1>{t("diagnosisToolsTitle")}</h1>
+          <p>{t("diagnosisToolsSubtitle")}</p>
         </div>
-        <div className="status-line">{count} templates</div>
+        <div className="status-line">{t("templates", { count })}</div>
       </section>
 
       <DiagnosisToolTemplateSettingsManager

@@ -1,6 +1,7 @@
 "use client";
 
 import { Space, Tag, Typography } from "antd";
+import { useTranslations } from "next-intl";
 
 import {
   directorySubjectIsSystem,
@@ -17,6 +18,7 @@ export function DirectorySubjectTags({
   label?: string;
   subject?: string;
 }) {
+  const t = useTranslations("DirectorySettings");
   const normalizedSubject = subject?.trim() ?? "";
   if (normalizedSubject === "") {
     return null;
@@ -38,11 +40,11 @@ export function DirectorySubjectTags({
       {profile.detailTags.slice(0, 2).map((tag) => (
         <Tag key={tag}>{tag}</Tag>
       ))}
-      {profile.active === false ? <Tag color="warning">inactive</Tag> : null}
+      {profile.active === false ? <Tag color="warning">{t("inactive")}</Tag> : null}
       {!isSystem && !profile.matchedDirectoryUser ? (
-        <Tag color="default">not synced</Tag>
+        <Tag color="default">{t("notSynced")}</Tag>
       ) : null}
-      {isSystem ? <Tag color="default">system</Tag> : null}
+      {isSystem ? <Tag color="default">{t("system")}</Tag> : null}
     </Space>
   );
 }
