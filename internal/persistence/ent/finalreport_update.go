@@ -133,7 +133,18 @@ func (_u *FinalReportUpdate) ExecX(ctx context.Context) {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (_u *FinalReportUpdate) check() error {
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "FinalReport.tenant"`)
+	}
+	return nil
+}
+
 func (_u *FinalReportUpdate) sqlSave(ctx context.Context) (_node int, err error) {
+	if err := _u.check(); err != nil {
+		return _node, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(finalreport.Table, finalreport.Columns, sqlgraph.NewFieldSpec(finalreport.FieldID, field.TypeInt))
 	if ps := _u.mutation.predicates; len(ps) > 0 {
 		_spec.Predicate = func(selector *sql.Selector) {
@@ -378,7 +389,18 @@ func (_u *FinalReportUpdateOne) ExecX(ctx context.Context) {
 	}
 }
 
+// check runs all checks and user-defined validators on the builder.
+func (_u *FinalReportUpdateOne) check() error {
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "FinalReport.tenant"`)
+	}
+	return nil
+}
+
 func (_u *FinalReportUpdateOne) sqlSave(ctx context.Context) (_node *FinalReport, err error) {
+	if err := _u.check(); err != nil {
+		return _node, err
+	}
 	_spec := sqlgraph.NewUpdateSpec(finalreport.Table, finalreport.Columns, sqlgraph.NewFieldSpec(finalreport.FieldID, field.TypeInt))
 	id, ok := _u.mutation.ID()
 	if !ok {

@@ -37,6 +37,8 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
 	"github.com/openclarion/openclarion/internal/persistence/ent/retrievalchunk"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenantmembership"
 )
 
 // ent aliases to avoid import conflicts in user's code.
@@ -122,6 +124,8 @@ func checkColumn(t, c string) error {
 			reportworkflowschedule.Table:       reportworkflowschedule.ValidColumn,
 			retrievalchunk.Table:               retrievalchunk.ValidColumn,
 			subreport.Table:                    subreport.ValidColumn,
+			tenant.Table:                       tenant.ValidColumn,
+			tenantmembership.Table:             tenantmembership.ValidColumn,
 		})
 	})
 	return columnCheck(t, c)

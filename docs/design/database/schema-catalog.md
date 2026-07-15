@@ -10,6 +10,8 @@ workflow. Alert operations configuration tables follow
 
 | Entity | Status | Purpose |
 |--------|--------|---------|
+| `Tenant` | shipped post-V1 local | global workspace registry; stable key, display name, and active/disabled lifecycle state |
+| `TenantMembership` | shipped post-V1 local | global subject-to-tenant owner/member grant with last-enabled-owner protection |
 | `AlertEvent` | shipped at M1-PR1 | raw alert event, fingerprint, labels, status, timing, raw payload |
 | `AlertGroup` | shipped at M1-PR1 | deterministic grouping result for report fan-out |
 | `EvidenceSnapshot` | shipped at M1-PR1 | enriched evidence package sent to AI providers |
@@ -32,6 +34,24 @@ workflow. Alert operations configuration tables follow
 | `NotificationChannelProfile` | shipped at M3.1 local | operator-managed notification target metadata; stores `secret_ref`, never endpoint URLs or secret values |
 | `AuditLog` | M2+ | security and lifecycle audit trail |
 
+## Tenant Isolation
+
+`Tenant` and `TenantMembership` are global registry entities because tenant
+selection occurs before a tenant-scoped business transaction begins.
+`DiagnosisAuthTicket` is also queried globally by a random token digest, but
+stores an immutable `tenant_id` and `tenant_key` that are bound into the
+authenticated WebSocket context before any business row is loaded.
+
+Every other shipped business entity has an immutable, required `tenant_id`.
+Ent query traversal requires a tenant context and appends the tenant predicate;
+mutation hooks assign tenant ownership on create, scope updates and deletes,
+and reject cross-tenant field, edge, and polymorphic retrieval references.
+Natural unique keys are tenant-prefixed, so the same provider identity,
+configuration name, workflow identity, or idempotency key may exist in two
+independent workspaces. The database still enforces ordinary foreign keys;
+the mutation boundary additionally verifies that referenced business rows
+belong to the same tenant.
+
 ## Fingerprint Discipline (M1)
 
 Two fingerprint columns coexist on `AlertEvent`:
@@ -42,7 +62,8 @@ Two fingerprint columns coexist on `AlertEvent`:
   computed in-process so re-ingestion of the same logical alert always
   collapses to the same row regardless of upstream fingerprint quirks.
 
-The natural unique key is `(source, canonical_fingerprint, starts_at)`.
+The natural unique key is `(tenant_id, alert_source_profile_id, source,
+canonical_fingerprint, starts_at)`.
 `starts_at` MUST be normalised to `UTC().Truncate(time.Microsecond)`
 before the canonical fingerprint is computed and before the row is
 persisted; this rule is enforced by the ingestion path, not by the
@@ -66,7 +87,7 @@ harder to reverse later.
 
 `EvidenceSnapshot.digest` is `sha256(canonical(payload))` and is unique
 **only within a single `alert_group_id`** via the composite unique
-index `UNIQUE (alert_group_id, digest)`. It is intentionally NOT a
+index `UNIQUE (tenant_id, alert_group_id, digest)`. It is intentionally NOT a
 table-wide unique constraint:
 
 * The model is `AlertGroup` -1:N-> `EvidenceSnapshot`. A snapshot is
@@ -85,7 +106,8 @@ table-wide unique constraint:
 ## DiagnosisTask Identity ((workflow_id, run_id) is the natural key)
 
 `DiagnosisTask` represents one Temporal **workflow execution**, not
-one workflow chain. The natural unique key is `(workflow_id, run_id)`,
+one workflow chain. The natural unique key is
+`(tenant_id, workflow_id, run_id)`,
 which mirrors Temporal's own identity model:
 
 * `workflow_id` is the business key. A chain of executions for the
@@ -113,7 +135,8 @@ on `DiagnosisTask`). Per the M1 design decision (option 2A):
 * one row per lifecycle event
 * `kind` is `text` (not a database enum, so adding event types does not
   require a schema migration)
-* `dedupe_key` is `text NULL`, with a `UNIQUE (task_id, dedupe_key)`
+* `dedupe_key` is `text NULL`, with a
+  `UNIQUE (tenant_id, task_id, dedupe_key)`
   constraint. PostgreSQL allows multiple `NULL` values in a UNIQUE
   index, so producers that don't need idempotency can simply omit the
   key; producers that do (e.g. Temporal Activity retries) supply a
@@ -123,7 +146,9 @@ on `DiagnosisTask`). Per the M1 design decision (option 2A):
 
 `DiagnosisAuthTicket` is the persistence backing for the M5 WebSocket ticket
 handshake. The raw ticket token is returned only at issuance time and is never
-stored. The table stores `token_hash = sha256(raw_token)` with a UNIQUE index.
+stored. The table stores `token_hash = sha256(raw_token)` with a UNIQUE index,
+plus the immutable tenant ID and key used to restore request scope after
+single-use consumption.
 
 The row is append-mostly:
 
@@ -145,9 +170,10 @@ tickets and reconnect flows.
 
 The V1 model is intentionally small:
 
-* `chat_sessions.session_key` is globally UNIQUE and immutable
-* `chat_sessions.diagnosis_task_id` is UNIQUE, enforcing one diagnosis-room
-  session per workflow execution in V1
+* `(tenant_id, chat_sessions.session_key)` is UNIQUE and the key is immutable
+* `chat_sessions.diagnosis_task_id` remains UNIQUE because integer entity IDs
+  are globally allocated; it enforces one diagnosis-room session per workflow
+  execution in V1
 * `owner_subject` is immutable and backs owner/admin RBAC resolution
 * `approval_mode` is immutable and stores `single` or `owner_and_leader`
 * `status` is text (`open` / `closed`), not a database enum
@@ -156,9 +182,9 @@ The V1 model is intentionally small:
 
 `ChatTurn` rows are append-only. The two persistence idempotency boundaries are:
 
-* `UNIQUE (chat_session_id, message_id)` rejects browser retry / Temporal
+* `UNIQUE (tenant_id, chat_session_id, message_id)` rejects browser retry / Temporal
   replay duplicates
-* `UNIQUE (chat_session_id, sequence)` preserves one canonical transcript
+* `UNIQUE (tenant_id, chat_session_id, sequence)` preserves one canonical transcript
   order for `/workspace/conversation.json`
 
 Each turn records `role`, `actor_subject`, `content`, `metadata`, and
@@ -168,17 +194,17 @@ Each turn records `role`, `actor_subject`, `content`, `metadata`, and
 
 * each row binds the session, assistant turn `message_id`, lowercase SHA-256
   conclusion digest, actor subject, and owner/leader authority
-* `UNIQUE (chat_session_id, conclusion_digest, actor_subject)` makes retries
+* `UNIQUE (tenant_id, chat_session_id, conclusion_digest, actor_subject)` makes retries
   idempotent while preventing the same actor from satisfying two authorities
-* `UNIQUE (chat_session_id, conclusion_digest, authority)` prevents multiple
+* `UNIQUE (tenant_id, chat_session_id, conclusion_digest, authority)` prevents multiple
   subjects from occupying the same quorum slot
 * the close Activity re-derives the latest persisted assistant conclusion
   digest and checks its persisted rows before changing terminal session state
 
 `ChatSessionSummary` rows are append-only compression checkpoints:
 
-* `UNIQUE (chat_session_id, version)` preserves one immutable revision per room
-* `UNIQUE (chat_session_id, source_digest)` prevents duplicate checkpoints for
+* `UNIQUE (tenant_id, chat_session_id, version)` preserves one immutable revision per room
+* `UNIQUE (tenant_id, chat_session_id, source_digest)` prevents duplicate checkpoints for
   the same canonical ordered source turns
 * source sequence bounds, source turn count, and a lowercase SHA-256 digest bind
   the structured JSON summary to the retained transcript
@@ -193,7 +219,7 @@ Each turn records `role`, `actor_subject`, `content`, `metadata`, and
 of truth; the retrieval row contains only bounded text, provenance metadata,
 and the vector needed for historical similarity search.
 
-* `(source_kind, source_id, embedding_model)` is UNIQUE, making indexing and
+* `(tenant_id, source_kind, source_id, embedding_model)` is UNIQUE, making indexing and
   Activity retries idempotent while allowing a deliberate model migration to
   create a separate embedding space.
 * `source_ref` is the canonical `sub_report:<id>` or `final_report:<id>` value
@@ -220,7 +246,7 @@ and the vector needed for historical similarity search.
 records operator-managed alert source metadata for Prometheus and future
 Alertmanager adapters:
 
-* `name` is globally UNIQUE so operators have one stable display handle per
+* `(tenant_id, name)` is UNIQUE so operators have one stable display handle per
   profile
 * `kind` is text (`prometheus` / `alertmanager`), not a database enum
 * `base_url` stores only an HTTP(S) base URL; domain validation rejects
@@ -236,7 +262,7 @@ Alertmanager adapters:
 
 `GroupingPolicy` records operator-managed deterministic grouping metadata:
 
-* `name` is globally UNIQUE so operators have one stable display handle per
+* `(tenant_id, name)` is UNIQUE so operators have one stable display handle per
   policy
 * `dimension_keys` is JSONB for the ordered alert label keys used as grouping
   dimensions
@@ -251,7 +277,7 @@ Alertmanager adapters:
 `ReportWorkflowPolicy` records operator-managed report workflow binding
 metadata. The table is a configuration table, not a workflow execution table:
 
-* `name` is globally UNIQUE so operators have one stable display handle per
+* `(tenant_id, name)` is UNIQUE so operators have one stable display handle per
   policy
 * `alert_source_profile_id` and `grouping_policy_id` store positive binding
   identifiers; backend usecases validate existence and enabled state before
@@ -279,13 +305,13 @@ workflow replay remains deterministic.
 report workflow policy. The table is configuration state, not Temporal
 execution history:
 
-* `name` is globally UNIQUE so operators have one stable display handle per
+* `(tenant_id, name)` is UNIQUE so operators have one stable display handle per
   schedule
 * `report_workflow_policy_id` stores the bound policy identifier; backend
   usecases validate existence before save and enabled state before schedule
   enablement
-* `temporal_schedule_id` is globally UNIQUE and stores the server-owned
-  Temporal Schedule identifier
+* `temporal_schedule_id` remains globally UNIQUE because all tenants share the
+  configured Temporal namespace; it stores the server-owned Schedule identifier
 * `interval_ns` and `offset_ns` map to a Temporal interval schedule
 * `replay_window_ns` and `replay_delay_ns` define the alert replay window
   relative to each schedule fire time
@@ -305,7 +331,7 @@ inputs per [ADR-0014](../../adr/ADR-0014-alert-operations-configuration.md).
 metadata. The table is a configuration table, not a delivery log or provider
 runtime table:
 
-* `name` is globally UNIQUE so operators have one stable display handle per
+* `(tenant_id, name)` is UNIQUE so operators have one stable display handle per
   channel
 * `kind` stores `webhook`, `wecom`, `dingtalk`, `feishu`, `slack`, or `email`; all
   resolve deployment-managed endpoint secrets at runtime
@@ -345,10 +371,10 @@ The relations covered by the current schema are:
   `alert_event_groups`, cascade-delete on both sides)
 * `AlertGroup` -one-to-many-> `EvidenceSnapshot` (FK
   `evidence_snapshots.alert_group_id`; **per-group** unique on
-  `(alert_group_id, digest)`, NOT cross-row global)
+  `(tenant_id, alert_group_id, digest)`, NOT cross-row global)
 * `EvidenceSnapshot` -one-to-many-> `DiagnosisTask` (FK
   `diagnosis_tasks.evidence_snapshot_id`; identity is
-  `(workflow_id, run_id)`, NOT `workflow_id` alone)
+  `(tenant_id, workflow_id, run_id)`, NOT `workflow_id` alone)
 * `DiagnosisTask` -one-to-many-> `DiagnosisTaskEvent` (FK
   `diagnosis_task_events.task_id`)
 * `DiagnosisTask` -one-to-one-> `ChatSession` (FK

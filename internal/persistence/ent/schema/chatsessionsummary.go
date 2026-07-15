@@ -22,6 +22,9 @@ type ChatSessionSummary struct {
 	ent.Schema
 }
 
+// Mixin of the ChatSessionSummary.
+func (ChatSessionSummary) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the ChatSessionSummary.
 func (ChatSessionSummary) Fields() []ent.Field {
 	return []ent.Field{
@@ -82,9 +85,9 @@ func (ChatSessionSummary) Edges() []ent.Edge {
 // Indexes of the ChatSessionSummary.
 func (ChatSessionSummary) Indexes() []ent.Index {
 	return []ent.Index{
-		index.Fields("chat_session_id", "version").
+		index.Fields("tenant_id", "chat_session_id", "version").
 			Unique(),
-		index.Fields("chat_session_id", "source_digest").
+		index.Fields("tenant_id", "chat_session_id", "source_digest").
 			Unique(),
 		index.Fields("chat_session_id", "generated_at"),
 	}

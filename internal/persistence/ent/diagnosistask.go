@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // DiagnosisTask is the model entity for the DiagnosisTask schema.
@@ -18,6 +19,8 @@ type DiagnosisTask struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// FK to evidence_snapshots.id; the evidence this task processes
 	EvidenceSnapshotID int `json:"evidence_snapshot_id,omitempty"`
 	// temporal workflow id (business key); chain of executions shares this id; identity is (workflow_id, run_id)
@@ -44,6 +47,8 @@ type DiagnosisTask struct {
 
 // DiagnosisTaskEdges holds the relations/edges for other nodes in the graph.
 type DiagnosisTaskEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// Snapshot holds the value of the snapshot edge.
 	Snapshot *EvidenceSnapshot `json:"snapshot,omitempty"`
 	// Events holds the value of the events edge.
@@ -52,7 +57,18 @@ type DiagnosisTaskEdges struct {
 	ChatSessions []*ChatSession `json:"chat_sessions,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e DiagnosisTaskEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // SnapshotOrErr returns the Snapshot value or an error if the edge
@@ -60,7 +76,7 @@ type DiagnosisTaskEdges struct {
 func (e DiagnosisTaskEdges) SnapshotOrErr() (*EvidenceSnapshot, error) {
 	if e.Snapshot != nil {
 		return e.Snapshot, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: evidencesnapshot.Label}
 	}
 	return nil, &NotLoadedError{edge: "snapshot"}
@@ -69,7 +85,7 @@ func (e DiagnosisTaskEdges) SnapshotOrErr() (*EvidenceSnapshot, error) {
 // EventsOrErr returns the Events value or an error if the edge
 // was not loaded in eager-loading.
 func (e DiagnosisTaskEdges) EventsOrErr() ([]*DiagnosisTaskEvent, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[2] {
 		return e.Events, nil
 	}
 	return nil, &NotLoadedError{edge: "events"}
@@ -78,7 +94,7 @@ func (e DiagnosisTaskEdges) EventsOrErr() ([]*DiagnosisTaskEvent, error) {
 // ChatSessionsOrErr returns the ChatSessions value or an error if the edge
 // was not loaded in eager-loading.
 func (e DiagnosisTaskEdges) ChatSessionsOrErr() ([]*ChatSession, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[3] {
 		return e.ChatSessions, nil
 	}
 	return nil, &NotLoadedError{edge: "chat_sessions"}
@@ -89,7 +105,7 @@ func (*DiagnosisTask) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case diagnosistask.FieldID, diagnosistask.FieldEvidenceSnapshotID:
+		case diagnosistask.FieldID, diagnosistask.FieldTenantID, diagnosistask.FieldEvidenceSnapshotID:
 			values[i] = new(sql.NullInt64)
 		case diagnosistask.FieldWorkflowID, diagnosistask.FieldRunID, diagnosistask.FieldStatus, diagnosistask.FieldFailureReason:
 			values[i] = new(sql.NullString)
@@ -116,6 +132,12 @@ func (_m *DiagnosisTask) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case diagnosistask.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case diagnosistask.FieldEvidenceSnapshotID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field evidence_snapshot_id", values[i])
@@ -185,6 +207,11 @@ func (_m *DiagnosisTask) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the DiagnosisTask entity.
+func (_m *DiagnosisTask) QueryTenant() *TenantQuery {
+	return NewDiagnosisTaskClient(_m.config).QueryTenant(_m)
+}
+
 // QuerySnapshot queries the "snapshot" edge of the DiagnosisTask entity.
 func (_m *DiagnosisTask) QuerySnapshot() *EvidenceSnapshotQuery {
 	return NewDiagnosisTaskClient(_m.config).QuerySnapshot(_m)
@@ -223,6 +250,9 @@ func (_m *DiagnosisTask) String() string {
 	var builder strings.Builder
 	builder.WriteString("DiagnosisTask(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("evidence_snapshot_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.EvidenceSnapshotID))
 	builder.WriteString(", ")

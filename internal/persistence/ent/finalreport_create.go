@@ -15,6 +15,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // FinalReportCreate is the builder for creating a FinalReport entity.
@@ -23,6 +24,12 @@ type FinalReportCreate struct {
 	mutation *FinalReportMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *FinalReportCreate) SetTenantID(v int) *FinalReportCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetCorrelationKey sets the "correlation_key" field.
@@ -141,6 +148,11 @@ func (_c *FinalReportCreate) SetNillableCreatedAt(v *time.Time) *FinalReportCrea
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *FinalReportCreate) SetTenant(v *Tenant) *FinalReportCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // AddSubReportIDs adds the "sub_reports" edge to the SubReport entity by IDs.
 func (_c *FinalReportCreate) AddSubReportIDs(ids ...int) *FinalReportCreate {
 	_c.mutation.AddSubReportIDs(ids...)
@@ -214,6 +226,14 @@ func (_c *FinalReportCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *FinalReportCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "FinalReport.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := finalreport.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "FinalReport.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.CorrelationKey(); !ok {
 		return &ValidationError{Name: "correlation_key", err: errors.New(`ent: missing required field "FinalReport.correlation_key"`)}
 	}
@@ -296,6 +316,9 @@ func (_c *FinalReportCreate) check() error {
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "FinalReport.created_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "FinalReport.tenant"`)}
 	}
 	return nil
 }
@@ -380,6 +403,23 @@ func (_c *FinalReportCreate) createSpec() (*FinalReport, *sqlgraph.CreateSpec) {
 		_spec.SetField(finalreport.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   finalreport.TenantTable,
+			Columns: []string{finalreport.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.SubReportsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2M,
@@ -419,7 +459,7 @@ func (_c *FinalReportCreate) createSpec() (*FinalReport, *sqlgraph.CreateSpec) {
 // of the `INSERT` statement. For example:
 //
 //	client.FinalReport.Create().
-//		SetCorrelationKey(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -428,7 +468,7 @@ func (_c *FinalReportCreate) createSpec() (*FinalReport, *sqlgraph.CreateSpec) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.FinalReportUpsert) {
-//			SetCorrelationKey(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *FinalReportCreate) OnConflict(opts ...sql.ConflictOption) *FinalReportUpsertOne {
@@ -475,6 +515,9 @@ type (
 func (u *FinalReportUpsertOne) UpdateNewValues() *FinalReportUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(finalreport.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.CorrelationKey(); exists {
 			s.SetIgnore(finalreport.FieldCorrelationKey)
 		}
@@ -683,7 +726,7 @@ func (_c *FinalReportCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.FinalReportUpsert) {
-//			SetCorrelationKey(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *FinalReportCreateBulk) OnConflict(opts ...sql.ConflictOption) *FinalReportUpsertBulk {
@@ -724,6 +767,9 @@ func (u *FinalReportUpsertBulk) UpdateNewValues() *FinalReportUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(finalreport.FieldTenantID)
+			}
 			if _, exists := b.mutation.CorrelationKey(); exists {
 				s.SetIgnore(finalreport.FieldCorrelationKey)
 			}

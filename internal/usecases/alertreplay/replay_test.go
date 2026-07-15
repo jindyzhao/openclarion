@@ -17,6 +17,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	cmdbfake "github.com/openclarion/openclarion/internal/providers/cmdb/fake"
 	"github.com/openclarion/openclarion/internal/providers/metrics/fake"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
 	"github.com/openclarion/openclarion/internal/usecases/alertreplay"
@@ -130,7 +131,7 @@ func countClosedGroups(ctx context.Context, t *testing.T) int {
 // here rather than slipping past as "the test still passes".
 func TestReplayWindow_TwentyAlertsHappyPath(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -189,7 +190,7 @@ func TestReplayWindow_TwentyAlertsHappyPath(t *testing.T) {
 // regression guard for the refresh-vs-existing diff.
 func TestReplayWindow_RerunIsIdempotent(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -246,7 +247,7 @@ func TestReplayWindow_RerunIsIdempotent(t *testing.T) {
 // remains the counter-only compatibility API.
 func TestReplayWindowForReport_ReturnsSnapshotRefsForSavedAndDuplicateSnapshots(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -303,7 +304,7 @@ func TestReplayWindowForReport_ReturnsSnapshotRefsForSavedAndDuplicateSnapshots(
 
 func TestReplayPersistedWindowForReport_BuildsSnapshotsWithoutProviderIngest(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -343,7 +344,7 @@ func TestReplayPersistedWindowForReport_BuildsSnapshotsWithoutProviderIngest(t *
 
 func TestReplayWindow_IncludesCMDBEnrichmentInSnapshot(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -426,7 +427,7 @@ func TestReplayWindow_IncludesCMDBEnrichmentInSnapshot(t *testing.T) {
 
 func TestReplayWindow_CMDBErrorFailsGroupWithoutSnapshot(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -465,7 +466,7 @@ func TestReplayWindow_CMDBErrorFailsGroupWithoutSnapshot(t *testing.T) {
 // firing state" contract).
 func TestReplayWindow_OutOfWindowEventsExcluded(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -515,7 +516,7 @@ func TestReplayWindow_OutOfWindowEventsExcluded(t *testing.T) {
 
 func TestReplayPersistedWindowForReport_AlertEventIDFilterAppliedBeforeLimit(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -555,7 +556,7 @@ func TestReplayPersistedWindowForReport_AlertEventIDFilterAppliedBeforeLimit(t *
 
 func TestReplayPersistedWindowForReport_IDFilterDoesNotShrinkExistingGroup(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -615,7 +616,7 @@ func TestReplayPersistedWindowForReport_IDFilterDoesNotShrinkExistingGroup(t *te
 
 func TestReplayPersistedWindowForReport_CMDBLookupCoversExpandedExistingGroup(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -696,7 +697,7 @@ func TestReplayPersistedWindowForReport_CMDBLookupCoversExpandedExistingGroup(t 
 
 func TestReplayPersistedWindowForReport_IDFilterLaterEventReusesExistingGroup(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -749,7 +750,7 @@ func TestReplayPersistedWindowForReport_IDFilterLaterEventReusesExistingGroup(t 
 
 func TestReplayPersistedWindowForReport_NonIDScopedLaterWindowCreatesNewGroup(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -812,7 +813,7 @@ func TestReplayPersistedWindowForReport_NonIDScopedLaterWindowCreatesNewGroup(t 
 
 func TestReplayPersistedWindowForReport_ExistingGroupExpansionHonorsLimit(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -862,7 +863,7 @@ func TestReplayPersistedWindowForReport_ExistingGroupExpansionHonorsLimit(t *tes
 
 func TestReplayPersistedWindowForReport_ExistingGroupExpansionHonorsReplayScope(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -937,7 +938,7 @@ func TestReplayPersistedWindowForReport_ExistingGroupExpansionHonorsReplayScope(
 
 func TestReplayWindow_SourceFilterExcludesNonMatchingEventsFromGrouping(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -978,18 +979,20 @@ func TestReplayWindow_SourceFilterExcludesNonMatchingEventsFromGrouping(t *testi
 
 func TestReplayWindow_SourceProfileFilterExcludesNonMatchingEventsFromGrouping(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
+	matchingProfileID := seedAlertSourceProfile(ctx, t, "Matching source")
+	otherProfileID := seedAlertSourceProfile(ctx, t, "Other source")
 
 	matching := seedAlerts("AlertA", 1, windowStart, 0, time.Minute, "warning")[0]
-	matching.AlertSourceProfileID = 7
+	matching.AlertSourceProfileID = matchingProfileID
 	other := seedAlerts("AlertB", 1, windowStart, 0, time.Minute, "critical")[0]
-	other.AlertSourceProfileID = 9
+	other.AlertSourceProfileID = otherProfileID
 	provider := fake.New([]ports.ActiveAlert{matching, other})
 	req := defaultRequest(windowStart, windowEnd)
-	req.AlertSourceProfileFilter = []domain.AlertSourceProfileID{7}
+	req.AlertSourceProfileFilter = []domain.AlertSourceProfileID{matchingProfileID}
 
 	stats, err := alertreplay.ReplayWindow(ctx, provider, integration.factory, req)
 	if err != nil {
@@ -1012,21 +1015,23 @@ func TestReplayWindow_SourceProfileFilterExcludesNonMatchingEventsFromGrouping(t
 
 func TestReplayWindow_SourceProfileFilterAppliedBeforeLimit(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
+	matchingProfileID := seedAlertSourceProfile(ctx, t, "Matching source")
+	otherProfileID := seedAlertSourceProfile(ctx, t, "Other source")
 	matching := seedAlerts("AlertA", 1, windowStart, 0, time.Minute, "warning")[0]
-	matching.AlertSourceProfileID = 7
+	matching.AlertSourceProfileID = matchingProfileID
 	alerts := []ports.ActiveAlert{matching}
 	for i := 0; i < 4; i++ {
 		other := seedAlerts(fmt.Sprintf("Other%d", i), 1, windowStart, time.Duration(i+1)*time.Minute, time.Minute, "critical")[0]
-		other.AlertSourceProfileID = 9
+		other.AlertSourceProfileID = otherProfileID
 		alerts = append(alerts, other)
 	}
 	provider := fake.New(alerts)
 	req := defaultRequest(windowStart, windowEnd)
-	req.AlertSourceProfileFilter = []domain.AlertSourceProfileID{7}
+	req.AlertSourceProfileFilter = []domain.AlertSourceProfileID{matchingProfileID}
 	req.Limit = 1
 
 	stats, err := alertreplay.ReplayWindow(ctx, provider, integration.factory, req)
@@ -1041,13 +1046,38 @@ func TestReplayWindow_SourceProfileFilterAppliedBeforeLimit(t *testing.T) {
 	}
 }
 
+func seedAlertSourceProfile(ctx context.Context, t *testing.T, name string) domain.AlertSourceProfileID {
+	t.Helper()
+	profile, err := domain.NewAlertSourceProfile(
+		name,
+		domain.AlertSourceKindPrometheus,
+		"https://prometheus.example.test",
+		domain.AlertSourceAuthModeNone,
+		"",
+		true,
+		map[string]string{"env": "test"},
+	)
+	if err != nil {
+		t.Fatalf("NewAlertSourceProfile: %v", err)
+	}
+	err = integration.factory.WithinTx(ctx, func(ctx context.Context, uow ports.UnitOfWork) error {
+		var saveErr error
+		profile, saveErr = uow.Config().SaveAlertSourceProfile(ctx, profile)
+		return saveErr
+	})
+	if err != nil {
+		t.Fatalf("SaveAlertSourceProfile: %v", err)
+	}
+	return profile.ID
+}
+
 // TestReplayWindow_MultipleAlertnamesYieldMultipleGroups: covers
 // the simplest non-trivial grouping case (2 buckets, asymmetric
 // sizes) so a regression that collapses everything into one bucket
 // surfaces as a count mismatch.
 func TestReplayWindow_MultipleAlertnamesYieldMultipleGroups(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -1098,7 +1128,7 @@ func TestReplayWindow_MultipleAlertnamesYieldMultipleGroups(t *testing.T) {
 // fast hosts -- a strict ">" check is a documented flake source.
 func TestReplayWindow_GroupClosedAfterSnapshot(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -1135,7 +1165,7 @@ func TestReplayWindow_GroupClosedAfterSnapshot(t *testing.T) {
 // changes). Status MUST stay closed -- refresh does not reopen.
 func TestReplayWindow_RefreshOnNewEventInExistingGroup(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -1245,7 +1275,7 @@ func TestReplayWindow_RefreshOnNewEventInExistingGroup(t *testing.T) {
 // even ran.
 func TestReplayWindow_LimitSafetyValve(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -1307,7 +1337,7 @@ func TestReplayWindow_LimitSafetyValve(t *testing.T) {
 // in-window event and is covered separately by
 // TestReplayWindow_EmptyGroupingConfigRejectedWhenEventsExist.
 func TestReplayWindow_RequestValidationRejected(t *testing.T) {
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 	provider := fake.New(nil)
 	good := defaultRequest(seedTime, seedTime.Add(time.Hour))
 
@@ -1468,7 +1498,7 @@ func withSourceProfileFilter(
 // that error verbatim and leave the per-group stages untouched.
 func TestReplayWindow_EmptyGroupingConfigRejectedWhenEventsExist(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)
@@ -1530,7 +1560,7 @@ func TestReplayWindow_EmptyGroupingConfigRejectedWhenEventsExist(t *testing.T) {
 // that explicit.
 func TestReplayWindow_EmptyWindowReturnsZeroStats(t *testing.T) {
 	resetDB(t)
-	ctx := context.Background()
+	ctx := tenancy.EnsureDefault(context.Background())
 
 	windowStart := seedTime
 	windowEnd := seedTime.Add(time.Hour)

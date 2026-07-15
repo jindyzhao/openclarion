@@ -44,6 +44,9 @@ type DiagnosisTaskEvent struct {
 	ent.Schema
 }
 
+// Mixin of the DiagnosisTaskEvent.
+func (DiagnosisTaskEvent) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the DiagnosisTaskEvent.
 func (DiagnosisTaskEvent) Fields() []ent.Field {
 	return []ent.Field{
@@ -93,7 +96,7 @@ func (DiagnosisTaskEvent) Indexes() []ent.Index {
 		// dedupe_key is supplied. NULLs are allowed to repeat, which is
 		// the standard Postgres UNIQUE NULL semantics and exactly the
 		// behaviour we want for non-idempotent producers.
-		index.Fields("task_id", "dedupe_key").
+		index.Fields("tenant_id", "task_id", "dedupe_key").
 			Unique(),
 		// Hot read path: list events for a task, oldest-first. FK
 		// column first so the index prefix serves "events WHERE

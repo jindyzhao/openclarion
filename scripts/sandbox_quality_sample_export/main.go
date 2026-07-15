@@ -20,6 +20,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent"
 	"github.com/openclarion/openclarion/internal/persistence/repository"
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 	"github.com/openclarion/openclarion/internal/usecases/reportdraft"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
@@ -114,6 +115,7 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, environ []string, stdout io.Writer, store subReportStore) error {
+	ctx = tenancy.EnsureDefault(ctx)
 	cfg, err := parseConfig(args, environ)
 	if err != nil {
 		return err

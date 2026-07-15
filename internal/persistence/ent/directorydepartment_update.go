@@ -333,6 +333,9 @@ func (_u *DirectoryDepartmentUpdate) check() error {
 			return &ValidationError{Name: "member_count", err: fmt.Errorf(`ent: validator failed for field "DirectoryDepartment.member_count": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DirectoryDepartment.tenant"`)
+	}
 	return nil
 }
 
@@ -742,6 +745,9 @@ func (_u *DirectoryDepartmentUpdateOne) check() error {
 		if err := directorydepartment.MemberCountValidator(v); err != nil {
 			return &ValidationError{Name: "member_count", err: fmt.Errorf(`ent: validator failed for field "DirectoryDepartment.member_count": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DirectoryDepartment.tenant"`)
 	}
 	return nil
 }

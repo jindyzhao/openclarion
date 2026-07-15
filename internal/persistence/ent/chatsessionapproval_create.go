@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionapproval"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // ChatSessionApprovalCreate is the builder for creating a ChatSessionApproval entity.
@@ -21,6 +22,12 @@ type ChatSessionApprovalCreate struct {
 	mutation *ChatSessionApprovalMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *ChatSessionApprovalCreate) SetTenantID(v int) *ChatSessionApprovalCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetChatSessionID sets the "chat_session_id" field.
@@ -71,6 +78,11 @@ func (_c *ChatSessionApprovalCreate) SetNillableCreatedAt(v *time.Time) *ChatSes
 		_c.SetCreatedAt(*v)
 	}
 	return _c
+}
+
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *ChatSessionApprovalCreate) SetTenant(v *Tenant) *ChatSessionApprovalCreate {
+	return _c.SetTenantID(v.ID)
 }
 
 // SetSessionID sets the "session" edge to the ChatSession entity by ID.
@@ -127,6 +139,14 @@ func (_c *ChatSessionApprovalCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *ChatSessionApprovalCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "ChatSessionApproval.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := chatsessionapproval.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "ChatSessionApproval.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.ChatSessionID(); !ok {
 		return &ValidationError{Name: "chat_session_id", err: errors.New(`ent: missing required field "ChatSessionApproval.chat_session_id"`)}
 	}
@@ -167,6 +187,9 @@ func (_c *ChatSessionApprovalCreate) check() error {
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "ChatSessionApproval.created_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "ChatSessionApproval.tenant"`)}
 	}
 	if len(_c.mutation.SessionIDs()) == 0 {
 		return &ValidationError{Name: "session", err: errors.New(`ent: missing required edge "ChatSessionApproval.session"`)}
@@ -222,6 +245,23 @@ func (_c *ChatSessionApprovalCreate) createSpec() (*ChatSessionApproval, *sqlgra
 		_spec.SetField(chatsessionapproval.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   chatsessionapproval.TenantTable,
+			Columns: []string{chatsessionapproval.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.SessionIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -246,7 +286,7 @@ func (_c *ChatSessionApprovalCreate) createSpec() (*ChatSessionApproval, *sqlgra
 // of the `INSERT` statement. For example:
 //
 //	client.ChatSessionApproval.Create().
-//		SetChatSessionID(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -255,7 +295,7 @@ func (_c *ChatSessionApprovalCreate) createSpec() (*ChatSessionApproval, *sqlgra
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ChatSessionApprovalUpsert) {
-//			SetChatSessionID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ChatSessionApprovalCreate) OnConflict(opts ...sql.ConflictOption) *ChatSessionApprovalUpsertOne {
@@ -302,6 +342,9 @@ type (
 func (u *ChatSessionApprovalUpsertOne) UpdateNewValues() *ChatSessionApprovalUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(chatsessionapproval.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.ChatSessionID(); exists {
 			s.SetIgnore(chatsessionapproval.FieldChatSessionID)
 		}
@@ -489,7 +532,7 @@ func (_c *ChatSessionApprovalCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ChatSessionApprovalUpsert) {
-//			SetChatSessionID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ChatSessionApprovalCreateBulk) OnConflict(opts ...sql.ConflictOption) *ChatSessionApprovalUpsertBulk {
@@ -530,6 +573,9 @@ func (u *ChatSessionApprovalUpsertBulk) UpdateNewValues() *ChatSessionApprovalUp
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(chatsessionapproval.FieldTenantID)
+			}
 			if _, exists := b.mutation.ChatSessionID(); exists {
 				s.SetIgnore(chatsessionapproval.FieldChatSessionID)
 			}

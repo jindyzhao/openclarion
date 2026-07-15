@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/alertgroup"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // EvidenceSnapshot is the model entity for the EvidenceSnapshot schema.
@@ -19,6 +20,8 @@ type EvidenceSnapshot struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// FK to alert_groups.id; the grouping result this snapshot was materialised from
 	AlertGroupID int `json:"alert_group_id,omitempty"`
 	// sha256 hex of canonical(payload); per-group idempotency key (UNIQUE per alert_group_id, see Indexes)
@@ -43,6 +46,8 @@ type EvidenceSnapshot struct {
 
 // EvidenceSnapshotEdges holds the relations/edges for other nodes in the graph.
 type EvidenceSnapshotEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// Group holds the value of the group edge.
 	Group *AlertGroup `json:"group,omitempty"`
 	// Tasks holds the value of the tasks edge.
@@ -51,7 +56,18 @@ type EvidenceSnapshotEdges struct {
 	SubReports []*SubReport `json:"sub_reports,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e EvidenceSnapshotEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // GroupOrErr returns the Group value or an error if the edge
@@ -59,7 +75,7 @@ type EvidenceSnapshotEdges struct {
 func (e EvidenceSnapshotEdges) GroupOrErr() (*AlertGroup, error) {
 	if e.Group != nil {
 		return e.Group, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: alertgroup.Label}
 	}
 	return nil, &NotLoadedError{edge: "group"}
@@ -68,7 +84,7 @@ func (e EvidenceSnapshotEdges) GroupOrErr() (*AlertGroup, error) {
 // TasksOrErr returns the Tasks value or an error if the edge
 // was not loaded in eager-loading.
 func (e EvidenceSnapshotEdges) TasksOrErr() ([]*DiagnosisTask, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[2] {
 		return e.Tasks, nil
 	}
 	return nil, &NotLoadedError{edge: "tasks"}
@@ -77,7 +93,7 @@ func (e EvidenceSnapshotEdges) TasksOrErr() ([]*DiagnosisTask, error) {
 // SubReportsOrErr returns the SubReports value or an error if the edge
 // was not loaded in eager-loading.
 func (e EvidenceSnapshotEdges) SubReportsOrErr() ([]*SubReport, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[3] {
 		return e.SubReports, nil
 	}
 	return nil, &NotLoadedError{edge: "sub_reports"}
@@ -90,7 +106,7 @@ func (*EvidenceSnapshot) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case evidencesnapshot.FieldPayload, evidencesnapshot.FieldProvenance, evidencesnapshot.FieldMissingFields:
 			values[i] = new([]byte)
-		case evidencesnapshot.FieldID, evidencesnapshot.FieldAlertGroupID:
+		case evidencesnapshot.FieldID, evidencesnapshot.FieldTenantID, evidencesnapshot.FieldAlertGroupID:
 			values[i] = new(sql.NullInt64)
 		case evidencesnapshot.FieldDigest, evidencesnapshot.FieldStatus, evidencesnapshot.FieldCreatedByWorkflow:
 			values[i] = new(sql.NullString)
@@ -117,6 +133,12 @@ func (_m *EvidenceSnapshot) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case evidencesnapshot.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case evidencesnapshot.FieldAlertGroupID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field alert_group_id", values[i])
@@ -184,6 +206,11 @@ func (_m *EvidenceSnapshot) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the EvidenceSnapshot entity.
+func (_m *EvidenceSnapshot) QueryTenant() *TenantQuery {
+	return NewEvidenceSnapshotClient(_m.config).QueryTenant(_m)
+}
+
 // QueryGroup queries the "group" edge of the EvidenceSnapshot entity.
 func (_m *EvidenceSnapshot) QueryGroup() *AlertGroupQuery {
 	return NewEvidenceSnapshotClient(_m.config).QueryGroup(_m)
@@ -222,6 +249,9 @@ func (_m *EvidenceSnapshot) String() string {
 	var builder strings.Builder
 	builder.WriteString("EvidenceSnapshot(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("alert_group_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.AlertGroupID))
 	builder.WriteString(", ")

@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // DiagnosisTaskEvent is the model entity for the DiagnosisTaskEvent schema.
@@ -19,6 +20,8 @@ type DiagnosisTaskEvent struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// FK to diagnosis_tasks.id
 	TaskID int `json:"task_id,omitempty"`
 	// free-text event kind, e.g. "task.started", "subreport.failed"; NOT a db enum
@@ -39,11 +42,24 @@ type DiagnosisTaskEvent struct {
 
 // DiagnosisTaskEventEdges holds the relations/edges for other nodes in the graph.
 type DiagnosisTaskEventEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// Task holds the value of the task edge.
 	Task *DiagnosisTask `json:"task,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [2]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e DiagnosisTaskEventEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // TaskOrErr returns the Task value or an error if the edge
@@ -51,7 +67,7 @@ type DiagnosisTaskEventEdges struct {
 func (e DiagnosisTaskEventEdges) TaskOrErr() (*DiagnosisTask, error) {
 	if e.Task != nil {
 		return e.Task, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: diagnosistask.Label}
 	}
 	return nil, &NotLoadedError{edge: "task"}
@@ -64,7 +80,7 @@ func (*DiagnosisTaskEvent) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case diagnosistaskevent.FieldPayload:
 			values[i] = new([]byte)
-		case diagnosistaskevent.FieldID, diagnosistaskevent.FieldTaskID:
+		case diagnosistaskevent.FieldID, diagnosistaskevent.FieldTenantID, diagnosistaskevent.FieldTaskID:
 			values[i] = new(sql.NullInt64)
 		case diagnosistaskevent.FieldKind, diagnosistaskevent.FieldDedupeKey:
 			values[i] = new(sql.NullString)
@@ -91,6 +107,12 @@ func (_m *DiagnosisTaskEvent) assignValues(columns []string, values []any) error
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case diagnosistaskevent.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case diagnosistaskevent.FieldTaskID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field task_id", values[i])
@@ -143,6 +165,11 @@ func (_m *DiagnosisTaskEvent) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the DiagnosisTaskEvent entity.
+func (_m *DiagnosisTaskEvent) QueryTenant() *TenantQuery {
+	return NewDiagnosisTaskEventClient(_m.config).QueryTenant(_m)
+}
+
 // QueryTask queries the "task" edge of the DiagnosisTaskEvent entity.
 func (_m *DiagnosisTaskEvent) QueryTask() *DiagnosisTaskQuery {
 	return NewDiagnosisTaskEventClient(_m.config).QueryTask(_m)
@@ -171,6 +198,9 @@ func (_m *DiagnosisTaskEvent) String() string {
 	var builder strings.Builder
 	builder.WriteString("DiagnosisTaskEvent(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("task_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.TaskID))
 	builder.WriteString(", ")

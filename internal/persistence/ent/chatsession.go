@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // ChatSession is the model entity for the ChatSession schema.
@@ -18,6 +19,8 @@ type ChatSession struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// FK to diagnosis_tasks.id; one diagnosis workflow execution owns one chat session
 	DiagnosisTaskID int `json:"diagnosis_task_id,omitempty"`
 	// external diagnosis-room session id used by WebSocket auth and reconnect flows
@@ -50,6 +53,8 @@ type ChatSession struct {
 
 // ChatSessionEdges holds the relations/edges for other nodes in the graph.
 type ChatSessionEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// Task holds the value of the task edge.
 	Task *DiagnosisTask `json:"task,omitempty"`
 	// Turns holds the value of the turns edge.
@@ -60,7 +65,18 @@ type ChatSessionEdges struct {
 	Approvals []*ChatSessionApproval `json:"approvals,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [4]bool
+	loadedTypes [5]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e ChatSessionEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // TaskOrErr returns the Task value or an error if the edge
@@ -68,7 +84,7 @@ type ChatSessionEdges struct {
 func (e ChatSessionEdges) TaskOrErr() (*DiagnosisTask, error) {
 	if e.Task != nil {
 		return e.Task, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: diagnosistask.Label}
 	}
 	return nil, &NotLoadedError{edge: "task"}
@@ -77,7 +93,7 @@ func (e ChatSessionEdges) TaskOrErr() (*DiagnosisTask, error) {
 // TurnsOrErr returns the Turns value or an error if the edge
 // was not loaded in eager-loading.
 func (e ChatSessionEdges) TurnsOrErr() ([]*ChatTurn, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[2] {
 		return e.Turns, nil
 	}
 	return nil, &NotLoadedError{edge: "turns"}
@@ -86,7 +102,7 @@ func (e ChatSessionEdges) TurnsOrErr() ([]*ChatTurn, error) {
 // SummariesOrErr returns the Summaries value or an error if the edge
 // was not loaded in eager-loading.
 func (e ChatSessionEdges) SummariesOrErr() ([]*ChatSessionSummary, error) {
-	if e.loadedTypes[2] {
+	if e.loadedTypes[3] {
 		return e.Summaries, nil
 	}
 	return nil, &NotLoadedError{edge: "summaries"}
@@ -95,7 +111,7 @@ func (e ChatSessionEdges) SummariesOrErr() ([]*ChatSessionSummary, error) {
 // ApprovalsOrErr returns the Approvals value or an error if the edge
 // was not loaded in eager-loading.
 func (e ChatSessionEdges) ApprovalsOrErr() ([]*ChatSessionApproval, error) {
-	if e.loadedTypes[3] {
+	if e.loadedTypes[4] {
 		return e.Approvals, nil
 	}
 	return nil, &NotLoadedError{edge: "approvals"}
@@ -106,7 +122,7 @@ func (*ChatSession) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case chatsession.FieldID, chatsession.FieldDiagnosisTaskID, chatsession.FieldTurnCount:
+		case chatsession.FieldID, chatsession.FieldTenantID, chatsession.FieldDiagnosisTaskID, chatsession.FieldTurnCount:
 			values[i] = new(sql.NullInt64)
 		case chatsession.FieldSessionKey, chatsession.FieldOwnerSubject, chatsession.FieldStatus, chatsession.FieldCloseReason, chatsession.FieldApprovalMode:
 			values[i] = new(sql.NullString)
@@ -133,6 +149,12 @@ func (_m *ChatSession) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case chatsession.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case chatsession.FieldDiagnosisTaskID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field diagnosis_task_id", values[i])
@@ -219,6 +241,11 @@ func (_m *ChatSession) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the ChatSession entity.
+func (_m *ChatSession) QueryTenant() *TenantQuery {
+	return NewChatSessionClient(_m.config).QueryTenant(_m)
+}
+
 // QueryTask queries the "task" edge of the ChatSession entity.
 func (_m *ChatSession) QueryTask() *DiagnosisTaskQuery {
 	return NewChatSessionClient(_m.config).QueryTask(_m)
@@ -262,6 +289,9 @@ func (_m *ChatSession) String() string {
 	var builder strings.Builder
 	builder.WriteString("ChatSession(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("diagnosis_task_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.DiagnosisTaskID))
 	builder.WriteString(", ")

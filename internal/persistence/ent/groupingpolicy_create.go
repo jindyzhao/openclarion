@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/groupingpolicy"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // GroupingPolicyCreate is the builder for creating a GroupingPolicy entity.
@@ -20,6 +21,12 @@ type GroupingPolicyCreate struct {
 	mutation *GroupingPolicyMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *GroupingPolicyCreate) SetTenantID(v int) *GroupingPolicyCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetName sets the "name" field.
@@ -88,6 +95,11 @@ func (_c *GroupingPolicyCreate) SetNillableUpdatedAt(v *time.Time) *GroupingPoli
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *GroupingPolicyCreate) SetTenant(v *Tenant) *GroupingPolicyCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // Mutation returns the GroupingPolicyMutation object of the builder.
 func (_c *GroupingPolicyCreate) Mutation() *GroupingPolicyMutation {
 	return _c.mutation
@@ -139,6 +151,14 @@ func (_c *GroupingPolicyCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *GroupingPolicyCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "GroupingPolicy.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := groupingpolicy.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "GroupingPolicy.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "GroupingPolicy.name"`)}
 	}
@@ -169,6 +189,9 @@ func (_c *GroupingPolicyCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "GroupingPolicy.updated_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "GroupingPolicy.tenant"`)}
 	}
 	return nil
 }
@@ -225,6 +248,23 @@ func (_c *GroupingPolicyCreate) createSpec() (*GroupingPolicy, *sqlgraph.CreateS
 		_spec.SetField(groupingpolicy.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   groupingpolicy.TenantTable,
+			Columns: []string{groupingpolicy.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	return _node, _spec
 }
 
@@ -232,7 +272,7 @@ func (_c *GroupingPolicyCreate) createSpec() (*GroupingPolicy, *sqlgraph.CreateS
 // of the `INSERT` statement. For example:
 //
 //	client.GroupingPolicy.Create().
-//		SetName(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -241,7 +281,7 @@ func (_c *GroupingPolicyCreate) createSpec() (*GroupingPolicy, *sqlgraph.CreateS
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.GroupingPolicyUpsert) {
-//			SetName(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *GroupingPolicyCreate) OnConflict(opts ...sql.ConflictOption) *GroupingPolicyUpsertOne {
@@ -360,6 +400,9 @@ func (u *GroupingPolicyUpsert) UpdateUpdatedAt() *GroupingPolicyUpsert {
 func (u *GroupingPolicyUpsertOne) UpdateNewValues() *GroupingPolicyUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(groupingpolicy.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(groupingpolicy.FieldCreatedAt)
 		}
@@ -613,7 +656,7 @@ func (_c *GroupingPolicyCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.GroupingPolicyUpsert) {
-//			SetName(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *GroupingPolicyCreateBulk) OnConflict(opts ...sql.ConflictOption) *GroupingPolicyUpsertBulk {
@@ -654,6 +697,9 @@ func (u *GroupingPolicyUpsertBulk) UpdateNewValues() *GroupingPolicyUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(groupingpolicy.FieldTenantID)
+			}
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(groupingpolicy.FieldCreatedAt)
 			}

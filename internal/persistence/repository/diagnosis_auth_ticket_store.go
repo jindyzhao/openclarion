@@ -11,6 +11,7 @@ import (
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/persistence/ent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
@@ -41,6 +42,8 @@ func (s *DiagnosisAuthTicketStore) SaveTicket(ctx context.Context, ticket diagno
 	issuedAt := domain.NormalizeUTCMicro(ticket.IssuedAt)
 	expiresAt := domain.NormalizeUTCMicro(ticket.ExpiresAt)
 	_, err := s.client.DiagnosisAuthTicket.Create().
+		SetTenantID(int(ticket.TenantID)).
+		SetTenantKey(ticket.TenantKey).
 		SetTokenHash(ticketTokenHash(ticket.Token)).
 		SetSubject(ticket.Subject).
 		SetRoles(authRolesToStrings(ticket.Roles)).
@@ -127,6 +130,9 @@ func validateTicketForPersistence(ticket diagnosisauth.Ticket) error {
 	if strings.TrimSpace(ticket.Subject) == "" {
 		return fmt.Errorf("diagnosis auth ticket store: subject is required: %w", domain.ErrInvariantViolation)
 	}
+	if _, err := tenancy.NewIdentity(ticket.TenantID, ticket.TenantKey); err != nil {
+		return fmt.Errorf("diagnosis auth ticket store: tenant binding is invalid: %w", domain.ErrInvariantViolation)
+	}
 	if strings.TrimSpace(ticket.SessionID) == "" {
 		return fmt.Errorf("diagnosis auth ticket store: session id is required: %w", domain.ErrInvariantViolation)
 	}
@@ -159,6 +165,8 @@ func diagnosisAuthTicketToUsecase(row *ent.DiagnosisAuthTicket) diagnosisauth.Ti
 	ticket := diagnosisauth.Ticket{
 		Subject:   row.Subject,
 		Roles:     authRolesFromStrings(row.Roles),
+		TenantID:  domain.TenantID(row.TenantID),
+		TenantKey: row.TenantKey,
 		SessionID: row.SessionID,
 		Scope:     row.Scope,
 		IssuedAt:  row.IssuedAt,

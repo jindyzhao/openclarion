@@ -17,13 +17,15 @@ type DiagnosisToolTemplate struct {
 	ent.Schema
 }
 
+// Mixin of the DiagnosisToolTemplate.
+func (DiagnosisToolTemplate) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the DiagnosisToolTemplate.
 func (DiagnosisToolTemplate) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("name").
 			MaxLen(120).
 			NotEmpty().
-			Unique().
 			Comment("operator-facing unique display name"),
 		field.Int("alert_source_profile_id").
 			Positive().
@@ -72,6 +74,7 @@ func (DiagnosisToolTemplate) Fields() []ent.Field {
 // Indexes of the DiagnosisToolTemplate.
 func (DiagnosisToolTemplate) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("tenant_id", "name").Unique(),
 		index.Fields("enabled", "updated_at"),
 		index.Fields("alert_source_profile_id", "tool", "enabled"),
 	}

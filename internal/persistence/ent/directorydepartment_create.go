@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/directorydepartment"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // DirectoryDepartmentCreate is the builder for creating a DirectoryDepartment entity.
@@ -20,6 +21,12 @@ type DirectoryDepartmentCreate struct {
 	mutation *DirectoryDepartmentMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *DirectoryDepartmentCreate) SetTenantID(v int) *DirectoryDepartmentCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetProvider sets the "provider" field.
@@ -170,6 +177,11 @@ func (_c *DirectoryDepartmentCreate) SetNillableUpdatedAt(v *time.Time) *Directo
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *DirectoryDepartmentCreate) SetTenant(v *Tenant) *DirectoryDepartmentCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // Mutation returns the DirectoryDepartmentMutation object of the builder.
 func (_c *DirectoryDepartmentCreate) Mutation() *DirectoryDepartmentMutation {
 	return _c.mutation
@@ -225,6 +237,14 @@ func (_c *DirectoryDepartmentCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *DirectoryDepartmentCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "DirectoryDepartment.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := directorydepartment.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "DirectoryDepartment.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Provider(); !ok {
 		return &ValidationError{Name: "provider", err: errors.New(`ent: missing required field "DirectoryDepartment.provider"`)}
 	}
@@ -304,6 +324,9 @@ func (_c *DirectoryDepartmentCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "DirectoryDepartment.updated_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "DirectoryDepartment.tenant"`)}
 	}
 	return nil
 }
@@ -388,6 +411,23 @@ func (_c *DirectoryDepartmentCreate) createSpec() (*DirectoryDepartment, *sqlgra
 		_spec.SetField(directorydepartment.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   directorydepartment.TenantTable,
+			Columns: []string{directorydepartment.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	return _node, _spec
 }
 
@@ -395,7 +435,7 @@ func (_c *DirectoryDepartmentCreate) createSpec() (*DirectoryDepartment, *sqlgra
 // of the `INSERT` statement. For example:
 //
 //	client.DirectoryDepartment.Create().
-//		SetProvider(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -404,7 +444,7 @@ func (_c *DirectoryDepartmentCreate) createSpec() (*DirectoryDepartment, *sqlgra
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.DirectoryDepartmentUpsert) {
-//			SetProvider(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *DirectoryDepartmentCreate) OnConflict(opts ...sql.ConflictOption) *DirectoryDepartmentUpsertOne {
@@ -643,6 +683,9 @@ func (u *DirectoryDepartmentUpsert) UpdateUpdatedAt() *DirectoryDepartmentUpsert
 func (u *DirectoryDepartmentUpsertOne) UpdateNewValues() *DirectoryDepartmentUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(directorydepartment.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(directorydepartment.FieldCreatedAt)
 		}
@@ -1036,7 +1079,7 @@ func (_c *DirectoryDepartmentCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.DirectoryDepartmentUpsert) {
-//			SetProvider(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *DirectoryDepartmentCreateBulk) OnConflict(opts ...sql.ConflictOption) *DirectoryDepartmentUpsertBulk {
@@ -1077,6 +1120,9 @@ func (u *DirectoryDepartmentUpsertBulk) UpdateNewValues() *DirectoryDepartmentUp
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(directorydepartment.FieldTenantID)
+			}
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(directorydepartment.FieldCreatedAt)
 			}

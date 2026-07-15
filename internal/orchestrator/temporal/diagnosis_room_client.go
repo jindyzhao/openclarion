@@ -173,13 +173,21 @@ func DiagnosisRoomWorkflowID(sessionID string) (string, error) {
 	return diagnosisRoomWorkflowIDPrefix + sessionID, nil
 }
 
+func diagnosisRoomWorkflowIDForTenant(ctx context.Context, sessionID string) (string, error) {
+	workflowID, err := DiagnosisRoomWorkflowID(sessionID)
+	if err != nil {
+		return "", err
+	}
+	return tenantScopedWorkflowID(ctx, workflowID)
+}
+
 // SubmitDiagnosisTurn sends a synchronous Workflow Update and waits for the
 // workflow handler result.
 func (c *DiagnosisRoomClient) SubmitDiagnosisTurn(ctx context.Context, req ports.DiagnosisRoomSubmitTurnRequest) (ports.DiagnosisRoomSubmitTurnResult, error) {
 	if c == nil || c.client == nil {
 		return ports.DiagnosisRoomSubmitTurnResult{}, fmt.Errorf("diagnosis-room client: Temporal client must be non-nil: %w", domain.ErrInvariantViolation)
 	}
-	workflowID, err := DiagnosisRoomWorkflowID(req.SessionID)
+	workflowID, err := diagnosisRoomWorkflowIDForTenant(ctx, req.SessionID)
 	if err != nil {
 		return ports.DiagnosisRoomSubmitTurnResult{}, err
 	}
@@ -210,7 +218,7 @@ func (c *DiagnosisRoomClient) CollectDiagnosisEvidence(ctx context.Context, req 
 	if c == nil || c.client == nil {
 		return ports.DiagnosisRoomCollectEvidenceResult{}, fmt.Errorf("diagnosis-room client: Temporal client must be non-nil: %w", domain.ErrInvariantViolation)
 	}
-	workflowID, err := DiagnosisRoomWorkflowID(req.SessionID)
+	workflowID, err := diagnosisRoomWorkflowIDForTenant(ctx, req.SessionID)
 	if err != nil {
 		return ports.DiagnosisRoomCollectEvidenceResult{}, err
 	}
@@ -239,7 +247,7 @@ func (c *DiagnosisRoomClient) QueryDiagnosisRoom(ctx context.Context, sessionID 
 	if c == nil || c.client == nil {
 		return ports.DiagnosisRoomState{}, fmt.Errorf("diagnosis-room client: Temporal client must be non-nil: %w", domain.ErrInvariantViolation)
 	}
-	workflowID, err := DiagnosisRoomWorkflowID(sessionID)
+	workflowID, err := diagnosisRoomWorkflowIDForTenant(ctx, sessionID)
 	if err != nil {
 		return ports.DiagnosisRoomState{}, err
 	}
@@ -264,7 +272,7 @@ func (c *DiagnosisRoomClient) ConfirmDiagnosisConclusion(
 	if c == nil || c.client == nil {
 		return ports.DiagnosisRoomState{}, fmt.Errorf("diagnosis-room client: Temporal client must be non-nil: %w", domain.ErrInvariantViolation)
 	}
-	workflowID, err := DiagnosisRoomWorkflowID(req.SessionID)
+	workflowID, err := diagnosisRoomWorkflowIDForTenant(ctx, req.SessionID)
 	if err != nil {
 		return ports.DiagnosisRoomState{}, err
 	}

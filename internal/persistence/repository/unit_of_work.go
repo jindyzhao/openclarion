@@ -15,7 +15,9 @@ import (
 	// referenced directly in this file.
 	_ "github.com/jackc/pgx/v5/stdlib"
 
+	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/persistence/ent"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -67,7 +69,9 @@ func OpenPostgres(ctx context.Context, dsn string) (*ent.Client, error) {
 // responsible for its lifecycle.
 func NewClientFromDB(db *sql.DB) *ent.Client {
 	drv := entsql.OpenDB(dialect.Postgres, db)
-	return ent.NewClient(ent.Driver(drv))
+	client := ent.NewClient(ent.Driver(drv))
+	configureTenantScope(client)
+	return client
 }
 
 // NewFactory wraps an Ent client as a UnitOfWorkFactory. The factory
@@ -75,6 +79,7 @@ func NewClientFromDB(db *sql.DB) *ent.Client {
 // the caller MUST keep the client alive for the factory's lifetime
 // and close it at shutdown.
 func NewFactory(client *ent.Client) ports.UnitOfWorkFactory {
+	configureTenantScope(client)
 	return &factory{client: client}
 }
 
@@ -84,8 +89,9 @@ type factory struct {
 	client *ent.Client
 }
 
-// Begin starts a new Postgres transaction and returns a UnitOfWork
-// scoped to it. Callers MUST call exactly one of Commit / Rollback.
+// Begin starts a new Postgres transaction and returns a UnitOfWork. Callers
+// MUST keep using the same tenant-bound context for repository operations and
+// call exactly one of Commit / Rollback.
 func (f *factory) Begin(ctx context.Context) (ports.UnitOfWork, error) {
 	tx, err := f.client.Tx(ctx)
 	if err != nil {
@@ -127,6 +133,10 @@ type txContextKey struct{}
 // want nested-tx semantics should design around savepoints, which
 // are not exposed in this PR.
 func (f *factory) WithinTx(ctx context.Context, fn func(context.Context, ports.UnitOfWork) error) error {
+	if ctx == nil {
+		return fmt.Errorf("within transaction: context must be non-nil: %w", domain.ErrInvariantViolation)
+	}
+	ctx = tenancy.EnsureDefault(ctx)
 	if ctx.Value(txContextKey{}) != nil {
 		return ports.ErrNestedTransaction
 	}

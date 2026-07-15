@@ -106,6 +106,9 @@ func (_u *DiagnosisTaskEventUpdate) check() error {
 			return &ValidationError{Name: "dedupe_key", err: fmt.Errorf(`ent: validator failed for field "DiagnosisTaskEvent.dedupe_key": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DiagnosisTaskEvent.tenant"`)
+	}
 	if _u.mutation.TaskCleared() && len(_u.mutation.TaskIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "DiagnosisTaskEvent.task"`)
 	}
@@ -250,6 +253,9 @@ func (_u *DiagnosisTaskEventUpdateOne) check() error {
 		if err := diagnosistaskevent.DedupeKeyValidator(v); err != nil {
 			return &ValidationError{Name: "dedupe_key", err: fmt.Errorf(`ent: validator failed for field "DiagnosisTaskEvent.dedupe_key": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DiagnosisTaskEvent.tenant"`)
 	}
 	if _u.mutation.TaskCleared() && len(_u.mutation.TaskIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "DiagnosisTaskEvent.task"`)

@@ -4,6 +4,8 @@ import { diagnosisSessionCookieName } from "@/lib/api/diagnosis-session";
 
 import { POST } from "./route";
 
+const defaultTenantBinding = { tenant_id: 1, tenant_key: "default" } as const;
+
 describe("diagnosis auth check route", () => {
   const originalAPIBaseURL = process.env.OPENCLARION_API_BASE_URL;
 
@@ -13,6 +15,7 @@ describe("diagnosis auth check route", () => {
       "fetch",
       vi.fn(async () =>
         Response.json({
+          ...defaultTenantBinding,
           checked_at: "2026-06-21T04:00:00Z",
           mode: "ldap",
           role_authorized: true,
@@ -42,6 +45,7 @@ describe("diagnosis auth check route", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
+      ...defaultTenantBinding,
       checked_at: "2026-06-21T04:00:00Z",
       mode: "ldap",
       role_authorized: true,
@@ -111,6 +115,7 @@ describe("diagnosis auth check route", () => {
   it("rejects malformed backend auth check responses", async () => {
     for (const body of [
       {
+        ...defaultTenantBinding,
         checked_at: "2026-06-21T04:00:00Z",
         mode: "none",
         role_authorized: true,
@@ -118,6 +123,7 @@ describe("diagnosis auth check route", () => {
         subject: "operator-1",
       },
       {
+        ...defaultTenantBinding,
         checked_at: "2026-06-21T04:00:00Z",
         mode: "ldap",
         role_authorized: true,
@@ -125,6 +131,7 @@ describe("diagnosis auth check route", () => {
         subject: "operator-1",
       },
       {
+        ...defaultTenantBinding,
         checked_at: "not-a-date",
         mode: "ldap",
         role_authorized: true,
@@ -132,6 +139,7 @@ describe("diagnosis auth check route", () => {
         subject: "operator-1",
       },
       {
+        ...defaultTenantBinding,
         checked_at: "2026-06-21T04:00:00Z",
         mode: "ldap",
         role_authorized: "true",
@@ -139,6 +147,7 @@ describe("diagnosis auth check route", () => {
         subject: "operator-1",
       },
       {
+        ...defaultTenantBinding,
         checked_at: "2026-06-21T04:00:00Z",
         mode: "ldap",
         role_authorized: true,

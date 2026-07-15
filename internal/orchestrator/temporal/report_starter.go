@@ -93,9 +93,13 @@ func (s *ReportStarter) StartReportBatch(ctx context.Context, req ports.ReportBa
 	if s.workflowTaskTimeout <= 0 {
 		return ports.WorkflowHandle{}, fmt.Errorf("report starter: workflow task timeout must be positive: %w", domain.ErrInvariantViolation)
 	}
+	workflowID, err := tenantScopedWorkflowID(ctx, strings.TrimSpace(req.WorkflowID))
+	if err != nil {
+		return ports.WorkflowHandle{}, err
+	}
 
 	run, err := s.executor.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
-		ID:                                       strings.TrimSpace(req.WorkflowID),
+		ID:                                       workflowID,
 		TaskQueue:                                taskQueue,
 		WorkflowExecutionTimeout:                 s.workflowExecutionTimeout,
 		WorkflowTaskTimeout:                      s.workflowTaskTimeout,

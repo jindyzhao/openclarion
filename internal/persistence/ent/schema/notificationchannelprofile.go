@@ -21,13 +21,15 @@ type NotificationChannelProfile struct {
 	ent.Schema
 }
 
+// Mixin of the NotificationChannelProfile.
+func (NotificationChannelProfile) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the NotificationChannelProfile.
 func (NotificationChannelProfile) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("name").
 			MaxLen(120).
 			NotEmpty().
-			Unique().
 			Comment("operator-facing unique display name"),
 		field.String("kind").
 			MaxLen(32).
@@ -65,6 +67,7 @@ func (NotificationChannelProfile) Edges() []ent.Edge {
 // Indexes of the NotificationChannelProfile.
 func (NotificationChannelProfile) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("tenant_id", "name").Unique(),
 		index.Fields("kind", "enabled"),
 		index.Fields("delivery_scopes").
 			Annotations(

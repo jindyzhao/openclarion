@@ -291,6 +291,9 @@ func (_u *ReportWorkflowPolicyUpdate) check() error {
 			return &ValidationError{Name: "diagnosis_follow_up", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowPolicy.diagnosis_follow_up": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "ReportWorkflowPolicy.tenant"`)
+	}
 	return nil
 }
 
@@ -652,6 +655,9 @@ func (_u *ReportWorkflowPolicyUpdateOne) check() error {
 		if err := reportworkflowpolicy.DiagnosisFollowUpValidator(v); err != nil {
 			return &ValidationError{Name: "diagnosis_follow_up", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowPolicy.diagnosis_follow_up": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "ReportWorkflowPolicy.tenant"`)
 	}
 	return nil
 }

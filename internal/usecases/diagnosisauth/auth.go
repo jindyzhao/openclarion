@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -66,6 +67,8 @@ type Ticket struct {
 	Token      string
 	Subject    string
 	Roles      []ports.AuthRole
+	TenantID   domain.TenantID
+	TenantKey  string
 	SessionID  string
 	Scope      string
 	IssuedAt   time.Time
@@ -173,6 +176,10 @@ func (s Service) IssueAuthorizedTicket(ctx context.Context, principal ports.Auth
 }
 
 func (s Service) issueAuthorizedTicket(ctx context.Context, principal ports.AuthPrincipal, sessionID string, now time.Time) (Ticket, error) {
+	tenantIdentity, err := sessionTenantIdentity(principal)
+	if err != nil {
+		return Ticket{}, err
+	}
 	token, err := randomToken(s.random, s.policy.TokenBytes)
 	if err != nil {
 		return Ticket{}, err
@@ -181,6 +188,8 @@ func (s Service) issueAuthorizedTicket(ctx context.Context, principal ports.Auth
 		Token:     token,
 		Subject:   principal.Subject,
 		Roles:     append([]ports.AuthRole(nil), principal.Roles...),
+		TenantID:  tenantIdentity.ID,
+		TenantKey: tenantIdentity.Key,
 		SessionID: sessionID,
 		Scope:     s.policy.Scope,
 		IssuedAt:  now.UTC(),
@@ -205,7 +214,12 @@ func (s Service) ConsumeTicket(ctx context.Context, token string, session Sessio
 	if err != nil {
 		return Ticket{}, err
 	}
-	principal := ports.AuthPrincipal{Subject: ticket.Subject, Roles: ticket.Roles}
+	principal := ports.AuthPrincipal{
+		Subject:   ticket.Subject,
+		Roles:     ticket.Roles,
+		TenantID:  ticket.TenantID,
+		TenantKey: ticket.TenantKey,
+	}
 	if err := AuthorizeSessionAccess(principal, session); err != nil {
 		return Ticket{}, err
 	}
@@ -257,6 +271,9 @@ func validateTicket(ticket Ticket) error {
 	}
 	if strings.TrimSpace(ticket.Subject) == "" {
 		return fmt.Errorf("diagnosis auth: ticket subject is required: %w", domain.ErrInvariantViolation)
+	}
+	if _, err := tenancy.NewIdentity(ticket.TenantID, ticket.TenantKey); err != nil {
+		return fmt.Errorf("diagnosis auth: ticket tenant binding is invalid: %w", domain.ErrInvariantViolation)
 	}
 	if strings.TrimSpace(ticket.SessionID) == "" {
 		return fmt.Errorf("diagnosis auth: ticket session id is required: %w", domain.ErrInvariantViolation)

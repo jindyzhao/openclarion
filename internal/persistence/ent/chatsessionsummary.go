@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // ChatSessionSummary is the model entity for the ChatSessionSummary schema.
@@ -19,6 +20,8 @@ type ChatSessionSummary struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// FK to chat_sessions.id
 	ChatSessionID int `json:"chat_session_id,omitempty"`
 	// monotonic summary revision; UNIQUE per chat session
@@ -47,11 +50,24 @@ type ChatSessionSummary struct {
 
 // ChatSessionSummaryEdges holds the relations/edges for other nodes in the graph.
 type ChatSessionSummaryEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// Session holds the value of the session edge.
 	Session *ChatSession `json:"session,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [2]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e ChatSessionSummaryEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // SessionOrErr returns the Session value or an error if the edge
@@ -59,7 +75,7 @@ type ChatSessionSummaryEdges struct {
 func (e ChatSessionSummaryEdges) SessionOrErr() (*ChatSession, error) {
 	if e.Session != nil {
 		return e.Session, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: chatsession.Label}
 	}
 	return nil, &NotLoadedError{edge: "session"}
@@ -72,7 +88,7 @@ func (*ChatSessionSummary) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case chatsessionsummary.FieldContent:
 			values[i] = new([]byte)
-		case chatsessionsummary.FieldID, chatsessionsummary.FieldChatSessionID, chatsessionsummary.FieldVersion, chatsessionsummary.FieldSourceFirstSequence, chatsessionsummary.FieldSourceLastSequence, chatsessionsummary.FieldSourceTurnCount:
+		case chatsessionsummary.FieldID, chatsessionsummary.FieldTenantID, chatsessionsummary.FieldChatSessionID, chatsessionsummary.FieldVersion, chatsessionsummary.FieldSourceFirstSequence, chatsessionsummary.FieldSourceLastSequence, chatsessionsummary.FieldSourceTurnCount:
 			values[i] = new(sql.NullInt64)
 		case chatsessionsummary.FieldSchemaVersion, chatsessionsummary.FieldSourceDigest:
 			values[i] = new(sql.NullString)
@@ -99,6 +115,12 @@ func (_m *ChatSessionSummary) assignValues(columns []string, values []any) error
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case chatsessionsummary.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case chatsessionsummary.FieldChatSessionID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field chat_session_id", values[i])
@@ -174,6 +196,11 @@ func (_m *ChatSessionSummary) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the ChatSessionSummary entity.
+func (_m *ChatSessionSummary) QueryTenant() *TenantQuery {
+	return NewChatSessionSummaryClient(_m.config).QueryTenant(_m)
+}
+
 // QuerySession queries the "session" edge of the ChatSessionSummary entity.
 func (_m *ChatSessionSummary) QuerySession() *ChatSessionQuery {
 	return NewChatSessionSummaryClient(_m.config).QuerySession(_m)
@@ -202,6 +229,9 @@ func (_m *ChatSessionSummary) String() string {
 	var builder strings.Builder
 	builder.WriteString("ChatSessionSummary(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("chat_session_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ChatSessionID))
 	builder.WriteString(", ")

@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisevidence"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisroom"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
@@ -677,6 +678,25 @@ func TestDiagnosisRoomClient_QueryDiagnosisRoom(t *testing.T) {
 		*got.LatestRequiresHumanReview {
 		t.Fatalf("latest consultation state = insight=%+v confidence=%q review=%v",
 			got.LatestConsultationInsight, got.LatestConfidence, got.LatestRequiresHumanReview)
+	}
+}
+
+func TestDiagnosisRoomClient_QueryDiagnosisRoomScopesWorkflowIDByTenant(t *testing.T) {
+	t.Parallel()
+
+	temporalClient := &recordingDiagnosisRoomTemporalClient{
+		queryValue: fakeEncodedValue{value: DiagnosisRoomWorkflowState{SessionID: "session-1"}},
+	}
+	ctx, err := tenancy.WithTenant(context.Background(), tenancy.Identity{ID: 7, Key: "team-seven"})
+	if err != nil {
+		t.Fatalf("WithTenant: %v", err)
+	}
+	if _, err := newDiagnosisRoomClient(temporalClient).QueryDiagnosisRoom(ctx, "session-1"); err != nil {
+		t.Fatalf("QueryDiagnosisRoom: %v", err)
+	}
+	const want = "openclarion-tenant-7-team-seven--diagnosis-room-session-1"
+	if temporalClient.queryWorkflowID != want {
+		t.Fatalf("query workflow ID = %q, want %q", temporalClient.queryWorkflowID, want)
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowpolicy"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // ReportWorkflowPolicyCreate is the builder for creating a ReportWorkflowPolicy entity.
@@ -20,6 +21,12 @@ type ReportWorkflowPolicyCreate struct {
 	mutation *ReportWorkflowPolicyMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *ReportWorkflowPolicyCreate) SetTenantID(v int) *ReportWorkflowPolicyCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetName sets the "name" field.
@@ -166,6 +173,11 @@ func (_c *ReportWorkflowPolicyCreate) SetNillableUpdatedAt(v *time.Time) *Report
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *ReportWorkflowPolicyCreate) SetTenant(v *Tenant) *ReportWorkflowPolicyCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // Mutation returns the ReportWorkflowPolicyMutation object of the builder.
 func (_c *ReportWorkflowPolicyCreate) Mutation() *ReportWorkflowPolicyMutation {
 	return _c.mutation
@@ -229,6 +241,14 @@ func (_c *ReportWorkflowPolicyCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *ReportWorkflowPolicyCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "ReportWorkflowPolicy.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := reportworkflowpolicy.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "ReportWorkflowPolicy.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "ReportWorkflowPolicy.name"`)}
 	}
@@ -290,6 +310,9 @@ func (_c *ReportWorkflowPolicyCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "ReportWorkflowPolicy.updated_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "ReportWorkflowPolicy.tenant"`)}
 	}
 	return nil
 }
@@ -366,6 +389,23 @@ func (_c *ReportWorkflowPolicyCreate) createSpec() (*ReportWorkflowPolicy, *sqlg
 		_spec.SetField(reportworkflowpolicy.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   reportworkflowpolicy.TenantTable,
+			Columns: []string{reportworkflowpolicy.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	return _node, _spec
 }
 
@@ -373,7 +413,7 @@ func (_c *ReportWorkflowPolicyCreate) createSpec() (*ReportWorkflowPolicy, *sqlg
 // of the `INSERT` statement. For example:
 //
 //	client.ReportWorkflowPolicy.Create().
-//		SetName(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -382,7 +422,7 @@ func (_c *ReportWorkflowPolicyCreate) createSpec() (*ReportWorkflowPolicy, *sqlg
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ReportWorkflowPolicyUpsert) {
-//			SetName(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ReportWorkflowPolicyCreate) OnConflict(opts ...sql.ConflictOption) *ReportWorkflowPolicyUpsertOne {
@@ -597,6 +637,9 @@ func (u *ReportWorkflowPolicyUpsert) UpdateUpdatedAt() *ReportWorkflowPolicyUpse
 func (u *ReportWorkflowPolicyUpsertOne) UpdateNewValues() *ReportWorkflowPolicyUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(reportworkflowpolicy.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(reportworkflowpolicy.FieldCreatedAt)
 		}
@@ -962,7 +1005,7 @@ func (_c *ReportWorkflowPolicyCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ReportWorkflowPolicyUpsert) {
-//			SetName(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ReportWorkflowPolicyCreateBulk) OnConflict(opts ...sql.ConflictOption) *ReportWorkflowPolicyUpsertBulk {
@@ -1003,6 +1046,9 @@ func (u *ReportWorkflowPolicyUpsertBulk) UpdateNewValues() *ReportWorkflowPolicy
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(reportworkflowpolicy.FieldTenantID)
+			}
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(reportworkflowpolicy.FieldCreatedAt)
 			}

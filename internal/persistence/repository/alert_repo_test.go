@@ -67,11 +67,30 @@ func alertEventIDsForTest(events []domain.AlertEvent) []domain.AlertEventID {
 	return ids
 }
 
+func makeAlertSourceProfiles(t *testing.T, count int) []domain.AlertSourceProfileID {
+	t.Helper()
+	ids := make([]domain.AlertSourceProfileID, 0, count)
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for i := range count {
+			profile, err := uow.Config().SaveAlertSourceProfile(
+				ctx,
+				mustNewAlertSourceProfile(t, fmt.Sprintf("Alert source %d", i+1)),
+			)
+			if err != nil {
+				t.Fatalf("SaveAlertSourceProfile[%d]: %v", i, err)
+			}
+			ids = append(ids, profile.ID)
+		}
+	})
+	return ids
+}
+
 func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 	resetDB(t)
+	profileID := makeAlertSourceProfiles(t, 1)[0]
 	startsAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
 	e := mustNewAlertEvent(t, "prometheus", "fp-1", "canon-A", startsAt)
-	e, err := e.WithAlertSourceProfile(7)
+	e, err := e.WithAlertSourceProfile(profileID)
 	if err != nil {
 		t.Fatalf("WithAlertSourceProfile: %v", err)
 	}
@@ -93,8 +112,8 @@ func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 	if saved.Status != domain.AlertStatusFiring {
 		t.Errorf("saved.Status = %q, want %q", saved.Status, domain.AlertStatusFiring)
 	}
-	if saved.AlertSourceProfileID != 7 {
-		t.Errorf("saved.AlertSourceProfileID = %d, want 7", saved.AlertSourceProfileID)
+	if saved.AlertSourceProfileID != profileID {
+		t.Errorf("saved.AlertSourceProfileID = %d, want %d", saved.AlertSourceProfileID, profileID)
 	}
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
@@ -105,8 +124,8 @@ func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 		if byID.CanonicalFingerprint != "canon-A" {
 			t.Errorf("FindEventByID.CanonicalFingerprint = %q, want %q", byID.CanonicalFingerprint, "canon-A")
 		}
-		if byID.AlertSourceProfileID != 7 {
-			t.Errorf("FindEventByID.AlertSourceProfileID = %d, want 7", byID.AlertSourceProfileID)
+		if byID.AlertSourceProfileID != profileID {
+			t.Errorf("FindEventByID.AlertSourceProfileID = %d, want %d", byID.AlertSourceProfileID, profileID)
 		}
 		_, err = uow.Alerts().FindEventByNaturalKey(ctx, "prometheus", "canon-A", startsAt)
 		if !errors.Is(err, domain.ErrNotFound) {
@@ -117,6 +136,7 @@ func TestAlertRepository_SaveEventAndQuery(t *testing.T) {
 
 func TestAlertRepository_ListEventsByNaturalKeysMatchesFullScopedKey(t *testing.T) {
 	resetDB(t)
+	profileIDs := makeAlertSourceProfiles(t, 2)
 	startsAt := time.Date(2026, 5, 22, 10, 0, 0, 0, time.UTC)
 	events := []domain.AlertEvent{
 		mustNewAlertEvent(t, "prometheus", "fp-1", "canon-A", startsAt),
@@ -125,13 +145,13 @@ func TestAlertRepository_ListEventsByNaturalKeysMatchesFullScopedKey(t *testing.
 	}
 	for i := range events {
 		var err error
-		events[i], err = events[i].WithAlertSourceProfile(7)
+		events[i], err = events[i].WithAlertSourceProfile(profileIDs[0])
 		if err != nil {
 			t.Fatalf("WithAlertSourceProfile event[%d]: %v", i, err)
 		}
 	}
 	otherProfile := mustNewAlertEvent(t, "prometheus", "fp-4", "canon-A", startsAt)
-	otherProfile, err := otherProfile.WithAlertSourceProfile(8)
+	otherProfile, err := otherProfile.WithAlertSourceProfile(profileIDs[1])
 	if err != nil {
 		t.Fatalf("WithAlertSourceProfile other profile: %v", err)
 	}
@@ -148,13 +168,13 @@ func TestAlertRepository_ListEventsByNaturalKeysMatchesFullScopedKey(t *testing.
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
 		rows, err := uow.Alerts().ListEventsByNaturalKeys(ctx, []ports.AlertEventNaturalKey{
 			{
-				AlertSourceProfileID: 7,
+				AlertSourceProfileID: profileIDs[0],
 				Source:               "prometheus",
 				CanonicalFingerprint: "canon-A",
 				StartsAt:             startsAt,
 			},
 			{
-				AlertSourceProfileID: 7,
+				AlertSourceProfileID: profileIDs[0],
 				Source:               "prometheus",
 				CanonicalFingerprint: "canon-A",
 				StartsAt:             startsAt.Add(time.Microsecond),
@@ -164,10 +184,10 @@ func TestAlertRepository_ListEventsByNaturalKeysMatchesFullScopedKey(t *testing.
 			t.Fatalf("ListEventsByNaturalKeys: %v", err)
 		}
 		if len(rows) != 2 ||
-			rows[0].AlertSourceProfileID != 7 ||
+			rows[0].AlertSourceProfileID != profileIDs[0] ||
 			rows[0].CanonicalFingerprint != "canon-A" ||
 			!rows[0].StartsAt.Equal(domain.NormalizeUTCMicro(startsAt)) ||
-			rows[1].AlertSourceProfileID != 7 ||
+			rows[1].AlertSourceProfileID != profileIDs[0] ||
 			rows[1].CanonicalFingerprint != "canon-A" ||
 			!rows[1].StartsAt.Equal(domain.NormalizeUTCMicro(startsAt.Add(time.Microsecond))) {
 			t.Fatalf("rows = %+v, want only exact profile/fingerprint/start matches", rows)
@@ -204,14 +224,15 @@ func TestAlertRepository_SaveEvent_DuplicateNaturalKey(t *testing.T) {
 
 func TestAlertRepository_SaveEvent_DedupesWithinAlertSourceProfile(t *testing.T) {
 	resetDB(t)
+	profileIDs := makeAlertSourceProfiles(t, 2)
 	startsAt := time.Date(2026, 5, 22, 11, 30, 0, 0, time.UTC)
 	first := mustNewAlertEvent(t, "prometheus", "fp-X", "canon-X", startsAt)
-	first, err := first.WithAlertSourceProfile(7)
+	first, err := first.WithAlertSourceProfile(profileIDs[0])
 	if err != nil {
 		t.Fatalf("WithAlertSourceProfile first: %v", err)
 	}
 	second := mustNewAlertEvent(t, "prometheus", "fp-X", "canon-X", startsAt)
-	second, err = second.WithAlertSourceProfile(8)
+	second, err = second.WithAlertSourceProfile(profileIDs[1])
 	if err != nil {
 		t.Fatalf("WithAlertSourceProfile second: %v", err)
 	}

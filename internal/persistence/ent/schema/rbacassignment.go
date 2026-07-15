@@ -17,6 +17,9 @@ type RBACAssignment struct {
 	ent.Schema
 }
 
+// Mixin of the RBACAssignment.
+func (RBACAssignment) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the RBACAssignment.
 func (RBACAssignment) Fields() []ent.Field {
 	return []ent.Field{
@@ -31,7 +34,7 @@ func (RBACAssignment) Fields() []ent.Field {
 		field.String("role").
 			MaxLen(32).
 			NotEmpty().
-			Comment(`local OpenClarion role such as "admin", "operator", "responder", or "viewer"`),
+			Comment(`local OpenClarion role such as "admin", "operator", "leader", "responder", or "viewer"`),
 		field.String("scope_kind").
 			MaxLen(64).
 			NotEmpty().
@@ -65,7 +68,7 @@ func (RBACAssignment) Fields() []ent.Field {
 // Indexes of the RBACAssignment.
 func (RBACAssignment) Indexes() []ent.Index {
 	return []ent.Index{
-		index.Fields("subject_kind", "subject_key", "role", "scope_kind", "scope_key").
+		index.Fields("tenant_id", "subject_kind", "subject_key", "role", "scope_kind", "scope_key").
 			Unique(),
 		index.Fields("subject_kind", "subject_key", "enabled"),
 		index.Fields("scope_kind", "scope_key", "enabled"),

@@ -16,6 +16,7 @@ import (
 
 	"github.com/openclarion/openclarion/api"
 	"github.com/openclarion/openclarion/internal/domain"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/diagnosisauth"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 	rbacusecase "github.com/openclarion/openclarion/internal/usecases/rbac"
@@ -145,7 +146,7 @@ func (s *Server) GetDiagnosisAuthStatus(w http.ResponseWriter, r *http.Request) 
 }
 
 // CheckDiagnosisAuth implements api.ServerInterface.
-func (s *Server) CheckDiagnosisAuth(w http.ResponseWriter, r *http.Request) {
+func (s *Server) CheckDiagnosisAuth(w http.ResponseWriter, r *http.Request, _ api.CheckDiagnosisAuthParams) {
 	if s.diagnosis.authProvider == nil && s.diagnosis.sessionIssuer == nil {
 		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis auth is not configured", nil)
 		return
@@ -160,18 +161,27 @@ func (s *Server) CheckDiagnosisAuth(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
 		return
 	}
+	principal.Subject = subject
+	principal, tenantCtx, err := s.bindAuthenticatedTenant(r.Context(), r.Header, principal)
+	if err != nil {
+		s.writeTenantBindingError(r.Context(), w, err)
+		return
+	}
+	*r = *r.WithContext(tenantCtx)
 	writeJSON(r.Context(), w, s.logger, http.StatusOK, api.DiagnosisAuthCheckResponse{
 		Subject:        subject,
 		Roles:          diagnosisAuthRoles(principal.Roles),
 		Mode:           diagnosisAuthCheckResponseMode(s.diagnosis.authCheckMode(principal)),
 		CheckedAt:      s.diagnosis.now().UTC(),
 		RoleAuthorized: diagnosisAuthRoleAuthorized(principal.Roles),
+		TenantID:       int64(principal.TenantID),
+		TenantKey:      principal.TenantKey,
 	})
 }
 
 // IssueDiagnosisAuthSession implements api.ServerInterface.
-func (s *Server) IssueDiagnosisAuthSession(w http.ResponseWriter, r *http.Request) {
-	if s.diagnosis.authProvider == nil {
+func (s *Server) IssueDiagnosisAuthSession(w http.ResponseWriter, r *http.Request, _ api.IssueDiagnosisAuthSessionParams) {
+	if s.diagnosis.authProvider == nil && s.diagnosis.sessionIssuer == nil {
 		writeError(r.Context(), w, s.logger, http.StatusServiceUnavailable, "diagnosis auth is not configured", nil)
 		return
 	}
@@ -184,33 +194,64 @@ func (s *Server) IssueDiagnosisAuthSession(w http.ResponseWriter, r *http.Reques
 		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
 		return
 	}
-	auxiliaryCredentials, err := diagnosisAuthAuxiliaryCredentials(r.Header)
-	if err != nil {
-		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
-		return
-	}
-	principal, err := authenticateDiagnosisAuthorization(
-		r.Context(),
-		s.diagnosis.authProvider,
-		authorization,
-		auxiliaryCredentials,
+	var (
+		principal       ports.AuthPrincipal
+		existingSession *diagnosisauth.SessionToken
 	)
-	if err != nil {
-		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
-		return
+	if session, sessionErr := s.diagnosis.sessionIssuer.AuthenticateSession(r.Context(), authorization); sessionErr == nil {
+		existingSession = &session
+		principal = ports.AuthPrincipal{
+			Subject:   session.Subject,
+			Roles:     append([]ports.AuthRole(nil), session.Roles...),
+			TenantID:  session.TenantID,
+			TenantKey: session.TenantKey,
+		}
+	} else {
+		if s.diagnosis.authProvider == nil {
+			writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", sessionErr)
+			return
+		}
+		auxiliaryCredentials, auxiliaryErr := diagnosisAuthAuxiliaryCredentials(r.Header)
+		if auxiliaryErr != nil {
+			writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", auxiliaryErr)
+			return
+		}
+		principal, err = authenticateDiagnosisAuthorization(
+			r.Context(),
+			s.diagnosis.authProvider,
+			authorization,
+			auxiliaryCredentials,
+		)
+		if err != nil {
+			writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
+			return
+		}
 	}
 	subject, err := sanitizeDiagnosisAuthSubject(principal.Subject)
 	if err != nil {
 		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "authentication failed", err)
 		return
 	}
-	mode := diagnosisAuthCheckResponseMode(s.diagnosis.authCheckMode(principal))
-	sessionPrincipal, err := diagnosisAuthSessionPrincipal(subject, principal.Roles, mode)
+	principal.Subject = subject
+	principal, tenantCtx, err := s.bindSessionIssuanceTenant(r.Context(), r.Header, principal)
 	if err != nil {
-		writeDiagnosisServiceError(r.Context(), w, s.logger, err, "issue diagnosis browser session failed", "authorization role is not permitted")
+		s.writeTenantBindingError(r.Context(), w, err)
 		return
 	}
-	session, err := s.diagnosis.sessionIssuer.IssueToken(r.Context(), sessionPrincipal, mode)
+	*r = *r.WithContext(tenantCtx)
+	identity := tenancy.Identity{ID: principal.TenantID, Key: principal.TenantKey}
+	mode := diagnosisAuthCheckResponseMode(s.diagnosis.authCheckMode(principal))
+	var session diagnosisauth.SessionToken
+	if existingSession != nil {
+		mode = existingSession.Provider
+		session, err = s.diagnosis.sessionIssuer.RebindTenant(r.Context(), authorization, identity)
+	} else {
+		var sessionPrincipal ports.AuthPrincipal
+		sessionPrincipal, err = diagnosisAuthSessionPrincipal(subject, principal.Roles, mode, identity)
+		if err == nil {
+			session, err = s.diagnosis.sessionIssuer.IssueToken(r.Context(), sessionPrincipal, mode)
+		}
+	}
 	if err != nil {
 		writeDiagnosisServiceError(r.Context(), w, s.logger, err, "issue diagnosis browser session failed", "authentication failed")
 		return
@@ -223,6 +264,8 @@ func (s *Server) IssueDiagnosisAuthSession(w http.ResponseWriter, r *http.Reques
 		CheckedAt:      session.IssuedAt,
 		ExpiresAt:      session.ExpiresAt,
 		RoleAuthorized: diagnosisAuthRoleAuthorized(session.Roles),
+		TenantID:       int64(session.TenantID),
+		TenantKey:      session.TenantKey,
 	})
 }
 
@@ -293,14 +336,29 @@ func (s *Server) HandleDiagnosisWebSocket(w http.ResponseWriter, r *http.Request
 		writeError(r.Context(), w, s.logger, http.StatusUnauthorized, "WebSocket ticket is required", nil)
 		return
 	}
+	ticket, err := s.diagnosis.authService.ConsumeAuthorizedTicket(r.Context(), token, sessionID, s.diagnosis.now().UTC())
+	if err != nil {
+		writeDiagnosisServiceError(r.Context(), w, s.logger, err, "consume diagnosis WebSocket ticket failed", "WebSocket ticket is invalid")
+		return
+	}
+	identity, err := tenancy.NewIdentity(ticket.TenantID, ticket.TenantKey)
+	if err != nil {
+		writeDiagnosisServiceError(r.Context(), w, s.logger, diagnosisauth.ErrUnauthenticated, "bind diagnosis WebSocket tenant failed", "WebSocket ticket is invalid")
+		return
+	}
+	tenantCtx, err := tenancy.WithTenant(r.Context(), identity)
+	if err != nil {
+		writeDiagnosisServiceError(r.Context(), w, s.logger, err, "bind diagnosis WebSocket tenant failed", "WebSocket ticket is invalid")
+		return
+	}
+	*r = *r.WithContext(tenantCtx)
 	session, err := s.resolveDiagnosisSession(r.Context(), sessionID)
 	if err != nil {
 		writeDiagnosisServiceError(r.Context(), w, s.logger, err, "resolve diagnosis session failed", "WebSocket ticket is invalid")
 		return
 	}
-	ticket, err := s.diagnosis.authService.ConsumeAuthorizedTicket(r.Context(), token, session.SessionID, s.diagnosis.now().UTC())
-	if err != nil {
-		writeDiagnosisServiceError(r.Context(), w, s.logger, err, "consume diagnosis WebSocket ticket failed", "WebSocket ticket is invalid")
+	if session.SessionID != ticket.SessionID {
+		writeDiagnosisServiceError(r.Context(), w, s.logger, diagnosisauth.ErrUnauthorized, "diagnosis session mismatch after ticket consume", "WebSocket ticket is invalid")
 		return
 	}
 
@@ -339,6 +397,17 @@ func (s *Server) AuthorizeDiagnosisWebSocketFrame(ctx context.Context, ticket di
 	subject, err := sanitizeDiagnosisAuthSubject(ticket.Subject)
 	if err != nil {
 		return fmt.Errorf("diagnosis websocket frame authorization: subject is invalid: %w", diagnosisauth.ErrUnauthenticated)
+	}
+	identity, err := tenancy.NewIdentity(ticket.TenantID, ticket.TenantKey)
+	if err != nil {
+		return fmt.Errorf("diagnosis websocket frame authorization: tenant binding is invalid: %w", diagnosisauth.ErrUnauthenticated)
+	}
+	if current, ok := tenancy.FromContext(ctx); ok && current != identity {
+		return fmt.Errorf("diagnosis websocket frame authorization: tenant binding mismatch: %w", diagnosisauth.ErrUnauthorized)
+	}
+	ctx, err = tenancy.WithTenant(ctx, identity)
+	if err != nil {
+		return fmt.Errorf("diagnosis websocket frame authorization: bind tenant: %w", err)
 	}
 	if strings.TrimSpace(ticket.SessionID) == "" {
 		return fmt.Errorf("diagnosis websocket frame authorization: session id is required: %w", domain.ErrInvariantViolation)
@@ -636,7 +705,12 @@ func diagnosisAuthRoleAuthorized(roles []ports.AuthRole) bool {
 	return false
 }
 
-func diagnosisAuthSessionPrincipal(subject string, roles []ports.AuthRole, mode string) (ports.AuthPrincipal, error) {
+func diagnosisAuthSessionPrincipal(
+	subject string,
+	roles []ports.AuthRole,
+	mode string,
+	tenantIdentity tenancy.Identity,
+) (ports.AuthPrincipal, error) {
 	sessionRoles := make([]ports.AuthRole, 0, len(roles))
 	for _, role := range roles {
 		switch role {
@@ -655,9 +729,11 @@ func diagnosisAuthSessionPrincipal(subject string, roles []ports.AuthRole, mode 
 		return ports.AuthPrincipal{}, fmt.Errorf("marshal diagnosis auth session claims: %w", err)
 	}
 	return ports.AuthPrincipal{
-		Subject: subject,
-		Roles:   sessionRoles,
-		Claims:  claims,
+		Subject:   subject,
+		Roles:     sessionRoles,
+		Claims:    claims,
+		TenantID:  tenantIdentity.ID,
+		TenantKey: tenantIdentity.Key,
 	}, nil
 }
 

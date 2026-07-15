@@ -23,17 +23,31 @@ var (
 		{Name: "starts_at", Type: field.TypeTime},
 		{Name: "ends_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// AlertEventsTable holds the schema information for the "alert_events" table.
 	AlertEventsTable = &schema.Table{
 		Name:       "alert_events",
 		Columns:    AlertEventsColumns,
 		PrimaryKey: []*schema.Column{AlertEventsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "alert_events_tenants_tenant",
+				Columns:    []*schema.Column{AlertEventsColumns[12]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "alertevent_alert_source_profile_id_source_canonical_fingerprint_starts_at",
+				Name:    "alertevent_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{AlertEventsColumns[12]},
+			},
+			{
+				Name:    "alertevent_tenant_id_alert_source_profile_id_source_canonical_fingerprint_starts_at",
 				Unique:  true,
-				Columns: []*schema.Column{AlertEventsColumns[2], AlertEventsColumns[1], AlertEventsColumns[4], AlertEventsColumns[9]},
+				Columns: []*schema.Column{AlertEventsColumns[12], AlertEventsColumns[2], AlertEventsColumns[1], AlertEventsColumns[4], AlertEventsColumns[9]},
 			},
 			{
 				Name:    "alertevent_source_status",
@@ -69,17 +83,31 @@ var (
 		{Name: "last_seen_at", Type: field.TypeTime},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// AlertGroupsTable holds the schema information for the "alert_groups" table.
 	AlertGroupsTable = &schema.Table{
 		Name:       "alert_groups",
 		Columns:    AlertGroupsColumns,
 		PrimaryKey: []*schema.Column{AlertGroupsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "alert_groups_tenants_tenant",
+				Columns:    []*schema.Column{AlertGroupsColumns[10]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "alertgroup_group_key_first_seen_at",
+				Name:    "alertgroup_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{AlertGroupsColumns[10]},
+			},
+			{
+				Name:    "alertgroup_tenant_id_group_key_first_seen_at",
 				Unique:  true,
-				Columns: []*schema.Column{AlertGroupsColumns[1], AlertGroupsColumns[6]},
+				Columns: []*schema.Column{AlertGroupsColumns[10], AlertGroupsColumns[1], AlertGroupsColumns[6]},
 			},
 			{
 				Name:    "alertgroup_status_last_seen_at",
@@ -101,7 +129,7 @@ var (
 	// AlertSourceProfilesColumns holds the columns for the "alert_source_profiles" table.
 	AlertSourceProfilesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
-		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
+		{Name: "name", Type: field.TypeString, Size: 120},
 		{Name: "kind", Type: field.TypeString, Size: 32},
 		{Name: "base_url", Type: field.TypeString, Size: 2048},
 		{Name: "auth_mode", Type: field.TypeString, Size: 32, Default: "none"},
@@ -110,13 +138,32 @@ var (
 		{Name: "labels", Type: field.TypeJSON},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// AlertSourceProfilesTable holds the schema information for the "alert_source_profiles" table.
 	AlertSourceProfilesTable = &schema.Table{
 		Name:       "alert_source_profiles",
 		Columns:    AlertSourceProfilesColumns,
 		PrimaryKey: []*schema.Column{AlertSourceProfilesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "alert_source_profiles_tenants_tenant",
+				Columns:    []*schema.Column{AlertSourceProfilesColumns[10]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "alertsourceprofile_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{AlertSourceProfilesColumns[10]},
+			},
+			{
+				Name:    "alertsourceprofile_tenant_id_name",
+				Unique:  true,
+				Columns: []*schema.Column{AlertSourceProfilesColumns[10], AlertSourceProfilesColumns[1]},
+			},
 			{
 				Name:    "alertsourceprofile_kind_enabled",
 				Unique:  false,
@@ -137,7 +184,7 @@ var (
 	// ChatSessionsColumns holds the columns for the "chat_sessions" table.
 	ChatSessionsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
-		{Name: "session_key", Type: field.TypeString, Unique: true, Size: 128},
+		{Name: "session_key", Type: field.TypeString, Size: 128},
 		{Name: "owner_subject", Type: field.TypeString, Size: 256},
 		{Name: "status", Type: field.TypeString, Size: 32, Default: "open"},
 		{Name: "turn_count", Type: field.TypeInt, Default: 0},
@@ -148,6 +195,7 @@ var (
 		{Name: "approval_mode", Type: field.TypeString, Size: 32, Default: "single"},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 		{Name: "diagnosis_task_id", Type: field.TypeInt},
 	}
 	// ChatSessionsTable holds the schema information for the "chat_sessions" table.
@@ -157,17 +205,33 @@ var (
 		PrimaryKey: []*schema.Column{ChatSessionsColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
-				Symbol:     "chat_sessions_diagnosis_tasks_chat_sessions",
+				Symbol:     "chat_sessions_tenants_tenant",
 				Columns:    []*schema.Column{ChatSessionsColumns[12]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "chat_sessions_diagnosis_tasks_chat_sessions",
+				Columns:    []*schema.Column{ChatSessionsColumns[13]},
 				RefColumns: []*schema.Column{DiagnosisTasksColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 		},
 		Indexes: []*schema.Index{
 			{
+				Name:    "chatsession_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{ChatSessionsColumns[12]},
+			},
+			{
+				Name:    "chatsession_tenant_id_session_key",
+				Unique:  true,
+				Columns: []*schema.Column{ChatSessionsColumns[12], ChatSessionsColumns[1]},
+			},
+			{
 				Name:    "chatsession_diagnosis_task_id",
 				Unique:  true,
-				Columns: []*schema.Column{ChatSessionsColumns[12]},
+				Columns: []*schema.Column{ChatSessionsColumns[13]},
 			},
 			{
 				Name:    "chatsession_owner_subject_status",
@@ -196,6 +260,7 @@ var (
 		{Name: "approved_at", Type: field.TypeTime},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "chat_session_id", Type: field.TypeInt},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// ChatSessionApprovalsTable holds the schema information for the "chat_session_approvals" table.
 	ChatSessionApprovalsTable = &schema.Table{
@@ -209,17 +274,28 @@ var (
 				RefColumns: []*schema.Column{ChatSessionsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
+			{
+				Symbol:     "chat_session_approvals_tenants_tenant",
+				Columns:    []*schema.Column{ChatSessionApprovalsColumns[8]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
 		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "chatsessionapproval_chat_session_id_conclusion_digest_actor_subject",
-				Unique:  true,
-				Columns: []*schema.Column{ChatSessionApprovalsColumns[7], ChatSessionApprovalsColumns[1], ChatSessionApprovalsColumns[2]},
+				Name:    "chatsessionapproval_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{ChatSessionApprovalsColumns[8]},
 			},
 			{
-				Name:    "chatsessionapproval_chat_session_id_conclusion_digest_authority",
+				Name:    "chat_session_approvals_tenant_actor_unique",
 				Unique:  true,
-				Columns: []*schema.Column{ChatSessionApprovalsColumns[7], ChatSessionApprovalsColumns[1], ChatSessionApprovalsColumns[3]},
+				Columns: []*schema.Column{ChatSessionApprovalsColumns[8], ChatSessionApprovalsColumns[7], ChatSessionApprovalsColumns[1], ChatSessionApprovalsColumns[2]},
+			},
+			{
+				Name:    "chat_session_approvals_tenant_authority_unique",
+				Unique:  true,
+				Columns: []*schema.Column{ChatSessionApprovalsColumns[8], ChatSessionApprovalsColumns[7], ChatSessionApprovalsColumns[1], ChatSessionApprovalsColumns[3]},
 			},
 			{
 				Name:    "chatsessionapproval_chat_session_id_conclusion_digest_approved_at",
@@ -246,6 +322,7 @@ var (
 		{Name: "generated_at", Type: field.TypeTime},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "chat_session_id", Type: field.TypeInt},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// ChatSessionSummariesTable holds the schema information for the "chat_session_summaries" table.
 	ChatSessionSummariesTable = &schema.Table{
@@ -259,17 +336,28 @@ var (
 				RefColumns: []*schema.Column{ChatSessionsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
+			{
+				Symbol:     "chat_session_summaries_tenants_tenant",
+				Columns:    []*schema.Column{ChatSessionSummariesColumns[11]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
 		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "chatsessionsummary_chat_session_id_version",
-				Unique:  true,
-				Columns: []*schema.Column{ChatSessionSummariesColumns[10], ChatSessionSummariesColumns[1]},
+				Name:    "chatsessionsummary_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{ChatSessionSummariesColumns[11]},
 			},
 			{
-				Name:    "chatsessionsummary_chat_session_id_source_digest",
+				Name:    "chatsessionsummary_tenant_id_chat_session_id_version",
 				Unique:  true,
-				Columns: []*schema.Column{ChatSessionSummariesColumns[10], ChatSessionSummariesColumns[6]},
+				Columns: []*schema.Column{ChatSessionSummariesColumns[11], ChatSessionSummariesColumns[10], ChatSessionSummariesColumns[1]},
+			},
+			{
+				Name:    "chatsessionsummary_tenant_id_chat_session_id_source_digest",
+				Unique:  true,
+				Columns: []*schema.Column{ChatSessionSummariesColumns[11], ChatSessionSummariesColumns[10], ChatSessionSummariesColumns[6]},
 			},
 			{
 				Name:    "chatsessionsummary_chat_session_id_generated_at",
@@ -290,6 +378,7 @@ var (
 		{Name: "occurred_at", Type: field.TypeTime},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "chat_session_id", Type: field.TypeInt},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// ChatTurnsTable holds the schema information for the "chat_turns" table.
 	ChatTurnsTable = &schema.Table{
@@ -303,17 +392,28 @@ var (
 				RefColumns: []*schema.Column{ChatSessionsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
+			{
+				Symbol:     "chat_turns_tenants_tenant",
+				Columns:    []*schema.Column{ChatTurnsColumns[10]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
 		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "chatturn_chat_session_id_message_id",
-				Unique:  true,
-				Columns: []*schema.Column{ChatTurnsColumns[9], ChatTurnsColumns[1]},
+				Name:    "chatturn_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{ChatTurnsColumns[10]},
 			},
 			{
-				Name:    "chatturn_chat_session_id_sequence",
+				Name:    "chatturn_tenant_id_chat_session_id_message_id",
 				Unique:  true,
-				Columns: []*schema.Column{ChatTurnsColumns[9], ChatTurnsColumns[2]},
+				Columns: []*schema.Column{ChatTurnsColumns[10], ChatTurnsColumns[9], ChatTurnsColumns[1]},
+			},
+			{
+				Name:    "chatturn_tenant_id_chat_session_id_sequence",
+				Unique:  true,
+				Columns: []*schema.Column{ChatTurnsColumns[10], ChatTurnsColumns[9], ChatTurnsColumns[2]},
 			},
 			{
 				Name:    "chatturn_chat_session_id_occurred_at",
@@ -330,6 +430,7 @@ var (
 	// DiagnosisAuthTicketsColumns holds the columns for the "diagnosis_auth_tickets" table.
 	DiagnosisAuthTicketsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "tenant_key", Type: field.TypeString, Size: 63},
 		{Name: "token_hash", Type: field.TypeString, Unique: true, Size: 64},
 		{Name: "subject", Type: field.TypeString, Size: 256},
 		{Name: "roles", Type: field.TypeJSON},
@@ -340,27 +441,41 @@ var (
 		{Name: "consumed_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// DiagnosisAuthTicketsTable holds the schema information for the "diagnosis_auth_tickets" table.
 	DiagnosisAuthTicketsTable = &schema.Table{
 		Name:       "diagnosis_auth_tickets",
 		Columns:    DiagnosisAuthTicketsColumns,
 		PrimaryKey: []*schema.Column{DiagnosisAuthTicketsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "diagnosis_auth_tickets_tenants_tenant",
+				Columns:    []*schema.Column{DiagnosisAuthTicketsColumns[12]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "diagnosisauthticket_tenant_id_session_id_expires_at",
+				Unique:  false,
+				Columns: []*schema.Column{DiagnosisAuthTicketsColumns[12], DiagnosisAuthTicketsColumns[5], DiagnosisAuthTicketsColumns[8]},
+			},
 			{
 				Name:    "diagnosisauthticket_session_id_expires_at",
 				Unique:  false,
-				Columns: []*schema.Column{DiagnosisAuthTicketsColumns[4], DiagnosisAuthTicketsColumns[7]},
+				Columns: []*schema.Column{DiagnosisAuthTicketsColumns[5], DiagnosisAuthTicketsColumns[8]},
 			},
 			{
 				Name:    "diagnosisauthticket_expires_at",
 				Unique:  false,
-				Columns: []*schema.Column{DiagnosisAuthTicketsColumns[7]},
+				Columns: []*schema.Column{DiagnosisAuthTicketsColumns[8]},
 			},
 			{
 				Name:    "diagnosisauthticket_consumed_at_expires_at",
 				Unique:  false,
-				Columns: []*schema.Column{DiagnosisAuthTicketsColumns[8], DiagnosisAuthTicketsColumns[7]},
+				Columns: []*schema.Column{DiagnosisAuthTicketsColumns[9], DiagnosisAuthTicketsColumns[8]},
 			},
 		},
 	}
@@ -375,6 +490,7 @@ var (
 		{Name: "finished_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 		{Name: "evidence_snapshot_id", Type: field.TypeInt},
 	}
 	// DiagnosisTasksTable holds the schema information for the "diagnosis_tasks" table.
@@ -384,17 +500,28 @@ var (
 		PrimaryKey: []*schema.Column{DiagnosisTasksColumns[0]},
 		ForeignKeys: []*schema.ForeignKey{
 			{
-				Symbol:     "diagnosis_tasks_evidence_snapshots_tasks",
+				Symbol:     "diagnosis_tasks_tenants_tenant",
 				Columns:    []*schema.Column{DiagnosisTasksColumns[9]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "diagnosis_tasks_evidence_snapshots_tasks",
+				Columns:    []*schema.Column{DiagnosisTasksColumns[10]},
 				RefColumns: []*schema.Column{EvidenceSnapshotsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "diagnosistask_workflow_id_run_id",
+				Name:    "diagnosistask_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{DiagnosisTasksColumns[9]},
+			},
+			{
+				Name:    "diagnosistask_tenant_id_workflow_id_run_id",
 				Unique:  true,
-				Columns: []*schema.Column{DiagnosisTasksColumns[1], DiagnosisTasksColumns[2]},
+				Columns: []*schema.Column{DiagnosisTasksColumns[9], DiagnosisTasksColumns[1], DiagnosisTasksColumns[2]},
 			},
 			{
 				Name:    "diagnosistask_workflow_id",
@@ -417,6 +544,7 @@ var (
 		{Name: "occurred_at", Type: field.TypeTime},
 		{Name: "recorded_at", Type: field.TypeTime},
 		{Name: "task_id", Type: field.TypeInt},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// DiagnosisTaskEventsTable holds the schema information for the "diagnosis_task_events" table.
 	DiagnosisTaskEventsTable = &schema.Table{
@@ -430,12 +558,23 @@ var (
 				RefColumns: []*schema.Column{DiagnosisTasksColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
+			{
+				Symbol:     "diagnosis_task_events_tenants_tenant",
+				Columns:    []*schema.Column{DiagnosisTaskEventsColumns[7]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
 		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "diagnosistaskevent_task_id_dedupe_key",
+				Name:    "diagnosistaskevent_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{DiagnosisTaskEventsColumns[7]},
+			},
+			{
+				Name:    "diagnosistaskevent_tenant_id_task_id_dedupe_key",
 				Unique:  true,
-				Columns: []*schema.Column{DiagnosisTaskEventsColumns[6], DiagnosisTaskEventsColumns[3]},
+				Columns: []*schema.Column{DiagnosisTaskEventsColumns[7], DiagnosisTaskEventsColumns[6], DiagnosisTaskEventsColumns[3]},
 			},
 			{
 				Name:    "diagnosistaskevent_task_id_occurred_at",
@@ -447,7 +586,7 @@ var (
 	// DiagnosisToolTemplatesColumns holds the columns for the "diagnosis_tool_templates" table.
 	DiagnosisToolTemplatesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
-		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
+		{Name: "name", Type: field.TypeString, Size: 120},
 		{Name: "alert_source_profile_id", Type: field.TypeInt},
 		{Name: "tool", Type: field.TypeString, Size: 32},
 		{Name: "query_template", Type: field.TypeString, Nullable: true, Size: 2147483647},
@@ -460,13 +599,32 @@ var (
 		{Name: "disabled_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// DiagnosisToolTemplatesTable holds the schema information for the "diagnosis_tool_templates" table.
 	DiagnosisToolTemplatesTable = &schema.Table{
 		Name:       "diagnosis_tool_templates",
 		Columns:    DiagnosisToolTemplatesColumns,
 		PrimaryKey: []*schema.Column{DiagnosisToolTemplatesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "diagnosis_tool_templates_tenants_tenant",
+				Columns:    []*schema.Column{DiagnosisToolTemplatesColumns[14]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "diagnosistooltemplate_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{DiagnosisToolTemplatesColumns[14]},
+			},
+			{
+				Name:    "diagnosistooltemplate_tenant_id_name",
+				Unique:  true,
+				Columns: []*schema.Column{DiagnosisToolTemplatesColumns[14], DiagnosisToolTemplatesColumns[1]},
+			},
 			{
 				Name:    "diagnosistooltemplate_enabled_updated_at",
 				Unique:  false,
@@ -496,17 +654,31 @@ var (
 		{Name: "synced_at", Type: field.TypeTime},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// DirectoryDepartmentsTable holds the schema information for the "directory_departments" table.
 	DirectoryDepartmentsTable = &schema.Table{
 		Name:       "directory_departments",
 		Columns:    DirectoryDepartmentsColumns,
 		PrimaryKey: []*schema.Column{DirectoryDepartmentsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "directory_departments_tenants_tenant",
+				Columns:    []*schema.Column{DirectoryDepartmentsColumns[15]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "directorydepartment_provider_external_id",
+				Name:    "directorydepartment_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{DirectoryDepartmentsColumns[15]},
+			},
+			{
+				Name:    "directorydepartment_tenant_id_provider_external_id",
 				Unique:  true,
-				Columns: []*schema.Column{DirectoryDepartmentsColumns[1], DirectoryDepartmentsColumns[2]},
+				Columns: []*schema.Column{DirectoryDepartmentsColumns[15], DirectoryDepartmentsColumns[1], DirectoryDepartmentsColumns[2]},
 			},
 			{
 				Name:    "directorydepartment_provider_path",
@@ -535,13 +707,27 @@ var (
 		{Name: "users_upserted", Type: field.TypeInt},
 		{Name: "synced_at", Type: field.TypeTime},
 		{Name: "created_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// DirectorySyncRunsTable holds the schema information for the "directory_sync_runs" table.
 	DirectorySyncRunsTable = &schema.Table{
 		Name:       "directory_sync_runs",
 		Columns:    DirectorySyncRunsColumns,
 		PrimaryKey: []*schema.Column{DirectorySyncRunsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "directory_sync_runs_tenants_tenant",
+				Columns:    []*schema.Column{DirectorySyncRunsColumns[13]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "directorysyncrun_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{DirectorySyncRunsColumns[13]},
+			},
 			{
 				Name:    "directorysyncrun_provider_synced_at",
 				Unique:  false,
@@ -579,22 +765,36 @@ var (
 		{Name: "synced_at", Type: field.TypeTime},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// DirectoryUsersTable holds the schema information for the "directory_users" table.
 	DirectoryUsersTable = &schema.Table{
 		Name:       "directory_users",
 		Columns:    DirectoryUsersColumns,
 		PrimaryKey: []*schema.Column{DirectoryUsersColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "directory_users_tenants_tenant",
+				Columns:    []*schema.Column{DirectoryUsersColumns[18]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "directoryuser_provider_subject",
-				Unique:  true,
-				Columns: []*schema.Column{DirectoryUsersColumns[1], DirectoryUsersColumns[2]},
+				Name:    "directoryuser_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{DirectoryUsersColumns[18]},
 			},
 			{
-				Name:    "directoryuser_provider_external_id",
+				Name:    "directoryuser_tenant_id_provider_subject",
 				Unique:  true,
-				Columns: []*schema.Column{DirectoryUsersColumns[1], DirectoryUsersColumns[3]},
+				Columns: []*schema.Column{DirectoryUsersColumns[18], DirectoryUsersColumns[1], DirectoryUsersColumns[2]},
+			},
+			{
+				Name:    "directoryuser_tenant_id_provider_external_id",
+				Unique:  true,
+				Columns: []*schema.Column{DirectoryUsersColumns[18], DirectoryUsersColumns[1], DirectoryUsersColumns[3]},
 			},
 			{
 				Name:    "directoryuser_provider_active",
@@ -619,6 +819,7 @@ var (
 		{Name: "created_by_workflow", Type: field.TypeString, Nullable: true, Size: 128},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "alert_group_id", Type: field.TypeInt},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// EvidenceSnapshotsTable holds the schema information for the "evidence_snapshots" table.
 	EvidenceSnapshotsTable = &schema.Table{
@@ -632,12 +833,23 @@ var (
 				RefColumns: []*schema.Column{AlertGroupsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
+			{
+				Symbol:     "evidence_snapshots_tenants_tenant",
+				Columns:    []*schema.Column{EvidenceSnapshotsColumns[9]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
 		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "evidencesnapshot_alert_group_id_digest",
+				Name:    "evidencesnapshot_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{EvidenceSnapshotsColumns[9]},
+			},
+			{
+				Name:    "evidencesnapshot_tenant_id_alert_group_id_digest",
 				Unique:  true,
-				Columns: []*schema.Column{EvidenceSnapshotsColumns[8], EvidenceSnapshotsColumns[1]},
+				Columns: []*schema.Column{EvidenceSnapshotsColumns[9], EvidenceSnapshotsColumns[8], EvidenceSnapshotsColumns[1]},
 			},
 			{
 				Name:    "evidencesnapshot_alert_group_id_created_at",
@@ -650,7 +862,7 @@ var (
 	FinalReportsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "correlation_key", Type: field.TypeString, Size: 256},
-		{Name: "idempotency_key", Type: field.TypeString, Unique: true, Size: 256},
+		{Name: "idempotency_key", Type: field.TypeString, Size: 256},
 		{Name: "title", Type: field.TypeString, Size: 160},
 		{Name: "executive_summary", Type: field.TypeString, Size: 4000},
 		{Name: "severity", Type: field.TypeString, Size: 32},
@@ -663,13 +875,32 @@ var (
 		{Name: "output_mode", Type: field.TypeString, Nullable: true, Size: 32},
 		{Name: "created_by_workflow", Type: field.TypeString, Nullable: true, Size: 128},
 		{Name: "created_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// FinalReportsTable holds the schema information for the "final_reports" table.
 	FinalReportsTable = &schema.Table{
 		Name:       "final_reports",
 		Columns:    FinalReportsColumns,
 		PrimaryKey: []*schema.Column{FinalReportsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "final_reports_tenants_tenant",
+				Columns:    []*schema.Column{FinalReportsColumns[15]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "finalreport_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{FinalReportsColumns[15]},
+			},
+			{
+				Name:    "finalreport_tenant_id_idempotency_key",
+				Unique:  true,
+				Columns: []*schema.Column{FinalReportsColumns[15], FinalReportsColumns[2]},
+			},
 			{
 				Name:    "finalreport_correlation_key_created_at",
 				Unique:  false,
@@ -685,20 +916,39 @@ var (
 	// GroupingPoliciesColumns holds the columns for the "grouping_policies" table.
 	GroupingPoliciesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
-		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
+		{Name: "name", Type: field.TypeString, Size: 120},
 		{Name: "dimension_keys", Type: field.TypeJSON},
 		{Name: "severity_key", Type: field.TypeString, Size: 64},
 		{Name: "source_filter", Type: field.TypeJSON},
 		{Name: "enabled", Type: field.TypeBool, Default: false},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// GroupingPoliciesTable holds the schema information for the "grouping_policies" table.
 	GroupingPoliciesTable = &schema.Table{
 		Name:       "grouping_policies",
 		Columns:    GroupingPoliciesColumns,
 		PrimaryKey: []*schema.Column{GroupingPoliciesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "grouping_policies_tenants_tenant",
+				Columns:    []*schema.Column{GroupingPoliciesColumns[8]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "groupingpolicy_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{GroupingPoliciesColumns[8]},
+			},
+			{
+				Name:    "groupingpolicy_tenant_id_name",
+				Unique:  true,
+				Columns: []*schema.Column{GroupingPoliciesColumns[8], GroupingPoliciesColumns[1]},
+			},
 			{
 				Name:    "groupingpolicy_enabled_updated_at",
 				Unique:  false,
@@ -719,7 +969,7 @@ var (
 	// NotificationChannelProfilesColumns holds the columns for the "notification_channel_profiles" table.
 	NotificationChannelProfilesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
-		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
+		{Name: "name", Type: field.TypeString, Size: 120},
 		{Name: "kind", Type: field.TypeString, Size: 32, Default: "webhook"},
 		{Name: "secret_ref", Type: field.TypeString, Size: 256},
 		{Name: "delivery_scopes", Type: field.TypeJSON},
@@ -727,13 +977,32 @@ var (
 		{Name: "labels", Type: field.TypeJSON},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// NotificationChannelProfilesTable holds the schema information for the "notification_channel_profiles" table.
 	NotificationChannelProfilesTable = &schema.Table{
 		Name:       "notification_channel_profiles",
 		Columns:    NotificationChannelProfilesColumns,
 		PrimaryKey: []*schema.Column{NotificationChannelProfilesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "notification_channel_profiles_tenants_tenant",
+				Columns:    []*schema.Column{NotificationChannelProfilesColumns[9]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "notificationchannelprofile_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{NotificationChannelProfilesColumns[9]},
+			},
+			{
+				Name:    "notificationchannelprofile_tenant_id_name",
+				Unique:  true,
+				Columns: []*schema.Column{NotificationChannelProfilesColumns[9], NotificationChannelProfilesColumns[1]},
+			},
 			{
 				Name:    "notificationchannelprofile_kind_enabled",
 				Unique:  false,
@@ -775,6 +1044,7 @@ var (
 		{Name: "provider_status", Type: field.TypeString, Nullable: true, Size: 64},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "notification_channel_profile_id", Type: field.TypeInt},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// NotificationChannelTestProofsTable holds the schema information for the "notification_channel_test_proofs" table.
 	NotificationChannelTestProofsTable = &schema.Table{
@@ -788,8 +1058,19 @@ var (
 				RefColumns: []*schema.Column{NotificationChannelProfilesColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
+			{
+				Symbol:     "notification_channel_test_proofs_tenants_tenant",
+				Columns:    []*schema.Column{NotificationChannelTestProofsColumns[12]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
 		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "notificationchanneltestproof_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{NotificationChannelTestProofsColumns[12]},
+			},
 			{
 				Name:    "notificationchanneltestproof_notification_channel_profile_id_checked_at",
 				Unique:  false,
@@ -815,17 +1096,31 @@ var (
 		{Name: "updated_by", Type: field.TypeString, Size: 256},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// RbacAssignmentsTable holds the schema information for the "rbac_assignments" table.
 	RbacAssignmentsTable = &schema.Table{
 		Name:       "rbac_assignments",
 		Columns:    RbacAssignmentsColumns,
 		PrimaryKey: []*schema.Column{RbacAssignmentsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "rbac_assignments_tenants_tenant",
+				Columns:    []*schema.Column{RbacAssignmentsColumns[11]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "rbacassignment_subject_kind_subject_key_role_scope_kind_scope_key",
+				Name:    "rbacassignment_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{RbacAssignmentsColumns[11]},
+			},
+			{
+				Name:    "rbacassignment_tenant_id_subject_kind_subject_key_role_scope_kind_scope_key",
 				Unique:  true,
-				Columns: []*schema.Column{RbacAssignmentsColumns[1], RbacAssignmentsColumns[2], RbacAssignmentsColumns[3], RbacAssignmentsColumns[4], RbacAssignmentsColumns[5]},
+				Columns: []*schema.Column{RbacAssignmentsColumns[11], RbacAssignmentsColumns[1], RbacAssignmentsColumns[2], RbacAssignmentsColumns[3], RbacAssignmentsColumns[4], RbacAssignmentsColumns[5]},
 			},
 			{
 				Name:    "rbacassignment_subject_kind_subject_key_enabled",
@@ -843,7 +1138,7 @@ var (
 	ReportNotificationDeliveriesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
 		{Name: "report_notification_channel_profile_id", Type: field.TypeInt, Nullable: true},
-		{Name: "idempotency_key", Type: field.TypeString, Unique: true, Size: 256},
+		{Name: "idempotency_key", Type: field.TypeString, Size: 256},
 		{Name: "provider_message_id", Type: field.TypeString, Nullable: true, Size: 256},
 		{Name: "provider_status", Type: field.TypeString, Nullable: true, Size: 64},
 		{Name: "status", Type: field.TypeString, Size: 32, Default: "pending"},
@@ -853,6 +1148,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
 		{Name: "final_report_id", Type: field.TypeInt},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// ReportNotificationDeliveriesTable holds the schema information for the "report_notification_deliveries" table.
 	ReportNotificationDeliveriesTable = &schema.Table{
@@ -866,8 +1162,24 @@ var (
 				RefColumns: []*schema.Column{FinalReportsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
+			{
+				Symbol:     "report_notification_deliveries_tenants_tenant",
+				Columns:    []*schema.Column{ReportNotificationDeliveriesColumns[12]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
 		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "reportnotificationdelivery_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{ReportNotificationDeliveriesColumns[12]},
+			},
+			{
+				Name:    "reportnotificationdelivery_tenant_id_idempotency_key",
+				Unique:  true,
+				Columns: []*schema.Column{ReportNotificationDeliveriesColumns[12], ReportNotificationDeliveriesColumns[2]},
+			},
 			{
 				Name:    "reportnotificationdelivery_final_report_id_created_at",
 				Unique:  false,
@@ -883,7 +1195,7 @@ var (
 	// ReportWorkflowPoliciesColumns holds the columns for the "report_workflow_policies" table.
 	ReportWorkflowPoliciesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
-		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
+		{Name: "name", Type: field.TypeString, Size: 120},
 		{Name: "alert_source_profile_id", Type: field.TypeInt},
 		{Name: "grouping_policy_id", Type: field.TypeInt},
 		{Name: "report_notification_channel_profile_id", Type: field.TypeInt, Nullable: true},
@@ -895,13 +1207,32 @@ var (
 		{Name: "disabled_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// ReportWorkflowPoliciesTable holds the schema information for the "report_workflow_policies" table.
 	ReportWorkflowPoliciesTable = &schema.Table{
 		Name:       "report_workflow_policies",
 		Columns:    ReportWorkflowPoliciesColumns,
 		PrimaryKey: []*schema.Column{ReportWorkflowPoliciesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "report_workflow_policies_tenants_tenant",
+				Columns:    []*schema.Column{ReportWorkflowPoliciesColumns[13]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "reportworkflowpolicy_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{ReportWorkflowPoliciesColumns[13]},
+			},
+			{
+				Name:    "reportworkflowpolicy_tenant_id_name",
+				Unique:  true,
+				Columns: []*schema.Column{ReportWorkflowPoliciesColumns[13], ReportWorkflowPoliciesColumns[1]},
+			},
 			{
 				Name:    "reportworkflowpolicy_enabled_updated_at",
 				Unique:  false,
@@ -922,7 +1253,7 @@ var (
 	// ReportWorkflowSchedulesColumns holds the columns for the "report_workflow_schedules" table.
 	ReportWorkflowSchedulesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt, Increment: true},
-		{Name: "name", Type: field.TypeString, Unique: true, Size: 120},
+		{Name: "name", Type: field.TypeString, Size: 120},
 		{Name: "report_workflow_policy_id", Type: field.TypeInt},
 		{Name: "temporal_schedule_id", Type: field.TypeString, Unique: true, Size: 200},
 		{Name: "cadence", Type: field.TypeString, Size: 32, Default: "interval"},
@@ -941,13 +1272,32 @@ var (
 		{Name: "disabled_at", Type: field.TypeTime, Nullable: true},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// ReportWorkflowSchedulesTable holds the schema information for the "report_workflow_schedules" table.
 	ReportWorkflowSchedulesTable = &schema.Table{
 		Name:       "report_workflow_schedules",
 		Columns:    ReportWorkflowSchedulesColumns,
 		PrimaryKey: []*schema.Column{ReportWorkflowSchedulesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "report_workflow_schedules_tenants_tenant",
+				Columns:    []*schema.Column{ReportWorkflowSchedulesColumns[20]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
+			{
+				Name:    "reportworkflowschedule_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{ReportWorkflowSchedulesColumns[20]},
+			},
+			{
+				Name:    "reportworkflowschedule_tenant_id_name",
+				Unique:  true,
+				Columns: []*schema.Column{ReportWorkflowSchedulesColumns[20], ReportWorkflowSchedulesColumns[1]},
+			},
 			{
 				Name:    "reportworkflowschedule_enabled_updated_at",
 				Unique:  false,
@@ -973,17 +1323,31 @@ var (
 		{Name: "embedding", Type: field.TypeOther, SchemaType: map[string]string{"postgres": "vector(1536)"}},
 		{Name: "metadata", Type: field.TypeJSON},
 		{Name: "created_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// RetrievalChunksTable holds the schema information for the "retrieval_chunks" table.
 	RetrievalChunksTable = &schema.Table{
 		Name:       "retrieval_chunks",
 		Columns:    RetrievalChunksColumns,
 		PrimaryKey: []*schema.Column{RetrievalChunksColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "retrieval_chunks_tenants_tenant",
+				Columns:    []*schema.Column{RetrievalChunksColumns[11]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "retrievalchunk_source_kind_source_id_embedding_model",
+				Name:    "retrievalchunk_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{RetrievalChunksColumns[11]},
+			},
+			{
+				Name:    "retrievalchunk_tenant_id_source_kind_source_id_embedding_model",
 				Unique:  true,
-				Columns: []*schema.Column{RetrievalChunksColumns[1], RetrievalChunksColumns[2], RetrievalChunksColumns[6]},
+				Columns: []*schema.Column{RetrievalChunksColumns[11], RetrievalChunksColumns[1], RetrievalChunksColumns[2], RetrievalChunksColumns[6]},
 			},
 			{
 				Name:    "retrievalchunk_embedding_model_created_at",
@@ -1020,6 +1384,7 @@ var (
 		{Name: "created_by_workflow", Type: field.TypeString, Nullable: true, Size: 128},
 		{Name: "created_at", Type: field.TypeTime},
 		{Name: "evidence_snapshot_id", Type: field.TypeInt},
+		{Name: "tenant_id", Type: field.TypeInt},
 	}
 	// SubReportsTable holds the schema information for the "sub_reports" table.
 	SubReportsTable = &schema.Table{
@@ -1033,12 +1398,23 @@ var (
 				RefColumns: []*schema.Column{EvidenceSnapshotsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
+			{
+				Symbol:     "sub_reports_tenants_tenant",
+				Columns:    []*schema.Column{SubReportsColumns[17]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
 		},
 		Indexes: []*schema.Index{
 			{
-				Name:    "subreport_evidence_snapshot_id_idempotency_key",
+				Name:    "subreport_tenant_id",
+				Unique:  false,
+				Columns: []*schema.Column{SubReportsColumns[17]},
+			},
+			{
+				Name:    "subreport_tenant_id_evidence_snapshot_id_idempotency_key",
 				Unique:  true,
-				Columns: []*schema.Column{SubReportsColumns[16], SubReportsColumns[1]},
+				Columns: []*schema.Column{SubReportsColumns[17], SubReportsColumns[16], SubReportsColumns[1]},
 			},
 			{
 				Name:    "subreport_evidence_snapshot_id_created_at",
@@ -1049,6 +1425,75 @@ var (
 				Name:    "subreport_severity_created_at",
 				Unique:  false,
 				Columns: []*schema.Column{SubReportsColumns[5], SubReportsColumns[15]},
+			},
+		},
+	}
+	// TenantsColumns holds the columns for the "tenants" table.
+	TenantsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "key", Type: field.TypeString, Size: 63},
+		{Name: "name", Type: field.TypeString},
+		{Name: "status", Type: field.TypeString, Size: 16, Default: "active"},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+	}
+	// TenantsTable holds the schema information for the "tenants" table.
+	TenantsTable = &schema.Table{
+		Name:       "tenants",
+		Columns:    TenantsColumns,
+		PrimaryKey: []*schema.Column{TenantsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "tenant_key",
+				Unique:  true,
+				Columns: []*schema.Column{TenantsColumns[1]},
+			},
+			{
+				Name:    "tenant_status_name",
+				Unique:  false,
+				Columns: []*schema.Column{TenantsColumns[3], TenantsColumns[2]},
+			},
+		},
+	}
+	// TenantMembershipsColumns holds the columns for the "tenant_memberships" table.
+	TenantMembershipsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt, Increment: true},
+		{Name: "subject", Type: field.TypeString, Size: 256},
+		{Name: "role", Type: field.TypeString, Size: 16, Default: "member"},
+		{Name: "enabled", Type: field.TypeBool, Default: true},
+		{Name: "created_by", Type: field.TypeString, Size: 256},
+		{Name: "created_at", Type: field.TypeTime},
+		{Name: "updated_at", Type: field.TypeTime},
+		{Name: "tenant_id", Type: field.TypeInt},
+	}
+	// TenantMembershipsTable holds the schema information for the "tenant_memberships" table.
+	TenantMembershipsTable = &schema.Table{
+		Name:       "tenant_memberships",
+		Columns:    TenantMembershipsColumns,
+		PrimaryKey: []*schema.Column{TenantMembershipsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "tenant_memberships_tenants_tenant",
+				Columns:    []*schema.Column{TenantMembershipsColumns[7]},
+				RefColumns: []*schema.Column{TenantsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "tenantmembership_tenant_id_subject",
+				Unique:  true,
+				Columns: []*schema.Column{TenantMembershipsColumns[7], TenantMembershipsColumns[1]},
+			},
+			{
+				Name:    "tenantmembership_subject_enabled",
+				Unique:  false,
+				Columns: []*schema.Column{TenantMembershipsColumns[1], TenantMembershipsColumns[3]},
+			},
+			{
+				Name:    "tenantmembership_tenant_id_enabled",
+				Unique:  false,
+				Columns: []*schema.Column{TenantMembershipsColumns[7], TenantMembershipsColumns[3]},
 			},
 		},
 	}
@@ -1129,22 +1574,50 @@ var (
 		ReportWorkflowSchedulesTable,
 		RetrievalChunksTable,
 		SubReportsTable,
+		TenantsTable,
+		TenantMembershipsTable,
 		AlertEventGroupsTable,
 		FinalReportSubReportsTable,
 	}
 )
 
 func init() {
-	ChatSessionsTable.ForeignKeys[0].RefTable = DiagnosisTasksTable
+	AlertEventsTable.ForeignKeys[0].RefTable = TenantsTable
+	AlertGroupsTable.ForeignKeys[0].RefTable = TenantsTable
+	AlertSourceProfilesTable.ForeignKeys[0].RefTable = TenantsTable
+	ChatSessionsTable.ForeignKeys[0].RefTable = TenantsTable
+	ChatSessionsTable.ForeignKeys[1].RefTable = DiagnosisTasksTable
 	ChatSessionApprovalsTable.ForeignKeys[0].RefTable = ChatSessionsTable
+	ChatSessionApprovalsTable.ForeignKeys[1].RefTable = TenantsTable
 	ChatSessionSummariesTable.ForeignKeys[0].RefTable = ChatSessionsTable
+	ChatSessionSummariesTable.ForeignKeys[1].RefTable = TenantsTable
 	ChatTurnsTable.ForeignKeys[0].RefTable = ChatSessionsTable
-	DiagnosisTasksTable.ForeignKeys[0].RefTable = EvidenceSnapshotsTable
+	ChatTurnsTable.ForeignKeys[1].RefTable = TenantsTable
+	DiagnosisAuthTicketsTable.ForeignKeys[0].RefTable = TenantsTable
+	DiagnosisTasksTable.ForeignKeys[0].RefTable = TenantsTable
+	DiagnosisTasksTable.ForeignKeys[1].RefTable = EvidenceSnapshotsTable
 	DiagnosisTaskEventsTable.ForeignKeys[0].RefTable = DiagnosisTasksTable
+	DiagnosisTaskEventsTable.ForeignKeys[1].RefTable = TenantsTable
+	DiagnosisToolTemplatesTable.ForeignKeys[0].RefTable = TenantsTable
+	DirectoryDepartmentsTable.ForeignKeys[0].RefTable = TenantsTable
+	DirectorySyncRunsTable.ForeignKeys[0].RefTable = TenantsTable
+	DirectoryUsersTable.ForeignKeys[0].RefTable = TenantsTable
 	EvidenceSnapshotsTable.ForeignKeys[0].RefTable = AlertGroupsTable
+	EvidenceSnapshotsTable.ForeignKeys[1].RefTable = TenantsTable
+	FinalReportsTable.ForeignKeys[0].RefTable = TenantsTable
+	GroupingPoliciesTable.ForeignKeys[0].RefTable = TenantsTable
+	NotificationChannelProfilesTable.ForeignKeys[0].RefTable = TenantsTable
 	NotificationChannelTestProofsTable.ForeignKeys[0].RefTable = NotificationChannelProfilesTable
+	NotificationChannelTestProofsTable.ForeignKeys[1].RefTable = TenantsTable
+	RbacAssignmentsTable.ForeignKeys[0].RefTable = TenantsTable
 	ReportNotificationDeliveriesTable.ForeignKeys[0].RefTable = FinalReportsTable
+	ReportNotificationDeliveriesTable.ForeignKeys[1].RefTable = TenantsTable
+	ReportWorkflowPoliciesTable.ForeignKeys[0].RefTable = TenantsTable
+	ReportWorkflowSchedulesTable.ForeignKeys[0].RefTable = TenantsTable
+	RetrievalChunksTable.ForeignKeys[0].RefTable = TenantsTable
 	SubReportsTable.ForeignKeys[0].RefTable = EvidenceSnapshotsTable
+	SubReportsTable.ForeignKeys[1].RefTable = TenantsTable
+	TenantMembershipsTable.ForeignKeys[0].RefTable = TenantsTable
 	AlertEventGroupsTable.ForeignKeys[0].RefTable = AlertEventsTable
 	AlertEventGroupsTable.ForeignKeys[1].RefTable = AlertGroupsTable
 	FinalReportSubReportsTable.ForeignKeys[0].RefTable = FinalReportsTable

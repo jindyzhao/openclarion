@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // SubReport is the model entity for the SubReport schema.
@@ -19,6 +20,8 @@ type SubReport struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// FK to evidence_snapshots.id; the snapshot this subreport explains
 	EvidenceSnapshotID int `json:"evidence_snapshot_id,omitempty"`
 	// activity idempotency key; UNIQUE per evidence_snapshot_id
@@ -59,13 +62,26 @@ type SubReport struct {
 
 // SubReportEdges holds the relations/edges for other nodes in the graph.
 type SubReportEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// Snapshot holds the value of the snapshot edge.
 	Snapshot *EvidenceSnapshot `json:"snapshot,omitempty"`
 	// FinalReports holds the value of the final_reports edge.
 	FinalReports []*FinalReport `json:"final_reports,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [2]bool
+	loadedTypes [3]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e SubReportEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // SnapshotOrErr returns the Snapshot value or an error if the edge
@@ -73,7 +89,7 @@ type SubReportEdges struct {
 func (e SubReportEdges) SnapshotOrErr() (*EvidenceSnapshot, error) {
 	if e.Snapshot != nil {
 		return e.Snapshot, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: evidencesnapshot.Label}
 	}
 	return nil, &NotLoadedError{edge: "snapshot"}
@@ -82,7 +98,7 @@ func (e SubReportEdges) SnapshotOrErr() (*EvidenceSnapshot, error) {
 // FinalReportsOrErr returns the FinalReports value or an error if the edge
 // was not loaded in eager-loading.
 func (e SubReportEdges) FinalReportsOrErr() ([]*FinalReport, error) {
-	if e.loadedTypes[1] {
+	if e.loadedTypes[2] {
 		return e.FinalReports, nil
 	}
 	return nil, &NotLoadedError{edge: "final_reports"}
@@ -95,7 +111,7 @@ func (*SubReport) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case subreport.FieldFindings, subreport.FieldRecommendedActions, subreport.FieldEvidenceRefs, subreport.FieldRetrievalRefs, subreport.FieldContent:
 			values[i] = new([]byte)
-		case subreport.FieldID, subreport.FieldEvidenceSnapshotID:
+		case subreport.FieldID, subreport.FieldTenantID, subreport.FieldEvidenceSnapshotID:
 			values[i] = new(sql.NullInt64)
 		case subreport.FieldIdempotencyKey, subreport.FieldScenario, subreport.FieldTitle, subreport.FieldSummary, subreport.FieldSeverity, subreport.FieldConfidence, subreport.FieldModel, subreport.FieldOutputMode, subreport.FieldCreatedByWorkflow:
 			values[i] = new(sql.NullString)
@@ -122,6 +138,12 @@ func (_m *SubReport) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case subreport.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case subreport.FieldEvidenceSnapshotID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field evidence_snapshot_id", values[i])
@@ -241,6 +263,11 @@ func (_m *SubReport) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the SubReport entity.
+func (_m *SubReport) QueryTenant() *TenantQuery {
+	return NewSubReportClient(_m.config).QueryTenant(_m)
+}
+
 // QuerySnapshot queries the "snapshot" edge of the SubReport entity.
 func (_m *SubReport) QuerySnapshot() *EvidenceSnapshotQuery {
 	return NewSubReportClient(_m.config).QuerySnapshot(_m)
@@ -274,6 +301,9 @@ func (_m *SubReport) String() string {
 	var builder strings.Builder
 	builder.WriteString("SubReport(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("evidence_snapshot_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.EvidenceSnapshotID))
 	builder.WriteString(", ")

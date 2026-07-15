@@ -1064,10 +1064,200 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tenants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List tenants visible to the authenticated subject
+         * @description Returns the default tenant plus membership-visible tenants. Disabled tenants remain visible for lifecycle administration but cannot receive a new authenticated session.
+         */
+        get: operations["listAccessibleTenants"];
+        put?: never;
+        /**
+         * Create a tenant and owner membership
+         * @description Restricted to configured bootstrap administrators because tenant creation changes the global isolation registry.
+         */
+        post: operations["createTenant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update tenant lifecycle status
+         * @description Enables or disables a non-default tenant after tenant-owner or bootstrap-admin authorization.
+         */
+        patch: operations["updateTenantStatus"];
+        trace?: never;
+    };
+    "/api/v1/tenants/{tenant_id}/memberships": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List tenant memberships
+         * @description Returns bounded membership records after tenant-owner or bootstrap-admin authorization.
+         */
+        get: operations["listTenantMemberships"];
+        /**
+         * Create or update a tenant membership
+         * @description Upserts one subject membership while preserving at least one enabled tenant owner.
+         */
+        put: operations["setTenantMembership"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description One isolated OpenClarion workspace and its lifecycle state. */
+        Tenant: {
+            /**
+             * Format: int64
+             * @example 2
+             */
+            id: number;
+            /** @example platform */
+            key: string;
+            /** @example Platform */
+            name: string;
+            /**
+             * @example active
+             * @enum {string}
+             */
+            status: "active" | "disabled";
+            /**
+             * Format: date-time
+             * @example 2026-07-11T10:05:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-07-11T11:00:00Z
+             */
+            updated_at: string;
+        };
+        /** @description Bounded tenant registry view for an authenticated subject. */
+        TenantListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 1,
+             *         "key": "default",
+             *         "name": "Default",
+             *         "status": "active",
+             *         "created_at": "2026-07-11T10:00:00Z",
+             *         "updated_at": "2026-07-11T10:00:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["Tenant"][];
+        };
+        /** @description Bootstrap-admin request to create an active tenant and owner membership. */
+        TenantCreateRequest: {
+            /** @example platform */
+            key: string;
+            /** @example Platform */
+            name: string;
+        };
+        /** @description Tenant lifecycle transition requested by an authorized owner. */
+        TenantStatusUpdateRequest: {
+            /**
+             * @example disabled
+             * @enum {string}
+             */
+            status: "active" | "disabled";
+        };
+        /** @description One stable authentication subject's role in a tenant. */
+        TenantMembership: {
+            /**
+             * Format: int64
+             * @example 3
+             */
+            id: number;
+            /**
+             * Format: int64
+             * @example 2
+             */
+            tenant_id: number;
+            /** @example operator-1 */
+            subject: string;
+            /**
+             * @example owner
+             * @enum {string}
+             */
+            role: "owner" | "member";
+            /** @example true */
+            enabled: boolean;
+            /** @example bootstrap-1 */
+            created_by: string;
+            /**
+             * Format: date-time
+             * @example 2026-07-11T10:05:00Z
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @example 2026-07-11T10:05:00Z
+             */
+            updated_at: string;
+        };
+        /** @description Bounded membership list for one tenant. */
+        TenantMembershipListResponse: {
+            /**
+             * @example [
+             *       {
+             *         "id": 3,
+             *         "tenant_id": 2,
+             *         "subject": "operator-1",
+             *         "role": "owner",
+             *         "enabled": true,
+             *         "created_by": "bootstrap-1",
+             *         "created_at": "2026-07-11T10:05:00Z",
+             *         "updated_at": "2026-07-11T10:05:00Z"
+             *       }
+             *     ]
+             */
+            items: components["schemas"]["TenantMembership"][];
+        };
+        /** @description Authorized tenant membership create or update request. */
+        TenantMembershipWriteRequest: {
+            /** @example operator-2 */
+            subject: string;
+            /**
+             * @example member
+             * @enum {string}
+             */
+            role: "owner" | "member";
+            /** @example true */
+            enabled: boolean;
+        };
         /** @description Health check response payload. */
         HealthResponse: {
             /**
@@ -3488,6 +3678,17 @@ export interface components {
              * @example true
              */
             role_authorized: boolean;
+            /**
+             * Format: int64
+             * @description Tenant bound to the authenticated request.
+             * @example 1
+             */
+            tenant_id: number;
+            /**
+             * @description Stable key of the tenant bound to the authenticated request.
+             * @example default
+             */
+            tenant_key: string;
         };
         /** @description Short-lived diagnosis browser session issued after accepted Authorization credentials. The token is intended only for the trusted browser BFF to store in an HTTP-only cookie and must not be exposed to page JavaScript. */
         DiagnosisAuthSessionResponse: {
@@ -3531,6 +3732,17 @@ export interface components {
              * @example true
              */
             role_authorized: boolean;
+            /**
+             * Format: int64
+             * @description Tenant cryptographically bound into the session token.
+             * @example 1
+             */
+            tenant_id: number;
+            /**
+             * @description Stable key cryptographically bound into the session token.
+             * @example default
+             */
+            tenant_key: string;
         };
         /** @description Non-sensitive diagnosis auth provider wiring status. */
         DiagnosisAuthStatusResponse: {
@@ -4573,6 +4785,10 @@ export interface components {
     parameters: {
         /** @description Maximum number of rows to return. */
         ListLimit: number;
+        /** @description Tenant identifier. */
+        TenantID: number;
+        /** @description Optional tenant workspace selection. Signed browser sessions cannot be overridden on normal requests; session issuance may exchange a valid session into another accessible tenant without extending its expiry. Non-default machine ingress still requires a bearer-authenticated source profile. */
+        TenantKeyHeader: string;
         /** @description Final report identifier. */
         ReportID: number;
         /** @description Alert source profile identifier. */
@@ -4923,7 +5139,10 @@ export interface operations {
     ingestAlertmanagerWebhook: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional tenant workspace selection. Signed browser sessions cannot be overridden on normal requests; session issuance may exchange a valid session into another accessible tenant without extending its expiry. Non-default machine ingress still requires a bearer-authenticated source profile. */
+                "X-OpenClarion-Tenant"?: components["parameters"]["TenantKeyHeader"];
+            };
             path: {
                 /** @description Alert source profile identifier. */
                 source_id: components["parameters"]["AlertSourceProfileID"];
@@ -7343,7 +7562,10 @@ export interface operations {
     checkDiagnosisAuth: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional tenant workspace selection. Signed browser sessions cannot be overridden on normal requests; session issuance may exchange a valid session into another accessible tenant without extending its expiry. Non-default machine ingress still requires a bearer-authenticated source profile. */
+                "X-OpenClarion-Tenant"?: components["parameters"]["TenantKeyHeader"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -7358,8 +7580,35 @@ export interface operations {
                     "application/json": components["schemas"]["DiagnosisAuthCheckResponse"];
                 };
             };
+            /** @description Tenant selection header is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Authorization credentials are missing or invalid */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The authenticated subject cannot access the selected tenant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant access resolution failed server-side */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7381,7 +7630,10 @@ export interface operations {
     issueDiagnosisAuthSession: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional tenant workspace selection. Signed browser sessions cannot be overridden on normal requests; session issuance may exchange a valid session into another accessible tenant without extending its expiry. Non-default machine ingress still requires a bearer-authenticated source profile. */
+                "X-OpenClarion-Tenant"?: components["parameters"]["TenantKeyHeader"];
+            };
             path?: never;
             cookie?: never;
         };
@@ -7396,8 +7648,35 @@ export interface operations {
                     "application/json": components["schemas"]["DiagnosisAuthSessionResponse"];
                 };
             };
+            /** @description Tenant selection header is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
             /** @description Authorization credentials are missing or invalid */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The authenticated subject cannot access the selected tenant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant access resolution or session issuance failed server-side */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8020,6 +8299,337 @@ export interface operations {
             };
             /** @description Report notification retry wiring is not configured */
             503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listAccessibleTenants: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tenants visible to the subject, including disabled memberships for lifecycle administration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantListResponse"];
+                };
+            };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    createTenant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Stable tenant key and operator-facing workspace name. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Tenant created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tenant"];
+                };
+            };
+            /** @description Tenant request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Global tenant creation is not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant key already exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant creation failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    updateTenantStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier. */
+                tenant_id: components["parameters"]["TenantID"];
+            };
+            cookie?: never;
+        };
+        /** @description Desired tenant lifecycle status. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantStatusUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Tenant status updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tenant"];
+                };
+            };
+            /** @description Tenant status request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant administration is not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description The requested lifecycle transition violates tenant invariants */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant update failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    listTenantMemberships: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier. */
+                tenant_id: components["parameters"]["TenantID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tenant memberships */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantMembershipListResponse"];
+                };
+            };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant administration is not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant membership list failed server-side */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+        };
+    };
+    setTenantMembership: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Tenant identifier. */
+                tenant_id: components["parameters"]["TenantID"];
+            };
+            cookie?: never;
+        };
+        /** @description Stable authentication subject, tenant role, and enabled state. */
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TenantMembershipWriteRequest"];
+            };
+        };
+        responses: {
+            /** @description Tenant membership saved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantMembership"];
+                };
+            };
+            /** @description Tenant membership request is invalid */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Authentication failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant administration is not authorized */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Membership update would remove the last enabled owner */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse"];
+                };
+            };
+            /** @description Tenant membership update failed server-side */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

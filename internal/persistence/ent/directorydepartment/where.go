@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"entgo.io/ent/dialect/sql"
+	"entgo.io/ent/dialect/sql/sqlgraph"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
 )
 
@@ -52,6 +53,11 @@ func IDLT(id int) predicate.DirectoryDepartment {
 // IDLTE applies the LTE predicate on the ID field.
 func IDLTE(id int) predicate.DirectoryDepartment {
 	return predicate.DirectoryDepartment(sql.FieldLTE(FieldID, id))
+}
+
+// TenantID applies equality check predicate on the "tenant_id" field. It's identical to TenantIDEQ.
+func TenantID(v int) predicate.DirectoryDepartment {
+	return predicate.DirectoryDepartment(sql.FieldEQ(FieldTenantID, v))
 }
 
 // Provider applies equality check predicate on the "provider" field. It's identical to ProviderEQ.
@@ -122,6 +128,26 @@ func CreatedAt(v time.Time) predicate.DirectoryDepartment {
 // UpdatedAt applies equality check predicate on the "updated_at" field. It's identical to UpdatedAtEQ.
 func UpdatedAt(v time.Time) predicate.DirectoryDepartment {
 	return predicate.DirectoryDepartment(sql.FieldEQ(FieldUpdatedAt, v))
+}
+
+// TenantIDEQ applies the EQ predicate on the "tenant_id" field.
+func TenantIDEQ(v int) predicate.DirectoryDepartment {
+	return predicate.DirectoryDepartment(sql.FieldEQ(FieldTenantID, v))
+}
+
+// TenantIDNEQ applies the NEQ predicate on the "tenant_id" field.
+func TenantIDNEQ(v int) predicate.DirectoryDepartment {
+	return predicate.DirectoryDepartment(sql.FieldNEQ(FieldTenantID, v))
+}
+
+// TenantIDIn applies the In predicate on the "tenant_id" field.
+func TenantIDIn(vs ...int) predicate.DirectoryDepartment {
+	return predicate.DirectoryDepartment(sql.FieldIn(FieldTenantID, vs...))
+}
+
+// TenantIDNotIn applies the NotIn predicate on the "tenant_id" field.
+func TenantIDNotIn(vs ...int) predicate.DirectoryDepartment {
+	return predicate.DirectoryDepartment(sql.FieldNotIn(FieldTenantID, vs...))
 }
 
 // ProviderEQ applies the EQ predicate on the "provider" field.
@@ -922,6 +948,29 @@ func UpdatedAtLT(v time.Time) predicate.DirectoryDepartment {
 // UpdatedAtLTE applies the LTE predicate on the "updated_at" field.
 func UpdatedAtLTE(v time.Time) predicate.DirectoryDepartment {
 	return predicate.DirectoryDepartment(sql.FieldLTE(FieldUpdatedAt, v))
+}
+
+// HasTenant applies the HasEdge predicate on the "tenant" edge.
+func HasTenant() predicate.DirectoryDepartment {
+	return predicate.DirectoryDepartment(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasTenantWith applies the HasEdge predicate on the "tenant" edge with a given conditions (other predicates).
+func HasTenantWith(preds ...predicate.Tenant) predicate.DirectoryDepartment {
+	return predicate.DirectoryDepartment(func(s *sql.Selector) {
+		step := newTenantStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
 }
 
 // And groups predicates with the AND operator between them.

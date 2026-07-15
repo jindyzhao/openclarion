@@ -33,6 +33,9 @@ type ChatSession struct {
 	ent.Schema
 }
 
+// Mixin of the ChatSession.
+func (ChatSession) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the ChatSession.
 func (ChatSession) Fields() []ent.Field {
 	return []ent.Field{
@@ -42,7 +45,6 @@ func (ChatSession) Fields() []ent.Field {
 		field.String("session_key").
 			MaxLen(128).
 			NotEmpty().
-			Unique().
 			Immutable().
 			Comment("external diagnosis-room session id used by WebSocket auth and reconnect flows"),
 		field.String("owner_subject").
@@ -105,6 +107,7 @@ func (ChatSession) Edges() []ent.Edge {
 // Indexes of the ChatSession.
 func (ChatSession) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("tenant_id", "session_key").Unique(),
 		index.Fields("diagnosis_task_id").
 			Unique(),
 		index.Fields("owner_subject", "status"),

@@ -14,6 +14,8 @@ const (
 	Label = "evidence_snapshot"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldTenantID holds the string denoting the tenant_id field in the database.
+	FieldTenantID = "tenant_id"
 	// FieldAlertGroupID holds the string denoting the alert_group_id field in the database.
 	FieldAlertGroupID = "alert_group_id"
 	// FieldDigest holds the string denoting the digest field in the database.
@@ -30,6 +32,8 @@ const (
 	FieldCreatedByWorkflow = "created_by_workflow"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
+	// EdgeTenant holds the string denoting the tenant edge name in mutations.
+	EdgeTenant = "tenant"
 	// EdgeGroup holds the string denoting the group edge name in mutations.
 	EdgeGroup = "group"
 	// EdgeTasks holds the string denoting the tasks edge name in mutations.
@@ -38,6 +42,13 @@ const (
 	EdgeSubReports = "sub_reports"
 	// Table holds the table name of the evidencesnapshot in the database.
 	Table = "evidence_snapshots"
+	// TenantTable is the table that holds the tenant relation/edge.
+	TenantTable = "evidence_snapshots"
+	// TenantInverseTable is the table name for the Tenant entity.
+	// It exists in this package in order to avoid circular dependency with the "tenant" package.
+	TenantInverseTable = "tenants"
+	// TenantColumn is the table column denoting the tenant relation/edge.
+	TenantColumn = "tenant_id"
 	// GroupTable is the table that holds the group relation/edge.
 	GroupTable = "evidence_snapshots"
 	// GroupInverseTable is the table name for the AlertGroup entity.
@@ -64,6 +75,7 @@ const (
 // Columns holds all SQL columns for evidencesnapshot fields.
 var Columns = []string{
 	FieldID,
+	FieldTenantID,
 	FieldAlertGroupID,
 	FieldDigest,
 	FieldPayload,
@@ -85,6 +97,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	TenantIDValidator func(int) error
 	// DigestValidator is a validator for the "digest" field. It is called by the builders before save.
 	DigestValidator func(string) error
 	// DefaultStatus holds the default value on creation for the "status" field.
@@ -103,6 +117,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByTenantID orders the results by the tenant_id field.
+func ByTenantID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTenantID, opts...).ToFunc()
 }
 
 // ByAlertGroupID orders the results by the alert_group_id field.
@@ -128,6 +147,13 @@ func ByCreatedByWorkflow(opts ...sql.OrderTermOption) OrderOption {
 // ByCreatedAt orders the results by the created_at field.
 func ByCreatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCreatedAt, opts...).ToFunc()
+}
+
+// ByTenantField orders the results by tenant field.
+func ByTenantField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTenantStep(), sql.OrderByField(field, opts...))
+	}
 }
 
 // ByGroupField orders the results by group field.
@@ -163,6 +189,13 @@ func BySubReports(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newSubReportsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
+}
+func newTenantStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TenantInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+	)
 }
 func newGroupStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

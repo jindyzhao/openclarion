@@ -45,6 +45,9 @@ type AlertEvent struct {
 	ent.Schema
 }
 
+// Mixin of the AlertEvent.
+func (AlertEvent) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the AlertEvent.
 func (AlertEvent) Fields() []ent.Field {
 	return []ent.Field{
@@ -107,7 +110,7 @@ func (AlertEvent) Edges() []ent.Edge {
 func (AlertEvent) Indexes() []ent.Index {
 	return []ent.Index{
 		// Natural unique key: dedupe identical events on re-ingestion.
-		index.Fields("alert_source_profile_id", "source", "canonical_fingerprint", "starts_at").
+		index.Fields("tenant_id", "alert_source_profile_id", "source", "canonical_fingerprint", "starts_at").
 			Unique(),
 		// Hot read path: list firing alerts for a given source.
 		index.Fields("source", "status"),

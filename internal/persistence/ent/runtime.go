@@ -31,14 +31,23 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/retrievalchunk"
 	"github.com/openclarion/openclarion/internal/persistence/ent/schema"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenantmembership"
 )
 
 // The init function reads all schema descriptors with runtime code
 // (default values, validators, hooks and policies) and stitches it
 // to their package variables.
 func init() {
+	alerteventMixin := schema.AlertEvent{}.Mixin()
+	alerteventMixinFields0 := alerteventMixin[0].Fields()
+	_ = alerteventMixinFields0
 	alerteventFields := schema.AlertEvent{}.Fields()
 	_ = alerteventFields
+	// alerteventDescTenantID is the schema descriptor for tenant_id field.
+	alerteventDescTenantID := alerteventMixinFields0[0].Descriptor()
+	// alertevent.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	alertevent.TenantIDValidator = alerteventDescTenantID.Validators[0].(func(int) error)
 	// alerteventDescSource is the schema descriptor for source field.
 	alerteventDescSource := alerteventFields[0].Descriptor()
 	// alertevent.SourceValidator is a validator for the "source" field. It is called by the builders before save.
@@ -109,8 +118,15 @@ func init() {
 	alerteventDescCreatedAt := alerteventFields[10].Descriptor()
 	// alertevent.DefaultCreatedAt holds the default value on creation for the created_at field.
 	alertevent.DefaultCreatedAt = alerteventDescCreatedAt.Default.(func() time.Time)
+	alertgroupMixin := schema.AlertGroup{}.Mixin()
+	alertgroupMixinFields0 := alertgroupMixin[0].Fields()
+	_ = alertgroupMixinFields0
 	alertgroupFields := schema.AlertGroup{}.Fields()
 	_ = alertgroupFields
+	// alertgroupDescTenantID is the schema descriptor for tenant_id field.
+	alertgroupDescTenantID := alertgroupMixinFields0[0].Descriptor()
+	// alertgroup.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	alertgroup.TenantIDValidator = alertgroupDescTenantID.Validators[0].(func(int) error)
 	// alertgroupDescGroupKey is the schema descriptor for group_key field.
 	alertgroupDescGroupKey := alertgroupFields[0].Descriptor()
 	// alertgroup.GroupKeyValidator is a validator for the "group_key" field. It is called by the builders before save.
@@ -157,8 +173,15 @@ func init() {
 	alertgroup.DefaultUpdatedAt = alertgroupDescUpdatedAt.Default.(func() time.Time)
 	// alertgroup.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	alertgroup.UpdateDefaultUpdatedAt = alertgroupDescUpdatedAt.UpdateDefault.(func() time.Time)
+	alertsourceprofileMixin := schema.AlertSourceProfile{}.Mixin()
+	alertsourceprofileMixinFields0 := alertsourceprofileMixin[0].Fields()
+	_ = alertsourceprofileMixinFields0
 	alertsourceprofileFields := schema.AlertSourceProfile{}.Fields()
 	_ = alertsourceprofileFields
+	// alertsourceprofileDescTenantID is the schema descriptor for tenant_id field.
+	alertsourceprofileDescTenantID := alertsourceprofileMixinFields0[0].Descriptor()
+	// alertsourceprofile.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	alertsourceprofile.TenantIDValidator = alertsourceprofileDescTenantID.Validators[0].(func(int) error)
 	// alertsourceprofileDescName is the schema descriptor for name field.
 	alertsourceprofileDescName := alertsourceprofileFields[0].Descriptor()
 	// alertsourceprofile.NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -237,8 +260,15 @@ func init() {
 	alertsourceprofile.DefaultUpdatedAt = alertsourceprofileDescUpdatedAt.Default.(func() time.Time)
 	// alertsourceprofile.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	alertsourceprofile.UpdateDefaultUpdatedAt = alertsourceprofileDescUpdatedAt.UpdateDefault.(func() time.Time)
+	chatsessionMixin := schema.ChatSession{}.Mixin()
+	chatsessionMixinFields0 := chatsessionMixin[0].Fields()
+	_ = chatsessionMixinFields0
 	chatsessionFields := schema.ChatSession{}.Fields()
 	_ = chatsessionFields
+	// chatsessionDescTenantID is the schema descriptor for tenant_id field.
+	chatsessionDescTenantID := chatsessionMixinFields0[0].Descriptor()
+	// chatsession.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	chatsession.TenantIDValidator = chatsessionDescTenantID.Validators[0].(func(int) error)
 	// chatsessionDescSessionKey is the schema descriptor for session_key field.
 	chatsessionDescSessionKey := chatsessionFields[1].Descriptor()
 	// chatsession.SessionKeyValidator is a validator for the "session_key" field. It is called by the builders before save.
@@ -307,8 +337,15 @@ func init() {
 	chatsession.DefaultUpdatedAt = chatsessionDescUpdatedAt.Default.(func() time.Time)
 	// chatsession.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	chatsession.UpdateDefaultUpdatedAt = chatsessionDescUpdatedAt.UpdateDefault.(func() time.Time)
+	chatsessionapprovalMixin := schema.ChatSessionApproval{}.Mixin()
+	chatsessionapprovalMixinFields0 := chatsessionapprovalMixin[0].Fields()
+	_ = chatsessionapprovalMixinFields0
 	chatsessionapprovalFields := schema.ChatSessionApproval{}.Fields()
 	_ = chatsessionapprovalFields
+	// chatsessionapprovalDescTenantID is the schema descriptor for tenant_id field.
+	chatsessionapprovalDescTenantID := chatsessionapprovalMixinFields0[0].Descriptor()
+	// chatsessionapproval.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	chatsessionapproval.TenantIDValidator = chatsessionapprovalDescTenantID.Validators[0].(func(int) error)
 	// chatsessionapprovalDescConclusionDigest is the schema descriptor for conclusion_digest field.
 	chatsessionapprovalDescConclusionDigest := chatsessionapprovalFields[1].Descriptor()
 	// chatsessionapproval.ConclusionDigestValidator is a validator for the "conclusion_digest" field. It is called by the builders before save.
@@ -385,8 +422,15 @@ func init() {
 	chatsessionapprovalDescCreatedAt := chatsessionapprovalFields[6].Descriptor()
 	// chatsessionapproval.DefaultCreatedAt holds the default value on creation for the created_at field.
 	chatsessionapproval.DefaultCreatedAt = chatsessionapprovalDescCreatedAt.Default.(func() time.Time)
+	chatsessionsummaryMixin := schema.ChatSessionSummary{}.Mixin()
+	chatsessionsummaryMixinFields0 := chatsessionsummaryMixin[0].Fields()
+	_ = chatsessionsummaryMixinFields0
 	chatsessionsummaryFields := schema.ChatSessionSummary{}.Fields()
 	_ = chatsessionsummaryFields
+	// chatsessionsummaryDescTenantID is the schema descriptor for tenant_id field.
+	chatsessionsummaryDescTenantID := chatsessionsummaryMixinFields0[0].Descriptor()
+	// chatsessionsummary.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	chatsessionsummary.TenantIDValidator = chatsessionsummaryDescTenantID.Validators[0].(func(int) error)
 	// chatsessionsummaryDescVersion is the schema descriptor for version field.
 	chatsessionsummaryDescVersion := chatsessionsummaryFields[1].Descriptor()
 	// chatsessionsummary.VersionValidator is a validator for the "version" field. It is called by the builders before save.
@@ -443,8 +487,15 @@ func init() {
 	chatsessionsummaryDescCreatedAt := chatsessionsummaryFields[9].Descriptor()
 	// chatsessionsummary.DefaultCreatedAt holds the default value on creation for the created_at field.
 	chatsessionsummary.DefaultCreatedAt = chatsessionsummaryDescCreatedAt.Default.(func() time.Time)
+	chatturnMixin := schema.ChatTurn{}.Mixin()
+	chatturnMixinFields0 := chatturnMixin[0].Fields()
+	_ = chatturnMixinFields0
 	chatturnFields := schema.ChatTurn{}.Fields()
 	_ = chatturnFields
+	// chatturnDescTenantID is the schema descriptor for tenant_id field.
+	chatturnDescTenantID := chatturnMixinFields0[0].Descriptor()
+	// chatturn.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	chatturn.TenantIDValidator = chatturnDescTenantID.Validators[0].(func(int) error)
 	// chatturnDescMessageID is the schema descriptor for message_id field.
 	chatturnDescMessageID := chatturnFields[1].Descriptor()
 	// chatturn.MessageIDValidator is a validator for the "message_id" field. It is called by the builders before save.
@@ -513,8 +564,31 @@ func init() {
 	chatturn.DefaultCreatedAt = chatturnDescCreatedAt.Default.(func() time.Time)
 	diagnosisauthticketFields := schema.DiagnosisAuthTicket{}.Fields()
 	_ = diagnosisauthticketFields
+	// diagnosisauthticketDescTenantID is the schema descriptor for tenant_id field.
+	diagnosisauthticketDescTenantID := diagnosisauthticketFields[0].Descriptor()
+	// diagnosisauthticket.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	diagnosisauthticket.TenantIDValidator = diagnosisauthticketDescTenantID.Validators[0].(func(int) error)
+	// diagnosisauthticketDescTenantKey is the schema descriptor for tenant_key field.
+	diagnosisauthticketDescTenantKey := diagnosisauthticketFields[1].Descriptor()
+	// diagnosisauthticket.TenantKeyValidator is a validator for the "tenant_key" field. It is called by the builders before save.
+	diagnosisauthticket.TenantKeyValidator = func() func(string) error {
+		validators := diagnosisauthticketDescTenantKey.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+			validators[2].(func(string) error),
+		}
+		return func(tenant_key string) error {
+			for _, fn := range fns {
+				if err := fn(tenant_key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
 	// diagnosisauthticketDescTokenHash is the schema descriptor for token_hash field.
-	diagnosisauthticketDescTokenHash := diagnosisauthticketFields[0].Descriptor()
+	diagnosisauthticketDescTokenHash := diagnosisauthticketFields[2].Descriptor()
 	// diagnosisauthticket.TokenHashValidator is a validator for the "token_hash" field. It is called by the builders before save.
 	diagnosisauthticket.TokenHashValidator = func() func(string) error {
 		validators := diagnosisauthticketDescTokenHash.Validators
@@ -532,7 +606,7 @@ func init() {
 		}
 	}()
 	// diagnosisauthticketDescSubject is the schema descriptor for subject field.
-	diagnosisauthticketDescSubject := diagnosisauthticketFields[1].Descriptor()
+	diagnosisauthticketDescSubject := diagnosisauthticketFields[3].Descriptor()
 	// diagnosisauthticket.SubjectValidator is a validator for the "subject" field. It is called by the builders before save.
 	diagnosisauthticket.SubjectValidator = func() func(string) error {
 		validators := diagnosisauthticketDescSubject.Validators
@@ -550,7 +624,7 @@ func init() {
 		}
 	}()
 	// diagnosisauthticketDescSessionID is the schema descriptor for session_id field.
-	diagnosisauthticketDescSessionID := diagnosisauthticketFields[3].Descriptor()
+	diagnosisauthticketDescSessionID := diagnosisauthticketFields[5].Descriptor()
 	// diagnosisauthticket.SessionIDValidator is a validator for the "session_id" field. It is called by the builders before save.
 	diagnosisauthticket.SessionIDValidator = func() func(string) error {
 		validators := diagnosisauthticketDescSessionID.Validators
@@ -568,7 +642,7 @@ func init() {
 		}
 	}()
 	// diagnosisauthticketDescScope is the schema descriptor for scope field.
-	diagnosisauthticketDescScope := diagnosisauthticketFields[4].Descriptor()
+	diagnosisauthticketDescScope := diagnosisauthticketFields[6].Descriptor()
 	// diagnosisauthticket.ScopeValidator is a validator for the "scope" field. It is called by the builders before save.
 	diagnosisauthticket.ScopeValidator = func() func(string) error {
 		validators := diagnosisauthticketDescScope.Validators
@@ -586,17 +660,24 @@ func init() {
 		}
 	}()
 	// diagnosisauthticketDescCreatedAt is the schema descriptor for created_at field.
-	diagnosisauthticketDescCreatedAt := diagnosisauthticketFields[8].Descriptor()
+	diagnosisauthticketDescCreatedAt := diagnosisauthticketFields[10].Descriptor()
 	// diagnosisauthticket.DefaultCreatedAt holds the default value on creation for the created_at field.
 	diagnosisauthticket.DefaultCreatedAt = diagnosisauthticketDescCreatedAt.Default.(func() time.Time)
 	// diagnosisauthticketDescUpdatedAt is the schema descriptor for updated_at field.
-	diagnosisauthticketDescUpdatedAt := diagnosisauthticketFields[9].Descriptor()
+	diagnosisauthticketDescUpdatedAt := diagnosisauthticketFields[11].Descriptor()
 	// diagnosisauthticket.DefaultUpdatedAt holds the default value on creation for the updated_at field.
 	diagnosisauthticket.DefaultUpdatedAt = diagnosisauthticketDescUpdatedAt.Default.(func() time.Time)
 	// diagnosisauthticket.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	diagnosisauthticket.UpdateDefaultUpdatedAt = diagnosisauthticketDescUpdatedAt.UpdateDefault.(func() time.Time)
+	diagnosistaskMixin := schema.DiagnosisTask{}.Mixin()
+	diagnosistaskMixinFields0 := diagnosistaskMixin[0].Fields()
+	_ = diagnosistaskMixinFields0
 	diagnosistaskFields := schema.DiagnosisTask{}.Fields()
 	_ = diagnosistaskFields
+	// diagnosistaskDescTenantID is the schema descriptor for tenant_id field.
+	diagnosistaskDescTenantID := diagnosistaskMixinFields0[0].Descriptor()
+	// diagnosistask.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	diagnosistask.TenantIDValidator = diagnosistaskDescTenantID.Validators[0].(func(int) error)
 	// diagnosistaskDescWorkflowID is the schema descriptor for workflow_id field.
 	diagnosistaskDescWorkflowID := diagnosistaskFields[1].Descriptor()
 	// diagnosistask.WorkflowIDValidator is a validator for the "workflow_id" field. It is called by the builders before save.
@@ -653,8 +734,15 @@ func init() {
 	diagnosistask.DefaultUpdatedAt = diagnosistaskDescUpdatedAt.Default.(func() time.Time)
 	// diagnosistask.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	diagnosistask.UpdateDefaultUpdatedAt = diagnosistaskDescUpdatedAt.UpdateDefault.(func() time.Time)
+	diagnosistaskeventMixin := schema.DiagnosisTaskEvent{}.Mixin()
+	diagnosistaskeventMixinFields0 := diagnosistaskeventMixin[0].Fields()
+	_ = diagnosistaskeventMixinFields0
 	diagnosistaskeventFields := schema.DiagnosisTaskEvent{}.Fields()
 	_ = diagnosistaskeventFields
+	// diagnosistaskeventDescTenantID is the schema descriptor for tenant_id field.
+	diagnosistaskeventDescTenantID := diagnosistaskeventMixinFields0[0].Descriptor()
+	// diagnosistaskevent.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	diagnosistaskevent.TenantIDValidator = diagnosistaskeventDescTenantID.Validators[0].(func(int) error)
 	// diagnosistaskeventDescKind is the schema descriptor for kind field.
 	diagnosistaskeventDescKind := diagnosistaskeventFields[1].Descriptor()
 	// diagnosistaskevent.KindValidator is a validator for the "kind" field. It is called by the builders before save.
@@ -681,8 +769,15 @@ func init() {
 	diagnosistaskeventDescRecordedAt := diagnosistaskeventFields[5].Descriptor()
 	// diagnosistaskevent.DefaultRecordedAt holds the default value on creation for the recorded_at field.
 	diagnosistaskevent.DefaultRecordedAt = diagnosistaskeventDescRecordedAt.Default.(func() time.Time)
+	diagnosistooltemplateMixin := schema.DiagnosisToolTemplate{}.Mixin()
+	diagnosistooltemplateMixinFields0 := diagnosistooltemplateMixin[0].Fields()
+	_ = diagnosistooltemplateMixinFields0
 	diagnosistooltemplateFields := schema.DiagnosisToolTemplate{}.Fields()
 	_ = diagnosistooltemplateFields
+	// diagnosistooltemplateDescTenantID is the schema descriptor for tenant_id field.
+	diagnosistooltemplateDescTenantID := diagnosistooltemplateMixinFields0[0].Descriptor()
+	// diagnosistooltemplate.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	diagnosistooltemplate.TenantIDValidator = diagnosistooltemplateDescTenantID.Validators[0].(func(int) error)
 	// diagnosistooltemplateDescName is the schema descriptor for name field.
 	diagnosistooltemplateDescName := diagnosistooltemplateFields[0].Descriptor()
 	// diagnosistooltemplate.NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -753,8 +848,15 @@ func init() {
 	diagnosistooltemplate.DefaultUpdatedAt = diagnosistooltemplateDescUpdatedAt.Default.(func() time.Time)
 	// diagnosistooltemplate.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	diagnosistooltemplate.UpdateDefaultUpdatedAt = diagnosistooltemplateDescUpdatedAt.UpdateDefault.(func() time.Time)
+	directorydepartmentMixin := schema.DirectoryDepartment{}.Mixin()
+	directorydepartmentMixinFields0 := directorydepartmentMixin[0].Fields()
+	_ = directorydepartmentMixinFields0
 	directorydepartmentFields := schema.DirectoryDepartment{}.Fields()
 	_ = directorydepartmentFields
+	// directorydepartmentDescTenantID is the schema descriptor for tenant_id field.
+	directorydepartmentDescTenantID := directorydepartmentMixinFields0[0].Descriptor()
+	// directorydepartment.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	directorydepartment.TenantIDValidator = directorydepartmentDescTenantID.Validators[0].(func(int) error)
 	// directorydepartmentDescProvider is the schema descriptor for provider field.
 	directorydepartmentDescProvider := directorydepartmentFields[0].Descriptor()
 	// directorydepartment.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
@@ -879,8 +981,15 @@ func init() {
 	directorydepartment.DefaultUpdatedAt = directorydepartmentDescUpdatedAt.Default.(func() time.Time)
 	// directorydepartment.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	directorydepartment.UpdateDefaultUpdatedAt = directorydepartmentDescUpdatedAt.UpdateDefault.(func() time.Time)
+	directorysyncrunMixin := schema.DirectorySyncRun{}.Mixin()
+	directorysyncrunMixinFields0 := directorysyncrunMixin[0].Fields()
+	_ = directorysyncrunMixinFields0
 	directorysyncrunFields := schema.DirectorySyncRun{}.Fields()
 	_ = directorysyncrunFields
+	// directorysyncrunDescTenantID is the schema descriptor for tenant_id field.
+	directorysyncrunDescTenantID := directorysyncrunMixinFields0[0].Descriptor()
+	// directorysyncrun.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	directorysyncrun.TenantIDValidator = directorysyncrunDescTenantID.Validators[0].(func(int) error)
 	// directorysyncrunDescProvider is the schema descriptor for provider field.
 	directorysyncrunDescProvider := directorysyncrunFields[0].Descriptor()
 	// directorysyncrun.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
@@ -941,8 +1050,15 @@ func init() {
 	directorysyncrunDescCreatedAt := directorysyncrunFields[11].Descriptor()
 	// directorysyncrun.DefaultCreatedAt holds the default value on creation for the created_at field.
 	directorysyncrun.DefaultCreatedAt = directorysyncrunDescCreatedAt.Default.(func() time.Time)
+	directoryuserMixin := schema.DirectoryUser{}.Mixin()
+	directoryuserMixinFields0 := directoryuserMixin[0].Fields()
+	_ = directoryuserMixinFields0
 	directoryuserFields := schema.DirectoryUser{}.Fields()
 	_ = directoryuserFields
+	// directoryuserDescTenantID is the schema descriptor for tenant_id field.
+	directoryuserDescTenantID := directoryuserMixinFields0[0].Descriptor()
+	// directoryuser.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	directoryuser.TenantIDValidator = directoryuserDescTenantID.Validators[0].(func(int) error)
 	// directoryuserDescProvider is the schema descriptor for provider field.
 	directoryuserDescProvider := directoryuserFields[0].Descriptor()
 	// directoryuser.ProviderValidator is a validator for the "provider" field. It is called by the builders before save.
@@ -1067,8 +1183,15 @@ func init() {
 	directoryuser.DefaultUpdatedAt = directoryuserDescUpdatedAt.Default.(func() time.Time)
 	// directoryuser.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	directoryuser.UpdateDefaultUpdatedAt = directoryuserDescUpdatedAt.UpdateDefault.(func() time.Time)
+	evidencesnapshotMixin := schema.EvidenceSnapshot{}.Mixin()
+	evidencesnapshotMixinFields0 := evidencesnapshotMixin[0].Fields()
+	_ = evidencesnapshotMixinFields0
 	evidencesnapshotFields := schema.EvidenceSnapshot{}.Fields()
 	_ = evidencesnapshotFields
+	// evidencesnapshotDescTenantID is the schema descriptor for tenant_id field.
+	evidencesnapshotDescTenantID := evidencesnapshotMixinFields0[0].Descriptor()
+	// evidencesnapshot.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	evidencesnapshot.TenantIDValidator = evidencesnapshotDescTenantID.Validators[0].(func(int) error)
 	// evidencesnapshotDescDigest is the schema descriptor for digest field.
 	evidencesnapshotDescDigest := evidencesnapshotFields[1].Descriptor()
 	// evidencesnapshot.DigestValidator is a validator for the "digest" field. It is called by the builders before save.
@@ -1101,8 +1224,15 @@ func init() {
 	evidencesnapshotDescCreatedAt := evidencesnapshotFields[7].Descriptor()
 	// evidencesnapshot.DefaultCreatedAt holds the default value on creation for the created_at field.
 	evidencesnapshot.DefaultCreatedAt = evidencesnapshotDescCreatedAt.Default.(func() time.Time)
+	finalreportMixin := schema.FinalReport{}.Mixin()
+	finalreportMixinFields0 := finalreportMixin[0].Fields()
+	_ = finalreportMixinFields0
 	finalreportFields := schema.FinalReport{}.Fields()
 	_ = finalreportFields
+	// finalreportDescTenantID is the schema descriptor for tenant_id field.
+	finalreportDescTenantID := finalreportMixinFields0[0].Descriptor()
+	// finalreport.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	finalreport.TenantIDValidator = finalreportDescTenantID.Validators[0].(func(int) error)
 	// finalreportDescCorrelationKey is the schema descriptor for correlation_key field.
 	finalreportDescCorrelationKey := finalreportFields[0].Descriptor()
 	// finalreport.CorrelationKeyValidator is a validator for the "correlation_key" field. It is called by the builders before save.
@@ -1245,8 +1375,15 @@ func init() {
 	finalreportDescCreatedAt := finalreportFields[13].Descriptor()
 	// finalreport.DefaultCreatedAt holds the default value on creation for the created_at field.
 	finalreport.DefaultCreatedAt = finalreportDescCreatedAt.Default.(func() time.Time)
+	groupingpolicyMixin := schema.GroupingPolicy{}.Mixin()
+	groupingpolicyMixinFields0 := groupingpolicyMixin[0].Fields()
+	_ = groupingpolicyMixinFields0
 	groupingpolicyFields := schema.GroupingPolicy{}.Fields()
 	_ = groupingpolicyFields
+	// groupingpolicyDescTenantID is the schema descriptor for tenant_id field.
+	groupingpolicyDescTenantID := groupingpolicyMixinFields0[0].Descriptor()
+	// groupingpolicy.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	groupingpolicy.TenantIDValidator = groupingpolicyDescTenantID.Validators[0].(func(int) error)
 	// groupingpolicyDescName is the schema descriptor for name field.
 	groupingpolicyDescName := groupingpolicyFields[0].Descriptor()
 	// groupingpolicy.NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -1297,8 +1434,15 @@ func init() {
 	groupingpolicy.DefaultUpdatedAt = groupingpolicyDescUpdatedAt.Default.(func() time.Time)
 	// groupingpolicy.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	groupingpolicy.UpdateDefaultUpdatedAt = groupingpolicyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	notificationchannelprofileMixin := schema.NotificationChannelProfile{}.Mixin()
+	notificationchannelprofileMixinFields0 := notificationchannelprofileMixin[0].Fields()
+	_ = notificationchannelprofileMixinFields0
 	notificationchannelprofileFields := schema.NotificationChannelProfile{}.Fields()
 	_ = notificationchannelprofileFields
+	// notificationchannelprofileDescTenantID is the schema descriptor for tenant_id field.
+	notificationchannelprofileDescTenantID := notificationchannelprofileMixinFields0[0].Descriptor()
+	// notificationchannelprofile.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	notificationchannelprofile.TenantIDValidator = notificationchannelprofileDescTenantID.Validators[0].(func(int) error)
 	// notificationchannelprofileDescName is the schema descriptor for name field.
 	notificationchannelprofileDescName := notificationchannelprofileFields[0].Descriptor()
 	// notificationchannelprofile.NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -1355,8 +1499,15 @@ func init() {
 	notificationchannelprofile.DefaultUpdatedAt = notificationchannelprofileDescUpdatedAt.Default.(func() time.Time)
 	// notificationchannelprofile.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	notificationchannelprofile.UpdateDefaultUpdatedAt = notificationchannelprofileDescUpdatedAt.UpdateDefault.(func() time.Time)
+	notificationchanneltestproofMixin := schema.NotificationChannelTestProof{}.Mixin()
+	notificationchanneltestproofMixinFields0 := notificationchanneltestproofMixin[0].Fields()
+	_ = notificationchanneltestproofMixinFields0
 	notificationchanneltestproofFields := schema.NotificationChannelTestProof{}.Fields()
 	_ = notificationchanneltestproofFields
+	// notificationchanneltestproofDescTenantID is the schema descriptor for tenant_id field.
+	notificationchanneltestproofDescTenantID := notificationchanneltestproofMixinFields0[0].Descriptor()
+	// notificationchanneltestproof.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	notificationchanneltestproof.TenantIDValidator = notificationchanneltestproofDescTenantID.Validators[0].(func(int) error)
 	// notificationchanneltestproofDescKind is the schema descriptor for kind field.
 	notificationchanneltestproofDescKind := notificationchanneltestproofFields[1].Descriptor()
 	// notificationchanneltestproof.KindValidator is a validator for the "kind" field. It is called by the builders before save.
@@ -1393,8 +1544,15 @@ func init() {
 	notificationchanneltestproofDescCreatedAt := notificationchanneltestproofFields[10].Descriptor()
 	// notificationchanneltestproof.DefaultCreatedAt holds the default value on creation for the created_at field.
 	notificationchanneltestproof.DefaultCreatedAt = notificationchanneltestproofDescCreatedAt.Default.(func() time.Time)
+	rbacassignmentMixin := schema.RBACAssignment{}.Mixin()
+	rbacassignmentMixinFields0 := rbacassignmentMixin[0].Fields()
+	_ = rbacassignmentMixinFields0
 	rbacassignmentFields := schema.RBACAssignment{}.Fields()
 	_ = rbacassignmentFields
+	// rbacassignmentDescTenantID is the schema descriptor for tenant_id field.
+	rbacassignmentDescTenantID := rbacassignmentMixinFields0[0].Descriptor()
+	// rbacassignment.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	rbacassignment.TenantIDValidator = rbacassignmentDescTenantID.Validators[0].(func(int) error)
 	// rbacassignmentDescSubjectKind is the schema descriptor for subject_kind field.
 	rbacassignmentDescSubjectKind := rbacassignmentFields[0].Descriptor()
 	// rbacassignment.SubjectKindValidator is a validator for the "subject_kind" field. It is called by the builders before save.
@@ -1523,8 +1681,15 @@ func init() {
 	rbacassignment.DefaultUpdatedAt = rbacassignmentDescUpdatedAt.Default.(func() time.Time)
 	// rbacassignment.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	rbacassignment.UpdateDefaultUpdatedAt = rbacassignmentDescUpdatedAt.UpdateDefault.(func() time.Time)
+	reportnotificationdeliveryMixin := schema.ReportNotificationDelivery{}.Mixin()
+	reportnotificationdeliveryMixinFields0 := reportnotificationdeliveryMixin[0].Fields()
+	_ = reportnotificationdeliveryMixinFields0
 	reportnotificationdeliveryFields := schema.ReportNotificationDelivery{}.Fields()
 	_ = reportnotificationdeliveryFields
+	// reportnotificationdeliveryDescTenantID is the schema descriptor for tenant_id field.
+	reportnotificationdeliveryDescTenantID := reportnotificationdeliveryMixinFields0[0].Descriptor()
+	// reportnotificationdelivery.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	reportnotificationdelivery.TenantIDValidator = reportnotificationdeliveryDescTenantID.Validators[0].(func(int) error)
 	// reportnotificationdeliveryDescIdempotencyKey is the schema descriptor for idempotency_key field.
 	reportnotificationdeliveryDescIdempotencyKey := reportnotificationdeliveryFields[2].Descriptor()
 	// reportnotificationdelivery.IdempotencyKeyValidator is a validator for the "idempotency_key" field. It is called by the builders before save.
@@ -1571,8 +1736,15 @@ func init() {
 	reportnotificationdelivery.DefaultUpdatedAt = reportnotificationdeliveryDescUpdatedAt.Default.(func() time.Time)
 	// reportnotificationdelivery.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	reportnotificationdelivery.UpdateDefaultUpdatedAt = reportnotificationdeliveryDescUpdatedAt.UpdateDefault.(func() time.Time)
+	reportworkflowpolicyMixin := schema.ReportWorkflowPolicy{}.Mixin()
+	reportworkflowpolicyMixinFields0 := reportworkflowpolicyMixin[0].Fields()
+	_ = reportworkflowpolicyMixinFields0
 	reportworkflowpolicyFields := schema.ReportWorkflowPolicy{}.Fields()
 	_ = reportworkflowpolicyFields
+	// reportworkflowpolicyDescTenantID is the schema descriptor for tenant_id field.
+	reportworkflowpolicyDescTenantID := reportworkflowpolicyMixinFields0[0].Descriptor()
+	// reportworkflowpolicy.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	reportworkflowpolicy.TenantIDValidator = reportworkflowpolicyDescTenantID.Validators[0].(func(int) error)
 	// reportworkflowpolicyDescName is the schema descriptor for name field.
 	reportworkflowpolicyDescName := reportworkflowpolicyFields[0].Descriptor()
 	// reportworkflowpolicy.NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -1635,8 +1807,15 @@ func init() {
 	reportworkflowpolicy.DefaultUpdatedAt = reportworkflowpolicyDescUpdatedAt.Default.(func() time.Time)
 	// reportworkflowpolicy.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	reportworkflowpolicy.UpdateDefaultUpdatedAt = reportworkflowpolicyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	reportworkflowscheduleMixin := schema.ReportWorkflowSchedule{}.Mixin()
+	reportworkflowscheduleMixinFields0 := reportworkflowscheduleMixin[0].Fields()
+	_ = reportworkflowscheduleMixinFields0
 	reportworkflowscheduleFields := schema.ReportWorkflowSchedule{}.Fields()
 	_ = reportworkflowscheduleFields
+	// reportworkflowscheduleDescTenantID is the schema descriptor for tenant_id field.
+	reportworkflowscheduleDescTenantID := reportworkflowscheduleMixinFields0[0].Descriptor()
+	// reportworkflowschedule.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	reportworkflowschedule.TenantIDValidator = reportworkflowscheduleDescTenantID.Validators[0].(func(int) error)
 	// reportworkflowscheduleDescName is the schema descriptor for name field.
 	reportworkflowscheduleDescName := reportworkflowscheduleFields[0].Descriptor()
 	// reportworkflowschedule.NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -1745,8 +1924,15 @@ func init() {
 	reportworkflowschedule.DefaultUpdatedAt = reportworkflowscheduleDescUpdatedAt.Default.(func() time.Time)
 	// reportworkflowschedule.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	reportworkflowschedule.UpdateDefaultUpdatedAt = reportworkflowscheduleDescUpdatedAt.UpdateDefault.(func() time.Time)
+	retrievalchunkMixin := schema.RetrievalChunk{}.Mixin()
+	retrievalchunkMixinFields0 := retrievalchunkMixin[0].Fields()
+	_ = retrievalchunkMixinFields0
 	retrievalchunkFields := schema.RetrievalChunk{}.Fields()
 	_ = retrievalchunkFields
+	// retrievalchunkDescTenantID is the schema descriptor for tenant_id field.
+	retrievalchunkDescTenantID := retrievalchunkMixinFields0[0].Descriptor()
+	// retrievalchunk.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	retrievalchunk.TenantIDValidator = retrievalchunkDescTenantID.Validators[0].(func(int) error)
 	// retrievalchunkDescSourceKind is the schema descriptor for source_kind field.
 	retrievalchunkDescSourceKind := retrievalchunkFields[0].Descriptor()
 	// retrievalchunk.SourceKindValidator is a validator for the "source_kind" field. It is called by the builders before save.
@@ -1835,8 +2021,15 @@ func init() {
 	retrievalchunkDescCreatedAt := retrievalchunkFields[9].Descriptor()
 	// retrievalchunk.DefaultCreatedAt holds the default value on creation for the created_at field.
 	retrievalchunk.DefaultCreatedAt = retrievalchunkDescCreatedAt.Default.(func() time.Time)
+	subreportMixin := schema.SubReport{}.Mixin()
+	subreportMixinFields0 := subreportMixin[0].Fields()
+	_ = subreportMixinFields0
 	subreportFields := schema.SubReport{}.Fields()
 	_ = subreportFields
+	// subreportDescTenantID is the schema descriptor for tenant_id field.
+	subreportDescTenantID := subreportMixinFields0[0].Descriptor()
+	// subreport.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	subreport.TenantIDValidator = subreportDescTenantID.Validators[0].(func(int) error)
 	// subreportDescIdempotencyKey is the schema descriptor for idempotency_key field.
 	subreportDescIdempotencyKey := subreportFields[1].Descriptor()
 	// subreport.IdempotencyKeyValidator is a validator for the "idempotency_key" field. It is called by the builders before save.
@@ -1965,4 +2158,151 @@ func init() {
 	subreportDescCreatedAt := subreportFields[15].Descriptor()
 	// subreport.DefaultCreatedAt holds the default value on creation for the created_at field.
 	subreport.DefaultCreatedAt = subreportDescCreatedAt.Default.(func() time.Time)
+	tenantFields := schema.Tenant{}.Fields()
+	_ = tenantFields
+	// tenantDescKey is the schema descriptor for key field.
+	tenantDescKey := tenantFields[0].Descriptor()
+	// tenant.KeyValidator is a validator for the "key" field. It is called by the builders before save.
+	tenant.KeyValidator = func() func(string) error {
+		validators := tenantDescKey.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+			validators[2].(func(string) error),
+		}
+		return func(key string) error {
+			for _, fn := range fns {
+				if err := fn(key); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// tenantDescName is the schema descriptor for name field.
+	tenantDescName := tenantFields[1].Descriptor()
+	// tenant.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	tenant.NameValidator = func() func(string) error {
+		validators := tenantDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// tenantDescStatus is the schema descriptor for status field.
+	tenantDescStatus := tenantFields[2].Descriptor()
+	// tenant.DefaultStatus holds the default value on creation for the status field.
+	tenant.DefaultStatus = tenantDescStatus.Default.(string)
+	// tenant.StatusValidator is a validator for the "status" field. It is called by the builders before save.
+	tenant.StatusValidator = func() func(string) error {
+		validators := tenantDescStatus.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(status string) error {
+			for _, fn := range fns {
+				if err := fn(status); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// tenantDescCreatedAt is the schema descriptor for created_at field.
+	tenantDescCreatedAt := tenantFields[3].Descriptor()
+	// tenant.DefaultCreatedAt holds the default value on creation for the created_at field.
+	tenant.DefaultCreatedAt = tenantDescCreatedAt.Default.(func() time.Time)
+	// tenantDescUpdatedAt is the schema descriptor for updated_at field.
+	tenantDescUpdatedAt := tenantFields[4].Descriptor()
+	// tenant.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	tenant.DefaultUpdatedAt = tenantDescUpdatedAt.Default.(func() time.Time)
+	// tenant.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	tenant.UpdateDefaultUpdatedAt = tenantDescUpdatedAt.UpdateDefault.(func() time.Time)
+	tenantmembershipFields := schema.TenantMembership{}.Fields()
+	_ = tenantmembershipFields
+	// tenantmembershipDescTenantID is the schema descriptor for tenant_id field.
+	tenantmembershipDescTenantID := tenantmembershipFields[0].Descriptor()
+	// tenantmembership.TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	tenantmembership.TenantIDValidator = tenantmembershipDescTenantID.Validators[0].(func(int) error)
+	// tenantmembershipDescSubject is the schema descriptor for subject field.
+	tenantmembershipDescSubject := tenantmembershipFields[1].Descriptor()
+	// tenantmembership.SubjectValidator is a validator for the "subject" field. It is called by the builders before save.
+	tenantmembership.SubjectValidator = func() func(string) error {
+		validators := tenantmembershipDescSubject.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+			validators[2].(func(string) error),
+		}
+		return func(subject string) error {
+			for _, fn := range fns {
+				if err := fn(subject); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// tenantmembershipDescRole is the schema descriptor for role field.
+	tenantmembershipDescRole := tenantmembershipFields[2].Descriptor()
+	// tenantmembership.DefaultRole holds the default value on creation for the role field.
+	tenantmembership.DefaultRole = tenantmembershipDescRole.Default.(string)
+	// tenantmembership.RoleValidator is a validator for the "role" field. It is called by the builders before save.
+	tenantmembership.RoleValidator = func() func(string) error {
+		validators := tenantmembershipDescRole.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(role string) error {
+			for _, fn := range fns {
+				if err := fn(role); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// tenantmembershipDescEnabled is the schema descriptor for enabled field.
+	tenantmembershipDescEnabled := tenantmembershipFields[3].Descriptor()
+	// tenantmembership.DefaultEnabled holds the default value on creation for the enabled field.
+	tenantmembership.DefaultEnabled = tenantmembershipDescEnabled.Default.(bool)
+	// tenantmembershipDescCreatedBy is the schema descriptor for created_by field.
+	tenantmembershipDescCreatedBy := tenantmembershipFields[4].Descriptor()
+	// tenantmembership.CreatedByValidator is a validator for the "created_by" field. It is called by the builders before save.
+	tenantmembership.CreatedByValidator = func() func(string) error {
+		validators := tenantmembershipDescCreatedBy.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+			validators[2].(func(string) error),
+		}
+		return func(created_by string) error {
+			for _, fn := range fns {
+				if err := fn(created_by); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// tenantmembershipDescCreatedAt is the schema descriptor for created_at field.
+	tenantmembershipDescCreatedAt := tenantmembershipFields[5].Descriptor()
+	// tenantmembership.DefaultCreatedAt holds the default value on creation for the created_at field.
+	tenantmembership.DefaultCreatedAt = tenantmembershipDescCreatedAt.Default.(func() time.Time)
+	// tenantmembershipDescUpdatedAt is the schema descriptor for updated_at field.
+	tenantmembershipDescUpdatedAt := tenantmembershipFields[6].Descriptor()
+	// tenantmembership.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	tenantmembership.DefaultUpdatedAt = tenantmembershipDescUpdatedAt.Default.(func() time.Time)
+	// tenantmembership.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	tenantmembership.UpdateDefaultUpdatedAt = tenantmembershipDescUpdatedAt.UpdateDefault.(func() time.Time)
 }

@@ -62,6 +62,10 @@ type Tx struct {
 	RetrievalChunk *RetrievalChunkClient
 	// SubReport is the client for interacting with the SubReport builders.
 	SubReport *SubReportClient
+	// Tenant is the client for interacting with the Tenant builders.
+	Tenant *TenantClient
+	// TenantMembership is the client for interacting with the TenantMembership builders.
+	TenantMembership *TenantMembershipClient
 
 	// lazily loaded.
 	client     *Client
@@ -218,6 +222,8 @@ func (tx *Tx) init() {
 	tx.ReportWorkflowSchedule = NewReportWorkflowScheduleClient(tx.config)
 	tx.RetrievalChunk = NewRetrievalChunkClient(tx.config)
 	tx.SubReport = NewSubReportClient(tx.config)
+	tx.Tenant = NewTenantClient(tx.config)
+	tx.TenantMembership = NewTenantMembershipClient(tx.config)
 }
 
 // txDriver wraps the given dialect.Tx with a nop dialect.Driver implementation.

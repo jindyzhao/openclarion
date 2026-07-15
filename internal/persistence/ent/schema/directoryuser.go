@@ -18,6 +18,9 @@ type DirectoryUser struct {
 	ent.Schema
 }
 
+// Mixin of the DirectoryUser.
+func (DirectoryUser) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the DirectoryUser.
 func (DirectoryUser) Fields() []ent.Field {
 	return []ent.Field{
@@ -88,9 +91,9 @@ func (DirectoryUser) Fields() []ent.Field {
 // Indexes of the DirectoryUser.
 func (DirectoryUser) Indexes() []ent.Index {
 	return []ent.Index{
-		index.Fields("provider", "subject").
+		index.Fields("tenant_id", "provider", "subject").
 			Unique(),
-		index.Fields("provider", "external_id").
+		index.Fields("tenant_id", "provider", "external_id").
 			Unique(),
 		index.Fields("provider", "active"),
 		index.Fields("display_name"),

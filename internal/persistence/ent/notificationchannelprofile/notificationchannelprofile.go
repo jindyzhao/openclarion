@@ -14,6 +14,8 @@ const (
 	Label = "notification_channel_profile"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldTenantID holds the string denoting the tenant_id field in the database.
+	FieldTenantID = "tenant_id"
 	// FieldName holds the string denoting the name field in the database.
 	FieldName = "name"
 	// FieldKind holds the string denoting the kind field in the database.
@@ -30,10 +32,19 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
+	// EdgeTenant holds the string denoting the tenant edge name in mutations.
+	EdgeTenant = "tenant"
 	// EdgeTestProofs holds the string denoting the test_proofs edge name in mutations.
 	EdgeTestProofs = "test_proofs"
 	// Table holds the table name of the notificationchannelprofile in the database.
 	Table = "notification_channel_profiles"
+	// TenantTable is the table that holds the tenant relation/edge.
+	TenantTable = "notification_channel_profiles"
+	// TenantInverseTable is the table name for the Tenant entity.
+	// It exists in this package in order to avoid circular dependency with the "tenant" package.
+	TenantInverseTable = "tenants"
+	// TenantColumn is the table column denoting the tenant relation/edge.
+	TenantColumn = "tenant_id"
 	// TestProofsTable is the table that holds the test_proofs relation/edge.
 	TestProofsTable = "notification_channel_test_proofs"
 	// TestProofsInverseTable is the table name for the NotificationChannelTestProof entity.
@@ -46,6 +57,7 @@ const (
 // Columns holds all SQL columns for notificationchannelprofile fields.
 var Columns = []string{
 	FieldID,
+	FieldTenantID,
 	FieldName,
 	FieldKind,
 	FieldSecretRef,
@@ -67,6 +79,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	TenantIDValidator func(int) error
 	// NameValidator is a validator for the "name" field. It is called by the builders before save.
 	NameValidator func(string) error
 	// DefaultKind holds the default value on creation for the "kind" field.
@@ -91,6 +105,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByTenantID orders the results by the tenant_id field.
+func ByTenantID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTenantID, opts...).ToFunc()
 }
 
 // ByName orders the results by the name field.
@@ -123,6 +142,13 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
+// ByTenantField orders the results by tenant field.
+func ByTenantField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTenantStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByTestProofsCount orders the results by test_proofs count.
 func ByTestProofsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -135,6 +161,13 @@ func ByTestProofs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newTestProofsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
+}
+func newTenantStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TenantInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+	)
 }
 func newTestProofsStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

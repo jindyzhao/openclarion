@@ -38,7 +38,7 @@ func (r *directoryRepo) UpsertDepartment(ctx context.Context, d domain.Directory
 		return domain.DirectoryDepartment{}, err
 	}
 	id, err := buildDirectoryDepartmentCreate(r.tx.DirectoryDepartment.Create(), d).
-		OnConflictColumns(directorydepartment.FieldProvider, directorydepartment.FieldExternalID).
+		OnConflictColumns(directorydepartment.FieldTenantID, directorydepartment.FieldProvider, directorydepartment.FieldExternalID).
 		UpdateNewValues().
 		Update(func(u *ent.DirectoryDepartmentUpsert) {
 			setDirectoryDepartmentUpsertClears(u, d)
@@ -111,7 +111,7 @@ func (r *directoryRepo) UpsertUser(ctx context.Context, u domain.DirectoryUser) 
 		return domain.DirectoryUser{}, err
 	}
 	id, err := buildDirectoryUserCreate(r.tx.DirectoryUser.Create(), u).
-		OnConflictColumns(directoryuser.FieldProvider, directoryuser.FieldSubject).
+		OnConflictColumns(directoryuser.FieldTenantID, directoryuser.FieldProvider, directoryuser.FieldSubject).
 		UpdateNewValues().
 		Update(func(upsert *ent.DirectoryUserUpsert) {
 			setDirectoryUserUpsertClears(upsert, u)

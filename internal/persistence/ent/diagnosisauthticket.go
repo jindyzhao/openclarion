@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosisauthticket"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // DiagnosisAuthTicket is the model entity for the DiagnosisAuthTicket schema.
@@ -18,6 +19,10 @@ type DiagnosisAuthTicket struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant bound into the authenticated ticket
+	TenantID int `json:"tenant_id,omitempty"`
+	// stable tenant key bound into the authenticated ticket
+	TenantKey string `json:"tenant_key,omitempty"`
 	// hex SHA-256 digest of the raw WebSocket ticket token
 	TokenHash string `json:"token_hash,omitempty"`
 	// authenticated principal subject
@@ -37,8 +42,31 @@ type DiagnosisAuthTicket struct {
 	// server-side ticket row creation timestamp
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// server-side last-mutation timestamp
-	UpdatedAt    time.Time `json:"updated_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the DiagnosisAuthTicketQuery when eager-loading is set.
+	Edges        DiagnosisAuthTicketEdges `json:"edges"`
 	selectValues sql.SelectValues
+}
+
+// DiagnosisAuthTicketEdges holds the relations/edges for other nodes in the graph.
+type DiagnosisAuthTicketEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
+	// loadedTypes holds the information for reporting if a
+	// type was loaded (or requested) in eager-loading or not.
+	loadedTypes [1]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e DiagnosisAuthTicketEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -48,9 +76,9 @@ func (*DiagnosisAuthTicket) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case diagnosisauthticket.FieldRoles:
 			values[i] = new([]byte)
-		case diagnosisauthticket.FieldID:
+		case diagnosisauthticket.FieldID, diagnosisauthticket.FieldTenantID:
 			values[i] = new(sql.NullInt64)
-		case diagnosisauthticket.FieldTokenHash, diagnosisauthticket.FieldSubject, diagnosisauthticket.FieldSessionID, diagnosisauthticket.FieldScope:
+		case diagnosisauthticket.FieldTenantKey, diagnosisauthticket.FieldTokenHash, diagnosisauthticket.FieldSubject, diagnosisauthticket.FieldSessionID, diagnosisauthticket.FieldScope:
 			values[i] = new(sql.NullString)
 		case diagnosisauthticket.FieldIssuedAt, diagnosisauthticket.FieldExpiresAt, diagnosisauthticket.FieldConsumedAt, diagnosisauthticket.FieldCreatedAt, diagnosisauthticket.FieldUpdatedAt:
 			values[i] = new(sql.NullTime)
@@ -75,6 +103,18 @@ func (_m *DiagnosisAuthTicket) assignValues(columns []string, values []any) erro
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case diagnosisauthticket.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
+		case diagnosisauthticket.FieldTenantKey:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_key", values[i])
+			} else if value.Valid {
+				_m.TenantKey = value.String
+			}
 		case diagnosisauthticket.FieldTokenHash:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field token_hash", values[i])
@@ -151,6 +191,11 @@ func (_m *DiagnosisAuthTicket) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the DiagnosisAuthTicket entity.
+func (_m *DiagnosisAuthTicket) QueryTenant() *TenantQuery {
+	return NewDiagnosisAuthTicketClient(_m.config).QueryTenant(_m)
+}
+
 // Update returns a builder for updating this DiagnosisAuthTicket.
 // Note that you need to call DiagnosisAuthTicket.Unwrap() before calling this method if this DiagnosisAuthTicket
 // was returned from a transaction, and the transaction was committed or rolled back.
@@ -174,6 +219,12 @@ func (_m *DiagnosisAuthTicket) String() string {
 	var builder strings.Builder
 	builder.WriteString("DiagnosisAuthTicket(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
+	builder.WriteString("tenant_key=")
+	builder.WriteString(_m.TenantKey)
+	builder.WriteString(", ")
 	builder.WriteString("token_hash=")
 	builder.WriteString(_m.TokenHash)
 	builder.WriteString(", ")

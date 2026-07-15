@@ -16,6 +16,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatturn"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // ChatSessionCreate is the builder for creating a ChatSession entity.
@@ -24,6 +25,12 @@ type ChatSessionCreate struct {
 	mutation *ChatSessionMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *ChatSessionCreate) SetTenantID(v int) *ChatSessionCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetDiagnosisTaskID sets the "diagnosis_task_id" field.
@@ -154,6 +161,11 @@ func (_c *ChatSessionCreate) SetNillableUpdatedAt(v *time.Time) *ChatSessionCrea
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *ChatSessionCreate) SetTenant(v *Tenant) *ChatSessionCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // SetTaskID sets the "task" edge to the DiagnosisTask entity by ID.
 func (_c *ChatSessionCreate) SetTaskID(id int) *ChatSessionCreate {
 	_c.mutation.SetTaskID(id)
@@ -269,6 +281,14 @@ func (_c *ChatSessionCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *ChatSessionCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "ChatSession.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := chatsession.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "ChatSession.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.DiagnosisTaskID(); !ok {
 		return &ValidationError{Name: "diagnosis_task_id", err: errors.New(`ent: missing required field "ChatSession.diagnosis_task_id"`)}
 	}
@@ -328,6 +348,9 @@ func (_c *ChatSessionCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "ChatSession.updated_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "ChatSession.tenant"`)}
 	}
 	if len(_c.mutation.TaskIDs()) == 0 {
 		return &ValidationError{Name: "task", err: errors.New(`ent: missing required edge "ChatSession.task"`)}
@@ -403,6 +426,23 @@ func (_c *ChatSessionCreate) createSpec() (*ChatSession, *sqlgraph.CreateSpec) {
 		_spec.SetField(chatsession.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   chatsession.TenantTable,
+			Columns: []string{chatsession.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.TaskIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -475,7 +515,7 @@ func (_c *ChatSessionCreate) createSpec() (*ChatSession, *sqlgraph.CreateSpec) {
 // of the `INSERT` statement. For example:
 //
 //	client.ChatSession.Create().
-//		SetDiagnosisTaskID(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -484,7 +524,7 @@ func (_c *ChatSessionCreate) createSpec() (*ChatSession, *sqlgraph.CreateSpec) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ChatSessionUpsert) {
-//			SetDiagnosisTaskID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ChatSessionCreate) OnConflict(opts ...sql.ConflictOption) *ChatSessionUpsertOne {
@@ -621,6 +661,9 @@ func (u *ChatSessionUpsert) UpdateUpdatedAt() *ChatSessionUpsert {
 func (u *ChatSessionUpsertOne) UpdateNewValues() *ChatSessionUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(chatsession.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.DiagnosisTaskID(); exists {
 			s.SetIgnore(chatsession.FieldDiagnosisTaskID)
 		}
@@ -910,7 +953,7 @@ func (_c *ChatSessionCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ChatSessionUpsert) {
-//			SetDiagnosisTaskID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ChatSessionCreateBulk) OnConflict(opts ...sql.ConflictOption) *ChatSessionUpsertBulk {
@@ -951,6 +994,9 @@ func (u *ChatSessionUpsertBulk) UpdateNewValues() *ChatSessionUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(chatsession.FieldTenantID)
+			}
 			if _, exists := b.mutation.DiagnosisTaskID(); exists {
 				s.SetIgnore(chatsession.FieldDiagnosisTaskID)
 			}

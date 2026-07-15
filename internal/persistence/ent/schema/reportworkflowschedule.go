@@ -17,13 +17,15 @@ type ReportWorkflowSchedule struct {
 	ent.Schema
 }
 
+// Mixin of the ReportWorkflowSchedule.
+func (ReportWorkflowSchedule) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the ReportWorkflowSchedule.
 func (ReportWorkflowSchedule) Fields() []ent.Field {
 	return []ent.Field{
 		field.String("name").
 			MaxLen(120).
 			NotEmpty().
-			Unique().
 			Comment("operator-facing unique display name"),
 		field.Int("report_workflow_policy_id").
 			Positive().
@@ -96,6 +98,7 @@ func (ReportWorkflowSchedule) Fields() []ent.Field {
 // Indexes of the ReportWorkflowSchedule.
 func (ReportWorkflowSchedule) Indexes() []ent.Index {
 	return []ent.Index{
+		index.Fields("tenant_id", "name").Unique(),
 		index.Fields("enabled", "updated_at"),
 		index.Fields("report_workflow_policy_id", "enabled"),
 	}

@@ -9,6 +9,12 @@ package domain
 // primary key (see schema-catalog.md). A zero value (0) means
 // "not yet persisted"; repository Insert paths fill it in.
 
+// TenantID is the surrogate identifier of one OpenClarion tenant.
+type TenantID int64
+
+// TenantMembershipID is the surrogate identifier of one tenant membership.
+type TenantMembershipID int64
+
 // AlertEventID is the surrogate identifier of an AlertEvent row.
 type AlertEventID int64
 

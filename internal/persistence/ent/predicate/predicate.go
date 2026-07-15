@@ -80,3 +80,9 @@ type RetrievalChunk func(*sql.Selector)
 
 // SubReport is the predicate function for subreport builders.
 type SubReport func(*sql.Selector)
+
+// Tenant is the predicate function for tenant builders.
+type Tenant func(*sql.Selector)
+
+// TenantMembership is the predicate function for tenantmembership builders.
+type TenantMembership func(*sql.Selector)

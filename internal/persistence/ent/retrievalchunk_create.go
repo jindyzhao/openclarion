@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/retrievalchunk"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
@@ -22,6 +23,12 @@ type RetrievalChunkCreate struct {
 	mutation *RetrievalChunkMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *RetrievalChunkCreate) SetTenantID(v int) *RetrievalChunkCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetSourceKind sets the "source_kind" field.
@@ -92,6 +99,11 @@ func (_c *RetrievalChunkCreate) SetNillableCreatedAt(v *time.Time) *RetrievalChu
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *RetrievalChunkCreate) SetTenant(v *Tenant) *RetrievalChunkCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // Mutation returns the RetrievalChunkMutation object of the builder.
 func (_c *RetrievalChunkCreate) Mutation() *RetrievalChunkMutation {
 	return _c.mutation
@@ -135,6 +147,14 @@ func (_c *RetrievalChunkCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *RetrievalChunkCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "RetrievalChunk.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := retrievalchunk.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "RetrievalChunk.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.SourceKind(); !ok {
 		return &ValidationError{Name: "source_kind", err: errors.New(`ent: missing required field "RetrievalChunk.source_kind"`)}
 	}
@@ -199,6 +219,9 @@ func (_c *RetrievalChunkCreate) check() error {
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "RetrievalChunk.created_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "RetrievalChunk.tenant"`)}
 	}
 	return nil
 }
@@ -267,6 +290,23 @@ func (_c *RetrievalChunkCreate) createSpec() (*RetrievalChunk, *sqlgraph.CreateS
 		_spec.SetField(retrievalchunk.FieldCreatedAt, field.TypeTime, value)
 		_node.CreatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   retrievalchunk.TenantTable,
+			Columns: []string{retrievalchunk.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	return _node, _spec
 }
 
@@ -274,7 +314,7 @@ func (_c *RetrievalChunkCreate) createSpec() (*RetrievalChunk, *sqlgraph.CreateS
 // of the `INSERT` statement. For example:
 //
 //	client.RetrievalChunk.Create().
-//		SetSourceKind(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -283,7 +323,7 @@ func (_c *RetrievalChunkCreate) createSpec() (*RetrievalChunk, *sqlgraph.CreateS
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.RetrievalChunkUpsert) {
-//			SetSourceKind(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *RetrievalChunkCreate) OnConflict(opts ...sql.ConflictOption) *RetrievalChunkUpsertOne {
@@ -330,6 +370,9 @@ type (
 func (u *RetrievalChunkUpsertOne) UpdateNewValues() *RetrievalChunkUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(retrievalchunk.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.SourceKind(); exists {
 			s.SetIgnore(retrievalchunk.FieldSourceKind)
 		}
@@ -526,7 +569,7 @@ func (_c *RetrievalChunkCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.RetrievalChunkUpsert) {
-//			SetSourceKind(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *RetrievalChunkCreateBulk) OnConflict(opts ...sql.ConflictOption) *RetrievalChunkUpsertBulk {
@@ -567,6 +610,9 @@ func (u *RetrievalChunkUpsertBulk) UpdateNewValues() *RetrievalChunkUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(retrievalchunk.FieldTenantID)
+			}
 			if _, exists := b.mutation.SourceKind(); exists {
 				s.SetIgnore(retrievalchunk.FieldSourceKind)
 			}

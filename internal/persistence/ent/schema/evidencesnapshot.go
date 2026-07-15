@@ -42,6 +42,9 @@ type EvidenceSnapshot struct {
 	ent.Schema
 }
 
+// Mixin of the EvidenceSnapshot.
+func (EvidenceSnapshot) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the EvidenceSnapshot.
 func (EvidenceSnapshot) Fields() []ent.Field {
 	return []ent.Field{
@@ -107,7 +110,7 @@ func (EvidenceSnapshot) Indexes() []ent.Index {
 		// row. Two DIFFERENT groups MAY produce identical payload bytes
 		// and are legitimately distinct rows -- digest is NOT globally
 		// unique.
-		index.Fields("alert_group_id", "digest").
+		index.Fields("tenant_id", "alert_group_id", "digest").
 			Unique(),
 		// Read path: latest snapshot for a given group. FK column
 		// first so the index prefix serves "snapshots WHERE

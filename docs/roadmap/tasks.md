@@ -265,7 +265,7 @@ sessions, arbitrary external approval policies, streaming partial responses.
 - [ ] signal-capable provider extension track after alert-analysis MVP proves
       stable
 - [x] scheduled weekly and monthly reports
-- [ ] multi-tenant operations
+- [x] multi-tenant operations
 - [x] Slack IM provider (incoming webhook format)
 - [x] Email IM provider (SMTP profile format)
 
@@ -273,6 +273,7 @@ sessions, arbitrary external approval policies, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-14 | jindyzhao | Backend multi-tenant operations now provide a global tenant registry, owner/member administration, tenant-bound browser sessions and WebSocket tickets, fail-closed Ent query/mutation scoping, relation validation, tenant-propagated Temporal work and schedules, and a populated-database-compatible default-tenant migration. Frontend workspace selection remains a separate change. |
 | 2026-07-14 | jindyzhao | Diagnosis rooms now support configurable single-party or owner-plus-leader conclusion approval, with immutable digest-bound approvals, dedicated approval RBAC, persisted quorum enforcement before close, and WebSocket/REST/frontend projection. |
 | 2026-07-12 | jindyzhao | Alert-source adapters now register by kind behind the minimum `ActiveAlertProvider`; metric access is an optional `MetricQueryProvider` capability, so Alertmanager no longer implements unsupported metric placeholders. See [ADR-0003](../adr/ADR-0003-provider-extension-interfaces.md). |
 | 2026-07-10 | jindyzhao | Alertmanager webhook lifecycle ingestion now applies resolved entries to matching profile-scoped `AlertEvent` natural keys, preserves immutable resolution timestamps under repeated or concurrent delivery, reports unmatched resolutions without synthesizing history, and keeps automatic diagnosis firing-only. |

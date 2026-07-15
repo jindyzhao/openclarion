@@ -370,6 +370,9 @@ func (_u *DirectoryUserUpdate) check() error {
 			return &ValidationError{Name: "department_path", err: fmt.Errorf(`ent: validator failed for field "DirectoryUser.department_path": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DirectoryUser.tenant"`)
+	}
 	return nil
 }
 
@@ -834,6 +837,9 @@ func (_u *DirectoryUserUpdateOne) check() error {
 		if err := directoryuser.DepartmentPathValidator(v); err != nil {
 			return &ValidationError{Name: "department_path", err: fmt.Errorf(`ent: validator failed for field "DirectoryUser.department_path": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "DirectoryUser.tenant"`)
 	}
 	return nil
 }

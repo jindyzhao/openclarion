@@ -13,6 +13,7 @@ import (
 
 	"github.com/openclarion/openclarion/internal/domain"
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
@@ -24,9 +25,10 @@ const (
 	// MinSessionSigningKeyBytes is the minimum accepted HMAC key length.
 	MinSessionSigningKeyBytes = 32
 
-	sessionTokenVersion = 1
-	sessionTokenType    = "openclarion.diagnosis.session" // #nosec G101 -- token type identifier only.
-	sessionTokenAlg     = "HS256"
+	legacySessionTokenVersion = 1
+	sessionTokenVersion       = 2
+	sessionTokenType          = "openclarion.diagnosis.session" // #nosec G101 -- token type identifier only.
+	sessionTokenAlg           = "HS256"
 )
 
 // SessionTokenPolicy constrains signed browser-session bearer tokens.
@@ -41,6 +43,8 @@ type SessionToken struct {
 	Subject   string
 	Roles     []ports.AuthRole
 	Provider  string
+	TenantID  domain.TenantID
+	TenantKey string
 	IssuedAt  time.Time
 	ExpiresAt time.Time
 }
@@ -113,6 +117,10 @@ func (s *SessionTokenService) IssueToken(ctx context.Context, principal ports.Au
 	if err != nil {
 		return SessionToken{}, err
 	}
+	tenantIdentity, err := sessionTenantIdentity(principal)
+	if err != nil {
+		return SessionToken{}, err
+	}
 	issuedAt := s.clock().UTC()
 	if issuedAt.IsZero() {
 		return SessionToken{}, fmt.Errorf("diagnosis auth session: now must be set: %w", domain.ErrInvariantViolation)
@@ -124,6 +132,8 @@ func (s *SessionTokenService) IssueToken(ctx context.Context, principal ports.Au
 		Provider:  provider,
 		Subject:   subject,
 		Roles:     roles,
+		TenantID:  int64(tenantIdentity.ID),
+		TenantKey: tenantIdentity.Key,
 		IssuedAt:  issuedAt.Unix(),
 		ExpiresAt: expiresAt.Unix(),
 	}
@@ -140,9 +150,51 @@ func (s *SessionTokenService) IssueToken(ctx context.Context, principal ports.Au
 		Subject:   subject,
 		Roles:     roles,
 		Provider:  provider,
+		TenantID:  tenantIdentity.ID,
+		TenantKey: tenantIdentity.Key,
 		IssuedAt:  issuedAt,
 		ExpiresAt: expiresAt,
 	}, nil
+}
+
+// RebindTenant re-signs an authenticated browser session for another
+// authorized tenant without extending the original session lifetime.
+func (s *SessionTokenService) RebindTenant(
+	ctx context.Context,
+	bearerToken string,
+	identity tenancy.Identity,
+) (SessionToken, error) {
+	session, err := s.AuthenticateSession(ctx, bearerToken)
+	if err != nil {
+		return SessionToken{}, err
+	}
+	identity, err = tenancy.NewIdentity(identity.ID, identity.Key)
+	if err != nil {
+		return SessionToken{}, fmt.Errorf("diagnosis auth session: rebind tenant: %w", err)
+	}
+	payload := sessionTokenPayload{
+		Version:   sessionTokenVersion,
+		Type:      sessionTokenType,
+		Provider:  session.Provider,
+		Subject:   session.Subject,
+		Roles:     append([]ports.AuthRole(nil), session.Roles...),
+		TenantID:  int64(identity.ID),
+		TenantKey: identity.Key,
+		IssuedAt:  session.IssuedAt.Unix(),
+		ExpiresAt: session.ExpiresAt.Unix(),
+	}
+	rawPayload, err := json.Marshal(payload)
+	if err != nil {
+		return SessionToken{}, fmt.Errorf("diagnosis auth session: marshal rebound token payload: %w", err)
+	}
+	token, err := s.signPayload(rawPayload)
+	if err != nil {
+		return SessionToken{}, err
+	}
+	session.Token = token
+	session.TenantID = identity.ID
+	session.TenantKey = identity.Key
+	return session, nil
 }
 
 // AuthenticateBearer verifies a session bearer token and returns its principal.
@@ -151,10 +203,19 @@ func (s *SessionTokenService) AuthenticateBearer(ctx context.Context, bearerToke
 	if err != nil {
 		return ports.AuthPrincipal{}, err
 	}
+	claims, err := json.Marshal(struct {
+		AuthProvider string `json:"auth_provider"`
+		TenantKey    string `json:"tenant_key"`
+	}{AuthProvider: session.Provider, TenantKey: session.TenantKey})
+	if err != nil {
+		return ports.AuthPrincipal{}, fmt.Errorf("diagnosis auth session: marshal authenticated claims: %w", err)
+	}
 	return ports.AuthPrincipal{
-		Subject: session.Subject,
-		Roles:   session.Roles,
-		Claims:  json.RawMessage(fmt.Sprintf(`{"auth_provider":%q}`, session.Provider)),
+		Subject:   session.Subject,
+		Roles:     session.Roles,
+		Claims:    claims,
+		TenantID:  session.TenantID,
+		TenantKey: session.TenantKey,
 	}, nil
 }
 
@@ -180,7 +241,7 @@ func (s *SessionTokenService) AuthenticateSession(ctx context.Context, bearerTok
 	if err != nil {
 		return SessionToken{}, err
 	}
-	if payload.Version != sessionTokenVersion || payload.Type != sessionTokenType {
+	if !supportedSessionTokenVersion(payload.Version) || payload.Type != sessionTokenType {
 		return SessionToken{}, fmt.Errorf("diagnosis auth session: token type is unsupported: %w", ErrUnauthenticated)
 	}
 	if payload.ExpiresAt <= s.clock().UTC().Unix() {
@@ -198,11 +259,20 @@ func (s *SessionTokenService) AuthenticateSession(ctx context.Context, bearerTok
 	if err != nil {
 		return SessionToken{}, fmt.Errorf("%w: %w", err, ErrUnauthenticated)
 	}
+	tenantIdentity := tenancy.DefaultIdentity()
+	if payload.Version >= sessionTokenVersion {
+		tenantIdentity, err = tenancy.NewIdentity(domain.TenantID(payload.TenantID), payload.TenantKey)
+		if err != nil {
+			return SessionToken{}, fmt.Errorf("diagnosis auth session: invalid tenant binding: %w", ErrUnauthenticated)
+		}
+	}
 	return SessionToken{
 		Token:     token,
 		Subject:   subject,
 		Roles:     roles,
 		Provider:  provider,
+		TenantID:  tenantIdentity.ID,
+		TenantKey: tenantIdentity.Key,
 		IssuedAt:  time.Unix(payload.IssuedAt, 0).UTC(),
 		ExpiresAt: time.Unix(payload.ExpiresAt, 0).UTC(),
 	}, nil
@@ -237,7 +307,7 @@ func (s *SessionTokenService) verifyToken(token string) (sessionTokenPayload, er
 	if err := json.Unmarshal(rawHeader, &header); err != nil {
 		return sessionTokenPayload{}, fmt.Errorf("diagnosis auth session: decode token header: %w", ErrUnauthenticated)
 	}
-	if header.Version != sessionTokenVersion || header.Type != sessionTokenType || header.Alg != sessionTokenAlg {
+	if !supportedSessionTokenVersion(header.Version) || header.Type != sessionTokenType || header.Alg != sessionTokenAlg {
 		return sessionTokenPayload{}, fmt.Errorf("diagnosis auth session: token header is unsupported: %w", ErrUnauthenticated)
 	}
 	rawPayload, err := base64.RawURLEncoding.DecodeString(parts[1])
@@ -259,7 +329,14 @@ func (s *SessionTokenService) verifyToken(token string) (sessionTokenPayload, er
 	if err := json.Unmarshal(rawPayload, &payload); err != nil {
 		return sessionTokenPayload{}, fmt.Errorf("diagnosis auth session: decode token payload: %w", ErrUnauthenticated)
 	}
+	if payload.Version != header.Version {
+		return sessionTokenPayload{}, fmt.Errorf("diagnosis auth session: token versions do not match: %w", ErrUnauthenticated)
+	}
 	return payload, nil
+}
+
+func supportedSessionTokenVersion(version int) bool {
+	return version == legacySessionTokenVersion || version == sessionTokenVersion
 }
 
 type sessionTokenHeader struct {
@@ -274,8 +351,24 @@ type sessionTokenPayload struct {
 	Provider  string           `json:"provider"`
 	Subject   string           `json:"sub"`
 	Roles     []ports.AuthRole `json:"roles"`
+	TenantID  int64            `json:"tenant_id"`
+	TenantKey string           `json:"tenant_key"`
 	IssuedAt  int64            `json:"iat"`
 	ExpiresAt int64            `json:"exp"`
+}
+
+func sessionTenantIdentity(principal ports.AuthPrincipal) (tenancy.Identity, error) {
+	if principal.TenantID == 0 && strings.TrimSpace(principal.TenantKey) == "" {
+		return tenancy.DefaultIdentity(), nil
+	}
+	if principal.TenantID <= 0 || strings.TrimSpace(principal.TenantKey) == "" {
+		return tenancy.Identity{}, fmt.Errorf("diagnosis auth session: tenant binding must include id and key: %w", domain.ErrInvariantViolation)
+	}
+	identity, err := tenancy.NewIdentity(principal.TenantID, principal.TenantKey)
+	if err != nil {
+		return tenancy.Identity{}, fmt.Errorf("diagnosis auth session: tenant binding: %w", err)
+	}
+	return identity, nil
 }
 
 func sessionSignature(signingKey []byte, signedContent string) []byte {

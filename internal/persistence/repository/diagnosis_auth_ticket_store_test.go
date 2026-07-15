@@ -137,6 +137,8 @@ func TestDiagnosisAuthTicketStore_RejectsDuplicateSaveAndBadConstruction(t *test
 		Token:     "raw-duplicate-token",
 		Subject:   "owner-1",
 		Roles:     []ports.AuthRole{ports.AuthRoleOwner},
+		TenantID:  1,
+		TenantKey: domain.DefaultTenantKey,
 		SessionID: "diag-session-dup",
 		Scope:     diagnosisauth.DefaultTicketScope,
 		IssuedAt:  time.Date(2026, 5, 28, 13, 0, 0, 0, time.UTC),

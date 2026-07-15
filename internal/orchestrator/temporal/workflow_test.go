@@ -106,6 +106,11 @@ func runMain(m *testing.M) int {
 		fmt.Fprintf(os.Stderr, "create ent schema: %v\n", err)
 		return 1
 	}
+	if err := repository.EnsureDefaultTenant(ctx, migrateClient); err != nil {
+		_ = migrateClient.Close()
+		fmt.Fprintf(os.Stderr, "seed default tenant: %v\n", err)
+		return 1
+	}
 	if err := migrateClient.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "close migrate client: %v\n", err)
 		return 1

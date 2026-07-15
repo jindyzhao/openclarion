@@ -40,6 +40,8 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportworkflowschedule"
 	"github.com/openclarion/openclarion/internal/persistence/ent/retrievalchunk"
 	"github.com/openclarion/openclarion/internal/persistence/ent/subreport"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenantmembership"
 )
 
 // Client is the client that holds all ent builders.
@@ -97,6 +99,10 @@ type Client struct {
 	RetrievalChunk *RetrievalChunkClient
 	// SubReport is the client for interacting with the SubReport builders.
 	SubReport *SubReportClient
+	// Tenant is the client for interacting with the Tenant builders.
+	Tenant *TenantClient
+	// TenantMembership is the client for interacting with the TenantMembership builders.
+	TenantMembership *TenantMembershipClient
 }
 
 // NewClient creates a new client configured with the given options.
@@ -133,6 +139,8 @@ func (c *Client) init() {
 	c.ReportWorkflowSchedule = NewReportWorkflowScheduleClient(c.config)
 	c.RetrievalChunk = NewRetrievalChunkClient(c.config)
 	c.SubReport = NewSubReportClient(c.config)
+	c.Tenant = NewTenantClient(c.config)
+	c.TenantMembership = NewTenantMembershipClient(c.config)
 }
 
 type (
@@ -250,6 +258,8 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ReportWorkflowSchedule:       NewReportWorkflowScheduleClient(cfg),
 		RetrievalChunk:               NewRetrievalChunkClient(cfg),
 		SubReport:                    NewSubReportClient(cfg),
+		Tenant:                       NewTenantClient(cfg),
+		TenantMembership:             NewTenantMembershipClient(cfg),
 	}, nil
 }
 
@@ -294,6 +304,8 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ReportWorkflowSchedule:       NewReportWorkflowScheduleClient(cfg),
 		RetrievalChunk:               NewRetrievalChunkClient(cfg),
 		SubReport:                    NewSubReportClient(cfg),
+		Tenant:                       NewTenantClient(cfg),
+		TenantMembership:             NewTenantMembershipClient(cfg),
 	}, nil
 }
 
@@ -330,7 +342,7 @@ func (c *Client) Use(hooks ...Hook) {
 		c.FinalReport, c.GroupingPolicy, c.NotificationChannelProfile,
 		c.NotificationChannelTestProof, c.RBACAssignment, c.ReportNotificationDelivery,
 		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.RetrievalChunk,
-		c.SubReport,
+		c.SubReport, c.Tenant, c.TenantMembership,
 	} {
 		n.Use(hooks...)
 	}
@@ -347,7 +359,7 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.FinalReport, c.GroupingPolicy, c.NotificationChannelProfile,
 		c.NotificationChannelTestProof, c.RBACAssignment, c.ReportNotificationDelivery,
 		c.ReportWorkflowPolicy, c.ReportWorkflowSchedule, c.RetrievalChunk,
-		c.SubReport,
+		c.SubReport, c.Tenant, c.TenantMembership,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -406,6 +418,10 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.RetrievalChunk.mutate(ctx, m)
 	case *SubReportMutation:
 		return c.SubReport.mutate(ctx, m)
+	case *TenantMutation:
+		return c.Tenant.mutate(ctx, m)
+	case *TenantMembershipMutation:
+		return c.TenantMembership.mutate(ctx, m)
 	default:
 		return nil, fmt.Errorf("ent: unknown mutation type %T", m)
 	}
@@ -517,6 +533,22 @@ func (c *AlertEventClient) GetX(ctx context.Context, id int) *AlertEvent {
 		panic(err)
 	}
 	return obj
+}
+
+// QueryTenant queries the tenant edge of a AlertEvent.
+func (c *AlertEventClient) QueryTenant(_m *AlertEvent) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(alertevent.Table, alertevent.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, alertevent.TenantTable, alertevent.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // QueryGroups queries the groups edge of a AlertEvent.
@@ -666,6 +698,22 @@ func (c *AlertGroupClient) GetX(ctx context.Context, id int) *AlertGroup {
 		panic(err)
 	}
 	return obj
+}
+
+// QueryTenant queries the tenant edge of a AlertGroup.
+func (c *AlertGroupClient) QueryTenant(_m *AlertGroup) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(alertgroup.Table, alertgroup.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, alertgroup.TenantTable, alertgroup.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // QueryEvents queries the events edge of a AlertGroup.
@@ -833,6 +881,22 @@ func (c *AlertSourceProfileClient) GetX(ctx context.Context, id int) *AlertSourc
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a AlertSourceProfile.
+func (c *AlertSourceProfileClient) QueryTenant(_m *AlertSourceProfile) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(alertsourceprofile.Table, alertsourceprofile.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, alertsourceprofile.TenantTable, alertsourceprofile.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *AlertSourceProfileClient) Hooks() []Hook {
 	return c.hooks.AlertSourceProfile
@@ -964,6 +1028,22 @@ func (c *ChatSessionClient) GetX(ctx context.Context, id int) *ChatSession {
 		panic(err)
 	}
 	return obj
+}
+
+// QueryTenant queries the tenant edge of a ChatSession.
+func (c *ChatSessionClient) QueryTenant(_m *ChatSession) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsession.Table, chatsession.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, chatsession.TenantTable, chatsession.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // QueryTask queries the task edge of a ChatSession.
@@ -1163,6 +1243,22 @@ func (c *ChatSessionApprovalClient) GetX(ctx context.Context, id int) *ChatSessi
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a ChatSessionApproval.
+func (c *ChatSessionApprovalClient) QueryTenant(_m *ChatSessionApproval) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsessionapproval.Table, chatsessionapproval.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, chatsessionapproval.TenantTable, chatsessionapproval.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QuerySession queries the session edge of a ChatSessionApproval.
 func (c *ChatSessionApprovalClient) QuerySession(_m *ChatSessionApproval) *ChatSessionQuery {
 	query := (&ChatSessionClient{config: c.config}).Query()
@@ -1310,6 +1406,22 @@ func (c *ChatSessionSummaryClient) GetX(ctx context.Context, id int) *ChatSessio
 		panic(err)
 	}
 	return obj
+}
+
+// QueryTenant queries the tenant edge of a ChatSessionSummary.
+func (c *ChatSessionSummaryClient) QueryTenant(_m *ChatSessionSummary) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsessionsummary.Table, chatsessionsummary.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, chatsessionsummary.TenantTable, chatsessionsummary.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // QuerySession queries the session edge of a ChatSessionSummary.
@@ -1461,6 +1573,22 @@ func (c *ChatTurnClient) GetX(ctx context.Context, id int) *ChatTurn {
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a ChatTurn.
+func (c *ChatTurnClient) QueryTenant(_m *ChatTurn) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatturn.Table, chatturn.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, chatturn.TenantTable, chatturn.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QuerySession queries the session edge of a ChatTurn.
 func (c *ChatTurnClient) QuerySession(_m *ChatTurn) *ChatSessionQuery {
 	query := (&ChatSessionClient{config: c.config}).Query()
@@ -1610,6 +1738,22 @@ func (c *DiagnosisAuthTicketClient) GetX(ctx context.Context, id int) *Diagnosis
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a DiagnosisAuthTicket.
+func (c *DiagnosisAuthTicketClient) QueryTenant(_m *DiagnosisAuthTicket) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(diagnosisauthticket.Table, diagnosisauthticket.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, diagnosisauthticket.TenantTable, diagnosisauthticket.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *DiagnosisAuthTicketClient) Hooks() []Hook {
 	return c.hooks.DiagnosisAuthTicket
@@ -1741,6 +1885,22 @@ func (c *DiagnosisTaskClient) GetX(ctx context.Context, id int) *DiagnosisTask {
 		panic(err)
 	}
 	return obj
+}
+
+// QueryTenant queries the tenant edge of a DiagnosisTask.
+func (c *DiagnosisTaskClient) QueryTenant(_m *DiagnosisTask) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(diagnosistask.Table, diagnosistask.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, diagnosistask.TenantTable, diagnosistask.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // QuerySnapshot queries the snapshot edge of a DiagnosisTask.
@@ -1924,6 +2084,22 @@ func (c *DiagnosisTaskEventClient) GetX(ctx context.Context, id int) *DiagnosisT
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a DiagnosisTaskEvent.
+func (c *DiagnosisTaskEventClient) QueryTenant(_m *DiagnosisTaskEvent) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(diagnosistaskevent.Table, diagnosistaskevent.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, diagnosistaskevent.TenantTable, diagnosistaskevent.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryTask queries the task edge of a DiagnosisTaskEvent.
 func (c *DiagnosisTaskEventClient) QueryTask(_m *DiagnosisTaskEvent) *DiagnosisTaskQuery {
 	query := (&DiagnosisTaskClient{config: c.config}).Query()
@@ -2073,6 +2249,22 @@ func (c *DiagnosisToolTemplateClient) GetX(ctx context.Context, id int) *Diagnos
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a DiagnosisToolTemplate.
+func (c *DiagnosisToolTemplateClient) QueryTenant(_m *DiagnosisToolTemplate) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(diagnosistooltemplate.Table, diagnosistooltemplate.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, diagnosistooltemplate.TenantTable, diagnosistooltemplate.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *DiagnosisToolTemplateClient) Hooks() []Hook {
 	return c.hooks.DiagnosisToolTemplate
@@ -2204,6 +2396,22 @@ func (c *DirectoryDepartmentClient) GetX(ctx context.Context, id int) *Directory
 		panic(err)
 	}
 	return obj
+}
+
+// QueryTenant queries the tenant edge of a DirectoryDepartment.
+func (c *DirectoryDepartmentClient) QueryTenant(_m *DirectoryDepartment) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(directorydepartment.Table, directorydepartment.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, directorydepartment.TenantTable, directorydepartment.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // Hooks returns the client hooks.
@@ -2339,6 +2547,22 @@ func (c *DirectorySyncRunClient) GetX(ctx context.Context, id int) *DirectorySyn
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a DirectorySyncRun.
+func (c *DirectorySyncRunClient) QueryTenant(_m *DirectorySyncRun) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(directorysyncrun.Table, directorysyncrun.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, directorysyncrun.TenantTable, directorysyncrun.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *DirectorySyncRunClient) Hooks() []Hook {
 	return c.hooks.DirectorySyncRun
@@ -2472,6 +2696,22 @@ func (c *DirectoryUserClient) GetX(ctx context.Context, id int) *DirectoryUser {
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a DirectoryUser.
+func (c *DirectoryUserClient) QueryTenant(_m *DirectoryUser) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(directoryuser.Table, directoryuser.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, directoryuser.TenantTable, directoryuser.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *DirectoryUserClient) Hooks() []Hook {
 	return c.hooks.DirectoryUser
@@ -2603,6 +2843,22 @@ func (c *EvidenceSnapshotClient) GetX(ctx context.Context, id int) *EvidenceSnap
 		panic(err)
 	}
 	return obj
+}
+
+// QueryTenant queries the tenant edge of a EvidenceSnapshot.
+func (c *EvidenceSnapshotClient) QueryTenant(_m *EvidenceSnapshot) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(evidencesnapshot.Table, evidencesnapshot.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, evidencesnapshot.TenantTable, evidencesnapshot.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // QueryGroup queries the group edge of a EvidenceSnapshot.
@@ -2786,6 +3042,22 @@ func (c *FinalReportClient) GetX(ctx context.Context, id int) *FinalReport {
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a FinalReport.
+func (c *FinalReportClient) QueryTenant(_m *FinalReport) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(finalreport.Table, finalreport.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, finalreport.TenantTable, finalreport.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QuerySubReports queries the sub_reports edge of a FinalReport.
 func (c *FinalReportClient) QuerySubReports(_m *FinalReport) *SubReportQuery {
 	query := (&SubReportClient{config: c.config}).Query()
@@ -2951,6 +3223,22 @@ func (c *GroupingPolicyClient) GetX(ctx context.Context, id int) *GroupingPolicy
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a GroupingPolicy.
+func (c *GroupingPolicyClient) QueryTenant(_m *GroupingPolicy) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(groupingpolicy.Table, groupingpolicy.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, groupingpolicy.TenantTable, groupingpolicy.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *GroupingPolicyClient) Hooks() []Hook {
 	return c.hooks.GroupingPolicy
@@ -3082,6 +3370,22 @@ func (c *NotificationChannelProfileClient) GetX(ctx context.Context, id int) *No
 		panic(err)
 	}
 	return obj
+}
+
+// QueryTenant queries the tenant edge of a NotificationChannelProfile.
+func (c *NotificationChannelProfileClient) QueryTenant(_m *NotificationChannelProfile) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(notificationchannelprofile.Table, notificationchannelprofile.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, notificationchannelprofile.TenantTable, notificationchannelprofile.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // QueryTestProofs queries the test_proofs edge of a NotificationChannelProfile.
@@ -3233,6 +3537,22 @@ func (c *NotificationChannelTestProofClient) GetX(ctx context.Context, id int) *
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a NotificationChannelTestProof.
+func (c *NotificationChannelTestProofClient) QueryTenant(_m *NotificationChannelTestProof) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(notificationchanneltestproof.Table, notificationchanneltestproof.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, notificationchanneltestproof.TenantTable, notificationchanneltestproof.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QueryNotificationChannelProfile queries the notification_channel_profile edge of a NotificationChannelTestProof.
 func (c *NotificationChannelTestProofClient) QueryNotificationChannelProfile(_m *NotificationChannelTestProof) *NotificationChannelProfileQuery {
 	query := (&NotificationChannelProfileClient{config: c.config}).Query()
@@ -3382,6 +3702,22 @@ func (c *RBACAssignmentClient) GetX(ctx context.Context, id int) *RBACAssignment
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a RBACAssignment.
+func (c *RBACAssignmentClient) QueryTenant(_m *RBACAssignment) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(rbacassignment.Table, rbacassignment.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, rbacassignment.TenantTable, rbacassignment.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *RBACAssignmentClient) Hooks() []Hook {
 	return c.hooks.RBACAssignment
@@ -3513,6 +3849,22 @@ func (c *ReportNotificationDeliveryClient) GetX(ctx context.Context, id int) *Re
 		panic(err)
 	}
 	return obj
+}
+
+// QueryTenant queries the tenant edge of a ReportNotificationDelivery.
+func (c *ReportNotificationDeliveryClient) QueryTenant(_m *ReportNotificationDelivery) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(reportnotificationdelivery.Table, reportnotificationdelivery.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, reportnotificationdelivery.TenantTable, reportnotificationdelivery.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // QueryFinalReport queries the final_report edge of a ReportNotificationDelivery.
@@ -3664,6 +4016,22 @@ func (c *ReportWorkflowPolicyClient) GetX(ctx context.Context, id int) *ReportWo
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a ReportWorkflowPolicy.
+func (c *ReportWorkflowPolicyClient) QueryTenant(_m *ReportWorkflowPolicy) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(reportworkflowpolicy.Table, reportworkflowpolicy.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, reportworkflowpolicy.TenantTable, reportworkflowpolicy.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *ReportWorkflowPolicyClient) Hooks() []Hook {
 	return c.hooks.ReportWorkflowPolicy
@@ -3795,6 +4163,22 @@ func (c *ReportWorkflowScheduleClient) GetX(ctx context.Context, id int) *Report
 		panic(err)
 	}
 	return obj
+}
+
+// QueryTenant queries the tenant edge of a ReportWorkflowSchedule.
+func (c *ReportWorkflowScheduleClient) QueryTenant(_m *ReportWorkflowSchedule) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(reportworkflowschedule.Table, reportworkflowschedule.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, reportworkflowschedule.TenantTable, reportworkflowschedule.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
 }
 
 // Hooks returns the client hooks.
@@ -3930,6 +4314,22 @@ func (c *RetrievalChunkClient) GetX(ctx context.Context, id int) *RetrievalChunk
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a RetrievalChunk.
+func (c *RetrievalChunkClient) QueryTenant(_m *RetrievalChunk) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(retrievalchunk.Table, retrievalchunk.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, retrievalchunk.TenantTable, retrievalchunk.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *RetrievalChunkClient) Hooks() []Hook {
 	return c.hooks.RetrievalChunk
@@ -4063,6 +4463,22 @@ func (c *SubReportClient) GetX(ctx context.Context, id int) *SubReport {
 	return obj
 }
 
+// QueryTenant queries the tenant edge of a SubReport.
+func (c *SubReportClient) QueryTenant(_m *SubReport) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(subreport.Table, subreport.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, subreport.TenantTable, subreport.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // QuerySnapshot queries the snapshot edge of a SubReport.
 func (c *SubReportClient) QuerySnapshot(_m *SubReport) *EvidenceSnapshotQuery {
 	query := (&EvidenceSnapshotClient{config: c.config}).Query()
@@ -4120,6 +4536,304 @@ func (c *SubReportClient) mutate(ctx context.Context, m *SubReportMutation) (Val
 	}
 }
 
+// TenantClient is a client for the Tenant schema.
+type TenantClient struct {
+	config
+}
+
+// NewTenantClient returns a client for the Tenant from the given config.
+func NewTenantClient(c config) *TenantClient {
+	return &TenantClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `tenant.Hooks(f(g(h())))`.
+func (c *TenantClient) Use(hooks ...Hook) {
+	c.hooks.Tenant = append(c.hooks.Tenant, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `tenant.Intercept(f(g(h())))`.
+func (c *TenantClient) Intercept(interceptors ...Interceptor) {
+	c.inters.Tenant = append(c.inters.Tenant, interceptors...)
+}
+
+// Create returns a builder for creating a Tenant entity.
+func (c *TenantClient) Create() *TenantCreate {
+	mutation := newTenantMutation(c.config, OpCreate)
+	return &TenantCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of Tenant entities.
+func (c *TenantClient) CreateBulk(builders ...*TenantCreate) *TenantCreateBulk {
+	return &TenantCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *TenantClient) MapCreateBulk(slice any, setFunc func(*TenantCreate, int)) *TenantCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &TenantCreateBulk{err: fmt.Errorf("calling to TenantClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*TenantCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &TenantCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for Tenant.
+func (c *TenantClient) Update() *TenantUpdate {
+	mutation := newTenantMutation(c.config, OpUpdate)
+	return &TenantUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *TenantClient) UpdateOne(_m *Tenant) *TenantUpdateOne {
+	mutation := newTenantMutation(c.config, OpUpdateOne, withTenant(_m))
+	return &TenantUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *TenantClient) UpdateOneID(id int) *TenantUpdateOne {
+	mutation := newTenantMutation(c.config, OpUpdateOne, withTenantID(id))
+	return &TenantUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for Tenant.
+func (c *TenantClient) Delete() *TenantDelete {
+	mutation := newTenantMutation(c.config, OpDelete)
+	return &TenantDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *TenantClient) DeleteOne(_m *Tenant) *TenantDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *TenantClient) DeleteOneID(id int) *TenantDeleteOne {
+	builder := c.Delete().Where(tenant.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &TenantDeleteOne{builder}
+}
+
+// Query returns a query builder for Tenant.
+func (c *TenantClient) Query() *TenantQuery {
+	return &TenantQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeTenant},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a Tenant entity by its id.
+func (c *TenantClient) Get(ctx context.Context, id int) (*Tenant, error) {
+	return c.Query().Where(tenant.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *TenantClient) GetX(ctx context.Context, id int) *Tenant {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryMemberships queries the memberships edge of a Tenant.
+func (c *TenantClient) QueryMemberships(_m *Tenant) *TenantMembershipQuery {
+	query := (&TenantMembershipClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(tenant.Table, tenant.FieldID, id),
+			sqlgraph.To(tenantmembership.Table, tenantmembership.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, true, tenant.MembershipsTable, tenant.MembershipsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *TenantClient) Hooks() []Hook {
+	return c.hooks.Tenant
+}
+
+// Interceptors returns the client interceptors.
+func (c *TenantClient) Interceptors() []Interceptor {
+	return c.inters.Tenant
+}
+
+func (c *TenantClient) mutate(ctx context.Context, m *TenantMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&TenantCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&TenantUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&TenantUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&TenantDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown Tenant mutation op: %q", m.Op())
+	}
+}
+
+// TenantMembershipClient is a client for the TenantMembership schema.
+type TenantMembershipClient struct {
+	config
+}
+
+// NewTenantMembershipClient returns a client for the TenantMembership from the given config.
+func NewTenantMembershipClient(c config) *TenantMembershipClient {
+	return &TenantMembershipClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `tenantmembership.Hooks(f(g(h())))`.
+func (c *TenantMembershipClient) Use(hooks ...Hook) {
+	c.hooks.TenantMembership = append(c.hooks.TenantMembership, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `tenantmembership.Intercept(f(g(h())))`.
+func (c *TenantMembershipClient) Intercept(interceptors ...Interceptor) {
+	c.inters.TenantMembership = append(c.inters.TenantMembership, interceptors...)
+}
+
+// Create returns a builder for creating a TenantMembership entity.
+func (c *TenantMembershipClient) Create() *TenantMembershipCreate {
+	mutation := newTenantMembershipMutation(c.config, OpCreate)
+	return &TenantMembershipCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of TenantMembership entities.
+func (c *TenantMembershipClient) CreateBulk(builders ...*TenantMembershipCreate) *TenantMembershipCreateBulk {
+	return &TenantMembershipCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *TenantMembershipClient) MapCreateBulk(slice any, setFunc func(*TenantMembershipCreate, int)) *TenantMembershipCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &TenantMembershipCreateBulk{err: fmt.Errorf("calling to TenantMembershipClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*TenantMembershipCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &TenantMembershipCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for TenantMembership.
+func (c *TenantMembershipClient) Update() *TenantMembershipUpdate {
+	mutation := newTenantMembershipMutation(c.config, OpUpdate)
+	return &TenantMembershipUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *TenantMembershipClient) UpdateOne(_m *TenantMembership) *TenantMembershipUpdateOne {
+	mutation := newTenantMembershipMutation(c.config, OpUpdateOne, withTenantMembership(_m))
+	return &TenantMembershipUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *TenantMembershipClient) UpdateOneID(id int) *TenantMembershipUpdateOne {
+	mutation := newTenantMembershipMutation(c.config, OpUpdateOne, withTenantMembershipID(id))
+	return &TenantMembershipUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for TenantMembership.
+func (c *TenantMembershipClient) Delete() *TenantMembershipDelete {
+	mutation := newTenantMembershipMutation(c.config, OpDelete)
+	return &TenantMembershipDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *TenantMembershipClient) DeleteOne(_m *TenantMembership) *TenantMembershipDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *TenantMembershipClient) DeleteOneID(id int) *TenantMembershipDeleteOne {
+	builder := c.Delete().Where(tenantmembership.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &TenantMembershipDeleteOne{builder}
+}
+
+// Query returns a query builder for TenantMembership.
+func (c *TenantMembershipClient) Query() *TenantMembershipQuery {
+	return &TenantMembershipQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeTenantMembership},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a TenantMembership entity by its id.
+func (c *TenantMembershipClient) Get(ctx context.Context, id int) (*TenantMembership, error) {
+	return c.Query().Where(tenantmembership.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *TenantMembershipClient) GetX(ctx context.Context, id int) *TenantMembership {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryTenant queries the tenant edge of a TenantMembership.
+func (c *TenantMembershipClient) QueryTenant(_m *TenantMembership) *TenantQuery {
+	query := (&TenantClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(tenantmembership.Table, tenantmembership.FieldID, id),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, tenantmembership.TenantTable, tenantmembership.TenantColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *TenantMembershipClient) Hooks() []Hook {
+	return c.hooks.TenantMembership
+}
+
+// Interceptors returns the client interceptors.
+func (c *TenantMembershipClient) Interceptors() []Interceptor {
+	return c.inters.TenantMembership
+}
+
+func (c *TenantMembershipClient) mutate(ctx context.Context, m *TenantMembershipMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&TenantMembershipCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&TenantMembershipUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&TenantMembershipUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&TenantMembershipDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown TenantMembership mutation op: %q", m.Op())
+	}
+}
+
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
@@ -4129,7 +4843,7 @@ type (
 		DirectorySyncRun, DirectoryUser, EvidenceSnapshot, FinalReport, GroupingPolicy,
 		NotificationChannelProfile, NotificationChannelTestProof, RBACAssignment,
 		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
-		RetrievalChunk, SubReport []ent.Hook
+		RetrievalChunk, SubReport, Tenant, TenantMembership []ent.Hook
 	}
 	inters struct {
 		AlertEvent, AlertGroup, AlertSourceProfile, ChatSession, ChatSessionApproval,
@@ -4138,6 +4852,6 @@ type (
 		DirectorySyncRun, DirectoryUser, EvidenceSnapshot, FinalReport, GroupingPolicy,
 		NotificationChannelProfile, NotificationChannelTestProof, RBACAssignment,
 		ReportNotificationDelivery, ReportWorkflowPolicy, ReportWorkflowSchedule,
-		RetrievalChunk, SubReport []ent.Interceptor
+		RetrievalChunk, SubReport, Tenant, TenantMembership []ent.Interceptor
 	}
 )

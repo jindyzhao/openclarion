@@ -221,6 +221,11 @@ func startE2EDatabase(ctx context.Context, t *testing.T) (ports.UnitOfWorkFactor
 		cleanupContainer()
 		t.Fatalf("create ent schema: %v", err)
 	}
+	if err := repository.EnsureDefaultTenant(ctx, migrateClient); err != nil {
+		_ = migrateClient.Close()
+		cleanupContainer()
+		t.Fatalf("seed default tenant: %v", err)
+	}
 	if err := migrateClient.Close(); err != nil {
 		cleanupContainer()
 		t.Fatalf("close migration client: %v", err)

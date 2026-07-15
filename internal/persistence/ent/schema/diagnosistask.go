@@ -42,6 +42,9 @@ type DiagnosisTask struct {
 	ent.Schema
 }
 
+// Mixin of the DiagnosisTask.
+func (DiagnosisTask) Mixin() []ent.Mixin { return tenantMixins() }
+
 // Fields of the DiagnosisTask.
 func (DiagnosisTask) Fields() []ent.Field {
 	return []ent.Field{
@@ -110,7 +113,7 @@ func (DiagnosisTask) Indexes() []ent.Index {
 	return []ent.Index{
 		// Natural execution identity: (workflow_id, run_id). Temporal
 		// retries that produce a new run_id are NEW rows.
-		index.Fields("workflow_id", "run_id").
+		index.Fields("tenant_id", "workflow_id", "run_id").
 			Unique(),
 		// Business view: list every execution in a workflow chain.
 		index.Fields("workflow_id"),

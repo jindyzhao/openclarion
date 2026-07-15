@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/directoryuser"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // DirectoryUser is the model entity for the DirectoryUser schema.
@@ -18,6 +19,8 @@ type DirectoryUser struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// upstream directory provider identifier such as ops_iam
 	Provider string `json:"provider,omitempty"`
 	// stable IAM subject used for OpenClarion ownership and audit
@@ -51,8 +54,31 @@ type DirectoryUser struct {
 	// server-side row creation timestamp
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// server-side last-mutation timestamp
-	UpdatedAt    time.Time `json:"updated_at,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the DirectoryUserQuery when eager-loading is set.
+	Edges        DirectoryUserEdges `json:"edges"`
 	selectValues sql.SelectValues
+}
+
+// DirectoryUserEdges holds the relations/edges for other nodes in the graph.
+type DirectoryUserEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
+	// loadedTypes holds the information for reporting if a
+	// type was loaded (or requested) in eager-loading or not.
+	loadedTypes [1]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e DirectoryUserEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -64,7 +90,7 @@ func (*DirectoryUser) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case directoryuser.FieldActive:
 			values[i] = new(sql.NullBool)
-		case directoryuser.FieldID:
+		case directoryuser.FieldID, directoryuser.FieldTenantID:
 			values[i] = new(sql.NullInt64)
 		case directoryuser.FieldProvider, directoryuser.FieldSubject, directoryuser.FieldExternalID, directoryuser.FieldUsername, directoryuser.FieldDisplayName, directoryuser.FieldEmail, directoryuser.FieldJobTitle, directoryuser.FieldDepartment, directoryuser.FieldSection, directoryuser.FieldDepartmentPath:
 			values[i] = new(sql.NullString)
@@ -91,6 +117,12 @@ func (_m *DirectoryUser) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case directoryuser.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case directoryuser.FieldProvider:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field provider", values[i])
@@ -211,6 +243,11 @@ func (_m *DirectoryUser) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the DirectoryUser entity.
+func (_m *DirectoryUser) QueryTenant() *TenantQuery {
+	return NewDirectoryUserClient(_m.config).QueryTenant(_m)
+}
+
 // Update returns a builder for updating this DirectoryUser.
 // Note that you need to call DirectoryUser.Unwrap() before calling this method if this DirectoryUser
 // was returned from a transaction, and the transaction was committed or rolled back.
@@ -234,6 +271,9 @@ func (_m *DirectoryUser) String() string {
 	var builder strings.Builder
 	builder.WriteString("DirectoryUser(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("provider=")
 	builder.WriteString(_m.Provider)
 	builder.WriteString(", ")

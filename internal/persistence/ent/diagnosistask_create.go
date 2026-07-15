@@ -15,6 +15,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistask"
 	"github.com/openclarion/openclarion/internal/persistence/ent/diagnosistaskevent"
 	"github.com/openclarion/openclarion/internal/persistence/ent/evidencesnapshot"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // DiagnosisTaskCreate is the builder for creating a DiagnosisTask entity.
@@ -23,6 +24,12 @@ type DiagnosisTaskCreate struct {
 	mutation *DiagnosisTaskMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *DiagnosisTaskCreate) SetTenantID(v int) *DiagnosisTaskCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetEvidenceSnapshotID sets the "evidence_snapshot_id" field.
@@ -127,6 +134,11 @@ func (_c *DiagnosisTaskCreate) SetNillableUpdatedAt(v *time.Time) *DiagnosisTask
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *DiagnosisTaskCreate) SetTenant(v *Tenant) *DiagnosisTaskCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // SetSnapshotID sets the "snapshot" edge to the EvidenceSnapshot entity by ID.
 func (_c *DiagnosisTaskCreate) SetSnapshotID(id int) *DiagnosisTaskCreate {
 	_c.mutation.SetSnapshotID(id)
@@ -219,6 +231,14 @@ func (_c *DiagnosisTaskCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *DiagnosisTaskCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "DiagnosisTask.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := diagnosistask.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "DiagnosisTask.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.EvidenceSnapshotID(); !ok {
 		return &ValidationError{Name: "evidence_snapshot_id", err: errors.New(`ent: missing required field "DiagnosisTask.evidence_snapshot_id"`)}
 	}
@@ -256,6 +276,9 @@ func (_c *DiagnosisTaskCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "DiagnosisTask.updated_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "DiagnosisTask.tenant"`)}
 	}
 	if len(_c.mutation.SnapshotIDs()) == 0 {
 		return &ValidationError{Name: "snapshot", err: errors.New(`ent: missing required edge "DiagnosisTask.snapshot"`)}
@@ -319,6 +342,23 @@ func (_c *DiagnosisTaskCreate) createSpec() (*DiagnosisTask, *sqlgraph.CreateSpe
 		_spec.SetField(diagnosistask.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   diagnosistask.TenantTable,
+			Columns: []string{diagnosistask.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.SnapshotIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -375,7 +415,7 @@ func (_c *DiagnosisTaskCreate) createSpec() (*DiagnosisTask, *sqlgraph.CreateSpe
 // of the `INSERT` statement. For example:
 //
 //	client.DiagnosisTask.Create().
-//		SetEvidenceSnapshotID(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -384,7 +424,7 @@ func (_c *DiagnosisTaskCreate) createSpec() (*DiagnosisTask, *sqlgraph.CreateSpe
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.DiagnosisTaskUpsert) {
-//			SetEvidenceSnapshotID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *DiagnosisTaskCreate) OnConflict(opts ...sql.ConflictOption) *DiagnosisTaskUpsertOne {
@@ -509,6 +549,9 @@ func (u *DiagnosisTaskUpsert) UpdateUpdatedAt() *DiagnosisTaskUpsert {
 func (u *DiagnosisTaskUpsertOne) UpdateNewValues() *DiagnosisTaskUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(diagnosistask.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.EvidenceSnapshotID(); exists {
 			s.SetIgnore(diagnosistask.FieldEvidenceSnapshotID)
 		}
@@ -778,7 +821,7 @@ func (_c *DiagnosisTaskCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.DiagnosisTaskUpsert) {
-//			SetEvidenceSnapshotID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *DiagnosisTaskCreateBulk) OnConflict(opts ...sql.ConflictOption) *DiagnosisTaskUpsertBulk {
@@ -819,6 +862,9 @@ func (u *DiagnosisTaskUpsertBulk) UpdateNewValues() *DiagnosisTaskUpsertBulk {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(diagnosistask.FieldTenantID)
+			}
 			if _, exists := b.mutation.EvidenceSnapshotID(); exists {
 				s.SetIgnore(diagnosistask.FieldEvidenceSnapshotID)
 			}

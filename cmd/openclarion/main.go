@@ -50,6 +50,7 @@ import (
 	metricsprometheus "github.com/openclarion/openclarion/internal/providers/metrics/prometheus"
 	secretenvmap "github.com/openclarion/openclarion/internal/providers/secrets/envmap"
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	transporthttp "github.com/openclarion/openclarion/internal/transport/http"
 	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
@@ -72,6 +73,7 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
 	"github.com/openclarion/openclarion/internal/usecases/reporttrigger"
 	"github.com/openclarion/openclarion/internal/usecases/retrieval"
+	"github.com/openclarion/openclarion/internal/usecases/tenantops"
 )
 
 type getenvFunc func(string) string
@@ -287,8 +289,19 @@ func run(ctx context.Context, logger *slog.Logger) error {
 			logger.Warn("close ent client", "error", cerr)
 		}
 	}()
+	if err := repository.EnsureDefaultTenant(ctx, client); err != nil {
+		return fmt.Errorf("verify default tenant: %w", err)
+	}
 
 	uowFactory := repository.NewFactory(client)
+	tenantRegistry, err := repository.NewTenantRegistry(client)
+	if err != nil {
+		return fmt.Errorf("configure tenant registry: %w", err)
+	}
+	tenantOperations, err := tenantops.NewService(tenantRegistry)
+	if err != nil {
+		return fmt.Errorf("configure tenant operations: %w", err)
+	}
 
 	traceConfig, err := observabilitytracing.ConfigFromEnv(os.Getenv)
 	if err != nil {
@@ -317,9 +330,10 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	tc, err := temporalclient.Dial(temporalclient.Options{
-		HostPort:     temporalAddr,
-		Logger:       temporallog.NewStructuredLogger(logger),
-		Interceptors: temporalInterceptors,
+		HostPort:           temporalAddr,
+		Logger:             temporallog.NewStructuredLogger(logger),
+		Interceptors:       temporalInterceptors,
+		ContextPropagators: temporalpkg.TenantContextPropagators(),
 	})
 	if err != nil {
 		return fmt.Errorf("dial temporal: %w", err)
@@ -372,7 +386,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		return fmt.Errorf("start temporal worker: %w", err)
 	}
 	defer w.Stop()
-	reconcileResult, err := reconcileReportWorkflowSchedules(ctx, uowFactory, scheduleRegistrar)
+	reconcileResult, err := reconcileAllTenantReportWorkflowSchedules(ctx, tenantRegistry, uowFactory, scheduleRegistrar)
 	if err != nil {
 		return fmt.Errorf("reconcile report workflow schedules: %w", err)
 	}
@@ -397,6 +411,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	serverOptions = append(serverOptions, transporthttp.WithTenantOperations(tenantOperations))
 	periodicDirectorySyncer, periodicDirectorySyncInterval, periodicDirectorySyncConfigured, err := periodicDirectorySyncerFromEnv(os.Getenv, uowFactory, httpTracing)
 	if err != nil {
 		return err
@@ -1476,10 +1491,54 @@ type reportWorkflowScheduleReconciler interface {
 	Reconcile(context.Context, []domain.ReportWorkflowSchedule) (temporalpkg.ReportWorkflowScheduleReconcileResult, error)
 }
 
-func reconcileReportWorkflowSchedules(
+func reconcileAllTenantReportWorkflowSchedules(
+	ctx context.Context,
+	registry ports.TenantRegistry,
+	uowFactory ports.UnitOfWorkFactory,
+	reconciler reportWorkflowScheduleReconciler,
+) (temporalpkg.ReportWorkflowScheduleReconcileResult, error) {
+	if registry == nil {
+		return temporalpkg.ReportWorkflowScheduleReconcileResult{}, fmt.Errorf("report workflow schedule reconciliation requires a tenant registry: %w", domain.ErrInvariantViolation)
+	}
+	tenantRows, err := registry.ListTenants(ctx, 501)
+	if err != nil {
+		return temporalpkg.ReportWorkflowScheduleReconcileResult{}, fmt.Errorf("list tenants for schedule reconciliation: %w", err)
+	}
+	if len(tenantRows) > 500 {
+		return temporalpkg.ReportWorkflowScheduleReconcileResult{}, fmt.Errorf("report workflow schedule reconciliation exceeds 500 tenants: %w", domain.ErrInvariantViolation)
+	}
+
+	var total temporalpkg.ReportWorkflowScheduleReconcileResult
+	for _, tenant := range tenantRows {
+		identity, identityErr := tenancy.NewIdentity(tenant.ID, tenant.Key)
+		if identityErr != nil {
+			return total, fmt.Errorf("bind schedule reconciliation tenant %q: %w", tenant.Key, identityErr)
+		}
+		tenantCtx, tenantErr := tenancy.WithTenant(ctx, identity)
+		if tenantErr != nil {
+			return total, fmt.Errorf("bind schedule reconciliation tenant %q: %w", tenant.Key, tenantErr)
+		}
+		result, reconcileErr := reconcileReportWorkflowSchedulesForTenant(
+			tenantCtx,
+			uowFactory,
+			reconciler,
+			tenant.Status == domain.TenantStatusActive,
+		)
+		if reconcileErr != nil {
+			return total, fmt.Errorf("reconcile schedules for tenant %q: %w", tenant.Key, reconcileErr)
+		}
+		total.Total += result.Total
+		total.Created += result.Created
+		total.Updated += result.Updated
+	}
+	return total, nil
+}
+
+func reconcileReportWorkflowSchedulesForTenant(
 	ctx context.Context,
 	uowFactory ports.UnitOfWorkFactory,
 	reconciler reportWorkflowScheduleReconciler,
+	tenantActive bool,
 ) (temporalpkg.ReportWorkflowScheduleReconcileResult, error) {
 	if uowFactory == nil {
 		return temporalpkg.ReportWorkflowScheduleReconcileResult{}, fmt.Errorf("report workflow schedule reconciliation requires a unit of work factory: %w", domain.ErrInvariantViolation)
@@ -1503,6 +1562,11 @@ func reconcileReportWorkflowSchedules(
 	}
 	if len(schedules) > limit {
 		return temporalpkg.ReportWorkflowScheduleReconcileResult{}, fmt.Errorf("report workflow schedule reconciliation exceeds %d schedules: %w", limit, domain.ErrInvariantViolation)
+	}
+	if !tenantActive {
+		for i := range schedules {
+			schedules[i].Enabled = false
+		}
 	}
 	return reconciler.Reconcile(ctx, schedules)
 }
@@ -2528,9 +2592,10 @@ func runReportReplayCLI(
 		return err
 	}
 	tc, err := temporalclient.Dial(temporalclient.Options{
-		HostPort:     temporalAddr,
-		Logger:       temporallog.NewStructuredLogger(logger),
-		Interceptors: temporalInterceptors,
+		HostPort:           temporalAddr,
+		Logger:             temporallog.NewStructuredLogger(logger),
+		Interceptors:       temporalInterceptors,
+		ContextPropagators: temporalpkg.TenantContextPropagators(),
 	})
 	if err != nil {
 		return fmt.Errorf("dial temporal: %w", err)
@@ -2617,9 +2682,10 @@ func runReportPolicyReplayCLI(
 		return err
 	}
 	tc, err := temporalclient.Dial(temporalclient.Options{
-		HostPort:     temporalHostPortFrom(getenv),
-		Logger:       temporallog.NewStructuredLogger(logger),
-		Interceptors: temporalInterceptors,
+		HostPort:           temporalHostPortFrom(getenv),
+		Logger:             temporallog.NewStructuredLogger(logger),
+		Interceptors:       temporalInterceptors,
+		ContextPropagators: temporalpkg.TenantContextPropagators(),
 	})
 	if err != nil {
 		return fmt.Errorf("dial temporal: %w", err)
@@ -2741,9 +2807,10 @@ func runReportScheduleLiveSmokeCLI(
 		return err
 	}
 	tc, err := temporalclient.Dial(temporalclient.Options{
-		HostPort:     temporalHostPortFrom(getenv),
-		Logger:       temporallog.NewStructuredLogger(logger),
-		Interceptors: temporalInterceptors,
+		HostPort:           temporalHostPortFrom(getenv),
+		Logger:             temporallog.NewStructuredLogger(logger),
+		Interceptors:       temporalInterceptors,
+		ContextPropagators: temporalpkg.TenantContextPropagators(),
 	})
 	if err != nil {
 		return fmt.Errorf("dial temporal: %w", err)
@@ -3390,9 +3457,10 @@ func runWorkflowBacklogCLI(
 		return err
 	}
 	tc, err := temporalclient.Dial(temporalclient.Options{
-		HostPort:     temporalHostPortFrom(getenv),
-		Logger:       temporallog.NewStructuredLogger(logger),
-		Interceptors: temporalInterceptors,
+		HostPort:           temporalHostPortFrom(getenv),
+		Logger:             temporallog.NewStructuredLogger(logger),
+		Interceptors:       temporalInterceptors,
+		ContextPropagators: temporalpkg.TenantContextPropagators(),
 	})
 	if err != nil {
 		return fmt.Errorf("dial temporal: %w", err)
@@ -4025,9 +4093,10 @@ func runDiagnosisRoomCloseCLI(
 		return err
 	}
 	tc, err := temporalclient.Dial(temporalclient.Options{
-		HostPort:     temporalAddr,
-		Logger:       temporallog.NewStructuredLogger(logger),
-		Interceptors: temporalInterceptors,
+		HostPort:           temporalAddr,
+		Logger:             temporallog.NewStructuredLogger(logger),
+		Interceptors:       temporalInterceptors,
+		ContextPropagators: temporalpkg.TenantContextPropagators(),
 	})
 	if err != nil {
 		return fmt.Errorf("dial temporal: %w", err)

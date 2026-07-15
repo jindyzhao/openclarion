@@ -211,6 +211,9 @@ func (_u *EvidenceSnapshotUpdate) check() error {
 			return &ValidationError{Name: "created_by_workflow", err: fmt.Errorf(`ent: validator failed for field "EvidenceSnapshot.created_by_workflow": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "EvidenceSnapshot.tenant"`)
+	}
 	if _u.mutation.GroupCleared() && len(_u.mutation.GroupIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "EvidenceSnapshot.group"`)
 	}
@@ -559,6 +562,9 @@ func (_u *EvidenceSnapshotUpdateOne) check() error {
 		if err := evidencesnapshot.CreatedByWorkflowValidator(v); err != nil {
 			return &ValidationError{Name: "created_by_workflow", err: fmt.Errorf(`ent: validator failed for field "EvidenceSnapshot.created_by_workflow": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "EvidenceSnapshot.tenant"`)
 	}
 	if _u.mutation.GroupCleared() && len(_u.mutation.GroupIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "EvidenceSnapshot.group"`)

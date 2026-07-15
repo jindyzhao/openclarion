@@ -8,12 +8,14 @@ import (
 	"math"
 
 	"entgo.io/ent"
+	"entgo.io/ent/dialect"
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionsummary"
 	"github.com/openclarion/openclarion/internal/persistence/ent/predicate"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // ChatSessionSummaryQuery is the builder for querying ChatSessionSummary entities.
@@ -23,7 +25,9 @@ type ChatSessionSummaryQuery struct {
 	order       []chatsessionsummary.OrderOption
 	inters      []Interceptor
 	predicates  []predicate.ChatSessionSummary
+	withTenant  *TenantQuery
 	withSession *ChatSessionQuery
+	modifiers   []func(*sql.Selector)
 	// intermediate query (i.e. traversal path).
 	sql  *sql.Selector
 	path func(context.Context) (*sql.Selector, error)
@@ -58,6 +62,28 @@ func (_q *ChatSessionSummaryQuery) Unique(unique bool) *ChatSessionSummaryQuery 
 func (_q *ChatSessionSummaryQuery) Order(o ...chatsessionsummary.OrderOption) *ChatSessionSummaryQuery {
 	_q.order = append(_q.order, o...)
 	return _q
+}
+
+// QueryTenant chains the current query on the "tenant" edge.
+func (_q *ChatSessionSummaryQuery) QueryTenant() *TenantQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	query.path = func(ctx context.Context) (fromU *sql.Selector, err error) {
+		if err := _q.prepareQuery(ctx); err != nil {
+			return nil, err
+		}
+		selector := _q.sqlQuery(ctx)
+		if err := selector.Err(); err != nil {
+			return nil, err
+		}
+		step := sqlgraph.NewStep(
+			sqlgraph.From(chatsessionsummary.Table, chatsessionsummary.FieldID, selector),
+			sqlgraph.To(tenant.Table, tenant.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, chatsessionsummary.TenantTable, chatsessionsummary.TenantColumn),
+		)
+		fromU = sqlgraph.SetNeighbors(_q.driver.Dialect(), step)
+		return fromU, nil
+	}
+	return query
 }
 
 // QuerySession chains the current query on the "session" edge.
@@ -274,11 +300,23 @@ func (_q *ChatSessionSummaryQuery) Clone() *ChatSessionSummaryQuery {
 		order:       append([]chatsessionsummary.OrderOption{}, _q.order...),
 		inters:      append([]Interceptor{}, _q.inters...),
 		predicates:  append([]predicate.ChatSessionSummary{}, _q.predicates...),
+		withTenant:  _q.withTenant.Clone(),
 		withSession: _q.withSession.Clone(),
 		// clone intermediate query.
 		sql:  _q.sql.Clone(),
 		path: _q.path,
 	}
+}
+
+// WithTenant tells the query-builder to eager-load the nodes that are connected to
+// the "tenant" edge. The optional arguments are used to configure the query builder of the edge.
+func (_q *ChatSessionSummaryQuery) WithTenant(opts ...func(*TenantQuery)) *ChatSessionSummaryQuery {
+	query := (&TenantClient{config: _q.config}).Query()
+	for _, opt := range opts {
+		opt(query)
+	}
+	_q.withTenant = query
+	return _q
 }
 
 // WithSession tells the query-builder to eager-load the nodes that are connected to
@@ -298,12 +336,12 @@ func (_q *ChatSessionSummaryQuery) WithSession(opts ...func(*ChatSessionQuery)) 
 // Example:
 //
 //	var v []struct {
-//		ChatSessionID int `json:"chat_session_id,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //		Count int `json:"count,omitempty"`
 //	}
 //
 //	client.ChatSessionSummary.Query().
-//		GroupBy(chatsessionsummary.FieldChatSessionID).
+//		GroupBy(chatsessionsummary.FieldTenantID).
 //		Aggregate(ent.Count()).
 //		Scan(ctx, &v)
 func (_q *ChatSessionSummaryQuery) GroupBy(field string, fields ...string) *ChatSessionSummaryGroupBy {
@@ -321,11 +359,11 @@ func (_q *ChatSessionSummaryQuery) GroupBy(field string, fields ...string) *Chat
 // Example:
 //
 //	var v []struct {
-//		ChatSessionID int `json:"chat_session_id,omitempty"`
+//		TenantID int `json:"tenant_id,omitempty"`
 //	}
 //
 //	client.ChatSessionSummary.Query().
-//		Select(chatsessionsummary.FieldChatSessionID).
+//		Select(chatsessionsummary.FieldTenantID).
 //		Scan(ctx, &v)
 func (_q *ChatSessionSummaryQuery) Select(fields ...string) *ChatSessionSummarySelect {
 	_q.ctx.Fields = append(_q.ctx.Fields, fields...)
@@ -370,7 +408,8 @@ func (_q *ChatSessionSummaryQuery) sqlAll(ctx context.Context, hooks ...queryHoo
 	var (
 		nodes       = []*ChatSessionSummary{}
 		_spec       = _q.querySpec()
-		loadedTypes = [1]bool{
+		loadedTypes = [2]bool{
+			_q.withTenant != nil,
 			_q.withSession != nil,
 		}
 	)
@@ -383,6 +422,9 @@ func (_q *ChatSessionSummaryQuery) sqlAll(ctx context.Context, hooks ...queryHoo
 		node.Edges.loadedTypes = loadedTypes
 		return node.assignValues(columns, values)
 	}
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
+	}
 	for i := range hooks {
 		hooks[i](ctx, _spec)
 	}
@@ -391,6 +433,12 @@ func (_q *ChatSessionSummaryQuery) sqlAll(ctx context.Context, hooks ...queryHoo
 	}
 	if len(nodes) == 0 {
 		return nodes, nil
+	}
+	if query := _q.withTenant; query != nil {
+		if err := _q.loadTenant(ctx, query, nodes, nil,
+			func(n *ChatSessionSummary, e *Tenant) { n.Edges.Tenant = e }); err != nil {
+			return nil, err
+		}
 	}
 	if query := _q.withSession; query != nil {
 		if err := _q.loadSession(ctx, query, nodes, nil,
@@ -401,6 +449,35 @@ func (_q *ChatSessionSummaryQuery) sqlAll(ctx context.Context, hooks ...queryHoo
 	return nodes, nil
 }
 
+func (_q *ChatSessionSummaryQuery) loadTenant(ctx context.Context, query *TenantQuery, nodes []*ChatSessionSummary, init func(*ChatSessionSummary), assign func(*ChatSessionSummary, *Tenant)) error {
+	ids := make([]int, 0, len(nodes))
+	nodeids := make(map[int][]*ChatSessionSummary)
+	for i := range nodes {
+		fk := nodes[i].TenantID
+		if _, ok := nodeids[fk]; !ok {
+			ids = append(ids, fk)
+		}
+		nodeids[fk] = append(nodeids[fk], nodes[i])
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	query.Where(tenant.IDIn(ids...))
+	neighbors, err := query.All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, n := range neighbors {
+		nodes, ok := nodeids[n.ID]
+		if !ok {
+			return fmt.Errorf(`unexpected foreign-key "tenant_id" returned %v`, n.ID)
+		}
+		for i := range nodes {
+			assign(nodes[i], n)
+		}
+	}
+	return nil
+}
 func (_q *ChatSessionSummaryQuery) loadSession(ctx context.Context, query *ChatSessionQuery, nodes []*ChatSessionSummary, init func(*ChatSessionSummary), assign func(*ChatSessionSummary, *ChatSession)) error {
 	ids := make([]int, 0, len(nodes))
 	nodeids := make(map[int][]*ChatSessionSummary)
@@ -433,6 +510,9 @@ func (_q *ChatSessionSummaryQuery) loadSession(ctx context.Context, query *ChatS
 
 func (_q *ChatSessionSummaryQuery) sqlCount(ctx context.Context) (int, error) {
 	_spec := _q.querySpec()
+	if len(_q.modifiers) > 0 {
+		_spec.Modifiers = _q.modifiers
+	}
 	_spec.Node.Columns = _q.ctx.Fields
 	if len(_q.ctx.Fields) > 0 {
 		_spec.Unique = _q.ctx.Unique != nil && *_q.ctx.Unique
@@ -455,6 +535,9 @@ func (_q *ChatSessionSummaryQuery) querySpec() *sqlgraph.QuerySpec {
 			if fields[i] != chatsessionsummary.FieldID {
 				_spec.Node.Columns = append(_spec.Node.Columns, fields[i])
 			}
+		}
+		if _q.withTenant != nil {
+			_spec.Node.AddColumnOnce(chatsessionsummary.FieldTenantID)
 		}
 		if _q.withSession != nil {
 			_spec.Node.AddColumnOnce(chatsessionsummary.FieldChatSessionID)
@@ -498,6 +581,9 @@ func (_q *ChatSessionSummaryQuery) sqlQuery(ctx context.Context) *sql.Selector {
 	if _q.ctx.Unique != nil && *_q.ctx.Unique {
 		selector.Distinct()
 	}
+	for _, m := range _q.modifiers {
+		m(selector)
+	}
 	for _, p := range _q.predicates {
 		p(selector)
 	}
@@ -513,6 +599,32 @@ func (_q *ChatSessionSummaryQuery) sqlQuery(ctx context.Context) *sql.Selector {
 		selector.Limit(*limit)
 	}
 	return selector
+}
+
+// ForUpdate locks the selected rows against concurrent updates, and prevent them from being
+// updated, deleted or "selected ... for update" by other sessions, until the transaction is
+// either committed or rolled-back.
+func (_q *ChatSessionSummaryQuery) ForUpdate(opts ...sql.LockOption) *ChatSessionSummaryQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForUpdate(opts...)
+	})
+	return _q
+}
+
+// ForShare behaves similarly to ForUpdate, except that it acquires a shared mode lock
+// on any rows that are read. Other sessions can read the rows, but cannot modify them
+// until your transaction commits.
+func (_q *ChatSessionSummaryQuery) ForShare(opts ...sql.LockOption) *ChatSessionSummaryQuery {
+	if _q.driver.Dialect() == dialect.Postgres {
+		_q.Unique(false)
+	}
+	_q.modifiers = append(_q.modifiers, func(s *sql.Selector) {
+		s.ForShare(opts...)
+	})
+	return _q
 }
 
 // ChatSessionSummaryGroupBy is the group-by builder for ChatSessionSummary entities.

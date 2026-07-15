@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsession"
 	"github.com/openclarion/openclarion/internal/persistence/ent/chatsessionapproval"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // ChatSessionApproval is the model entity for the ChatSessionApproval schema.
@@ -18,6 +19,8 @@ type ChatSessionApproval struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// FK to chat_sessions.id
 	ChatSessionID int `json:"chat_session_id,omitempty"`
 	// lowercase SHA-256 of assistant message id, sequence, and content
@@ -40,11 +43,24 @@ type ChatSessionApproval struct {
 
 // ChatSessionApprovalEdges holds the relations/edges for other nodes in the graph.
 type ChatSessionApprovalEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
 	// Session holds the value of the session edge.
 	Session *ChatSession `json:"session,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [1]bool
+	loadedTypes [2]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e ChatSessionApprovalEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // SessionOrErr returns the Session value or an error if the edge
@@ -52,7 +68,7 @@ type ChatSessionApprovalEdges struct {
 func (e ChatSessionApprovalEdges) SessionOrErr() (*ChatSession, error) {
 	if e.Session != nil {
 		return e.Session, nil
-	} else if e.loadedTypes[0] {
+	} else if e.loadedTypes[1] {
 		return nil, &NotFoundError{label: chatsession.Label}
 	}
 	return nil, &NotLoadedError{edge: "session"}
@@ -63,7 +79,7 @@ func (*ChatSessionApproval) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
-		case chatsessionapproval.FieldID, chatsessionapproval.FieldChatSessionID:
+		case chatsessionapproval.FieldID, chatsessionapproval.FieldTenantID, chatsessionapproval.FieldChatSessionID:
 			values[i] = new(sql.NullInt64)
 		case chatsessionapproval.FieldConclusionDigest, chatsessionapproval.FieldActorSubject, chatsessionapproval.FieldAuthority, chatsessionapproval.FieldReason:
 			values[i] = new(sql.NullString)
@@ -90,6 +106,12 @@ func (_m *ChatSessionApproval) assignValues(columns []string, values []any) erro
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case chatsessionapproval.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case chatsessionapproval.FieldChatSessionID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field chat_session_id", values[i])
@@ -145,6 +167,11 @@ func (_m *ChatSessionApproval) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the ChatSessionApproval entity.
+func (_m *ChatSessionApproval) QueryTenant() *TenantQuery {
+	return NewChatSessionApprovalClient(_m.config).QueryTenant(_m)
+}
+
 // QuerySession queries the "session" edge of the ChatSessionApproval entity.
 func (_m *ChatSessionApproval) QuerySession() *ChatSessionQuery {
 	return NewChatSessionApprovalClient(_m.config).QuerySession(_m)
@@ -173,6 +200,9 @@ func (_m *ChatSessionApproval) String() string {
 	var builder strings.Builder
 	builder.WriteString("ChatSessionApproval(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("chat_session_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ChatSessionID))
 	builder.WriteString(", ")

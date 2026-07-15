@@ -11,6 +11,7 @@ import (
 	"entgo.io/ent"
 	"entgo.io/ent/dialect/sql"
 	"github.com/openclarion/openclarion/internal/persistence/ent/retrievalchunk"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 	pgvector "github.com/pgvector/pgvector-go"
 )
 
@@ -19,6 +20,8 @@ type RetrievalChunk struct {
 	config `json:"-"`
 	// ID of the ent.
 	ID int `json:"id,omitempty"`
+	// tenant owning this row; assigned from authenticated operation context
+	TenantID int `json:"tenant_id,omitempty"`
 	// SourceKind holds the value of the "source_kind" field.
 	SourceKind string `json:"source_kind,omitempty"`
 	// SourceID holds the value of the "source_id" field.
@@ -38,8 +41,31 @@ type RetrievalChunk struct {
 	// Metadata holds the value of the "metadata" field.
 	Metadata json.RawMessage `json:"metadata,omitempty"`
 	// CreatedAt holds the value of the "created_at" field.
-	CreatedAt    time.Time `json:"created_at,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
+	// Edges holds the relations/edges for other nodes in the graph.
+	// The values are being populated by the RetrievalChunkQuery when eager-loading is set.
+	Edges        RetrievalChunkEdges `json:"edges"`
 	selectValues sql.SelectValues
+}
+
+// RetrievalChunkEdges holds the relations/edges for other nodes in the graph.
+type RetrievalChunkEdges struct {
+	// Tenant holds the value of the tenant edge.
+	Tenant *Tenant `json:"tenant,omitempty"`
+	// loadedTypes holds the information for reporting if a
+	// type was loaded (or requested) in eager-loading or not.
+	loadedTypes [1]bool
+}
+
+// TenantOrErr returns the Tenant value or an error if the edge
+// was not loaded in eager-loading, or loaded but was not found.
+func (e RetrievalChunkEdges) TenantOrErr() (*Tenant, error) {
+	if e.Tenant != nil {
+		return e.Tenant, nil
+	} else if e.loadedTypes[0] {
+		return nil, &NotFoundError{label: tenant.Label}
+	}
+	return nil, &NotLoadedError{edge: "tenant"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -51,7 +77,7 @@ func (*RetrievalChunk) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case retrievalchunk.FieldEmbedding:
 			values[i] = new(pgvector.Vector)
-		case retrievalchunk.FieldID, retrievalchunk.FieldSourceID, retrievalchunk.FieldEmbeddingDimensions:
+		case retrievalchunk.FieldID, retrievalchunk.FieldTenantID, retrievalchunk.FieldSourceID, retrievalchunk.FieldEmbeddingDimensions:
 			values[i] = new(sql.NullInt64)
 		case retrievalchunk.FieldSourceKind, retrievalchunk.FieldSourceRef, retrievalchunk.FieldContent, retrievalchunk.FieldContentDigest, retrievalchunk.FieldEmbeddingModel:
 			values[i] = new(sql.NullString)
@@ -78,6 +104,12 @@ func (_m *RetrievalChunk) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field id", value)
 			}
 			_m.ID = int(value.Int64)
+		case retrievalchunk.FieldTenantID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tenant_id", values[i])
+			} else if value.Valid {
+				_m.TenantID = int(value.Int64)
+			}
 		case retrievalchunk.FieldSourceKind:
 			if value, ok := values[i].(*sql.NullString); !ok {
 				return fmt.Errorf("unexpected type %T for field source_kind", values[i])
@@ -153,6 +185,11 @@ func (_m *RetrievalChunk) Value(name string) (ent.Value, error) {
 	return _m.selectValues.Get(name)
 }
 
+// QueryTenant queries the "tenant" edge of the RetrievalChunk entity.
+func (_m *RetrievalChunk) QueryTenant() *TenantQuery {
+	return NewRetrievalChunkClient(_m.config).QueryTenant(_m)
+}
+
 // Update returns a builder for updating this RetrievalChunk.
 // Note that you need to call RetrievalChunk.Unwrap() before calling this method if this RetrievalChunk
 // was returned from a transaction, and the transaction was committed or rolled back.
@@ -176,6 +213,9 @@ func (_m *RetrievalChunk) String() string {
 	var builder strings.Builder
 	builder.WriteString("RetrievalChunk(")
 	builder.WriteString(fmt.Sprintf("id=%v, ", _m.ID))
+	builder.WriteString("tenant_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TenantID))
+	builder.WriteString(", ")
 	builder.WriteString("source_kind=")
 	builder.WriteString(_m.SourceKind)
 	builder.WriteString(", ")

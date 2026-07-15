@@ -271,6 +271,7 @@ func TestConfigRepo_ListGroupingPoliciesOrdersByUpdatedAt(t *testing.T) {
 
 func TestConfigRepo_SaveFindUpdateAndListReportWorkflowPolicy(t *testing.T) {
 	resetDB(t)
+	seedReportWorkflowPolicyDependencies(t)
 	ctx := context.Background()
 	var saved domain.ReportWorkflowPolicy
 
@@ -335,6 +336,7 @@ func TestConfigRepo_SaveFindUpdateAndListReportWorkflowPolicy(t *testing.T) {
 
 func TestConfigRepo_ReportWorkflowPolicyUniqueName(t *testing.T) {
 	resetDB(t)
+	seedReportWorkflowPolicyDependencies(t)
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
 		if _, err := uow.Config().SaveReportWorkflowPolicy(ctx, mustNewReportWorkflowPolicy(t, "Default report workflow")); err != nil {
@@ -382,6 +384,7 @@ func TestConfigRepo_ReportWorkflowPolicyNotFoundAndInvalidInput(t *testing.T) {
 
 func TestConfigRepo_ListReportWorkflowPoliciesOrdersByUpdatedAt(t *testing.T) {
 	resetDB(t)
+	seedReportWorkflowPolicyDependencies(t)
 	base := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
@@ -412,6 +415,7 @@ func TestConfigRepo_ListReportWorkflowPoliciesOrdersByUpdatedAt(t *testing.T) {
 
 func TestConfigRepo_SaveFindUpdateAndListReportWorkflowSchedule(t *testing.T) {
 	resetDB(t)
+	seedReportWorkflowScheduleDependencies(t)
 	ctx := context.Background()
 	var saved domain.ReportWorkflowSchedule
 
@@ -498,6 +502,7 @@ func TestConfigRepo_SaveFindUpdateAndListReportWorkflowSchedule(t *testing.T) {
 
 func TestConfigRepo_ReportWorkflowScheduleUniqueNameAndTemporalID(t *testing.T) {
 	resetDB(t)
+	seedReportWorkflowScheduleDependencies(t)
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
 		if _, err := uow.Config().SaveReportWorkflowSchedule(ctx, mustNewReportWorkflowSchedule(t, "Hourly reports")); err != nil {
@@ -555,6 +560,7 @@ func TestConfigRepo_ReportWorkflowScheduleNotFoundAndInvalidInput(t *testing.T) 
 
 func TestConfigRepo_ListReportWorkflowSchedulesOrdersByUpdatedAt(t *testing.T) {
 	resetDB(t)
+	seedReportWorkflowScheduleDependencies(t)
 	base := time.Date(2026, 6, 5, 8, 0, 0, 0, time.UTC)
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
@@ -584,6 +590,7 @@ func TestConfigRepo_ListReportWorkflowSchedulesOrdersByUpdatedAt(t *testing.T) {
 
 func TestConfigRepo_SaveFindUpdateAndListDiagnosisToolTemplate(t *testing.T) {
 	resetDB(t)
+	seedAlertSourceProfiles(t, 1)
 	ctx := context.Background()
 	var saved domain.DiagnosisToolTemplate
 
@@ -644,6 +651,7 @@ func TestConfigRepo_SaveFindUpdateAndListDiagnosisToolTemplate(t *testing.T) {
 
 func TestConfigRepo_DiagnosisToolTemplateUniqueName(t *testing.T) {
 	resetDB(t)
+	seedAlertSourceProfiles(t, 1)
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
 		if _, err := uow.Config().SaveDiagnosisToolTemplate(ctx, mustNewDiagnosisToolTemplate(t, "CPU saturation range")); err != nil {
@@ -691,6 +699,7 @@ func TestConfigRepo_DiagnosisToolTemplateNotFoundAndInvalidInput(t *testing.T) {
 
 func TestConfigRepo_ListDiagnosisToolTemplatesOrdersByUpdatedAt(t *testing.T) {
 	resetDB(t)
+	seedAlertSourceProfiles(t, 1)
 	base := time.Date(2026, 6, 8, 8, 0, 0, 0, time.UTC)
 
 	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
@@ -951,6 +960,81 @@ func mustNewAlertSourceProfile(t *testing.T, name string) domain.AlertSourceProf
 		t.Fatalf("NewAlertSourceProfile: %v", err)
 	}
 	return profile
+}
+
+func seedAlertSourceProfiles(t *testing.T, count int) {
+	t.Helper()
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for i := range count {
+			profile, err := uow.Config().SaveAlertSourceProfile(
+				ctx,
+				mustNewAlertSourceProfile(t, fmt.Sprintf("Dependency source %d", i+1)),
+			)
+			if err != nil {
+				t.Fatalf("SaveAlertSourceProfile dependency[%d]: %v", i, err)
+			}
+			if profile.ID != domain.AlertSourceProfileID(i+1) {
+				t.Fatalf("alert source dependency id = %d, want %d", profile.ID, i+1)
+			}
+		}
+	})
+}
+
+func seedNotificationChannelProfiles(t *testing.T, count int) {
+	t.Helper()
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for i := range count {
+			profile, err := uow.Config().SaveNotificationChannelProfile(
+				ctx,
+				mustNewNotificationChannelProfile(t, fmt.Sprintf("Dependency channel %d", i+1)),
+			)
+			if err != nil {
+				t.Fatalf("SaveNotificationChannelProfile dependency[%d]: %v", i, err)
+			}
+			if profile.ID != domain.NotificationChannelProfileID(i+1) {
+				t.Fatalf("notification channel dependency id = %d, want %d", profile.ID, i+1)
+			}
+		}
+	})
+}
+
+func seedReportWorkflowPolicyDependencies(t *testing.T) {
+	t.Helper()
+	seedAlertSourceProfiles(t, 4)
+	seedNotificationChannelProfiles(t, 3)
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for i := range 4 {
+			policy, err := uow.Config().SaveGroupingPolicy(
+				ctx,
+				mustNewGroupingPolicy(t, fmt.Sprintf("Dependency grouping %d", i+1)),
+			)
+			if err != nil {
+				t.Fatalf("SaveGroupingPolicy dependency[%d]: %v", i, err)
+			}
+			if policy.ID != domain.GroupingPolicyID(i+1) {
+				t.Fatalf("grouping dependency id = %d, want %d", policy.ID, i+1)
+			}
+		}
+	})
+}
+
+func seedReportWorkflowScheduleDependencies(t *testing.T) {
+	t.Helper()
+	seedReportWorkflowPolicyDependencies(t)
+	withTx(t, func(ctx context.Context, uow ports.UnitOfWork) {
+		for i := range 7 {
+			policy, err := uow.Config().SaveReportWorkflowPolicy(
+				ctx,
+				mustNewReportWorkflowPolicy(t, fmt.Sprintf("Dependency workflow %d", i+1)),
+			)
+			if err != nil {
+				t.Fatalf("SaveReportWorkflowPolicy dependency[%d]: %v", i, err)
+			}
+			if policy.ID != domain.ReportWorkflowPolicyID(i+1) {
+				t.Fatalf("workflow dependency id = %d, want %d", policy.ID, i+1)
+			}
+		}
+	})
 }
 
 func mustNewNotificationChannelTestProof(

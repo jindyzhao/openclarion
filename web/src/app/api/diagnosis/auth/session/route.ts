@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 
-import { normalizeForwardedAuthorization } from "@/lib/api/authorization";
 import { requestJSON } from "@/lib/api/client";
 import {
   diagnosisAuthorizationFromRequest,
@@ -26,6 +25,8 @@ type DiagnosisSessionStatusResponse =
       role_authorized: boolean;
       roles: string[];
       subject: string;
+      tenant_id: number;
+      tenant_key: string;
     }
   | {
       authenticated: false;
@@ -33,21 +34,26 @@ type DiagnosisSessionStatusResponse =
 
 export const dynamic = "force-dynamic";
 
+const tenantSelectionHeader = "X-OpenClarion-Tenant";
+
 export async function POST(request: Request) {
-  const authorization = normalizeForwardedAuthorization(
-    request.headers.get("authorization") ?? "",
-  );
+  const authorization = diagnosisAuthorizationFromRequest(request);
   if (authorization === null) {
     return NextResponse.json<ErrorResponse>(
       { error: "authorization is required" },
       { status: 401 },
     );
   }
+  const forwardedHeaders = new Headers({ authorization });
+  const requestedTenant = request.headers.get(tenantSelectionHeader);
+  if (requestedTenant !== null) {
+    forwardedHeaders.set(tenantSelectionHeader, requestedTenant);
+  }
   const result = await requestJSON<unknown>(
     "/api/v1/diagnosis/auth/session",
     {
       method: "POST",
-      headers: { authorization },
+      headers: forwardedHeaders,
     },
   );
   if (!result.ok) {
@@ -75,6 +81,8 @@ export async function POST(request: Request) {
       role_authorized: session.role_authorized,
       roles: session.roles,
       subject: session.subject,
+      tenant_id: session.tenant_id,
+      tenant_key: session.tenant_key,
     },
     { status: 201 },
   );
@@ -127,6 +135,8 @@ export async function GET(request: Request) {
     role_authorized: session.role_authorized,
     roles: session.roles,
     subject: session.subject,
+    tenant_id: session.tenant_id,
+    tenant_key: session.tenant_key,
   });
 }
 

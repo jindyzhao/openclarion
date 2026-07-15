@@ -154,6 +154,9 @@ func (_u *GroupingPolicyUpdate) check() error {
 			return &ValidationError{Name: "severity_key", err: fmt.Errorf(`ent: validator failed for field "GroupingPolicy.severity_key": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "GroupingPolicy.tenant"`)
+	}
 	return nil
 }
 
@@ -354,6 +357,9 @@ func (_u *GroupingPolicyUpdateOne) check() error {
 		if err := groupingpolicy.SeverityKeyValidator(v); err != nil {
 			return &ValidationError{Name: "severity_key", err: fmt.Errorf(`ent: validator failed for field "GroupingPolicy.severity_key": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "GroupingPolicy.tenant"`)
 	}
 	return nil
 }

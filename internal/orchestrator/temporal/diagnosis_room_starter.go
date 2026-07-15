@@ -92,6 +92,10 @@ func (s *DiagnosisRoomStarter) StartDiagnosisRoom(ctx context.Context, req ports
 	if err != nil {
 		return ports.DiagnosisRoomStartResult{}, err
 	}
+	workflowID, err = tenantScopedWorkflowID(ctx, workflowID)
+	if err != nil {
+		return ports.DiagnosisRoomStartResult{}, err
+	}
 	taskQueue := strings.TrimSpace(s.taskQueue)
 	if taskQueue == "" {
 		return ports.DiagnosisRoomStartResult{}, fmt.Errorf("diagnosis-room starter: task queue must be non-empty: %w", domain.ErrInvariantViolation)

@@ -14,6 +14,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/finalreport"
 	"github.com/openclarion/openclarion/internal/persistence/ent/reportnotificationdelivery"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // ReportNotificationDeliveryCreate is the builder for creating a ReportNotificationDelivery entity.
@@ -22,6 +23,12 @@ type ReportNotificationDeliveryCreate struct {
 	mutation *ReportNotificationDeliveryMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *ReportNotificationDeliveryCreate) SetTenantID(v int) *ReportNotificationDeliveryCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetFinalReportID sets the "final_report_id" field.
@@ -154,6 +161,11 @@ func (_c *ReportNotificationDeliveryCreate) SetNillableUpdatedAt(v *time.Time) *
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *ReportNotificationDeliveryCreate) SetTenant(v *Tenant) *ReportNotificationDeliveryCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // SetFinalReport sets the "final_report" edge to the FinalReport entity.
 func (_c *ReportNotificationDeliveryCreate) SetFinalReport(v *FinalReport) *ReportNotificationDeliveryCreate {
 	return _c.SetFinalReportID(v.ID)
@@ -210,6 +222,14 @@ func (_c *ReportNotificationDeliveryCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *ReportNotificationDeliveryCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "ReportNotificationDelivery.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := reportnotificationdelivery.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "ReportNotificationDelivery.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.FinalReportID(); !ok {
 		return &ValidationError{Name: "final_report_id", err: errors.New(`ent: missing required field "ReportNotificationDelivery.final_report_id"`)}
 	}
@@ -252,6 +272,9 @@ func (_c *ReportNotificationDeliveryCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "ReportNotificationDelivery.updated_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "ReportNotificationDelivery.tenant"`)}
 	}
 	if len(_c.mutation.FinalReportIDs()) == 0 {
 		return &ValidationError{Name: "final_report", err: errors.New(`ent: missing required edge "ReportNotificationDelivery.final_report"`)}
@@ -323,6 +346,23 @@ func (_c *ReportNotificationDeliveryCreate) createSpec() (*ReportNotificationDel
 		_spec.SetField(reportnotificationdelivery.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   reportnotificationdelivery.TenantTable,
+			Columns: []string{reportnotificationdelivery.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.FinalReportIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -347,7 +387,7 @@ func (_c *ReportNotificationDeliveryCreate) createSpec() (*ReportNotificationDel
 // of the `INSERT` statement. For example:
 //
 //	client.ReportNotificationDelivery.Create().
-//		SetFinalReportID(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -356,7 +396,7 @@ func (_c *ReportNotificationDeliveryCreate) createSpec() (*ReportNotificationDel
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ReportNotificationDeliveryUpsert) {
-//			SetFinalReportID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ReportNotificationDeliveryCreate) OnConflict(opts ...sql.ConflictOption) *ReportNotificationDeliveryUpsertOne {
@@ -535,6 +575,9 @@ func (u *ReportNotificationDeliveryUpsert) UpdateUpdatedAt() *ReportNotification
 func (u *ReportNotificationDeliveryUpsertOne) UpdateNewValues() *ReportNotificationDeliveryUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(reportnotificationdelivery.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.FinalReportID(); exists {
 			s.SetIgnore(reportnotificationdelivery.FieldFinalReportID)
 		}
@@ -864,7 +907,7 @@ func (_c *ReportNotificationDeliveryCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.ReportNotificationDeliveryUpsert) {
-//			SetFinalReportID(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *ReportNotificationDeliveryCreateBulk) OnConflict(opts ...sql.ConflictOption) *ReportNotificationDeliveryUpsertBulk {
@@ -905,6 +948,9 @@ func (u *ReportNotificationDeliveryUpsertBulk) UpdateNewValues() *ReportNotifica
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(reportnotificationdelivery.FieldTenantID)
+			}
 			if _, exists := b.mutation.FinalReportID(); exists {
 				s.SetIgnore(reportnotificationdelivery.FieldFinalReportID)
 			}

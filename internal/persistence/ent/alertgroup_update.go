@@ -243,6 +243,9 @@ func (_u *AlertGroupUpdate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "AlertGroup.status": %w`, err)}
 		}
 	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "AlertGroup.tenant"`)
+	}
 	return nil
 }
 
@@ -617,6 +620,9 @@ func (_u *AlertGroupUpdateOne) check() error {
 		if err := alertgroup.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "AlertGroup.status": %w`, err)}
 		}
+	}
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "AlertGroup.tenant"`)
 	}
 	return nil
 }

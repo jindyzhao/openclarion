@@ -22,6 +22,7 @@ import (
 	"github.com/openclarion/openclarion/internal/domain"
 	authfake "github.com/openclarion/openclarion/internal/providers/auth/fake"
 	"github.com/openclarion/openclarion/internal/providers/im/wecomcallback"
+	"github.com/openclarion/openclarion/internal/tenancy"
 	"github.com/openclarion/openclarion/internal/usecases/alertdiagnosis"
 	"github.com/openclarion/openclarion/internal/usecases/alertgrouping"
 	"github.com/openclarion/openclarion/internal/usecases/alertingest"
@@ -11381,15 +11382,18 @@ func (t *fakeDetailedReportWorkflowPolicyReplayTrigger) ReplayAndStartDetailed(_
 }
 
 type fakeAlertmanagerWebhookIngestor struct {
-	called int
-	req    alertmanagerwebhook.Request
-	result alertmanagerwebhook.Result
-	err    error
+	called      int
+	req         alertmanagerwebhook.Request
+	result      alertmanagerwebhook.Result
+	err         error
+	tenant      tenancy.Identity
+	tenantBound bool
 }
 
-func (i *fakeAlertmanagerWebhookIngestor) Ingest(_ context.Context, req alertmanagerwebhook.Request) (alertmanagerwebhook.Result, error) {
+func (i *fakeAlertmanagerWebhookIngestor) Ingest(ctx context.Context, req alertmanagerwebhook.Request) (alertmanagerwebhook.Result, error) {
 	i.called++
 	i.req = req
+	i.tenant, i.tenantBound = tenancy.FromContext(ctx)
 	if i.err != nil {
 		return alertmanagerwebhook.Result{}, i.err
 	}

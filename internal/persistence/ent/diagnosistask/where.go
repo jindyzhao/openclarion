@@ -55,6 +55,11 @@ func IDLTE(id int) predicate.DiagnosisTask {
 	return predicate.DiagnosisTask(sql.FieldLTE(FieldID, id))
 }
 
+// TenantID applies equality check predicate on the "tenant_id" field. It's identical to TenantIDEQ.
+func TenantID(v int) predicate.DiagnosisTask {
+	return predicate.DiagnosisTask(sql.FieldEQ(FieldTenantID, v))
+}
+
 // EvidenceSnapshotID applies equality check predicate on the "evidence_snapshot_id" field. It's identical to EvidenceSnapshotIDEQ.
 func EvidenceSnapshotID(v int) predicate.DiagnosisTask {
 	return predicate.DiagnosisTask(sql.FieldEQ(FieldEvidenceSnapshotID, v))
@@ -98,6 +103,26 @@ func CreatedAt(v time.Time) predicate.DiagnosisTask {
 // UpdatedAt applies equality check predicate on the "updated_at" field. It's identical to UpdatedAtEQ.
 func UpdatedAt(v time.Time) predicate.DiagnosisTask {
 	return predicate.DiagnosisTask(sql.FieldEQ(FieldUpdatedAt, v))
+}
+
+// TenantIDEQ applies the EQ predicate on the "tenant_id" field.
+func TenantIDEQ(v int) predicate.DiagnosisTask {
+	return predicate.DiagnosisTask(sql.FieldEQ(FieldTenantID, v))
+}
+
+// TenantIDNEQ applies the NEQ predicate on the "tenant_id" field.
+func TenantIDNEQ(v int) predicate.DiagnosisTask {
+	return predicate.DiagnosisTask(sql.FieldNEQ(FieldTenantID, v))
+}
+
+// TenantIDIn applies the In predicate on the "tenant_id" field.
+func TenantIDIn(vs ...int) predicate.DiagnosisTask {
+	return predicate.DiagnosisTask(sql.FieldIn(FieldTenantID, vs...))
+}
+
+// TenantIDNotIn applies the NotIn predicate on the "tenant_id" field.
+func TenantIDNotIn(vs ...int) predicate.DiagnosisTask {
+	return predicate.DiagnosisTask(sql.FieldNotIn(FieldTenantID, vs...))
 }
 
 // EvidenceSnapshotIDEQ applies the EQ predicate on the "evidence_snapshot_id" field.
@@ -568,6 +593,29 @@ func UpdatedAtLT(v time.Time) predicate.DiagnosisTask {
 // UpdatedAtLTE applies the LTE predicate on the "updated_at" field.
 func UpdatedAtLTE(v time.Time) predicate.DiagnosisTask {
 	return predicate.DiagnosisTask(sql.FieldLTE(FieldUpdatedAt, v))
+}
+
+// HasTenant applies the HasEdge predicate on the "tenant" edge.
+func HasTenant() predicate.DiagnosisTask {
+	return predicate.DiagnosisTask(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasTenantWith applies the HasEdge predicate on the "tenant" edge with a given conditions (other predicates).
+func HasTenantWith(preds ...predicate.Tenant) predicate.DiagnosisTask {
+	return predicate.DiagnosisTask(func(s *sql.Selector) {
+		step := newTenantStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
 }
 
 // HasSnapshot applies the HasEdge predicate on the "snapshot" edge.

@@ -14,6 +14,8 @@ const (
 	Label = "report_notification_delivery"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldTenantID holds the string denoting the tenant_id field in the database.
+	FieldTenantID = "tenant_id"
 	// FieldFinalReportID holds the string denoting the final_report_id field in the database.
 	FieldFinalReportID = "final_report_id"
 	// FieldReportNotificationChannelProfileID holds the string denoting the report_notification_channel_profile_id field in the database.
@@ -36,10 +38,19 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
+	// EdgeTenant holds the string denoting the tenant edge name in mutations.
+	EdgeTenant = "tenant"
 	// EdgeFinalReport holds the string denoting the final_report edge name in mutations.
 	EdgeFinalReport = "final_report"
 	// Table holds the table name of the reportnotificationdelivery in the database.
 	Table = "report_notification_deliveries"
+	// TenantTable is the table that holds the tenant relation/edge.
+	TenantTable = "report_notification_deliveries"
+	// TenantInverseTable is the table name for the Tenant entity.
+	// It exists in this package in order to avoid circular dependency with the "tenant" package.
+	TenantInverseTable = "tenants"
+	// TenantColumn is the table column denoting the tenant relation/edge.
+	TenantColumn = "tenant_id"
 	// FinalReportTable is the table that holds the final_report relation/edge.
 	FinalReportTable = "report_notification_deliveries"
 	// FinalReportInverseTable is the table name for the FinalReport entity.
@@ -52,6 +63,7 @@ const (
 // Columns holds all SQL columns for reportnotificationdelivery fields.
 var Columns = []string{
 	FieldID,
+	FieldTenantID,
 	FieldFinalReportID,
 	FieldReportNotificationChannelProfileID,
 	FieldIdempotencyKey,
@@ -76,6 +88,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// TenantIDValidator is a validator for the "tenant_id" field. It is called by the builders before save.
+	TenantIDValidator func(int) error
 	// IdempotencyKeyValidator is a validator for the "idempotency_key" field. It is called by the builders before save.
 	IdempotencyKeyValidator func(string) error
 	// ProviderMessageIDValidator is a validator for the "provider_message_id" field. It is called by the builders before save.
@@ -102,6 +116,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByTenantID orders the results by the tenant_id field.
+func ByTenantID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTenantID, opts...).ToFunc()
 }
 
 // ByFinalReportID orders the results by the final_report_id field.
@@ -154,11 +173,25 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
+// ByTenantField orders the results by tenant field.
+func ByTenantField(field string, opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newTenantStep(), sql.OrderByField(field, opts...))
+	}
+}
+
 // ByFinalReportField orders the results by final_report field.
 func ByFinalReportField(field string, opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
 		sqlgraph.OrderByNeighborTerms(s, newFinalReportStep(), sql.OrderByField(field, opts...))
 	}
+}
+func newTenantStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(TenantInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.M2O, false, TenantTable, TenantColumn),
+	)
 }
 func newFinalReportStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(

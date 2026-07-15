@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/schema/field"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchannelprofile"
 	"github.com/openclarion/openclarion/internal/persistence/ent/notificationchanneltestproof"
+	"github.com/openclarion/openclarion/internal/persistence/ent/tenant"
 )
 
 // NotificationChannelProfileCreate is the builder for creating a NotificationChannelProfile entity.
@@ -21,6 +22,12 @@ type NotificationChannelProfileCreate struct {
 	mutation *NotificationChannelProfileMutation
 	hooks    []Hook
 	conflict []sql.ConflictOption
+}
+
+// SetTenantID sets the "tenant_id" field.
+func (_c *NotificationChannelProfileCreate) SetTenantID(v int) *NotificationChannelProfileCreate {
+	_c.mutation.SetTenantID(v)
+	return _c
 }
 
 // SetName sets the "name" field.
@@ -103,6 +110,11 @@ func (_c *NotificationChannelProfileCreate) SetNillableUpdatedAt(v *time.Time) *
 	return _c
 }
 
+// SetTenant sets the "tenant" edge to the Tenant entity.
+func (_c *NotificationChannelProfileCreate) SetTenant(v *Tenant) *NotificationChannelProfileCreate {
+	return _c.SetTenantID(v.ID)
+}
+
 // AddTestProofIDs adds the "test_proofs" edge to the NotificationChannelTestProof entity by IDs.
 func (_c *NotificationChannelProfileCreate) AddTestProofIDs(ids ...int) *NotificationChannelProfileCreate {
 	_c.mutation.AddTestProofIDs(ids...)
@@ -173,6 +185,14 @@ func (_c *NotificationChannelProfileCreate) defaults() {
 
 // check runs all checks and user-defined validators on the builder.
 func (_c *NotificationChannelProfileCreate) check() error {
+	if _, ok := _c.mutation.TenantID(); !ok {
+		return &ValidationError{Name: "tenant_id", err: errors.New(`ent: missing required field "NotificationChannelProfile.tenant_id"`)}
+	}
+	if v, ok := _c.mutation.TenantID(); ok {
+		if err := notificationchannelprofile.TenantIDValidator(v); err != nil {
+			return &ValidationError{Name: "tenant_id", err: fmt.Errorf(`ent: validator failed for field "NotificationChannelProfile.tenant_id": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "NotificationChannelProfile.name"`)}
 	}
@@ -211,6 +231,9 @@ func (_c *NotificationChannelProfileCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "NotificationChannelProfile.updated_at"`)}
+	}
+	if len(_c.mutation.TenantIDs()) == 0 {
+		return &ValidationError{Name: "tenant", err: errors.New(`ent: missing required edge "NotificationChannelProfile.tenant"`)}
 	}
 	return nil
 }
@@ -271,6 +294,23 @@ func (_c *NotificationChannelProfileCreate) createSpec() (*NotificationChannelPr
 		_spec.SetField(notificationchannelprofile.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if nodes := _c.mutation.TenantIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.M2O,
+			Inverse: false,
+			Table:   notificationchannelprofile.TenantTable,
+			Columns: []string{notificationchannelprofile.TenantColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(tenant.FieldID, field.TypeInt),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_node.TenantID = nodes[0]
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	if nodes := _c.mutation.TestProofsIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.O2M,
@@ -294,7 +334,7 @@ func (_c *NotificationChannelProfileCreate) createSpec() (*NotificationChannelPr
 // of the `INSERT` statement. For example:
 //
 //	client.NotificationChannelProfile.Create().
-//		SetName(v).
+//		SetTenantID(v).
 //		OnConflict(
 //			// Update the row with the new values
 //			// the was proposed for insertion.
@@ -303,7 +343,7 @@ func (_c *NotificationChannelProfileCreate) createSpec() (*NotificationChannelPr
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.NotificationChannelProfileUpsert) {
-//			SetName(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *NotificationChannelProfileCreate) OnConflict(opts ...sql.ConflictOption) *NotificationChannelProfileUpsertOne {
@@ -434,6 +474,9 @@ func (u *NotificationChannelProfileUpsert) UpdateUpdatedAt() *NotificationChanne
 func (u *NotificationChannelProfileUpsertOne) UpdateNewValues() *NotificationChannelProfileUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
+		if _, exists := u.create.mutation.TenantID(); exists {
+			s.SetIgnore(notificationchannelprofile.FieldTenantID)
+		}
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(notificationchannelprofile.FieldCreatedAt)
 		}
@@ -701,7 +744,7 @@ func (_c *NotificationChannelProfileCreateBulk) ExecX(ctx context.Context) {
 //		// Override some of the fields with custom
 //		// update values.
 //		Update(func(u *ent.NotificationChannelProfileUpsert) {
-//			SetName(v+v).
+//			SetTenantID(v+v).
 //		}).
 //		Exec(ctx)
 func (_c *NotificationChannelProfileCreateBulk) OnConflict(opts ...sql.ConflictOption) *NotificationChannelProfileUpsertBulk {
@@ -742,6 +785,9 @@ func (u *NotificationChannelProfileUpsertBulk) UpdateNewValues() *NotificationCh
 	u.create.conflict = append(u.create.conflict, sql.ResolveWithNewValues())
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		for _, b := range u.create.builders {
+			if _, exists := b.mutation.TenantID(); exists {
+				s.SetIgnore(notificationchannelprofile.FieldTenantID)
+			}
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(notificationchannelprofile.FieldCreatedAt)
 			}

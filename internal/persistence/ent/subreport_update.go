@@ -98,6 +98,9 @@ func (_u *SubReportUpdate) ExecX(ctx context.Context) {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *SubReportUpdate) check() error {
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "SubReport.tenant"`)
+	}
 	if _u.mutation.SnapshotCleared() && len(_u.mutation.SnapshotIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "SubReport.snapshot"`)
 	}
@@ -273,6 +276,9 @@ func (_u *SubReportUpdateOne) ExecX(ctx context.Context) {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *SubReportUpdateOne) check() error {
+	if _u.mutation.TenantCleared() && len(_u.mutation.TenantIDs()) > 0 {
+		return errors.New(`ent: clearing a required unique edge "SubReport.tenant"`)
+	}
 	if _u.mutation.SnapshotCleared() && len(_u.mutation.SnapshotIDs()) > 0 {
 		return errors.New(`ent: clearing a required unique edge "SubReport.snapshot"`)
 	}
