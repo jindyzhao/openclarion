@@ -100,4 +100,29 @@ describe("tenant list BFF route", () => {
     );
     expect(init.body).toBe(JSON.stringify({ key: "security", name: "Security" }));
   });
+
+  it("preserves a valid session after a workspace creation denial", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json(
+          { error: "bootstrap administrator required" },
+          { status: 403 },
+        ),
+      ),
+    );
+    const response = await POST(
+      new Request("https://console.example.com/api/tenants", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: `${diagnosisSessionCookieName}=session.token.one`,
+        },
+        body: JSON.stringify({ key: "security", name: "Security" }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
 });

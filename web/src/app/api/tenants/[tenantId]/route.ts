@@ -23,7 +23,10 @@ export async function PATCH(request: Request, context: RouteContext) {
   if (!body.ok) {
     return apiResultResponse(body);
   }
-  return authorizedBackendResultResponse(request, (headers) =>
-    updateTenantStatus(parsedID.data, body.data, { headers }),
+  return authorizedBackendResultResponse(
+    request,
+    (headers) => updateTenantStatus(parsedID.data, body.data, { headers }),
+    200,
+    { preserveSessionOnForbidden: true },
   );
 }

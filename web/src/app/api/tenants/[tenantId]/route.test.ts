@@ -71,4 +71,27 @@ describe("tenant status BFF route", () => {
     expect(response.status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it("preserves a valid session after a status update denial", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        Response.json({ error: "owner role required" }, { status: 403 }),
+      ),
+    );
+    const response = await PATCH(
+      new Request("https://console.example.com/api/tenants/2", {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          cookie: `${diagnosisSessionCookieName}=session.token.one`,
+        },
+        body: JSON.stringify({ status: "disabled" }),
+      }),
+      { params: Promise.resolve({ tenantId: "2" }) },
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("set-cookie")).toBeNull();
+  });
 });

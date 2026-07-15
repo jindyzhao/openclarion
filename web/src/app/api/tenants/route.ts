@@ -23,5 +23,6 @@ export async function POST(request: Request) {
     request,
     (headers) => createTenant(body.data, { headers }),
     201,
+    { preserveSessionOnForbidden: true },
   );
 }

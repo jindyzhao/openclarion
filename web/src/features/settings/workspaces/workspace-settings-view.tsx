@@ -164,7 +164,7 @@ export function WorkspaceSettingsManager({
     MembershipMutationVariables,
     TenantMembership
   >({
-    invalidateQueryKey: membershipQueryPrefix,
+    invalidateQueryKeys: [membershipQueryPrefix, accessibleTenantsQueryKey],
     mutationFn: ({ body, tenantID }) =>
       submitTenantMembership(tenantID, body),
   });
