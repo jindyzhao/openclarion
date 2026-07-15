@@ -32,6 +32,7 @@ describe("diagnosis room presentation copy", () => {
       },
       "zh-CN",
       tNextStep,
+      tStatus,
     );
 
     expect(copy).toEqual({
@@ -55,6 +56,7 @@ describe("diagnosis room presentation copy", () => {
       step,
       "zh-CN",
       tNextStep,
+      tStatus,
     );
 
     expect(copy.label).toBe("收集证据");
@@ -75,6 +77,7 @@ describe("diagnosis room presentation copy", () => {
       },
       "zh-CN",
       tNextStep,
+      tStatus,
     );
 
     expect(copy).toEqual({
@@ -84,9 +87,57 @@ describe("diagnosis room presentation copy", () => {
   });
 
   it("localizes only known status values", () => {
+    expect(localizeDiagnosisRoomStatus("available", tStatus)).toBe("可用");
     expect(localizeDiagnosisRoomStatus("delivered", tStatus)).toBe("已送达");
     expect(localizeDiagnosisRoomStatus("vendor-specific", tStatus)).toBe(
       "vendor-specific",
     );
+  });
+
+  it.each([
+    ["not_found", "未找到"],
+    ["completed", "已完成"],
+    ["failed", "失败"],
+    ["canceled", "已取消"],
+    ["terminated", "已终止"],
+    ["timed_out", "已超时"],
+    ["continued_as_new", "已继续为新运行"],
+  ])("localizes known unavailable workflow status %s", (status, expected) => {
+    const copy = localizeDiagnosisRoomNextStep(
+      {
+        bucket: "attention",
+        code: "workflow_unavailable",
+        color: "error",
+        detail: `Temporal reports workflow status ${status}.`,
+        detailKey: "workflow_unavailable",
+        detailValues: { status },
+        label: "Workflow unavailable",
+      },
+      "zh-CN",
+      tNextStep,
+      tStatus,
+    );
+
+    expect(copy.detail).toContain(expected);
+    expect(copy.detail).not.toContain(status);
+  });
+
+  it("preserves unknown workflow statuses in localized detail", () => {
+    const copy = localizeDiagnosisRoomNextStep(
+      {
+        bucket: "attention",
+        code: "workflow_unavailable",
+        color: "error",
+        detail: "Temporal reports workflow status vendor-specific.",
+        detailKey: "workflow_unavailable",
+        detailValues: { status: "vendor-specific" },
+        label: "Workflow unavailable",
+      },
+      "zh-CN",
+      tNextStep,
+      tStatus,
+    );
+
+    expect(copy.detail).toContain("vendor-specific");
   });
 });

@@ -1,8 +1,14 @@
-export function formatSuccessRate(value: number | null): string {
+export function formatSuccessRate(
+  value: number | null,
+  locale: string,
+): string | null {
   if (value === null) {
-    return "n/a";
+    return null;
   }
-  return `${Math.round(value * 100)}%`;
+  return new Intl.NumberFormat(locale, {
+    maximumFractionDigits: 0,
+    style: "percent",
+  }).format(value);
 }
 
 export function formatCount(value: number, locale = "en-US"): string {

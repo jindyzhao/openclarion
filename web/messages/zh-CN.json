@@ -829,7 +829,6 @@
     "closeModalCancel": "保持打开",
     "closeLog": "正在根据操作员请求关闭诊断室。",
     "nextStep": {
-      "unknown": "未知",
       "labels": {
         "ai_proof_missing": "缺少 AI 输出证明",
         "ai_review_failed": "AI 审核失败",
@@ -881,9 +880,11 @@
     },
     "status": {
       "accepted": "已受理",
+      "available": "可用",
       "cancelled": "已取消",
       "closed": "已关闭",
       "complete": "已完成",
+      "continued_as_new": "已继续为新运行",
       "delivered": "已送达",
       "error": "错误",
       "failed": "失败",
@@ -891,6 +892,7 @@
       "low": "低",
       "medium": "中",
       "needs_evidence": "需要证据",
+      "not_found": "未找到",
       "open": "进行中",
       "partial": "部分完成",
       "pending": "等待中",
@@ -899,7 +901,10 @@
       "running": "运行中",
       "sent": "已发送",
       "success": "成功",
-      "succeeded": "成功"
+      "succeeded": "成功",
+      "terminated": "已终止",
+      "timed_out": "已超时",
+      "unknown": "未知"
     },
     "auditTimelineLabel": "诊断审计时间线",
     "auditTimeline": "审计时间线",
@@ -933,6 +938,7 @@
     "firingAlerts": "触发中告警",
     "recentAlerts": "近期告警",
     "reportSuccess": "报告成功率",
+    "notAvailable": "暂无数据",
     "recentReports": "近期报告",
     "operationalHealth": "运行健康度",
     "inspectAlerts": "检查告警",

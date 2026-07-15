@@ -4,8 +4,8 @@ import { formatCount, formatSuccessRate } from "./format";
 
 describe("dashboard formatters", () => {
   it("formats nullable success rates", () => {
-    expect(formatSuccessRate(0.875)).toBe("88%");
-    expect(formatSuccessRate(null)).toBe("n/a");
+    expect(formatSuccessRate(0.875, "en-US")).toBe("88%");
+    expect(formatSuccessRate(null, "zh-CN")).toBeNull();
   });
 
   it("formats counts", () => {

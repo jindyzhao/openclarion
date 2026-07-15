@@ -5,6 +5,10 @@ import type {
   DiagnosisRoomNextStepCode,
   DiagnosisRoomNextStepDetailKey,
 } from "./next-step";
+import {
+  localizeDiagnosisRoomStatus,
+  type DiagnosisRoomStatusTranslator,
+} from "./status-copy";
 
 type NextStepTranslator = ReturnType<
   typeof useTranslations<"DiagnosisRoom.nextStep">
@@ -60,9 +64,10 @@ export function localizeDiagnosisRoomNextStep(
   step: DiagnosisRoomNextStep,
   locale: string,
   t: NextStepTranslator,
+  tStatus: DiagnosisRoomStatusTranslator,
 ): Pick<DiagnosisRoomNextStep, "detail" | "label"> {
   return {
-    detail: localizedDetail(step, locale, t),
+    detail: localizedDetail(step, locale, t, tStatus),
     label: t(labelKeys[step.code]),
   };
 }
@@ -71,6 +76,7 @@ function localizedDetail(
   step: DiagnosisRoomNextStep,
   locale: string,
   t: NextStepTranslator,
+  tStatus: DiagnosisRoomStatusTranslator,
 ): string {
   if (step.detailKey === undefined) {
     return step.detail;
@@ -83,7 +89,10 @@ function localizedDetail(
   }
   if (step.detailKey === "workflow_unavailable") {
     return t("details.workflow_unavailable", {
-      status: step.detailValues?.status ?? t("unknown"),
+      status: localizeDiagnosisRoomStatus(
+        step.detailValues?.status ?? "unknown",
+        tStatus,
+      ),
     });
   }
   if (step.detailKey === "collect_evidence_counts") {

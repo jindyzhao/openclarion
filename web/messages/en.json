@@ -829,7 +829,6 @@
     "closeModalCancel": "Keep open",
     "closeLog": "Closing diagnosis room by operator request.",
     "nextStep": {
-      "unknown": "unknown",
       "labels": {
         "ai_proof_missing": "AI proof missing",
         "ai_review_failed": "AI review failed",
@@ -881,9 +880,11 @@
     },
     "status": {
       "accepted": "accepted",
+      "available": "available",
       "cancelled": "cancelled",
       "closed": "closed",
       "complete": "complete",
+      "continued_as_new": "continued as new",
       "delivered": "delivered",
       "error": "error",
       "failed": "failed",
@@ -891,6 +892,7 @@
       "low": "low",
       "medium": "medium",
       "needs_evidence": "needs evidence",
+      "not_found": "not found",
       "open": "open",
       "partial": "partial",
       "pending": "pending",
@@ -899,7 +901,10 @@
       "running": "running",
       "sent": "sent",
       "success": "success",
-      "succeeded": "succeeded"
+      "succeeded": "succeeded",
+      "terminated": "terminated",
+      "timed_out": "timed out",
+      "unknown": "unknown"
     },
     "auditTimelineLabel": "Diagnosis audit timeline",
     "auditTimeline": "Audit Timeline",
@@ -933,6 +938,7 @@
     "firingAlerts": "Firing alerts",
     "recentAlerts": "Recent alerts",
     "reportSuccess": "Report success",
+    "notAvailable": "No data",
     "recentReports": "Recent reports",
     "operationalHealth": "Operational Health",
     "inspectAlerts": "Inspect alerts",

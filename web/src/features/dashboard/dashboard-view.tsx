@@ -64,7 +64,14 @@ function Summary({
       <section className="overview-metrics" aria-label={t("metricsLabel")}>
         <MetricCard href="/alerts" label={t("firingAlerts")} value={formatCount(dashboard.alerts.firing, locale)} />
         <MetricCard href="/alerts" label={t("recentAlerts")} value={formatCount(dashboard.alerts.total_recent, locale)} />
-        <MetricCard href="/reports" label={t("reportSuccess")} value={formatSuccessRate(dashboard.reports.success_rate)} />
+        <MetricCard
+          href="/reports"
+          label={t("reportSuccess")}
+          value={
+            formatSuccessRate(dashboard.reports.success_rate, locale) ??
+            t("notAvailable")
+          }
+        />
         <MetricCard href="/reports" label={t("recentReports")} value={formatCount(dashboard.reports.total_recent, locale)} />
       </section>
 
@@ -244,6 +251,7 @@ function DiagnosisRoomList({ result }: { result: ApiResult<DiagnosisRoomListResp
             step,
             locale,
             tNextStep,
+            tStatus,
           );
           return (
             <li className="dashboard-room-item" key={room.chat_session_id}>
