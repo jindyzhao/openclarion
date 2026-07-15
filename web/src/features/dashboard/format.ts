@@ -5,6 +5,6 @@ export function formatSuccessRate(value: number | null): string {
   return `${Math.round(value * 100)}%`;
 }
 
-export function formatCount(value: number): string {
-  return new Intl.NumberFormat("en-US").format(value);
+export function formatCount(value: number, locale = "en-US"): string {
+  return new Intl.NumberFormat(locale).format(value);
 }
