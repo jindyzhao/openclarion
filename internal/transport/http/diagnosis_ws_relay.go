@@ -26,6 +26,7 @@ const (
 	diagnosisWSClientCollectEvidence            = "collect_evidence"
 	diagnosisWSClientQueryState                 = "query_state"
 	diagnosisWSClientConfirm                    = "confirm_conclusion"
+	diagnosisWSClientCloseRoom                  = "close_room"
 
 	diagnosisWSServerReady      = "ready"
 	diagnosisWSServerTurnStream = "turn_stream"
@@ -94,6 +95,7 @@ func WithDiagnosisTurnStreamSource(source ports.DiagnosisTurnStreamSource) Diagn
 // diagnosis-room workflow Update/Query boundary.
 type DiagnosisWebSocketRelay struct {
 	workflows        ports.DiagnosisRoomWorkflowClient
+	closer           ports.DiagnosisRoomWorkflowCloser
 	frameAuthorizer  diagnosisWebSocketFrameAuthorizer
 	streamSource     ports.DiagnosisTurnStreamSource
 	writeTurnPreview func(*websocket.Conn, diagnosisWSTurnStreamFrame) error
@@ -102,8 +104,10 @@ type DiagnosisWebSocketRelay struct {
 }
 
 func newDiagnosisWebSocketRelay(workflows ports.DiagnosisRoomWorkflowClient, opts ...DiagnosisWebSocketRelayOption) *DiagnosisWebSocketRelay {
+	closer, _ := workflows.(ports.DiagnosisRoomWorkflowCloser)
 	relay := &DiagnosisWebSocketRelay{
 		workflows:        workflows,
+		closer:           closer,
 		writeTurnPreview: writeDiagnosisWSTurnStream,
 		updateTimeout:    defaultDiagnosisWSUpdateTimeout,
 		queryTimeout:     defaultDiagnosisWSQueryTimeout,
@@ -170,6 +174,8 @@ func (r *DiagnosisWebSocketRelay) handleFrame(ctx context.Context, conn *websock
 		return r.handleQueryState(ctx, conn, ticket.SessionID)
 	case diagnosisWSClientConfirm:
 		return r.handleConfirmConclusion(ctx, conn, ticket, frame)
+	case diagnosisWSClientCloseRoom:
+		return r.handleCloseRoom(ctx, conn, ticket)
 	default:
 		return writeDiagnosisWSJSON(conn, diagnosisWSErrorFrame{
 			Type:    diagnosisWSServerError,
@@ -199,6 +205,8 @@ func diagnosisWSFramePermission(frameType string) (domain.RBACPermission, bool) 
 		return domain.RBACPermissionDiagnosisRoomParticipate, true
 	case diagnosisWSClientConfirm:
 		return domain.RBACPermissionDiagnosisRoomApprove, true
+	case diagnosisWSClientCloseRoom:
+		return domain.RBACPermissionDiagnosisRoomAdminister, true
 	default:
 		return "", false
 	}
@@ -377,6 +385,30 @@ func (r *DiagnosisWebSocketRelay) handleConfirmConclusion(ctx context.Context, c
 	return writeDiagnosisWSJSON(conn, diagnosisWSStateFrameFromState(state))
 }
 
+func (r *DiagnosisWebSocketRelay) handleCloseRoom(
+	ctx context.Context,
+	conn *websocket.Conn,
+	ticket diagnosisauth.Ticket,
+) error {
+	if r.closer == nil {
+		return writeDiagnosisWSJSON(conn, diagnosisWSErrorFrame{
+			Type:    diagnosisWSServerError,
+			Code:    "not_configured",
+			Message: "diagnosis room close is not configured",
+		})
+	}
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.updateTimeout)
+	defer cancel()
+	state, err := r.closer.CloseDiagnosisRoom(closeCtx, ports.DiagnosisRoomCloseRequest{
+		SessionID:    ticket.SessionID,
+		ActorSubject: ticket.Subject,
+	})
+	if err != nil {
+		return writeDiagnosisWSCloseError(conn, err)
+	}
+	return writeDiagnosisWSJSON(conn, diagnosisWSStateFrameFromState(state))
+}
+
 func diagnosisWSReasonOrDefault(reason, fallback string) string {
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
@@ -506,6 +538,19 @@ func decodeDiagnosisWSClientFrame(raw []byte) (diagnosisWSClientFrame, error) {
 		if len(frame.EvidenceRequests) > 0 {
 			return frame, fmt.Errorf("confirm_conclusion frame must not include evidence_requests")
 		}
+	case diagnosisWSClientCloseRoom:
+		if frame.MessageID != "" || frame.Message != "" {
+			return frame, fmt.Errorf("close_room frame must not include message_id or message")
+		}
+		if frame.Reason != "" {
+			return frame, fmt.Errorf("close_room frame must not include reason")
+		}
+		if frame.SupplementalEvidence != nil {
+			return frame, fmt.Errorf("close_room frame must not include supplemental_evidence")
+		}
+		if len(frame.EvidenceRequests) > 0 {
+			return frame, fmt.Errorf("close_room frame must not include evidence_requests")
+		}
 	case "":
 		return frame, fmt.Errorf("type must be non-empty")
 	default:
@@ -625,6 +670,17 @@ func writeDiagnosisWSConfirmError(conn *websocket.Conn, err error) error {
 		Message: diagnosisWSErrorMessage(err),
 	}
 	return writeDiagnosisWSJSON(conn, frame)
+}
+
+func writeDiagnosisWSCloseError(conn *websocket.Conn, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return writeDiagnosisWSJSON(conn, diagnosisWSErrorFrame{
+			Type:    diagnosisWSServerError,
+			Code:    "close_still_processing",
+			Message: "room close is still processing",
+		})
+	}
+	return writeDiagnosisWSError(conn, err)
 }
 
 func diagnosisWSConfirmErrorCode(err error) string {

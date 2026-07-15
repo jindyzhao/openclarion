@@ -189,6 +189,7 @@ type CloseDiagnosisChatSessionInput struct {
 	SessionID                         string
 	DiagnosisTaskID                   int64
 	OwnerSubject                      string
+	ClosedBy                          string `json:"closed_by,omitempty"`
 	ConfirmedBy                       string
 	TurnCount                         int
 	ClosedAt                          time.Time
@@ -1702,6 +1703,12 @@ func validateCloseDiagnosisChatSessionInput(req CloseDiagnosisChatSessionInput) 
 	if strings.TrimSpace(req.OwnerSubject) == "" {
 		return fmt.Errorf("close diagnosis chat session: owner_subject must be non-empty: %w", domain.ErrInvariantViolation)
 	}
+	if strings.TrimSpace(req.ClosedBy) != req.ClosedBy {
+		return fmt.Errorf("close diagnosis chat session: closed_by must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
+	}
+	if len(req.ClosedBy) > 256 {
+		return fmt.Errorf("close diagnosis chat session: closed_by must not exceed 256 bytes: %w", domain.ErrInvariantViolation)
+	}
 	if strings.TrimSpace(req.ConfirmedBy) != req.ConfirmedBy {
 		return fmt.Errorf("close diagnosis chat session: confirmed_by must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
 	}
@@ -2337,6 +2344,7 @@ func (a *Activities) recordDiagnosisRoomFailed(
 		"diagnosis_task_id":    req.DiagnosisTaskID,
 		"evidence_snapshot_id": int64(task.EvidenceSnapshotID),
 		"owner_subject":        req.OwnerSubject,
+		"closed_by":            req.ClosedBy,
 		"status":               string(task.Status),
 		"failure_reason":       strings.TrimSpace(task.FailureReason),
 		"close_reason":         req.Reason,
@@ -2376,6 +2384,7 @@ func (a *Activities) recordDiagnosisRoomClosed(
 		"diagnosis_task_id":    req.DiagnosisTaskID,
 		"evidence_snapshot_id": int64(task.EvidenceSnapshotID),
 		"owner_subject":        req.OwnerSubject,
+		"closed_by":            req.ClosedBy,
 		"status":               string(session.Status),
 		"turn_count":           session.TurnCount,
 		"close_reason":         session.CloseReason,

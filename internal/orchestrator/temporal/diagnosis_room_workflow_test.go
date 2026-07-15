@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
@@ -138,6 +139,69 @@ func TestDiagnosisRoomWorkflow_SubmitTurnQueryAndCloseSignal(t *testing.T) {
 		result.ConversationSummary.SourceTurnCount != 2 ||
 		result.ConversationSummary.SchemaVersion != "diagnosis-conversation-summary.v1" {
 		t.Fatalf("terminal conversation summary = %+v", result.ConversationSummary)
+	}
+}
+
+func TestDiagnosisRoomWorkflow_CloseSignalAuditsCloserWithoutConfirming(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 10, 5, 0, 0, time.UTC))
+	env.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.EnsureDiagnosisChatSessionInput) (temporalpkg.EnsureDiagnosisChatSessionResult, error) {
+			return temporalpkg.EnsureDiagnosisChatSessionResult{
+				ChatSessionID:  42,
+				Status:         "open",
+				StartedAt:      got.StartedAt,
+				LastActivityAt: got.StartedAt,
+			}, nil
+		},
+		activity.RegisterOptions{Name: "EnsureDiagnosisChatSession"},
+	)
+	var closeInput temporalpkg.CloseDiagnosisChatSessionInput
+	env.RegisterActivityWithOptions(
+		func(_ context.Context, got temporalpkg.CloseDiagnosisChatSessionInput) (temporalpkg.CloseDiagnosisChatSessionResult, error) {
+			closeInput = got
+			return temporalpkg.CloseDiagnosisChatSessionResult{
+				ChatSessionID:    42,
+				LifecycleEventID: 1000,
+				Status:           "closed",
+				TurnCount:        got.TurnCount,
+				ClosedAt:         got.ClosedAt,
+				CloseReason:      got.Reason,
+				LastActivityAt:   got.ClosedAt,
+				FinalConclusion: temporalpkg.DiagnosisRoomFinalConclusion{
+					Status: "not_available",
+					Source: "none",
+				},
+			}, nil
+		},
+		activity.RegisterOptions{Name: "CloseDiagnosisChatSession"},
+	)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(temporalpkg.DiagnosisRoomCloseSignal, temporalpkg.DiagnosisRoomCloseRequest{
+			Reason:       "user_requested",
+			ActorSubject: "operator-1",
+		})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, defaultRoomInput())
+	assertRoomWorkflowCompleted(t, env)
+	if closeInput.ClosedBy != "operator-1" || closeInput.ConfirmedBy != "" {
+		t.Fatalf("close actors = closed_by:%q confirmed_by:%q", closeInput.ClosedBy, closeInput.ConfirmedBy)
+	}
+	if closeInput.Reason != "user_requested" {
+		t.Fatalf("close reason = %q, want user_requested", closeInput.Reason)
+	}
+	if !closeInput.GenerateConversationSummary {
+		t.Fatal("GenerateConversationSummary = false, want true for current workflow version")
+	}
+
+	var result temporalpkg.DiagnosisRoomWorkflowResult
+	if err := env.GetWorkflowResult(&result); err != nil {
+		t.Fatalf("GetWorkflowResult: %v", err)
+	}
+	if result.Status != "closed" || result.CloseReason != "user_requested" {
+		t.Fatalf("terminal result = %+v", result)
 	}
 }
 
@@ -3369,6 +3433,75 @@ func TestDiagnosisRoomWorkflow_DurableIdleTimerClosesRoom(t *testing.T) {
 	}
 	if result.Status != "closed" || result.CloseReason != "idle_timeout" || result.TurnCount != 0 {
 		t.Fatalf("timer result = %+v, want idle_timeout with no turns", result)
+	}
+}
+
+func TestDiagnosisRoomWorkflow_IdleTimerDoesNotCloseAcceptedTurnInFlight(t *testing.T) {
+	var suite testsuite.WorkflowTestSuite
+	env := suite.NewTestWorkflowEnvironment()
+	env.SetStartTime(time.Date(2026, 5, 28, 12, 30, 0, 0, time.UTC))
+	registerDiagnosisRoomPersistenceActivities(t, env)
+	registerDiagnosisTurnActivity(t, env)
+
+	messageID := "slow-accepted-turn"
+	output := diagnosisroom.TurnOutput{
+		SchemaVersion:       diagnosisroom.TurnOutputSchemaVersion,
+		Message:             "Bounded diagnosis after a slow provider response.",
+		Confidence:          "medium",
+		RequiresHumanReview: true,
+		ConfidenceRationale: "The collected evidence supports operator review.",
+		ConclusionStatus:    "ready_for_review",
+	}
+	activityResult := diagnosisTurnActivityResultForTest(t, temporalpkg.DiagnosisTurnActivityInput{
+		MessageID:         messageID,
+		UserSequence:      1,
+		AssistantSequence: 2,
+	}, output)
+	env.OnActivity("RunDiagnosisTurn", mock.Anything, mock.Anything).
+		After(2*time.Second).
+		Return(activityResult, nil).
+		Once()
+
+	var update captureSubmitTurnUpdate
+	var queried temporalpkg.DiagnosisRoomWorkflowState
+	var queryErr error
+	env.RegisterDelayedCallback(func() {
+		env.UpdateWorkflow(
+			temporalpkg.DiagnosisRoomSubmitTurnUpdate,
+			"submit-slow-accepted-turn",
+			update.callbackWithQueryAndClose(t, env, &queried, &queryErr, "user_done"),
+			temporalpkg.SubmitDiagnosisTurnRequest{
+				MessageID:    messageID,
+				ActorSubject: "owner-1",
+				Message:      "Assess the current incident.",
+			},
+		)
+	}, 100*time.Millisecond)
+
+	input := defaultRoomInput()
+	input.Policy = diagnosisroom.DefaultPolicy()
+	input.Policy.MaxAutoEvidenceFollowUps = 0
+	input.Policy.SessionTTL = 10 * time.Second
+	input.Policy.IdleTimeout = time.Second
+	input.Policy.TurnTimeout = 5 * time.Second
+	env.ExecuteWorkflow(temporalpkg.DiagnosisRoomWorkflow, input)
+	assertRoomWorkflowCompleted(t, env)
+	if update.rejected != nil || update.completeErr != nil {
+		t.Fatalf("slow update rejected=%v completeErr=%v", update.rejected, update.completeErr)
+	}
+	if queryErr != nil {
+		t.Fatalf("query after slow update: %v", queryErr)
+	}
+	if queried.Status != "open" || queried.TurnCount != 1 || queried.InFlight {
+		t.Fatalf("state after slow update = %+v, want one completed turn in an open room", queried)
+	}
+
+	var result temporalpkg.DiagnosisRoomWorkflowResult
+	if err := env.GetWorkflowResult(&result); err != nil {
+		t.Fatalf("GetWorkflowResult: %v", err)
+	}
+	if result.Status != "closed" || result.CloseReason != "user_done" || result.TurnCount != 1 {
+		t.Fatalf("terminal result = %+v, want explicit close after the accepted turn completes", result)
 	}
 }
 

@@ -1,6 +1,6 @@
 # Roadmap
 
-> Last updated: 2026-07-14
+> Last updated: 2026-07-15
 > Author: jindyzhao
 > Status: private incubation
 
@@ -238,7 +238,9 @@ for the V1 scope boundary.
 - [x] WebSocket proxy with authenticated handshake boundary
 - [x] unsafe-instruction filter (deny-list) at workflow/sandbox boundary
 - [x] audit logging for session lifecycle
+- [x] exact room detail exposes a bounded sanitized lifecycle audit timeline
 - [x] close audit event captures the latest assistant conclusion snapshot
+- [x] authorized operator close remains distinct from conclusion confirmation
 - [x] final group notification on session close
 - [x] live browser acceptance against a real backend/worker stack
       (`make diagnosis-live-browser-smoke` retained a local 2026-06-04
@@ -273,6 +275,7 @@ sessions, arbitrary external approval policies, streaming partial responses.
 
 | Date | Author | Change |
 |------|--------|--------|
+| 2026-07-15 | jindyzhao | Diagnosis rooms now support an administer-authorized WebSocket close action that records the authenticated close actor without manufacturing conclusion approval, protects accepted Workflow Updates from idle timeout, and exposes a bounded sanitized immutable audit timeline only on exact room detail. |
 | 2026-07-14 | jindyzhao | Backend multi-tenant operations now provide a global tenant registry, owner/member administration, tenant-bound browser sessions and WebSocket tickets, fail-closed Ent query/mutation scoping, relation validation, tenant-propagated Temporal work and schedules, and a populated-database-compatible default-tenant migration. Frontend workspace selection remains a separate change. |
 | 2026-07-14 | jindyzhao | Diagnosis rooms now support configurable single-party or owner-plus-leader conclusion approval, with immutable digest-bound approvals, dedicated approval RBAC, persisted quorum enforcement before close, and WebSocket/REST/frontend projection. |
 | 2026-07-12 | jindyzhao | Alert-source adapters now register by kind behind the minimum `ActiveAlertProvider`; metric access is an optional `MetricQueryProvider` capability, so Alertmanager no longer implements unsupported metric placeholders. See [ADR-0003](../adr/ADR-0003-provider-extension-interfaces.md). |

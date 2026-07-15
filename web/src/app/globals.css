@@ -2198,7 +2198,8 @@ textarea {
   gap: 12px;
 }
 
-.diagnosis-notification-timeline {
+.diagnosis-notification-timeline,
+.diagnosis-audit-timeline {
   display: grid;
   gap: 10px;
   margin-top: 16px;
@@ -2208,21 +2209,24 @@ textarea {
   background: var(--surface);
 }
 
-.diagnosis-notification-timeline-header {
+.diagnosis-notification-timeline-header,
+.diagnosis-audit-timeline-header {
   display: flex;
   gap: 12px;
   align-items: flex-start;
   justify-content: space-between;
 }
 
-.diagnosis-notification-timeline-header h3 {
+.diagnosis-notification-timeline-header h3,
+.diagnosis-audit-timeline-header h3 {
   margin: 0;
   color: var(--text);
   font-size: 14px;
   font-weight: 760;
 }
 
-.diagnosis-notification-timeline-list {
+.diagnosis-notification-timeline-list,
+.diagnosis-audit-timeline-list {
   margin: 4px 0 0;
 }
 
@@ -2234,6 +2238,21 @@ textarea {
 
 .diagnosis-notification-timeline-entry .ant-typography {
   overflow-wrap: anywhere;
+}
+
+.diagnosis-audit-timeline-entry {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.diagnosis-audit-timeline-entry .ant-typography {
+  overflow-wrap: anywhere;
+}
+
+.diagnosis-notification-timeline .ant-timeline-item-content,
+.diagnosis-audit-timeline .ant-timeline-item-content {
+  min-width: 0;
 }
 
 .diagnosis-notification-timeline-heading {

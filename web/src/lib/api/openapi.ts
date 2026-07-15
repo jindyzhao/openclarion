@@ -3509,6 +3509,8 @@ export interface components {
             latest_progress?: components["schemas"]["DiagnosisRoomProgressSummary"];
             /** @description Sanitized outbound diagnosis-room notification delivery timeline. */
             notification_timeline?: components["schemas"]["DiagnosisRoomNotificationTimelineEntry"][];
+            /** @description Sanitized lifecycle event sequence included only in the exact room detail response. Raw payloads, dedupe keys, model content, and provider metadata remain server-side. */
+            audit_timeline?: components["schemas"]["DiagnosisRoomAuditTimelineEntry"][];
             workflow_visibility?: components["schemas"]["DiagnosisRoomWorkflowVisibility"];
             /**
              * Format: date-time
@@ -3522,6 +3524,35 @@ export interface components {
              * @example 2026-06-18T02:20:31Z
              */
             updated_at: string;
+        };
+        /**
+         * @description Stable operator-facing classification of a diagnosis-room audit event.
+         * @example interaction
+         * @enum {string}
+         */
+        DiagnosisRoomAuditCategory: "lifecycle" | "interaction" | "evidence" | "approval" | "notification" | "other";
+        /** @description Sanitized identity and timing for one immutable DiagnosisTaskEvent. Event payloads and internal idempotency keys remain server-side. */
+        DiagnosisRoomAuditTimelineEntry: {
+            /** Format: int64 */
+            id: number;
+            /** @example diagnosis_room.turn_persisted */
+            event_kind: string;
+            category: components["schemas"]["DiagnosisRoomAuditCategory"];
+            /**
+             * @description Attributable human or system actor subject when retained by the event. Events without a direct actor omit this field.
+             * @example operator:alice
+             */
+            actor_subject?: string;
+            /**
+             * Format: date-time
+             * @description Producer-supplied event time.
+             */
+            occurred_at: string;
+            /**
+             * Format: date-time
+             * @description Database append time.
+             */
+            recorded_at: string;
         };
         /** @description Sanitized diagnosis-room participant activity summary. */
         DiagnosisRoomParticipantSummary: {
