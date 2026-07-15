@@ -12,6 +12,18 @@ export type OperatorEvidenceTemplateQueryResult = {
   query?: string;
 };
 
+export type OperatorEvidenceRangeField = "step" | "window";
+
+export function operatorEvidenceRangeValues(
+  field: OperatorEvidenceRangeField,
+  current: number,
+  peer: number,
+): { stepSeconds: number; windowSeconds: number } {
+  return field === "window"
+    ? { stepSeconds: peer, windowSeconds: current }
+    : { stepSeconds: current, windowSeconds: peer };
+}
+
 const maxPlaceholderValueBytes = 200;
 
 const operatorEvidenceTemplatePlaceholderPattern =
