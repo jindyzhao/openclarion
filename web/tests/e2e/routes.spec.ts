@@ -1659,7 +1659,7 @@ test("alert source settings route lists and creates profiles", async ({
     "Alertmanager alert listing succeeded.",
   );
   await expect(stagingAlertmanagerRow).toContainText("Jun 5, 2026, 4:00 AM");
-  await expect(stagingAlertmanagerRow).toContainText("1 firing alerts");
+  await expect(stagingAlertmanagerRow).toContainText("1 firing alert");
 
   const primaryPrometheusRow = page.getByRole("row", {
     name: /Primary Prometheus/,
@@ -1768,7 +1768,7 @@ test("grouping policy settings route previews and creates policies", async ({
   await expect(page.getByRole("status")).toContainText(
     "Preview scanned 3 events and matched 2.",
   );
-  await expect(defaultPolicyRow).toContainText("1 groups");
+  await expect(defaultPolicyRow).toContainText("1 group");
   await expect(page.getByText("HighCPU")).toBeVisible();
   await expect(page.getByText("101, 102")).toBeVisible();
 
@@ -2363,7 +2363,7 @@ test("diagnosis tool template settings route creates and toggles templates", asy
   await expect(sourceCompatibility).toContainText(
     "Select a compatible source.",
   );
-  await expect(sourceCompatibility).toContainText("compatible source(s)");
+  await expect(sourceCompatibility).toContainText(/\d+ compatible sources?/);
   await page.goto(
     "/settings/diagnosis-tool-templates?intent=metric-evidence-tool",
   );
@@ -2389,7 +2389,7 @@ test("diagnosis tool template settings route creates and toggles templates", asy
     .locator(".ant-segmented-item")
     .filter({ hasText: /^Range$/ })
     .click();
-  await expect(sourceCompatibility).toContainText("compatible source(s)");
+  await expect(sourceCompatibility).toContainText(/\d+ compatible sources?/);
   await expect(sourceCompatibility).toContainText(
     "Select Prometheus-compatible",
   );

@@ -30,6 +30,7 @@ import {
   Typography
 } from "antd";
 import type { DescriptionsProps, TableColumnsType } from "antd";
+import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
 import type { ApiResult } from "@/lib/api/client";
@@ -96,23 +97,6 @@ type ReportWorkflowScheduleSettingsManagerProps = {
 
 const reportWorkflowSchedulesQueryKey = ["settings", "report-workflow-schedules"] as const;
 
-const cadenceOptions = [
-  { label: "Interval", value: "interval" },
-  { label: "Daily", value: "daily" },
-  { label: "Weekly", value: "weekly" },
-  { label: "Monthly", value: "monthly" }
-];
-
-const dayOfWeekOptions = [
-  { label: "Sunday", value: 0 },
-  { label: "Monday", value: 1 },
-  { label: "Tuesday", value: 2 },
-  { label: "Wednesday", value: 3 },
-  { label: "Thursday", value: 4 },
-  { label: "Friday", value: 5 },
-  { label: "Saturday", value: 6 }
-];
-
 const dayOfMonthOptions = Array.from({ length: 28 }, (_, index) => ({
   label: String(index + 1),
   value: index + 1
@@ -151,11 +135,26 @@ export function ReportWorkflowScheduleSettingsManager({
   reportWorkflowPoliciesResult,
   result
 }: ReportWorkflowScheduleSettingsManagerProps) {
+  const locale = useLocale();
+  const t = useTranslations("WorkflowScheduleSettings");
+  const common = useTranslations("Common");
+  const cadenceOptions = useMemo(() => [
+    { label: t("interval"), value: "interval" },
+    { label: t("daily"), value: "daily" },
+    { label: t("weekly"), value: "weekly" },
+    { label: t("monthly"), value: "monthly" },
+  ], [t]);
+  const dayOfWeekOptions = useMemo(() => [
+    t("sunday"), t("monday"), t("tuesday"), t("wednesday"),
+    t("thursday"), t("friday"), t("saturday"),
+  ].map((label, value) => ({ label, value })), [t]);
   const [form] = Form.useForm<ReportWorkflowScheduleFormState>();
   const clientReady = useClientReady();
   const [editingID, setEditingID] = useState<number | null>(null);
   const [actionID, setActionID] = useState<number | null>(null);
-  const [launchNotice, setLaunchNotice] = useState<string | null>(launchIntent?.message ?? null);
+  const [launchNotice, setLaunchNotice] = useState<string | null>(
+    launchIntent?.message ?? null,
+  );
   const {
     errorStatus,
     items: schedules,
@@ -167,7 +166,7 @@ export function ReportWorkflowScheduleSettingsManager({
     initialResult: result,
     queryKey: reportWorkflowSchedulesQueryKey,
     queryFn: refreshReportWorkflowSchedules,
-    refreshMessage: "Schedules refreshed.",
+    refreshMessage: t("refreshed"),
     selectItems: (response) => response.items
   });
   const saveSchedule = useSettingsMutation<SaveScheduleVariables, ReportWorkflowSchedule>({
@@ -235,35 +234,38 @@ export function ReportWorkflowScheduleSettingsManager({
       ? canCreateSchedule
       : currentScheduleManagePermissionBlockReason === "");
   const canSaveCurrentSchedule = scheduleSavePermissionBlockReason === "";
+  const createPermissionDenied =
+    !authorizationChecking && editingID === null && !canCreateSchedule;
   const formPermissionNotice = settingsManagePermissionNotice({
     canManage:
-      scheduleSavePermissionBlockReason ===
-      "Current user is not authorized to create report workflow schedules."
-        ? false
-        : currentScheduleManagePermissionBlockReason === "",
+      !createPermissionDenied && currentScheduleManagePermissionBlockReason === "",
     isChecking: authorizationChecking,
-    resourceLabel:
-      editingID === null
-        ? "report workflow schedule creation"
-        : `report workflow schedule #${editingID}`,
+    message: common("formReadOnly", {
+      resource:
+        editingID === null
+          ? t("creationResource")
+          : t("scheduleResource", { id: editingID }),
+    }),
   }) ??
     (schedulePolicyPermissionBlockReason === ""
       ? null
       : {
           kind: "warning" as const,
-          message: schedulePolicyPermissionBlockReason
+          message: localizeWorkflowScheduleText(schedulePolicyPermissionBlockReason, locale)
         });
   const readPermissionNotice = settingsReadPermissionNotice({
     canRead: canReadSchedules,
     errorStatus,
     isChecking: authorizationChecking,
-    resourceLabel: "report workflow schedules",
+    message: common("readAccessLimited", {
+      resource: t("schedulesResource"),
+    }),
   });
   const visibleNotice =
     currentAuthorization.notice ?? readPermissionNotice ?? notice;
   const relationOptions = useMemo(
-    () => buildScheduleRelationOptions(reportWorkflowPoliciesResult),
-    [reportWorkflowPoliciesResult]
+    () => buildScheduleRelationOptions(reportWorkflowPoliciesResult, locale),
+    [locale, reportWorkflowPoliciesResult]
   );
   const initialFormValues = useMemo(
     () => reportWorkflowScheduleLaunchInitialForm(launchIntent, relationOptions),
@@ -287,28 +289,31 @@ export function ReportWorkflowScheduleSettingsManager({
       setNotice({
         kind: "warning",
         message:
-          scheduleSavePermissionBlockReason ||
-          "You are not authorized to save this schedule."
+          localizeWorkflowScheduleText(scheduleSavePermissionBlockReason, locale) ||
+          t("notAuthorizedSave")
       });
       return;
     }
     const parsed = formStateToWriteRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: parsed.message });
+      setNotice({ kind: "error", message: localizeWorkflowScheduleText(parsed.message, locale) });
       return;
     }
 
     try {
       await saveSchedule.mutateAsync({ scheduleID: editingID, body: parsed.value });
     } catch (error) {
-      setNotice({ kind: "error", message: settingsErrorMessage(error) });
+      setNotice({
+        kind: "error",
+        message: settingsErrorMessage(error, common("requestFailed")),
+      });
       return;
     }
 
     form.setFieldsValue(emptyReportWorkflowScheduleForm());
     setEditingID(null);
     setLaunchNotice(null);
-    setNotice({ kind: "info", message: "Schedule saved." });
+    setNotice({ kind: "info", message: t("saved") });
   }
 
   function handleScheduleFormValuesChange(changedValues: Partial<ReportWorkflowScheduleFormState>) {
@@ -325,7 +330,10 @@ export function ReportWorkflowScheduleSettingsManager({
         schedule
       });
       if (readiness.status === "blocked") {
-        setNotice({ kind: "error", message: readiness.blockers.join(" ") });
+        setNotice({
+          kind: "error",
+          message: localizeWorkflowScheduleMessages(readiness.blockers, locale),
+        });
         return;
       }
     }
@@ -334,12 +342,15 @@ export function ReportWorkflowScheduleSettingsManager({
     try {
       await enablementAction.mutateAsync({ scheduleID: schedule.id, enabled });
     } catch (error) {
-      setNotice({ kind: "error", message: settingsErrorMessage(error) });
+      setNotice({
+        kind: "error",
+        message: settingsErrorMessage(error, common("requestFailed")),
+      });
       setActionID(null);
       return;
     }
     setActionID(null);
-    setNotice({ kind: enabled ? "info" : "warning", message: enabled ? "Schedule enabled." : "Schedule disabled." });
+    setNotice({ kind: enabled ? "info" : "warning", message: enabled ? t("enabledNotice") : t("disabledNotice") });
   }
 
   function editSchedule(schedule: ReportWorkflowSchedule) {
@@ -358,20 +369,20 @@ export function ReportWorkflowScheduleSettingsManager({
 
   return (
     <div className="stack">
-      <Row aria-label="Report workflow schedule metrics" gutter={[12, 12]}>
-        <MetricCard label="Schedules" value={schedules.length} />
-        <MetricCard label="Enabled" value={summary.enabled} />
-        <MetricCard label="Calendar" value={summary.calendar} />
-        <MetricCard label="Monthly" value={summary.monthly} />
-        <MetricCard label="Policies" value={summary.policyCount} />
+      <Row aria-label={t("metricsLabel")} gutter={[12, 12]}>
+        <MetricCard label={t("schedules")} value={schedules.length} />
+        <MetricCard label={t("enabled")} value={summary.enabled} />
+        <MetricCard label={t("calendar")} value={summary.calendar} />
+        <MetricCard label={t("monthly")} value={summary.monthly} />
+        <MetricCard label={t("policies")} value={summary.policyCount} />
       </Row>
 
       {visibleNotice ? <Notice notice={visibleNotice} /> : null}
       {launchNotice ? (
         <Alert
-          aria-label="Report workflow schedule launch preset"
-          description={launchNotice}
-          message="Schedule action loaded"
+          aria-label={t("launchPreset")}
+          description={localizeWorkflowScheduleText(launchNotice, locale)}
+          message={t("actionLoaded")}
           role="status"
           showIcon
           type="info"
@@ -379,8 +390,8 @@ export function ReportWorkflowScheduleSettingsManager({
       ) : null}
       {relationOptions.warnings.length > 0 ? (
         <Alert
-          description={relationOptions.warnings.join(" ")}
-          message="Related configuration unavailable"
+          description={localizeWorkflowScheduleMessages(relationOptions.warnings, locale)}
+          message={t("relatedUnavailable")}
           role="status"
           showIcon
           type="warning"
@@ -393,11 +404,11 @@ export function ReportWorkflowScheduleSettingsManager({
             extra={
               editingID === null ? null : (
                 <Button disabled={busy || !canCreateSchedule} icon={<PlusOutlined />} onClick={resetForm} type="default">
-                  New
+                  {t("new")}
                 </Button>
               )
             }
-            title={editingID === null ? "New Schedule" : `Edit Schedule #${editingID}`}
+            title={editingID === null ? t("newSchedule") : t("editSchedule", { id: editingID })}
           >
             {formPermissionNotice ? (
               <ReadOnlyModeAlert notice={formPermissionNotice} />
@@ -411,44 +422,44 @@ export function ReportWorkflowScheduleSettingsManager({
               onValuesChange={handleScheduleFormValuesChange}
             >
               <Form.Item
-                label="Name"
+                label={t("name")}
                 name="name"
                 rules={[
-                  { required: true, message: "Schedule name is required." },
-                  { max: 120, message: "Schedule name must be 120 characters or fewer." }
+                  { required: true, message: t("nameRequired") },
+                  { max: 120, message: t("nameLength") }
                 ]}
               >
                 <Input autoComplete="off" />
               </Form.Item>
 
               <Form.Item
-                label="Report workflow policy"
+                label={t("workflowPolicy")}
                 name="reportWorkflowPolicyID"
-                rules={[{ required: true, message: "Report workflow policy is required." }]}
+                rules={[{ required: true, message: t("policyRequired") }]}
               >
                 <Select
                   optionFilterProp="label"
                   options={relationOptions.policyOptions}
-                  placeholder="Select workflow policy"
+                  placeholder={t("selectPolicy")}
                   showSearch
                 />
               </Form.Item>
 
               <Form.Item
-                label="Temporal Schedule ID"
+                label={t("temporalScheduleId")}
                 name="temporalScheduleID"
                 rules={[
-                  { required: true, message: "Temporal Schedule ID is required." },
-                  { max: 200, message: "Temporal Schedule ID must be 200 characters or fewer." }
+                  { required: true, message: t("temporalIdRequired") },
+                  { max: 200, message: t("temporalIdLength") }
                 ]}
               >
                 <Input autoComplete="off" placeholder="openclarion-report-policy-1-daily" />
               </Form.Item>
 
               <Form.Item
-                label="Cadence"
+                label={t("cadence")}
                 name="cadence"
-                rules={[{ required: true, message: "Cadence is required." }]}
+                rules={[{ required: true, message: t("cadenceRequired") }]}
               >
                 <Segmented block options={cadenceOptions} />
               </Form.Item>
@@ -462,18 +473,18 @@ export function ReportWorkflowScheduleSettingsManager({
                         <Row gutter={12}>
                           <Col sm={12} xs={24}>
                             <Form.Item
-                              label="Interval seconds"
+                              label={t("intervalSeconds")}
                               name="intervalSeconds"
-                              rules={[{ required: true, message: "Interval is required." }]}
+                              rules={[{ required: true, message: t("intervalRequired") }]}
                             >
                               <InputNumber min={1} precision={0} style={{ width: "100%" }} />
                             </Form.Item>
                           </Col>
                           <Col sm={12} xs={24}>
                             <Form.Item
-                              label="Offset seconds"
+                              label={t("offsetSeconds")}
                               name="offsetSeconds"
-                              rules={[{ required: true, message: "Offset is required." }]}
+                              rules={[{ required: true, message: t("offsetRequired") }]}
                             >
                               <InputNumber min={0} precision={0} style={{ width: "100%" }} />
                             </Form.Item>
@@ -499,18 +510,18 @@ export function ReportWorkflowScheduleSettingsManager({
                       <Row gutter={12}>
                         <Col sm={12} xs={24}>
                           <Form.Item
-                            label="UTC hour"
+                            label={t("utcHour")}
                             name="calendarHour"
-                            rules={[{ required: true, message: "UTC hour is required." }]}
+                            rules={[{ required: true, message: t("hourRequired") }]}
                           >
                             <InputNumber max={23} min={0} precision={0} style={{ width: "100%" }} />
                           </Form.Item>
                         </Col>
                         <Col sm={12} xs={24}>
                           <Form.Item
-                            label="UTC minute"
+                            label={t("utcMinute")}
                             name="calendarMinute"
-                            rules={[{ required: true, message: "UTC minute is required." }]}
+                            rules={[{ required: true, message: t("minuteRequired") }]}
                           >
                             <InputNumber max={59} min={0} precision={0} style={{ width: "100%" }} />
                           </Form.Item>
@@ -520,9 +531,9 @@ export function ReportWorkflowScheduleSettingsManager({
                         {cadence === "weekly" ? (
                           <Col sm={12} xs={24}>
                             <Form.Item
-                              label="Day of week"
+                              label={t("dayOfWeek")}
                               name="calendarDayOfWeek"
-                              rules={[{ required: true, message: "Day of week is required." }]}
+                              rules={[{ required: true, message: t("dayOfWeekRequired") }]}
                             >
                               <Select options={dayOfWeekOptions} />
                             </Form.Item>
@@ -535,9 +546,9 @@ export function ReportWorkflowScheduleSettingsManager({
                         {cadence === "monthly" ? (
                           <Col sm={12} xs={24}>
                             <Form.Item
-                              label="Day of month"
+                              label={t("dayOfMonth")}
                               name="calendarDayOfMonth"
-                              rules={[{ required: true, message: "Day of month is required." }]}
+                              rules={[{ required: true, message: t("dayOfMonthRequired") }]}
                             >
                               <Select options={dayOfMonthOptions} />
                             </Form.Item>
@@ -549,9 +560,9 @@ export function ReportWorkflowScheduleSettingsManager({
                         )}
                         <Col sm={12} xs={24}>
                           <Form.Item
-                            label="Replay guard seconds"
+                            label={t("replayGuardSeconds")}
                             name="intervalSeconds"
-                            rules={[{ required: true, message: "Replay guard is required." }]}
+                            rules={[{ required: true, message: t("replayGuardRequired") }]}
                           >
                             <InputNumber min={1} precision={0} style={{ width: "100%" }} />
                           </Form.Item>
@@ -568,18 +579,18 @@ export function ReportWorkflowScheduleSettingsManager({
               <Row gutter={12}>
                 <Col sm={12} xs={24}>
                   <Form.Item
-                    label="Replay window seconds"
+                    label={t("replayWindowSeconds")}
                     name="replayWindowSeconds"
-                    rules={[{ required: true, message: "Replay window is required." }]}
+                    rules={[{ required: true, message: t("replayWindowRequired") }]}
                   >
                     <InputNumber min={1} precision={0} style={{ width: "100%" }} />
                   </Form.Item>
                 </Col>
                 <Col sm={12} xs={24}>
                   <Form.Item
-                    label="Replay delay seconds"
+                    label={t("replayDelaySeconds")}
                     name="replayDelaySeconds"
-                    rules={[{ required: true, message: "Replay delay is required." }]}
+                    rules={[{ required: true, message: t("replayDelayRequired") }]}
                   >
                     <InputNumber min={0} precision={0} style={{ width: "100%" }} />
                   </Form.Item>
@@ -589,18 +600,18 @@ export function ReportWorkflowScheduleSettingsManager({
               <Row gutter={12}>
                 <Col sm={12} xs={24}>
                   <Form.Item
-                    label="Replay limit"
+                    label={t("replayLimit")}
                     name="replayLimit"
-                    rules={[{ required: true, message: "Replay limit is required." }]}
+                    rules={[{ required: true, message: t("replayLimitRequired") }]}
                   >
                     <InputNumber min={1} precision={0} style={{ width: "100%" }} />
                   </Form.Item>
                 </Col>
                 <Col sm={12} xs={24}>
                   <Form.Item
-                    label="Catch-up seconds"
+                    label={t("catchUpSeconds")}
                     name="catchupWindowSeconds"
-                    rules={[{ required: true, message: "Catch-up window is required." }]}
+                    rules={[{ required: true, message: t("catchUpRequired") }]}
                   >
                     <InputNumber min={1} precision={0} style={{ width: "100%" }} />
                   </Form.Item>
@@ -610,6 +621,7 @@ export function ReportWorkflowScheduleSettingsManager({
               <Form.Item noStyle shouldUpdate>
                 {(scheduleForm) => (
                   <ScheduleDraftPreview
+                    locale={locale}
                     relationOptions={relationOptions}
                     values={scheduleForm.getFieldsValue(true) as ReportWorkflowScheduleFormState}
                   />
@@ -618,10 +630,10 @@ export function ReportWorkflowScheduleSettingsManager({
 
               <Space wrap>
                 <Button disabled={busy || !canSaveCurrentSchedule} htmlType="submit" icon={<SaveOutlined />} loading={busy} type="primary">
-                  Save Schedule
+                  {t("saveSchedule")}
                 </Button>
                 <Button disabled={busy} onClick={resetForm} type="default">
-                  Reset
+                  {t("reset")}
                 </Button>
               </Space>
             </Form>
@@ -632,10 +644,10 @@ export function ReportWorkflowScheduleSettingsManager({
           <Card
             extra={
               <Button disabled={busy || !canReadSchedules} icon={<ReloadOutlined />} loading={busy} onClick={handleRefresh} type="default">
-                Refresh
+                {t("refresh")}
               </Button>
             }
-            title="Configured Schedules"
+            title={t("configuredSchedules")}
           >
             <ReportWorkflowScheduleTable
               actionID={actionID}
@@ -647,6 +659,7 @@ export function ReportWorkflowScheduleSettingsManager({
               onEnable={(schedule) => handleEnablement(schedule, true)}
               relationOptions={relationOptions}
               schedules={schedules}
+              locale={locale}
             />
           </Card>
         </Col>
@@ -666,10 +679,11 @@ function MetricCard({ label, value }: { label: string; value: number }) {
 }
 
 function Notice({ notice }: { notice: SettingsNotice }) {
+  const t = useTranslations("WorkflowScheduleSettings");
   return (
     <Alert
       description={notice.message}
-      message={notice.kind === "error" ? "Request failed" : "Settings"}
+      message={notice.kind === "error" ? t("requestFailed") : t("settings")}
       role={notice.kind === "error" ? "alert" : "status"}
       showIcon
       type={notice.kind}
@@ -678,12 +692,15 @@ function Notice({ notice }: { notice: SettingsNotice }) {
 }
 
 function ScheduleDraftPreview({
+  locale,
   relationOptions,
   values
 }: {
+  locale: string;
   relationOptions: ScheduleRelationOptions;
   values: ReportWorkflowScheduleFormState;
 }) {
+  const t = useTranslations("WorkflowScheduleSettings");
   const readiness = reportWorkflowScheduleDraftReadiness({
     form: normalizeScheduleFormValues(values),
     policyEnabledIDs: relationOptions.policyEnabledIDs
@@ -695,74 +712,79 @@ function ScheduleDraftPreview({
   });
   const policyLabel =
     values.reportWorkflowPolicyID === null || values.reportWorkflowPolicyID === undefined
-      ? "Not selected"
+      ? t("notSelected")
       : relationLabel(
           relationOptions.policyLabels,
           values.reportWorkflowPolicyID,
-          `Policy #${values.reportWorkflowPolicyID}`
+          t("policyNumber", { id: values.reportWorkflowPolicyID })
         );
   const items: DescriptionsProps["items"] = [
     {
       children: policyLabel,
       key: "policy",
-      label: "Policy"
+      label: t("policy")
     },
     {
-      children: reportWorkflowScheduleFormCadenceValue(normalizeScheduleFormValues(values)),
+      children: localizeWorkflowScheduleText(reportWorkflowScheduleFormCadenceValue(normalizeScheduleFormValues(values)), locale),
       key: "cadence",
-      label: "Cadence"
+      label: t("cadence")
     },
     {
-      children: `Window ${draftDuration(values.replayWindowSeconds)} / delay ${draftDuration(values.replayDelaySeconds)} / limit ${
-        values.replayLimit ?? "Not set"
-      }`,
+      children: t("replaySummary", {
+        delay: draftDuration(values.replayDelaySeconds, locale),
+        limit: values.replayLimit ?? t("notSet"),
+        window: draftDuration(values.replayWindowSeconds, locale),
+      }),
       key: "replay",
-      label: "Replay"
+      label: t("replay")
     },
     {
-      children: draftDuration(values.catchupWindowSeconds),
+      children: draftDuration(values.catchupWindowSeconds, locale),
       key: "catchup",
-      label: "Catch-up"
+      label: t("catchUp")
     }
   ];
 
   return (
-    <div aria-label="Schedule readiness preview" className="settings-preview-panel">
+    <div aria-label={t("readinessPreview")} className="settings-preview-panel">
       <Space direction="vertical" size={10}>
         <Space wrap>
-          <Tag color={scheduleReadinessColor(readiness.status)}>{scheduleReadinessLabel(readiness.status)}</Tag>
+          <Tag color={scheduleReadinessColor(readiness.status)}>{scheduleReadinessLabel(readiness.status, locale)}</Tag>
           {values.temporalScheduleID ? <Tag>{values.temporalScheduleID}</Tag> : null}
         </Space>
-        <Typography.Text strong>{readiness.label}</Typography.Text>
-        <Typography.Text type="secondary">{readiness.detail}</Typography.Text>
+        <Typography.Text strong>{localizeWorkflowScheduleText(readiness.label, locale)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeWorkflowScheduleText(readiness.detail, locale)}</Typography.Text>
         <Descriptions column={1} items={items} size="small" />
-        <ScheduledProofOutcomePreview outcome={proofOutcome} />
+        <ScheduledProofOutcomePreview locale={locale} outcome={proofOutcome} />
       </Space>
     </div>
   );
 }
 
 function ScheduledProofOutcomePreview({
+  locale,
   outcome
 }: {
+  locale: string;
   outcome: ReturnType<typeof reportWorkflowScheduleProofOutcome>;
 }) {
+  const t = useTranslations("WorkflowScheduleSettings");
   return (
-    <div aria-label="Scheduled proof outcome" className="settings-proof-outcome">
+    <div aria-label={t("proofOutcomeLabel")} className="settings-proof-outcome">
       <div className="settings-preview-header">
-        <Typography.Text strong>Scheduled Proof Outcome</Typography.Text>
-        <Tag color={scheduleReadinessColor(outcome.status)}>{scheduleReadinessLabel(outcome.status)}</Tag>
+        <Typography.Text strong>{t("proofOutcome")}</Typography.Text>
+        <Tag color={scheduleReadinessColor(outcome.status)}>{scheduleReadinessLabel(outcome.status, locale)}</Tag>
       </div>
-      <Typography.Text type="secondary">{outcome.detail}</Typography.Text>
+      <Typography.Text type="secondary">{localizeWorkflowScheduleText(outcome.detail, locale)}</Typography.Text>
       <div className="workflow-automation-grid">
         {outcome.items.map((item) => (
           <div className="workflow-automation-item" key={item.title}>
             <div className="workflow-automation-item-header">
-              <Typography.Text className="muted">{item.title}</Typography.Text>
-              <Tag color={scheduleReadinessColor(item.status)}>{scheduleReadinessLabel(item.status)}</Tag>
+              <Typography.Text className="muted">{localizeWorkflowScheduleText(item.title, locale)}</Typography.Text>
+              <Tag color={scheduleReadinessColor(item.status)}>{scheduleReadinessLabel(item.status, locale)}</Tag>
             </div>
-            <Typography.Text strong>{item.value}</Typography.Text>
-            <Typography.Text type="secondary">{item.detail}</Typography.Text>
+            <Typography.Text strong>{localizeWorkflowScheduleText(item.value, locale)}</Typography.Text>
+            <Typography.Text type="secondary">{localizeWorkflowScheduleText(item.detail, locale)}</Typography.Text>
           </div>
         ))}
       </div>
@@ -792,9 +814,9 @@ function normalizeScheduleFormValues(
   };
 }
 
-function draftDuration(value: number | null | undefined): string {
+function draftDuration(value: number | null | undefined, locale: string): string {
   if (value === null || value === undefined || !Number.isSafeInteger(value) || value < 0) {
-    return "Not set";
+    return locale === "zh-CN" ? "未设置" : "Not set";
   }
   return formatDurationSeconds(value);
 }
@@ -810,32 +832,35 @@ function scheduleReadinessColor(status: ReportWorkflowScheduleDraftReadiness["st
   }
 }
 
-function scheduleReadinessLabel(status: ReportWorkflowScheduleDraftReadiness["status"]): string {
+function scheduleReadinessLabel(status: ReportWorkflowScheduleDraftReadiness["status"], locale = "en"): string {
   switch (status) {
     case "ready":
-      return "Ready";
+      return locale === "zh-CN" ? "就绪" : "Ready";
     case "pending":
-      return "Pending";
+      return locale === "zh-CN" ? "等待中" : "Pending";
     case "blocked":
-      return "Blocked";
+      return locale === "zh-CN" ? "已阻塞" : "Blocked";
   }
 }
 
 function buildScheduleRelationOptions(
-  policiesResult: ApiResult<ReportWorkflowPolicyListResponse>
+  policiesResult: ApiResult<ReportWorkflowPolicyListResponse>,
+  locale: string,
 ): ScheduleRelationOptions {
   if (!policiesResult.ok) {
     return {
       policyEnabledIDs: new Set(),
       policyLabels: {},
       policyOptions: [],
-      warnings: [`Report workflow policies failed to load: ${policiesResult.error.message}.`]
+      warnings: [locale === "zh-CN"
+        ? `报告工作流策略加载失败：${policiesResult.error.message}。`
+        : `Report workflow policies failed to load: ${policiesResult.error.message}.`]
     };
   }
   return {
     policyEnabledIDs: new Set(policiesResult.data.items.filter((policy) => policy.enabled).map((policy) => policy.id)),
-    policyLabels: Object.fromEntries(policiesResult.data.items.map((policy) => [policy.id, policyLabel(policy)])),
-    policyOptions: policiesResult.data.items.map((policy) => relationOption(policy.id, policyLabel(policy))),
+    policyLabels: Object.fromEntries(policiesResult.data.items.map((policy) => [policy.id, policyLabel(policy, locale)])),
+    policyOptions: policiesResult.data.items.map((policy) => relationOption(policy.id, policyLabel(policy, locale))),
     warnings: []
   };
 }
@@ -870,12 +895,14 @@ function relationOption(value: number, label: string): RelationSelectOption {
   return { value, label, title: label };
 }
 
-function policyLabel(policy: ReportWorkflowPolicy): string {
-  return `#${policy.id} ${policy.name} (${policy.report_scenario}, ${policy.diagnosis_follow_up}, ${enabledLabel(policy.enabled)})`;
+function policyLabel(policy: ReportWorkflowPolicy, locale: string): string {
+  return `#${policy.id} ${policy.name} (${localizeWorkflowScheduleText(policy.report_scenario, locale)}, ${localizeWorkflowScheduleText(policy.diagnosis_follow_up, locale)}, ${enabledLabel(policy.enabled, locale)})`;
 }
 
-function enabledLabel(enabled: boolean): string {
-  return enabled ? "enabled" : "disabled";
+function enabledLabel(enabled: boolean, locale: string): string {
+  return locale === "zh-CN"
+    ? enabled ? "已启用" : "已停用"
+    : enabled ? "enabled" : "disabled";
 }
 
 function relationLabel(labels: Record<number, string>, id: number, fallback: string): string {
@@ -892,6 +919,7 @@ type ReportWorkflowScheduleTableProps = {
   onEnable: (schedule: ReportWorkflowSchedule) => void;
   relationOptions: ScheduleRelationOptions;
   schedules: ReportWorkflowSchedule[];
+  locale: string;
 };
 
 function ReportWorkflowScheduleTable({
@@ -903,12 +931,15 @@ function ReportWorkflowScheduleTable({
   onEdit,
   onEnable,
   relationOptions,
-  schedules
+  schedules,
+  locale,
 }: ReportWorkflowScheduleTableProps) {
+  const t = useTranslations("WorkflowScheduleSettings");
+  const common = useTranslations("Common");
   const columns: TableColumnsType<ReportWorkflowSchedule> = [
     {
       key: "name",
-      title: "Name",
+      title: t("name"),
       render: (_, schedule) => (
         <Space direction="vertical" size={2}>
           <Typography.Text strong>{schedule.name}</Typography.Text>
@@ -916,7 +947,7 @@ function ReportWorkflowScheduleTable({
             {relationLabel(
               relationOptions.policyLabels,
               schedule.report_workflow_policy_id,
-              `Policy #${schedule.report_workflow_policy_id}`
+              t("policyNumber", { id: schedule.report_workflow_policy_id })
             )}
           </Typography.Text>
           <Typography.Text className="settings-event-ids" type="secondary">
@@ -927,22 +958,22 @@ function ReportWorkflowScheduleTable({
     },
     {
       key: "cadence",
-      title: "Cadence",
+      title: t("cadence"),
       render: (_, schedule) => (
         <Space direction="vertical" size={2}>
           <Space size={6} wrap>
             <Tag color={schedule.cadence === "interval" ? "blue" : "purple"}>
-              {reportWorkflowScheduleCadenceLabel(schedule.cadence)}
+              {localizeWorkflowScheduleText(reportWorkflowScheduleCadenceLabel(schedule.cadence), locale)}
             </Tag>
-            <Typography.Text>{reportWorkflowScheduleCadenceValue(schedule)}</Typography.Text>
+            <Typography.Text>{localizeWorkflowScheduleText(reportWorkflowScheduleCadenceValue(schedule), locale)}</Typography.Text>
           </Space>
-          <Typography.Text type="secondary">{reportWorkflowScheduleCadenceDetail(schedule)}</Typography.Text>
+          <Typography.Text type="secondary">{localizeWorkflowScheduleText(reportWorkflowScheduleCadenceDetail(schedule), locale)}</Typography.Text>
         </Space>
       )
     },
     {
       key: "replay",
-      title: "Replay",
+      title: t("replay"),
       render: (_, schedule) => {
         const replayWindowBlocker = reportWorkflowScheduleReplayWindowBlocker({
           intervalSeconds: schedule.interval_seconds,
@@ -951,11 +982,11 @@ function ReportWorkflowScheduleTable({
         return (
           <Space direction="vertical" size={2}>
             <Space size={6} wrap>
-              <Typography.Text>{formatDurationSeconds(schedule.replay_window_seconds)} window</Typography.Text>
-              {replayWindowBlocker === null ? null : <Tag color="red">Overlapping window</Tag>}
+              <Typography.Text>{t("windowDuration", { duration: formatDurationSeconds(schedule.replay_window_seconds) })}</Typography.Text>
+              {replayWindowBlocker === null ? null : <Tag color="red">{t("overlappingWindow")}</Tag>}
             </Space>
             <Typography.Text type="secondary">
-              delay {formatDurationSeconds(schedule.replay_delay_seconds)} / limit {schedule.replay_limit}
+              {t("delayLimit", { delay: formatDurationSeconds(schedule.replay_delay_seconds), limit: schedule.replay_limit })}
             </Typography.Text>
           </Space>
         );
@@ -964,18 +995,18 @@ function ReportWorkflowScheduleTable({
     {
       dataIndex: "catchup_window_seconds",
       key: "catchup",
-      title: "Catch-up",
+      title: t("catchUp"),
       render: (seconds: number) => formatDurationSeconds(seconds)
     },
     {
       dataIndex: "enabled",
       key: "enabled",
-      title: "State",
+      title: t("state"),
       render: (enabled: boolean, schedule) => (
         <Space direction="vertical" size={2}>
-          <Tag color={enabled ? "green" : "default"}>{enabled ? "Enabled" : "Draft"}</Tag>
+          <Tag color={enabled ? "green" : "default"}>{enabled ? t("enabled") : t("draft")}</Tag>
           <Typography.Text type="secondary">
-            {enabled ? nullableDate(schedule.enabled_at) : nullableDate(schedule.disabled_at)}
+            {enabled ? nullableDate(schedule.enabled_at, locale) : nullableDate(schedule.disabled_at, locale)}
           </Typography.Text>
         </Space>
       )
@@ -983,8 +1014,8 @@ function ReportWorkflowScheduleTable({
     {
       dataIndex: "updated_at",
       key: "updated",
-      title: "Updated",
-      render: (value: string) => formatDateTime(value)
+      title: t("updated"),
+      render: (value: string) => formatDateTime(value, locale)
     },
     {
       key: "actions",
@@ -998,7 +1029,7 @@ function ReportWorkflowScheduleTable({
               onClick={() => onEdit(schedule)}
               size="small"
             >
-              Edit
+              {t("edit")}
             </Button>
             {schedule.enabled ? (
               <Button
@@ -1008,7 +1039,7 @@ function ReportWorkflowScheduleTable({
                 onClick={() => onDisable(schedule)}
                 size="small"
               >
-                Disable
+                {t("disable")}
               </Button>
             ) : (
               <EnableScheduleButton
@@ -1018,12 +1049,13 @@ function ReportWorkflowScheduleTable({
                 onEnable={onEnable}
                 policyEnabledIDs={relationOptions.policyEnabledIDs}
                 schedule={schedule}
+                locale={locale}
               />
             )}
           </Space>
         );
       },
-      title: "Actions"
+      title: t("actions")
     }
   ];
 
@@ -1037,8 +1069,10 @@ function ReportWorkflowScheduleTable({
           <Empty
             description={settingsReadPermissionEmptyDescription({
               canRead,
-              emptyDescription: "No report workflow schedules",
-              resourceLabel: "report workflow schedules",
+              deniedDescription: common("noReadAccess", {
+                resource: t("schedulesResource"),
+              }),
+              emptyDescription: t("noSchedules"),
             })}
             image={<CalendarOutlined aria-hidden className="settings-empty-icon" />}
           />
@@ -1055,6 +1089,7 @@ function EnableScheduleButton({
   actionID,
   busy,
   canManage,
+  locale,
   onEnable,
   policyEnabledIDs,
   schedule
@@ -1062,10 +1097,12 @@ function EnableScheduleButton({
   actionID: number | null;
   busy: boolean;
   canManage: boolean;
+  locale: string;
   onEnable: (schedule: ReportWorkflowSchedule) => void;
   policyEnabledIDs: ReadonlySet<number>;
   schedule: ReportWorkflowSchedule;
 }) {
+  const t = useTranslations("WorkflowScheduleSettings");
   const readiness = reportWorkflowScheduleEnablementReadiness({ policyEnabledIDs, schedule });
   const blocked = readiness.status === "blocked";
   const button = (
@@ -1077,19 +1114,171 @@ function EnableScheduleButton({
       size="small"
       type="primary"
     >
-      Enable
+      {t("enable")}
     </Button>
   );
   if (!blocked) {
     return button;
   }
   return (
-    <Tooltip title={readiness.detail}>
+    <Tooltip title={localizeWorkflowScheduleText(readiness.detail, locale)}>
       <span>{button}</span>
     </Tooltip>
   );
 }
 
-function nullableDate(value: string | null): string {
-  return value === null ? "-" : formatDateTime(value);
+function nullableDate(value: string | null, locale: string): string {
+  return value === null ? "-" : formatDateTime(value, locale);
+}
+
+function localizeWorkflowScheduleMessages(
+  messages: readonly string[],
+  locale: string,
+): string {
+  return messages
+    .map((message) => localizeWorkflowScheduleText(message, locale))
+    .join(" ");
+}
+
+function localizeWorkflowScheduleText(value: string, locale: string): string {
+  if (locale !== "zh-CN") {
+    return value;
+  }
+  const exact: Readonly<Record<string, string>> = {
+    alert_storm: "告警风暴",
+    auto_room: "自动创建诊断室",
+    blocked: "已阻塞",
+    cascade: "级联故障",
+    disabled: "已停用",
+    interval: "固定间隔",
+    pending: "等待中",
+    ready: "就绪",
+    single_alert: "单告警",
+    suggest_room: "建议创建诊断室",
+    "Bound report workflow policy is enabled.": "绑定的报告工作流策略已启用。",
+    "Bound report workflow policy must be enabled before schedule enablement.":
+      "启用定时任务前，必须先启用绑定的报告工作流策略。",
+    "Calendar day of month must be between 1 and 28.":
+      "日历日期必须在 1 到 28 之间。",
+    "Calendar day of week must be between 0 and 6.":
+      "日历星期值必须在 0 到 6 之间。",
+    "Calendar hour must be between 0 and 23.":
+      "日历小时必须在 0 到 23 之间。",
+    "Calendar minute must be between 0 and 59.":
+      "日历分钟必须在 0 到 59 之间。",
+    "Cadence": "执行周期",
+    "Catch-up": "补偿执行",
+    "Complete schedule fields.": "请完成定时任务字段。",
+    "Daily": "每天",
+    "Daily cadence must not include calendar day fields.":
+      "每日周期不能包含日历日期字段。",
+    "Enable the selected report workflow policy before this schedule can be enabled.":
+      "启用此定时任务前，请先启用所选报告工作流策略。",
+    Friday: "星期五",
+    "Hourly report replay": "每小时报告重放",
+    "Interval": "固定间隔",
+    "Interval cadence must not include calendar fields.":
+      "固定间隔周期不能包含日历字段。",
+    "Interval must be between 1 and 31536000 seconds.":
+      "间隔必须在 1 到 31536000 秒之间。",
+    "Catch-up window must be between 1 and 31536000 seconds.":
+      "补偿窗口必须在 1 到 31536000 秒之间。",
+    Monday: "星期一",
+    "Monthly": "每月",
+    "Monthly cadence must not include calendar day of week.":
+      "每月周期不能包含星期字段。",
+    "Not named": "未命名",
+    "Not selected": "未选择",
+    "Not set": "未设置",
+    "Offset must be 0 for calendar cadences.":
+      "日历周期的偏移必须为 0。",
+    "Offset must be between 0 and 31536000 seconds.":
+      "偏移必须在 0 到 31536000 秒之间。",
+    "Offset must be less than interval.": "偏移必须小于间隔。",
+    "Policy": "策略",
+    "Policy not ready.": "策略未就绪。",
+    "Proof target": "证明目标",
+    "Ready to enable.": "可以启用。",
+    "Ready to save.": "可以保存。",
+    "Replay sample": "重放样例",
+    "Replay window overlaps interval.": "重放窗口与执行间隔重叠。",
+    "Replay delay must be between 0 and 31536000 seconds.":
+      "重放延迟必须在 0 到 31536000 秒之间。",
+    "Replay limit must be between 1 and 100000.":
+      "重放限制必须在 1 到 100000 之间。",
+    "Replay window must be between 1 and 31536000 seconds.":
+      "重放窗口必须在 1 到 31536000 秒之间。",
+    Saturday: "星期六",
+    "Schedule fields and bound workflow policy are ready.":
+      "定时任务字段和绑定的工作流策略均已就绪。",
+    "Selected policy is not enabled.": "所选策略尚未启用。",
+    "Set a positive interval and an offset that is lower than the interval.":
+      "请设置正数间隔，并确保偏移小于间隔。",
+    "Set valid UTC calendar fields, a zero offset, and a positive replay guard interval.":
+      "请设置有效的 UTC 日历字段、零偏移和正数重放保护间隔。",
+    "Select a report workflow policy.": "请选择报告工作流策略。",
+    "Select the workflow policy that this schedule should replay.":
+      "请选择此定时任务需要重放的工作流策略。",
+    "Weekly": "每周",
+    "Weekly cadence must not include calendar day of month.":
+      "每周周期不能包含月内日期字段。",
+    Sunday: "星期日",
+    Thursday: "星期四",
+    Tuesday: "星期二",
+    Wednesday: "星期三",
+    Weekday: "星期",
+    "Schedule name is required.": "定时任务名称为必填项。",
+    "Schedule name must be 120 characters or fewer.": "定时任务名称不能超过 120 个字符。",
+    "Prepared an hourly replay schedule from the settings overview proof action.":
+      "已根据配置概览证明操作准备每小时重放定时任务。",
+    "Temporal Schedule ID is required.": "Temporal 定时任务 ID 为必填项。",
+    "Temporal Schedule ID must not contain whitespace.":
+      "Temporal 定时任务 ID 不能包含空白符。",
+    "Temporal Schedule ID must be 200 characters or fewer.":
+      "Temporal 定时任务 ID 不能超过 200 个字符。",
+    "Replay window must be less than or equal to cadence guard interval to avoid overlapping scheduled replay windows.":
+      "重放窗口必须小于或等于周期保护间隔，以避免定时重放窗口重叠。",
+    "This schedule can retain recurring proof by replaying bounded alert windows through the selected workflow policy.":
+      "此定时任务可通过所选工作流策略重放有界告警窗口并保留周期性证明。",
+    "Complete the schedule fields before relying on recurring replay proof.":
+      "依赖周期性重放证明前，请完成定时任务字段。",
+    "Resolve blocked policy or timing settings before scheduled-trigger proof can run.":
+      "运行定时触发证明前，请解决已阻塞的策略或时间设置。",
+  };
+  if (exact[value] !== undefined) {
+    return exact[value]!;
+  }
+  let match = value.match(/^Current user is not authorized to manage report workflow schedule #(\d+)\.$/);
+  if (match) {
+    return `当前用户无权管理报告工作流定时任务 #${match[1]}。`;
+  }
+  match = value.match(/^Every (.+)$/);
+  if (match) {
+    return `每 ${match[1]} 执行一次`;
+  }
+  match = value.match(/^Daily at (.+)$/);
+  if (match) {
+    return `每天 ${match[1]} 执行`;
+  }
+  match = value.match(/^Day (.+) at (.+)$/);
+  if (match) {
+    return `每月 ${match[1]} 日 ${match[2]} 执行`;
+  }
+  match = value.match(/^(Sunday|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Weekday) at (.+)$/);
+  if (match) {
+    return `${localizeWorkflowScheduleText(match[1]!, locale)} ${match[2]} 执行`;
+  }
+  match = value.match(/^Starts every (.+) after offset (.+)\.$/);
+  if (match) {
+    return `每 ${match[1]} 启动一次，偏移 ${match[2]}。`;
+  }
+  match = value.match(/^(Daily|Weekly|Monthly) UTC calendar schedule with (.+) replay guard interval\.$/);
+  if (match) {
+    return `${localizeWorkflowScheduleText(match[1]!, locale)} UTC 日历定时任务，重放保护间隔为 ${match[2]}。`;
+  }
+  match = value.match(/^(.+) window$/);
+  if (match) {
+    return `${match[1]} 窗口`;
+  }
+  return value;
 }

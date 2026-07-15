@@ -28,6 +28,7 @@ import {
   Typography,
 } from "antd";
 import type { TableColumnsType, TabsProps } from "antd";
+import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
 import type { ApiResult } from "@/lib/api/client";
@@ -188,6 +189,8 @@ type SyncDirectoryVariables = {
   body: DirectorySyncRequest;
 };
 
+type DirectoryTranslator = ReturnType<typeof useTranslations<"DirectorySettings">>;
+
 type PreviewState =
   | { kind: "empty" }
   | { kind: "ready"; request: RBACAuthorizeRequest; response: RBACAuthorizeResponse };
@@ -213,6 +216,9 @@ export function DirectoryRBACSettingsManager({
   workflowPoliciesResult,
   workflowSchedulesResult,
 }: DirectoryRBACSettingsManagerProps) {
+  const locale = useLocale();
+  const t = useTranslations("DirectorySettings");
+  const common = useTranslations("Common");
   const [syncForm] = Form.useForm<DirectorySyncFormState>();
   const [assignmentForm] = Form.useForm<RBACAssignmentFormState>();
   const [authorizeForm] = Form.useForm<RBACAuthorizeFormState>();
@@ -233,7 +239,7 @@ export function DirectoryRBACSettingsManager({
     initialResult: usersResult,
     queryFn: refreshDirectoryUsers,
     queryKey: directoryUsersQueryKey,
-    refreshMessage: "Users refreshed.",
+    refreshMessage: t("usersRefreshed"),
     selectItems: (response) => response.items,
   });
   const {
@@ -245,7 +251,7 @@ export function DirectoryRBACSettingsManager({
     initialResult: departmentsResult,
     queryFn: refreshDirectoryDepartments,
     queryKey: directoryDepartmentsQueryKey,
-    refreshMessage: "Departments refreshed.",
+    refreshMessage: t("departmentsRefreshed"),
     selectItems: (response) => response.items,
   });
   const {
@@ -257,7 +263,7 @@ export function DirectoryRBACSettingsManager({
     initialResult: assignmentsResult,
     queryFn: refreshRBACAssignments,
     queryKey: rbacAssignmentsQueryKey,
-    refreshMessage: "RBAC assignments refreshed.",
+    refreshMessage: t("assignmentsRefreshed"),
     selectItems: (response) => response.items,
   });
   const {
@@ -269,7 +275,7 @@ export function DirectoryRBACSettingsManager({
     initialResult: syncRunsResult,
     queryFn: refreshDirectorySyncRuns,
     queryKey: directorySyncRunsQueryKey,
-    refreshMessage: "Directory sync runs refreshed.",
+    refreshMessage: t("syncRunsRefreshed"),
     selectItems: (response) => response.items,
   });
   const {
@@ -280,7 +286,7 @@ export function DirectoryRBACSettingsManager({
     initialResult: alertSourcesResult,
     queryFn: refreshAlertSourceProfiles,
     queryKey: alertSourcesQueryKey,
-    refreshMessage: "Alert sources refreshed.",
+    refreshMessage: t("sourcesRefreshed"),
     selectItems: (response) => response.items,
   });
   const {
@@ -291,7 +297,7 @@ export function DirectoryRBACSettingsManager({
     initialResult: groupingPoliciesResult,
     queryFn: refreshGroupingPolicies,
     queryKey: groupingPoliciesQueryKey,
-    refreshMessage: "Grouping policies refreshed.",
+    refreshMessage: t("groupingRefreshed"),
     selectItems: (response) => response.items,
   });
   const {
@@ -302,7 +308,7 @@ export function DirectoryRBACSettingsManager({
     initialResult: workflowPoliciesResult,
     queryFn: refreshReportWorkflowPolicies,
     queryKey: reportWorkflowPoliciesQueryKey,
-    refreshMessage: "Report workflows refreshed.",
+    refreshMessage: t("workflowsRefreshed"),
     selectItems: (response) => response.items,
   });
   const {
@@ -313,7 +319,7 @@ export function DirectoryRBACSettingsManager({
     initialResult: workflowSchedulesResult,
     queryFn: refreshReportWorkflowSchedules,
     queryKey: reportWorkflowSchedulesQueryKey,
-    refreshMessage: "Report workflow schedules refreshed.",
+    refreshMessage: t("schedulesRefreshed"),
     selectItems: (response) => response.items,
   });
   const {
@@ -324,7 +330,7 @@ export function DirectoryRBACSettingsManager({
     initialResult: notificationChannelsResult,
     queryFn: refreshNotificationChannelProfiles,
     queryKey: notificationChannelsQueryKey,
-    refreshMessage: "Notification channels refreshed.",
+    refreshMessage: t("channelsRefreshed"),
     selectItems: (response) => response.items,
   });
   const {
@@ -335,7 +341,7 @@ export function DirectoryRBACSettingsManager({
     initialResult: diagnosisToolTemplatesResult,
     queryFn: refreshDiagnosisToolTemplates,
     queryKey: diagnosisToolTemplatesQueryKey,
-    refreshMessage: "Diagnosis tool templates refreshed.",
+    refreshMessage: t("toolsRefreshed"),
     selectItems: (response) => response.items,
   });
   const canManageDirectory = currentAuthorization.can("directoryManage");
@@ -348,23 +354,31 @@ export function DirectoryRBACSettingsManager({
     errorStatus:
       usersErrorStatus ?? departmentsErrorStatus ?? syncRunsErrorStatus,
     isChecking: authorizationChecking,
-    resourceLabel: "directory users, departments, and sync runs",
+    message: common("readAccessLimited", {
+      resource: t("directoryResources"),
+    }),
   });
   const directoryManagePermissionNotice = settingsManagePermissionNotice({
     canManage: canManageDirectory,
     isChecking: authorizationChecking,
-    resourceLabel: "directory sync",
+    message: common("formReadOnly", {
+      resource: t("directorySyncResource"),
+    }),
   });
   const rbacManagePermissionNotice = settingsManagePermissionNotice({
     canManage: canManageRBAC,
     isChecking: authorizationChecking,
-    resourceLabel: "RBAC assignments and authorization previews",
+    message: common("formReadOnly", {
+      resource: t("rbacManageResource"),
+    }),
   });
   const rbacReadPermissionNotice = settingsReadPermissionNotice({
     canRead: canManageRBAC,
     errorStatus: assignmentsErrorStatus,
     isChecking: authorizationChecking,
-    resourceLabel: "RBAC assignments",
+    message: common("readAccessLimited", {
+      resource: t("assignmentsResource"),
+    }),
   });
   const diagnosisRoomsQuery = useQuery({
     enabled: clientReady && canManageRBAC,
@@ -482,29 +496,43 @@ export function DirectoryRBACSettingsManager({
       : departmentSubjectOptions;
   const diagnosisRoomsNotice: SettingsNotice | null =
     diagnosisRoomsQuery.error !== null
-      ? { kind: "warning", message: settingsErrorMessage(diagnosisRoomsQuery.error) }
+      ? {
+          kind: "warning",
+          message: settingsErrorMessage(
+            diagnosisRoomsQuery.error,
+            common("requestFailed"),
+          ),
+        }
       : diagnosisRoomsQuery.data?.ok === false
         ? { kind: "warning", message: diagnosisRoomsQuery.data.error.message }
         : null;
   const assignmentEmptyDescription = settingsReadPermissionEmptyDescription({
     canRead: canManageRBAC,
-    emptyDescription: "No assignments",
-    resourceLabel: "RBAC assignments",
+    deniedDescription: common("noReadAccess", {
+      resource: t("assignmentsResource"),
+    }),
+    emptyDescription: t("noAssignments"),
   });
   const departmentEmptyDescription = settingsReadPermissionEmptyDescription({
     canRead: canReadDirectory,
-    emptyDescription: "No departments",
-    resourceLabel: "directory departments",
+    deniedDescription: common("noReadAccess", {
+      resource: t("departmentsResource"),
+    }),
+    emptyDescription: t("noDepartments"),
   });
   const syncRunEmptyDescription = settingsReadPermissionEmptyDescription({
     canRead: canReadDirectory,
-    emptyDescription: "No sync runs",
-    resourceLabel: "directory sync runs",
+    deniedDescription: common("noReadAccess", {
+      resource: t("syncRunsResource"),
+    }),
+    emptyDescription: t("noSyncRuns"),
   });
   const userEmptyDescription = settingsReadPermissionEmptyDescription({
     canRead: canReadDirectory,
-    emptyDescription: "No users",
-    resourceLabel: "directory users",
+    deniedDescription: common("noReadAccess", {
+      resource: t("usersResource"),
+    }),
+    emptyDescription: t("noUsers"),
   });
   const visibleNotice =
     notice ??
@@ -551,49 +579,59 @@ export function DirectoryRBACSettingsManager({
       refreshes.push(diagnosisRoomsQuery.refetch());
     }
     await Promise.all(refreshes);
-    setNotice({ kind: "info", message: "Directory and RBAC data refreshed." });
+    setNotice({ kind: "info", message: t("allRefreshed") });
   }
 
   async function handleDirectorySync(values: DirectorySyncFormState) {
     const parsed = directorySyncFormToRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: parsed.message });
+      setNotice({ kind: "error", message: localizeDirectoryText(parsed.message, locale) });
       return;
     }
     let synced: DirectorySyncResponse;
     try {
       synced = await syncDirectory.mutateAsync({ body: parsed.value });
     } catch (error) {
-      setNotice({ kind: "error", message: settingsErrorMessage(error) });
+      setNotice({
+        kind: "error",
+        message: settingsErrorMessage(error, common("requestFailed")),
+      });
       return;
     }
     setNotice({
       kind: "info",
-      message: `Directory sync completed: ${synced.users_upserted} users and ${synced.departments_upserted} departments upserted; ${synced.users_deactivated} stale users deactivated.`,
+      message: t("syncCompleted", {
+        departments: synced.departments_upserted,
+        users: synced.users_upserted,
+        deactivated: synced.users_deactivated,
+      }),
     });
   }
 
   async function handleAssignmentSubmit(values: RBACAssignmentFormState) {
     const parsed = assignmentFormToWriteRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: parsed.message });
+      setNotice({ kind: "error", message: localizeDirectoryText(parsed.message, locale) });
       return;
     }
     try {
       await saveAssignment.mutateAsync({ body: parsed.value });
     } catch (error) {
-      setNotice({ kind: "error", message: settingsErrorMessage(error) });
+      setNotice({
+        kind: "error",
+        message: settingsErrorMessage(error, common("requestFailed")),
+      });
       return;
     }
     await assignmentsQuery.refetch();
     assignmentForm.setFieldsValue(emptyRBACAssignmentForm());
-    setNotice({ kind: "info", message: "RBAC assignment saved." });
+    setNotice({ kind: "info", message: t("assignmentSaved") });
   }
 
   async function handleAuthorize(values: RBACAuthorizeFormState) {
     const parsed = authorizeFormToRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: parsed.message });
+      setNotice({ kind: "error", message: localizeDirectoryText(parsed.message, locale) });
       return;
     }
     setPreviewing(true);
@@ -607,8 +645,8 @@ export function DirectoryRBACSettingsManager({
     setNotice({
       kind: "info",
       message: authorized.data.allowed
-        ? "Authorization preview allowed the request."
-        : "Authorization preview denied the request.",
+        ? t("previewAllowed")
+        : t("previewDenied"),
     });
   }
 
@@ -622,7 +660,7 @@ export function DirectoryRBACSettingsManager({
         if (currentAuthorization.state.kind !== "ready") {
           setNotice({
             kind: "warning",
-            message: "Current signed-in subject is not ready for assignment.",
+            message: t("subjectNotReady"),
           });
           return;
         }
@@ -632,7 +670,7 @@ export function DirectoryRBACSettingsManager({
         if (!assignment.ok) {
           setNotice({
             kind: "warning",
-            message: assignment.message,
+            message: localizeDirectoryText(assignment.message, locale),
           });
           return;
         }
@@ -640,7 +678,7 @@ export function DirectoryRBACSettingsManager({
         setNotice({
           kind: "info",
           message:
-            "Loaded a bootstrap global admin assignment for the current subject. Save it, then replace it with scoped team rules when rollout is complete.",
+            t("bootstrapLoaded"),
         });
         return;
       }
@@ -663,17 +701,17 @@ export function DirectoryRBACSettingsManager({
     });
     setNotice({
       kind: "info",
-      message: `Loaded RBAC assignment #${assignment.id}.`,
+      message: t("assignmentLoaded", { id: assignment.id }),
     });
   }
 
   return (
     <div className="stack">
-      <Row aria-label="Directory and RBAC metrics" gutter={[12, 12]}>
-        <MetricCard label="Users" value={users.length} />
-        <MetricCard label="Active users" value={activeUsers} />
-        <MetricCard label="Departments" value={departments.length} />
-        <MetricCard label="Enabled rules" value={enabledAssignments} />
+      <Row aria-label={t("metricsLabel")} gutter={[12, 12]}>
+        <MetricCard label={t("users")} value={users.length} />
+        <MetricCard label={t("activeUsers")} value={activeUsers} />
+        <MetricCard label={t("departments")} value={departments.length} />
+        <MetricCard label={t("enabledRules")} value={enabledAssignments} />
       </Row>
 
       {visibleNotice ? <Notice notice={visibleNotice} /> : null}
@@ -697,10 +735,10 @@ export function DirectoryRBACSettingsManager({
                   icon={<ReloadOutlined />}
                   onClick={() => void handleRefreshAll()}
                 >
-                  Refresh
+                  {t("refresh")}
                 </Button>
               }
-              title="Directory Sync"
+              title={t("directorySync")}
             >
               {directoryManagePermissionNotice ? (
                 <ReadOnlyModeAlert notice={directoryManagePermissionNotice} />
@@ -713,22 +751,22 @@ export function DirectoryRBACSettingsManager({
                 onFinish={(values) => void handleDirectorySync(values)}
               >
                 <Form.Item
-                  label="Page size"
+                  label={t("pageSize")}
                   name="pageSize"
                   rules={[
-                    { required: true, message: "Page size is required." },
+                    { required: true, message: t("pageSizeRequired") },
                     {
                       type: "number",
                       min: 1,
                       max: 500,
-                      message: "Page size must be between 1 and 500.",
+                      message: t("pageSizeRange"),
                       transform: Number,
                     },
                   ]}
                 >
                   <Input type="number" />
                 </Form.Item>
-                <Form.Item label="Updated after" name="updatedAfter">
+                <Form.Item label={t("updatedAfter")} name="updatedAfter">
                   <Input autoComplete="off" placeholder="2026-06-26T08:00:00Z" />
                 </Form.Item>
                 <Button
@@ -738,7 +776,7 @@ export function DirectoryRBACSettingsManager({
                   loading={syncDirectory.isPending}
                   type="primary"
                 >
-                  Sync
+                  {t("sync")}
                 </Button>
               </Form>
               <DirectorySyncSummary
@@ -747,7 +785,7 @@ export function DirectoryRBACSettingsManager({
               />
             </Card>
 
-            <Card title="Authorization Preview">
+            <Card title={t("authorizationPreview")}>
               {rbacManagePermissionNotice ? (
                 <ReadOnlyModeAlert notice={rbacManagePermissionNotice} />
               ) : null}
@@ -759,9 +797,9 @@ export function DirectoryRBACSettingsManager({
                 onFinish={(values) => void handleAuthorize(values)}
               >
                 <Form.Item
-                  label="Subject"
+                  label={t("subject")}
                   name="subject"
-                  rules={[{ required: true, message: "Subject is required." }]}
+                  rules={[{ required: true, message: t("subjectRequired") }]}
                 >
                   <Select
                     allowClear
@@ -773,46 +811,46 @@ export function DirectoryRBACSettingsManager({
                     }}
                     optionFilterProp="search"
                     options={userSubjectOptions}
-                    placeholder="Select a synced user"
+                    placeholder={t("selectUser")}
                     showSearch
                   />
                 </Form.Item>
-                <Form.Item label="Department keys" name="departmentKeysText">
+                <Form.Item label={t("departmentKeys")} name="departmentKeysText">
                   <Input.TextArea
                     autoSize={{ minRows: 2, maxRows: 6 }}
                     placeholder="dep-1, dep-2"
                   />
                 </Form.Item>
                 <Form.Item
-                  label="Permission"
+                  label={t("permission")}
                   name="permission"
                   rules={[
-                    { required: true, message: "Permission is required." },
+                    { required: true, message: t("permissionRequired") },
                   ]}
                 >
-                  <Select options={rbacPermissionOptions} />
+                  <Select options={localizedDirectoryOptions(rbacPermissionOptions, locale)} />
                 </Form.Item>
                 <Form.Item
-                  label="Scope kind"
+                  label={t("scopeKind")}
                   name="scopeKind"
                   rules={[
-                    { required: true, message: "Scope kind is required." },
+                    { required: true, message: t("scopeKindRequired") },
                   ]}
                 >
                   <Select
                     onChange={() => {
                       authorizeForm.setFieldValue("scopeKey", "");
                     }}
-                    options={rbacScopeKindOptions}
+                    options={localizedDirectoryOptions(rbacScopeKindOptions, locale)}
                   />
                 </Form.Item>
                 <Form.Item
-                  label="Scope key"
+                  label={t("scopeKey")}
                   name="scopeKey"
                   rules={[
                     {
                       required: scopeRequiresKey(authorizeScopeKind),
-                      message: "Scope key is required.",
+                      message: t("scopeKeyRequired"),
                     },
                   ]}
                 >
@@ -832,7 +870,7 @@ export function DirectoryRBACSettingsManager({
                   loading={previewing}
                   type="primary"
                 >
-                  Preview
+                  {t("preview")}
                 </Button>
               </Form>
               <AuthorizationPreview preview={preview} />
@@ -842,7 +880,7 @@ export function DirectoryRBACSettingsManager({
 
         <Col lg={16} md={24} xs={24}>
           <Space direction="vertical" size={16} style={{ width: "100%" }}>
-            <Card title="RBAC Assignment">
+            <Card title={t("rbacAssignment")}>
               {rbacManagePermissionNotice ? (
                 <ReadOnlyModeAlert notice={rbacManagePermissionNotice} />
               ) : null}
@@ -856,12 +894,12 @@ export function DirectoryRBACSettingsManager({
                 <Row gutter={[12, 0]}>
                   <Col md={8} xs={24}>
                     <Form.Item
-                      label="Subject kind"
+                      label={t("subjectKind")}
                       name="subjectKind"
                       rules={[
                         {
                           required: true,
-                          message: "Subject kind is required.",
+                          message: t("subjectKindRequired"),
                         },
                       ]}
                     >
@@ -869,18 +907,18 @@ export function DirectoryRBACSettingsManager({
                         onChange={() => {
                           assignmentForm.setFieldValue("subjectKey", "");
                         }}
-                        options={rbacSubjectKindOptions}
+                        options={localizedDirectoryOptions(rbacSubjectKindOptions, locale)}
                       />
                     </Form.Item>
                   </Col>
                   <Col md={16} xs={24}>
                     <Form.Item
-                      label="Subject key"
+                      label={t("subjectKey")}
                       name="subjectKey"
                       rules={[
                         {
                           required: true,
-                          message: "Subject key is required.",
+                          message: t("subjectKeyRequired"),
                         },
                       ]}
                     >
@@ -890,8 +928,8 @@ export function DirectoryRBACSettingsManager({
                         options={assignmentSubjectOptions}
                         placeholder={
                           assignmentSubjectKind === "user"
-                            ? "Select a synced user"
-                            : "Select a synced department"
+                            ? t("selectUser")
+                            : t("selectDepartment")
                         }
                         showSearch
                       />
@@ -899,21 +937,21 @@ export function DirectoryRBACSettingsManager({
                   </Col>
                   <Col md={8} xs={24}>
                     <Form.Item
-                      label="Role"
+                      label={t("role")}
                       name="role"
-                      rules={[{ required: true, message: "Role is required." }]}
+                      rules={[{ required: true, message: t("roleRequired") }]}
                     >
-                      <Select options={rbacRoleOptions} />
+                      <Select options={localizedDirectoryOptions(rbacRoleOptions, locale)} />
                     </Form.Item>
                   </Col>
                   <Col md={8} xs={24}>
                     <Form.Item
-                      label="Scope kind"
+                      label={t("scopeKind")}
                       name="scopeKind"
                       rules={[
                         {
                           required: true,
-                          message: "Scope kind is required.",
+                          message: t("scopeKindRequired"),
                         },
                       ]}
                     >
@@ -921,18 +959,18 @@ export function DirectoryRBACSettingsManager({
                         onChange={() => {
                           assignmentForm.setFieldValue("scopeKey", "");
                         }}
-                        options={rbacScopeKindOptions}
+                        options={localizedDirectoryOptions(rbacScopeKindOptions, locale)}
                       />
                     </Form.Item>
                   </Col>
                   <Col md={8} xs={24}>
                     <Form.Item
-                      label="Scope key"
+                      label={t("scopeKey")}
                       name="scopeKey"
                       rules={[
                         {
                           required: scopeRequiresKey(assignmentScopeKind),
-                          message: "Scope key is required.",
+                          message: t("scopeKeyRequired"),
                         },
                       ]}
                     >
@@ -948,7 +986,7 @@ export function DirectoryRBACSettingsManager({
                   </Col>
                   <Col md={8} xs={24}>
                     <Form.Item
-                      label="Enabled"
+                      label={t("enabled")}
                       name="enabled"
                       valuePropName="checked"
                     >
@@ -964,7 +1002,7 @@ export function DirectoryRBACSettingsManager({
                     loading={saveAssignment.isPending}
                     type="primary"
                   >
-                    Save
+                    {t("save")}
                   </Button>
                   <Button
                     disabled={busy || !canManageRBAC}
@@ -972,7 +1010,7 @@ export function DirectoryRBACSettingsManager({
                       assignmentForm.setFieldsValue(emptyRBACAssignmentForm())
                     }
                   >
-                    Reset
+                    {t("reset")}
                   </Button>
                 </Space>
               </Form>
@@ -992,6 +1030,7 @@ export function DirectoryRBACSettingsManager({
                 syncRuns,
                 userEmptyDescription,
                 users,
+                t,
               })}
             />
           </Space>
@@ -1012,14 +1051,16 @@ function RBACScopeKeyInput({
   optionsByScope: Partial<Record<RBACScopeKind, DirectorySelectOption[]>>;
   scopeKind: RBACScopeKind;
 }) {
-  const description = scopeKindDescription(scopeKind);
+  const locale = useLocale();
+  const t = useTranslations("DirectorySettings");
+  const description = scopeKindDescription(scopeKind, locale);
   const options = optionsByScope[scopeKind] ?? [];
   if (!loading && options.length === 0) {
     return (
       <Input
         autoComplete="off"
         disabled={disabled}
-        placeholder={`Enter ${description}`}
+        placeholder={t("enterScope", { description })}
       />
     );
   }
@@ -1033,18 +1074,19 @@ function RBACScopeKeyInput({
           : candidate.search.toLowerCase().includes(input.trim().toLowerCase());
       }}
       options={options}
-      placeholder={loading ? `Loading ${description}` : `Select or enter ${description}`}
+      placeholder={loading ? t("loadingScope", { description }) : t("selectScope", { description })}
       style={{ width: "100%" }}
     />
   );
 }
 
-function scopeKindDescription(scopeKind: RBACScopeKind): string {
-  return (
-    rbacScopeKindOptions
-      .find((option) => option.value === scopeKind)
-      ?.label.toLowerCase() ?? "scope key"
-  );
+function scopeKindDescription(scopeKind: RBACScopeKind, locale: string): string {
+  const label =
+    rbacScopeKindOptions.find((option) => option.value === scopeKind)?.label ??
+    "scope key";
+  return locale === "zh-CN"
+    ? localizeDirectoryText(label, locale)
+    : label.toLowerCase();
 }
 
 function directoryTabs({
@@ -1060,6 +1102,7 @@ function directoryTabs({
   syncRuns,
   userEmptyDescription,
   users,
+  t,
 }: {
   assignments: RBACAssignment[];
   assignmentEmptyDescription: string;
@@ -1073,6 +1116,7 @@ function directoryTabs({
   syncRuns: DirectorySyncRun[];
   userEmptyDescription: string;
   users: DirectoryUser[];
+  t: DirectoryTranslator;
 }): TabsProps["items"] {
   return [
     {
@@ -1087,14 +1131,14 @@ function directoryTabs({
         />
       ),
       key: "assignments",
-      label: "Assignments",
+      label: t("assignments"),
     },
     {
       children: (
         <UserTable emptyDescription={userEmptyDescription} users={users} />
       ),
       key: "users",
-      label: "Users",
+      label: t("users"),
     },
     {
       children: (
@@ -1104,7 +1148,7 @@ function directoryTabs({
         />
       ),
       key: "departments",
-      label: "Departments",
+      label: t("departments"),
     },
     {
       children: (
@@ -1114,7 +1158,7 @@ function directoryTabs({
         />
       ),
       key: "sync-runs",
-      label: "Sync runs",
+      label: t("syncRuns"),
     },
   ];
 }
@@ -1134,6 +1178,8 @@ function AssignmentTable({
   emptyDescription: string;
   onEdit: (assignment: RBACAssignment) => void;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("DirectorySettings");
   const columns: TableColumnsType<RBACAssignment> = [
     {
       dataIndex: "subject_key",
@@ -1145,31 +1191,31 @@ function AssignmentTable({
           directoryUsersBySubject={directoryUsersBySubject}
         />
       ),
-      title: "Subject",
+      title: t("subject"),
     },
     {
       dataIndex: "role",
       key: "role",
       render: (role: RBACAssignment["role"]) => (
-        <Tag color={roleTagColor(role)}>{roleLabel(role)}</Tag>
+        <Tag color={roleTagColor(role)}>{localizeDirectoryText(roleLabel(role), locale)}</Tag>
       ),
-      title: "Role",
+      title: t("role"),
     },
     {
       dataIndex: "scope_key",
       key: "scope",
-      render: (_: string, assignment) => assignmentScopeLabel(assignment),
-      title: "Scope",
+      render: (_: string, assignment) => localizeDirectoryText(assignmentScopeLabel(assignment), locale),
+      title: t("scope"),
     },
     {
       dataIndex: "enabled",
       key: "enabled",
       render: (enabled: boolean) => (
         <Tag color={enabled ? "green" : "default"}>
-          {enabled ? "Enabled" : "Disabled"}
+          {enabled ? t("enabled") : t("disabled")}
         </Tag>
       ),
-      title: "State",
+      title: t("state"),
       width: 120,
     },
     {
@@ -1177,13 +1223,13 @@ function AssignmentTable({
       key: "updated_at",
       render: (value: string, assignment) => (
         <Space direction="vertical" size={0}>
-          <Typography.Text>{formatDateTime(value)}</Typography.Text>
+          <Typography.Text>{formatDateTime(value, locale)}</Typography.Text>
           <Typography.Text type="secondary">
             {assignment.updated_by}
           </Typography.Text>
         </Space>
       ),
-      title: "Updated",
+      title: t("updated"),
       width: 220,
     },
     {
@@ -1196,10 +1242,10 @@ function AssignmentTable({
           size="small"
           type="default"
         >
-          Edit
+          {t("edit")}
         </Button>
       ),
-      title: "Action",
+      title: t("action"),
       width: 120,
     },
   ];
@@ -1225,11 +1271,13 @@ function AssignmentSubject({
   departmentsByExternalID: ReadonlyMap<string, DirectoryDepartment>;
   directoryUsersBySubject: ReadonlyMap<string, DirectoryUser>;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("DirectorySettings");
   if (assignment.subject_kind === "user") {
     return (
       <DirectorySubjectTags
         directoryUsersBySubject={directoryUsersBySubject}
-        label={subjectKindLabel(assignment.subject_kind)}
+        label={localizeDirectoryText(subjectKindLabel(assignment.subject_kind), locale)}
         subject={assignment.subject_key}
       />
     );
@@ -1244,14 +1292,14 @@ function AssignmentSubject({
   return (
     <Space size={[6, 6]} wrap>
       <Typography.Text type="secondary">
-        {subjectKindLabel(assignment.subject_kind)}
+        {localizeDirectoryText(subjectKindLabel(assignment.subject_kind), locale)}
       </Typography.Text>
       <Tag color={department === undefined ? "default" : "processing"}>
         {displayName}
       </Tag>
       {displayName !== subjectKey ? <Tag>{subjectKey}</Tag> : null}
       {department?.path ? <Tag>{department.path}</Tag> : null}
-      {department === undefined ? <Tag color="default">not synced</Tag> : null}
+      {department === undefined ? <Tag color="default">{t("notSynced")}</Tag> : null}
     </Space>
   );
 }
@@ -1263,6 +1311,8 @@ function UserTable({
   emptyDescription: string;
   users: DirectoryUser[];
 }) {
+  const locale = useLocale();
+  const t = useTranslations("DirectorySettings");
   const columns: TableColumnsType<DirectoryUser> = [
     {
       dataIndex: "display_name",
@@ -1275,7 +1325,7 @@ function UserTable({
           </Typography.Text>
         </Space>
       ),
-      title: "User",
+      title: t("user"),
     },
     {
       dataIndex: "department_path",
@@ -1286,24 +1336,24 @@ function UserTable({
           ...user.department_paths,
           user.department,
         ]).join(", "),
-      title: "Department",
+      title: t("department"),
     },
     {
       dataIndex: "active",
       key: "active",
       render: (active: boolean) => (
         <Tag color={active ? "green" : "default"}>
-          {active ? "Active" : "Inactive"}
+          {active ? t("active") : t("inactive")}
         </Tag>
       ),
-      title: "State",
+      title: t("state"),
       width: 120,
     },
     {
       dataIndex: "synced_at",
       key: "synced_at",
-      render: (value: string) => formatDateTime(value),
-      title: "Synced",
+      render: (value: string) => formatDateTime(value, locale),
+      title: t("synced"),
       width: 180,
     },
   ];
@@ -1327,6 +1377,8 @@ function DepartmentTable({
   departments: DirectoryDepartment[];
   emptyDescription: string;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("DirectorySettings");
   const columns: TableColumnsType<DirectoryDepartment> = [
     {
       dataIndex: "display_name",
@@ -1341,24 +1393,24 @@ function DepartmentTable({
           </Typography.Text>
         </Space>
       ),
-      title: "Department",
+      title: t("department"),
     },
     {
       dataIndex: "path",
       key: "path",
-      title: "Path",
+      title: t("path"),
     },
     {
       dataIndex: "member_count",
       key: "member_count",
-      title: "Members",
+      title: t("members"),
       width: 110,
     },
     {
       dataIndex: "synced_at",
       key: "synced_at",
-      render: (value: string) => formatDateTime(value),
-      title: "Synced",
+      render: (value: string) => formatDateTime(value, locale),
+      title: t("synced"),
       width: 180,
     },
   ];
@@ -1382,61 +1434,63 @@ function SyncRunTable({
   emptyDescription: string;
   runs: DirectorySyncRun[];
 }) {
+  const locale = useLocale();
+  const t = useTranslations("DirectorySettings");
   const columns: TableColumnsType<DirectorySyncRun> = [
     {
       dataIndex: "synced_at",
       key: "synced_at",
-      render: (value: string) => formatDateTime(value),
-      title: "Synced",
+      render: (value: string) => formatDateTime(value, locale),
+      title: t("synced"),
       width: 180,
     },
     {
       dataIndex: "provider",
       key: "provider",
-      title: "Provider",
+      title: t("provider"),
       width: 140,
     },
     {
       dataIndex: "status",
       key: "status",
       render: (status: string) => (
-        <Tag color={directorySyncRunStatusColor(status)}>{status}</Tag>
+        <Tag color={directorySyncRunStatusColor(status)}>{localizeDirectoryText(status, locale)}</Tag>
       ),
-      title: "Status",
+      title: t("status"),
       width: 120,
     },
     {
       key: "pages",
       render: (_: unknown, run) => (
         <Space wrap>
-          <Tag color="blue">{run.department_pages} department pages</Tag>
-          <Tag color="cyan">{run.user_pages} user pages</Tag>
+          <Tag color="blue">{t("departmentPages", { count: run.department_pages })}</Tag>
+          <Tag color="cyan">{t("userPages", { count: run.user_pages })}</Tag>
         </Space>
       ),
-      title: "Pages",
+      title: t("pages"),
     },
     {
       key: "upserts",
       render: (_: unknown, run) => (
         <Space wrap>
-          <Tag color="green">{run.departments_upserted} departments</Tag>
-          <Tag color="green">{run.users_upserted} users</Tag>
+          <Tag color="green">{t("departmentCount", { count: run.departments_upserted })}</Tag>
+          <Tag color="green">{t("userCount", { count: run.users_upserted })}</Tag>
         </Space>
       ),
-      title: "Upserts",
+      title: t("upserts"),
     },
     {
       dataIndex: "page_size",
       key: "page_size",
-      title: "Page size",
+      title: t("pageSize"),
       width: 110,
     },
     {
       dataIndex: "updated_after",
       key: "updated_after",
       render: (value?: string) =>
-        value === undefined ? "Full sync" : formatDateTime(value),
-      title: "Updated after",
+        value === undefined ? t("fullSync") : formatDateTime(value, locale),
+      title: t("updatedAfter"),
       width: 180,
     },
     {
@@ -1450,9 +1504,9 @@ function SyncRunTable({
             </Typography.Text>
           </Space>
         ) : (
-          <Typography.Text type="secondary">None</Typography.Text>
+          <Typography.Text type="secondary">{t("none")}</Typography.Text>
         ),
-      title: "Failure",
+      title: t("failure"),
       width: 260,
     },
   ];
@@ -1487,42 +1541,44 @@ function DirectorySyncSummary({
   result: DirectorySyncResponse | null;
   summary: DirectorySyncProjectionSummary;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("DirectorySettings");
   const providerText =
-    summary.providers.length === 0 ? "No provider" : summary.providers.join(", ");
+    summary.providers.length === 0 ? t("noProvider") : summary.providers.join(", ");
   return (
     <div className="settings-preview-panel">
       <Space direction="vertical" size={4}>
         <Space wrap>
-          <Typography.Text type="secondary">Local projection</Typography.Text>
+          <Typography.Text type="secondary">{t("localProjection")}</Typography.Text>
           <Tag color={directorySyncStatusColor(summary.status)}>
-            {summary.statusLabel}
+            {localizeDirectoryText(summary.statusLabel, locale)}
           </Tag>
         </Space>
         <Typography.Text>
           {summary.latestSyncAt === null
-            ? "Not synced"
-            : formatDateTime(summary.latestSyncAt)}
+            ? t("notSynced")
+            : formatDateTime(summary.latestSyncAt, locale)}
         </Typography.Text>
         <Typography.Text type="secondary">{providerText}</Typography.Text>
       </Space>
       <Space wrap>
-        <Tag>{summary.userCount} users</Tag>
-        <Tag>{summary.departmentCount} departments</Tag>
+        <Tag>{t("userCount", { count: summary.userCount })}</Tag>
+        <Tag>{t("departmentCount", { count: summary.departmentCount })}</Tag>
         <Tag color={summary.inactiveUsers === 0 ? "green" : "orange"}>
-          {summary.inactiveUsers} inactive users
+          {t("inactiveUserCount", { count: summary.inactiveUsers })}
         </Tag>
-        <Tag>{summary.providerCount} providers</Tag>
+        <Tag>{t("providerCount", { count: summary.providerCount })}</Tag>
       </Space>
       {result === null ? null : (
         <Space wrap>
-          <Tag color="purple">Run {formatDateTime(result.synced_at)}</Tag>
-          <Tag color="blue">{result.user_pages} user pages</Tag>
-          <Tag color="cyan">{result.department_pages} department pages</Tag>
-          <Tag color="green">{result.users_upserted} users</Tag>
+          <Tag color="purple">{t("runAt", { time: formatDateTime(result.synced_at, locale) })}</Tag>
+          <Tag color="blue">{t("userPages", { count: result.user_pages })}</Tag>
+          <Tag color="cyan">{t("departmentPages", { count: result.department_pages })}</Tag>
+          <Tag color="green">{t("userCount", { count: result.users_upserted })}</Tag>
           <Tag color={result.users_deactivated === 0 ? "green" : "orange"}>
-            {result.users_deactivated} deactivated
+            {t("deactivatedCount", { count: result.users_deactivated })}
           </Tag>
-          <Tag color="green">{result.departments_upserted} departments</Tag>
+          <Tag color="green">{t("departmentCount", { count: result.departments_upserted })}</Tag>
         </Space>
       )}
     </div>
@@ -1543,6 +1599,8 @@ function directorySyncStatusColor(
 }
 
 function AuthorizationPreview({ preview }: { preview: PreviewState }) {
+  const locale = useLocale();
+  const t = useTranslations("DirectorySettings");
   if (preview.kind === "empty") {
     return null;
   }
@@ -1552,18 +1610,18 @@ function AuthorizationPreview({ preview }: { preview: PreviewState }) {
       description={
         <Space direction="vertical" size={4}>
           <Typography.Text>
-            {permissionLabel(preview.request.permission)} on{" "}
-            {scopeLabel(
+            {localizeDirectoryText(permissionLabel(preview.request.permission), locale)} {t("onScope")}{" "}
+            {localizeDirectoryText(scopeLabel(
               preview.request.scope_kind,
               preview.request.scope_key,
-            )}
+            ), locale)}
           </Typography.Text>
           <Typography.Text type="secondary">
-            Checked {formatDateTime(preview.response.checked_at)}
+            {t("checkedAt", { time: formatDateTime(preview.response.checked_at, locale) })}
           </Typography.Text>
         </Space>
       }
-      message={preview.response.allowed ? "Allowed" : "Denied"}
+      message={preview.response.allowed ? t("allowed") : t("denied")}
       showIcon
       type={preview.response.allowed ? "success" : "warning"}
     />
@@ -1600,6 +1658,7 @@ function DirectoryRBACNextStepAlert({
   notice: DirectoryRBACNextStepNotice;
   onAction: (action: DirectoryRBACNextStepNotice["action"]) => void;
 }) {
+  const locale = useLocale();
   return (
     <Alert
       action={
@@ -1610,11 +1669,11 @@ function DirectoryRBACNextStepAlert({
           size="small"
           type={notice.status === "ready" ? "primary" : "default"}
         >
-          {notice.actionLabel}
+          {localizeDirectoryText(notice.actionLabel, locale)}
         </Button>
       }
-      description={notice.detail}
-      message={notice.message}
+      description={localizeDirectoryText(notice.detail, locale)}
+      message={localizeDirectoryText(notice.message, locale)}
       showIcon
       type={directoryRBACNextStepAlertType(notice.status)}
     />
@@ -1655,11 +1714,13 @@ function CurrentAuthorizationStatus({
   authorization: ReturnType<typeof useCurrentRBACAuthorizations>;
   checks: readonly CurrentRBACAuthorizationCheck[];
 }) {
+  const locale = useLocale();
+  const t = useTranslations("DirectorySettings");
   if (authorization.isChecking || authorization.state.kind === "loading") {
     return (
       <Alert
-        description="Checking local RBAC decisions for the signed-in operator."
-        message="Current authorization"
+        description={t("checkingAuthorization")}
+        message={t("currentAuthorization")}
         showIcon
         type="info"
       />
@@ -1673,14 +1734,14 @@ function CurrentAuthorizationStatus({
           icon={<LoginOutlined />}
           type="primary"
         >
-          Sign in with IAM
+          {t("signInIam")}
         </Button>
       ) : undefined;
     return (
       <Alert
         action={action}
         description={authorization.state.message}
-        message="Current authorization unavailable"
+        message={t("authorizationUnavailable")}
         showIcon
         type="warning"
       />
@@ -1697,34 +1758,34 @@ function CurrentAuthorizationStatus({
       description={
         <Space direction="vertical" size={8}>
           <Space size={6} wrap>
-            <Typography.Text type="secondary">Subject</Typography.Text>
+            <Typography.Text type="secondary">{t("subject")}</Typography.Text>
             <Typography.Text copyable>
               {authorization.state.subject}
             </Typography.Text>
           </Space>
           <Space size={6} wrap>
-            <Typography.Text type="secondary">Directory profile</Typography.Text>
+            <Typography.Text type="secondary">{t("directoryProfile")}</Typography.Text>
             {primaryDirectoryUser ? (
               <>
                 <Typography.Text>
                   {directoryUserLabel(primaryDirectoryUser)}
                 </Typography.Text>
                 <Tag color={primaryDirectoryUser.active ? "green" : "orange"}>
-                  {primaryDirectoryUser.active ? "Active" : "Inactive"}
+                  {primaryDirectoryUser.active ? t("active") : t("inactive")}
                 </Tag>
               </>
             ) : (
-              <Tag color="orange">Not synced</Tag>
+              <Tag color="orange">{t("notSynced")}</Tag>
             )}
           </Space>
           <Space size={6} wrap>
-            <Typography.Text type="secondary">Department keys</Typography.Text>
+            <Typography.Text type="secondary">{t("departmentKeys")}</Typography.Text>
             {authorization.state.departmentKeys.length > 0 ? (
               authorization.state.departmentKeys.map((departmentKey) => (
                 <Tag key={departmentKey}>{departmentKey}</Tag>
               ))
             ) : (
-              <Tag color="orange">None</Tag>
+              <Tag color="orange">{t("none")}</Tag>
             )}
           </Space>
           <Space wrap>
@@ -1735,15 +1796,15 @@ function CurrentAuthorizationStatus({
                   color={allowed ? "green" : "red"}
                   key={check.key}
                 >
-                  {permissionLabel(check.permission)}{" "}
-                  {allowed ? "Allowed" : "Denied"}
+                  {localizeDirectoryText(permissionLabel(check.permission), locale)}{" "}
+                  {allowed ? t("allowed") : t("denied")}
                 </Tag>
               );
             })}
           </Space>
         </Space>
       }
-      message="Current authorization"
+      message={t("currentAuthorization")}
       showIcon
       type={hasDeniedCheck || !hasDirectoryProjection ? "warning" : "success"}
     />
@@ -1763,4 +1824,86 @@ function roleTagColor(role: RBACAssignment["role"]): string {
     case "viewer":
       return "default";
   }
+}
+
+function localizedDirectoryOptions<T extends { label: string }>(
+  options: readonly T[],
+  locale: string,
+): T[] {
+  return options.map((option) => ({
+    ...option,
+    label: localizeDirectoryText(option.label, locale),
+  }));
+}
+
+function localizeDirectoryText(value: string, locale: string): string {
+  if (locale !== "zh-CN") {
+    return value;
+  }
+  const exact: Readonly<Record<string, string>> = {
+    failed: "失败",
+    succeeded: "成功",
+    Admin: "管理员",
+    "Alert source": "告警源",
+    "Alert source manage": "管理告警源",
+    "Alert source read": "读取告警源",
+    "Create assignment": "创建权限分配",
+    Current: "当前",
+    Department: "部门",
+    "Diagnosis room": "诊断室",
+    "Diagnosis room administer": "管理诊断室",
+    "Diagnosis room approve": "批准诊断室结论",
+    "Diagnosis room participate": "参与诊断室",
+    "Diagnosis room read": "读取诊断室",
+    "Diagnosis tool template": "诊断工具模板",
+    "Diagnosis tool template manage": "管理诊断工具模板",
+    "Diagnosis tool template read": "读取诊断工具模板",
+    "Directory manage": "管理目录",
+    "Directory read": "读取目录",
+    Global: "全局",
+    "Grouping policy": "分组策略",
+    "Grouping policy manage": "管理分组策略",
+    "Grouping policy read": "读取分组策略",
+    Leader: "负责人",
+    "Need directory manager": "需要目录管理员",
+    "Need RBAC manager": "需要 RBAC 管理员",
+    "Not synced": "未同步",
+    "Notification channel": "通知渠道",
+    "Notification channel manage": "管理通知渠道",
+    "Notification channel read": "读取通知渠道",
+    "Notification channel test": "测试通知渠道",
+    Operator: "操作员",
+    "Open diagnosis room": "打开诊断室",
+    "Operations read": "读取运营数据",
+    "RBAC manage": "管理 RBAC",
+    "Report workflow": "报告工作流",
+    "Report workflow manage": "管理报告工作流",
+    "Report workflow read": "读取报告工作流",
+    "Report workflow schedule": "报告工作流定时任务",
+    Responder: "响应人员",
+    "Run full sync": "运行全量同步",
+    Stale: "已过期",
+    User: "用户",
+    Viewer: "只读用户",
+    "Access control is ready for manual checks": "访问控制已可进行人工检查",
+    "Current signed-in subject is empty.": "当前登录主体为空。",
+    "Directory projection is required": "需要目录映射",
+    "Directory sync page size must be between 1 and 500.":
+      "目录同步分页大小必须在 1 到 500 之间。",
+    "Local RBAC assignments are required": "需要本地 RBAC 分配",
+    "Scope key is required.": "范围键为必填项。",
+    "Subject is required.": "主体为必填项。",
+    "Subject key is required.": "主体键为必填项。",
+    "Updated-after timestamp must be a valid date-time value.":
+      "仅同步更新时间必须是有效日期时间。",
+    "Directory projection and enabled RBAC assignments are present. Use Authorization Preview for a specific subject, permission, and scope before manual diagnosis-room testing.":
+      "目录映射和已启用的 RBAC 分配均已存在。人工测试诊断室前，请使用授权预览检查具体主体、权限和范围。",
+    "Sync the IAM directory projection before assigning OpenClarion roles. Use an empty Updated after value for a full sync.":
+      "分配 OpenClarion 角色前，请先同步 IAM 目录映射。将“仅同步此时间之后的更新”留空可执行全量同步。",
+    "A directory manager must sync IAM users and departments before local RBAC can be assigned reliably.":
+      "必须由目录管理员同步 IAM 用户和部门，之后才能可靠地分配本地 RBAC。",
+    "An RBAC manager must create local role assignments before operators can use diagnosis-room permissions.":
+      "操作员使用诊断室权限前，必须由 RBAC 管理员创建本地角色分配。",
+  };
+  return exact[value] ?? value;
 }

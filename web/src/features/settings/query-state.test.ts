@@ -1,18 +1,28 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  settingsErrorMessage,
   settingsManagePermissionNotice,
   settingsReadPermissionEmptyDescription,
   settingsReadPermissionNotice,
 } from "./query-state";
 
 describe("settings query state helpers", () => {
+  it("uses a localized fallback only when no useful error message exists", () => {
+    expect(settingsErrorMessage(new Error("Backend rejected the request."), "请求失败。"))
+      .toBe("Backend rejected the request.");
+    expect(settingsErrorMessage(new Error("   "), "请求失败。"))
+      .toBe("请求失败。");
+    expect(settingsErrorMessage(null, "请求失败。"))
+      .toBe("请求失败。");
+  });
+
   it("does not warn while read authorization is still checking", () => {
     expect(
       settingsReadPermissionNotice({
         canRead: false,
         isChecking: true,
-        resourceLabel: "alert sources",
+        message: "Read access is limited for alert sources.",
       }),
     ).toBeNull();
   });
@@ -22,7 +32,8 @@ describe("settings query state helpers", () => {
       settingsReadPermissionNotice({
         canRead: false,
         isChecking: false,
-        resourceLabel: "alert sources",
+        message:
+          "Read access is limited for alert sources. Ask an OpenClarion administrator for the matching read role or scoped assignment.",
       }),
     ).toEqual({
       kind: "warning",
@@ -37,7 +48,7 @@ describe("settings query state helpers", () => {
         canRead: false,
         errorStatus: 403,
         isChecking: true,
-        resourceLabel: "notification channels",
+        message: "Read access is limited for notification channels.",
       }),
     ).toMatchObject({
       kind: "warning",
@@ -50,7 +61,7 @@ describe("settings query state helpers", () => {
         canRead: true,
         errorStatus: 403,
         isChecking: false,
-        resourceLabel: "alert sources",
+        message: "unused",
       }),
     ).toBeNull();
   });
@@ -59,16 +70,16 @@ describe("settings query state helpers", () => {
     expect(
       settingsReadPermissionEmptyDescription({
         canRead: true,
+        deniedDescription: "No read access to alert sources.",
         emptyDescription: "No alert sources configured.",
-        resourceLabel: "alert sources",
       }),
     ).toBe("No alert sources configured.");
 
     expect(
       settingsReadPermissionEmptyDescription({
         canRead: false,
+        deniedDescription: "No read access to alert sources.",
         emptyDescription: "No alert sources configured.",
-        resourceLabel: "alert sources",
       }),
     ).toBe("No read access to alert sources.");
   });
@@ -78,7 +89,7 @@ describe("settings query state helpers", () => {
       settingsManagePermissionNotice({
         canManage: false,
         isChecking: true,
-        resourceLabel: "alert source creation",
+        message: "This form is read-only for alert source creation.",
       }),
     ).toBeNull();
 
@@ -86,7 +97,7 @@ describe("settings query state helpers", () => {
       settingsManagePermissionNotice({
         canManage: true,
         isChecking: false,
-        resourceLabel: "alert source creation",
+        message: "unused",
       }),
     ).toBeNull();
 
@@ -94,7 +105,8 @@ describe("settings query state helpers", () => {
       settingsManagePermissionNotice({
         canManage: false,
         isChecking: false,
-        resourceLabel: "alert source creation",
+        message:
+          "This form is read-only for alert source creation. Ask an OpenClarion administrator for the matching manage role or scoped assignment.",
       }),
     ).toEqual({
       kind: "warning",

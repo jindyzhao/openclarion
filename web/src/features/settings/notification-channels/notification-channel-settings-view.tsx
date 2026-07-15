@@ -37,6 +37,7 @@ import type {
   MenuProps,
   TableColumnsType,
 } from "antd";
+import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
 import type { ApiResult } from "@/lib/api/client";
@@ -110,12 +111,6 @@ type NotificationChannelSettingsManagerProps = {
   workflowReturn?: NotificationChannelWorkflowReturn | null;
 };
 
-const deliveryScopeOptions: CheckboxOptionType<NotificationDeliveryScope>[] = [
-  { label: "Reports", value: "report" },
-  { label: "Diagnosis consultation", value: "diagnosis_consultation" },
-  { label: "Diagnosis close", value: "diagnosis_close" },
-];
-
 const channelKindOptions: Array<{
   value: NotificationChannelFormState["kind"];
   label: string;
@@ -137,6 +132,18 @@ type SaveChannelVariables = {
   body: NotificationChannelProfileWriteRequest;
   channelID: number | null;
 };
+
+type NotificationChannelTranslator = ReturnType<typeof useTranslations<"NotificationChannelSettings">>;
+
+function localizedDeliveryScopeOptions(
+  t: NotificationChannelTranslator,
+): CheckboxOptionType<NotificationDeliveryScope>[] {
+  return [
+    { label: t("reports"), value: "report" },
+    { label: t("diagnosisConsultation"), value: "diagnosis_consultation" },
+    { label: t("diagnosisClose"), value: "diagnosis_close" },
+  ];
+}
 
 const notificationChannelBaseAuthorizationChecks: CurrentRBACAuthorizationCheck[] =
   [
@@ -177,6 +184,9 @@ export function NotificationChannelSettingsManager({
   result,
   workflowReturn = null,
 }: NotificationChannelSettingsManagerProps) {
+  const locale = useLocale();
+  const t = useTranslations("NotificationChannelSettings");
+  const common = useTranslations("Common");
   const [form] = Form.useForm<NotificationChannelFormState>();
   const clientReady = useClientReady();
   const initialEditChannel = useMemo(
@@ -202,6 +212,7 @@ export function NotificationChannelSettingsManager({
       initialEditChannel,
     ),
   );
+  const deliveryScopeOptions = useMemo(() => localizedDeliveryScopeOptions(t), [t]);
   const {
     errorStatus,
     items: channels,
@@ -213,7 +224,7 @@ export function NotificationChannelSettingsManager({
     initialResult: result,
     queryKey: notificationChannelProfilesQueryKey,
     queryFn: refreshNotificationChannelProfiles,
-    refreshMessage: "Channels refreshed.",
+    refreshMessage: t("refreshed"),
     selectItems: (response) => response.items,
   });
   const saveChannel = useSettingsMutation<
@@ -262,16 +273,20 @@ export function NotificationChannelSettingsManager({
   const formPermissionNotice = settingsManagePermissionNotice({
     canManage: canSaveCurrentChannel,
     isChecking: !clientReady || currentAuthorization.isChecking,
-    resourceLabel:
-      editingID === null
-        ? "notification channel creation"
-        : `notification channel #${editingID}`,
+    message: common("formReadOnly", {
+      resource:
+        editingID === null
+          ? t("creationResource")
+          : t("channelResource", { id: editingID }),
+    }),
   });
   const readPermissionNotice = settingsReadPermissionNotice({
     canRead: canReadChannels,
     errorStatus,
     isChecking: !clientReady || currentAuthorization.isChecking,
-    resourceLabel: "notification channels",
+    message: common("readAccessLimited", {
+      resource: t("channelsResource"),
+    }),
   });
   const visibleNotice =
     currentAuthorization.notice ?? readPermissionNotice ?? notice;
@@ -343,7 +358,7 @@ export function NotificationChannelSettingsManager({
   async function handleSubmit(values: NotificationChannelFormState) {
     const parsed = formStateToWriteRequest(values);
     if (!parsed.ok) {
-      setNotice({ kind: "error", message: parsed.message });
+      setNotice({ kind: "error", message: localizeNotificationChannelText(parsed.message, locale) });
       return;
     }
 
@@ -353,14 +368,17 @@ export function NotificationChannelSettingsManager({
         body: parsed.value,
       });
     } catch (error) {
-      setNotice({ kind: "error", message: settingsErrorMessage(error) });
+      setNotice({
+        kind: "error",
+        message: settingsErrorMessage(error, common("requestFailed")),
+      });
       return;
     }
 
     form.setFieldsValue(emptyNotificationChannelForm());
     setEditingID(null);
     setLaunchNotice(null);
-    setNotice({ kind: "info", message: "Channel saved." });
+    setNotice({ kind: "info", message: t("saved") });
   }
 
   function recordTestResult(
@@ -411,7 +429,7 @@ export function NotificationChannelSettingsManager({
     if (missingContentKinds.length === 0) {
       setNotice({
         kind: "info",
-        message: "AI delivery test proof is current.",
+        message: t("proofCurrent"),
       });
       return;
     }
@@ -430,14 +448,14 @@ export function NotificationChannelSettingsManager({
       setTestingID(null);
     }
 
-    setNotice({ kind: "info", message: "AI delivery proof tests completed." });
+    setNotice({ kind: "info", message: t("proofCompleted") });
   }
 
   async function handleTestAllAIProof() {
     if (authorizedAIProofRunnableChannels.length === 0) {
       setNotice({
         kind: "info",
-        message: "No authorized AI delivery proof tests are pending.",
+        message: t("noProofPending"),
       });
       return;
     }
@@ -473,7 +491,10 @@ export function NotificationChannelSettingsManager({
 
     setNotice({
       kind: "info",
-      message: `AI delivery proof tests completed for ${testedChannels} channel${testedChannels === 1 ? "" : "s"} and ${testedContentKinds} sample${testedContentKinds === 1 ? "" : "s"}.`,
+      message: t("proofBatchCompleted", {
+        channels: testedChannels,
+        samples: testedContentKinds,
+      }),
     });
   }
 
@@ -521,23 +542,23 @@ export function NotificationChannelSettingsManager({
 
   return (
     <div className="stack">
-      <Row aria-label="Notification channel metrics" gutter={[12, 12]}>
-        <MetricCard label="Channels" value={channels.length} />
-        <MetricCard label="Enabled" value={summary.enabled} />
-        <MetricCard label="Report scope" value={summary.report} />
+      <Row aria-label={t("metricsLabel")} gutter={[12, 12]}>
+        <MetricCard label={t("channels")} value={channels.length} />
+        <MetricCard label={t("enabled")} value={summary.enabled} />
+        <MetricCard label={t("reportScope")} value={summary.report} />
         <MetricCard
-          label="Consultation scope"
+          label={t("consultationScope")}
           value={summary.diagnosisConsultation}
         />
-        <MetricCard label="Close scope" value={summary.diagnosisClose} />
+        <MetricCard label={t("closeScope")} value={summary.diagnosisClose} />
       </Row>
 
-      {visibleNotice ? <Notice notice={visibleNotice} /> : null}
+      {visibleNotice ? <Notice notice={visibleNotice} t={t} /> : null}
       {launchNotice ? (
         <Alert
-          aria-label="Notification channel launch preset"
-          description={launchNotice}
-          message="Channel action loaded"
+          aria-label={t("launchPreset")}
+          description={localizeNotificationChannelText(launchNotice, locale)}
+          message={t("actionLoaded")}
           role="status"
           showIcon
           type="info"
@@ -553,6 +574,8 @@ export function NotificationChannelSettingsManager({
         }
         runLoading={testingID !== null}
         runnableChannelCount={authorizedAIProofRunnableChannels.length}
+        locale={locale}
+        t={t}
         workflowReturn={workflowReturn}
       />
       <NotificationChannelAIProofInventoryPanel
@@ -565,7 +588,9 @@ export function NotificationChannelSettingsManager({
         }
         runLoading={testingID !== null}
         runnableChannelCount={authorizedAIProofRunnableChannels.length}
+        locale={locale}
         summaries={aiProofSummaries}
+        t={t}
       />
 
       <Row align="top" className="settings-console-grid" gutter={[16, 16]}>
@@ -579,12 +604,12 @@ export function NotificationChannelSettingsManager({
                   onClick={resetForm}
                   type="default"
                 >
-                  New
+                  {t("new")}
                 </Button>
               )
             }
             title={
-              editingID === null ? "New Channel" : `Edit Channel #${editingID}`
+              editingID === null ? t("newChannel") : t("editChannel", { id: editingID })
             }
           >
             {formPermissionNotice ? (
@@ -598,13 +623,13 @@ export function NotificationChannelSettingsManager({
               onFinish={handleSubmit}
             >
               <Form.Item
-                label="Name"
+                label={t("name")}
                 name="name"
                 rules={[
-                  { required: true, message: "Channel name is required." },
+                  { required: true, message: t("nameRequired") },
                   {
                     max: 120,
-                    message: "Channel name must be 120 characters or fewer.",
+                    message: t("nameLength"),
                   },
                 ]}
               >
@@ -612,25 +637,23 @@ export function NotificationChannelSettingsManager({
               </Form.Item>
 
               <Form.Item
-                label="Kind"
+                label={t("kind")}
                 name="kind"
-                rules={[{ required: true, message: "Kind is required." }]}
+                rules={[{ required: true, message: t("kindRequired") }]}
               >
                 <Segmented block options={channelKindOptions} />
               </Form.Item>
 
               <Form.Item
-                label="Secret reference"
+                label={t("secretReference")}
                 name="secretRef"
                 extra={
                   <Typography.Text type="secondary">
-                    Store the real endpoint in{" "}
-                    {notificationChannelSecretResolverEnvKey}; enter only the
-                    secret key here.
+                    {t("secretHint", { env: notificationChannelSecretResolverEnvKey })}
                   </Typography.Text>
                 }
                 rules={[
-                  { required: true, message: "Secret reference is required." },
+                  { required: true, message: t("secretRequired") },
                 ]}
               >
                 <Input
@@ -640,32 +663,34 @@ export function NotificationChannelSettingsManager({
               </Form.Item>
 
               <Form.Item
-                label="Delivery scopes"
+                label={t("deliveryScopes")}
                 name="deliveryScopes"
                 rules={[
                   {
                     required: true,
-                    message: "Select at least one delivery scope.",
+                    message: t("scopeRequired"),
                   },
                 ]}
               >
                 <Checkbox.Group options={deliveryScopeOptions} />
               </Form.Item>
 
-              <Form.Item label="Labels" name="labelsText">
+              <Form.Item label={t("labels")} name="labelsText">
                 <Input.TextArea
                   autoSize={{ minRows: 3, maxRows: 6 }}
                   placeholder="team=ops"
                 />
               </Form.Item>
 
-              <Form.Item label="Enabled" name="enabled" valuePropName="checked">
+              <Form.Item label={t("enabled")} name="enabled" valuePropName="checked">
                 <Switch />
               </Form.Item>
 
               <Form.Item noStyle shouldUpdate>
                 {(channelForm) => (
                   <NotificationChannelDeliveryPreview
+                    locale={locale}
+                    t={t}
                     values={
                       channelForm.getFieldsValue(
                         true,
@@ -683,10 +708,10 @@ export function NotificationChannelSettingsManager({
                   loading={busy}
                   type="primary"
                 >
-                  Save Channel
+                  {t("saveChannel")}
                 </Button>
                 <Button disabled={busy} onClick={resetForm} type="default">
-                  Reset
+                  {t("reset")}
                 </Button>
               </Space>
             </Form>
@@ -703,10 +728,10 @@ export function NotificationChannelSettingsManager({
                 onClick={handleRefresh}
                 type="default"
               >
-                Refresh
+                {t("refresh")}
               </Button>
             }
-            title="Configured Channels"
+            title={t("configuredChannels")}
           >
             <NotificationChannelTable
               busy={busy}
@@ -723,6 +748,8 @@ export function NotificationChannelSettingsManager({
               onTestAIProof={handleTestAIProof}
               testResults={testResults}
               testingID={testingID}
+              locale={locale}
+              t={t}
             />
           </Card>
         </Col>
@@ -741,7 +768,7 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-function Notice({ notice }: { notice: SettingsNotice }) {
+function Notice({ notice, t }: { notice: SettingsNotice; t: NotificationChannelTranslator }) {
   const type =
     notice.kind === "error"
       ? "error"
@@ -753,10 +780,10 @@ function Notice({ notice }: { notice: SettingsNotice }) {
       description={notice.message}
       message={
         notice.kind === "error"
-          ? "Request failed"
+          ? t("requestFailed")
           : notice.kind === "warning"
-            ? "Test review"
-            : "Settings"
+            ? t("testReview")
+            : t("settings")
       }
       role={notice.kind === "error" ? "alert" : "status"}
       showIcon
@@ -766,18 +793,22 @@ function Notice({ notice }: { notice: SettingsNotice }) {
 }
 
 function NotificationChannelEnterpriseWeChatRolloutPanel({
+  locale,
   onRunMissingProof,
   readiness,
   runDisabled,
   runLoading,
   runnableChannelCount,
+  t,
   workflowReturn,
 }: {
+  locale: string;
   onRunMissingProof: () => void;
   readiness: NotificationChannelEnterpriseWeChatRolloutReadiness;
   runDisabled: boolean;
   runLoading: boolean;
   runnableChannelCount: number;
+  t: NotificationChannelTranslator;
   workflowReturn: NotificationChannelWorkflowReturn | null;
 }) {
   const canRunProof =
@@ -786,7 +817,7 @@ function NotificationChannelEnterpriseWeChatRolloutPanel({
     workflowReturn !== null && readiness.status === "ready";
   return (
     <Alert
-      aria-label="Enterprise WeChat automatic diagnosis rollout readiness"
+      aria-label={t("wecomRolloutLabel")}
       action={
         canRunProof || canReturnToWorkflow ? (
           <Space wrap>
@@ -798,7 +829,7 @@ function NotificationChannelEnterpriseWeChatRolloutPanel({
                 onClick={onRunMissingProof}
                 size="small"
               >
-                Run missing AI proof
+                {t("runMissingProof")}
               </Button>
             ) : null}
             {canReturnToWorkflow ? (
@@ -808,7 +839,7 @@ function NotificationChannelEnterpriseWeChatRolloutPanel({
                 size="small"
                 type="primary"
               >
-                {workflowReturn.label}
+                {localizeNotificationChannelText(workflowReturn.label, locale)}
               </Button>
             ) : null}
           </Space>
@@ -816,12 +847,12 @@ function NotificationChannelEnterpriseWeChatRolloutPanel({
       }
       description={
         <Space direction="vertical" size={8}>
-          <Typography.Text>{readiness.detail}</Typography.Text>
+          <Typography.Text>{localizeNotificationChannelText(readiness.detail, locale)}</Typography.Text>
           {workflowReturn !== null ? (
             <Typography.Text type="secondary">
               {canReturnToWorkflow
-                ? workflowReturn.detail
-                : "Finish Enterprise WeChat channel setup and AI delivery proof before returning to workflow enablement."}
+                ? localizeNotificationChannelText(workflowReturn.detail, locale)
+                : t("finishWecomSetup")}
             </Typography.Text>
           ) : null}
           <Descriptions
@@ -830,47 +861,47 @@ function NotificationChannelEnterpriseWeChatRolloutPanel({
               {
                 children: readiness.candidateChannelIDs.length,
                 key: "candidates",
-                label: "Candidates",
+                label: t("candidates"),
               },
               {
                 children: readiness.readyChannelIDs.length,
                 key: "ready",
-                label: "Ready",
+                label: t("ready"),
               },
               {
                 children: readiness.reviewChannelIDs.length,
                 key: "review",
-                label: "Review",
+                label: t("review"),
               },
               {
                 children: readiness.blockedChannelIDs.length,
                 key: "blocked",
-                label: "Blocked",
+                label: t("blocked"),
               },
               {
                 children:
                   readiness.missingScopes.length === 0
-                    ? "None"
-                    : readiness.missingScopes.join(", "),
+                    ? t("none")
+                    : readiness.missingScopes.map((scope) => localizeNotificationChannelText(scope, locale)).join(", "),
                 key: "missingScopes",
-                label: "Missing scopes",
+                label: t("missingScopes"),
               },
               {
                 children:
                   readiness.missingContentKinds.length === 0
-                    ? "None"
+                    ? t("none")
                     : readiness.missingContentKinds
-                        .map(notificationChannelTestContentKindLabel)
+                        .map((kind) => localizeNotificationChannelText(notificationChannelTestContentKindLabel(kind), locale))
                         .join(", "),
                 key: "missingProof",
-                label: "Missing proof",
+                label: t("missingProof"),
               },
             ]}
             size="small"
           />
         </Space>
       }
-      message={readiness.label}
+      message={localizeNotificationChannelText(readiness.label, locale)}
       role={readiness.status === "blocked" ? "alert" : "status"}
       showIcon
       type={enterpriseWeChatRolloutAlertType(readiness.status)}
@@ -894,23 +925,27 @@ function enterpriseWeChatRolloutAlertType(
 }
 
 function NotificationChannelAIProofInventoryPanel({
+  locale,
   onRunMissingProof,
   readiness,
   runDisabled,
   runLoading,
   runnableChannelCount,
   summaries,
+  t,
 }: {
+  locale: string;
   onRunMissingProof: () => void;
   readiness: NotificationChannelAIProofInventoryReadiness;
   runDisabled: boolean;
   runLoading: boolean;
   runnableChannelCount: number;
   summaries: NotificationChannelAIProofSummary[];
+  t: NotificationChannelTranslator;
 }) {
   return (
     <Alert
-      aria-label="Enterprise WeChat AI delivery proof readiness"
+      aria-label={t("proofReadinessLabel")}
       action={
         runnableChannelCount === 0 ? null : (
           <Button
@@ -920,26 +955,28 @@ function NotificationChannelAIProofInventoryPanel({
             onClick={onRunMissingProof}
             size="small"
           >
-            Run missing AI proof
+            {t("runMissingProof")}
           </Button>
         )
       }
       description={
         <Space direction="vertical" size={4}>
-          <Typography.Text>{readiness.detail}</Typography.Text>
+          <Typography.Text>{localizeNotificationChannelText(readiness.detail, locale)}</Typography.Text>
           {readiness.candidateChannelIDs.length > 0 ? (
             <Typography.Text type="secondary">
-              Candidates: {readiness.candidateChannelIDs.length}; proof-ready:{" "}
-              {readiness.readyChannelIDs.length}; review:{" "}
-              {readiness.reviewChannelIDs.length}; blocked:{" "}
-              {readiness.blockedChannelIDs.length}.
+              {t("proofSummary", {
+                blocked: readiness.blockedChannelIDs.length,
+                candidates: readiness.candidateChannelIDs.length,
+                ready: readiness.readyChannelIDs.length,
+                review: readiness.reviewChannelIDs.length,
+              })}
             </Typography.Text>
           ) : null}
           {readiness.missingContentKinds.length > 0 ? (
             <Typography.Text type="secondary">
-              Missing proof:{" "}
+              {t("missingProof")}: {" "}
               {readiness.missingContentKinds
-                .map(notificationChannelTestContentKindLabel)
+                .map((kind) => localizeNotificationChannelText(notificationChannelTestContentKindLabel(kind), locale))
                 .join(", ")}
               .
             </Typography.Text>
@@ -947,13 +984,13 @@ function NotificationChannelAIProofInventoryPanel({
           {summaries.length > 0 ? (
             <Space direction="vertical" size={2}>
               {summaries.map((summary) => (
-                <AIProofSummaryRow key={summary.channelID} summary={summary} />
+                <AIProofSummaryRow key={summary.channelID} locale={locale} summary={summary} t={t} />
               ))}
             </Space>
           ) : null}
         </Space>
       }
-      message={readiness.label}
+      message={localizeNotificationChannelText(readiness.label, locale)}
       role={readiness.status === "blocked" ? "alert" : "status"}
       showIcon
       type={aiProofInventoryAlertType(readiness.status)}
@@ -962,9 +999,13 @@ function NotificationChannelAIProofInventoryPanel({
 }
 
 function AIProofSummaryRow({
+  locale,
   summary,
+  t,
 }: {
+  locale: string;
   summary: NotificationChannelAIProofSummary;
+  t: NotificationChannelTranslator;
 }) {
   return (
     <Space size={[4, 4]} wrap>
@@ -972,15 +1013,15 @@ function AIProofSummaryRow({
         #{summary.channelID} {summary.channelName}
       </Typography.Text>
       <Tag color={channelAIProofReadinessColor(summary.status)}>
-        {channelAIProofReadinessLabel(summary.status)}
+        {channelAIProofReadinessLabel(summary.status, t)}
       </Tag>
       {summary.contents.map((content) => (
         <Tag
           color={aiProofContentSummaryColor(content.status)}
           key={content.contentKind}
         >
-          {content.label}: {aiProofContentSummaryLabel(content.status)}
-          {content.checkedAt ? ` ${formatDateTime(content.checkedAt)}` : ""}
+          {localizeNotificationChannelText(content.label, locale)}: {aiProofContentSummaryLabel(content.status, locale)}
+          {content.checkedAt ? ` ${formatDateTime(content.checkedAt, locale)}` : ""}
         </Tag>
       ))}
     </Space>
@@ -1007,22 +1048,23 @@ function aiProofContentSummaryColor(
 
 function aiProofContentSummaryLabel(
   status: NotificationChannelAIProofSummary["contents"][number]["status"],
+  locale: string,
 ): string {
   switch (status) {
     case "current":
-      return "current";
+      return locale === "zh-CN" ? "有效" : "current";
     case "stale":
-      return "stale";
+      return locale === "zh-CN" ? "已过期" : "stale";
     case "missing":
-      return "missing";
+      return locale === "zh-CN" ? "缺失" : "missing";
     case "failed":
-      return "failed";
+      return locale === "zh-CN" ? "失败" : "failed";
     case "blocked":
-      return "blocked";
+      return locale === "zh-CN" ? "已阻塞" : "blocked";
     case "unsupported":
-      return "unsupported";
+      return locale === "zh-CN" ? "不支持" : "unsupported";
     case "invalid":
-      return "invalid";
+      return locale === "zh-CN" ? "无效" : "invalid";
   }
 }
 
@@ -1042,8 +1084,12 @@ function aiProofInventoryAlertType(
 }
 
 function NotificationChannelDeliveryPreview({
+  locale,
+  t,
   values,
 }: {
+  locale: string;
+  t: NotificationChannelTranslator;
   values: NotificationChannelFormState;
 }) {
   const normalized = normalizeNotificationChannelFormValues(values);
@@ -1052,88 +1098,88 @@ function NotificationChannelDeliveryPreview({
   const testSample = notificationChannelTestSample(normalized);
   const items: DescriptionsProps["items"] = [
     {
-      children: credentials.kindLabel,
+      children: localizeNotificationChannelText(credentials.kindLabel, locale),
       key: "kind",
-      label: "Adapter",
+      label: t("adapter"),
     },
     {
-      children: normalized.enabled ? "Enabled" : "Draft",
+      children: normalized.enabled ? t("enabled") : t("draft"),
       key: "state",
-      label: "State",
+      label: t("state"),
     },
     {
       children: credentials.secretConfigured
         ? credentials.expectedCredential
-        : "Missing",
+        : t("missing"),
       key: "credential",
-      label: "Credential",
+      label: t("credential"),
     },
     {
       children: credentials.resolverEnvKey,
       key: "resolver",
-      label: "Server resolver",
+      label: t("serverResolver"),
     },
     {
       children: credentials.secretRefExample,
       key: "secretRefExample",
-      label: "Secret ref example",
+      label: t("secretExample"),
     },
     {
-      children: readiness.hasReportScope ? "Ready" : "Missing",
+      children: readiness.hasReportScope ? t("ready") : t("missing"),
       key: "report",
-      label: "Final reports",
+      label: t("finalReports"),
     },
     {
-      children: readiness.hasDiagnosisConsultationScope ? "Ready" : "Missing",
+      children: readiness.hasDiagnosisConsultationScope ? t("ready") : t("missing"),
       key: "diagnosisConsultation",
-      label: "AI diagnosis updates",
+      label: t("diagnosisUpdates"),
     },
     {
-      children: readiness.hasDiagnosisCloseScope ? "Ready" : "Missing",
+      children: readiness.hasDiagnosisCloseScope ? t("ready") : t("missing"),
       key: "diagnosisClose",
-      label: "Auto-room close",
+      label: t("autoRoomClose"),
     },
     {
-      children: testSample.label,
+      children: localizeNotificationChannelText(testSample.label, locale),
       key: "testSample",
-      label: "Test sample",
+      label: t("testSample"),
     },
   ];
 
   return (
     <div
-      aria-label="Notification channel delivery readiness"
+      aria-label={t("deliveryReadiness")}
       className="settings-preview-panel"
     >
       <Space direction="vertical" size={10}>
         <Space wrap>
           <Tag color={channelDeliveryReadinessColor(readiness.status)}>
-            {channelDeliveryReadinessLabel(readiness.status)}
+            {channelDeliveryReadinessLabel(readiness.status, t)}
           </Tag>
           <Tag color={channelCredentialReadinessColor(credentials.status)}>
-            {credentials.kindLabel}
+            {localizeNotificationChannelText(credentials.kindLabel, locale)}
           </Tag>
           <Tag color={readiness.hasReportScope ? "blue" : "default"}>
-            Report
+            {t("reports")}
           </Tag>
           <Tag
             color={readiness.hasDiagnosisConsultationScope ? "cyan" : "default"}
           >
-            Diagnosis consultation
+            {t("diagnosisConsultation")}
           </Tag>
           <Tag color={readiness.hasDiagnosisCloseScope ? "purple" : "default"}>
-            Diagnosis close
+            {t("diagnosisClose")}
           </Tag>
         </Space>
-        <Typography.Text strong>{readiness.label}</Typography.Text>
-        <Typography.Text type="secondary">{readiness.detail}</Typography.Text>
+        <Typography.Text strong>{localizeNotificationChannelText(readiness.label, locale)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeNotificationChannelText(readiness.detail, locale)}</Typography.Text>
         {readiness.missingScopes.length > 0 ? (
           <Typography.Text type="secondary">
-            Missing scopes: {readiness.missingScopes.join(", ")}
+            {t("missingScopes")}: {readiness.missingScopes.map((scope) => localizeNotificationChannelText(scope, locale)).join(", ")}
           </Typography.Text>
         ) : null}
-        <Typography.Text type="secondary">{credentials.detail}</Typography.Text>
-        <Typography.Text type="secondary">{testSample.detail}</Typography.Text>
+        <Typography.Text type="secondary">{localizeNotificationChannelText(credentials.detail, locale)}</Typography.Text>
+        <Typography.Text type="secondary">{localizeNotificationChannelText(testSample.detail, locale)}</Typography.Text>
         <Descriptions column={1} items={items} size="small" />
       </Space>
     </div>
@@ -1179,16 +1225,17 @@ function channelDeliveryReadinessColor(
 
 function channelDeliveryReadinessLabel(
   status: NotificationChannelDeliveryReadiness["status"],
+  t: NotificationChannelTranslator,
 ): string {
   switch (status) {
     case "blocked":
-      return "Blocked";
+      return t("blocked");
     case "ready":
-      return "Ready";
+      return t("ready");
     case "review":
-      return "Review";
+      return t("review");
     case "pending":
-      return "Pending";
+      return t("pending");
   }
 }
 
@@ -1219,6 +1266,8 @@ type NotificationChannelTableProps = {
   onTestAIProof: (channel: NotificationChannelProfile) => void;
   testResults: Record<number, NotificationChannelTestProofBundle>;
   testingID: number | null;
+  locale: string;
+  t: NotificationChannelTranslator;
 };
 
 function NotificationChannelTable({
@@ -1232,11 +1281,14 @@ function NotificationChannelTable({
   onTestAIProof,
   testResults,
   testingID,
+  locale,
+  t,
 }: NotificationChannelTableProps) {
+  const common = useTranslations("Common");
   const columns: TableColumnsType<NotificationChannelProfile> = [
     {
       key: "name",
-      title: "Name",
+      title: t("name"),
       render: (_, channel) => (
         <Space direction="vertical" size={2}>
           <Typography.Text strong>{channel.name}</Typography.Text>
@@ -1249,18 +1301,18 @@ function NotificationChannelTable({
     {
       dataIndex: "kind",
       key: "kind",
-      title: "Kind",
+      title: t("kind"),
       render: (kind: NotificationChannelProfile["kind"]) => <Tag>{kind}</Tag>,
     },
     {
       dataIndex: "delivery_scopes",
       key: "delivery_scopes",
-      title: "Scopes",
+      title: t("scopes"),
       render: (scopes: NotificationDeliveryScope[]) => (
         <Space wrap>
           {scopes.map((scope) => (
             <Tag color={scope === "report" ? "blue" : "purple"} key={scope}>
-              {scope}
+              {localizeNotificationChannelText(scope, locale)}
             </Tag>
           ))}
         </Space>
@@ -1269,16 +1321,16 @@ function NotificationChannelTable({
     {
       dataIndex: "enabled",
       key: "enabled",
-      title: "State",
+      title: t("state"),
       render: (enabled: boolean) => (
         <Tag color={enabled ? "green" : "default"}>
-          {enabled ? "Enabled" : "Disabled"}
+          {enabled ? t("enabled") : t("disabled")}
         </Tag>
       ),
     },
     {
       key: "ai_diagnosis",
-      title: "AI Diagnosis",
+      title: t("aiDiagnosis"),
       render: (_, channel) => (
         <ChannelAIRoomReadiness
           channel={channel}
@@ -1286,14 +1338,16 @@ function NotificationChannelTable({
             channel,
             testResults,
           )}
+          locale={locale}
+          t={t}
         />
       ),
     },
     {
       key: "last_test",
-      title: "Test Proof",
+      title: t("testProof"),
       render: (_, channel) => (
-        <ChannelTestProof
+        <ChannelTestProof locale={locale} t={t}
           proof={notificationChannelTestProofForChannel(channel, testResults)}
         />
       ),
@@ -1301,8 +1355,8 @@ function NotificationChannelTable({
     {
       dataIndex: "updated_at",
       key: "updated",
-      title: "Updated",
-      render: (value: string) => formatDateTime(value),
+      title: t("updated"),
+      render: (value: string) => formatDateTime(value, locale),
     },
     {
       key: "actions",
@@ -1331,7 +1385,7 @@ function NotificationChannelTable({
               }
               type="link"
             >
-              Test
+              {t("test")}
             </Button>
             {channel.kind === "wecom" &&
             missingAIProofContentKinds.length > 0 ? (
@@ -1342,20 +1396,20 @@ function NotificationChannelTable({
                 onClick={() => onTestAIProof(channel)}
                 type="link"
               >
-                AI proof
+                {t("aiProof")}
               </Button>
             ) : null}
             <Dropdown
               disabled={rowBusy || !canTest}
               menu={{
-                items: notificationChannelTestMenuItems(channel),
+                items: notificationChannelTestMenuItems(channel, t),
                 onClick: ({ key }) =>
                   onTest(channel, key as NotificationChannelTestContentKind),
               }}
               trigger={["click"]}
             >
               <Button
-                aria-label={`Select test sample for ${channel.name}`}
+                aria-label={t("selectTestSample", { name: channel.name })}
                 disabled={rowBusy || !canTest}
                 icon={<DownOutlined />}
                 type="link"
@@ -1367,12 +1421,12 @@ function NotificationChannelTable({
               onClick={() => onEdit(channel)}
               type="link"
             >
-              Edit
+              {t("edit")}
             </Button>
           </Space>
         );
       },
-      title: "Actions",
+      title: t("actions"),
     },
   ];
 
@@ -1386,8 +1440,10 @@ function NotificationChannelTable({
           <Empty
             description={settingsReadPermissionEmptyDescription({
               canRead,
-              emptyDescription: "No notification channels",
-              resourceLabel: "notification channels",
+              deniedDescription: common("noReadAccess", {
+                resource: t("channelsResource"),
+              }),
+              emptyDescription: t("noChannels"),
             })}
             image={
               <MessageOutlined aria-hidden className="settings-empty-icon" />
@@ -1404,9 +1460,13 @@ function NotificationChannelTable({
 
 function ChannelAIRoomReadiness({
   channel,
+  locale,
+  t,
   testProof,
 }: {
   channel: NotificationChannelProfile;
+  locale: string;
+  t: NotificationChannelTranslator;
   testProof?: NotificationChannelTestProofBundle;
 }) {
   const readiness = notificationChannelAIRoomReadiness(channel);
@@ -1417,33 +1477,37 @@ function ChannelAIRoomReadiness({
   return (
     <Space direction="vertical" size={2}>
       <Tag color={channelAIRoomReadinessColor(readiness.status)}>
-        {channelAIRoomReadinessLabel(readiness.status)}
+        {channelAIRoomReadinessLabel(readiness.status, t)}
       </Tag>
       <Tag color={channelAIProofReadinessColor(proofReadiness.status)}>
-        {channelAIProofReadinessLabel(proofReadiness.status)}
+        {channelAIProofReadinessLabel(proofReadiness.status, t)}
       </Tag>
       <Typography.Text
-        ellipsis={{ tooltip: readiness.detail }}
+        ellipsis={{
+          tooltip: localizeNotificationChannelText(readiness.detail, locale),
+        }}
         type="secondary"
       >
-        {readiness.label}
+        {localizeNotificationChannelText(readiness.label, locale)}
       </Typography.Text>
       <Typography.Text
-        ellipsis={{ tooltip: proofReadiness.detail }}
+        ellipsis={{
+          tooltip: localizeNotificationChannelText(proofReadiness.detail, locale),
+        }}
         type="secondary"
       >
-        {proofReadiness.label}
+        {localizeNotificationChannelText(proofReadiness.label, locale)}
       </Typography.Text>
       {readiness.missingScopes.length > 0 ? (
         <Typography.Text type="secondary">
-          Missing {readiness.missingScopes.join(", ")}
+          {t("missing")} {readiness.missingScopes.map((scope) => localizeNotificationChannelText(scope, locale)).join(", ")}
         </Typography.Text>
       ) : null}
       {proofReadiness.missingContentKinds.length > 0 ? (
         <Typography.Text type="secondary">
-          Test{" "}
+          {t("test")} {" "}
           {proofReadiness.missingContentKinds
-            .map(notificationChannelTestContentKindLabel)
+            .map((kind) => localizeNotificationChannelText(notificationChannelTestContentKindLabel(kind), locale))
             .join(", ")}
         </Typography.Text>
       ) : null}
@@ -1476,14 +1540,15 @@ function channelAIRoomReadinessColor(
 
 function channelAIRoomReadinessLabel(
   status: NotificationChannelAIRoomReadiness["status"],
+  t: NotificationChannelTranslator,
 ): string {
   switch (status) {
     case "ready":
-      return "Ready";
+      return t("ready");
     case "review":
-      return "Review";
+      return t("review");
     case "blocked":
-      return "Blocked";
+      return t("blocked");
   }
 }
 
@@ -1502,45 +1567,51 @@ function channelAIProofReadinessColor(
 
 function channelAIProofReadinessLabel(
   status: NotificationChannelAIProofReadiness["status"],
+  t: NotificationChannelTranslator,
 ): string {
   switch (status) {
     case "ready":
-      return "Proof ready";
+      return t("proofReady");
     case "review":
-      return "Proof review";
+      return t("proofReview");
     case "blocked":
-      return "Proof blocked";
+      return t("proofBlocked");
   }
 }
 
 function notificationChannelTestMenuItems(
   channel: NotificationChannelProfile,
+  t: NotificationChannelTranslator,
 ): MenuProps["items"] {
   const items: Array<{
     key: NotificationChannelTestContentKind;
     label: string;
   }> = [];
   if (channel.delivery_scopes.includes("diagnosis_consultation")) {
-    items.push({ key: "ai_diagnosis_sample", label: "AI diagnosis sample" });
+    items.push({ key: "ai_diagnosis_sample", label: t("diagnosisSample") });
   }
   if (channel.delivery_scopes.includes("diagnosis_close")) {
     items.push({
       key: "diagnosis_close_sample",
-      label: "Diagnosis close sample",
+      label: t("closeSample"),
     });
   }
-  items.push({ key: "transport_sample", label: "Transport sample" });
+  items.push({ key: "transport_sample", label: t("transportSample") });
   return items;
 }
 
 function ChannelTestProof({
+  locale,
   proof,
+  t,
 }: {
+  locale: string;
   proof?: NotificationChannelTestProofBundle;
+  t: NotificationChannelTranslator;
 }) {
   const results = notificationChannelTestProofResults(proof);
   if (results.length === 0) {
-    return <Typography.Text type="secondary">Not tested</Typography.Text>;
+    return <Typography.Text type="secondary">{t("notTested")}</Typography.Text>;
   }
   return (
     <Space direction="vertical" size={2}>
@@ -1551,10 +1622,10 @@ function ChannelTestProof({
           wrap
         >
           <Tag color={channelTestStatusColor(result.status)}>
-            {notificationChannelTestContentKindLabel(result.content_kind)}
+            {localizeNotificationChannelText(notificationChannelTestContentKindLabel(result.content_kind), locale)}
           </Tag>
           <Tag color={channelTestStatusColor(result.status)}>
-            {result.status}
+            {localizeNotificationChannelText(result.status, locale)}
           </Tag>
           {result.content_sha256 ? (
             <Typography.Text type="secondary">
@@ -1562,7 +1633,7 @@ function ChannelTestProof({
             </Typography.Text>
           ) : null}
           <Typography.Text type="secondary">
-            {formatDateTime(result.checked_at)}
+            {formatDateTime(result.checked_at, locale)}
           </Typography.Text>
           {result.provider_status === "" ? null : (
             <Typography.Text type="secondary">
@@ -1617,4 +1688,183 @@ function noticeKindForChannelTestStatus(
     case "failed":
       return "error";
   }
+}
+
+function localizeNotificationChannelText(value: string, locale: string): string {
+  if (locale !== "zh-CN") {
+    return value;
+  }
+  const exact: Readonly<Record<string, string>> = {
+    blocked: "已阻塞",
+    diagnosis_close: "诊断关闭",
+    diagnosis_consultation: "诊断会诊",
+    failed: "失败",
+    pending: "等待中",
+    ready: "就绪",
+    report: "报告",
+    review: "需检查",
+    success: "成功",
+    unsupported: "不支持",
+    "AI delivery proof needs review.": "AI 交付证明需要检查。",
+    "AI delivery test proof needs review.": "AI 交付测试证明需要检查。",
+    "AI delivery test proof not applicable.": "AI 交付测试证明不适用。",
+    "AI delivery test proof ready.": "AI 交付测试证明已就绪。",
+    "AI diagnosis delivery channel setup blocked.": "AI 诊断交付渠道配置已阻塞。",
+    "AI diagnosis delivery ready.": "AI 诊断交付已就绪。",
+    "AI diagnosis sample": "AI 诊断样例",
+    "AI diagnosis update and close notification samples both succeeded after the latest channel update.":
+      "最近一次渠道更新后，AI 诊断进展和关闭通知样例均已成功。",
+    "AI diagnosis updates and close notifications require an Enterprise WeChat channel.":
+      "AI 诊断进展和关闭通知需要企业微信渠道。",
+    "AI diagnosis scopes need review.": "AI 诊断范围需要检查。",
+    "Add diagnosis_consultation and diagnosis_close scopes before using this channel for AI diagnosis rooms.":
+      "将此渠道用于 AI 诊断室前，请添加 diagnosis_consultation 和 diagnosis_close 范围。",
+    "Back to workflow": "返回工作流",
+    "Channel disabled.": "通知渠道已停用。",
+    "Channel name is required.": "渠道名称为必填项。",
+    "Channel name must be 120 bytes or fewer.": "渠道名称不能超过 120 字节。",
+    "Content proof missing": "内容证明缺失",
+    "Configured AI diagnosis delivery candidates are blocked by kind, state, scope, or secret-reference readiness.":
+      "已配置的 AI 诊断交付候选项因类型、状态、范围或密钥引用就绪度而被阻塞。",
+    "Configured Enterprise WeChat rollout candidates are blocked by kind, state, or credential readiness.":
+      "已配置的企业微信上线候选项因类型、状态或凭据就绪度而被阻塞。",
+    "Create or enable an Enterprise WeChat channel with diagnosis_consultation and diagnosis_close scopes before enabling automatic diagnosis room delivery.":
+      "启用自动诊断室交付前，请创建或启用具有 diagnosis_consultation 和 diagnosis_close 范围的企业微信渠道。",
+    "Create or enable an Enterprise WeChat channel with report, diagnosis_consultation, and diagnosis_close scopes before accepting automatic diagnosis rollout.":
+      "接受自动诊断上线前，请创建或启用具有 report、diagnosis_consultation 和 diagnosis_close 范围的企业微信渠道。",
+    "Credential secret not selected.": "尚未选择凭据密钥。",
+    "Delivery scopes need review.": "交付范围需要检查。",
+    "Delivery scopes not selected.": "尚未选择交付范围。",
+    "Delivery scopes ready.": "交付范围已就绪。",
+    "Diagnosis consultation and close notifications require an Enterprise WeChat channel. Use report scope only for webhook, DingTalk, Feishu, Slack, or Email delivery.":
+      "诊断会诊和关闭通知需要企业微信渠道。Webhook、钉钉、飞书、Slack 或邮件交付仅使用 report 范围。",
+    "Diagnosis close sample": "诊断关闭样例",
+    "Diagnosis delivery scopes ready.": "诊断交付范围已就绪。",
+    "Diagnosis delivery scopes require an Enterprise WeChat channel.":
+      "诊断交付范围需要企业微信渠道。",
+    "DingTalk robot webhook URL": "钉钉机器人 Webhook URL",
+    "DingTalk credential contract selected.": "已选择钉钉凭据协议。",
+    "Email credential contract selected.": "已选择邮件凭据协议。",
+    "Endpoint URL cannot be stored as a secret reference.":
+      "端点 URL 不能直接作为密钥引用保存。",
+    "Enable this channel before it can deliver AI diagnosis updates or close notifications.":
+      "此渠道必须先启用，才能交付 AI 诊断进展或关闭通知。",
+    "Enterprise WeChat required.": "需要企业微信。",
+    "Enterprise WeChat required for diagnosis delivery.":
+      "诊断交付需要企业微信。",
+    "Enterprise WeChat robot webhook URL": "企业微信机器人 Webhook URL",
+    "Enterprise WeChat rollout channel blocked.": "企业微信发布渠道已阻塞。",
+    "Enterprise WeChat rollout needs review.": "企业微信发布准备需要检查。",
+    "Feishu credential contract selected.": "已选择飞书凭据协议。",
+    "Feishu or Lark custom bot webhook URL":
+      "飞书或 Lark 自定义机器人 Webhook URL",
+    "HTTP webhook URL": "HTTP Webhook URL",
+    "Label keys must be non-empty.": "标签键不能为空。",
+    "Labels exceed the allowed length.": "标签超过允许长度。",
+    "Labels must contain 32 entries or fewer.": "标签不能超过 32 项。",
+    "Labels must not contain control characters.": "标签不能包含控制字符。",
+    "Labels must use key=value lines.": "标签必须按行使用 key=value 格式。",
+    "No AI diagnosis delivery channel configured.": "尚未配置 AI 诊断交付渠道。",
+    "No Enterprise WeChat rollout channel configured.": "尚未配置企业微信发布渠道。",
+    "Prepared an Enterprise WeChat channel for AI diagnosis updates and close notifications. Paste the secret reference before saving.":
+      "已准备企业微信渠道，用于 AI 诊断进展和关闭通知。保存前请填写密钥引用。",
+    "Prepared an Enterprise WeChat channel for final report delivery. Paste the secret reference before saving.":
+      "已准备企业微信渠道，用于最终报告交付。保存前请填写密钥引用。",
+    "Prepared an Enterprise WeChat channel for final reports, automatic diagnosis updates, and close notifications. Paste the secret reference before saving.":
+      "已准备企业微信渠道，用于最终报告、自动诊断进展和关闭通知。保存前请填写密钥引用。",
+    "Ready for AI diagnosis updates and close notifications through Enterprise WeChat.":
+      "已可通过企业微信交付 AI 诊断进展和关闭通知。",
+    "Return to workflow policies after Enterprise WeChat channel scopes and AI delivery proof are ready.":
+      "企业微信渠道范围和 AI 交付证明就绪后，请返回工作流策略。",
+    "Report delivery WeCom": "报告交付企业微信",
+    "Secret reference is required.": "密钥引用为必填项。",
+    "Secret reference must be 256 bytes or fewer.": "密钥引用不能超过 256 字节。",
+    "Secret reference must not be an endpoint URL.": "密钥引用不能是端点 URL。",
+    "Secret reference must not contain whitespace or control characters.":
+      "密钥引用不能包含空白符或控制字符。",
+    "Slack incoming webhook URL": "Slack Incoming Webhook URL",
+    "SMTP URL with from/to recipients": "带发件人与收件人的 SMTP URL",
+    "Select at least one delivery scope.": "请至少选择一个交付范围。",
+    "Select diagnosis_consultation and diagnosis_close scopes before collecting AI delivery test proof.":
+      "采集 AI 交付测试证明前，请选择 diagnosis_consultation 和 diagnosis_close 范围。",
+    "Select report for final report delivery, diagnosis_consultation for AI diagnosis updates, and diagnosis_close for close notifications.":
+      "最终报告交付请选择 report，AI 诊断进展请选择 diagnosis_consultation，关闭通知请选择 diagnosis_close。",
+    "Slack credential contract selected.": "已选择 Slack 凭据协议。",
+    "Store endpoint URLs in server-side secret storage and enter only the secret reference here.":
+      "请将端点 URL 存入服务端密钥存储，此处仅填写密钥引用。",
+    "Test sends a diagnosis room close notification sample.":
+      "测试将发送诊断室关闭通知样例。",
+    "Test sends a generic transport notification sample.": "测试将发送通用传输通知样例。",
+    "Test sends an AI diagnosis update sample, not a raw Alertmanager alert.":
+      "测试将发送 AI 诊断进展样例，而不是原始 Alertmanager 告警。",
+    "Transport sample": "传输样例",
+    "The channel can be saved, but workflows using the missing scope will be blocked until it is added.":
+      "此渠道可以保存，但在补齐缺失范围前，使用该范围的工作流将被阻塞。",
+    "The channel can support AI diagnosis updates and close notifications. Add report scope only when final report delivery should use this channel.":
+      "此渠道可支持 AI 诊断进展和关闭通知。仅当最终报告也应使用此渠道时添加 report 范围。",
+    "The channel can support final reports, auto-room AI diagnosis updates, and close notifications.":
+      "此渠道可支持最终报告、自动诊断室 AI 诊断进展和关闭通知。",
+    "WeCom credential contract selected.": "已选择企业微信凭据协议。",
+    "Webhook credential contract selected.": "已选择 Webhook 凭据协议。",
+  };
+  if (exact[value] !== undefined) {
+    return exact[value]!;
+  }
+  let match = value.match(/^Loaded notification channel #(\d+) for delivery review\.$/);
+  if (match) {
+    return `已加载通知渠道 #${match[1]} 进行交付检查。`;
+  }
+  match = value.match(/^Notification channel #(\d+) was not found\. Select an existing channel or create a replacement\.$/);
+  if (match) {
+    return `未找到通知渠道 #${match[1]}。请选择现有渠道或创建替代渠道。`;
+  }
+  match = value.match(/^Run (.+) tests after the latest channel update before relying on this channel for AI diagnosis rooms\.$/);
+  if (match) {
+    const tests = match[1]!
+      .split(" and ")
+      .map((item) => localizeNotificationChannelText(item, locale))
+      .join("和");
+    return `依赖此渠道执行 AI 诊断室交付前，请在最近一次渠道更新后运行${tests}测试。`;
+  }
+  match = value.match(/^Select a deployment-managed secret reference before testing the channel, then map it in (.+)\.$/);
+  if (match) {
+    return `测试渠道前请选择由部署管理的密钥引用，并在 ${match[1]} 中完成映射。`;
+  }
+  match = value.match(/^(\d+) AI delivery channels? proof-ready\.$/);
+  if (match) {
+    return `${match[1]} 个 AI 交付渠道的证明已就绪。`;
+  }
+  match = value.match(/^(\d+) Enterprise WeChat rollout channels? ready\.$/);
+  if (match) {
+    return `${match[1]} 个企业微信上线渠道已就绪。`;
+  }
+  match = value.match(/^Label key "(.+)" is duplicated\.$/);
+  if (match) {
+    return `标签键“${match[1]}”重复。`;
+  }
+  match = value.match(/^Backend tests resolve this secret reference through (.+) and construct a generic webhook provider from the endpoint\.$/);
+  if (match) {
+    return `后端测试通过 ${match[1]} 解析此密钥引用，并根据端点构造通用 Webhook 提供方。`;
+  }
+  match = value.match(/^Backend tests resolve this secret reference through (.+) and require one DingTalk robot webhook endpoint\.$/);
+  if (match) {
+    return `后端测试通过 ${match[1]} 解析此密钥引用，并要求配置一个钉钉机器人 Webhook 端点。`;
+  }
+  match = value.match(/^Backend tests resolve this secret reference through (.+) and require one Feishu or Lark custom bot webhook endpoint\.$/);
+  if (match) {
+    return `后端测试通过 ${match[1]} 解析此密钥引用，并要求配置一个飞书或 Lark 自定义机器人 Webhook 端点。`;
+  }
+  match = value.match(/^Backend tests resolve this secret reference through (.+) and require one HTTPS Enterprise WeChat robot webhook endpoint\.$/);
+  if (match) {
+    return `后端测试通过 ${match[1]} 解析此密钥引用，并要求配置一个 HTTPS 企业微信机器人 Webhook 端点。`;
+  }
+  match = value.match(/^Backend tests resolve this secret reference through (.+) and require one SMTP URL with from and to query parameters\.$/);
+  if (match) {
+    return `后端测试通过 ${match[1]} 解析此密钥引用，并要求配置一个带 from 和 to 查询参数的 SMTP URL。`;
+  }
+  match = value.match(/^Backend tests resolve this secret reference through (.+) and require one Slack incoming webhook endpoint\.$/);
+  if (match) {
+    return `后端测试通过 ${match[1]} 解析此密钥引用，并要求配置一个 Slack Incoming Webhook 端点。`;
+  }
+  return value;
 }
