@@ -11,6 +11,7 @@ import (
 	stdhttp "net/http"
 	"net/http/httptest"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -66,6 +67,7 @@ func TestDiagnosisWSFramePermissionMapsActions(t *testing.T) {
 		{frameType: diagnosisWSClientSubmitSupplementalEvidence, want: domain.RBACPermissionDiagnosisRoomParticipate, wantOK: true},
 		{frameType: diagnosisWSClientCollectEvidence, want: domain.RBACPermissionDiagnosisRoomParticipate, wantOK: true},
 		{frameType: diagnosisWSClientConfirm, want: domain.RBACPermissionDiagnosisRoomApprove, wantOK: true},
+		{frameType: diagnosisWSClientCloseRoom, want: domain.RBACPermissionDiagnosisRoomAdminister, wantOK: true},
 		{frameType: "unsupported", wantOK: false},
 	}
 	for _, tc := range tests {
@@ -1908,6 +1910,9 @@ func TestListDiagnosisRooms_ReturnsSummaries(t *testing.T) {
 	if len(got.NotificationTimeline) != 1 {
 		t.Fatalf("len(notification_timeline) = %d, want 1", len(got.NotificationTimeline))
 	}
+	if len(got.AuditTimeline) != 0 || factory.diagnosisRepo.lastAuditEventLimit != 0 {
+		t.Fatalf("list audit timeline = %+v, ListEvents limit = %d; want no audit read", got.AuditTimeline, factory.diagnosisRepo.lastAuditEventLimit)
+	}
 	if len(got.Participants) != 4 {
 		t.Fatalf("participants = %+v, want 4", got.Participants)
 	}
@@ -1980,10 +1985,73 @@ func TestListDiagnosisRooms_ReturnsSummaries(t *testing.T) {
 		!notification.OccurredAt.Equal(notificationAt) {
 		t.Fatalf("unexpected notification timeline entry: %+v", notification)
 	}
-	for _, forbidden := range []string{"provider_raw", "idempotency_key", `"assistant_message":`, "memo", "search_attributes"} {
+	for _, forbidden := range []string{"provider_raw", "idempotency_key", `"assistant_message":`, "secret-message-id", "memo", "search_attributes"} {
 		if strings.Contains(rawBody, forbidden) {
 			t.Fatalf("response leaked internal notification field %q: %s", forbidden, rawBody)
 		}
+	}
+}
+
+func TestDiagnosisRoomAuditTimelineRejectsAmbiguousOrMismatchedPayload(t *testing.T) {
+	occurredAt := time.Date(2026, 7, 15, 9, 0, 0, 0, time.UTC)
+	session := domain.ChatSession{
+		ID:              41,
+		DiagnosisTaskID: 51,
+		SessionKey:      "session-audit",
+	}
+	tests := []struct {
+		name    string
+		payload json.RawMessage
+	}{
+		{
+			name:    "duplicate keys",
+			payload: json.RawMessage(`{"session_id":"session-audit","session_id":"other"}`),
+		},
+		{
+			name:    "different session",
+			payload: json.RawMessage(`{"session_id":"other"}`),
+		},
+		{
+			name:    "different chat session",
+			payload: json.RawMessage(`{"chat_session_id":42}`),
+		},
+		{
+			name:    "different task",
+			payload: json.RawMessage(`{"diagnosis_task_id":52}`),
+		},
+	}
+	for index, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := auditTimelineEntryForDiagnosisRoom(domain.DiagnosisTaskEvent{
+				ID:         domain.DiagnosisTaskEventID(index + 1),
+				TaskID:     51,
+				Kind:       diagnosisConclusionEventTurnPersisted,
+				Payload:    tc.payload,
+				OccurredAt: occurredAt,
+				RecordedAt: occurredAt,
+			}, session, 51)
+			if err == nil || !errors.Is(err, domain.ErrInvariantViolation) {
+				t.Fatalf("audit payload error = %v, want invariant violation", err)
+			}
+		})
+	}
+}
+
+func TestDiagnosisRoomAuditTimelinePrefersExplicitCloseActor(t *testing.T) {
+	occurredAt := time.Date(2026, 7, 15, 9, 0, 0, 0, time.UTC)
+	item, err := auditTimelineEntryForDiagnosisRoom(domain.DiagnosisTaskEvent{
+		ID:         1,
+		TaskID:     51,
+		Kind:       diagnosisConclusionEventClosed,
+		Payload:    json.RawMessage(`{"closed_by":"operator:closer","final_conclusion":{"confirmed_by":"operator:approver"}}`),
+		OccurredAt: occurredAt,
+		RecordedAt: occurredAt,
+	}, domain.ChatSession{ID: 41, DiagnosisTaskID: 51, SessionKey: "session-audit"}, 51)
+	if err != nil {
+		t.Fatalf("audit timeline entry: %v", err)
+	}
+	if item.ActorSubject == nil || *item.ActorSubject != "operator:closer" {
+		t.Fatalf("actor_subject = %v, want explicit close actor", item.ActorSubject)
 	}
 }
 
@@ -2310,6 +2378,26 @@ func TestGetDiagnosisRoom_ReturnsExactSummary(t *testing.T) {
 		}
 	}`)
 	repo := &fakeDiagnosisRepo{
+		eventsByTask: map[domain.DiagnosisTaskID][]domain.DiagnosisTaskEvent{
+			703: {
+				{
+					ID:         169,
+					TaskID:     703,
+					Kind:       diagnosisConclusionEventOpened,
+					Payload:    json.RawMessage(`{"kind":"diagnosis_room.opened","session_id":"diagnosis-session-exact","chat_session_id":703,"diagnosis_task_id":703,"owner_subject":"operator:exact"}`),
+					OccurredAt: startedAt,
+					RecordedAt: startedAt.Add(time.Second),
+				},
+				{
+					ID:         170,
+					TaskID:     703,
+					Kind:       diagnosisConclusionEventTurnPersisted,
+					Payload:    json.RawMessage(`{"kind":"diagnosis_room.turn_persisted","session_id":"diagnosis-session-exact","chat_session_id":703,"diagnosis_task_id":703,"actor_subject":"operator:exact","user_message_id":"secret-message-id"}`),
+					OccurredAt: startedAt.Add(time.Minute),
+					RecordedAt: startedAt.Add(time.Minute + time.Second),
+				},
+			},
+		},
 		eventsByTaskAndKind: map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent{
 			703: {
 				diagnosisConclusionEventFinalReady: {{
@@ -2449,6 +2537,16 @@ func TestGetDiagnosisRoom_ReturnsExactSummary(t *testing.T) {
 		body.NotificationTimeline[0].EvidenceRequestCount == nil ||
 		*body.NotificationTimeline[0].EvidenceRequestCount != 1 {
 		t.Fatalf("notification_timeline = %+v", body.NotificationTimeline)
+	}
+	if len(body.AuditTimeline) != 2 ||
+		repo.lastAuditEventLimit != diagnosisAuditTimelineLimit ||
+		body.AuditTimeline[0].ID != 169 ||
+		body.AuditTimeline[0].Category != api.DiagnosisRoomAuditCategoryLifecycle ||
+		body.AuditTimeline[0].ActorSubject == nil ||
+		*body.AuditTimeline[0].ActorSubject != "operator:exact" ||
+		body.AuditTimeline[1].ID != 170 ||
+		body.AuditTimeline[1].Category != api.DiagnosisRoomAuditCategoryInteraction {
+		t.Fatalf("audit_timeline = %+v, ListEvents limit = %d", body.AuditTimeline, repo.lastAuditEventLimit)
 	}
 	if body.WorkflowVisibility == nil ||
 		body.WorkflowVisibility.HistoryLength == nil ||
@@ -10098,6 +10196,78 @@ func TestDiagnosisWebSocketRelayReportsConfirmRejected(t *testing.T) {
 	}
 }
 
+func TestDiagnosisWebSocketRelayClosesRoomByOperatorRequest(t *testing.T) {
+	now := time.Date(2026, 7, 11, 9, 0, 0, 0, time.UTC)
+	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("C", diagnosisauth.DefaultTokenBytes)))
+	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
+	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, session, now)
+	if err != nil {
+		t.Fatalf("IssueTicket: %v", err)
+	}
+	closedAt := now.Add(time.Minute)
+	workflowClient := &fakeDiagnosisRoomWorkflowClient{
+		closeState: ports.DiagnosisRoomState{
+			SessionID:      "session-1",
+			OwnerSubject:   "owner-1",
+			Status:         "closed",
+			ClosedAt:       &closedAt,
+			CloseReason:    "user_requested",
+			LastActivityAt: closedAt,
+			FinalConclusion: &ports.DiagnosisRoomFinalConclusion{
+				Status: "not_available",
+				Source: "none",
+				Reason: "room_closed_without_assistant_turn",
+			},
+		},
+	}
+	handler := testHandlerWithDiagnosisWS(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(&neverAuthProvider{}, service, &fakeDiagnosisSessionResolver{
+			sessions: map[string]diagnosisauth.SessionRef{"session-1": session},
+		}),
+		WithDiagnosisRoomWorkflowClient(workflowClient),
+		withDiagnosisClock(func() time.Time { return now.Add(time.Second) }),
+	)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/diagnosis?session_id=session-1&ticket=" + ticket.Token
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer closeWebSocketDialResponse(resp)
+	if err != nil {
+		t.Fatalf("Dial: %v; resp=%v", err, resp)
+	}
+	defer conn.Close()
+
+	var ready diagnosisWSReadyFrame
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("ReadJSON ready: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]string{"type": diagnosisWSClientCloseRoom}); err != nil {
+		t.Fatalf("WriteJSON close room: %v", err)
+	}
+	var frame diagnosisWSStateFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("ReadJSON closed state: %v", err)
+	}
+	if frame.Type != diagnosisWSServerState ||
+		frame.Status != "closed" ||
+		frame.CloseReason != "user_requested" ||
+		frame.FinalConclusion == nil ||
+		frame.FinalConclusion.ConfirmedBy != "" {
+		t.Fatalf("closed state = %+v", frame)
+	}
+	closeReq, closeCalled := workflowClient.closeSnapshot()
+	if closeCalled != 1 ||
+		closeReq.SessionID != "session-1" ||
+		closeReq.ActorSubject != "owner-1" {
+		t.Fatalf("CloseDiagnosisRoom calls=%d request=%+v", closeCalled, closeReq)
+	}
+}
+
 func TestDiagnosisWebSocketRelayRejectsUnauthorizedConfirmFrame(t *testing.T) {
 	now := time.Date(2026, 6, 28, 9, 0, 0, 0, time.UTC)
 	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("U", diagnosisauth.DefaultTokenBytes)))
@@ -10274,6 +10444,16 @@ func TestDiagnosisWebSocketRelayDecodesSupplementalEvidenceFrame(t *testing.T) {
 		got.Priority != "high" ||
 		got.Evidence != "previous pod logs show OOMKilled" {
 		t.Fatalf("supplemental evidence port = %+v", got)
+	}
+}
+
+func TestDiagnosisWebSocketRelayRejectsClientControlledCloseReason(t *testing.T) {
+	_, err := decodeDiagnosisWSClientFrame([]byte(`{
+		"type":"close_room",
+		"reason":"human_confirmed"
+	}`))
+	if err == nil || !strings.Contains(err.Error(), "close_room frame must not include reason") {
+		t.Fatalf("decode close room error = %v", err)
 	}
 }
 
@@ -10721,6 +10901,57 @@ func TestDiagnosisWebSocketRelayStreamsPreviewThenReturnsAuthoritativeTurn(t *te
 	}
 }
 
+func TestDiagnosisWebSocketRelayReportsStillProcessingOnCloseTimeout(t *testing.T) {
+	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
+	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("L", diagnosisauth.DefaultTokenBytes)))
+	session := diagnosisauth.SessionRef{SessionID: "session-1", OwnerSubject: "owner-1"}
+	ticket, err := service.IssueTicket(context.Background(), ports.AuthPrincipal{
+		Subject: "owner-1",
+		Roles:   []ports.AuthRole{ports.AuthRoleOwner},
+	}, session, now)
+	if err != nil {
+		t.Fatalf("IssueTicket: %v", err)
+	}
+	workflowClient := &fakeDiagnosisRoomWorkflowClient{blockCloseUntilContextDone: true}
+	handler := testHandlerWithDiagnosisWS(
+		&fakeUOWFactory{},
+		WithDiagnosisAuth(&neverAuthProvider{}, service, &fakeDiagnosisSessionResolver{
+			sessions: map[string]diagnosisauth.SessionRef{"session-1": session},
+		}),
+		WithDiagnosisRoomWorkflowClient(workflowClient, WithDiagnosisWebSocketUpdateTimeout(10*time.Millisecond)),
+		withDiagnosisClock(func() time.Time { return now.Add(time.Second) }),
+	)
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws/diagnosis?session_id=session-1&ticket=" + ticket.Token
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	defer closeWebSocketDialResponse(resp)
+	if err != nil {
+		t.Fatalf("Dial: %v; resp=%v", err, resp)
+	}
+	defer conn.Close()
+
+	var ready diagnosisWSReadyFrame
+	if err := conn.ReadJSON(&ready); err != nil {
+		t.Fatalf("ReadJSON ready: %v", err)
+	}
+	if err := conn.WriteJSON(map[string]string{"type": diagnosisWSClientCloseRoom}); err != nil {
+		t.Fatalf("WriteJSON close: %v", err)
+	}
+	var frame diagnosisWSErrorFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("ReadJSON error: %v", err)
+	}
+	if frame.Type != diagnosisWSServerError || frame.Code != "close_still_processing" || frame.Message != "room close is still processing" {
+		t.Fatalf("error frame = %+v", frame)
+	}
+	closeReq, closeCalled := workflowClient.closeSnapshot()
+	if closeCalled != 1 || closeReq.ActorSubject != "owner-1" {
+		t.Fatalf("close calls=%d request=%+v", closeCalled, closeReq)
+	}
+}
+
 func TestDiagnosisWebSocketRelayDoesNotCancelUpdateOnDisconnect(t *testing.T) {
 	now := time.Date(2026, 5, 28, 10, 0, 0, 0, time.UTC)
 	service := newHTTPTestDiagnosisAuthService(t, strings.NewReader(strings.Repeat("J", diagnosisauth.DefaultTokenBytes)))
@@ -11068,6 +11299,11 @@ type fakeDiagnosisRoomWorkflowClient struct {
 	confirmReq                  ports.DiagnosisRoomConfirmConclusionRequest
 	confirmState                ports.DiagnosisRoomState
 	confirmErr                  error
+	closeCalled                 int
+	closeReq                    ports.DiagnosisRoomCloseRequest
+	closeState                  ports.DiagnosisRoomState
+	closeErr                    error
+	blockCloseUntilContextDone  bool
 }
 
 type fakeDiagnosisRoomWorkflowVisibilityLookup struct {
@@ -11200,6 +11436,24 @@ func (c *fakeDiagnosisRoomWorkflowClient) ConfirmDiagnosisConclusion(_ context.C
 	return c.confirmState, nil
 }
 
+func (c *fakeDiagnosisRoomWorkflowClient) CloseDiagnosisRoom(ctx context.Context, req ports.DiagnosisRoomCloseRequest) (ports.DiagnosisRoomState, error) {
+	c.mu.Lock()
+	c.closeCalled++
+	c.closeReq = req
+	result := c.closeState
+	err := c.closeErr
+	block := c.blockCloseUntilContextDone
+	c.mu.Unlock()
+	if block {
+		<-ctx.Done()
+		return ports.DiagnosisRoomState{}, ctx.Err()
+	}
+	if err != nil {
+		return ports.DiagnosisRoomState{}, err
+	}
+	return result, nil
+}
+
 func (c *fakeDiagnosisRoomWorkflowClient) submitSnapshot() (ports.DiagnosisRoomSubmitTurnRequest, int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -11222,6 +11476,12 @@ func (c *fakeDiagnosisRoomWorkflowClient) confirmSnapshot() (ports.DiagnosisRoom
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.confirmReq, c.confirmCalled
+}
+
+func (c *fakeDiagnosisRoomWorkflowClient) closeSnapshot() (ports.DiagnosisRoomCloseRequest, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.closeReq, c.closeCalled
 }
 
 func (c *fakeDiagnosisRoomWorkflowClient) recordSubmitContextErr(err error) {
@@ -11584,6 +11844,7 @@ func (r *fakeEvidenceRepo) List(_ context.Context, limit int) ([]domain.Evidence
 type fakeDiagnosisRepo struct {
 	ports.DiagnosisRepository
 	tasksBySnapshot        map[domain.EvidenceSnapshotID][]domain.DiagnosisTask
+	eventsByTask           map[domain.DiagnosisTaskID][]domain.DiagnosisTaskEvent
 	eventsByTaskAndKind    map[domain.DiagnosisTaskID]map[string][]domain.DiagnosisTaskEvent
 	chatTurnsBySession     map[domain.ChatSessionID][]domain.ChatTurn
 	chatSessionSummaries   map[domain.ChatSessionID]domain.ChatSessionSummary
@@ -11595,6 +11856,7 @@ type fakeDiagnosisRepo struct {
 	lastFindTaskID         domain.DiagnosisTaskID
 	lastEventKind          string
 	lastEventLimit         int
+	lastAuditEventLimit    int
 	lastChatSessionLimit   int
 	lastChatSessionOffset  int
 	chatSessionPageCalls   []chatSessionPageCall
@@ -11602,6 +11864,27 @@ type fakeDiagnosisRepo struct {
 	lastChatTurnSession    domain.ChatSessionID
 	lastChatTurnLimit      int
 	listChatApprovalsCalls int
+}
+
+func (r *fakeDiagnosisRepo) ListEvents(_ context.Context, taskID domain.DiagnosisTaskID, limit int) ([]domain.DiagnosisTaskEvent, error) {
+	r.lastTaskID = taskID
+	r.lastAuditEventLimit = limit
+	events := append([]domain.DiagnosisTaskEvent(nil), r.eventsByTask[taskID]...)
+	if r.eventsByTask == nil {
+		for _, kindEvents := range r.eventsByTaskAndKind[taskID] {
+			events = append(events, kindEvents...)
+		}
+	}
+	sort.Slice(events, func(i, j int) bool {
+		if events[i].OccurredAt.Equal(events[j].OccurredAt) {
+			return events[i].ID < events[j].ID
+		}
+		return events[i].OccurredAt.Before(events[j].OccurredAt)
+	})
+	if limit > len(events) {
+		limit = len(events)
+	}
+	return events[:limit], nil
 }
 
 type chatSessionPageCall struct {

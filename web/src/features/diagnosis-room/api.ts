@@ -13,6 +13,8 @@ export type DiagnosisHandoffListResponse =
   components["schemas"]["DiagnosisHandoffListResponse"];
 export type DiagnosisRoomNotificationTimelineEntry =
   components["schemas"]["DiagnosisRoomNotificationTimelineEntry"];
+export type DiagnosisRoomAuditTimelineEntry =
+  components["schemas"]["DiagnosisRoomAuditTimelineEntry"];
 export type DiagnosisNotificationRetryRequest =
   components["schemas"]["DiagnosisNotificationRetryRequest"];
 export type DiagnosisNotificationRetryResponse =

@@ -192,8 +192,12 @@ owns the M5 room state machine through `DiagnosisRoomWorkflow`:
 - only after sandbox output and persistence both succeed does the workflow
   append the user+assistant turn pair to workflow state
 - `state` Query returns reconnect/read state without mutating workflow state
-- `close` and `cancel` Signals terminate the room explicitly
+- `close` and `cancel` Signals terminate the room explicitly; operator-requested
+  close records `closed_by` without treating that actor as a conclusion
+  confirmer
 - durable timers close the room on fixed session lifetime or idle timeout
+- an accepted Workflow Update protects the room from idle timeout until its
+  handler and persistence Activities finish
 - terminal close calls `CloseDiagnosisChatSession`, which persists
   `ChatSession.closed_at` / `close_reason` and records an idempotent
   `diagnosis_room.closed` audit event with a bounded `final_conclusion`
@@ -233,6 +237,9 @@ persistence, lifecycle audit, and final close-notification Activity boundary.
   snapshots may arrive as `turn_stream` frames
 - `query_state` frames call `ports.DiagnosisRoomWorkflowClient.QueryDiagnosisRoom`
   and return a `state` frame for reconnect/read flows
+- authorized `close_room` frames require the room-administer capability, inject
+  the authenticated ticket subject as the close actor, and use a server-owned
+  `user_requested` reason before waiting for terminal workflow state
 - submit-turn waits use a bounded context decoupled from WebSocket disconnects;
   on timeout the client receives an `error` frame with `turn_still_processing`
 - the process-local preview hub keeps one latest snapshot per subscriber, so a
@@ -258,6 +265,11 @@ browser entry point. It delegates the ticket/bootstrap/transcript UI to
 - transient `turn_stream` snapshots render as a replaceable assistant draft;
   an explicit generation `reset` frame removes an invalid retry draft before
   corrected text arrives, and `turn_result` replaces the final draft
+- operators with room-administer permission can explicitly close an idle room
+  without approving its conclusion; close and confirmation requests are
+  mutually blocked in the browser while either operation is pending
+- exact room detail projects a bounded, sanitized audit timeline from immutable
+  lifecycle events; room lists omit the timeline to avoid per-row audit reads
 - the route smoke runs against a mocked API/WebSocket endpoint and proves
   `ready`, `state`, `submit_turn`, and `turn_result` in a production Next.js
   server
@@ -451,6 +463,8 @@ budget is enforced at the workflow/Activity boundary before mounting:
 - terminal human-confirmed close re-reads the latest persisted assistant turn
   and its immutable approvals, then rejects close until the configured quorum
   is satisfied by distinct actors
+- explicit operator close records the authenticated close actor separately and
+  never manufactures a conclusion confirmation
 - bounded turns and lifetime cap bound active-session context independently of
   lifecycle-end compression
 
@@ -462,8 +476,11 @@ budget is enforced at the workflow/Activity boundary before mounting:
 - unauthorized access is denied
 - configured conclusion approval blocks terminal close until the latest
   assistant conclusion has the required distinct owner/leader approvals
+- an authorized operator can explicitly close an idle room without confirming
+  its conclusion, with the close actor retained in lifecycle audit
 - session close triggers final group notification
-- audit events are queryable
+- exact room detail exposes a bounded sanitized projection of queryable audit
+  events
 
 ## Out-of-Scope Confirmation
 

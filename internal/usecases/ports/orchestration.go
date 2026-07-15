@@ -174,6 +174,13 @@ type DiagnosisRoomConfirmConclusionRequest struct {
 	Reason       string
 }
 
+// DiagnosisRoomCloseRequest describes one explicit operator request to close
+// a room without confirming its latest conclusion.
+type DiagnosisRoomCloseRequest struct {
+	SessionID    string
+	ActorSubject string
+}
+
 // DiagnosisRoomSubmitTurnResult is the provider-neutral response returned
 // after DiagnosisRoomWorkflow persists the user+assistant turn pair.
 type DiagnosisRoomSubmitTurnResult struct {
@@ -451,6 +458,13 @@ type DiagnosisRoomWorkflowClient interface {
 	CollectDiagnosisEvidence(ctx context.Context, req DiagnosisRoomCollectEvidenceRequest) (DiagnosisRoomCollectEvidenceResult, error)
 	ConfirmDiagnosisConclusion(ctx context.Context, req DiagnosisRoomConfirmConclusionRequest) (DiagnosisRoomState, error)
 	QueryDiagnosisRoom(ctx context.Context, sessionID string) (DiagnosisRoomState, error)
+}
+
+// DiagnosisRoomWorkflowCloser closes an existing room without expanding the
+// submit/query client contract for consumers that do not expose lifecycle
+// administration.
+type DiagnosisRoomWorkflowCloser interface {
+	CloseDiagnosisRoom(ctx context.Context, req DiagnosisRoomCloseRequest) (DiagnosisRoomState, error)
 }
 
 // DiagnosisRoomWorkflowVisibilityRequest identifies one room workflow execution

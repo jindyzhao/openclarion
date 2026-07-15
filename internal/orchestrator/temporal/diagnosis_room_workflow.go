@@ -69,6 +69,8 @@ const (
 	diagnosisRoomManualEvidenceVersion             = 1
 	diagnosisRoomManualEvidenceCollectedChangeID   = "diagnosis-room-manual-evidence-collected-event"
 	diagnosisRoomManualEvidenceCollectedVersion    = 1
+	diagnosisRoomCloseActorSemanticsChangeID       = "diagnosis-room-close-actor-semantics"
+	diagnosisRoomCloseActorSemanticsVersion        = 1
 	diagnosisRoomConversationSummaryChangeID       = "diagnosis-room-conversation-summary"
 	diagnosisRoomConversationSummaryVersion        = 1
 	diagnosisRoomMultiStakeholderApprovalChangeID  = "diagnosis-room-multi-stakeholder-approval"
@@ -77,6 +79,8 @@ const (
 	diagnosisRoomHistoricalRetrievalVersion        = 1
 	diagnosisRoomTurnStreamingChangeID             = "diagnosis-room-turn-streaming"
 	diagnosisRoomTurnStreamingVersion              = 1
+	diagnosisRoomIdleUpdateLifecycleChangeID       = "diagnosis-room-idle-update-lifecycle"
+	diagnosisRoomIdleUpdateLifecycleVersion        = 1
 
 	diagnosisRoomAutoActorSubject = "openclarion:auto-diagnosis"
 
@@ -316,6 +320,7 @@ type diagnosisRoomState struct {
 	diagnosisTaskID           int64
 	chatSessionID             int64
 	inFlight                  bool
+	protectAcceptedUpdates    bool
 	seen                      map[string]struct{}
 	conversation              []diagnosisroom.ConversationTurn
 	evidenceBatches           []diagnosisRoomEvidenceContextBatch
@@ -410,6 +415,28 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		workflow.DefaultVersion,
 		diagnosisRoomHistoricalRetrievalVersion,
 	)
+	idleUpdateLifecycleVersion := workflow.GetVersion(
+		ctx,
+		diagnosisRoomIdleUpdateLifecycleChangeID,
+		workflow.DefaultVersion,
+		diagnosisRoomIdleUpdateLifecycleVersion,
+	)
+	state.protectAcceptedUpdates = idleUpdateLifecycleVersion >= diagnosisRoomIdleUpdateLifecycleVersion
+	var updateLifecycleCh workflow.Channel
+	if state.protectAcceptedUpdates {
+		updateLifecycleCh = workflow.NewBufferedChannel(ctx, 1)
+	}
+	notifyUpdateLifecycle := func() {
+		if updateLifecycleCh != nil {
+			updateLifecycleCh.SendAsync(struct{}{})
+		}
+	}
+	beginAcceptedUpdate := func() {
+		if state.protectAcceptedUpdates {
+			state.lastActivityAt = workflow.Now(ctx)
+			notifyUpdateLifecycle()
+		}
+	}
 	state.approvalEnabled = multiStakeholderApprovalVersion >= diagnosisRoomMultiStakeholderApprovalVersion
 	var approvalLifecycleCh workflow.Channel
 	if state.approvalEnabled {
@@ -430,6 +457,8 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			if err := workflow.Await(ctx, func() bool { return startupComplete }); err != nil {
 				return SubmitDiagnosisTurnResult{}, err
 			}
+			beginAcceptedUpdate()
+			defer notifyUpdateLifecycle()
 			return state.submitDiagnosisRoomTurn(
 				ctx,
 				req,
@@ -460,6 +489,8 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			if err := workflow.Await(ctx, func() bool { return startupComplete }); err != nil {
 				return DiagnosisRoomWorkflowState{}, err
 			}
+			beginAcceptedUpdate()
+			defer notifyUpdateLifecycle()
 			if err := state.validateConfirmConclusion(req, confirmEvidenceGuardVersion); err != nil {
 				return DiagnosisRoomWorkflowState{}, newDiagnosisRoomConfirmRejectedError(err)
 			}
@@ -490,6 +521,8 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 				if err := workflow.Await(ctx, func() bool { return startupComplete }); err != nil {
 					return CollectDiagnosisEvidenceUpdateResult{}, err
 				}
+				beginAcceptedUpdate()
+				defer notifyUpdateLifecycle()
 				return state.collectDiagnosisEvidence(
 					ctx,
 					req,
@@ -603,6 +636,12 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 				c.Receive(ctx, &ignored)
 			})
 		}
+		if updateLifecycleCh != nil {
+			selector.AddReceive(updateLifecycleCh, func(c workflow.ReceiveChannel, _ bool) {
+				var ignored struct{}
+				c.Receive(ctx, &ignored)
+			})
+		}
 
 		selector.Select(ctx)
 		cancelTimer()
@@ -621,6 +660,12 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		// already open before deployment can record the new version when it
 		// closes, while replay of an older terminal history uses the legacy
 		// activity payload.
+		closeActorSemanticsVersion := workflow.GetVersion(
+			ctx,
+			diagnosisRoomCloseActorSemanticsChangeID,
+			workflow.DefaultVersion,
+			diagnosisRoomCloseActorSemanticsVersion,
+		)
 		conversationSummaryVersion := workflow.GetVersion(
 			ctx,
 			diagnosisRoomConversationSummaryChangeID,
@@ -638,6 +683,7 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 		if state.closedAt != nil {
 			closedAt = *state.closedAt
 		}
+		closedBy, confirmedBy := state.closeActors(closeActorSemanticsVersion)
 		requireConclusionApproval :=
 			multiStakeholderApprovalVersion >= diagnosisRoomMultiStakeholderApprovalVersion &&
 				state.conclusionConfirmed
@@ -651,7 +697,8 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 			SessionID:                         state.input.SessionID,
 			DiagnosisTaskID:                   state.diagnosisTaskID,
 			OwnerSubject:                      state.input.OwnerSubject,
-			ConfirmedBy:                       state.closeActorSubject,
+			ClosedBy:                          closedBy,
+			ConfirmedBy:                       confirmedBy,
 			TurnCount:                         state.turnCount,
 			ClosedAt:                          closedAt,
 			Reason:                            state.closeReason,
@@ -678,7 +725,8 @@ func DiagnosisRoomWorkflow(ctx workflow.Context, input DiagnosisRoomWorkflowInpu
 				SessionID:                         state.input.SessionID,
 				DiagnosisTaskID:                   state.diagnosisTaskID,
 				OwnerSubject:                      state.input.OwnerSubject,
-				ConfirmedBy:                       state.closeActorSubject,
+				ClosedBy:                          closedBy,
+				ConfirmedBy:                       confirmedBy,
 				TurnCount:                         state.turnCount,
 				ClosedAt:                          closeResult.ClosedAt,
 				Reason:                            state.closeReason,
@@ -2698,7 +2746,7 @@ func (s *diagnosisRoomState) closeIfExpired(now time.Time) bool {
 		s.close(now, diagnosisRoomCloseSessionTimeout, "")
 		return true
 	}
-	if s.approvalInFlight {
+	if s.approvalInFlight || (s.protectAcceptedUpdates && s.inFlight) {
 		return false
 	}
 	if !now.Before(s.lastActivityAt.Add(s.policy.IdleTimeout)) {
@@ -2720,6 +2768,17 @@ func (s *diagnosisRoomState) close(now time.Time, reason string, actorSubject st
 	s.lastActivityAt = now
 }
 
+func (s *diagnosisRoomState) closeActors(version workflow.Version) (closedBy string, confirmedBy string) {
+	if version < diagnosisRoomCloseActorSemanticsVersion {
+		return "", s.closeActorSubject
+	}
+	closedBy = s.closeActorSubject
+	if s.conclusionConfirmed {
+		confirmedBy = s.closeActorSubject
+	}
+	return closedBy, confirmedBy
+}
+
 func (s *diagnosisRoomState) closeDiagnosisTaskStatus() string {
 	if s == nil || s.closeReason != diagnosisRoomCloseInitialTurnFailed {
 		return ""
@@ -2739,7 +2798,7 @@ func (s *diagnosisRoomState) nextTimerDelay(now time.Time) time.Duration {
 	if sessionDelay <= 0 {
 		return time.Nanosecond
 	}
-	if s.approvalInFlight {
+	if s.approvalInFlight || (s.protectAcceptedUpdates && s.inFlight) {
 		return sessionDelay
 	}
 	idleDelay := s.lastActivityAt.Add(s.policy.IdleTimeout).Sub(now)

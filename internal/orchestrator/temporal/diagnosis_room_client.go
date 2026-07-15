@@ -307,6 +307,43 @@ func (c *DiagnosisRoomClient) ConfirmDiagnosisConclusion(
 	return diagnosisRoomWorkflowState(result), nil
 }
 
+// CloseDiagnosisRoom signals an existing workflow to close without confirming
+// its latest conclusion, then waits for terminal persistence and notification.
+func (c *DiagnosisRoomClient) CloseDiagnosisRoom(
+	ctx context.Context,
+	req ports.DiagnosisRoomCloseRequest,
+) (ports.DiagnosisRoomState, error) {
+	if c == nil || c.client == nil {
+		return ports.DiagnosisRoomState{}, fmt.Errorf("diagnosis-room client: Temporal client must be non-nil: %w", domain.ErrInvariantViolation)
+	}
+	workflowID, err := diagnosisRoomWorkflowIDForTenant(ctx, req.SessionID)
+	if err != nil {
+		return ports.DiagnosisRoomState{}, err
+	}
+	closeReq, err := diagnosisRoomCloseRequest(
+		req.ActorSubject,
+		"",
+		diagnosisRoomCloseUserRequested,
+	)
+	if err != nil {
+		return ports.DiagnosisRoomState{}, err
+	}
+	if err := c.client.SignalWorkflow(
+		ctx,
+		workflowID,
+		"",
+		DiagnosisRoomCloseSignal,
+		closeReq,
+	); err != nil {
+		return ports.DiagnosisRoomState{}, fmt.Errorf("diagnosis-room client: signal close: %w", err)
+	}
+	var result DiagnosisRoomWorkflowResult
+	if err := c.client.GetWorkflow(ctx, workflowID, "").Get(ctx, &result); err != nil {
+		return ports.DiagnosisRoomState{}, fmt.Errorf("diagnosis-room client: wait close: %w", err)
+	}
+	return diagnosisRoomWorkflowState(result), nil
+}
+
 type diagnosisRoomClientClassifiedError struct {
 	prefix string
 	err    error
@@ -458,18 +495,29 @@ func diagnosisRoomCollectEvidenceRequest(
 func diagnosisRoomConfirmConclusionRequest(
 	req ports.DiagnosisRoomConfirmConclusionRequest,
 ) (DiagnosisRoomCloseRequest, error) {
-	actorSubject := strings.TrimSpace(req.ActorSubject)
+	return diagnosisRoomCloseRequest(req.ActorSubject, req.Reason, "human_confirmed")
+}
+
+func diagnosisRoomCloseRequest(
+	rawActorSubject string,
+	rawReason string,
+	defaultReason string,
+) (DiagnosisRoomCloseRequest, error) {
+	actorSubject := strings.TrimSpace(rawActorSubject)
 	if actorSubject == "" {
 		return DiagnosisRoomCloseRequest{}, fmt.Errorf("diagnosis-room client: actor subject must be non-empty: %w", domain.ErrInvariantViolation)
 	}
-	if actorSubject != req.ActorSubject {
+	if actorSubject != rawActorSubject {
 		return DiagnosisRoomCloseRequest{}, fmt.Errorf("diagnosis-room client: actor subject must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
 	}
-	reason := strings.TrimSpace(req.Reason)
-	if reason == "" {
-		reason = "human_confirmed"
+	if len(actorSubject) > 256 {
+		return DiagnosisRoomCloseRequest{}, fmt.Errorf("diagnosis-room client: actor subject must not exceed 256 bytes: %w", domain.ErrInvariantViolation)
 	}
-	if reason != req.Reason && req.Reason != "" {
+	reason := strings.TrimSpace(rawReason)
+	if reason == "" {
+		reason = defaultReason
+	}
+	if reason != rawReason && rawReason != "" {
 		return DiagnosisRoomCloseRequest{}, fmt.Errorf("diagnosis-room client: reason must not contain leading or trailing whitespace: %w", domain.ErrInvariantViolation)
 	}
 	return DiagnosisRoomCloseRequest{
@@ -944,4 +992,5 @@ func diagnosisRoomFinalConclusionPort(in *DiagnosisRoomFinalConclusion) *ports.D
 }
 
 var _ ports.DiagnosisRoomWorkflowClient = (*DiagnosisRoomClient)(nil)
+var _ ports.DiagnosisRoomWorkflowCloser = (*DiagnosisRoomClient)(nil)
 var _ ports.DiagnosisRoomWorkflowVisibilityLookup = (*DiagnosisRoomClient)(nil)

@@ -1373,6 +1373,7 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 		SessionID:                   "session-room-close-conclusion",
 		DiagnosisTaskID:             int64(seed.TaskID),
 		OwnerSubject:                "owner-1",
+		ClosedBy:                    "reviewer-1",
 		ConfirmedBy:                 "reviewer-1",
 		TurnCount:                   1,
 		ClosedAt:                    startedAt.Add(5 * time.Minute),
@@ -1488,6 +1489,7 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 			t.Fatalf("events = %+v, want diagnosis_room.closed", events)
 		}
 		var payload struct {
+			ClosedBy          string `json:"closed_by"`
 			CloseReason       string `json:"close_reason"`
 			TurnCount         int    `json:"turn_count"`
 			ConclusionVersion string `json:"conclusion_version"`
@@ -1530,7 +1532,8 @@ func TestDiagnosisRoomPersistenceActivities_CloseEventCapturesFinalConclusion(t 
 		if err := json.Unmarshal(closeEvent.Payload, &payload); err != nil {
 			t.Fatalf("close event payload: %v", err)
 		}
-		if payload.CloseReason != "human_confirmed" ||
+		if payload.ClosedBy != closeReq.ClosedBy ||
+			payload.CloseReason != "human_confirmed" ||
 			payload.TurnCount != 1 ||
 			payload.ConclusionVersion != "diagnosis-room-close.v1" ||
 			payload.Conclusion.Status != "available" ||

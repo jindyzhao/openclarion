@@ -978,6 +978,98 @@ func TestDiagnosisRoomClient_ConfirmDiagnosisConclusionUsesCompletedUpdateAndWai
 	}
 }
 
+func TestDiagnosisRoomClient_CloseDiagnosisRoomSignalsAndWaits(t *testing.T) {
+	startedAt := time.Date(2026, 5, 28, 9, 0, 0, 0, time.UTC)
+	closedAt := startedAt.Add(2 * time.Minute)
+	temporalClient := &recordingDiagnosisRoomTemporalClient{
+		getRun: fakeWorkflowRun{
+			workflowID: "diagnosis-room-session-1",
+			runID:      "run-1",
+			result: DiagnosisRoomWorkflowResult{
+				SessionID:       "session-1",
+				ChatSessionID:   21,
+				DiagnosisTaskID: 11,
+				OwnerSubject:    "owner-1",
+				Status:          diagnosisRoomStatusClosed,
+				StartedAt:       startedAt,
+				LastActivityAt:  closedAt,
+				ClosedAt:        &closedAt,
+				CloseReason:     diagnosisRoomCloseUserRequested,
+				FinalConclusion: &DiagnosisRoomFinalConclusion{
+					Status:             "not_available",
+					Source:             "none",
+					Reason:             "room_closed_without_assistant_turn",
+					EvidenceSnapshotID: 9001,
+				},
+			},
+		},
+	}
+	roomClient := newDiagnosisRoomClient(temporalClient)
+
+	got, err := roomClient.CloseDiagnosisRoom(context.Background(), ports.DiagnosisRoomCloseRequest{
+		SessionID:    "session-1",
+		ActorSubject: "operator-1",
+	})
+	if err != nil {
+		t.Fatalf("CloseDiagnosisRoom: %v", err)
+	}
+	if temporalClient.signalCalled != 1 ||
+		temporalClient.signalWorkflowID != "diagnosis-room-session-1" ||
+		temporalClient.signalRunID != "" ||
+		temporalClient.signalName != DiagnosisRoomCloseSignal {
+		t.Fatalf("signal = count:%d workflow:%q run:%q name:%q",
+			temporalClient.signalCalled,
+			temporalClient.signalWorkflowID,
+			temporalClient.signalRunID,
+			temporalClient.signalName)
+	}
+	closeReq, ok := temporalClient.signalArg.(DiagnosisRoomCloseRequest)
+	if !ok || closeReq.Reason != diagnosisRoomCloseUserRequested || closeReq.ActorSubject != "operator-1" {
+		t.Fatalf("signal arg = %#v", temporalClient.signalArg)
+	}
+	if temporalClient.getCalled != 1 ||
+		temporalClient.getWorkflowID != "diagnosis-room-session-1" ||
+		temporalClient.getRunID != "" {
+		t.Fatalf("get workflow = count:%d workflow:%q run:%q",
+			temporalClient.getCalled,
+			temporalClient.getWorkflowID,
+			temporalClient.getRunID)
+	}
+	if got.Status != diagnosisRoomStatusClosed ||
+		got.CloseReason != diagnosisRoomCloseUserRequested ||
+		got.FinalConclusion == nil ||
+		got.FinalConclusion.ConfirmedBy != "" {
+		t.Fatalf("closed state = %+v", got)
+	}
+}
+
+func TestDiagnosisRoomClient_CloseDiagnosisRoomRejectsInvalidActorBeforeSignal(t *testing.T) {
+	tests := []struct {
+		name  string
+		actor string
+	}{
+		{name: "empty", actor: ""},
+		{name: "surrounding whitespace", actor: " operator-1 "},
+		{name: "too long", actor: strings.Repeat("a", 257)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			temporalClient := &recordingDiagnosisRoomTemporalClient{}
+			roomClient := newDiagnosisRoomClient(temporalClient)
+			_, err := roomClient.CloseDiagnosisRoom(context.Background(), ports.DiagnosisRoomCloseRequest{
+				SessionID:    "session-1",
+				ActorSubject: tc.actor,
+			})
+			if err == nil || !errors.Is(err, domain.ErrInvariantViolation) {
+				t.Fatalf("CloseDiagnosisRoom error = %v, want invariant violation", err)
+			}
+			if temporalClient.signalCalled != 0 {
+				t.Fatalf("SignalWorkflow calls = %d, want 0", temporalClient.signalCalled)
+			}
+		})
+	}
+}
+
 func TestDiagnosisRoomClient_ConfirmDiagnosisConclusionReturnsPendingQuorumWithoutWaiting(t *testing.T) {
 	approvedAt := time.Date(2026, 7, 14, 9, 0, 0, 0, time.UTC)
 	digest := strings.Repeat("a", 64)

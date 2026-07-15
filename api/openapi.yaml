@@ -8515,6 +8515,12 @@ components:
           description: Sanitized outbound diagnosis-room notification delivery timeline.
           items:
             $ref: "#/components/schemas/DiagnosisRoomNotificationTimelineEntry"
+        audit_timeline:
+          type: array
+          maxItems: 500
+          description: Sanitized lifecycle event sequence included only in the exact room detail response. Raw payloads, dedupe keys, model content, and provider metadata remain server-side.
+          items:
+            $ref: "#/components/schemas/DiagnosisRoomAuditTimelineEntry"
         workflow_visibility:
           $ref: "#/components/schemas/DiagnosisRoomWorkflowVisibility"
         created_at:
@@ -8546,6 +8552,55 @@ components:
         - approval_mode
         - created_at
         - updated_at
+    DiagnosisRoomAuditCategory:
+      type: string
+      description: Stable operator-facing classification of a diagnosis-room audit event.
+      enum:
+        - lifecycle
+        - interaction
+        - evidence
+        - approval
+        - notification
+        - other
+      examples:
+        - interaction
+    DiagnosisRoomAuditTimelineEntry:
+      type: object
+      description: Sanitized identity and timing for one immutable DiagnosisTaskEvent. Event payloads and internal idempotency keys remain server-side.
+      properties:
+        id:
+          type: integer
+          format: int64
+          minimum: 1
+        event_kind:
+          type: string
+          minLength: 1
+          maxLength: 128
+          examples:
+            - diagnosis_room.turn_persisted
+        category:
+          $ref: "#/components/schemas/DiagnosisRoomAuditCategory"
+        actor_subject:
+          type: string
+          minLength: 1
+          maxLength: 256
+          description: Attributable human or system actor subject when retained by the event. Events without a direct actor omit this field.
+          examples:
+            - operator:alice
+        occurred_at:
+          type: string
+          format: date-time
+          description: Producer-supplied event time.
+        recorded_at:
+          type: string
+          format: date-time
+          description: Database append time.
+      required:
+        - id
+        - event_kind
+        - category
+        - occurred_at
+        - recorded_at
     DiagnosisRoomParticipantSummary:
       type: object
       description: Sanitized diagnosis-room participant activity summary.

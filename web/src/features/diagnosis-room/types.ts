@@ -308,6 +308,7 @@ export type DiagnosisServerFrame =
 
 export type DiagnosisClientFrame =
   | { type: "query_state" }
+  | { type: "close_room" }
   | { type: "confirm_conclusion"; reason?: string }
   | { type: "submit_turn"; message_id: string; message: string }
   | {

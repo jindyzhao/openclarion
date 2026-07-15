@@ -46,14 +46,17 @@ const (
 	diagnosisSupplementalEvidenceLimit = 20
 	diagnosisConfidenceTimelineLimit   = 20
 	diagnosisNotificationTimelineLimit = 20
+	diagnosisAuditTimelineLimit        = 500
 	diagnosisParticipantTurnLimit      = 100
 	reportNotificationDeliveryLimit    = 20
 
+	diagnosisConclusionEventOpened                    = "diagnosis_room.opened"
 	diagnosisConclusionEventTurnPersisted             = "diagnosis_room.turn_persisted"
 	diagnosisConclusionEventEvidenceCollected         = "diagnosis_room.evidence_collected"
 	diagnosisConclusionEventFinalReady                = "diagnosis_room.final_conclusion_ready"
 	diagnosisConclusionEventFailed                    = "diagnosis_room.failed"
 	diagnosisConclusionEventClosed                    = "diagnosis_room.closed"
+	diagnosisConclusionEventApproved                  = "diagnosis_room.conclusion_approved"
 	diagnosisConclusionEventSupplementalEvidence      = "diagnosis_room.supplemental_evidence_provided"
 	diagnosisConclusionEventCloseNotification         = "diagnosis_room.close_notification_sent"
 	diagnosisConclusionEventFinalReadyNotification    = "diagnosis_room.final_ready_notification_sent"
@@ -64,6 +67,11 @@ const (
 
 	reportTriggerHTTPWorkflow = "ReportTriggerHTTP"
 )
+
+type diagnosisRoomSummaryOptions struct {
+	includeNotifications bool
+	includeAudit         bool
+}
 
 // Server implements api.ServerInterface.
 //
@@ -1364,7 +1372,7 @@ func diagnosisRoomSummariesWithConclusions(
 	repo ports.DiagnosisRepository,
 	rooms []domain.ChatSessionWithTask,
 ) ([]api.DiagnosisRoomSummary, error) {
-	return diagnosisRoomSummariesWithOptions(ctx, repo, rooms, false)
+	return diagnosisRoomSummariesWithOptions(ctx, repo, rooms, diagnosisRoomSummaryOptions{})
 }
 
 func diagnosisRoomSummariesWithConclusionsAndNotifications(
@@ -1372,7 +1380,9 @@ func diagnosisRoomSummariesWithConclusionsAndNotifications(
 	repo ports.DiagnosisRepository,
 	rooms []domain.ChatSessionWithTask,
 ) ([]api.DiagnosisRoomSummary, error) {
-	return diagnosisRoomSummariesWithOptions(ctx, repo, rooms, true)
+	return diagnosisRoomSummariesWithOptions(ctx, repo, rooms, diagnosisRoomSummaryOptions{
+		includeNotifications: true,
+	})
 }
 
 func diagnosisRoomSummaryBySession(
@@ -1388,10 +1398,13 @@ func diagnosisRoomSummaryBySession(
 	if err != nil {
 		return api.DiagnosisRoomSummary{}, err
 	}
-	rooms, err := diagnosisRoomSummariesWithConclusionsAndNotifications(ctx, repo, []domain.ChatSessionWithTask{{
+	rooms, err := diagnosisRoomSummariesWithOptions(ctx, repo, []domain.ChatSessionWithTask{{
 		Session: session,
 		Task:    task,
-	}})
+	}}, diagnosisRoomSummaryOptions{
+		includeNotifications: true,
+		includeAudit:         true,
+	})
 	if err != nil {
 		return api.DiagnosisRoomSummary{}, err
 	}
@@ -1405,7 +1418,7 @@ func diagnosisRoomSummariesWithOptions(
 	ctx context.Context,
 	repo ports.DiagnosisRepository,
 	rooms []domain.ChatSessionWithTask,
-	includeNotifications bool,
+	options diagnosisRoomSummaryOptions,
 ) ([]api.DiagnosisRoomSummary, error) {
 	items := diagnosisRoomSummaries(rooms)
 	for i, room := range rooms {
@@ -1460,13 +1473,22 @@ func diagnosisRoomSummariesWithOptions(
 			items[i].LatestConclusion,
 			items[i].Approvals,
 		)
-		if includeNotifications {
+		if options.includeNotifications {
 			timeline, err := notificationTimelineForDiagnosisTask(ctx, repo, room.Task.ID)
 			if err != nil {
 				return nil, err
 			}
 			if len(timeline) > 0 {
 				items[i].NotificationTimeline = timeline
+			}
+		}
+		if options.includeAudit {
+			timeline, err := auditTimelineForDiagnosisRoom(ctx, repo, room.Session, room.Task.ID)
+			if err != nil {
+				return nil, err
+			}
+			if len(timeline) > 0 {
+				items[i].AuditTimeline = timeline
 			}
 		}
 	}
@@ -2854,6 +2876,141 @@ func notificationTimelineForDiagnosisTask(
 		items = items[len(items)-diagnosisNotificationTimelineLimit:]
 	}
 	return items, nil
+}
+
+type diagnosisRoomAuditEventPayload struct {
+	Kind            string `json:"kind"`
+	SessionID       string `json:"session_id"`
+	ChatSessionID   int64  `json:"chat_session_id"`
+	DiagnosisTaskID int64  `json:"diagnosis_task_id"`
+	OwnerSubject    string `json:"owner_subject"`
+	ActorSubject    string `json:"actor_subject"`
+	ClosedBy        string `json:"closed_by"`
+	FinalConclusion struct {
+		ConfirmedBy string `json:"confirmed_by"`
+	} `json:"final_conclusion"`
+}
+
+func auditTimelineForDiagnosisRoom(
+	ctx context.Context,
+	repo ports.DiagnosisRepository,
+	session domain.ChatSession,
+	taskID domain.DiagnosisTaskID,
+) ([]api.DiagnosisRoomAuditTimelineEntry, error) {
+	events, err := repo.ListEvents(ctx, taskID, diagnosisAuditTimelineLimit)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]api.DiagnosisRoomAuditTimelineEntry, 0, len(events))
+	for _, event := range events {
+		item, err := auditTimelineEntryForDiagnosisRoom(event, session, taskID)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func auditTimelineEntryForDiagnosisRoom(
+	event domain.DiagnosisTaskEvent,
+	session domain.ChatSession,
+	taskID domain.DiagnosisTaskID,
+) (api.DiagnosisRoomAuditTimelineEntry, error) {
+	if event.ID <= 0 ||
+		event.TaskID != taskID ||
+		strings.TrimSpace(event.Kind) == "" ||
+		event.Kind != strings.TrimSpace(event.Kind) ||
+		len(event.Kind) > 128 {
+		return api.DiagnosisRoomAuditTimelineEntry{}, fmt.Errorf(
+			"diagnosis audit event identity is invalid for task %d: %w",
+			taskID,
+			domain.ErrInvariantViolation,
+		)
+	}
+	if event.OccurredAt.IsZero() || event.RecordedAt.IsZero() {
+		return api.DiagnosisRoomAuditTimelineEntry{}, fmt.Errorf(
+			"diagnosis audit event %d has an invalid timestamp: %w",
+			event.ID,
+			domain.ErrInvariantViolation,
+		)
+	}
+
+	var payload diagnosisRoomAuditEventPayload
+	if len(event.Payload) > 0 {
+		if err := strictjson.RejectDuplicateObjectKeys(event.Payload); err != nil {
+			return api.DiagnosisRoomAuditTimelineEntry{}, fmt.Errorf("diagnosis audit event %d payload is ambiguous: %w", event.ID, errors.Join(err, domain.ErrInvariantViolation))
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil {
+			return api.DiagnosisRoomAuditTimelineEntry{}, fmt.Errorf("diagnosis audit event %d payload: %w", event.ID, errors.Join(err, domain.ErrInvariantViolation))
+		}
+		if payload.Kind != "" && payload.Kind != event.Kind {
+			return api.DiagnosisRoomAuditTimelineEntry{}, fmt.Errorf("diagnosis audit event %d kind mismatch: %w", event.ID, domain.ErrInvariantViolation)
+		}
+		if payload.DiagnosisTaskID != 0 && payload.DiagnosisTaskID != int64(taskID) {
+			return api.DiagnosisRoomAuditTimelineEntry{}, fmt.Errorf("diagnosis audit event %d task mismatch: %w", event.ID, domain.ErrInvariantViolation)
+		}
+		if payload.SessionID != "" && payload.SessionID != session.SessionKey {
+			return api.DiagnosisRoomAuditTimelineEntry{}, fmt.Errorf("diagnosis audit event %d session mismatch: %w", event.ID, domain.ErrInvariantViolation)
+		}
+		if payload.ChatSessionID != 0 && payload.ChatSessionID != int64(session.ID) {
+			return api.DiagnosisRoomAuditTimelineEntry{}, fmt.Errorf("diagnosis audit event %d chat session mismatch: %w", event.ID, domain.ErrInvariantViolation)
+		}
+	}
+
+	actor := diagnosisRoomAuditActor(event.Kind, payload)
+	if len(actor) > 256 {
+		return api.DiagnosisRoomAuditTimelineEntry{}, fmt.Errorf("diagnosis audit event %d actor is too long: %w", event.ID, domain.ErrInvariantViolation)
+	}
+	return api.DiagnosisRoomAuditTimelineEntry{
+		ID:           int64(event.ID),
+		EventKind:    event.Kind,
+		Category:     diagnosisRoomAuditCategory(event.Kind),
+		ActorSubject: nonEmptyStringPtr(actor),
+		OccurredAt:   event.OccurredAt,
+		RecordedAt:   event.RecordedAt,
+	}, nil
+}
+
+func diagnosisRoomAuditActor(kind string, payload diagnosisRoomAuditEventPayload) string {
+	switch kind {
+	case diagnosisConclusionEventOpened:
+		return strings.TrimSpace(payload.OwnerSubject)
+	case diagnosisConclusionEventTurnPersisted,
+		diagnosisConclusionEventEvidenceCollected,
+		diagnosisConclusionEventSupplementalEvidence,
+		diagnosisConclusionEventApproved:
+		return strings.TrimSpace(payload.ActorSubject)
+	case diagnosisConclusionEventClosed, diagnosisConclusionEventFailed:
+		if actor := strings.TrimSpace(payload.ClosedBy); actor != "" {
+			return actor
+		}
+		return strings.TrimSpace(payload.FinalConclusion.ConfirmedBy)
+	default:
+		return strings.TrimSpace(payload.ActorSubject)
+	}
+}
+
+func diagnosisRoomAuditCategory(kind string) api.DiagnosisRoomAuditCategory {
+	switch kind {
+	case diagnosisConclusionEventOpened,
+		diagnosisConclusionEventFinalReady,
+		diagnosisConclusionEventClosed,
+		diagnosisConclusionEventFailed:
+		return api.DiagnosisRoomAuditCategoryLifecycle
+	case diagnosisConclusionEventTurnPersisted:
+		return api.DiagnosisRoomAuditCategoryInteraction
+	case diagnosisConclusionEventEvidenceCollected, diagnosisConclusionEventSupplementalEvidence:
+		return api.DiagnosisRoomAuditCategoryEvidence
+	case diagnosisConclusionEventApproved:
+		return api.DiagnosisRoomAuditCategoryApproval
+	case diagnosisConclusionEventAssistantTurnNotification,
+		diagnosisConclusionEventFinalReadyNotification,
+		diagnosisConclusionEventCloseNotification:
+		return api.DiagnosisRoomAuditCategoryNotification
+	default:
+		return api.DiagnosisRoomAuditCategoryOther
+	}
 }
 
 func confidenceTimelineForDiagnosisTask(

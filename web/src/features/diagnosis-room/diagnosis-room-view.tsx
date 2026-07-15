@@ -4,6 +4,7 @@ import {
   ApiOutlined,
   BulbOutlined,
   CheckCircleOutlined,
+  CloseCircleOutlined,
   DisconnectOutlined,
   FormOutlined,
   LoginOutlined,
@@ -39,6 +40,7 @@ import type { DescriptionsProps, FormInstance, TimelineProps } from "antd";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import {
   useCallback,
   useEffect,
@@ -103,6 +105,7 @@ import {
   diagnosisAutoBrowserSessionCreateRoomPlan,
 } from "./auth-readiness";
 import { DiagnosisAuthModeSelector } from "./auth-mode-selector";
+import { DiagnosisAuditTimelineSection } from "./audit-timeline";
 import {
   diagnosisActorApprovalBlockReason,
   diagnosisApprovalAuthorityLabel,
@@ -280,6 +283,7 @@ import {
   type DiagnosisRoomRBACPermissionStatus,
 } from "./rbac-capabilities";
 import { diagnosisOIDCLoginHref } from "./oidc-login";
+import { diagnosisCloseRoomBlockReason } from "./room-close";
 import {
   boundedURLTextValue,
   diagnosisRoomAnchorHref,
@@ -1142,7 +1146,9 @@ export function DiagnosisRoomView({
   initialSessionID,
   recentRoomsResult,
 }: DiagnosisRoomViewProps) {
-  const { message } = AntdApp.useApp();
+  const { message, modal } = AntdApp.useApp();
+  const locale = useLocale();
+  const diagnosisRoomT = useTranslations("DiagnosisRoom");
   const queryClient = useQueryClient();
   const pathname = usePathname();
   const router = useRouter();
@@ -1238,6 +1244,7 @@ export function DiagnosisRoomView({
   const [readySubject, setReadySubject] = useState("");
   const [localTurnInFlight, setLocalTurnInFlight] = useState(false);
   const [confirmInFlight, setConfirmInFlight] = useState(false);
+  const [closeInFlight, setCloseInFlight] = useState(false);
   const [closingUnavailableSessionID, setClosingUnavailableSessionID] =
     useState("");
   const [retryingNotificationKey, setRetryingNotificationKey] = useState("");
@@ -1363,6 +1370,8 @@ export function DiagnosisRoomView({
   const selectedRoomSummary =
     selectedExactRoomSummary ??
     selectedDiagnosisRoomSummary(recentRoomsQuery.data, selectedSessionID);
+  const closeRequestInFlight =
+    closeInFlight && selectedRoomSummary?.room_status !== "closed";
   const selectedNotificationDeliveryCoverage =
     selectedRoomSummary === undefined
       ? undefined
@@ -1821,6 +1830,7 @@ export function DiagnosisRoomView({
     setReadySubject("");
     setLocalTurnInFlight(false);
     setConfirmInFlight(false);
+    setCloseInFlight(false);
     setRoomState(null);
     setTranscript([]);
     setLatestInsight(null);
@@ -1895,11 +1905,13 @@ export function DiagnosisRoomView({
     connected &&
     hasCurrentActorSubject &&
     !turnInFlight &&
+    !closeRequestInFlight &&
     selectedParticipateRBACBlockReason === "";
   const canSubmitComposer =
     canSubmitTurn && pendingSupplementalEvidence === null;
   const submitTurnBlockReason = diagnosisSubmitTurnBlockReason({
     actorSubject: currentActorSubject,
+    closeInFlight: closeRequestInFlight,
     connected,
     rbacBlockReason: selectedParticipateRBACBlockReason,
     turnInFlight,
@@ -2119,6 +2131,7 @@ export function DiagnosisRoomView({
 
   const confirmConclusionBlockReason = diagnosisConfirmConclusionBlockReason({
     actorSubject: currentActorSubject,
+    closeInFlight: closeRequestInFlight,
     connected,
     confirmInFlight,
     latestInsight: selectedLatestInsight,
@@ -2127,6 +2140,20 @@ export function DiagnosisRoomView({
   });
   const canConfirmConclusion =
     clientReady && confirmConclusionBlockReason === "";
+  const closeRoomBlockReason = diagnosisCloseRoomBlockReason({
+    actorSubject: currentActorSubject,
+    closeInFlight: closeRequestInFlight,
+    confirmInFlight,
+    connected,
+    locale,
+    rbacBlockReason: selectedAdministerRBACBlockReason,
+    state:
+      selectedRoomSummary?.room_status === "closed"
+        ? { status: "closed" }
+        : selectedRoomState,
+    turnInFlight,
+  });
+  const canCloseRoom = clientReady && closeRoomBlockReason === "";
   const selectedFinalConclusionQueueInput = finalConclusionReviewQueueInput({
     canConfirmConclusion,
     collectionResults: selectedRoomState?.evidence_collection_results ?? [],
@@ -2390,6 +2417,7 @@ export function DiagnosisRoomView({
     setSocketOpen(false);
     setReadySubject("");
     setConfirmInFlight(false);
+    setCloseInFlight(false);
     clearTurnInFlight();
     setStatus((current) =>
       current === "idle" || current === "closed" ? current : "error",
@@ -2591,6 +2619,7 @@ export function DiagnosisRoomView({
       setReadySubject("");
       setLocalTurnInFlight(false);
       setConfirmInFlight(false);
+      setCloseInFlight(false);
       setRoomState(null);
       setTranscript([]);
       setLatestInsight(null);
@@ -2660,6 +2689,7 @@ export function DiagnosisRoomView({
       if (!scheduleReconnect("WebSocket error.")) {
         setStatus("error");
         setConfirmInFlight(false);
+        setCloseInFlight(false);
         clearTurnInFlight();
         pushLog("error", "WebSocket error.");
       }
@@ -2672,6 +2702,7 @@ export function DiagnosisRoomView({
       if (!scheduleReconnect("WebSocket closed.")) {
         setStatus((current) => (current === "error" ? current : "closed"));
         setConfirmInFlight(false);
+        setCloseInFlight(false);
         clearTurnInFlight();
         pushLog("info", "WebSocket closed.");
       }
@@ -2922,6 +2953,9 @@ export function DiagnosisRoomView({
           setStatus((current) => (current === "error" ? "connected" : current));
         }
         setConfirmInFlight(false);
+        if (frame.status === "closed") {
+          setCloseInFlight(false);
+        }
         setLocalTurnInFlight(frame.in_flight);
         if (!frame.in_flight) {
           setTurnPreview(null);
@@ -2990,6 +3024,11 @@ export function DiagnosisRoomView({
       case "error":
         setStatus((current) => (current === "connected" ? current : "error"));
         setConfirmInFlight(false);
+        if (frame.code === "close_still_processing") {
+          void invalidateDiagnosisRoomQueries(selectedSessionID);
+        } else {
+          setCloseInFlight(false);
+        }
         clearTurnInFlight();
         setServerError({ code: frame.code, message: frame.message });
         pushLog("error", `${frame.code}: ${frame.message}`);
@@ -3115,6 +3154,28 @@ export function DiagnosisRoomView({
     setConfirmInFlight(true);
     if (!sendFrame({ type: "confirm_conclusion", reason: "human_confirmed" })) {
       setConfirmInFlight(false);
+    }
+  }
+
+  async function handleCloseRoom() {
+    if (showActionBlockReason(closeRoomBlockReason) || !canCloseRoom) {
+      return;
+    }
+    const confirmed = await modal.confirm({
+      cancelText: diagnosisRoomT("closeModalCancel"),
+      content: diagnosisRoomT("closeModalDetail"),
+      okButtonProps: { danger: true },
+      okText: diagnosisRoomT("closeModalConfirm"),
+      title: diagnosisRoomT("closeModalTitle"),
+    });
+    if (!confirmed) {
+      return;
+    }
+    setServerError(null);
+    setCloseInFlight(true);
+    pushLog("info", diagnosisRoomT("closeLog"));
+    if (!sendFrame({ type: "close_room" })) {
+      setCloseInFlight(false);
     }
   }
 
@@ -3381,6 +3442,7 @@ export function DiagnosisRoomView({
     setSocketOpen(false);
     setStatus("closed");
     setConfirmInFlight(false);
+    setCloseInFlight(false);
     clearTurnInFlight();
   }
 
@@ -4542,22 +4604,40 @@ export function DiagnosisRoomView({
             aria-label="Room state"
             className="settings-overview-card"
             extra={
-            <TooltipAction
-              disabled={!canConfirmConclusion}
-              title={
-                confirmConclusionBlockReason ||
-                "Approve this exact diagnosis conclusion."
-              }
-            >
-              <Button
-                disabled={!canConfirmConclusion}
-                icon={<CheckCircleOutlined />}
-                loading={confirmInFlight}
-                onClick={handleConfirmConclusion}
-              >
-                Approve Conclusion
-              </Button>
-            </TooltipAction>
+              <Space size={8} wrap>
+                <TooltipAction
+                  disabled={!canCloseRoom}
+                  title={
+                    closeRoomBlockReason || diagnosisRoomT("closeRoomHint")
+                  }
+                >
+                  <Button
+                    danger
+                    disabled={!canCloseRoom}
+                    icon={<CloseCircleOutlined />}
+                    loading={closeRequestInFlight}
+                    onClick={() => void handleCloseRoom()}
+                  >
+                    {diagnosisRoomT("closeRoom")}
+                  </Button>
+                </TooltipAction>
+                <TooltipAction
+                  disabled={!canConfirmConclusion}
+                  title={
+                    confirmConclusionBlockReason ||
+                    "Approve this exact diagnosis conclusion."
+                  }
+                >
+                  <Button
+                    disabled={!canConfirmConclusion}
+                    icon={<CheckCircleOutlined />}
+                    loading={confirmInFlight}
+                    onClick={handleConfirmConclusion}
+                  >
+                    Approve Conclusion
+                  </Button>
+                </TooltipAction>
+              </Space>
             }
             title="Room State"
           >
@@ -4696,6 +4776,7 @@ export function DiagnosisRoomView({
               room={selectedRoomSummary}
             />
           ) : null}
+          <DiagnosisAuditTimelineSection room={selectedExactRoomSummary} />
           <div ref={notificationTimelinePanelRef}>
             <DiagnosisNotificationTimelineSection
               administerDisabledReason={selectedAdministerRBACBlockReason}
@@ -9687,11 +9768,13 @@ function hasConsultationInsight(
 
 function diagnosisSubmitTurnBlockReason({
   actorSubject,
+  closeInFlight,
   connected,
   rbacBlockReason,
   turnInFlight,
 }: {
   actorSubject: string;
+  closeInFlight: boolean;
   connected: boolean;
   rbacBlockReason: string;
   turnInFlight: boolean;
@@ -9712,11 +9795,15 @@ function diagnosisSubmitTurnBlockReason({
   if (turnInFlight) {
     return "Wait for the current AI turn or confirmation request to finish before sending another evidence update.";
   }
+  if (closeInFlight) {
+    return "Wait for the room close request to finish before sending another evidence update.";
+  }
   return "";
 }
 
 function diagnosisConfirmConclusionBlockReason({
   actorSubject,
+  closeInFlight,
   connected,
   confirmInFlight,
   latestInsight,
@@ -9724,6 +9811,7 @@ function diagnosisConfirmConclusionBlockReason({
   state,
 }: {
   actorSubject: string;
+  closeInFlight: boolean;
   connected: boolean;
   confirmInFlight: boolean;
   latestInsight: LatestConsultationInsight | null;
@@ -9745,6 +9833,9 @@ function diagnosisConfirmConclusionBlockReason({
   }
   if (confirmInFlight) {
     return "Confirmation is in progress.";
+  }
+  if (closeInFlight) {
+    return "Wait for the room close request to finish before confirming.";
   }
   if (!state) {
     return "Load the room state before confirming.";
