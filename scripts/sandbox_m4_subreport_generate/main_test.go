@@ -3,8 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -43,7 +47,7 @@ func TestGenerateRunsSandboxAndPersistsSubReport(t *testing.T) {
 	if got.SubReportID == 0 {
 		t.Fatal("summary SubReportID = 0")
 	}
-	wantKey := "snapshot:11/group:2/sandbox:custom-thin-runner/sub_report"
+	wantKey := "snapshot:11/group:2/scenario:cascade/sandbox:custom-thin-runner/sub_report"
 	if got.IdempotencyKey != wantKey {
 		t.Fatalf("IdempotencyKey = %q, want %q", got.IdempotencyKey, wantKey)
 	}
@@ -62,7 +66,8 @@ func TestGenerateRunsSandboxAndPersistsSubReport(t *testing.T) {
 		t.Fatalf("unmarshal sandbox evidence: %v", err)
 	}
 	if envelope.EvidenceSnapshotRef != "snapshot:11" ||
-		envelope.EvidenceDigest != "digest-abc" ||
+		envelope.EvidenceDigest != validSnapshot().Digest ||
+		envelope.PayloadSHA256 != sha256Hex(envelope.Payload) ||
 		envelope.Scenario != string(reportprompt.ScenarioCascade) ||
 		envelope.GroupIndex != 2 ||
 		!bytes.Contains(envelope.Payload, []byte(`"alert:cpu"`)) {
@@ -83,7 +88,7 @@ func TestGenerateRunsSandboxAndPersistsSubReport(t *testing.T) {
 
 func TestGenerateReturnsExistingSubReportWithoutSandboxRun(t *testing.T) {
 	cfg := validConfig()
-	key := sandboxSubReportIdempotencyKey(11, cfg.GroupIndex, cfg.CandidateID)
+	key := sandboxSubReportIdempotencyKey(11, cfg.GroupIndex, reportprompt.Scenario(cfg.Scenario), cfg.CandidateID)
 	existing := validDomainSubReport(t, key)
 	existing.ID = 55
 	store := &fakeStore{
@@ -104,6 +109,27 @@ func TestGenerateReturnsExistingSubReportWithoutSandboxRun(t *testing.T) {
 	}
 }
 
+func TestGenerateRejectsExistingSubReportWithMismatchedScenario(t *testing.T) {
+	cfg := validConfig()
+	key := sandboxSubReportIdempotencyKey(11, cfg.GroupIndex, reportprompt.Scenario(cfg.Scenario), cfg.CandidateID)
+	existing := validDomainSubReport(t, key)
+	existing.ID = 55
+	existing.Scenario = string(reportprompt.ScenarioSingleAlert)
+	store := &fakeStore{
+		snapshot: validSnapshot(),
+		reports:  map[string]domain.SubReport{key: existing},
+	}
+	provider := &fakeProvider{err: errors.New("must not run")}
+
+	_, err := generate(context.Background(), cfg, store, provider)
+	if err == nil || !strings.Contains(err.Error(), "does not match requested") {
+		t.Fatalf("generate error = %v, want scenario mismatch", err)
+	}
+	if len(provider.reqs) != 0 {
+		t.Fatalf("provider calls = %d, want 0", len(provider.reqs))
+	}
+}
+
 func TestGenerateRejectsSandboxOutputWithoutSnapshotRef(t *testing.T) {
 	store := &fakeStore{snapshot: validSnapshot(), reports: map[string]domain.SubReport{}}
 	provider := &fakeProvider{output: validSandboxSubReport("alert:cpu")}
@@ -117,6 +143,101 @@ func TestGenerateRejectsSandboxOutputWithoutSnapshotRef(t *testing.T) {
 	}
 	if len(store.saved) != 0 {
 		t.Fatalf("saved count = %d, want 0", len(store.saved))
+	}
+}
+
+func TestGenerateUsesTransportChecksumForDatabaseReserializedPayload(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Payload = json.RawMessage(`{
+		"alerts": [{"id": "alert:cpu"}],
+		"schema_version": "evidence.snapshot.v1"
+	}`)
+	store := &fakeStore{snapshot: snapshot, reports: map[string]domain.SubReport{}}
+	provider := &fakeProvider{output: validSandboxSubReport("snapshot:11")}
+
+	if _, err := generate(context.Background(), validConfig(), store, provider); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(provider.reqs) != 1 {
+		t.Fatalf("provider calls = %d, want 1", len(provider.reqs))
+	}
+	var envelope sandboxEvidenceEnvelope
+	if err := json.Unmarshal(provider.reqs[0].Evidence, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.EvidenceDigest != validSnapshot().Digest {
+		t.Fatalf("EvidenceDigest = %q, want persisted digest %q", envelope.EvidenceDigest, validSnapshot().Digest)
+	}
+	if envelope.PayloadSHA256 != sha256Hex(envelope.Payload) {
+		t.Fatalf("PayloadSHA256 = %q, want mounted payload checksum %q", envelope.PayloadSHA256, sha256Hex(envelope.Payload))
+	}
+	if envelope.PayloadSHA256 == envelope.EvidenceDigest {
+		t.Fatalf("transport checksum %q unexpectedly equals pre-JSONB snapshot digest", envelope.PayloadSHA256)
+	}
+}
+
+func TestGenerateRejectsInvalidSnapshotDigestBeforeSandboxRun(t *testing.T) {
+	snapshot := validSnapshot()
+	snapshot.Digest = "not-a-sha256"
+	store := &fakeStore{snapshot: snapshot, reports: map[string]domain.SubReport{}}
+	provider := &fakeProvider{output: validSandboxSubReport("snapshot:11")}
+
+	_, err := generate(context.Background(), validConfig(), store, provider)
+	if err == nil || !strings.Contains(err.Error(), "lowercase SHA-256") {
+		t.Fatalf("generate error = %v, want digest format error", err)
+	}
+	if len(provider.reqs) != 0 {
+		t.Fatalf("provider calls = %d, want 0", len(provider.reqs))
+	}
+}
+
+func TestGenerateInjectsInvocationScopedReportLLMCredentials(t *testing.T) {
+	store := &fakeStore{snapshot: validSnapshot(), reports: map[string]domain.SubReport{}}
+	provider := &fakeProvider{output: validSandboxSubReport("snapshot:11")}
+	cfg := validConfig()
+	cfg.AllowedEgress = []string{"llm.example.com:443"}
+	cfg.EgressProxyURL = "http://openclarion-egress-proxy:18080"
+	cfg.ReportLLM = reportLLMConfig{
+		Configured:  true,
+		BaseURL:     "https://llm.example.com/v1",
+		APIKey:      "test-secret",
+		Model:       "test-model",
+		OutputMode:  ports.LLMOutputModeJSONSchema,
+		HTTPTimeout: 30 * time.Second,
+	}
+	started := time.Now().UTC()
+
+	if _, err := generate(context.Background(), cfg, store, provider); err != nil {
+		t.Fatalf("generate: %v", err)
+	}
+	if len(provider.reqs) != 1 {
+		t.Fatalf("provider calls = %d, want 1", len(provider.reqs))
+	}
+	req := provider.reqs[0]
+	if req.Network.EffectiveMode() != ports.ContainerNetworkAllowlist {
+		t.Fatalf("Network = %#v, want allowlist", req.Network)
+	}
+	if len(req.Credentials) != 5 {
+		t.Fatalf("Credentials = %d, want 5", len(req.Credentials))
+	}
+	got := make(map[string]string, len(req.Credentials))
+	for _, credential := range req.Credentials {
+		if credential.ExpiresAt.Before(started.Add(cfg.Timeout)) || credential.ExpiresAt.After(time.Now().UTC().Add(cfg.Timeout)) {
+			t.Fatalf("credential %q expiry %s is outside invocation timeout bounds", credential.Name, credential.ExpiresAt)
+		}
+		got[credential.Name] = credential.Value
+	}
+	want := map[string]string{
+		"OPENCLARION_REPORT_LLM_BASE_URL":             "https://llm.example.com/v1",
+		"OPENCLARION_REPORT_LLM_API_KEY":              "test-secret",
+		"OPENCLARION_REPORT_LLM_MODEL":                "test-model",
+		"OPENCLARION_REPORT_LLM_OUTPUT_MODE":          "json_schema",
+		"OPENCLARION_REPORT_LLM_HTTP_TIMEOUT_SECONDS": "30",
+	}
+	for name, value := range want {
+		if got[name] != value {
+			t.Fatalf("credential %q = %q, want %q", name, got[name], value)
+		}
 	}
 }
 
@@ -149,6 +270,170 @@ func TestParseConfigReadsManualSandboxEnv(t *testing.T) {
 		cfg.EgressNetwork != "openclarion-sandbox-egress-prod" ||
 		cfg.EgressProxyURL != "http://openclarion-egress-proxy:18080" {
 		t.Fatalf("cfg = %+v", cfg)
+	}
+}
+
+func TestParseConfigDoesNotFallBackToProductionReportLLMSecrets(t *testing.T) {
+	env := []string{
+		"DATABASE_URL=postgres://openclarion@localhost:5432/openclarion?sslmode=disable",
+		"OPENCLARION_M4_SANDBOX_IMAGE_REF=registry.example.com/openclarion/runtime@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=/tmp/agents",
+		"OPENCLARION_REPORT_LLM_BASE_URL=https://production-llm.example.com/v1",
+		"OPENCLARION_REPORT_LLM_API_KEY=production-secret",
+		"OPENCLARION_REPORT_LLM_MODEL=production-model",
+		"OPENCLARION_REPORT_LLM_OUTPUT_MODE=json_schema",
+		"OPENCLARION_REPORT_LLM_HTTP_TIMEOUT_SECONDS=30",
+	}
+	cfg, err := parseConfig([]string{
+		"--snapshot-id", "11",
+		"--scenario", "single_alert",
+		"--candidate-id", "candidate-a",
+	}, env)
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	if cfg.ReportLLM.Configured || cfg.ReportLLM.BaseURL != "" || cfg.ReportLLM.APIKey != "" || cfg.ReportLLM.Model != "" {
+		t.Fatalf("production report LLM values leaked into M4 config: %+v", cfg.ReportLLM)
+	}
+}
+
+func TestParseConfigReadsReportEnhancerRuntimeEnv(t *testing.T) {
+	env := []string{
+		"DATABASE_URL=postgres://openclarion@localhost:5432/openclarion?sslmode=disable",
+		"OPENCLARION_M4_SANDBOX_IMAGE_REF=registry.example.com/openclarion/report-enhancer@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=/tmp/agents",
+		"OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=llm.example.com:443",
+		"OPENCLARION_M4_SANDBOX_EGRESS_NETWORK=openclarion-sandbox-egress-prod",
+		"OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL=http://openclarion-egress-proxy:18080",
+		"OPENCLARION_M4_REPORT_LLM_BASE_URL=https://llm.example.com/v1",
+		"OPENCLARION_M4_REPORT_LLM_API_KEY=test-secret",
+		"OPENCLARION_M4_REPORT_LLM_MODEL=test-model",
+		"OPENCLARION_M4_REPORT_LLM_OUTPUT_MODE=json_object",
+		"OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS=45",
+		`OPENCLARION_SANDBOX_COMMAND_JSON=["/bin/legacy-runner"]`,
+	}
+	cfg, err := parseConfig([]string{
+		"--snapshot-id", "11",
+		"--scenario", "single_alert",
+		"--group-index", "1",
+		"--candidate-id", "bundled-report-enhancer",
+	}, env)
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	if cfg.ReportLLM.BaseURL != "https://llm.example.com/v1" ||
+		cfg.ReportLLM.APIKey != "test-secret" ||
+		cfg.ReportLLM.Model != "test-model" ||
+		cfg.ReportLLM.OutputMode != ports.LLMOutputModeJSONObject ||
+		cfg.ReportLLM.HTTPTimeout != 45*time.Second ||
+		len(cfg.Command) != 0 {
+		t.Fatalf("ReportLLM = %+v, Command = %v", cfg.ReportLLM, cfg.Command)
+	}
+}
+
+func TestParseConfigUsesGenericCommandForNonLLMCandidate(t *testing.T) {
+	env := []string{
+		"DATABASE_URL=postgres://openclarion@localhost:5432/openclarion?sslmode=disable",
+		"OPENCLARION_M4_SANDBOX_IMAGE_REF=registry.example.com/openclarion/runtime@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=/tmp/agents",
+		`OPENCLARION_SANDBOX_COMMAND_JSON=["/bin/legacy-runner"]`,
+	}
+	cfg, err := parseConfig([]string{
+		"--snapshot-id", "11",
+		"--scenario", "single_alert",
+		"--candidate-id", "legacy-candidate",
+	}, env)
+	if err != nil {
+		t.Fatalf("parseConfig: %v", err)
+	}
+	if len(cfg.Command) != 1 || cfg.Command[0] != "/bin/legacy-runner" {
+		t.Fatalf("Command = %v, want generic fallback", cfg.Command)
+	}
+}
+
+func TestParseConfigRejectsInvalidReportEnhancerRuntimeEnv(t *testing.T) {
+	base := []string{
+		"DATABASE_URL=postgres://openclarion@localhost:5432/openclarion?sslmode=disable",
+		"OPENCLARION_M4_SANDBOX_IMAGE_REF=registry.example.com/openclarion/report-enhancer@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=/tmp/agents",
+	}
+	tests := []struct {
+		name string
+		env  []string
+		want string
+	}{
+		{
+			name: "partial credentials",
+			env: append(append([]string(nil), base...),
+				"OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=llm.example.com:443",
+				"OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL=http://openclarion-egress-proxy:18080",
+				"OPENCLARION_M4_REPORT_LLM_BASE_URL=https://llm.example.com/v1",
+				"OPENCLARION_M4_REPORT_LLM_MODEL=test-model"),
+			want: "configured together",
+		},
+		{
+			name: "missing allowlist",
+			env: append(append([]string(nil), base...),
+				"OPENCLARION_M4_REPORT_LLM_BASE_URL=https://llm.example.com/v1",
+				"OPENCLARION_M4_REPORT_LLM_API_KEY=test-secret",
+				"OPENCLARION_M4_REPORT_LLM_MODEL=test-model"),
+			want: "EGRESS_ALLOWED",
+		},
+		{
+			name: "base URL absent from allowlist",
+			env: append(append([]string(nil), base...),
+				"OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=other.example.com:443",
+				"OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL=http://openclarion-egress-proxy:18080",
+				"OPENCLARION_M4_REPORT_LLM_BASE_URL=https://llm.example.com/v1",
+				"OPENCLARION_M4_REPORT_LLM_API_KEY=test-secret",
+				"OPENCLARION_M4_REPORT_LLM_MODEL=test-model"),
+			want: "must be listed",
+		},
+		{
+			name: "timeout budget",
+			env: append(append([]string(nil), base...),
+				"OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=llm.example.com:443",
+				"OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL=http://openclarion-egress-proxy:18080",
+				"OPENCLARION_M4_REPORT_LLM_BASE_URL=https://llm.example.com/v1",
+				"OPENCLARION_M4_REPORT_LLM_API_KEY=test-secret",
+				"OPENCLARION_M4_REPORT_LLM_MODEL=test-model",
+				"OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS=100"),
+			want: "exceeding container timeout",
+		},
+		{
+			name: "timeout overflow",
+			env: append(append([]string(nil), base...),
+				"OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=llm.example.com:443",
+				"OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL=http://openclarion-egress-proxy:18080",
+				"OPENCLARION_M4_REPORT_LLM_BASE_URL=https://llm.example.com/v1",
+				"OPENCLARION_M4_REPORT_LLM_API_KEY=test-secret",
+				"OPENCLARION_M4_REPORT_LLM_MODEL=test-model",
+				"OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS=999999999999999999"),
+			want: "integer from 1",
+		},
+		{
+			name: "command override",
+			env: append(append([]string(nil), base...),
+				"OPENCLARION_M4_SANDBOX_COMMAND_JSON=[\"/bin/other\"]",
+				"OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=llm.example.com:443",
+				"OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL=http://openclarion-egress-proxy:18080",
+				"OPENCLARION_M4_REPORT_LLM_BASE_URL=https://llm.example.com/v1",
+				"OPENCLARION_M4_REPORT_LLM_API_KEY=test-secret",
+				"OPENCLARION_M4_REPORT_LLM_MODEL=test-model"),
+			want: "image ENTRYPOINT",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseConfig([]string{
+				"--snapshot-id", "11",
+				"--scenario", "single_alert",
+				"--candidate-id", "bundled-report-enhancer",
+			}, tt.env)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("parseConfig err = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }
 
@@ -185,6 +470,45 @@ func TestParseConfigRejectsInvalidCandidateID(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--candidate-id") {
 		t.Fatalf("err = %v, want candidate id error", err)
+	}
+}
+
+func TestSandboxInvocationIDSeparatesScenarios(t *testing.T) {
+	single := sandboxInvocationID(11, 2, reportprompt.ScenarioSingleAlert, "candidate-a")
+	cascade := sandboxInvocationID(11, 2, reportprompt.ScenarioCascade, "candidate-a")
+	if single == cascade {
+		t.Fatalf("scenario-specific invocations share ID %q", single)
+	}
+	if !strings.Contains(single, "/scenario-single_alert/") || !strings.Contains(cascade, "/scenario-cascade/") {
+		t.Fatalf("invocation IDs do not expose scenario binding: single=%q cascade=%q", single, cascade)
+	}
+}
+
+func TestWriteNewOutputFilePublishesOnceAndRejectsIndirectParent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "summary.json")
+	if err := writeNewOutputFile(path, []byte(`{"status":"created"}`)); err != nil {
+		t.Fatalf("writeNewOutputFile: %v", err)
+	}
+	// #nosec G304 -- path is created under t.TempDir in this test.
+	raw, err := os.ReadFile(path)
+	if err != nil || string(raw) != `{"status":"created"}` {
+		t.Fatalf("published output = %q err=%v", raw, err)
+	}
+	if err := writeNewOutputFile(path, []byte(`{}`)); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("second write err = %v", err)
+	}
+
+	realDir := filepath.Join(dir, "real")
+	if err := os.Mkdir(realDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	linkDir := filepath.Join(dir, "link")
+	if err := os.Symlink(realDir, linkDir); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeNewOutputFile(filepath.Join(linkDir, "summary.json"), []byte(`{}`)); err == nil || !strings.Contains(err.Error(), "direct directory") {
+		t.Fatalf("symlink parent err = %v", err)
 	}
 }
 
@@ -255,11 +579,13 @@ func validConfig() config {
 }
 
 func validSnapshot() domain.EvidenceSnapshot {
+	payload := json.RawMessage(`{"schema_version":"evidence.snapshot.v1","alerts":[{"id":"alert:cpu"}]}`)
+	digest := sha256.Sum256(payload)
 	return domain.EvidenceSnapshot{
 		ID:           11,
 		AlertGroupID: 7,
-		Digest:       "digest-abc",
-		Payload:      json.RawMessage(`{"schema_version":"evidence.snapshot.v1","alerts":[{"id":"alert:cpu"}]}`),
+		Digest:       hex.EncodeToString(digest[:]),
+		Payload:      payload,
 		Status:       domain.SnapshotStatusComplete,
 	}
 }

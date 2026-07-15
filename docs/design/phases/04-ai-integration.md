@@ -135,7 +135,8 @@ Go control plane (Activity in Temporal workflow)
 
 ### Agent Config Boundary
 
-Go mounts `agents/report-enhancer/` into the container as `/workspace/agent_config/`
+Go mounts `config/agents/report-enhancer/` into the container as
+`/workspace/agent_config/`
 but never reads its contents. The agent runtime inside the container uses this
 config to determine:
 - its role and system prompt
@@ -200,6 +201,17 @@ file contract and lifecycle path; it does not replace external framework
 candidate evaluation or the quality-delta decision. The same smoke packages the
 metric/topology helper binaries and proves the topology helper inside the
 digest-pinned image with an alternate entrypoint.
+
+Bundled report candidate: `make report-enhancer-runner-build` builds the
+scratch-based `report-enhancer-runner`, includes dependency license material,
+and emits an immutable local repository digest. The runtime reuses the
+production SubReport prompt, OpenAI-compatible provider, bounded validation
+retry, and production schema parser. `make sandbox-m4-subreport-generate`
+injects its LLM configuration only for the invocation, requires the LLM URL to
+match the exact proxy-backed egress allowlist, verifies the mounted snapshot
+digest, and scopes persisted output plus container invocation identity by
+scenario. This closes the missing executable candidate path; it does not
+accept the candidate or replace representative quality review.
 
 Tool helper proof: `make agent-tool-scripts-test` covers the first read-only
 metric and topology helper contracts. `scripts/agent_tool_metric_query` calls
@@ -282,7 +294,8 @@ decision outputs. See
   Allowlist requests use exact `host:port` targets and must pass the Docker
   provider's subset enforcer before container creation. `make
   egress-allowdeny-smoke` proves the Docker internal-network + proxy topology;
-  production wiring into the accepted candidate runtime remains pending.
+  the bundled report candidate uses that path, while acceptance as the M4
+  baseline remains pending on retained quality and review evidence.
 - **Writable mount**: only `/workspace/out/` (private writable output mount
   capped by `fsize` ulimit and Go read limit); all other mounts are read-only.
 

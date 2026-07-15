@@ -498,6 +498,17 @@ ref in `evidence_refs`, and persists an idempotent sandbox SubReport row for
 later sample export. This closes the candidate-output persistence gap, not the
 representative quality review or M4 proceed/iterate/defer decision.
 
+`make report-enhancer-runner-build` now supplies a concrete scratch-based
+candidate for that bridge. The runner keeps planning and persistence in the Go
+control plane, reuses the production SubReport prompt/provider/retry/validator
+path, rejects ambiguous or digest-mismatched mounted evidence, and publishes a
+new output file without overwriting an existing artifact. The bridge injects
+LLM values for one invocation only after the base URL matches the proxy-backed
+egress allowlist and the validation-attempt timeout budget fits inside the
+container deadline. This makes representative sandbox samples executable; it
+does not by itself satisfy the separate quality, human-review, and M4 decision
+gates.
+
 ### Temporal Worker Deployment
 
 For V1 (single-binary monolith):

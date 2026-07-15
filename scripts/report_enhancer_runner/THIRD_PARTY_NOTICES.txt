@@ -1,0 +1,5 @@
+OpenClarion report enhancer runtime third-party notices
+
+The OpenClarion Apache License 2.0 text is included at
+/licenses/Apache-2.0.txt. Dependency license and notice files are included
+under /licenses/third_party in the runtime image.

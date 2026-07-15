@@ -24,6 +24,7 @@ import (
 	"github.com/openclarion/openclarion/internal/persistence/repository"
 	containerdocker "github.com/openclarion/openclarion/internal/providers/container/docker"
 	"github.com/openclarion/openclarion/internal/strictjson"
+	"github.com/openclarion/openclarion/internal/usecases/llmretry"
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 	"github.com/openclarion/openclarion/internal/usecases/reportdraft"
 	"github.com/openclarion/openclarion/internal/usecases/reportprompt"
@@ -34,6 +35,8 @@ const (
 	summarySchemaID        = "openclarion_sandbox_m4_subreport_generate_v1"
 	defaultAgentName       = "report-enhancer"
 	defaultTimeoutSeconds  = 300
+	defaultLLMHTTPTimeout  = 90 * time.Second
+	runnerShutdownGrace    = 5 * time.Second
 	maxCandidateIDBytes    = 80
 	maxCommandEnvBytes     = 4096
 	maxEvidenceEnvelopeLen = ports.DefaultContainerOutputBytes
@@ -58,6 +61,16 @@ type config struct {
 	AllowedEgress   []string
 	EgressNetwork   string
 	EgressProxyURL  string
+	ReportLLM       reportLLMConfig
+}
+
+type reportLLMConfig struct {
+	Configured  bool
+	BaseURL     string
+	APIKey      string
+	Model       string
+	OutputMode  ports.LLMOutputMode
+	HTTPTimeout time.Duration
 }
 
 type evidenceStore interface {
@@ -74,7 +87,8 @@ type sandboxEvidenceEnvelope struct {
 	Schema              string          `json:"schema"`
 	EvidenceSnapshotID  int64           `json:"evidence_snapshot_id"`
 	EvidenceSnapshotRef string          `json:"evidence_snapshot_ref"`
-	EvidenceDigest      string          `json:"evidence_digest"`
+	EvidenceDigest      string          `json:"evidence_digest"` // Persisted snapshot identity, created before the JSONB round trip.
+	PayloadSHA256       string          `json:"payload_sha256"`  // Checksum of the canonical bytes mounted for this invocation.
 	Scenario            string          `json:"scenario"`
 	GroupIndex          int             `json:"group_index"`
 	Payload             json.RawMessage `json:"payload"`
@@ -154,6 +168,11 @@ func parseConfig(args []string, environ []string) (config, error) {
 	if fs.NArg() != 0 {
 		return config{}, fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
 	}
+	reportLLMBaseURL := firstEnv(environ, "OPENCLARION_M4_REPORT_LLM_BASE_URL")
+	reportLLMAPIKey := firstEnv(environ, "OPENCLARION_M4_REPORT_LLM_API_KEY")
+	reportLLMModel := firstEnv(environ, "OPENCLARION_M4_REPORT_LLM_MODEL")
+	reportLLMOutputMode := firstEnv(environ, "OPENCLARION_M4_REPORT_LLM_OUTPUT_MODE")
+	reportLLMTimeout := firstEnv(environ, "OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS")
 	cfg := config{
 		SnapshotID:      *snapshotID,
 		Scenario:        strings.TrimSpace(*scenario),
@@ -170,9 +189,34 @@ func parseConfig(args []string, environ []string) (config, error) {
 		AllowedEgress:   csvValues(firstEnv(environ, "OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED", "OPENCLARION_SANDBOX_EGRESS_ALLOWED")),
 		EgressNetwork:   firstEnv(environ, "OPENCLARION_M4_SANDBOX_EGRESS_NETWORK", "OPENCLARION_SANDBOX_EGRESS_NETWORK"),
 		EgressProxyURL:  firstEnv(environ, "OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL", "OPENCLARION_SANDBOX_EGRESS_PROXY_URL"),
+		ReportLLM: reportLLMConfig{
+			Configured: reportLLMBaseURL != "" || reportLLMAPIKey != "" || reportLLMModel != "" || reportLLMOutputMode != "" || reportLLMTimeout != "",
+			BaseURL:    reportLLMBaseURL,
+			APIKey:     reportLLMAPIKey,
+			Model:      reportLLMModel,
+			OutputMode: ports.LLMOutputMode(reportLLMOutputMode),
+		},
 	}
-	commandRaw := firstEnv(environ, "OPENCLARION_M4_SANDBOX_COMMAND_JSON", "OPENCLARION_SANDBOX_COMMAND_JSON")
-	command, err := parseOptionalJSONStringArray(commandRaw, "OPENCLARION_M4_SANDBOX_COMMAND_JSON")
+	if cfg.ReportLLM.OutputMode == "" {
+		cfg.ReportLLM.OutputMode = ports.LLMOutputModeJSONSchema
+	}
+	if reportLLMTimeout == "" {
+		cfg.ReportLLM.HTTPTimeout = defaultLLMHTTPTimeout
+	} else {
+		seconds, err := strconv.Atoi(reportLLMTimeout)
+		maxSeconds := int(ports.MaxContainerRunTimeout / time.Second)
+		if err != nil || seconds <= 0 || seconds > maxSeconds {
+			return config{}, fmt.Errorf("OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS must be an integer from 1 to %d", maxSeconds)
+		}
+		cfg.ReportLLM.HTTPTimeout = time.Duration(seconds) * time.Second
+	}
+	commandEnvName := "OPENCLARION_M4_SANDBOX_COMMAND_JSON"
+	commandRaw := firstEnv(environ, commandEnvName)
+	if commandRaw == "" && !cfg.ReportLLM.enabled() {
+		commandEnvName = "OPENCLARION_SANDBOX_COMMAND_JSON"
+		commandRaw = firstEnv(environ, commandEnvName)
+	}
+	command, err := parseOptionalJSONStringArray(commandRaw, commandEnvName)
 	if err != nil {
 		return config{}, err
 	}
@@ -221,9 +265,73 @@ func (c config) validate() error {
 		return fmt.Errorf("--output-max-bytes exceeds maximum %d", ports.MaxContainerOutputBytes)
 	}
 	if len(c.AllowedEgress) > 0 && c.EgressProxyURL == "" {
-		return errors.New("OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL is required when sandbox egress is allowed")
+		return errors.New("OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL is required when allowlisted egress is configured")
+	}
+	if len(c.AllowedEgress) == 0 && (c.EgressNetwork != "" || c.EgressProxyURL != "") {
+		return errors.New("OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED is required when an egress network or proxy is configured")
+	}
+	if len(c.Command) > 0 && c.ReportLLM.enabled() {
+		return errors.New("OPENCLARION_M4_SANDBOX_COMMAND_JSON is not supported when report LLM credentials are configured; use the image ENTRYPOINT")
+	}
+	if err := c.ReportLLM.validate(c.Timeout, c.AllowedEgress); err != nil {
+		return err
 	}
 	return nil
+}
+
+func (c reportLLMConfig) enabled() bool {
+	return c.Configured
+}
+
+func (c reportLLMConfig) validate(containerTimeout time.Duration, allowedEgress []string) error {
+	if !c.enabled() {
+		return nil
+	}
+	if c.BaseURL == "" || c.APIKey == "" || c.Model == "" {
+		return errors.New("OPENCLARION_M4_REPORT_LLM_BASE_URL, OPENCLARION_M4_REPORT_LLM_API_KEY, and OPENCLARION_M4_REPORT_LLM_MODEL must be configured together")
+	}
+	if c.OutputMode != ports.LLMOutputModeJSONSchema && c.OutputMode != ports.LLMOutputModeJSONObject {
+		return fmt.Errorf("OPENCLARION_M4_REPORT_LLM_OUTPUT_MODE must be %q or %q", ports.LLMOutputModeJSONSchema, ports.LLMOutputModeJSONObject)
+	}
+	if c.HTTPTimeout <= 0 {
+		return errors.New("OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS must be positive")
+	}
+	maxLLMRuntime := time.Duration(llmretry.DefaultMaxAttempts)*c.HTTPTimeout + runnerShutdownGrace
+	if maxLLMRuntime > containerTimeout {
+		return fmt.Errorf("OPENCLARION_M4_REPORT_LLM_HTTP_TIMEOUT_SECONDS allows %s across validation attempts, exceeding container timeout %s", maxLLMRuntime, containerTimeout)
+	}
+	if len(allowedEgress) == 0 {
+		return errors.New("OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED is required when report LLM runtime credentials are configured")
+	}
+	if err := ports.ValidateContainerEgressURL(c.BaseURL, allowedEgress); err != nil {
+		return fmt.Errorf("validate OPENCLARION_M4_REPORT_LLM_BASE_URL against OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED: %w", err)
+	}
+	return nil
+}
+
+func (c reportLLMConfig) credentials(expiresAt time.Time) []ports.ContainerCredential {
+	if !c.enabled() {
+		return nil
+	}
+	values := []struct {
+		name  string
+		value string
+	}{
+		{name: "OPENCLARION_REPORT_LLM_BASE_URL", value: c.BaseURL},
+		{name: "OPENCLARION_REPORT_LLM_API_KEY", value: c.APIKey},
+		{name: "OPENCLARION_REPORT_LLM_MODEL", value: c.Model},
+		{name: "OPENCLARION_REPORT_LLM_OUTPUT_MODE", value: string(c.OutputMode)},
+		{name: "OPENCLARION_REPORT_LLM_HTTP_TIMEOUT_SECONDS", value: strconv.Itoa(int(c.HTTPTimeout / time.Second))},
+	}
+	credentials := make([]ports.ContainerCredential, len(values))
+	for i, value := range values {
+		credentials[i] = ports.ContainerCredential{
+			Name:      value.name,
+			Value:     value.value,
+			ExpiresAt: expiresAt,
+		}
+	}
+	return credentials
 }
 
 func generate(ctx context.Context, cfg config, store evidenceStore, provider ports.ContainerProvider) (generationSummary, error) {
@@ -235,10 +343,13 @@ func generate(ctx context.Context, cfg config, store evidenceStore, provider por
 	if snapshot.ID != snapshotID {
 		return generationSummary{}, fmt.Errorf("store returned snapshot %d for requested snapshot %d", snapshot.ID, snapshotID)
 	}
-	idempotencyKey := sandboxSubReportIdempotencyKey(snapshot.ID, cfg.GroupIndex, cfg.CandidateID)
+	idempotencyKey := sandboxSubReportIdempotencyKey(snapshot.ID, cfg.GroupIndex, reportprompt.Scenario(cfg.Scenario), cfg.CandidateID)
 	if existing, found, err := store.FindSubReportByKey(ctx, snapshot.ID, idempotencyKey); err != nil {
 		return generationSummary{}, fmt.Errorf("lookup sandbox SubReport: %w", err)
 	} else if found {
+		if existing.Scenario != cfg.Scenario {
+			return generationSummary{}, fmt.Errorf("existing sandbox SubReport scenario %q does not match requested %q", existing.Scenario, cfg.Scenario)
+		}
 		return summaryFromExisting(cfg, snapshot, existing, idempotencyKey), nil
 	}
 
@@ -247,12 +358,13 @@ func generate(ctx context.Context, cfg config, store evidenceStore, provider por
 		return generationSummary{}, err
 	}
 	req := ports.ContainerRunRequest{
-		InvocationID: sandboxInvocationID(snapshot.ID, cfg.GroupIndex, cfg.CandidateID),
+		InvocationID: sandboxInvocationID(snapshot.ID, cfg.GroupIndex, reportprompt.Scenario(cfg.Scenario), cfg.CandidateID),
 		AgentName:    cfg.AgentName,
 		Evidence:     evidence,
 		Timeout:      cfg.Timeout,
 		OutputMax:    cfg.OutputMax,
 		Network:      networkPolicy(cfg),
+		Credentials:  cfg.ReportLLM.credentials(time.Now().UTC().Add(cfg.Timeout)),
 		Metadata: map[string]string{
 			"tool":                  toolName,
 			"evidence_snapshot_id":  strconv.FormatInt(cfg.SnapshotID, 10),
@@ -297,6 +409,9 @@ func generate(ctx context.Context, cfg config, store evidenceStore, provider por
 	}
 	if !found {
 		return generationSummary{}, fmt.Errorf("duplicate sandbox SubReport missing after idempotency conflict for %q", idempotencyKey)
+	}
+	if existing.Scenario != cfg.Scenario {
+		return generationSummary{}, fmt.Errorf("existing sandbox SubReport scenario %q does not match requested %q after idempotency conflict", existing.Scenario, cfg.Scenario)
 	}
 	return summaryFromSaved(cfg, snapshot, existing, req.InvocationID, result.RuntimeID, false), nil
 }
@@ -366,14 +481,25 @@ func parseSandboxSubReport(raw json.RawMessage, candidateID string) (reportdraft
 }
 
 func buildSandboxEvidence(snapshot domain.EvidenceSnapshot, cfg config) (json.RawMessage, error) {
+	if len(snapshot.Digest) != sha256.Size*2 || strings.ToLower(snapshot.Digest) != snapshot.Digest {
+		return nil, fmt.Errorf("evidence snapshot %d digest must be a lowercase SHA-256 digest", snapshot.ID)
+	}
+	if _, err := hex.DecodeString(snapshot.Digest); err != nil {
+		return nil, fmt.Errorf("evidence snapshot %d digest must be a lowercase SHA-256 digest", snapshot.ID)
+	}
+	payload, err := canonicalizeSnapshotPayload(snapshot.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("evidence snapshot %d payload: %w", snapshot.ID, err)
+	}
 	envelope := sandboxEvidenceEnvelope{
 		Schema:              "openclarion.sandbox_m4.evidence.v1",
 		EvidenceSnapshotID:  int64(snapshot.ID),
 		EvidenceSnapshotRef: snapshotRef(snapshot.ID),
 		EvidenceDigest:      snapshot.Digest,
+		PayloadSHA256:       sha256Hex(payload),
 		Scenario:            cfg.Scenario,
 		GroupIndex:          cfg.GroupIndex,
-		Payload:             cloneRawMessage(snapshot.Payload),
+		Payload:             payload,
 	}
 	raw, err := json.Marshal(envelope)
 	if err != nil {
@@ -506,13 +632,13 @@ func summaryFromSaved(cfg config, snapshot domain.EvidenceSnapshot, report domai
 	}
 }
 
-func sandboxSubReportIdempotencyKey(snapshotID domain.EvidenceSnapshotID, groupIndex int, candidateID string) string {
-	return fmt.Sprintf("snapshot:%d/group:%d/sandbox:%s/sub_report", snapshotID, groupIndex, candidateID)
+func sandboxSubReportIdempotencyKey(snapshotID domain.EvidenceSnapshotID, groupIndex int, scenario reportprompt.Scenario, candidateID string) string {
+	return fmt.Sprintf("snapshot:%d/group:%d/scenario:%s/sandbox:%s/sub_report", snapshotID, groupIndex, scenario, candidateID)
 }
 
-func sandboxInvocationID(snapshotID domain.EvidenceSnapshotID, groupIndex int, candidateID string) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%d\x00%s", snapshotID, groupIndex, candidateID)))
-	return fmt.Sprintf("m4-report/snapshot-%d/group-%d/%s", snapshotID, groupIndex, hex.EncodeToString(sum[:])[:24])
+func sandboxInvocationID(snapshotID domain.EvidenceSnapshotID, groupIndex int, scenario reportprompt.Scenario, candidateID string) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%d\x00%d\x00%s\x00%s", snapshotID, groupIndex, scenario, candidateID)))
+	return fmt.Sprintf("m4-report/snapshot-%d/group-%d/scenario-%s/%s", snapshotID, groupIndex, scenario, hex.EncodeToString(sum[:])[:24])
 }
 
 func snapshotRef(snapshotID domain.EvidenceSnapshotID) string {
@@ -591,6 +717,17 @@ func marshalRaw(label string, value any) (json.RawMessage, error) {
 	return raw, nil
 }
 
+func canonicalizeSnapshotPayload(raw json.RawMessage) (json.RawMessage, error) {
+	var payload any
+	if err := strictjson.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("must be strict JSON: %w", err)
+	}
+	if _, ok := payload.(map[string]any); !ok {
+		return nil, errors.New("must be a JSON object")
+	}
+	return marshalRaw("canonicalize payload", payload)
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {
@@ -646,21 +783,50 @@ func writeNewOutputFile(path string, raw []byte) error {
 	if clean == "" || clean == "." || clean == string(filepath.Separator) {
 		return errors.New("output file must not be empty, current directory, or filesystem root")
 	}
-	if info, err := os.Lstat(clean); err == nil {
-		if info.Mode().IsRegular() {
-			return fmt.Errorf("output file %s already exists", clean)
-		}
-		return fmt.Errorf("output path %s must be absent before helper output is written", clean)
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("stat output file %s: %w", clean, err)
-	}
 	parent := filepath.Dir(clean)
 	info, err := os.Lstat(parent)
 	if err != nil {
 		return fmt.Errorf("stat output parent %s: %w", parent, err)
 	}
-	if !info.IsDir() {
-		return fmt.Errorf("output parent %s must be a directory", parent)
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("output parent %s must be a direct directory", parent)
 	}
-	return os.WriteFile(clean, raw, 0o600)
+	root, err := os.OpenRoot(parent)
+	if err != nil {
+		return fmt.Errorf("open output parent %s: %w", parent, err)
+	}
+	defer root.Close()
+	name := filepath.Base(clean)
+	if _, err := root.Lstat(name); err == nil {
+		return fmt.Errorf("output file %s already exists", clean)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat output file %s: %w", clean, err)
+	}
+	tmp := name + ".tmp"
+	file, err := root.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("create temporary output file %s: %w", clean, err)
+	}
+	published := false
+	defer func() {
+		if !published {
+			_ = root.Remove(tmp)
+		}
+	}()
+	if _, err := file.Write(raw); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("write output file %s: %w", clean, err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync output file %s: %w", clean, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close output file %s: %w", clean, err)
+	}
+	if err := root.Rename(tmp, name); err != nil {
+		return fmt.Errorf("publish output file %s: %w", clean, err)
+	}
+	published = true
+	return nil
 }

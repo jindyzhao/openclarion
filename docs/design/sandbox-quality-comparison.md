@@ -70,16 +70,21 @@ real persisted `EvidenceSnapshot`, operators can run the candidate through the
 same Docker `ContainerProvider` used by M5 turns:
 
 ```bash
+make report-enhancer-runner-build
+
 DATABASE_URL=postgres://... \
-OPENCLARION_M4_SANDBOX_IMAGE_REF=registry.example.com/openclarion/runtime@sha256:<64-hex-digest> \
-OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=/path/to/agents \
-OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=prometheus.internal:9090 \
+OPENCLARION_M4_SANDBOX_IMAGE_REF="$(<.openclarion-private/report-enhancer-runner.digest-ref)" \
+OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=config/agents \
+OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=llm.example.test:443 \
 OPENCLARION_M4_SANDBOX_EGRESS_NETWORK=openclarion-sandbox-allowlist \
 OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL=http://openclarion-egress-proxy:18080 \
+OPENCLARION_M4_REPORT_LLM_BASE_URL=https://llm.example.test/v1 \
+OPENCLARION_M4_REPORT_LLM_API_KEY=... \
+OPENCLARION_M4_REPORT_LLM_MODEL=... \
   make sandbox-m4-subreport-generate \
   SNAPSHOT_ID=11 \
   SCENARIO=single_alert \
-  CANDIDATE_ID=custom-thin-runner \
+  CANDIDATE_ID=bundled-report-enhancer \
   OUT=artifacts/m4/sandbox-subreport-payments-cpu.json
 ```
 
@@ -88,10 +93,15 @@ digest, scenario, group index, and original snapshot payload at
 `/workspace/evidence.json`. It accepts only a strict, production-validated
 `SubReport` from `/workspace/out/output.json`, requires the candidate output to
 include the canonical snapshot ref in `evidence_refs`, and persists the sandbox
-row with an idempotency key scoped to snapshot, group, and candidate ID. The
-summary output records the persisted SubReport ID and output digest. When
-egress is enabled, the helper passes the configured dedicated Docker network
-and credential-free proxy URL through the Docker provider. The provider
+row with an idempotency key scoped to snapshot, group, scenario, and candidate
+ID. The container invocation ID carries the same scenario boundary. The helper
+also verifies that the persisted snapshot digest matches its payload before
+mounting it. The summary output records the persisted SubReport ID and output
+digest. When report LLM configuration is present, the helper requires the LLM
+URL to match the exact egress allowlist, checks that all validation attempts fit
+inside the container timeout, and injects the values only for that invocation.
+The helper passes the dedicated Docker network and credential-free proxy URL
+through the Docker provider. The provider
 attaches the candidate runtime to that network with explicit create-time
 endpoint configuration after the egress enforcer validates the requested
 `host:port` target subset. This
