@@ -3,7 +3,8 @@
     "language": "Language",
     "english": "English",
     "chinese": "Chinese",
-    "switchLanguage": "Switch language"
+    "switchLanguage": "Switch language",
+    "switchLanguageFailed": "Failed to switch language."
   },
   "Metadata": {
     "description": "OpenClarion report operations console"

@@ -1,23 +1,21 @@
 "use client";
 
 import { CheckOutlined, GlobalOutlined } from "@ant-design/icons";
-import { Button, Dropdown, Tooltip } from "antd";
+import { App as AntdApp, Button, Dropdown, Tooltip } from "antd";
 import type { MenuProps } from "antd";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { useTransition } from "react";
+import { useState } from "react";
 
-import {
-  appLocaleCookieName,
-  isAppLocale,
-  type AppLocale,
-} from "@/i18n/config";
+import { isAppLocale, type AppLocale } from "@/i18n/config";
+import { requestSameOriginJSON } from "@/lib/api/browser";
 
 export function LocaleSwitcher() {
   const locale = useLocale();
   const router = useRouter();
   const t = useTranslations("Common");
-  const [pending, startTransition] = useTransition();
+  const { message } = AntdApp.useApp();
+  const [pending, setPending] = useState(false);
   const selectedLocale: AppLocale = isAppLocale(locale) ? locale : "en";
   const items: MenuProps["items"] = [
     {
@@ -32,14 +30,29 @@ export function LocaleSwitcher() {
     },
   ];
 
-  function switchLocale(nextLocale: string) {
-    if (!isAppLocale(nextLocale) || nextLocale === selectedLocale) {
+  async function switchLocale(nextLocale: string) {
+    if (
+      pending ||
+      !isAppLocale(nextLocale) ||
+      nextLocale === selectedLocale
+    ) {
       return;
     }
-    const secure = globalThis.location.protocol === "https:" ? "; secure" : "";
-    document.cookie = `${appLocaleCookieName}=${nextLocale}; max-age=31536000; path=/; samesite=lax${secure}`;
-    document.documentElement.lang = nextLocale;
-    startTransition(() => router.refresh());
+    setPending(true);
+    try {
+      const result = await requestSameOriginJSON<void>("/api/locale", {
+        method: "PUT",
+        body: { locale: nextLocale },
+      });
+      if (!result.ok) {
+        message.error(t("switchLanguageFailed"));
+        return;
+      }
+      document.documentElement.lang = nextLocale;
+      router.refresh();
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
@@ -47,7 +60,7 @@ export function LocaleSwitcher() {
       <Dropdown
         menu={{
           items,
-          onClick: ({ key }) => switchLocale(key),
+          onClick: ({ key }) => void switchLocale(key),
           selectable: true,
           selectedKeys: [selectedLocale],
         }}

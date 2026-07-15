@@ -3,7 +3,8 @@
     "language": "语言",
     "english": "English",
     "chinese": "中文",
-    "switchLanguage": "切换语言"
+    "switchLanguage": "切换语言",
+    "switchLanguageFailed": "切换语言失败。"
   },
   "Metadata": {
     "description": "OpenClarion 智能告警分析与报告运营控制台"
