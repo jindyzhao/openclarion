@@ -394,7 +394,7 @@ test("report routes render list, detail, and evidence traceability", async ({
     "Needs evidence",
   );
   await expect(page.getByLabel("Report AI review status")).toContainText(
-    "AI is waiting for 2 missing evidence items and 1 executable evidence task. 2 residual collection suggestions remain documented but do not block confirmation.",
+    "AI is waiting for 2 missing evidence items and 1 executable evidence task. Residual guidance remains documented without blocking confirmation: 2 residual collection suggestions.",
   );
   await expect(page.getByLabel("Diagnosis readiness")).toContainText(
     "Evidence requested",
@@ -418,7 +418,7 @@ test("report routes render list, detail, and evidence traceability", async ({
   );
   await expect(handoffPlan).toContainText("Evidence snapshots");
   await expect(handoffPlan).toContainText(
-    "2 evidence snapshots linked to the AI diagnosis path.",
+    "2 evidence snapshots are linked to the AI diagnosis path.",
   );
   await expect(handoffPlan).toContainText("AI consultation");
   await expect(handoffPlan).toContainText(
@@ -433,10 +433,12 @@ test("report routes render list, detail, and evidence traceability", async ({
   await expect(nextDiagnosisAction).toContainText("Needs evidence");
   await expect(nextDiagnosisAction).toContainText("Checkout JVM memory");
   await expect(nextDiagnosisAction).toContainText(
-    "AI requested 2 missing evidence items and 1 executable evidence task. 2 residual collection suggestions remain documented but do not block confirmation.",
+    "AI requested 2 missing evidence items and 1 executable evidence task. Residual guidance remains documented without blocking confirmation: 2 residual collection suggestions.",
   );
   await expect(
-    nextDiagnosisAction.getByRole("link", { name: "Resolve evidence" }),
+    nextDiagnosisAction.getByRole("link", {
+      name: "Resolve evidence in diagnosis room",
+    }),
   ).toHaveAttribute(
     "href",
     "/diagnosis-room?evidence_snapshot_id=9003&intent=confidence_review&report_id=101&sub_report_id=502&session_id=diagnosis-session-302",
@@ -486,7 +488,7 @@ test("report routes render list, detail, and evidence traceability", async ({
     "Need checkout JVM heap trend for the incident window.",
   );
   await expect(nextEvidenceActions).toContainText(
-    "metric_range_query / query jvm_memory_used_bytes",
+    "query: jvm_memory_used_bytes",
   );
   await expect(nextEvidenceActions).toContainText(
     "2 more evidence actions in the traceability list.",
@@ -515,7 +517,7 @@ test("report routes render list, detail, and evidence traceability", async ({
   ).toContainText("low confidence");
   await expect(
     diagnosisConclusion.getByLabel("Confidence timeline"),
-  ).toContainText("needs_evidence");
+  ).toContainText("needs evidence");
   await expect(
     diagnosisConclusion.getByLabel("Confidence timeline"),
   ).toContainText(
@@ -568,7 +570,7 @@ test("report routes render list, detail, and evidence traceability", async ({
   ).toContainText("high confidence");
   await expect(
     diagnosisConclusion.getByLabel("Confidence timeline"),
-  ).toContainText("ready_for_review");
+  ).toContainText("ready for review");
   await expect(
     diagnosisConclusion.getByLabel("Confidence timeline"),
   ).toContainText("Deployment evidence explains the latency onset.");
@@ -643,7 +645,7 @@ test("report routes render list, detail, and evidence traceability", async ({
   await page
     .locator(".subreport-item")
     .filter({ hasText: "Checkout JVM memory" })
-    .getByRole("link", { name: "Resolve evidence" })
+    .getByRole("link", { name: "Resolve evidence in diagnosis room" })
     .click();
   await expect(page).toHaveURL(/\/diagnosis-room\?/);
   const progressURL = new URL(page.url());
@@ -696,7 +698,7 @@ test("report routes render list, detail, and evidence traceability", async ({
   await page
     .locator(".subreport-item")
     .filter({ hasText: "Checkout API latency" })
-    .getByRole("link", { name: "Confirm diagnosis" })
+    .getByRole("link", { name: "Confirm in diagnosis room" })
     .click();
   await expect(page).toHaveURL(
     /\/diagnosis-room\?evidence_snapshot_id=9001&intent=review_conclusion&report_id=101&sub_report_id=501&session_id=diagnosis-session-301$/,

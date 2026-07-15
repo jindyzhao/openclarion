@@ -7,7 +7,6 @@ import {
   reportDiagnosisNextAction,
   reportEvidenceFollowUps,
   reportFinalNotificationReadiness,
-  subReportDiagnosisActionLabel,
   subReportDiagnosisReadiness,
   type ReportDiagnosisConclusion,
   type ReportDiagnosisProgress,
@@ -75,7 +74,7 @@ describe("diagnosis readiness", () => {
 
     expect(diagnosisReadiness(report)).toMatchObject({
       attention: 0,
-      blockingReason: "",
+      blocked: false,
       canConfirm: true,
       collectedEvidence: 1,
       currentCollectionSuggestions: 0,
@@ -87,13 +86,7 @@ describe("diagnosis readiness", () => {
       pending: 0,
       ready: 1,
       reviewed: 1,
-      reviewQueueDetail:
-        "1 AI conclusion ready for operator confirmation.",
-      reviewQueueLabel: "Confirmable",
       status: "human_review",
-      statusDetail:
-        "AI conclusion is ready for operator confirmation on 1 subreport.",
-      statusLabel: "Needs confirmation",
       supplementalEvidence: 1,
       total: 1,
     });
@@ -153,48 +146,33 @@ describe("diagnosis readiness", () => {
     ]);
 
     expect(reportConsultationAuditTimeline(report)).toEqual([
-      {
+      expect.objectContaining({
+        confirmed: false,
         evidenceSnapshotID: 9001,
-        status: "human_review",
-        statusDetail: "AI conclusion is ready for operator confirmation.",
-        statusLabel: "Needs confirmation",
+        hasDiagnosisState: true,
+        initialConfidence: "low",
+        readiness: expect.objectContaining({ status: "human_review" }),
         steps: [
           {
-            detail:
-              "Initial AI report recorded low confidence and 1 evidence request.",
             key: "initial_report",
-            label: "Initial AI report",
             status: "done",
-            statusLabel: "Done",
           },
           {
-            detail:
-              "2 supplemental or collected evidence items retained for the AI diagnosis path.",
             key: "supplemental_evidence",
-            label: "Supplemental evidence",
             status: "done",
-            statusLabel: "Done",
           },
           {
-            detail:
-              "Confidence increased from low to high after evidence review.",
             key: "confidence_revision",
-            label: "Confidence revision",
             status: "done",
-            statusLabel: "Done",
           },
           {
-            detail:
-              "AI conclusion is ready for operator confirmation before final report delivery.",
             key: "final_decision",
-            label: "Final decision",
             status: "pending",
-            statusLabel: "Pending",
           },
         ],
         subReportID: 501,
         subReportTitle: "Checkout API latency",
-      },
+      }),
     ]);
   });
 
@@ -204,7 +182,8 @@ describe("diagnosis readiness", () => {
     expect(reportConsultationAuditTimeline(report)).toEqual([
       expect.objectContaining({
         evidenceSnapshotID: 9001,
-        status: "pending_diagnosis",
+        hasDiagnosisState: false,
+        readiness: expect.objectContaining({ status: "pending_diagnosis" }),
         steps: [
           expect.objectContaining({
             key: "initial_report",
@@ -258,13 +237,10 @@ describe("diagnosis readiness", () => {
       currentCollectionSuggestions: 0,
       currentMissingEvidence: 0,
       status: "complete",
-      statusDetail:
-        "AI conclusion is complete with no open evidence requests.",
-      statusLabel: "Complete",
     });
     expect(diagnosisReadiness(report)).toMatchObject({
       attention: 0,
-      blockingReason: "",
+      blocked: false,
       canConfirm: false,
       currentCollectionSuggestions: 0,
       currentMissingEvidence: 0,
@@ -273,19 +249,12 @@ describe("diagnosis readiness", () => {
       pending: 0,
       ready: 0,
       reviewed: 1,
-      reviewQueueDetail:
-        "All linked AI conclusions are complete with no open evidence work.",
-      reviewQueueLabel: "Complete",
       status: "complete",
-      statusDetail:
-        "All linked subreports have AI conclusions and no open evidence requests.",
-      statusLabel: "Complete",
     });
     expect(reportDiagnosisHandoff(report).steps).toContainEqual(
       expect.objectContaining({
         key: "operator_decision",
         status: "done",
-        statusLabel: "Done",
       }),
     );
     expect(reportEvidenceFollowUps(report)).toEqual([]);
@@ -300,7 +269,68 @@ describe("diagnosis readiness", () => {
       status_label: "Final notification ready",
     });
 
-    expect(reportFinalNotificationReadiness(reportDetail([], readiness))).toEqual(readiness);
+    expect(reportFinalNotificationReadiness(reportDetail([], readiness))).toEqual({
+      notification_purpose: "final",
+      ready: true,
+      reason: { kind: "ready" },
+      source: "api",
+      status: "ready",
+    });
+  });
+
+  it("derives final notification detail reasons without retaining backend prose", () => {
+    expect(reportFinalNotificationReadiness(reportDetail([])).reason).toEqual({
+      kind: "no_linked_subreports",
+      reportID: 101,
+    });
+    expect(
+      reportFinalNotificationReadiness(
+        reportDetail([linkedSubReport({ evidence_snapshot_id: 0, title: "" })]),
+      ).reason,
+    ).toEqual({
+      kind: "missing_evidence_snapshot",
+      subReportID: 501,
+      subReportTitle: "",
+    });
+    expect(
+      reportFinalNotificationReadiness(
+        reportDetail([
+          linkedSubReport({
+            diagnosis_conclusion: diagnosisConclusion(),
+            title: "Vendor checkout latency",
+          }),
+        ]),
+      ).reason,
+    ).toEqual({
+      kind: "unconfirmed_conclusion",
+      subReportID: 501,
+      subReportTitle: "Vendor checkout latency",
+    });
+    expect(
+      reportFinalNotificationReadiness(
+        reportDetail([
+          linkedSubReport({
+            diagnosis_conclusion: diagnosisConclusion({ confirmed_by: "operator:alice" }),
+            diagnosis_progress: diagnosisProgress({
+              recorded_at: "2026-06-18T08:07:00Z",
+            }),
+          }),
+        ]),
+      ).reason,
+    ).toEqual({
+      kind: "newer_diagnosis_progress",
+      subReportID: 501,
+      subReportTitle: "Checkout API latency",
+    });
+    expect(
+      reportFinalNotificationReadiness(
+        reportDetail([
+          linkedSubReport({
+            diagnosis_conclusion: diagnosisConclusion({ confirmed_by: "operator:alice" }),
+          }),
+        ]),
+      ).reason,
+    ).toEqual({ kind: "blocked" });
   });
 
   it("falls back safely when final report notification readiness is absent", () => {
@@ -310,12 +340,11 @@ describe("diagnosis readiness", () => {
     } as unknown as FinalReportDetail;
 
     expect(reportFinalNotificationReadiness(report)).toEqual({
-      detail:
-        "Final notification readiness is unavailable; complete diagnosis review before retrying final delivery.",
       notification_purpose: "final",
       ready: false,
+      reason: { kind: "fallback" },
+      source: "fallback",
       status: "blocked",
-      status_label: "Final notification blocked",
     });
   });
 
@@ -335,36 +364,24 @@ describe("diagnosis readiness", () => {
       latestConfidence: "high",
       reviewed: true,
       status: "human_review",
-      statusDetail: "AI conclusion is ready for operator confirmation.",
-      statusLabel: "Needs confirmation",
     });
     expect(diagnosisReadiness(report)).toMatchObject({
       attention: 0,
-      blockingReason: "",
+      blocked: false,
       canConfirm: true,
       done: 0,
       humanReviewRequired: 0,
       pending: 0,
       ready: 1,
       reviewed: 1,
-      reviewQueueDetail:
-        "1 AI conclusion ready for operator confirmation.",
-      reviewQueueLabel: "Confirmable",
       status: "human_review",
-      statusDetail:
-        "AI conclusion is ready for operator confirmation on 1 subreport.",
-      statusLabel: "Needs confirmation",
       total: 1,
     });
     expect(reportDiagnosisHandoff(report).steps).toContainEqual(
       expect.objectContaining({
         key: "operator_decision",
         status: "pending",
-        statusLabel: "Pending",
       }),
-    );
-    expect(subReportDiagnosisActionLabel(report.linked_sub_reports[0]!)).toBe(
-      "Confirm diagnosis",
     );
   });
 
@@ -402,20 +419,15 @@ describe("diagnosis readiness", () => {
       currentExecutableEvidenceRequests: 0,
       currentMissingEvidence: 1,
       status: "needs_evidence",
-      statusDetail:
-        "AI requested 1 missing evidence item. 1 residual collection suggestion remains documented but do not block confirmation.",
-      statusLabel: "Needs evidence",
     });
     expect(diagnosisReadiness(reportDetail([subReport]))).toMatchObject({
-      blockingReason: "Resolve 1 missing evidence item.",
+      blocked: true,
       currentCollectionSuggestions: 1,
       currentExecutableEvidenceRequests: 0,
       currentMissingEvidence: 1,
       pending: 2,
       ready: 0,
-      reviewQueueLabel: "Evidence needed",
       status: "needs_evidence",
-      statusLabel: "Needs evidence",
     });
     expect(reportEvidenceFollowUps(reportDetail([subReport]))).toEqual([
       {
@@ -474,12 +486,10 @@ describe("diagnosis readiness", () => {
       currentMissingEvidence: 1,
       evidenceRequests: 1,
       status: "needs_evidence",
-      statusDetail:
-        "AI requested 1 missing evidence item and 1 executable evidence task. 1 residual collection suggestion remains documented but do not block confirmation.",
     });
     expect(reportEvidenceFollowUps(reportDetail([subReport]))).toEqual([
       {
-        detail: "active_alerts / limit 5",
+        detail: "",
         evidenceSnapshotID: 9001,
         kind: "evidence_request",
         label: "Confirm whether sibling checkout alerts remain active.",
@@ -567,8 +577,7 @@ describe("diagnosis readiness", () => {
 
     expect(reportEvidenceFollowUps(reportDetail([subReport]))).toEqual([
       {
-        detail:
-          "metric_range_query / query sum(rate(checkout_errors_total[5m])) / source #7 / window 1800s / limit 5",
+        detail: "",
         evidenceSnapshotID: 9001,
         kind: "evidence_request",
         label: "Confirm whether checkout errors remain elevated.",
@@ -623,45 +632,31 @@ describe("diagnosis readiness", () => {
     ]);
 
     expect(reportDiagnosisHandoff(report)).toMatchObject({
-      statusDetail: "Resolve 1 missing evidence item.",
-      statusLabel: "Evidence follow-up required",
+      evidenceSnapshotCount: 2,
+      followUpCount: 2,
+      reportID: 101,
+      reportWorkflow: "FinalReportWorkflow",
+      status: "needs_evidence",
       steps: [
         {
-          detail: "Final report #101 was generated by FinalReportWorkflow.",
           key: "report_generation",
-          label: "Report generated",
           status: "done",
-          statusLabel: "Done",
         },
         {
-          detail: "2 evidence snapshots linked to the AI diagnosis path.",
           key: "evidence_snapshot",
-          label: "Evidence snapshots",
           status: "done",
-          statusLabel: "Done",
         },
         {
-          detail: "2 of 2 linked subreports have AI diagnosis state.",
           key: "ai_consultation",
-          label: "AI consultation",
           status: "done",
-          statusLabel: "Done",
         },
         {
-          detail:
-            "Resolve 1 missing evidence item before final confirmation.",
           key: "evidence_follow_up",
-          label: "Evidence follow-up",
           status: "pending",
-          statusLabel: "Pending",
         },
         {
-          detail:
-            "Resolve 1 missing evidence item.",
           key: "operator_decision",
-          label: "Operator decision",
           status: "attention",
-          statusLabel: "Attention",
         },
       ],
     });
@@ -683,11 +678,10 @@ describe("diagnosis readiness", () => {
     ]);
 
     expect(reportDiagnosisNextAction(report)).toEqual({
-      actionLabel: "Prepare diagnosis",
-      detail: "Open a diagnosis room to start AI review.",
       evidenceSnapshotID: 9002,
-      status: "pending_diagnosis",
-      statusLabel: "Pending diagnosis",
+      hasConclusion: false,
+      hasProgress: false,
+      readiness: expect.objectContaining({ status: "pending_diagnosis" }),
       subReportID: 502,
       title: "Database capacity",
     });
@@ -722,11 +716,10 @@ describe("diagnosis readiness", () => {
     ]);
 
     expect(reportDiagnosisNextAction(report)).toEqual({
-      actionLabel: "Resolve evidence",
-      detail: "AI requested 1 missing evidence item.",
       evidenceSnapshotID: 9002,
-      status: "needs_evidence",
-      statusLabel: "Needs evidence",
+      hasConclusion: false,
+      hasProgress: true,
+      readiness: expect.objectContaining({ status: "needs_evidence" }),
       subReportID: 502,
       title: "Database capacity",
     });
@@ -761,17 +754,14 @@ describe("diagnosis readiness", () => {
     ]);
 
     expect(diagnosisReadiness(report)).toMatchObject({
-      blockingReason: "Start or continue AI diagnosis for 1 linked subreport.",
+      blocked: true,
       canConfirm: false,
       done: 0,
       pending: 1,
       pendingSubReports: 1,
       ready: 1,
       reviewed: 1,
-      reviewQueueLabel: "Diagnosis pending",
       status: "pending_diagnosis",
-      statusDetail: "1 of 2 linked subreports still need AI diagnosis.",
-      statusLabel: "Pending diagnosis",
       total: 2,
     });
   });
@@ -811,8 +801,7 @@ describe("diagnosis readiness", () => {
     ]);
 
     expect(diagnosisReadiness(report)).toMatchObject({
-      blockingReason:
-        "Resolve 1 missing evidence item and 1 executable evidence task.",
+      blocked: true,
       currentCollectionSuggestions: 1,
       currentExecutableEvidenceRequests: 1,
       currentMissingEvidence: 1,
@@ -824,13 +813,11 @@ describe("diagnosis readiness", () => {
       ready: 0,
       reviewed: 1,
       status: "needs_evidence",
-      statusLabel: "Needs evidence",
       total: 1,
     });
     expect(reportEvidenceFollowUps(report)).toEqual([
       {
-        detail:
-          "metric_range_query / query sum(container_memory_working_set_bytes{namespace=\"checkout\"})",
+        detail: "",
         evidenceSnapshotID: 9001,
         kind: "evidence_request",
         label: "Need JVM memory pressure evidence.",
@@ -897,7 +884,7 @@ describe("diagnosis readiness", () => {
       status: "needs_evidence",
     });
     expect(diagnosisReadiness(report)).toMatchObject({
-      blockingReason: "Resolve 1 missing evidence item.",
+      blocked: true,
       canConfirm: false,
       currentMissingEvidence: 1,
       done: 0,
@@ -935,26 +922,19 @@ describe("diagnosis readiness", () => {
     ]);
 
     expect(diagnosisReadiness(report)).toMatchObject({
-      blockingReason: "",
+      blocked: false,
       canConfirm: true,
       currentCollectionSuggestions: 1,
       currentExecutableEvidenceRequests: 0,
       currentMissingEvidence: 0,
       pending: 1,
       ready: 1,
-      reviewQueueDetail:
-        "1 AI conclusion ready for operator confirmation.",
       status: "human_review",
-      statusDetail:
-        "AI conclusion is ready for operator confirmation on 1 subreport. 1 residual collection suggestion remains documented as residual guidance.",
     });
     expect(reportDiagnosisHandoff(report).steps).toContainEqual(
       expect.objectContaining({
-        detail:
-          "1 residual collection suggestion remains documented as residual collection guidance; no blocking evidence remains.",
         key: "evidence_follow_up",
         status: "done",
-        statusLabel: "Done",
       }),
     );
   });
@@ -973,13 +953,10 @@ describe("diagnosis readiness", () => {
       failureReason: "initial turn failed: llm request timed out",
       latestConfidence: "failed",
       status: "failed",
-      statusDetail:
-        "AI diagnosis failed before a final conclusion: initial turn failed: llm request timed out.",
-      statusLabel: "Failed",
     });
     expect(diagnosisReadiness(reportDetail([subReport]))).toMatchObject({
       attention: 1,
-      blockingReason: "Resolve 1 failed diagnosis room before confirming.",
+      blocked: true,
       canConfirm: false,
       failedSubReports: 1,
       latestConfidence: "failed",
@@ -987,58 +964,9 @@ describe("diagnosis readiness", () => {
       pendingSubReports: 0,
       ready: 0,
       reviewed: 1,
-      reviewQueueLabel: "Blocked",
       status: "failed",
-      statusDetail:
-        "AI diagnosis failed for 1 linked subreport. Reopen the diagnosis room after resolving the failure.",
-      statusLabel: "Failed",
       total: 1,
     });
-    expect(subReportDiagnosisActionLabel(subReport)).toBe(
-      "Review failed diagnosis",
-    );
-  });
-
-  it("derives diagnosis traceability action labels from readiness state", () => {
-    expect(
-      subReportDiagnosisActionLabel(
-        linkedSubReport({
-          diagnosis_conclusion: diagnosisConclusion({
-            confirmed_by: "owner-1",
-          }),
-        }),
-      ),
-    ).toBe("Review confirmed diagnosis");
-    expect(
-      subReportDiagnosisActionLabel(
-        linkedSubReport({
-          diagnosis_conclusion: undefined,
-          diagnosis_progress: diagnosisProgress({
-            missing_evidence_requests: [
-              {
-                detail: "Attach the latest owner note.",
-                label: "Owner note",
-                priority: "high",
-              },
-            ],
-          }),
-        }),
-      ),
-    ).toBe("Resolve evidence");
-    expect(
-      subReportDiagnosisActionLabel(
-        linkedSubReport({
-          diagnosis_conclusion: undefined,
-          diagnosis_progress: diagnosisProgress({
-            requires_human_review: false,
-            status: "in_progress",
-          }),
-        }),
-      ),
-    ).toBe("Review diagnosis");
-    expect(subReportDiagnosisActionLabel(linkedSubReport())).toBe(
-      "Prepare diagnosis",
-    );
   });
 
   it("keeps evidence request totals numeric for legacy timeline entries", () => {

@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
 
+import { localizeDiagnosisRoomStatus } from "@/features/diagnosis-room/status-copy";
 import type { NotificationChannelProfile } from "@/features/settings/notification-channels/types";
 
 import { retryReportNotificationAction } from "./client-api";
@@ -12,16 +14,21 @@ import {
   defaultReportNotificationRetryChannelValue,
   reportDeliveryProofCurrentDeliveries,
   reportDeliveryProofCanSubmit,
-  reportDeliveryProofRetryLabel,
   reportDeliveryProofState,
   reportNotificationDeliveryForPurpose,
-  reportNotificationPurposeLabel,
-  reportNotificationRetrySuccessMessage,
   reportNotificationRetryChannelOptions,
   selectedReportNotificationRetryChannelID,
   upsertReportNotificationDeliveryOverlay,
   type ReportDeliveryProofOverlay,
 } from "./report-delivery-proof";
+import {
+  localizeFinalNotificationReadiness,
+  localizeReportDeliveryProofRetryLabel,
+  localizeReportDeliveryProofState,
+  localizeReportNotificationPurpose,
+  localizeReportNotificationRetryChannelOption,
+  localizeReportNotificationRetrySuccessMessage,
+} from "./report-detail-copy";
 import type { ReportFinalNotificationReadiness } from "./diagnosis-readiness";
 import type { FinalReportDetail, ReportNotificationPurpose } from "./types";
 
@@ -49,6 +56,9 @@ export function ReportDeliveryProofPanel({
   reportID: number;
 }) {
   const router = useRouter();
+  const locale = useLocale();
+  const t = useTranslations("ReportDetail");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const channelOptions = useMemo(
     () => reportNotificationRetryChannelOptions(notificationChannels),
     [notificationChannels],
@@ -76,8 +86,12 @@ export function ReportDeliveryProofPanel({
       latest?.report_notification_channel_profile_id ?? null,
     ),
   );
-  const notificationLabel = reportNotificationPurposeLabel(notificationPurpose);
+  const notificationLabel = localizeReportNotificationPurpose(
+    notificationPurpose,
+    t,
+  );
   const state = reportDeliveryProofState(latest, notificationPurpose);
+  const stateCopy = localizeReportDeliveryProofState(state, t);
   const canRetry = reportDeliveryProofCanSubmit(
     latest,
     notificationPurpose,
@@ -120,9 +134,10 @@ export function ReportDeliveryProofPanel({
     );
     setNotice({
       kind: "success",
-      message: reportNotificationRetrySuccessMessage(
+      message: localizeReportNotificationRetrySuccessMessage(
         result.data.retry_state,
         notificationPurpose,
+        t,
       ),
     });
     router.refresh();
@@ -130,44 +145,49 @@ export function ReportDeliveryProofPanel({
 
   return (
     <section
-      aria-label={`${sentenceCase(notificationLabel)} delivery proof`}
+      aria-label={t("deliveryProofFor", { notification: notificationLabel })}
       className="report-delivery-proof"
     >
       <div className="subreport-conclusion-meta">
         <span className={`label-chip report-delivery-status-${state.status}`}>
-          {state.statusLabel}
+          {stateCopy.statusLabel}
         </span>
-        <span className="label-chip">{currentDeliveries.length} retained</span>
+        <span className="label-chip">
+          {t("deliveriesRetained", { count: currentDeliveries.length })}
+        </span>
       </div>
-      <p className="muted">{state.detail}</p>
+      <p className="muted">{stateCopy.detail}</p>
       {finalNotificationReadiness ? (
-        <div
-          className={`report-delivery-readiness report-delivery-readiness-${finalNotificationReadiness.status}`}
-        >
-          <span className="label-chip">{finalNotificationReadiness.status_label}</span>
-          <span>{finalNotificationReadiness.detail}</span>
-        </div>
+        <FinalNotificationReadiness
+          readiness={finalNotificationReadiness}
+        />
       ) : null}
       <div className="report-delivery-proof-actions">
         {state.actionHref ? (
           <Link className="status-line" href={state.actionHref}>
-            {state.actionLabel}
+            {stateCopy.actionLabel}
           </Link>
         ) : null}
         {canRetry ? (
           <>
             <label className="report-delivery-proof-channel">
-              <span>Notification channel</span>
+              <span>{t("notificationChannel")}</span>
               <select
                 disabled={retrying}
                 onChange={(event) => setSelectedChannelValue(event.currentTarget.value)}
                 value={effectiveSelectedChannelValue}
               >
-                {channelOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
+                {channelOptions.map((option) => {
+                  const copy = localizeReportNotificationRetryChannelOption(
+                    option,
+                    t,
+                  );
+                  return (
+                    <option key={option.value} value={option.value}>
+                      {copy.label}
+                    </option>
+                  );
+                })}
               </select>
             </label>
             <button
@@ -176,13 +196,21 @@ export function ReportDeliveryProofPanel({
               onClick={handleRetry}
               type="button"
             >
-              {retrying ? "Sending..." : reportDeliveryProofRetryLabel(latest, notificationPurpose)}
+              {retrying
+                ? t("sending")
+                : localizeReportDeliveryProofRetryLabel(
+                    latest !== null,
+                    notificationPurpose,
+                    t,
+                  )}
             </button>
           </>
         ) : null}
       </div>
       {canRetry && selectedChannel ? (
-        <div className="muted">{selectedChannel.detail}</div>
+        <div className="muted">
+          {localizeReportNotificationRetryChannelOption(selectedChannel, t).detail}
+        </div>
       ) : null}
       {canRetry && notificationChannelsError ? (
         <div className="report-delivery-proof-feedback report-delivery-proof-feedback-error" role="alert">
@@ -199,39 +227,55 @@ export function ReportDeliveryProofPanel({
       ) : null}
       {latest ? (
         <dl className="subreport-conclusion-details">
-          <ReportDeliveryProofDetail label="Status" value={latest.status} />
           <ReportDeliveryProofDetail
-            label="Provider"
-            value={latest.provider_status ?? "-"}
+            label={t("fieldStatus")}
+            value={localizeDiagnosisRoomStatus(latest.status, tStatus)}
           />
           <ReportDeliveryProofDetail
-            label="Message ID"
+            label={t("provider")}
+            value={
+              latest.provider_status ? latest.provider_status : "-"
+            }
+          />
+          <ReportDeliveryProofDetail
+            label={t("messageId")}
             value={latest.provider_message_id ?? "-"}
           />
           <ReportDeliveryProofDetail
-            label="Delivered"
-            value={latest.delivered_at ? formatDateTime(latest.delivered_at) : "-"}
+            label={t("deliveredAt")}
+            value={
+              latest.delivered_at
+                ? formatDateTime(latest.delivered_at, locale)
+                : "-"
+            }
           />
-          <ReportDeliveryProofDetail label="Updated" value={formatDateTime(latest.updated_at)} />
+          <ReportDeliveryProofDetail
+            label={t("updatedAt")}
+            value={formatDateTime(latest.updated_at, locale)}
+          />
         </dl>
       ) : null}
       {currentDeliveries.length > 0 ? (
         <ul
-          aria-label={`${sentenceCase(notificationLabel)} deliveries`}
+          aria-label={t("deliveriesFor", { notification: notificationLabel })}
           className="report-delivery-proof-list"
         >
           {currentDeliveries.map((delivery) => (
             <li className="report-delivery-proof-item" key={delivery.id}>
               <strong>{delivery.idempotency_key}</strong>
               <span className={`label-chip report-delivery-status-${delivery.status}`}>
-                {delivery.status}
+                {localizeDiagnosisRoomStatus(delivery.status, tStatus)}
               </span>
               <span className="muted">
                 {delivery.failure_reason ??
-                  delivery.provider_status ??
+                  (delivery.provider_status
+                    ? delivery.provider_status
+                    : undefined) ??
                   (delivery.delivered_at
-                    ? `delivered ${formatDateTime(delivery.delivered_at)}`
-                    : "provider result pending")}
+                    ? t("deliveredOn", {
+                        time: formatDateTime(delivery.delivered_at, locale),
+                      })
+                    : t("providerResultPending"))}
               </span>
             </li>
           ))}
@@ -241,8 +285,21 @@ export function ReportDeliveryProofPanel({
   );
 }
 
-function sentenceCase(value: string): string {
-  return value.length === 0 ? value : `${value[0]!.toUpperCase()}${value.slice(1)}`;
+function FinalNotificationReadiness({
+  readiness,
+}: {
+  readiness: ReportFinalNotificationReadiness;
+}) {
+  const t = useTranslations("ReportDetail");
+  const copy = localizeFinalNotificationReadiness(readiness, t);
+  return (
+    <div
+      className={`report-delivery-readiness report-delivery-readiness-${readiness.status}`}
+    >
+      <span className="label-chip">{copy.label}</span>
+      <span>{copy.detail}</span>
+    </div>
+  );
 }
 
 function ReportDeliveryProofDetail({

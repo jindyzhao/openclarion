@@ -24,20 +24,23 @@ type ReportDecisionRecordStatus =
 
 export type ReportDecisionRecord = {
   confirmedBy: string;
-  detail: string;
   evidenceSnapshotID: number;
   notificationChannelProfileID: number | null;
-  notificationDetail: string;
+  notificationEventKind: string;
   notificationFailed: boolean;
-  notificationLabel: string;
+  notificationOccurredAt: string;
+  notificationProviderMessageID: string;
   notificationProviderStatus: string;
+  readiness: ReturnType<typeof subReportDiagnosisReadiness>;
   recordedAt: string;
   requiresHumanReview: boolean;
-  roomCloseDetail: string;
+  roomClosedAt: string;
+  roomCloseReason: string;
+  roomLinked: boolean;
   roomStatus: string;
+  roomTurnCount: number;
   sessionID: string;
   status: ReportDecisionRecordStatus;
-  statusLabel: string;
   subReportID: number;
   title: string;
   version: string;
@@ -62,22 +65,26 @@ function reportDiagnosisDecisionRecord(
   const sessionID = diagnosisStateSessionID(state) ?? room?.session_id;
   const status = decisionRecordStatus(subReport, room);
   const notification = room ? decisionNotification(room, status) : null;
+  const readiness = subReportDiagnosisReadiness(subReport);
   return {
     confirmedBy: conclusion?.confirmed_by ?? "",
-    detail: decisionRecordDetail(subReport, room),
     evidenceSnapshotID: subReport.evidence_snapshot_id,
     notificationChannelProfileID: notification?.notification_channel_profile_id ?? null,
-    notificationDetail: notificationDetail(notification, room, sessionID),
+    notificationEventKind: notification?.event_kind ?? "",
     notificationFailed: notification ? failedNotificationStatus(notification.provider_status) : false,
-    notificationLabel: notification ? notificationEventLabel(notification.event_kind) : "No exact delivery proof",
+    notificationOccurredAt: notification?.occurred_at ?? "",
+    notificationProviderMessageID: notification?.provider_message_id ?? "",
     notificationProviderStatus: notification?.provider_status ?? "",
+    readiness,
     recordedAt: diagnosisStateRecordedAt(state),
     requiresHumanReview: conclusion?.requires_human_review ?? state?.requires_human_review ?? false,
-    roomCloseDetail: roomCloseDetail(room),
-    roomStatus: room?.room_status ?? "not linked",
+    roomClosedAt: room?.closed_at ?? room?.updated_at ?? "",
+    roomCloseReason: room?.close_reason ?? "",
+    roomLinked: room !== null,
+    roomStatus: room?.room_status ?? "",
+    roomTurnCount: room?.turn_count ?? 0,
     sessionID: sessionID ?? "",
     status,
-    statusLabel: decisionRecordStatusLabel(status),
     subReportID: subReport.id,
     title: subReport.title,
     version: conclusion?.conclusion_version ?? "",
@@ -110,49 +117,6 @@ function decisionRecordStatus(
     return "recorded";
   }
   return "running";
-}
-
-function decisionRecordDetail(
-  subReport: ReportLinkedSubReport,
-  room: DiagnosisRoomSummary | null,
-): string {
-  const readiness = subReportDiagnosisReadiness(subReport);
-  const conclusion = diagnosisConclusionState(subReportDiagnosisState(subReport));
-  if (readiness.status === "needs_evidence") {
-    return readiness.statusDetail;
-  }
-  if (readiness.status === "failed") {
-    return readiness.statusDetail;
-  }
-  if (conclusion?.confirmed_by) {
-    return "Final AI conclusion is confirmed by the recorded operator.";
-  }
-  if (room?.room_status === "closed") {
-    return `Diagnosis room closed with ${room.close_reason || "no close reason"} after ${room.turn_count} turn(s).`;
-  }
-  if (conclusion) {
-    return "Final AI conclusion is stored and waiting for operator confirmation.";
-  }
-  return "AI consultation must record a conclusion before this subreport can be finalized.";
-}
-
-function decisionRecordStatusLabel(status: ReportDecisionRecordStatus): string {
-  switch (status) {
-    case "confirmed":
-      return "Confirmed";
-    case "failed":
-      return "Failed";
-    case "needs_evidence":
-      return "Evidence required";
-    case "pending_diagnosis":
-      return "Diagnosis pending";
-    case "recorded":
-      return "Conclusion stored";
-    case "room_closed":
-      return "Room closed";
-    case "running":
-      return "AI consultation running";
-  }
 }
 
 function diagnosisStateSessionID(state: ReportDiagnosisState | undefined): string | undefined {
@@ -215,53 +179,8 @@ function latestNotificationByEventKind(
   return null;
 }
 
-function notificationDetail(
-  notification: DiagnosisRoomNotificationTimelineEntry | null,
-  room: DiagnosisRoomSummary | null,
-  sessionID: string | undefined,
-): string {
-  if (!sessionID) {
-    return "No diagnosis session is linked to this subreport yet.";
-  }
-  if (!room) {
-    return "No exact diagnosis room delivery proof is available for this report session.";
-  }
-  if (!notification) {
-    return "The exact diagnosis room has no retained notification delivery event.";
-  }
-  const parts = [
-    notification.provider_status,
-    notification.provider_message_id ? `provider message ${notification.provider_message_id}` : "",
-    `recorded ${notification.occurred_at}`,
-  ].filter(Boolean);
-  return parts.join(" / ");
-}
-
-function roomCloseDetail(room: DiagnosisRoomSummary | null): string {
-  if (!room) {
-    return "No exact diagnosis room lifecycle record.";
-  }
-  if (room.room_status !== "closed") {
-    return "Diagnosis room is still open.";
-  }
-  return `${room.close_reason || "closed"} at ${room.closed_at ?? room.updated_at}`;
-}
-
-function notificationEventLabel(eventKind: string): string {
-  switch (eventKind) {
-    case "diagnosis_room.assistant_turn_notification_sent":
-      return "AI update notification";
-    case "diagnosis_room.final_ready_notification_sent":
-      return "Final-ready notification";
-    case "diagnosis_room.close_notification_sent":
-      return "Close notification";
-    default:
-      return eventKind;
-  }
-}
-
 function failedNotificationStatus(status: string): boolean {
-  switch (status.toLowerCase()) {
+  switch (status.trim().toLowerCase()) {
     case "error":
     case "failed":
       return true;

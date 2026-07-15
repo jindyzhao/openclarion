@@ -50,20 +50,21 @@ describe("report diagnosis decision records", () => {
     expect(records).toEqual([
       expect.objectContaining({
         confirmedBy: "owner-1",
-        detail: "Final AI conclusion is confirmed by the recorded operator.",
         notificationChannelProfileID: 2,
-        notificationDetail:
-          "delivered / provider message wecom-close-1 / recorded 2026-06-18T08:11:01Z",
+        notificationEventKind: "diagnosis_room.close_notification_sent",
         notificationFailed: false,
-        notificationLabel: "Close notification",
+        notificationOccurredAt: "2026-06-18T08:11:01Z",
+        notificationProviderMessageID: "wecom-close-1",
         notificationProviderStatus: "delivered",
         recordedAt: "2026-06-18T08:10:00Z",
         requiresHumanReview: false,
-        roomCloseDetail: "human_confirmed at 2026-06-18T08:11:00Z",
+        roomClosedAt: "2026-06-18T08:11:00Z",
+        roomCloseReason: "human_confirmed",
+        roomLinked: true,
         roomStatus: "closed",
+        roomTurnCount: 2,
         sessionID: "diagnosis-session-301",
         status: "confirmed",
-        statusLabel: "Confirmed",
         version: "diagnosis-session-301:2",
       }),
     ]);
@@ -102,9 +103,9 @@ describe("report diagnosis decision records", () => {
 
     expect(records[0]).toEqual(
       expect.objectContaining({
-        detail: "Diagnosis room closed with operator_cancelled after 2 turn(s).",
+        roomCloseReason: "operator_cancelled",
+        roomTurnCount: 2,
         status: "room_closed",
-        statusLabel: "Room closed",
       }),
     );
   });
@@ -145,19 +146,16 @@ describe("report diagnosis decision records", () => {
 
     expect(records).toEqual([
       expect.objectContaining({
-        detail: "AI requested 1 missing evidence item.",
         notificationChannelProfileID: null,
-        notificationDetail:
-          "No exact diagnosis room delivery proof is available for this report session.",
+        notificationEventKind: "",
         notificationFailed: false,
-        notificationLabel: "No exact delivery proof",
         notificationProviderStatus: "",
+        readiness: expect.objectContaining({ status: "needs_evidence" }),
         requiresHumanReview: true,
-        roomCloseDetail: "No exact diagnosis room lifecycle record.",
-        roomStatus: "not linked",
+        roomLinked: false,
+        roomStatus: "",
         sessionID: "diagnosis-session-302",
         status: "needs_evidence",
-        statusLabel: "Evidence required",
       }),
     ]);
   });
@@ -192,9 +190,9 @@ describe("report diagnosis decision records", () => {
 
     expect(records[0]).toEqual(
       expect.objectContaining({
-        notificationDetail:
-          "delivered / provider message wecom-assistant-9003 / recorded 2026-06-18T08:12:01Z",
-        notificationLabel: "AI update notification",
+        notificationEventKind: "diagnosis_room.assistant_turn_notification_sent",
+        notificationProviderMessageID: "wecom-assistant-9003",
+        roomLinked: true,
         roomStatus: "open",
         sessionID: "diagnosis-session-9003",
         status: "pending_diagnosis",
@@ -235,9 +233,9 @@ describe("report diagnosis decision records", () => {
 
     expect(records[0]).toEqual(
       expect.objectContaining({
-        notificationDetail:
-          "No exact diagnosis room delivery proof is available for this report session.",
-        roomStatus: "not linked",
+        notificationEventKind: "",
+        roomLinked: false,
+        roomStatus: "",
         sessionID: "diagnosis-session-exact-missing",
       }),
     );
@@ -290,11 +288,10 @@ describe("report diagnosis decision records", () => {
 
     expect(records[0]).toEqual(
       expect.objectContaining({
-        detail: "AI requested 1 missing evidence item.",
         recordedAt: "2026-06-18T08:12:01Z",
+        readiness: expect.objectContaining({ status: "needs_evidence" }),
         requiresHumanReview: true,
         status: "needs_evidence",
-        statusLabel: "Evidence required",
         version: "",
       }),
     );
@@ -325,10 +322,8 @@ describe("report diagnosis decision records", () => {
 
     expect(records[0]).toEqual(
       expect.objectContaining({
-        detail: "Final AI conclusion is stored and waiting for operator confirmation.",
         requiresHumanReview: false,
         status: "recorded",
-        statusLabel: "Conclusion stored",
       }),
     );
   });
@@ -379,9 +374,8 @@ describe("report diagnosis decision records", () => {
 
     expect(records[0]).toEqual(
       expect.objectContaining({
-        notificationDetail:
-          "delivered / provider message wecom-final-ready-1 / recorded 2026-06-18T08:10:01Z",
-        notificationLabel: "Final-ready notification",
+        notificationEventKind: "diagnosis_room.final_ready_notification_sent",
+        notificationProviderMessageID: "wecom-final-ready-1",
         status: "recorded",
       }),
     );
@@ -425,9 +419,9 @@ describe("report diagnosis decision records", () => {
 
     expect(records[0]).toEqual(
       expect.objectContaining({
-        notificationDetail:
-          "delivered / provider message wecom-embedded-final-ready-1 / recorded 2026-06-18T08:10:01Z",
-        notificationLabel: "Final-ready notification",
+        notificationEventKind: "diagnosis_room.final_ready_notification_sent",
+        notificationProviderMessageID: "wecom-embedded-final-ready-1",
+        roomLinked: true,
         roomStatus: "open",
         sessionID: "diagnosis-session-301",
       }),

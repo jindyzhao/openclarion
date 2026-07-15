@@ -1,13 +1,11 @@
 import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 
 import type { DiagnosisRoomListResponse } from "@/features/diagnosis-room/api";
 import { diagnosisEvidencePlanURLQuery } from "@/features/diagnosis-room/evidence-plan-url";
-import {
-  diagnosisFinalConclusionReasonLabel,
-  diagnosisFinalConclusionSourceLabel,
-} from "@/features/diagnosis-room/final-conclusion";
 import type { DiagnosisReviewReturnState } from "@/features/diagnosis-room/report-return";
+import { localizeDiagnosisRoomStatus } from "@/features/diagnosis-room/status-copy";
 import {
   directorySubjectIsSystem,
   directorySubjectProfile,
@@ -26,7 +24,6 @@ import {
   reportDiagnosisNextAction,
   reportEvidenceFollowUps,
   reportFinalNotificationReadiness,
-  subReportDiagnosisActionLabel,
   subReportDiagnosisReadiness,
   type ReportConsultationAuditItem,
   type ReportDiagnosisConclusion,
@@ -42,15 +39,35 @@ import {
 import { formatDateTime, severityClass } from "./format";
 import {
   reportEvidenceCollectionResultForRequest,
-  reportEvidenceRequestDetail,
   reportEvidenceRequestKey,
 } from "./report-evidence-display";
+import {
+  localizeDecisionRecordDiagnosisAction,
+  localizeReportConclusionReason,
+  localizeReportConclusionSource,
+  localizeReportConsultationAuditItem,
+  localizeReportDecisionRecord,
+  localizeReportDiagnosisHandoff,
+  localizeReportDiagnosisNextAction,
+  localizeReportDiagnosisReviewReturnNotice,
+  localizeReportEvidenceCollectionResultDetail,
+  localizeReportEvidenceFollowUpKind,
+  localizeReportEvidenceRequestDetail,
+  localizeReportReadiness,
+  localizeSubReportDiagnosisAction,
+  localizeSubReportReadiness,
+  type ReportDetailTranslator,
+} from "./report-detail-copy";
 import { ReportDeliveryProofPanel } from "./report-delivery-proof-panel";
 import {
   reportDiagnosisDecisionRecords,
   type ReportDecisionRecord,
 } from "./report-decision-records";
 import { reportDiagnosisReviewReturnNotice } from "./report-return-notice";
+import {
+  localizeReportConfidence,
+  localizeReportSeverity,
+} from "./report-list-copy";
 import { notificationChannelEditHref } from "@/features/settings/notification-channels/format";
 import type { ApiResult, FinalReportDetail } from "./types";
 
@@ -88,22 +105,28 @@ export function ReportDetailView({
   result,
   roomsResult
 }: ReportDetailViewProps) {
+  const t = useTranslations("ReportDetail");
   return (
     <>
       <div className="page-heading">
         <div>
-          <h1>{result.ok ? result.data.title : `Report ${reportId}`}</h1>
-          <p>{result.ok ? result.data.correlation_key : "Report detail"}</p>
+          <h1>
+            {result.ok ? result.data.title : t("fallbackTitle", { id: reportId })}
+          </h1>
+          <p>{result.ok ? result.data.correlation_key : t("detail")}</p>
         </div>
         <Link className="status-line" href="/reports">
-          Back to reports
+          {t("back")}
         </Link>
       </div>
 
       {!result.ok ? <ErrorNotice message={result.error.message} status={result.error.status} /> : null}
       {diagnosisReviewReturn !== "none" && result.ok ? (
         <DiagnosisReviewReturnNotice
-          notice={reportDiagnosisReviewReturnNotice(
+          finalNotificationReadiness={reportFinalNotificationReadiness(
+            result.data,
+          )}
+          kind={reportDiagnosisReviewReturnNotice(
             diagnosisReviewReturn,
             reportFinalNotificationReadiness(result.data),
           )}
@@ -122,12 +145,22 @@ export function ReportDetailView({
 }
 
 function DiagnosisReviewReturnNotice({
-  notice,
+  finalNotificationReadiness,
+  kind,
 }: {
-  notice: ReturnType<typeof reportDiagnosisReviewReturnNotice>;
+  finalNotificationReadiness: ReturnType<
+    typeof reportFinalNotificationReadiness
+  >;
+  kind: ReturnType<typeof reportDiagnosisReviewReturnNotice>;
 }) {
+  const t = useTranslations("ReportDetail");
+  const notice = localizeReportDiagnosisReviewReturnNotice(
+    kind,
+    finalNotificationReadiness,
+    t,
+  );
   return (
-    <div aria-label="Diagnosis review return" className="notice" role="status">
+    <div aria-label={t("reviewReturn")} className="notice" role="status">
       <strong>{notice.title}</strong>
       <div>{notice.detail}</div>
     </div>
@@ -145,7 +178,12 @@ function Detail({
   report: FinalReportDetail;
   roomsResult: ApiResult<DiagnosisRoomListResponse>;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("ReportDetail");
+  const tList = useTranslations("ReportList");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const readiness = diagnosisReadiness(report);
+  const readinessCopy = localizeReportReadiness(readiness, locale, t);
   const finalNotificationReadiness = reportFinalNotificationReadiness(report);
   const evidenceFollowUps = reportEvidenceFollowUps(report);
   const handoff = reportDiagnosisHandoff(report);
@@ -163,24 +201,30 @@ function Detail({
     <div className="detail-grid">
       <section className="panel">
         <div className="panel-header">
-          <h2>Summary</h2>
+          <h2>{t("summary")}</h2>
         </div>
         <div className="panel-body stack">
           <div>
-            <span className={severityClass(report.severity)}>{report.severity}</span>{" "}
-            <span className="muted">{report.confidence} confidence</span>
+            <span className={severityClass(report.severity)}>
+              {localizeReportSeverity(report.severity, tList)}
+            </span>{" "}
+            <span className="muted">
+              {t("confidence", {
+                value: localizeReportConfidence(report.confidence, tList),
+              })}
+            </span>
           </div>
           <p>{report.executive_summary}</p>
           <p className="muted">{report.notification_text}</p>
           <div className="muted">
-            {report.created_by_workflow} / {formatDateTime(report.created_at)}
+            {report.created_by_workflow} / {formatDateTime(report.created_at, locale)}
           </div>
         </div>
       </section>
 
       <aside className="panel" id="diagnosis-readiness">
         <div className="panel-header">
-          <h2>Recommended Actions</h2>
+          <h2>{t("recommendedActions")}</h2>
         </div>
         <div className="panel-body">
           <ol className="action-list">
@@ -196,59 +240,59 @@ function Detail({
 
       <aside className="panel" id="report-delivery-proof">
         <div className="panel-header">
-          <h2>Diagnosis Readiness</h2>
+          <h2>{t("diagnosisReadiness")}</h2>
         </div>
         <div className="panel-body">
           <div
-            aria-label="Report AI review status"
+            aria-label={t("reviewStatus")}
             className={`diagnosis-readiness-summary diagnosis-readiness-summary-${readiness.status}`}
           >
-            <span className="label-chip">AI review</span>
-            <strong>{readiness.statusLabel}</strong>
-            <p>{readiness.statusDetail}</p>
+            <span className="label-chip">{t("aiReview")}</span>
+            <strong>{readinessCopy.statusLabel}</strong>
+            <p>{readinessCopy.statusDetail}</p>
           </div>
           <div
-            aria-label="Report diagnosis review queue"
+            aria-label={t("reviewQueue")}
             className="diagnosis-readiness-queue"
           >
             <div className="subreport-conclusion-meta">
               <span
                 className={`label-chip diagnosis-status-${readiness.status}`}
               >
-                {readiness.reviewQueueLabel}
+                {readinessCopy.queueLabel}
               </span>
-              {readiness.blockingReason ? (
+              {readiness.blocked ? (
                 <span className="label-chip diagnosis-status-needs_evidence">
-                  blocked
+                  {t("blocked")}
                 </span>
               ) : null}
               {readiness.canConfirm ? (
                 <span className="label-chip diagnosis-status-human_review">
-                  confirmable
+                  {t("confirmable")}
                 </span>
               ) : null}
             </div>
-            <p className="muted">{readiness.reviewQueueDetail}</p>
+            <p className="muted">{readinessCopy.queueDetail}</p>
             <dl className="stat-list diagnosis-readiness-queue-stats">
               <div>
-                <dt>Attention</dt>
+                <dt>{t("attention")}</dt>
                 <dd>{readiness.attention}</dd>
               </div>
               <div>
-                <dt>Pending</dt>
+                <dt>{t("pending")}</dt>
                 <dd>{readiness.pending}</dd>
               </div>
               <div>
-                <dt>Ready</dt>
+                <dt>{t("ready")}</dt>
                 <dd>{readiness.ready}</dd>
               </div>
               <div>
-                <dt>Done</dt>
+                <dt>{t("done")}</dt>
                 <dd>{readiness.done}</dd>
               </div>
             </dl>
           </div>
-          <DiagnosisHandoffPlan handoff={handoff} />
+          <DiagnosisHandoffPlan handoff={handoff} readiness={readiness} />
           <DiagnosisNextAction
             action={nextDiagnosisAction}
             report={report}
@@ -259,40 +303,45 @@ function Detail({
             report={report}
             rooms={rooms}
           />
-          <dl aria-label="Diagnosis readiness" className="stat-list">
+          <dl aria-label={t("readinessLabel")} className="stat-list">
             <div>
-              <dt>Reviewed subreports</dt>
+              <dt>{t("reviewedSubreports")}</dt>
               <dd>
                 {readiness.reviewed} / {readiness.total}
               </dd>
             </div>
             <div>
-              <dt>Human review</dt>
+              <dt>{t("humanReview")}</dt>
               <dd>{readiness.humanReviewRequired}</dd>
             </div>
             <div>
-              <dt>Evidence requested</dt>
+              <dt>{t("evidenceRequested")}</dt>
               <dd>{readiness.evidenceRequests}</dd>
             </div>
             <div>
-              <dt>Evidence still needed</dt>
+              <dt>{t("evidenceStillNeeded")}</dt>
               <dd>{readiness.currentMissingEvidence}</dd>
             </div>
             <div>
-              <dt>Executable evidence open</dt>
+              <dt>{t("executableEvidenceOpen")}</dt>
               <dd>{readiness.currentExecutableEvidenceRequests}</dd>
             </div>
             <div>
-              <dt>Residual suggestions</dt>
+              <dt>{t("residualSuggestions")}</dt>
               <dd>{readiness.currentCollectionSuggestions}</dd>
             </div>
             <div>
-              <dt>Supplemental evidence</dt>
+              <dt>{t("supplementalEvidence")}</dt>
               <dd>{readiness.supplementalEvidence}</dd>
             </div>
             <div>
-              <dt>Latest confidence</dt>
-              <dd>{readiness.latestConfidence}</dd>
+              <dt>{t("latestConfidence")}</dt>
+              <dd>
+                {localizeDiagnosisRoomStatus(
+                  readiness.latestConfidence,
+                  tStatus,
+                )}
+              </dd>
             </div>
           </dl>
         </div>
@@ -300,7 +349,7 @@ function Detail({
 
       <aside className="panel">
         <div className="panel-header">
-          <h2>Report Delivery Proof</h2>
+          <h2>{t("deliveryProof")}</h2>
         </div>
         <div className="panel-body">
           <ReportDeliveryProofPanel
@@ -322,7 +371,7 @@ function Detail({
 
       <section className="panel detail-grid-wide">
         <div className="panel-header">
-          <h2>AI Consultation Audit</h2>
+          <h2>{t("consultationAudit")}</h2>
         </div>
         <div className="panel-body">
           <ConsultationAuditTimeline
@@ -335,12 +384,17 @@ function Detail({
 
       <section className="panel detail-grid-wide">
         <div className="panel-header">
-          <h2>Evidence Traceability</h2>
+          <h2>{t("traceability")}</h2>
         </div>
         <div className="panel-body">
           <ul className="subreport-list">
             {report.linked_sub_reports.map((subReport) => {
               const subReportReadiness = subReportDiagnosisReadiness(subReport);
+              const subReportReadinessCopy = localizeSubReportReadiness(
+                subReportReadiness,
+                locale,
+                t,
+              );
               const diagnosisHref = reportDiagnosisRoomHref(report, subReport, rooms);
               return (
                 <li className="subreport-item" key={subReport.id}>
@@ -350,21 +404,46 @@ function Detail({
                       className="link-button"
                       href={diagnosisHref}
                     >
-                      {subReportDiagnosisActionLabel(subReport)}
+                      {localizeSubReportDiagnosisAction(
+                        {
+                          hasConclusion:
+                            subReport.diagnosis_conclusion !== undefined,
+                          hasProgress: subReport.diagnosis_progress !== undefined,
+                          readiness: subReportReadiness,
+                        },
+                        t,
+                      )}
                     </Link>
                   </div>
-                  <div className="muted">Evidence snapshot #{subReport.evidence_snapshot_id}</div>
+                  <div className="muted">
+                    {t("evidenceSnapshot", {
+                      id: subReport.evidence_snapshot_id,
+                    })}
+                  </div>
                   <p>{subReport.summary}</p>
-                  <span className={severityClass(subReport.severity)}>{subReport.severity}</span>{" "}
-                  <span className="muted">{subReport.confidence} confidence</span>
+                  <span className={severityClass(subReport.severity)}>
+                    {localizeReportSeverity(subReport.severity, tList)}
+                  </span>{" "}
+                  <span className="muted">
+                    {t("confidence", {
+                      value: localizeReportConfidence(
+                        subReport.confidence,
+                        tList,
+                      ),
+                    })}
+                  </span>
                   <div
-                    aria-label={`${subReport.title} AI review status`}
+                    aria-label={t("subreportReviewStatus", {
+                      title: subReport.title,
+                    })}
                     className="subreport-ai-status"
                   >
                     <span className={`label-chip diagnosis-status-${subReportReadiness.status}`}>
-                      {subReportReadiness.statusLabel}
+                      {subReportReadinessCopy.label}
                     </span>
-                    <span className="muted">{subReportReadiness.statusDetail}</span>
+                    <span className="muted">
+                      {subReportReadinessCopy.detail}
+                    </span>
                   </div>
                   {subReport.diagnosis_conclusion ? (
                     <DiagnosisConclusion
@@ -387,7 +466,7 @@ function Detail({
 
       <section className="panel detail-grid-wide">
         <div className="panel-header">
-          <h2>Decision Records</h2>
+          <h2>{t("decisionRecords")}</h2>
         </div>
         <div className="panel-body">
           <ReportDecisionRecords
@@ -411,16 +490,24 @@ function ConsultationAuditTimeline({
   report: FinalReportDetail;
   rooms: DiagnosisRoomListResponse["items"];
 }) {
+  const locale = useLocale();
+  const t = useTranslations("ReportDetail");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   if (items.length === 0) {
-    return (
-      <p className="muted">
-        No linked subreports are available for AI consultation audit.
-      </p>
-    );
+    return <p className="muted">{t("noConsultationAudit")}</p>;
   }
   return (
-    <ul aria-label="AI consultation audit timeline" className="report-decision-record-list">
+    <ul
+      aria-label={t("auditTimeline")}
+      className="report-decision-record-list"
+    >
       {items.map((item) => {
+        const copy = localizeReportConsultationAuditItem(
+          item,
+          locale,
+          t,
+          tStatus,
+        );
         const subReport = report.linked_sub_reports.find(
           (entry) => entry.id === item.subReportID,
         );
@@ -430,16 +517,18 @@ function ConsultationAuditTimeline({
               <div>
                 <h3>{item.subReportTitle}</h3>
                 <div className="muted">
-                  Evidence #{item.evidenceSnapshotID}
+                  {t("evidenceNumber", { id: item.evidenceSnapshotID })}
                 </div>
               </div>
-              <span className={`label-chip diagnosis-status-${item.status}`}>
-                {item.statusLabel}
+              <span
+                className={`label-chip diagnosis-status-${item.readiness.status}`}
+              >
+                {copy.statusLabel}
               </span>
             </div>
-            <p className="muted">{item.statusDetail}</p>
+            <p className="muted">{copy.statusDetail}</p>
             <ol className="diagnosis-handoff-step-list">
-              {item.steps.map((step) => (
+              {copy.steps.map((step) => (
                 <li
                   className={`diagnosis-handoff-step diagnosis-handoff-step-${step.status}`}
                   key={step.key}
@@ -460,7 +549,15 @@ function ConsultationAuditTimeline({
                   className="link-button"
                   href={reportDiagnosisRoomHref(report, subReport, rooms)}
                 >
-                  {subReportDiagnosisActionLabel(subReport)}
+                  {localizeSubReportDiagnosisAction(
+                    {
+                      hasConclusion:
+                        subReport.diagnosis_conclusion !== undefined,
+                      hasProgress: subReport.diagnosis_progress !== undefined,
+                      readiness: item.readiness,
+                    },
+                    t,
+                  )}
                 </Link>
               </div>
             ) : null}
@@ -480,6 +577,8 @@ function DiagnosisNextAction({
   report: FinalReportDetail;
   rooms: DiagnosisRoomListResponse["items"];
 }) {
+  const locale = useLocale();
+  const t = useTranslations("ReportDetail");
   if (!action) {
     return null;
   }
@@ -489,12 +588,18 @@ function DiagnosisNextAction({
   if (!subReport) {
     return null;
   }
+  const copy = localizeReportDiagnosisNextAction(action, locale, t);
   return (
-    <section aria-label="Next diagnosis action" className="diagnosis-readiness-followups">
+    <section
+      aria-label={t("nextDiagnosisAction")}
+      className="diagnosis-readiness-followups"
+    >
       <div className="diagnosis-readiness-followup-heading">
-        <strong>Next diagnosis action</strong>
-        <span className={`label-chip diagnosis-status-${action.status}`}>
-          {action.statusLabel}
+        <strong>{t("nextDiagnosisAction")}</strong>
+        <span
+          className={`label-chip diagnosis-status-${action.readiness.status}`}
+        >
+          {copy.statusLabel}
         </span>
       </div>
       <div className="diagnosis-readiness-followup-item">
@@ -504,26 +609,45 @@ function DiagnosisNextAction({
             className="timeline-evidence-action link-button"
             href={reportDiagnosisRoomHref(report, subReport, rooms)}
           >
-            {action.actionLabel}
+            {copy.actionLabel}
           </Link>
         </div>
-        <p className="muted">{action.detail}</p>
-        <div className="muted">Evidence #{action.evidenceSnapshotID}</div>
+        <p className="muted">{copy.detail}</p>
+        <div className="muted">
+          {t("evidenceNumber", { id: action.evidenceSnapshotID })}
+        </div>
       </div>
     </section>
   );
 }
 
-function DiagnosisHandoffPlan({ handoff }: { handoff: ReportDiagnosisHandoff }) {
+function DiagnosisHandoffPlan({
+  handoff,
+  readiness,
+}: {
+  handoff: ReportDiagnosisHandoff;
+  readiness: ReturnType<typeof diagnosisReadiness>;
+}) {
+  const locale = useLocale();
+  const t = useTranslations("ReportDetail");
+  const copy = localizeReportDiagnosisHandoff(
+    handoff,
+    readiness,
+    locale,
+    t,
+  );
   return (
-    <section aria-label="Report diagnosis handoff plan" className="diagnosis-handoff-plan">
+    <section
+      aria-label={t("handoffPlanLabel")}
+      className="diagnosis-handoff-plan"
+    >
       <div className="diagnosis-handoff-plan-heading">
-        <strong>Report handoff plan</strong>
-        <span className="label-chip">{handoff.statusLabel}</span>
+        <strong>{t("handoffPlan")}</strong>
+        <span className="label-chip">{copy.statusLabel}</span>
       </div>
-      <p className="muted">{handoff.statusDetail}</p>
+      <p className="muted">{copy.statusDetail}</p>
       <ol className="diagnosis-handoff-step-list">
-        {handoff.steps.map((step) => (
+        {copy.steps.map((step) => (
           <li className={`diagnosis-handoff-step diagnosis-handoff-step-${step.status}`} key={step.key}>
             <div className="diagnosis-handoff-step-heading">
               <span className={`label-chip diagnosis-handoff-status-${step.status}`}>
@@ -550,45 +674,65 @@ function ReportDecisionRecords({
   records: ReportDecisionRecord[];
   roomsResult: ApiResult<DiagnosisRoomListResponse>;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("ReportDetail");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const rooms = roomsResult.ok ? roomsResult.data.items : [];
   const roomsRestricted = !roomsResult.ok && roomsResult.error.status === 403;
   return (
     <div className="report-decision-records">
       {roomsRestricted ? (
         <PermissionLimitedNotice
-          detail="This report is visible through operations access, but your account cannot read diagnosis room proof or use recent rooms as link fallbacks."
-          title="Diagnosis room proof is restricted."
+          detail={t("roomProofRestrictedDetail")}
+          title={t("roomProofRestrictedTitle")}
         />
       ) : !roomsResult.ok ? (
         <div className="notice" role="status">
-          <strong>Diagnosis room proof unavailable.</strong>
+          <strong>{t("roomProofUnavailable")}</strong>
           <div>{roomsResult.error.message}</div>
         </div>
       ) : null}
-      <ul aria-label="Report decision records" className="report-decision-record-list">
-        {records.map((record) => (
+      <ul
+        aria-label={t("recordsLabel")}
+        className="report-decision-record-list"
+      >
+        {records.map((record) => {
+          const copy = localizeReportDecisionRecord(
+            record,
+            locale,
+            t,
+            tStatus,
+          );
+          return (
           <li className="report-decision-record" key={record.subReportID}>
             <div className="report-decision-record-header">
               <div>
                 <h3>{record.title}</h3>
                 <div className="muted">
-                  Evidence #{record.evidenceSnapshotID}
+                  {t("evidenceNumber", { id: record.evidenceSnapshotID })}
                   {record.sessionID ? ` / ${record.sessionID}` : ""}
                 </div>
               </div>
               <span className={`label-chip report-decision-status-${record.status}`}>
-                {record.statusLabel}
+                {copy.statusLabel}
               </span>
             </div>
-            <p>{record.detail}</p>
+            <p>{copy.detail}</p>
             <dl className="subreport-conclusion-details report-decision-record-details">
-              <ReportDecisionRecordDetail label="Version" value={record.version || "-"} />
               <ReportDecisionRecordDetail
-                label="Recorded"
-                value={record.recordedAt ? formatDateTime(record.recordedAt) : "-"}
+                label={t("version")}
+                value={record.version || "-"}
               />
               <ReportDecisionRecordDetail
-                label="Confirmed by"
+                label={t("recorded")}
+                value={
+                  record.recordedAt
+                    ? formatDateTime(record.recordedAt, locale)
+                    : "-"
+                }
+              />
+              <ReportDecisionRecordDetail
+                label={t("confirmedBy")}
                 value={
                   <ReportDirectorySubject
                     directoryUsersBySubject={directoryUsersBySubject}
@@ -596,29 +740,39 @@ function ReportDecisionRecords({
                   />
                 }
               />
-              <ReportDecisionRecordDetail label="Room status" value={record.roomStatus} />
-              <ReportDecisionRecordDetail label="Room close" value={record.roomCloseDetail} />
-              <ReportDecisionRecordDetail label="Notification" value={record.notificationLabel} />
+              <ReportDecisionRecordDetail
+                label={t("roomStatus")}
+                value={copy.roomStatus}
+              />
+              <ReportDecisionRecordDetail
+                label={t("roomClose")}
+                value={copy.roomCloseDetail}
+              />
+              <ReportDecisionRecordDetail
+                label={t("notification")}
+                value={copy.notificationLabel}
+              />
             </dl>
-            <p className="muted">{record.notificationDetail}</p>
+            <p className="muted">{copy.notificationDetail}</p>
             <div className="report-decision-record-actions">
               <Link
                 className="link-button"
                 href={decisionRecordDiagnosisHref(report, record, rooms)}
               >
-                {decisionRecordDiagnosisActionLabel(record)}
+                {localizeDecisionRecordDiagnosisAction(record, t)}
               </Link>
               {record.notificationFailed ? (
                 <a
                   className="status-line"
                   href={decisionRecordNotificationHref(record)}
                 >
-                  Review notification channel
+                  {t("reviewNotificationChannel")}
                 </a>
               ) : null}
             </div>
           </li>
-        ))}
+          );
+        })}
       </ul>
     </div>
   );
@@ -657,24 +811,6 @@ function decisionRecordDiagnosisHref(
   };
 }
 
-function decisionRecordDiagnosisActionLabel(record: ReportDecisionRecord) {
-  switch (record.status) {
-    case "confirmed":
-      return "Review confirmed diagnosis";
-    case "recorded":
-      return "Confirm in diagnosis room";
-    case "failed":
-      return "Review failed diagnosis";
-    case "needs_evidence":
-      return "Resolve evidence in diagnosis room";
-    case "pending_diagnosis":
-    case "running":
-      return "Continue diagnosis";
-    case "room_closed":
-      return "Review closed room";
-  }
-}
-
 function decisionRecordNotificationHref(record: ReportDecisionRecord) {
   return record.notificationChannelProfileID === null
     ? "/settings/notification-channels"
@@ -690,15 +826,19 @@ function EvidenceFollowUpSummary({
   report: FinalReportDetail;
   rooms: DiagnosisRoomListResponse["items"];
 }) {
+  const t = useTranslations("ReportDetail");
   if (items.length === 0) {
     return null;
   }
   const visibleItems = items.slice(0, 3);
   const hiddenItemCount = items.length - visibleItems.length;
   return (
-    <section aria-label="Next diagnosis evidence actions" className="diagnosis-readiness-followups">
+    <section
+      aria-label={t("nextEvidenceActionsLabel")}
+      className="diagnosis-readiness-followups"
+    >
       <div className="diagnosis-readiness-followup-heading">
-        <strong>Next evidence actions</strong>
+        <strong>{t("nextEvidenceActions")}</strong>
         <span className="label-chip">{items.length}</span>
       </div>
       <ul className="diagnosis-readiness-followup-list">
@@ -710,14 +850,23 @@ function EvidenceFollowUpSummary({
           return (
             <li className="diagnosis-readiness-followup-item" key={evidenceFollowUpKey(item)}>
               <div className="timeline-evidence-heading">
-                <span className="label-chip">{evidenceFollowUpLabel(item.kind)}</span>
+                <span className="label-chip">
+                  {localizeReportEvidenceFollowUpKind(item.kind, t)}
+                </span>
                 <span className="label-chip">{item.priority}</span>
                 <strong>{item.label}</strong>
               </div>
-              <p className="muted">{item.detail}</p>
+              <p className="muted">
+                {item.kind === "evidence_request" && item.request
+                  ? localizeReportEvidenceRequestDetail(item.request, t)
+                  : item.detail}
+              </p>
               <div className="diagnosis-readiness-followup-footer">
                 <span className="muted">
-                  {item.subReportTitle} / Evidence #{item.evidenceSnapshotID}
+                  {t("followUpMeta", {
+                    id: item.evidenceSnapshotID,
+                    title: item.subReportTitle,
+                  })}
                 </span>
                 <Link
                   className="timeline-evidence-action link-button"
@@ -726,7 +875,9 @@ function EvidenceFollowUpSummary({
                     item,
                   )}
                 >
-                  {item.kind === "evidence_request" ? "Use plan in diagnosis" : "Use in diagnosis"}
+                  {item.kind === "evidence_request"
+                    ? t("usePlan")
+                    : t("useInDiagnosis")}
                 </Link>
               </div>
             </li>
@@ -735,7 +886,7 @@ function EvidenceFollowUpSummary({
       </ul>
       {hiddenItemCount > 0 ? (
         <p className="muted">
-          {hiddenItemCount} more evidence action{hiddenItemCount === 1 ? "" : "s"} in the traceability list.
+          {t("moreEvidenceActions", { count: hiddenItemCount })}
         </p>
       ) : null}
     </section>
@@ -751,32 +902,47 @@ function DiagnosisConclusion({
   directoryUsersBySubject: ReadonlyMap<string, DirectoryUser>;
   diagnosisHref: DiagnosisRoomHref;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("ReportDetail");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const metadata = diagnosisConclusionMetadata(
     conclusion,
     directoryUsersBySubject,
+    t,
   );
   const supplementalRefs = conclusion.supplemental_context_refs ?? [];
   const confidenceTimeline = conclusion.confidence_timeline ?? [];
   const supplementalEvidence = conclusion.supplemental_evidence ?? [];
   const findings = conclusion.findings ?? [];
   const recommendedActions = conclusion.recommended_actions ?? [];
-  const sourceLabel = diagnosisFinalConclusionSourceLabel(conclusion.source);
-  const reasonLabel = diagnosisFinalConclusionReasonLabel(conclusion.reason);
+  const sourceLabel = localizeReportConclusionSource(conclusion.source, t);
+  const reasonLabel = localizeReportConclusionReason(conclusion.reason, t);
   return (
-    <div aria-label="Diagnosis conclusion" className="subreport-conclusion">
+    <div aria-label={t("diagnosisConclusionLabel")} className="subreport-conclusion">
       <div className="subreport-conclusion-header">
-        <strong>AI diagnosis conclusion</strong>
-        <span className="muted">{conclusion.confidence ? `${conclusion.confidence} confidence` : "confidence pending"}</span>
+        <strong>{t("diagnosisConclusion")}</strong>
+        <span className="muted">
+          {conclusion.confidence
+            ? t("confidence", {
+                value: localizeDiagnosisRoomStatus(
+                  conclusion.confidence,
+                  tStatus,
+                ),
+              })
+            : t("confidencePending")}
+        </span>
       </div>
       <p>{conclusion.content}</p>
       {conclusion.confidence_rationale ? <p className="muted">{conclusion.confidence_rationale}</p> : null}
       <div className="muted">
-        {conclusion.session_id} / {formatDateTime(conclusion.recorded_at)}
+        {conclusion.session_id} / {formatDateTime(conclusion.recorded_at, locale)}
       </div>
       <div className="subreport-conclusion-meta">
         {sourceLabel ? <span className="label-chip">{sourceLabel}</span> : null}
         {reasonLabel ? <span className="label-chip">{reasonLabel}</span> : null}
-        {conclusion.requires_human_review ? <span className="label-chip">human review</span> : null}
+        {conclusion.requires_human_review ? (
+          <span className="label-chip">{t("humanReviewTag")}</span>
+        ) : null}
       </div>
       {metadata.length > 0 ? (
         <dl className="subreport-conclusion-details">
@@ -789,7 +955,10 @@ function DiagnosisConclusion({
         </dl>
       ) : null}
       {supplementalRefs.length > 0 ? (
-        <div aria-label="Conclusion context references" className="subreport-conclusion-meta">
+        <div
+          aria-label={t("contextReferences")}
+          className="subreport-conclusion-meta"
+        >
           {supplementalRefs.map((ref) => (
             <span className="label-chip" key={ref}>
               {ref}
@@ -797,8 +966,16 @@ function DiagnosisConclusion({
           ))}
         </div>
       ) : null}
-      <DiagnosisConclusionStringList label="Findings" items={findings} />
-      <DiagnosisConclusionStringList label="Recommended actions" items={recommendedActions} />
+      <DiagnosisConclusionStringList
+        ariaLabel={t("conclusionListFor", { label: t("findings") })}
+        label={t("findings")}
+        items={findings}
+      />
+      <DiagnosisConclusionStringList
+        ariaLabel={t("conclusionListFor", { label: t("actionsList") })}
+        label={t("actionsList")}
+        items={recommendedActions}
+      />
       <TimelineEvidenceRequests diagnosisHref={diagnosisHref} item={conclusion} />
       {confidenceTimeline.length > 0 ? (
         <ConfidenceTimeline diagnosisHref={diagnosisHref} items={confidenceTimeline} />
@@ -809,9 +986,11 @@ function DiagnosisConclusion({
 }
 
 function DiagnosisConclusionStringList({
+  ariaLabel,
   label,
   items
 }: {
+  ariaLabel: string;
   label: string;
   items: string[];
 }) {
@@ -820,7 +999,7 @@ function DiagnosisConclusionStringList({
     return null;
   }
   return (
-    <section aria-label={`Conclusion ${label.toLowerCase()}`} className="timeline-evidence-section">
+    <section aria-label={ariaLabel} className="timeline-evidence-section">
       <strong>{label}</strong>
       <ul className="timeline-evidence-list">
         {visibleItems.map((item, index) => (
@@ -840,34 +1019,51 @@ function DiagnosisProgress({
   diagnosisHref: DiagnosisRoomHref;
   progress: ReportDiagnosisProgress;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("ReportDetail");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const confidenceTimeline = progress.confidence_timeline ?? [];
   const supplementalEvidence = progress.supplemental_evidence ?? [];
   return (
-    <div aria-label="Diagnosis progress" className="subreport-conclusion">
+    <div aria-label={t("diagnosisProgressLabel")} className="subreport-conclusion">
       <div className="subreport-conclusion-header">
-        <strong>AI diagnosis progress</strong>
-        <span className="muted">{progress.confidence} confidence</span>
+        <strong>{t("diagnosisProgress")}</strong>
+        <span className="muted">
+          {t("confidence", {
+            value: localizeDiagnosisRoomStatus(progress.confidence, tStatus),
+          })}
+        </span>
       </div>
       {progress.confidence_rationale ? <p>{progress.confidence_rationale}</p> : null}
       <div className="muted">
-        {progress.session_id ?? `task #${progress.diagnosis_task_id}`} / {formatDateTime(progress.occurred_at)}
+        {progress.session_id ??
+          t("taskReference", { id: progress.diagnosis_task_id })} /{" "}
+        {formatDateTime(progress.occurred_at, locale)}
       </div>
       <div className="subreport-conclusion-meta">
-        <span className="label-chip">{progress.status}</span>
-        {progress.conclusion_status ? <span className="label-chip">{progress.conclusion_status}</span> : null}
-        {progress.requires_human_review ? <span className="label-chip">human review</span> : null}
+        <span className="label-chip">
+          {localizeDiagnosisRoomStatus(progress.status, tStatus)}
+        </span>
+        {progress.conclusion_status ? (
+          <span className="label-chip">
+            {localizeDiagnosisRoomStatus(progress.conclusion_status, tStatus)}
+          </span>
+        ) : null}
+        {progress.requires_human_review ? (
+          <span className="label-chip">{t("humanReviewTag")}</span>
+        ) : null}
       </div>
       <dl className="subreport-conclusion-details">
         <div>
-          <dt>Task</dt>
+          <dt>{t("task")}</dt>
           <dd>{progress.diagnosis_task_id}</dd>
         </div>
         <div>
-          <dt>Evidence</dt>
+          <dt>{t("evidence")}</dt>
           <dd>#{progress.evidence_snapshot_id}</dd>
         </div>
         <div>
-          <dt>Requests</dt>
+          <dt>{t("requests")}</dt>
           <dd>{progress.evidence_request_count}</dd>
         </div>
       </dl>
@@ -888,21 +1084,40 @@ function ConfidenceTimeline({
   diagnosisHref: DiagnosisRoomHref;
   items: ReportConfidenceTimelineEntry[];
 }) {
+  const locale = useLocale();
+  const t = useTranslations("ReportDetail");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   return (
-    <section aria-label="Confidence timeline" className="confidence-timeline">
-      <strong>Confidence timeline</strong>
+    <section aria-label={t("confidenceTimeline")} className="confidence-timeline">
+      <strong>{t("confidenceTimeline")}</strong>
       <ol className="confidence-timeline-list">
         {items.map((item) => (
           <li className="confidence-timeline-item" key={confidenceTimelineKey(item)}>
             <div className="confidence-timeline-heading">
-              <strong>{item.confidence} confidence</strong>
-              <span className="label-chip">{item.conclusion_status ?? item.event_kind}</span>
+              <strong>
+                {t("confidence", {
+                  value: localizeDiagnosisRoomStatus(
+                    item.confidence,
+                    tStatus,
+                  ),
+                })}
+              </strong>
+              <span className="label-chip">
+                {localizeDiagnosisRoomStatus(
+                  item.conclusion_status ?? item.event_kind,
+                  tStatus,
+                )}
+              </span>
             </div>
             {item.confidence_rationale ? <p>{item.confidence_rationale}</p> : null}
             <div className="muted">
-              {item.evidence_request_count} evidence request{item.evidence_request_count === 1 ? "" : "s"} /{" "}
-              {item.requires_human_review ? "human review required" : "human review cleared"} /{" "}
-              {formatDateTime(item.occurred_at)}
+              {t("evidenceRequestCount", {
+                count: item.evidence_request_count,
+              })} /{" "}
+              {item.requires_human_review
+                ? t("humanReviewRequired")
+                : t("humanReviewCleared")} /{" "}
+              {formatDateTime(item.occurred_at, locale)}
             </div>
             <TimelineEvidenceRequests diagnosisHref={diagnosisHref} item={item} />
           </li>
@@ -913,12 +1128,14 @@ function ConfidenceTimeline({
 }
 
 function SupplementalEvidenceList({ items }: { items: ReportSupplementalEvidence[] }) {
+  const locale = useLocale();
+  const t = useTranslations("ReportDetail");
   if (items.length === 0) {
     return null;
   }
   return (
-    <section aria-label="Supplemental evidence" className="supplemental-evidence">
-      <strong>Supplemental evidence</strong>
+    <section aria-label={t("supplementalEvidence")} className="supplemental-evidence">
+      <strong>{t("supplementalEvidence")}</strong>
       <ul className="supplemental-evidence-list">
         {items.map((item) => (
           <li className="supplemental-evidence-item" key={supplementalEvidenceKey(item)}>
@@ -928,9 +1145,16 @@ function SupplementalEvidenceList({ items }: { items: ReportSupplementalEvidence
             </div>
             <p className="muted">{item.detail}</p>
             <p className="supplemental-evidence-text">{item.evidence}</p>
-            <div className="muted">Provided {formatDateTime(item.provided_at)}</div>
+            <div className="muted">
+              {t("providedAt", {
+                time: formatDateTime(item.provided_at, locale),
+              })}
+            </div>
             {item.context_refs && item.context_refs.length > 0 ? (
-              <div aria-label={`${item.label} context references`} className="subreport-conclusion-meta">
+              <div
+                aria-label={t("contextReferencesFor", { label: item.label })}
+                className="subreport-conclusion-meta"
+              >
                 {item.context_refs.map((ref) => (
                   <span className="label-chip" key={ref}>
                     {ref}
@@ -960,6 +1184,8 @@ function TimelineEvidenceRequests({
   diagnosisHref: DiagnosisRoomHref;
   item: ReportConfidenceTimelineEntry | ReportDiagnosisProgress | ReportDiagnosisConclusion;
 }) {
+  const t = useTranslations("ReportDetail");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const evidenceRequests = item.evidence_requests ?? [];
   const collectionResults =
     "evidence_collection_results" in item ? item.evidence_collection_results ?? [] : [];
@@ -976,8 +1202,8 @@ function TimelineEvidenceRequests({
   return (
     <div className="timeline-evidence">
       {evidenceRequests.length > 0 ? (
-        <section aria-label="Requested evidence" className="timeline-evidence-section">
-          <strong>Requested evidence</strong>
+        <section aria-label={t("requestedEvidence")} className="timeline-evidence-section">
+          <strong>{t("requestedEvidence")}</strong>
           <ul className="timeline-evidence-list">
             {evidenceRequests.map((request) => {
               const collectionResult = reportEvidenceCollectionResultForRequest(
@@ -989,14 +1215,19 @@ function TimelineEvidenceRequests({
                   <div className="timeline-evidence-heading">
                     <span className="label-chip">{request.tool}</span>
                     <span className="label-chip">
-                      {collectionResult?.status ?? "pending"}
+                      {localizeDiagnosisRoomStatus(
+                        collectionResult?.status ?? "pending",
+                        tStatus,
+                      )}
                     </span>
                     <strong>{request.reason}</strong>
                   </div>
-                  {reportEvidenceRequestDetail(request) ? <code>{reportEvidenceRequestDetail(request)}</code> : null}
+                  {localizeReportEvidenceRequestDetail(request, t) ? (
+                    <code>{localizeReportEvidenceRequestDetail(request, t)}</code>
+                  ) : null}
                   {collectionResult?.status === "collected" ? null : (
                     <Link className="timeline-evidence-action link-button" href={evidencePlanHref(diagnosisHref, request)}>
-                      Use plan in diagnosis
+                      {t("usePlan")}
                     </Link>
                   )}
                 </li>
@@ -1006,10 +1237,14 @@ function TimelineEvidenceRequests({
         </section>
       ) : null}
       <CollectedEvidenceList items={collectionResults} />
-      <ConsultationEvidenceList diagnosisHref={diagnosisHref} label="Missing evidence" items={missingRequests} />
       <ConsultationEvidenceList
         diagnosisHref={diagnosisHref}
-        label="Collection suggestions"
+        label={t("missingEvidence")}
+        items={missingRequests}
+      />
+      <ConsultationEvidenceList
+        diagnosisHref={diagnosisHref}
+        label={t("collectionSuggestions")}
         items={collectionSuggestions}
       />
     </div>
@@ -1017,22 +1252,35 @@ function TimelineEvidenceRequests({
 }
 
 function CollectedEvidenceList({ items }: { items: ReportEvidenceCollectionResult[] }) {
+  const locale = useLocale();
+  const t = useTranslations("ReportDetail");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   if (items.length === 0) {
     return null;
   }
   return (
-    <section aria-label="Collected evidence" className="timeline-evidence-section">
-      <strong>Collected evidence</strong>
+    <section aria-label={t("collectedEvidence")} className="timeline-evidence-section">
+      <strong>{t("collectedEvidence")}</strong>
       <ul className="timeline-evidence-list">
         {items.map((item) => (
           <li className="timeline-evidence-item" key={evidenceCollectionResultKey(item)}>
             <div className="timeline-evidence-heading">
-              <span className="label-chip">{item.status}</span>
+              <span className="label-chip">
+                {localizeDiagnosisRoomStatus(item.status, tStatus)}
+              </span>
               <strong>{item.message ?? item.request_reason ?? item.tool}</strong>
             </div>
             {item.message && item.request_reason ? <p className="muted">{item.request_reason}</p> : null}
-            {evidenceCollectionResultDetail(item) ? <code>{evidenceCollectionResultDetail(item)}</code> : null}
-            <div className="muted">Collected {formatDateTime(item.collected_at)}</div>
+            {localizeReportEvidenceCollectionResultDetail(item, t) ? (
+              <code>
+                {localizeReportEvidenceCollectionResultDetail(item, t)}
+              </code>
+            ) : null}
+            <div className="muted">
+              {t("collectedAt", {
+                time: formatDateTime(item.collected_at, locale),
+              })}
+            </div>
           </li>
         ))}
       </ul>
@@ -1049,6 +1297,7 @@ function ConsultationEvidenceList({
   label: string;
   items: ReportConsultationEvidenceRequest[];
 }) {
+  const t = useTranslations("ReportDetail");
   if (items.length === 0) {
     return null;
   }
@@ -1064,32 +1313,13 @@ function ConsultationEvidenceList({
             </div>
             <p className="muted">{item.detail}</p>
             <Link className="timeline-evidence-action link-button" href={supplementalFollowUpHref(diagnosisHref, item)}>
-              Use in diagnosis
+              {t("useInDiagnosis")}
             </Link>
           </li>
         ))}
       </ul>
     </section>
   );
-}
-
-function evidenceCollectionResultDetail(item: ReportEvidenceCollectionResult) {
-  const parts = [
-    item.tool,
-    item.reason_code ? `reason: ${item.reason_code}` : undefined,
-    item.query ? `query: ${item.query}` : undefined,
-    item.template_id !== undefined ? `template #${item.template_id}` : undefined,
-    item.alert_source_profile_id !== undefined ? `source #${item.alert_source_profile_id}` : undefined,
-    item.alert_source_kind ? `source: ${item.alert_source_kind}` : undefined,
-    item.observed_alerts !== undefined ? `${item.observed_alerts} alert${item.observed_alerts === 1 ? "" : "s"}` : undefined,
-    item.observed_metric_series !== undefined
-      ? `${item.observed_metric_series} metric series`
-      : undefined,
-    item.window_seconds !== undefined ? `window ${item.window_seconds}s` : undefined,
-    item.step_seconds !== undefined ? `step ${item.step_seconds}s` : undefined,
-    item.limit !== undefined ? `limit ${item.limit}` : undefined
-  ].filter((part): part is string => part !== undefined);
-  return parts.join(" / ");
 }
 
 function evidenceCollectionResultKey(item: ReportEvidenceCollectionResult) {
@@ -1119,17 +1349,6 @@ function evidenceFollowUpKey(item: ReportEvidenceFollowUp) {
     item.detail,
     item.request ? reportEvidenceRequestKey(item.request) : ""
   ].join(":");
-}
-
-function evidenceFollowUpLabel(kind: ReportEvidenceFollowUp["kind"]) {
-  switch (kind) {
-    case "collection_suggestion":
-      return "Collection suggestion";
-    case "evidence_request":
-      return "Evidence plan";
-    case "missing_evidence":
-      return "Missing evidence";
-  }
 }
 
 function evidenceFollowUpHref(baseHref: DiagnosisRoomHref, item: ReportEvidenceFollowUp) {
@@ -1165,21 +1384,25 @@ function evidencePlanHref(baseHref: DiagnosisRoomHref, item: ReportEvidenceReque
 function diagnosisConclusionMetadata(
   conclusion: ReportDiagnosisConclusion,
   directoryUsersBySubject: ReadonlyMap<string, DirectoryUser>,
+  t: ReportDetailTranslator,
 ) {
   const items: Array<{ label: string; value: ReactNode }> = [
-    { label: "Task", value: String(conclusion.diagnosis_task_id) },
-    { label: "Chat", value: String(conclusion.chat_session_id) },
-    { label: "Event", value: conclusion.event_kind }
+    { label: t("task"), value: String(conclusion.diagnosis_task_id) },
+    { label: t("chat"), value: String(conclusion.chat_session_id) },
+    { label: t("event"), value: conclusion.event_kind }
   ];
   if (conclusion.evidence_snapshot_id !== undefined) {
-    items.push({ label: "Evidence", value: `#${conclusion.evidence_snapshot_id}` });
+    items.push({
+      label: t("evidence"),
+      value: `#${conclusion.evidence_snapshot_id}`,
+    });
   }
   if (conclusion.conclusion_version) {
-    items.push({ label: "Version", value: conclusion.conclusion_version });
+    items.push({ label: t("version"), value: conclusion.conclusion_version });
   }
   if (conclusion.confirmed_by) {
     items.push({
-      label: "Confirmed by",
+      label: t("confirmedBy"),
       value: (
         <ReportDirectorySubject
           directoryUsersBySubject={directoryUsersBySubject}
@@ -1198,6 +1421,7 @@ function ReportDirectorySubject({
   directoryUsersBySubject: ReadonlyMap<string, DirectoryUser>;
   subject?: string;
 }) {
+  const t = useTranslations("ReportDetail");
   const normalizedSubject = subject?.trim() ?? "";
   if (normalizedSubject === "") {
     return "-";
@@ -1225,20 +1449,23 @@ function ReportDirectorySubject({
         </span>
       ))}
       {profile.active === false ? (
-        <span className="label-chip report-subject-chip-inactive">inactive</span>
+        <span className="label-chip report-subject-chip-inactive">
+          {t("inactive")}
+        </span>
       ) : null}
       {!isSystem && !profile.matchedDirectoryUser ? (
-        <span className="label-chip">not synced</span>
+        <span className="label-chip">{t("notSynced")}</span>
       ) : null}
-      {isSystem ? <span className="label-chip">system</span> : null}
+      {isSystem ? <span className="label-chip">{t("system")}</span> : null}
     </span>
   );
 }
 
 function ErrorNotice({ message, status }: { message: string; status?: number }) {
+  const t = useTranslations("ReportDetail");
   return (
     <div className="notice" role="alert">
-      <strong>{status ? `HTTP ${status}` : "Request failed"}</strong>
+      <strong>{status ? `HTTP ${status}` : t("requestFailed")}</strong>
       <div>{message}</div>
     </div>
   );
