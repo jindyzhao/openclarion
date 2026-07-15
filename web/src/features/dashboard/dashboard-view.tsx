@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Route } from "next";
+import { useLocale, useTranslations } from "next-intl";
 
 import type {
   DiagnosisHandoffListResponse,
@@ -12,6 +13,8 @@ import {
   diagnosisRoomNextStep,
   latestFailedDiagnosisRoomNotification
 } from "@/features/diagnosis-room/next-step";
+import { localizeDiagnosisRoomNextStep } from "@/features/diagnosis-room/next-step-copy";
+import { localizeDiagnosisRoomStatus } from "@/features/diagnosis-room/status-copy";
 import { formatDateTime } from "@/features/reports/format";
 import { notificationChannelEditHref } from "@/features/settings/notification-channels/format";
 import type { ApiResult } from "@/lib/api/client";
@@ -26,15 +29,16 @@ type DashboardViewProps = {
 };
 
 export function DashboardView({ handoffsResult, result, roomsResult }: DashboardViewProps) {
+  const t = useTranslations("Dashboard");
   return (
     <>
       <div className="page-heading">
         <div>
-          <h1>Dashboard</h1>
-          <p>Recent alert load and report delivery health.</p>
+          <h1>{t("title")}</h1>
+          <p>{t("subtitle")}</p>
         </div>
         <Link className="status-line" href="/reports">
-          View reports
+          {t("viewReports")}
         </Link>
       </div>
 
@@ -53,46 +57,55 @@ function Summary({
   handoffsResult: ApiResult<DiagnosisHandoffListResponse>;
   roomsResult: ApiResult<DiagnosisRoomListResponse>;
 }) {
+  const locale = useLocale();
+  const t = useTranslations("Dashboard");
   return (
     <div className="overview-stack">
-      <section className="overview-metrics" aria-label="Dashboard metrics">
-        <MetricCard href="/alerts" label="Firing alerts" value={formatCount(dashboard.alerts.firing)} />
-        <MetricCard href="/alerts" label="Recent alerts" value={formatCount(dashboard.alerts.total_recent)} />
-        <MetricCard href="/reports" label="Report success" value={formatSuccessRate(dashboard.reports.success_rate)} />
-        <MetricCard href="/reports" label="Recent reports" value={formatCount(dashboard.reports.total_recent)} />
+      <section className="overview-metrics" aria-label={t("metricsLabel")}>
+        <MetricCard href="/alerts" label={t("firingAlerts")} value={formatCount(dashboard.alerts.firing, locale)} />
+        <MetricCard href="/alerts" label={t("recentAlerts")} value={formatCount(dashboard.alerts.total_recent, locale)} />
+        <MetricCard
+          href="/reports"
+          label={t("reportSuccess")}
+          value={
+            formatSuccessRate(dashboard.reports.success_rate, locale) ??
+            t("notAvailable")
+          }
+        />
+        <MetricCard href="/reports" label={t("recentReports")} value={formatCount(dashboard.reports.total_recent, locale)} />
       </section>
 
       <div className="overview-primary-grid">
         <section className="panel">
           <div className="panel-header dashboard-panel-header">
-            <h2>Operational Health</h2>
+            <h2>{t("operationalHealth")}</h2>
             <Link className="status-line" href="/alerts">
-              Inspect alerts
+              {t("inspectAlerts")}
             </Link>
           </div>
           <div className="overview-health-groups">
             <div className="overview-health-group">
-              <h3>Alert State</h3>
+              <h3>{t("alertState")}</h3>
               <dl className="stat-list">
-                <Stat label="Firing" value={dashboard.alerts.firing} />
-                <Stat label="Resolved" value={dashboard.alerts.resolved} />
+                <Stat label={t("firing")} value={dashboard.alerts.firing} locale={locale} />
+                <Stat label={t("resolved")} value={dashboard.alerts.resolved} locale={locale} />
               </dl>
             </div>
             <div className="overview-health-group">
-              <h3>Report Delivery</h3>
+              <h3>{t("reportDelivery")}</h3>
               <dl className="stat-list">
-                <Stat label="Delivered" value={dashboard.reports.delivered} />
-                <Stat label="Failed" value={dashboard.reports.failed} />
-                <Stat label="Pending" value={dashboard.reports.pending} />
-                <Stat label="No delivery row" value={dashboard.reports.missing_delivery} />
+                <Stat label={t("delivered")} value={dashboard.reports.delivered} locale={locale} />
+                <Stat label={t("failed")} value={dashboard.reports.failed} locale={locale} />
+                <Stat label={t("pending")} value={dashboard.reports.pending} locale={locale} />
+                <Stat label={t("noDeliveryRow")} value={dashboard.reports.missing_delivery} locale={locale} />
               </dl>
             </div>
             <div className="overview-health-group">
-              <h3>Report Severity</h3>
+              <h3>{t("reportSeverity")}</h3>
               <dl className="stat-list">
-                <Stat label="Critical" value={dashboard.reports.severity.critical} />
-                <Stat label="Warning" value={dashboard.reports.severity.warning} />
-                <Stat label="Info" value={dashboard.reports.severity.info} />
+                <Stat label={t("critical")} value={dashboard.reports.severity.critical} locale={locale} />
+                <Stat label={t("warning")} value={dashboard.reports.severity.warning} locale={locale} />
+                <Stat label={t("info")} value={dashboard.reports.severity.info} locale={locale} />
               </dl>
             </div>
           </div>
@@ -100,9 +113,9 @@ function Summary({
 
         <section className="panel overview-handoff-panel">
           <div className="panel-header dashboard-panel-header">
-            <h2>AI Handoff Backlog</h2>
+            <h2>{t("handoffBacklog")}</h2>
             <Link className="status-line" href="/alerts">
-              View alerts
+              {t("viewAlerts")}
             </Link>
           </div>
           <div className="panel-body">
@@ -113,9 +126,9 @@ function Summary({
 
       <section className="panel overview-diagnosis-panel">
         <div className="panel-header dashboard-panel-header">
-          <h2>AI Diagnosis Rooms</h2>
+          <h2>{t("diagnosisRooms")}</h2>
           <Link className="status-line" href="/diagnosis-room">
-            Open work queue
+            {t("openWorkQueue")}
           </Link>
         </div>
         <div className="panel-body">
@@ -133,12 +146,14 @@ function AIHandoffBacklog({
   result: ApiResult<DiagnosisHandoffListResponse>;
   stats: DashboardSummary["diagnosis"];
 }) {
+  const locale = useLocale();
+  const t = useTranslations("Dashboard");
   if (!result.ok) {
     if (result.error.status === 403) {
       return (
         <PermissionLimitedNotice
-          detail="Your account can read operational dashboard metrics, but it cannot inspect or act on the diagnosis handoff backlog."
-          title="AI handoff backlog is restricted"
+          detail={t("handoffRestrictedDetail")}
+          title={t("handoffRestrictedTitle")}
         />
       );
     }
@@ -147,42 +162,45 @@ function AIHandoffBacklog({
   if (stats.snapshots_needing_room === 0) {
     return (
       <div className="notice">
-        <strong>No manual handoff backlog.</strong>
+        <strong>{t("noHandoff")}</strong>
       </div>
     );
   }
   const backlog = result.data.items;
   return (
     <div className="dashboard-room-stack">
-      <dl aria-label="AI handoff backlog health" className="stat-list">
-        <Stat label="Snapshots needing room" value={stats.snapshots_needing_room} />
-        <Stat label="Affected alerts" value={stats.affected_alerts_needing_room} />
-        <Stat label="Rooms started" value={stats.rooms_started} />
+      <dl aria-label={t("handoffHealth")} className="stat-list">
+        <Stat label={t("snapshotsNeedingRoom")} value={stats.snapshots_needing_room} locale={locale} />
+        <Stat label={t("affectedAlerts")} value={stats.affected_alerts_needing_room} locale={locale} />
+        <Stat label={t("roomsStarted")} value={stats.rooms_started} locale={locale} />
       </dl>
       {backlog.length === 0 ? (
         <div className="notice">
-          <strong>Backlog exists, but alert details are not available in the current list.</strong>
+          <strong>{t("backlogDetailsUnavailable")}</strong>
         </div>
       ) : (
-        <ul aria-label="AI handoff backlog" className="dashboard-room-list">
+        <ul aria-label={t("backlogLabel")} className="dashboard-room-list">
           {backlog.map((item) => {
             const primaryAlert = item.alerts[0] ?? null;
             return (
               <li className="dashboard-room-item" key={item.evidence_snapshot.id}>
                 <div className="dashboard-room-main">
                   <Link href={diagnosisSnapshotHref(item.evidence_snapshot.id)}>
-                    Create room #{item.evidence_snapshot.id}
+                    {t("createRoom", { id: item.evidence_snapshot.id })}
                   </Link>
                   <div className="muted">
-                    {handoffAlertLabel(item.alerts)} | group #{item.evidence_snapshot.alert_group_id} |{" "}
-                    {item.evidence_snapshot.created_by_workflow || "manual"}
+                    {handoffAlertLabel(item.alerts, t)} | {t("group", { id: item.evidence_snapshot.alert_group_id })} |{" "}
+                    {item.evidence_snapshot.created_by_workflow || t("manual")}
                   </div>
                 </div>
                 <div className="dashboard-room-meta">
                   <span className={`pill ${severityPillClass(primaryAlert ? alertSeverity(primaryAlert) : "info")}`}>
-                    {primaryAlert ? alertSeverity(primaryAlert) : "info"}
+                    {localizedSeverity(
+                      primaryAlert ? alertSeverity(primaryAlert) : "info",
+                      t,
+                    )}
                   </span>
-                  <span className="pill pill-warning">manual room</span>
+                  <span className="pill pill-warning">{t("manualRoom")}</span>
                 </div>
               </li>
             );
@@ -194,12 +212,16 @@ function AIHandoffBacklog({
 }
 
 function DiagnosisRoomList({ result }: { result: ApiResult<DiagnosisRoomListResponse> }) {
+  const locale = useLocale();
+  const t = useTranslations("Dashboard");
+  const tNextStep = useTranslations("DiagnosisRoom.nextStep");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   if (!result.ok) {
     if (result.error.status === 403) {
       return (
         <PermissionLimitedNotice
-          detail="Your account can read operational dashboard metrics, but it cannot read diagnosis room details."
-          title="AI diagnosis rooms are restricted"
+          detail={t("roomsRestrictedDetail")}
+          title={t("roomsRestrictedTitle")}
         />
       );
     }
@@ -208,54 +230,69 @@ function DiagnosisRoomList({ result }: { result: ApiResult<DiagnosisRoomListResp
   if (result.data.items.length === 0) {
     return (
       <div className="notice">
-        <strong>No diagnosis rooms available.</strong>
+        <strong>{t("noRooms")}</strong>
       </div>
     );
   }
   const health = diagnosisRoomHealth(result.data.items);
   return (
     <div className="dashboard-room-stack">
-      <dl aria-label="AI diagnosis room health" className="dashboard-room-health">
-        <RoomHealthStat label="Attention" value={health.attention} />
-        <RoomHealthStat label="Ready" value={health.ready} />
-        <RoomHealthStat label="Active" value={health.active} />
-        <RoomHealthStat label="Closed" value={health.closed} />
-        <RoomHealthStat label="Notification failures" value={health.notificationFailures} />
+      <dl aria-label={t("roomHealth")} className="dashboard-room-health">
+        <RoomHealthStat label={t("attention")} value={health.attention} locale={locale} />
+        <RoomHealthStat label={t("ready")} value={health.ready} locale={locale} />
+        <RoomHealthStat label={t("active")} value={health.active} locale={locale} />
+        <RoomHealthStat label={t("closed")} value={health.closed} locale={locale} />
+        <RoomHealthStat label={t("notificationFailures")} value={health.notificationFailures} locale={locale} />
       </dl>
-      <ul aria-label="Recent diagnosis rooms" className="dashboard-room-list">
+      <ul aria-label={t("recentRoomsLabel")} className="dashboard-room-list">
         {result.data.items.map((room) => {
           const step = diagnosisRoomNextStep(room);
+          const stepCopy = localizeDiagnosisRoomNextStep(
+            step,
+            locale,
+            tNextStep,
+            tStatus,
+          );
           return (
             <li className="dashboard-room-item" key={room.chat_session_id}>
               <div className="dashboard-room-main">
                 <Link href={diagnosisRoomHref(room)}>{room.session_id}</Link>
                 <div className="muted">
-                  task #{room.diagnosis_task_id} | evidence #{room.evidence_snapshot_id} | updated{" "}
-                  {formatDateTime(room.updated_at)}
+                  {t("roomMeta", {
+                    task: room.diagnosis_task_id,
+                    evidence: room.evidence_snapshot_id,
+                    updated: formatDateTime(room.updated_at, locale),
+                  })}
                 </div>
                 <div className="dashboard-room-next-step">
-                  <span className={`pill ${statusPillClass(step.color)}`}>{step.label}</span>
-                  <span className="muted">{step.detail}</span>
+                  <span className={`pill ${statusPillClass(step.color)}`}>{stepCopy.label}</span>
+                  <span className="muted">{stepCopy.detail}</span>
                 </div>
                 <DashboardRoomNotification room={room} />
               </div>
               <div className="dashboard-room-meta">
-                <span className={room.room_status === "open" ? "pill pill-ok" : "pill pill-info"}>{room.room_status}</span>
-                <span className="pill pill-info">{room.task_status}</span>
+                <span className={room.room_status === "open" ? "pill pill-ok" : "pill pill-info"}>
+                  {localizeDiagnosisRoomStatus(room.room_status, tStatus)}
+                </span>
+                <span className="pill pill-info">
+                  {localizeDiagnosisRoomStatus(room.task_status, tStatus)}
+                </span>
                 {room.latest_conclusion ? (
                   <>
-                    <span className="pill pill-ok">{room.latest_conclusion.status}</span>
+                    <span className="pill pill-ok">
+                      {localizeDiagnosisRoomStatus(room.latest_conclusion.status, tStatus)}
+                    </span>
                     {room.latest_conclusion.confidence ? (
                       <span className={`pill ${confidencePillClass(room.latest_conclusion.confidence)}`}>
-                        {room.latest_conclusion.confidence}
+                        {localizeDiagnosisRoomStatus(room.latest_conclusion.confidence, tStatus)}
                       </span>
                     ) : null}
                     {room.latest_conclusion.requires_human_review ? (
-                      <span className="pill pill-warning">review</span>
+                      <span className="pill pill-warning">{t("review")}</span>
                     ) : null}
                   </>
                 ) : null}
-                <span className="muted">{room.turn_count} turn(s)</span>
+                <span className="muted">{t("turns", { count: room.turn_count })}</span>
               </div>
             </li>
           );
@@ -265,21 +302,23 @@ function DiagnosisRoomList({ result }: { result: ApiResult<DiagnosisRoomListResp
   );
 }
 
-function RoomHealthStat({ label, value }: { label: string; value: number }) {
+function RoomHealthStat({ label, locale, value }: { label: string; locale: string; value: number }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{formatCount(value)}</dd>
+      <dd>{formatCount(value, locale)}</dd>
     </div>
   );
 }
 
 function DashboardRoomNotification({ room }: { room: DiagnosisRoomSummary }) {
+  const t = useTranslations("Dashboard");
+  const tStatus = useTranslations("DiagnosisRoom.status");
   const notification = latestDiagnosisRoomNotification(room);
   if (!notification) {
     return (
       <div className="dashboard-room-notification muted">
-        <span>No AI notification recorded</span>
+        <span>{t("noNotification")}</span>
       </div>
     );
   }
@@ -287,15 +326,17 @@ function DashboardRoomNotification({ room }: { room: DiagnosisRoomSummary }) {
   return (
     <div className="dashboard-room-notification">
       <span className={`pill ${statusPillClass(failed ? "error" : "success")}`}>
-        {notificationEventLabel(notification.event_kind)}
+        {notificationEventLabel(notification.event_kind, t)}
       </span>
-      <span className={`pill ${statusPillClass(failed ? "error" : "success")}`}>{notification.provider_status}</span>
+      <span className={`pill ${statusPillClass(failed ? "error" : "success")}`}>
+        {localizeDiagnosisRoomStatus(notification.provider_status, tStatus)}
+      </span>
       {notification.provider_message_id ? (
         <span className="muted">{notification.provider_message_id}</span>
       ) : null}
       {failed ? (
         <a className="status-line" href={notificationChannelReviewHref(notification)}>
-          Review channel
+          {t("reviewChannel")}
         </a>
       ) : null}
     </div>
@@ -331,14 +372,17 @@ function notificationFailed(status: string): boolean {
   }
 }
 
-function notificationEventLabel(eventKind: string): string {
+function notificationEventLabel(
+  eventKind: string,
+  t: ReturnType<typeof useTranslations<"Dashboard">>,
+): string {
   switch (eventKind) {
     case "diagnosis_room.assistant_turn_notification_sent":
-      return "AI update notification";
+      return t("aiUpdateNotification");
     case "diagnosis_room.final_ready_notification_sent":
-      return "Final-ready notification";
+      return t("finalReadyNotification");
     case "diagnosis_room.close_notification_sent":
-      return "Close notification";
+      return t("closeNotification");
     default:
       return eventKind;
   }
@@ -386,17 +430,43 @@ function diagnosisSnapshotHref(snapshotID: number) {
   };
 }
 
-function handoffAlertLabel(alerts: AlertEventSummary[]): string {
+function handoffAlertLabel(
+  alerts: AlertEventSummary[],
+  t: ReturnType<typeof useTranslations<"Dashboard">>,
+): string {
   const first = alerts[0];
   if (!first) {
-    return "No linked alert";
+    return t("noLinkedAlert");
   }
-  const suffix = alerts.length > 1 ? ` + ${alerts.length - 1} more` : "";
-  return `${alertName(first)}${suffix}`;
+  const suffix = alerts.length > 1 ? t("moreAlerts", { count: alerts.length - 1 }) : "";
+  return `${alertName(first, t)}${suffix}`;
 }
 
-function alertName(alert: AlertEventSummary): string {
-  return alert.labels.alertname || alert.labels.alert_name || `Alert #${alert.id}`;
+function alertName(
+  alert: AlertEventSummary,
+  t: ReturnType<typeof useTranslations<"Dashboard">>,
+): string {
+  return (
+    alert.labels.alertname ||
+    alert.labels.alert_name ||
+    t("alertNumber", { id: alert.id })
+  );
+}
+
+function localizedSeverity(
+  severity: string,
+  t: ReturnType<typeof useTranslations<"Dashboard">>,
+): string {
+  switch (severity.toLowerCase()) {
+    case "critical":
+      return t("critical");
+    case "warning":
+      return t("warning");
+    case "info":
+      return t("info");
+    default:
+      return severity;
+  }
 }
 
 function alertSeverity(alert: AlertEventSummary): string {
@@ -439,19 +509,20 @@ function MetricCard({ href, label, value }: { href: Route; label: string; value:
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function Stat({ label, locale = "en", value }: { label: string; locale?: string; value: number }) {
   return (
     <div>
       <dt>{label}</dt>
-      <dd>{formatCount(value)}</dd>
+      <dd>{formatCount(value, locale)}</dd>
     </div>
   );
 }
 
 function ErrorNotice({ message, status }: { message: string; status?: number }) {
+  const t = useTranslations("Dashboard");
   return (
     <div className="notice">
-      <strong>{status ? `HTTP ${status}` : "Request failed"}</strong>
+      <strong>{status ? `HTTP ${status}` : t("requestFailed")}</strong>
       <div>{message}</div>
     </div>
   );

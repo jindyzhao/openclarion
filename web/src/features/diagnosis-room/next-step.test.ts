@@ -186,9 +186,11 @@ describe("diagnosis room next step", () => {
 
     expect(step).toEqual({
       bucket: "attention",
+      code: "delivery_not_started",
       color: "warning",
       detail:
         "Operator-confirmed conclusion is retained, but AI delivery proof has not started. Verify assistant update, final conclusion, and close notification proof before treating the room as delivered.",
+      detailKey: "delivery_not_started",
       label: "AI delivery not started",
     });
   });
@@ -252,9 +254,11 @@ describe("diagnosis room next step", () => {
 
     expect(step).toEqual({
       bucket: "active",
+      code: "ai_review_queued",
       color: "processing",
       detail:
         "Automatic diagnosis has started from alert evidence. Wait for the first AI report or refresh the room state before sending an operator prompt.",
+      detailKey: "ai_review_queued",
       label: "AI review queued",
     });
   });
@@ -286,6 +290,13 @@ describe("diagnosis room next step", () => {
 
     expect(step).toMatchObject({
       bucket: "attention",
+      code: "collect_evidence",
+      detailKey: "collect_evidence_counts",
+      detailValues: {
+        missing: 1,
+        planned: 2,
+        suggestions: 1,
+      },
       label: "Collect evidence",
     });
     expect(step.detail).toContain("2 planned");
@@ -364,21 +375,24 @@ describe("diagnosis room next step", () => {
   });
 
   it("classifies ready-for-review progress as ready", () => {
-    expect(
-      diagnosisRoomNextStep(
-        room({
-          latest_progress: progress({
-            conclusion_status: "ready_for_review",
-            confidence: "high",
-            confidence_rationale: "Collected evidence supports confirmation.",
-          }),
-          turn_count: 2,
+    const step = diagnosisRoomNextStep(
+      room({
+        latest_progress: progress({
+          conclusion_status: "ready_for_review",
+          confidence: "high",
+          confidence_rationale: "Collected evidence supports confirmation.",
         }),
-      ),
-    ).toMatchObject({
+        turn_count: 2,
+      }),
+    );
+
+    expect(step).toMatchObject({
       bucket: "ready",
+      code: "review_ai_report",
+      detail: "Collected evidence supports confirmation.",
       label: "Review AI report",
     });
+    expect(step.detailKey).toBeUndefined();
   });
 
   it("classifies open rooms with missing workflow visibility as attention", () => {

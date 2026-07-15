@@ -51,16 +51,36 @@ type ConsoleShellProps = Readonly<{
   children: ReactNode;
 }>;
 
+type ShellItemMessageKey =
+  | "items.access"
+  | "items.alerts"
+  | "items.channels"
+  | "items.dashboard"
+  | "items.diagnosis"
+  | "items.grouping"
+  | "items.reports"
+  | "items.schedules"
+  | "items.settings"
+  | "items.sources"
+  | "items.tools"
+  | "items.workflow"
+  | "items.workspaces";
+
+type ShellSectionMessageKey =
+  | "sections.automation"
+  | "sections.configuration"
+  | "sections.workspace";
+
 type NavigationItem = {
   href: Route;
   icon: ReactNode;
   key: ConsoleSection;
-  labelKey: string;
+  labelKey: ShellItemMessageKey;
 };
 
 type NavigationSection = {
   key: string;
-  labelKey: string;
+  labelKey: ShellSectionMessageKey;
   items: NavigationItem[];
 };
 
