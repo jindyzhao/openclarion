@@ -108,7 +108,6 @@ import { DiagnosisAuthModeSelector } from "./auth-mode-selector";
 import { DiagnosisAuditTimelineSection } from "./audit-timeline";
 import {
   diagnosisActorApprovalBlockReason,
-  diagnosisApprovalAuthorityLabel,
   diagnosisApprovalModeLabel,
   diagnosisPendingApprovalAuthorities,
   diagnosisApprovalStatus,
@@ -258,9 +257,11 @@ import {
   type DiagnosisRoomQueueFilter,
 } from "./next-step";
 import {
+  operatorEvidenceRangeValues,
   operatorEvidenceTemplateHasParameterizedQuery,
   operatorEvidenceTemplateQuery,
   operatorEvidenceTemplateSourceDisabledReason,
+  type OperatorEvidenceRangeField,
 } from "./operator-evidence";
 import {
   supplementalEvidencePriorityFromText,
@@ -327,6 +328,9 @@ type AuthFormValues = DiagnosisAuthInputValues;
 
 type AuthCheckContext = "create" | "connection";
 type AuthCheckRevisions = Record<AuthCheckContext, number>;
+type DiagnosisWorkspaceTranslator = ReturnType<
+  typeof useTranslations<"DiagnosisRoom.workspace">
+>;
 
 type AuthCheckResult = DiagnosisAuthBackendCheck & {
   context: AuthCheckContext;
@@ -451,6 +455,7 @@ function DiagnosisAuthReadinessPreview({
   lastCheck: AuthCheckResult | null;
   values: DiagnosisAuthInputValues;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const readiness = diagnosisAuthInputReadiness(values);
   const displayedLastCheck =
     lastCheck !== null && lastCheck.mode === readiness.mode ? lastCheck : null;
@@ -467,11 +472,11 @@ function DiagnosisAuthReadinessPreview({
     diagnosisAuthBackendModeDisplayItems(backendAuthStatus);
   const roles =
     displayedLastCheck === null || displayedLastCheck.roles.length === 0
-      ? "no roles"
+      ? t("noRoles")
       : displayedLastCheck.roles.join(", ");
   return (
     <div
-      aria-label="Diagnosis auth readiness"
+      aria-label={t("authReadiness")}
       className="settings-preview-panel"
     >
       <Space direction="vertical" size={8}>
@@ -499,7 +504,7 @@ function DiagnosisAuthReadinessPreview({
         />
         {supportedModeItems.length > 0 ? (
           <Space size={6} wrap>
-            <Typography.Text type="secondary">Supported modes</Typography.Text>
+            <Typography.Text type="secondary">{t("supportedModes")}</Typography.Text>
             {supportedModeItems.map((item) => (
               <Tag color={item.color} key={item.mode}>
                 {item.label}
@@ -513,7 +518,7 @@ function DiagnosisAuthReadinessPreview({
         </Typography.Text>
         {displayedLastCheck === null ? (
           <Typography.Text type="secondary">
-            No backend auth check has been run for this form.
+            {t("noBackendCheck")}
           </Typography.Text>
         ) : (
           <Typography.Text
@@ -522,8 +527,13 @@ function DiagnosisAuthReadinessPreview({
             }
           >
             {displayedLastCheck.status === "success"
-              ? `${displayedLastCheck.message} Roles: ${roles}.`
-              : `Last auth check failed: ${displayedLastCheck.message}`}
+              ? t("authCheckRoles", {
+                  message: displayedLastCheck.message,
+                  roles,
+                })
+              : t("lastAuthCheckFailed", {
+                  message: displayedLastCheck.message,
+                })}
           </Typography.Text>
         )}
       </Space>
@@ -574,6 +584,7 @@ function DiagnosisBrowserSessionActions({
   sessionRefreshing: boolean;
   logoutBusy: boolean;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const activeSession =
     session?.ok === true && session.data.authenticated ? session.data : null;
   const sessionDisplay = diagnosisAuthBrowserSessionDisplaySummary({
@@ -584,8 +595,7 @@ function DiagnosisBrowserSessionActions({
     roleAuthorized: activeSession?.role_authorized,
     roles: activeSession?.roles ?? [],
     subject: activeSession?.subject ?? "",
-    unauthenticatedDetail:
-      "No OpenClarion browser session is active. Sign in with IAM before using diagnosis-room auth.",
+    unauthenticatedDetail: t("noBrowserSession"),
   });
   return (
     <Alert
@@ -599,7 +609,7 @@ function DiagnosisBrowserSessionActions({
               icon={<LoginOutlined />}
               type="primary"
             >
-              Sign in with IAM
+              {t("signInIAM")}
             </Button>
           ) : null}
           <TooltipAction
@@ -615,7 +625,7 @@ function DiagnosisBrowserSessionActions({
               onClick={onCheckAuth}
               type="primary"
             >
-              Check auth
+              {t("checkAuth")}
             </Button>
           </TooltipAction>
           <Button
@@ -624,7 +634,7 @@ function DiagnosisBrowserSessionActions({
             loading={sessionRefreshing}
             onClick={onRefreshSession}
           >
-            Refresh session
+            {t("refreshSession")}
           </Button>
           {activeSession !== null ? (
             <Button
@@ -633,7 +643,7 @@ function DiagnosisBrowserSessionActions({
               loading={logoutBusy}
               onClick={onLogout}
             >
-              Sign out
+              {t("signOut")}
             </Button>
           ) : null}
         </Space>
@@ -645,7 +655,7 @@ function DiagnosisBrowserSessionActions({
           subject={activeSession?.subject}
         />
       }
-      message="IAM browser session"
+      message={t("browserSession")}
       showIcon
       type={sessionDisplay.alertType}
     />
@@ -691,11 +701,11 @@ function DiagnosisWeComLoginActions({
   sessionRefreshing: boolean;
   logoutBusy: boolean;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const activeSession =
     session?.ok === true && session.data.authenticated ? session.data : null;
   const sessionCheckFailed = session?.ok === false;
-  const migrationDetail =
-    "Enterprise WeChat browser login has been replaced by IAM OIDC. Use IAM sign-in for OpenClarion browser sessions; Enterprise WeChat remains available for app messages, notification delivery, and diagnosis-room collaboration callbacks.";
+  const migrationDetail = t("iamMigrationDetail");
   const sessionDisplay = diagnosisAuthBrowserSessionDisplaySummary({
     authenticated: activeSession !== null,
     checkFailed: sessionCheckFailed,
@@ -730,7 +740,7 @@ function DiagnosisWeComLoginActions({
               icon={<LoginOutlined />}
               type="primary"
             >
-              Sign in with IAM
+              {t("signInIAM")}
             </Button>
           ) : (
             <TooltipAction
@@ -746,7 +756,7 @@ function DiagnosisWeComLoginActions({
                 onClick={onCheckAuth}
                 type="primary"
               >
-                Use browser session
+                {t("useBrowserSession")}
               </Button>
             </TooltipAction>
           )}
@@ -756,7 +766,7 @@ function DiagnosisWeComLoginActions({
             loading={sessionRefreshing}
             onClick={onRefreshSession}
           >
-            Refresh session
+            {t("refreshSession")}
           </Button>
           {activeSession !== null ? (
             <Button
@@ -765,13 +775,13 @@ function DiagnosisWeComLoginActions({
               loading={logoutBusy}
               onClick={onLogout}
             >
-              Sign out
+              {t("signOut")}
             </Button>
           ) : null}
         </Space>
       }
       description={loginDescription}
-      message="IAM browser session"
+      message={t("browserSession")}
       showIcon
       type={
         sessionDisplay.active || sessionLoading || sessionCheckFailed
@@ -791,6 +801,7 @@ function BrowserSessionDescription({
   directoryUsersBySubject: ReadonlyMap<string, DiagnosisCollaborationDirectoryUser>;
   subject?: string;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const normalizedSubject = subject?.trim() ?? "";
   if (normalizedSubject === "") {
     return detail;
@@ -800,7 +811,7 @@ function BrowserSessionDescription({
       <Typography.Text>{detail}</Typography.Text>
       <ActorSubjectTags
         directoryUsersBySubject={directoryUsersBySubject}
-        label="Directory"
+        label={t("directory")}
         subject={normalizedSubject}
       />
     </Space>
@@ -1149,6 +1160,7 @@ export function DiagnosisRoomView({
   const { message, modal } = AntdApp.useApp();
   const locale = useLocale();
   const diagnosisRoomT = useTranslations("DiagnosisRoom");
+  const t = useTranslations("DiagnosisRoom.workspace");
   const queryClient = useQueryClient();
   const pathname = usePathname();
   const router = useRouter();
@@ -3840,13 +3852,11 @@ export function DiagnosisRoomView({
     <>
       <section className="page-heading">
         <div>
-          <h1>Diagnosis Room</h1>
-          <p>
-            Short-conversation investigation from a frozen evidence snapshot.
-          </p>
+          <h1>{t("title")}</h1>
+          <p>{t("subtitle")}</p>
         </div>
         <Tag
-          aria-label="Connection status"
+          aria-label={t("connectionStatus")}
           color={statusColor(status)}
           role="status"
         >
@@ -3862,7 +3872,7 @@ export function DiagnosisRoomView({
                 className="link-button"
                 href={pageContext.backHref as Route}
               >
-                Back to report
+                {t("backToReport")}
               </Link>
             ) : undefined
           }
@@ -3886,7 +3896,7 @@ export function DiagnosisRoomView({
           action={
             <Space wrap>
               <Button href={oidcLoginHref} icon={<LoginOutlined />}>
-                Sign in with IAM
+                {t("signInIAM")}
               </Button>
             </Space>
           }
@@ -3909,7 +3919,7 @@ export function DiagnosisRoomView({
         <Alert
           action={
             <Button href={oidcLoginHref} icon={<LoginOutlined />}>
-              Sign in with IAM
+              {t("signInIAM")}
             </Button>
           }
           closable
@@ -3931,7 +3941,7 @@ export function DiagnosisRoomView({
       diagnosisRoomAuthorization.notice ? (
         <Alert
           description={diagnosisRoomAuthorization.notice.message}
-          message="Diagnosis room permissions unavailable"
+          message={t("permissionsUnavailable")}
           showIcon
           type="warning"
         />
@@ -3949,24 +3959,24 @@ export function DiagnosisRoomView({
         />
       ) : null}
 
-      <nav aria-label="Diagnosis workspace sections" className="diagnosis-workbench-nav">
+      <nav aria-label={t("workspaceSections")} className="diagnosis-workbench-nav">
         <Segmented
-          aria-label="Diagnosis workspace section"
+          aria-label={t("workspaceSection")}
           onChange={(value) =>
             handleWorkbenchSectionChange(value as DiagnosisWorkbenchSection)
           }
           options={[
-            { label: "Queue", value: "queue" },
-            { label: "Setup", value: "setup" },
-            { label: "State", value: "room" },
-            { label: "Evidence", value: "insight" },
-            { label: "Chat", value: "conversation" },
+            { label: t("queue"), value: "queue" },
+            { label: t("setup"), value: "setup" },
+            { label: t("state"), value: "room" },
+            { label: t("evidenceTab"), value: "insight" },
+            { label: t("chat"), value: "conversation" },
           ]}
           value={workbenchSection}
         />
         <Typography.Text className="diagnosis-workbench-context" type="secondary">
           {selectedSessionID.trim() === ""
-            ? "No room selected"
+            ? t("noRoomSelected")
             : selectedSessionID}
         </Typography.Text>
       </nav>
@@ -4050,13 +4060,13 @@ export function DiagnosisRoomView({
           action={
             <Space wrap>
               <Button href={oidcLoginHref} icon={<LoginOutlined />} type="primary">
-                Sign in with IAM
+                {t("signInIAM")}
               </Button>
             </Space>
           }
           className="diagnosis-channel-setup-alert"
-          description="Enterprise WeChat browser login has been replaced by IAM OIDC. Sign in through IAM before creating or joining a diagnosis room."
-          message="IAM sign-in required"
+          description={t("iamRequiredDetail")}
+          message={t("iamRequired")}
           showIcon
           type="info"
         />
@@ -4066,7 +4076,7 @@ export function DiagnosisRoomView({
         <div ref={createRoomPanelRef}>
           <Card
             className="settings-overview-card"
-            title="Create Diagnosis Room"
+            title={t("createRoom")}
           >
             <Form<CreateRoomFormValues>
               form={createForm}
@@ -4088,17 +4098,17 @@ export function DiagnosisRoomView({
               }}
             >
               <Form.Item
-                label="Evidence snapshot"
+                label={t("evidenceSnapshot")}
                 name="evidenceSnapshotID"
                 rules={[
-                  { required: true, message: "Evidence snapshot is required." },
+                  { required: true, message: t("evidenceSnapshotRequired") },
                   {
                     validator: (_, value: unknown) =>
                       isPositiveSafeInteger(value)
                         ? Promise.resolve()
                         : Promise.reject(
                             new Error(
-                              "Evidence snapshot must be a positive integer.",
+                              t("evidenceSnapshotPositive"),
                             ),
                           ),
                   },
@@ -4112,22 +4122,22 @@ export function DiagnosisRoomView({
                 />
               </Form.Item>
               <Form.Item
-                label="Approval quorum"
+                label={t("approvalQuorum")}
                 name="approvalMode"
                 rules={[
-                  { required: true, message: "Approval quorum is required." },
+                  { required: true, message: t("approvalQuorumRequired") },
                 ]}
               >
                 <Select
                   disabled={createBusy}
                   options={[
-                    { label: "Single operator", value: "single" },
-                    { label: "Owner + leader", value: "owner_and_leader" },
+                    { label: t("singleOperator"), value: "single" },
+                    { label: t("ownerAndLeader"), value: "owner_and_leader" },
                   ]}
                 />
               </Form.Item>
               <Form.Item
-                label="Notification channel"
+                label={t("notificationChannel")}
                 name="closeNotificationChannelProfileID"
                 rules={[
                   {
@@ -4136,7 +4146,7 @@ export function DiagnosisRoomView({
                         if (value !== undefined && value !== null) {
                           if (!isPositiveSafeInteger(value)) {
                             throw new Error(
-                              "Notification channel must be a positive integer.",
+                              t("notificationChannelPositive"),
                             );
                           }
                           const selectionError =
@@ -4167,10 +4177,10 @@ export function DiagnosisRoomView({
                   allowClear
                   disabled={createBusy}
                   loading={notificationChannelsQuery.isFetching}
-                  notFoundContent="No notification channels"
+                  notFoundContent={t("noNotificationChannels")}
                   optionFilterProp="label"
                   options={notificationChannelOptions}
-                  placeholder="No notification channel"
+                  placeholder={t("noNotificationChannel")}
                   showSearch
                   style={{ width: "100%" }}
                 />
@@ -4196,7 +4206,7 @@ export function DiagnosisRoomView({
                 <Alert
                   className="diagnosis-channel-setup-alert"
                   description={createNotificationChannelBlockReason}
-                  message="WeCom notification channel required"
+                  message={t("wecomChannelRequired")}
                   showIcon
                   type="warning"
                 />
@@ -4214,12 +4224,12 @@ export function DiagnosisRoomView({
                   }
                   className="diagnosis-channel-setup-alert"
                   description={notificationChannelSetupAction.detail}
-                  message="WeCom notification channel setup"
+                  message={t("wecomChannelSetup")}
                   showIcon
                   type="warning"
                 />
               ) : null}
-              <Form.Item label="Authentication" name="authMode">
+              <Form.Item label={t("authentication")} name="authMode">
                 <DiagnosisAuthModeSelector
                   disabled={createBusy}
                   options={authModeOptions}
@@ -4276,12 +4286,12 @@ export function DiagnosisRoomView({
                 </Form.Item>
               ) : watchedCreateAuthMode === "bearer" ? (
                 <Form.Item
-                  label="Bearer token"
+                  label={t("bearerToken")}
                   name="bearerToken"
                   rules={[
                     {
                       required: true,
-                      message: "Bearer token is required.",
+                      message: t("bearerTokenRequired"),
                     },
                   ]}
                 >
@@ -4290,24 +4300,24 @@ export function DiagnosisRoomView({
               ) : (
                 <>
                   <Form.Item
-                    label="LDAP username"
+                    label={t("ldapUsername")}
                     name="ldapUsername"
                     rules={[
                       {
                         required: true,
-                        message: "LDAP username is required.",
+                        message: t("ldapUsernameRequired"),
                       },
                     ]}
                   >
                     <Input autoComplete="username" disabled={createBusy} />
                   </Form.Item>
                   <Form.Item
-                    label="LDAP password"
+                    label={t("ldapPassword")}
                     name="ldapPassword"
                     rules={[
                       {
                         required: true,
-                        message: "LDAP password is required.",
+                        message: t("ldapPasswordRequired"),
                       },
                     ]}
                   >
@@ -4357,7 +4367,7 @@ export function DiagnosisRoomView({
                       )
                     }
                   >
-                    Check auth
+                    {t("checkAuth")}
                   </Button>
                 </TooltipAction>
                 <TooltipAction
@@ -4375,7 +4385,7 @@ export function DiagnosisRoomView({
                     loading={createRoomMutation.isPending}
                     type="primary"
                   >
-                    Create diagnosis room
+                    {t("createAction")}
                   </Button>
                 </TooltipAction>
               </Space>
@@ -4385,9 +4395,9 @@ export function DiagnosisRoomView({
 
         <div ref={connectionPanelRef}>
           <Card
-            aria-label="Connection controls"
+            aria-label={t("connectionControls")}
             className="settings-overview-card"
-            title="Connection"
+            title={t("connection")}
           >
             <Form<ConnectionFormValues>
               form={connectionForm}
@@ -4417,9 +4427,9 @@ export function DiagnosisRoomView({
               }}
             >
             <Form.Item
-              label="Session ID"
+              label={t("sessionID")}
               name="sessionID"
-              rules={[{ required: true, message: "Session ID is required." }]}
+              rules={[{ required: true, message: t("sessionIDRequired") }]}
             >
               <Input
                 autoComplete="off"
@@ -4430,7 +4440,7 @@ export function DiagnosisRoomView({
                 }}
               />
             </Form.Item>
-            <Form.Item label="Authentication" name="authMode">
+            <Form.Item label={t("authentication")} name="authMode">
               <DiagnosisAuthModeSelector
                 disabled={busy}
                 options={authModeOptions}
@@ -4483,10 +4493,10 @@ export function DiagnosisRoomView({
               </Form.Item>
             ) : watchedConnectionAuthMode === "bearer" ? (
               <Form.Item
-                label="Bearer token"
+                label={t("bearerToken")}
                 name="bearerToken"
                 rules={[
-                  { required: true, message: "Bearer token is required." },
+                  { required: true, message: t("bearerTokenRequired") },
                 ]}
               >
                 <Input.Password autoComplete="off" disabled={busy} />
@@ -4494,19 +4504,19 @@ export function DiagnosisRoomView({
             ) : (
               <>
                 <Form.Item
-                  label="LDAP username"
+                  label={t("ldapUsername")}
                   name="ldapUsername"
                   rules={[
-                    { required: true, message: "LDAP username is required." },
+                    { required: true, message: t("ldapUsernameRequired") },
                   ]}
                 >
                   <Input autoComplete="username" disabled={busy} />
                 </Form.Item>
                 <Form.Item
-                  label="LDAP password"
+                  label={t("ldapPassword")}
                   name="ldapPassword"
                   rules={[
-                    { required: true, message: "LDAP password is required." },
+                    { required: true, message: t("ldapPasswordRequired") },
                   ]}
                 >
                   <Input.Password
@@ -4555,7 +4565,7 @@ export function DiagnosisRoomView({
                     )
                   }
                 >
-                  Check auth
+                  {t("checkAuth")}
                 </Button>
               </TooltipAction>
               <TooltipAction
@@ -4573,7 +4583,7 @@ export function DiagnosisRoomView({
                   loading={ticketMutation.isPending}
                   type="primary"
                 >
-                  Connect
+                  {t("connect")}
                 </Button>
               </TooltipAction>
               <Button
@@ -4585,14 +4595,14 @@ export function DiagnosisRoomView({
                 icon={<ReloadOutlined />}
                 onClick={handleQueryState}
               >
-                Refresh State
+                {t("refreshState")}
               </Button>
               <Button
                 disabled={!clientReady || status === "idle"}
                 icon={<DisconnectOutlined />}
                 onClick={handleDisconnect}
               >
-                Disconnect
+                {t("disconnect")}
               </Button>
             </Space>
             </Form>
@@ -4601,7 +4611,7 @@ export function DiagnosisRoomView({
 
         <div className="diagnosis-room-state-section" ref={roomStatePanelRef}>
           <Card
-            aria-label="Room state"
+            aria-label={t("roomState")}
             className="settings-overview-card"
             extra={
               <Space size={8} wrap>
@@ -4625,7 +4635,7 @@ export function DiagnosisRoomView({
                   disabled={!canConfirmConclusion}
                   title={
                     confirmConclusionBlockReason ||
-                    "Approve this exact diagnosis conclusion."
+                    t("approveConclusionHint")
                   }
                 >
                   <Button
@@ -4634,12 +4644,12 @@ export function DiagnosisRoomView({
                     loading={confirmInFlight}
                     onClick={handleConfirmConclusion}
                   >
-                    Approve Conclusion
+                    {t("approveConclusion")}
                   </Button>
                 </TooltipAction>
               </Space>
             }
-            title="Room State"
+            title={t("roomState")}
           >
           <DiagnosisWorkflowReadinessPanel
             actions={workflowReadinessActions}
@@ -4684,7 +4694,7 @@ export function DiagnosisRoomView({
             <Alert
               className="diagnosis-confirm-block-reason"
               description={visibleConfirmBlockReason}
-              message="Confirmation blocked"
+              message={t("confirmationBlocked")}
               showIcon
               type="warning"
             />
@@ -4705,7 +4715,7 @@ export function DiagnosisRoomView({
                   state={selectedRoomState}
                 />
               }
-              message="Final conclusion"
+              message={t("finalConclusion")}
               showIcon
               type="success"
             />
@@ -4718,7 +4728,7 @@ export function DiagnosisRoomView({
                   summary={selectedConversationSummary}
                 />
               }
-              message="Conversation summary"
+              message={t("conversationSummary")}
               showIcon
               type="info"
             />
@@ -4730,12 +4740,12 @@ export function DiagnosisRoomView({
                   className="link-button"
                   href={confirmedReportReturnHref as Route}
                 >
-                  Return to report
+                  {t("returnToReport")}
                 </Link>
               }
               className="diagnosis-confirmed-return"
-              description="The report detail will reload server-side readiness and expose the final notification action when all linked conclusions are confirmed."
-              message="Operator confirmation recorded"
+              description={t("confirmationRecordedDetail")}
+              message={t("confirmationRecorded")}
               showIcon
               type="success"
             />
@@ -4755,7 +4765,7 @@ export function DiagnosisRoomView({
               onUseFollowUp={handleUseSupplementalEvidence}
               panelRef={reviewQueuePanelRef}
               queueInput={selectedFinalConclusionQueueInput}
-              title="Final Conclusion Review Queue"
+              title={t("finalReviewQueue")}
             />
           ) : null}
           {!selectedRoomState?.final_conclusion &&
@@ -4822,7 +4832,7 @@ export function DiagnosisRoomView({
           title={
           <Space className="diagnosis-insight-title" size={8}>
             <BulbOutlined />
-            <span>Consultation Insight</span>
+            <span>{t("consultationInsight")}</span>
           </Space>
           }
         >
@@ -4837,7 +4847,7 @@ export function DiagnosisRoomView({
               <Alert
                 className="diagnosis-insight-rationale"
                 description={selectedLatestInsight.insight.confidence_rationale}
-                message="Confidence rationale"
+                message={t("confidenceRationale")}
                 showIcon
                 type="info"
               />
@@ -4899,30 +4909,30 @@ export function DiagnosisRoomView({
             />
             <div className="diagnosis-insight-grid">
               <EvidencePlanList
-                emptyDescription="No executable evidence plan"
+                emptyDescription={t("noExecutablePlan")}
                 items={selectedLatestInsight.evidenceRequests}
-                title="Executable Evidence Plan"
+                title={t("executableEvidencePlan")}
               />
               <EvidenceCollectionResultList
                 items={selectedLatestInsight.collectionResults}
               />
               <EvidenceRequestList
-                emptyDescription="No missing evidence requests"
+                emptyDescription={t("noMissingRequests")}
                 items={selectedLatestInsight.insight.missing_evidence_requests}
                 onUseFollowUp={handleUseSupplementalEvidence}
                 followUpDisabled={!canSubmitTurn}
                 followUpDisabledReason={submitTurnBlockReason}
-                title="Missing Evidence"
+                title={t("missingEvidence")}
               />
               <EvidenceRequestList
-                emptyDescription="No collection suggestions"
+                emptyDescription={t("noCollectionSuggestions")}
                 items={
                   selectedLatestInsight.insight.evidence_collection_suggestions
                 }
                 onUseFollowUp={handleUseSupplementalEvidence}
                 followUpDisabled={!canSubmitTurn}
                 followUpDisabledReason={submitTurnBlockReason}
-                title="Collection Suggestions"
+                title={t("collectionSuggestions")}
               />
             </div>
           </>
@@ -4940,11 +4950,11 @@ export function DiagnosisRoomView({
             onUseFollowUp={handleUseSupplementalEvidence}
             panelRef={reviewQueuePanelRef}
             queueInput={selectedSavedReviewQueueInput}
-            title="Saved Review Queue"
+            title={t("savedReviewQueue")}
           />
         ) : (
           <Empty
-            description="No consultation insight yet"
+            description={t("noConsultationInsight")}
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
         )}
@@ -4956,14 +4966,14 @@ export function DiagnosisRoomView({
           className="diagnosis-room-panel settings-overview-card"
           extra={
           <Typography.Text type="secondary">
-            {transcript.length} message(s)
+            {t("messageCount", { count: transcript.length })}
           </Typography.Text>
           }
-          title="Transcript"
+          title={t("transcript")}
         >
         {transcript.length === 0 && turnPreview === null ? (
           <Empty
-            description="No transcript messages"
+            description={t("noTranscript")}
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
         ) : (
@@ -4990,14 +5000,14 @@ export function DiagnosisRoomView({
                 key={turnPreview.assistant_message_id}
               >
                 <div className="diagnosis-turn-role">
-                  assistant
-                  <Tag color="processing">Draft</Tag>
+                  {t("assistant")}
+                  <Tag color="processing">{t("draft")}</Tag>
                 </div>
                 {turnPreview.assistant_message ? (
                   <p>{turnPreview.assistant_message}</p>
                 ) : (
                   <Typography.Text type="secondary">
-                    Generating response...
+                    {t("generating")}
                   </Typography.Text>
                 )}
               </article>
@@ -5025,7 +5035,7 @@ export function DiagnosisRoomView({
                 <TooltipAction
                   disabled={!canSubmitTurn}
                   title={
-                    submitTurnBlockReason || "Collect this planned evidence."
+                    submitTurnBlockReason || t("collectPlannedEvidence")
                   }
                 >
                   <Button
@@ -5035,7 +5045,7 @@ export function DiagnosisRoomView({
                     size="small"
                     type="link"
                   >
-                    Use plan
+                    {t("usePlan")}
                   </Button>
                 </TooltipAction>
                 <Button
@@ -5043,7 +5053,7 @@ export function DiagnosisRoomView({
                   size="small"
                   type="link"
                 >
-                  Clear
+                  {t("clear")}
                 </Button>
               </Space>
             }
@@ -5052,14 +5062,14 @@ export function DiagnosisRoomView({
               <Space direction="vertical" size={4}>
                 <Typography.Text>{pendingEvidencePlan.reason}</Typography.Text>
                 <EvidenceRequestMetadata
-                  fallbackText="No additional parameters"
+                  fallbackText={t("noAdditionalParameters")}
                   request={pendingEvidencePlan}
                 />
               </Space>
             }
             message={
               <Space size={[6, 6]} wrap>
-                <span>Planned evidence from report</span>
+                <span>{t("plannedEvidenceFromReport")}</span>
                 <Tag color="processing">{pendingEvidencePlan.tool}</Tag>
               </Space>
             }
@@ -5083,13 +5093,13 @@ export function DiagnosisRoomView({
                   size="small"
                   type="link"
                 >
-                  Clear
+                  {t("clear")}
                 </Button>
               }
               className="diagnosis-supplemental-pending"
               message={
                 <Space size={[6, 6]} wrap>
-                  <span>Supplemental evidence</span>
+                  <span>{t("supplementalEvidence")}</span>
                   <Tag
                     color={priorityColor(pendingSupplementalEvidence.priority)}
                   >
@@ -5102,13 +5112,13 @@ export function DiagnosisRoomView({
             />
           ) : null}
           <ActionBlockedNotice
-            message="Evidence updates unavailable"
+            message={t("evidenceUpdatesUnavailable")}
             reason={submitTurnBlockReason}
           />
           <Form.Item
-            label="Message"
+            label={t("message")}
             name="message"
-            rules={[{ required: true, message: "Message is required." }]}
+            rules={[{ required: true, message: t("messageRequired") }]}
           >
             <Input.TextArea
               autoSize={{ minRows: 3, maxRows: 6 }}
@@ -5123,7 +5133,7 @@ export function DiagnosisRoomView({
               loading={turnInFlight}
               type="primary"
             >
-              Send
+              {t("send")}
             </Button>
             {pageContext.suggestedPrompt !== "" ? (
               <Button
@@ -5131,7 +5141,7 @@ export function DiagnosisRoomView({
                 icon={<FormOutlined />}
                 onClick={handleUseSuggestedPrompt}
               >
-                Use suggested prompt
+                {t("useSuggestedPrompt")}
               </Button>
             ) : null}
           </Space>
@@ -5140,7 +5150,7 @@ export function DiagnosisRoomView({
       </div>
 
       {log.length > 0 ? (
-        <Card className="settings-overview-card" title="Events">
+        <Card className="settings-overview-card" title={t("events")}>
           <List
             dataSource={log}
             renderItem={(entry) => (
@@ -5182,19 +5192,20 @@ function TooltipAction({
 }
 
 function DiagnosisTurnProgressNotice() {
+  const t = useTranslations("DiagnosisRoom.workspace");
   return (
     <Alert
       className="diagnosis-turn-progress"
       description={
         <Progress
-          aria-label="Diagnosis turn in progress"
+          aria-label={t("turnProgress")}
           percent={100}
           showInfo={false}
           size="small"
           status="active"
         />
       }
-      message="AI review in progress"
+      message={t("aiReviewInProgress")}
       showIcon
       type="info"
     />
@@ -5240,6 +5251,7 @@ function SupplementalEvidenceEntryPanel({
   panelRef: RefObject<HTMLDivElement | null>;
   request: DiagnosisConsultationEvidenceRequest;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const actionDisabled = !connected || actionDisabledReason !== "";
 
   function useResidualBoundaryTemplate() {
@@ -5250,25 +5262,25 @@ function SupplementalEvidenceEntryPanel({
 
   return (
     <section
-      aria-label="Supplemental evidence entry"
+      aria-label={t("supplementalEntry")}
       className="diagnosis-supplemental-entry"
       ref={panelRef}
     >
       <div className="diagnosis-supplemental-entry-header">
         <div>
-          <Typography.Title level={3}>Supplemental Evidence</Typography.Title>
+          <Typography.Title level={3}>{t("supplementalHeading")}</Typography.Title>
           <Typography.Text type="secondary">{request.detail}</Typography.Text>
         </div>
         <Tag color={priorityColor(request.priority)}>{request.priority}</Tag>
       </div>
       <Alert
-        description="Provide only evidence you have verified. The assistant will use this update to revise confidence and decide whether the conclusion is ready."
+        description={t("supplementalGuidance")}
         message={request.label}
         showIcon
         type="warning"
       />
       <ActionBlockedNotice
-        message="Supplemental evidence unavailable"
+        message={t("supplementalUnavailable")}
         reason={actionDisabledReason}
       />
       <Form<SupplementalEvidenceFormValues>
@@ -5277,15 +5289,15 @@ function SupplementalEvidenceEntryPanel({
         onFinish={onSubmit}
       >
         <Form.Item
-          label="Evidence"
+          label={t("evidence")}
           name="evidence"
           rules={[
-            { required: true, message: "Evidence is required." },
+            { required: true, message: t("evidenceRequired") },
             {
               validator: (_, value: unknown) =>
                 typeof value === "string" && value.trim() !== ""
                   ? Promise.resolve()
-                  : Promise.reject(new Error("Evidence must not be blank.")),
+                  : Promise.reject(new Error(t("evidenceNotBlank"))),
             },
           ]}
         >
@@ -5299,7 +5311,7 @@ function SupplementalEvidenceEntryPanel({
             disabled={actionDisabled}
             title={
               actionDisabledReason ||
-              "Use a bounded residual-uncertainty template."
+              t("residualTemplateHint")
             }
           >
             <Button
@@ -5307,12 +5319,12 @@ function SupplementalEvidenceEntryPanel({
               icon={<FormOutlined />}
               onClick={useResidualBoundaryTemplate}
             >
-              Use residual boundary
+              {t("useResidualBoundary")}
             </Button>
           </TooltipAction>
           <TooltipAction
             disabled={actionDisabled}
-            title={actionDisabledReason || "Submit supplemental evidence."}
+            title={actionDisabledReason || t("submitSupplementalHint")}
           >
             <Button
               disabled={actionDisabled}
@@ -5320,15 +5332,15 @@ function SupplementalEvidenceEntryPanel({
               icon={<SendOutlined />}
               type="primary"
             >
-              Submit supplemental evidence
+              {t("submitSupplemental")}
             </Button>
           </TooltipAction>
           <TooltipAction
             disabled={actionDisabled}
-            title={actionDisabledReason || "Clear supplemental evidence."}
+            title={actionDisabledReason || t("clearSupplementalHint")}
           >
             <Button disabled={actionDisabled} onClick={onClear}>
-              Clear
+              {t("clear")}
             </Button>
           </TooltipAction>
         </Space>
@@ -5342,13 +5354,14 @@ function DiagnosisAlertContextPanel({
 }: {
   context: DiagnosisAlertContext;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const { alert, snapshot } = context;
   const labelItems = sortedRecordEntries(alert.labels);
   const annotationItems = sortedRecordEntries(alert.annotations);
 
   return (
     <Card
-      aria-label="Alert context"
+      aria-label={t("alertContext")}
       className="diagnosis-alert-context settings-overview-card"
       title={
         <Space size={[6, 6]} wrap>
@@ -5372,14 +5385,14 @@ function DiagnosisAlertContextPanel({
       />
       <div className="diagnosis-alert-context-grid">
         <KeyValueSummary
-          emptyText="No labels"
+          emptyText={t("noLabels")}
           entries={labelItems}
-          title="Labels"
+          title={t("labels")}
         />
         <KeyValueSummary
-          emptyText="No annotations"
+          emptyText={t("noAnnotations")}
           entries={annotationItems}
-          title="Annotations"
+          title={t("annotations")}
         />
       </div>
     </Card>
@@ -5425,6 +5438,7 @@ function AlertRoomCreationNotice({
   disabled: boolean;
   onPrepare: () => void;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   return (
     <Alert
       action={
@@ -5435,14 +5449,15 @@ function AlertRoomCreationNotice({
           size="small"
           type="primary"
         >
-          Prepare room
+          {t("prepareRoom")}
         </Button>
       }
       className="diagnosis-alert-room-notice"
-      description={`Snapshot #${context.snapshot.id} has evidence for ${alertName(
-        context.alert,
-      )}, but no diagnosis room is linked yet. Enter verified authorization credentials in the create form to start the room safely.`}
-      message="No diagnosis room linked"
+      description={t("noRoomLinkedDetail", {
+        id: context.snapshot.id,
+        alert: alertName(context.alert),
+      })}
+      message={t("noRoomLinked")}
       showIcon
       type="warning"
     />
@@ -5462,6 +5477,7 @@ function DiagnosisHandoffPanel({
   pageContext: DiagnosisPageContext;
   selectedRoom?: DiagnosisRoomSummary;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   if (
     !pageContext.hasContext &&
     selectedRoom === undefined &&
@@ -5490,7 +5506,7 @@ function DiagnosisHandoffPanel({
 
   return (
     <Card
-      aria-label="Diagnosis handoff"
+      aria-label={t("handoffLabel")}
       className="diagnosis-handoff settings-overview-card"
       extra={
         <Space size={[6, 6]} wrap>
@@ -5503,11 +5519,11 @@ function DiagnosisHandoffPanel({
             </Tag>
           ) : null}
           {selectedRoom?.latest_conclusion?.requires_human_review ? (
-            <Tag color="warning">review</Tag>
+            <Tag color="warning">{t("review")}</Tag>
           ) : null}
         </Space>
       }
-      title="Diagnosis Handoff"
+      title={t("handoff")}
     >
       <div className="diagnosis-handoff-body">
         <Alert
@@ -5525,7 +5541,7 @@ function DiagnosisHandoffPanel({
           <Alert
             className="diagnosis-handoff-conclusion"
             description={conclusion.content}
-            message="Latest AI conclusion"
+            message={t("latestAIConclusion")}
             showIcon
             type={conclusion.requires_human_review ? "warning" : "success"}
           />
@@ -5536,12 +5552,12 @@ function DiagnosisHandoffPanel({
               className="link-button"
               href={notificationChannelReviewHref(failedNotification)}
             >
-              Review notification channel
+              {t("reviewNotificationChannel")}
             </a>
           ) : null}
           {showNotificationTimelineReview ? (
             <a className="link-button" href={diagnosisNotificationTimelineHref}>
-              Review notification timeline
+              {t("reviewNotificationTimeline")}
             </a>
           ) : null}
           {pageContext.suggestedPrompt !== "" ? (
@@ -5780,7 +5796,7 @@ function DiagnosisReviewQueuePanel({
   onUseFollowUp,
   panelRef,
   queueInput,
-  title = "Review Queue",
+  title,
 }: {
   actionDisabledReason: string;
   canConfirmConclusion: boolean;
@@ -5794,6 +5810,7 @@ function DiagnosisReviewQueuePanel({
   queueInput: DiagnosisReviewQueueInput;
   title?: string;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const items = diagnosisReviewQueueItems(queueInput);
   const summary = diagnosisReviewQueueSummary(items, queueInput);
   const actionPlan = diagnosisReviewQueueActionPlan(items, summary);
@@ -5810,35 +5827,38 @@ function DiagnosisReviewQueuePanel({
 
   return (
     <section
-      aria-label="Diagnosis review queue"
+      aria-label={t("reviewQueueLabel")}
       className="diagnosis-review-queue"
       ref={panelRef}
     >
       <div className="diagnosis-review-queue-header">
         <div>
-          <Typography.Title level={3}>{title}</Typography.Title>
+          <Typography.Title level={3}>{title ?? t("reviewQueue")}</Typography.Title>
           <Typography.Text type="secondary">{summary.message}</Typography.Text>
         </div>
         <Space size={[6, 6]} wrap>
           {summary.blockingReason !== "" ? (
-            <Tag color="warning">blocked</Tag>
+            <Tag color="warning">{t("blocked")}</Tag>
           ) : null}
-          {summary.canConfirm ? <Tag color="success">confirmable</Tag> : null}
-          <Tag color="error">{summary.attention} attention</Tag>
-          <Tag color="processing">{summary.pending} pending</Tag>
-          <Tag color="success">{summary.ready} ready</Tag>
-          <Tag>{summary.done} done</Tag>
+          {summary.canConfirm ? <Tag color="success">{t("confirmable")}</Tag> : null}
+          <Tag color="error">{t("attentionCount", { count: summary.attention })}</Tag>
+          <Tag color="processing">{t("pendingCount", { count: summary.pending })}</Tag>
+          <Tag color="success">{t("readyCount", { count: summary.ready })}</Tag>
+          <Tag>{t("doneCount", { count: summary.done })}</Tag>
         </Space>
       </div>
       <div
-        aria-label="Diagnosis review task progress"
+        aria-label={t("reviewTaskProgress")}
         className="diagnosis-review-task-progress"
       >
         <div className="diagnosis-review-task-progress-header">
           <Space size={[6, 6]} wrap>
             <Typography.Text strong>{taskProgress.statusLabel}</Typography.Text>
             <Tag color={reviewQueueTaskProgressTagColor(taskProgress.status)}>
-              {taskProgress.completed}/{taskProgress.total} phases complete
+              {t("phasesComplete", {
+                completed: taskProgress.completed,
+                total: taskProgress.total,
+              })}
             </Tag>
           </Space>
           <Progress
@@ -5871,11 +5891,12 @@ function DiagnosisReviewQueuePanel({
             onUseEvidencePlan,
             onUseFollowUp,
             taskProgress,
+            t,
           })}
         />
       </div>
       <Alert
-        aria-label="Review queue action plan"
+        aria-label={t("actionPlanLabel")}
         className="diagnosis-review-action-plan"
         description={
           actionPlan.actions.length === 0 ? (
@@ -5893,13 +5914,13 @@ function DiagnosisReviewQueuePanel({
                   </Tag>
                 ))}
                 {actionPlan.remaining > 0 ? (
-                  <Tag>+{actionPlan.remaining} more</Tag>
+                  <Tag>{t("more", { count: actionPlan.remaining })}</Tag>
                 ) : null}
               </Space>
             </Space>
           )
         }
-        message="Confirmation action plan"
+        message={t("confirmationActionPlan")}
         showIcon
         type={reviewQueueActionPlanAlertType(actionPlan.status)}
       />
@@ -5912,17 +5933,17 @@ function DiagnosisReviewQueuePanel({
                 onClick={onOpenConnection}
                 size="small"
               >
-                Open connection
+                {t("openConnection")}
               </Button>
             ) : undefined
           }
-          aria-label="Review queue action gate"
+          aria-label={t("actionGateLabel")}
           className="diagnosis-review-action-plan"
           description={actionGate.reason}
           message={
             actionGate.kind === "connection"
-              ? "Connect before submitting"
-              : "Review actions unavailable"
+              ? t("connectBeforeSubmitting")
+              : t("reviewActionsUnavailable")
           }
           showIcon
           type={actionGate.kind === "connection" ? "info" : "warning"}
@@ -5935,25 +5956,26 @@ function DiagnosisReviewQueuePanel({
             onOpenConnection,
             onRequestReassessment,
             status: postEvidenceStatus,
+            t,
           })}
-          aria-label="Post supplemental evidence review status"
+          aria-label={t("postEvidenceLabel")}
           className="diagnosis-review-action-plan"
           description={
             <Space direction="vertical" size={6}>
               <Typography.Text>{postEvidenceStatus.detail}</Typography.Text>
               <Space size={[6, 6]} wrap>
                 <Tag color="processing">
-                  submitted {postEvidenceStatus.submitted}
+                  {t("submittedCount", { count: postEvidenceStatus.submitted })}
                 </Tag>
                 <Tag color="success">
-                  reviewed {postEvidenceStatus.reviewed}
+                  {t("reviewedCount", { count: postEvidenceStatus.reviewed })}
                 </Tag>
                 <Tag
                   color={
                     postEvidenceStatus.unresolved > 0 ? "warning" : "success"
                   }
                 >
-                  unresolved {postEvidenceStatus.unresolved}
+                  {t("unresolvedCount", { count: postEvidenceStatus.unresolved })}
                 </Tag>
               </Space>
             </Space>
@@ -6003,11 +6025,13 @@ function postEvidenceStatusAction({
   onOpenConnection,
   onRequestReassessment,
   status,
+  t,
 }: {
   actionGate: DiagnosisReviewQueueActionGate;
   onOpenConnection?: () => void;
   onRequestReassessment: () => void;
   status: DiagnosisReviewQueuePostEvidenceStatus;
+  t: DiagnosisWorkspaceTranslator;
 }): ReactNode {
   if (status.status !== "submitted") {
     return undefined;
@@ -6020,14 +6044,14 @@ function postEvidenceStatusAction({
         size="small"
         type="primary"
       >
-        Ask AI to reassess
+        {t("askAIReassess")}
       </Button>
     );
   }
   if (actionGate.kind === "connection" && onOpenConnection !== undefined) {
     return (
       <Button icon={<ApiOutlined />} onClick={onOpenConnection} size="small">
-        Open connection
+        {t("openConnection")}
       </Button>
     );
   }
@@ -6043,6 +6067,7 @@ function SupplementalEvidenceHistoryPanel({
   items: DiagnosisSupplementalEvidenceRecord[];
   missingEvidenceRequests: DiagnosisConsultationEvidenceRequest[];
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   if (items.length === 0) {
     return null;
   }
@@ -6054,15 +6079,15 @@ function SupplementalEvidenceHistoryPanel({
   );
   return (
     <section
-      aria-label="Supplemental evidence history"
+      aria-label={t("supplementalHistoryLabel")}
       className="diagnosis-supplemental-history"
     >
       <div className="diagnosis-supplemental-history-header">
         <Typography.Title level={3}>
-          Supplemental Evidence History
+          {t("supplementalHistory")}
         </Typography.Title>
         <Typography.Text type="secondary">
-          {items.length} update(s)
+          {t("updateCount", { count: items.length })}
         </Typography.Text>
       </div>
       <List
@@ -6083,18 +6108,21 @@ function SupplementalEvidenceHistoryPanel({
                     <Typography.Text>{item.detail}</Typography.Text>
                     {unresolvedRequest ? (
                       <Typography.Text type="secondary">
-                        Latest request: {unresolvedRequest.detail}
+                        {t("latestRequest", { detail: unresolvedRequest.detail })}
                       </Typography.Text>
                     ) : null}
                     <Typography.Text>{item.evidence}</Typography.Text>
                     <ActorSubjectTags
                       directoryUsersBySubject={directoryUsersBySubject}
-                      label="Provided by"
+                      label={t("providedBy")}
                       subject={item.actor_subject}
                     />
                     <Typography.Text type="secondary">
-                      Turn {item.user_sequence} to {item.assistant_sequence} -{" "}
-                      {formatDateTime(item.provided_at)}
+                      {t("turnRange", {
+                        from: item.user_sequence,
+                        time: formatDateTime(item.provided_at),
+                        to: item.assistant_sequence,
+                      })}
                     </Typography.Text>
                   </Space>
                 }
@@ -6109,10 +6137,10 @@ function SupplementalEvidenceHistoryPanel({
                       {unresolvedRequest?.priority ?? item.priority}
                     </Tag>
                     <Tag color={unresolvedRequest ? "warning" : "success"}>
-                      {unresolvedRequest ? "latest request" : "retained"}
+                      {unresolvedRequest ? t("latestRequestTag") : t("retained")}
                     </Tag>
-                    <Tag>user turn {item.user_turn_id}</Tag>
-                    <Tag>assistant turn {item.assistant_turn_id}</Tag>
+                    <Tag>{t("userTurn", { id: item.user_turn_id })}</Tag>
+                    <Tag>{t("assistantTurn", { id: item.assistant_turn_id })}</Tag>
                   </Space>
                 }
               />
@@ -6132,6 +6160,7 @@ function CollaborationParticipantsPanel({
   directoryUsersBySubject: ReadonlyMap<string, DiagnosisCollaborationDirectoryUser>;
   participants: DiagnosisCollaborationParticipant[];
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   if (participants.length === 0) {
     return null;
   }
@@ -6141,18 +6170,18 @@ function CollaborationParticipantsPanel({
   );
   return (
     <section
-      aria-label="Diagnosis room participants"
+      aria-label={t("participantsLabel")}
       className="diagnosis-collaboration"
     >
       <div className="diagnosis-collaboration-header">
-        <Typography.Title level={3}>Participants</Typography.Title>
+        <Typography.Title level={3}>{t("participants")}</Typography.Title>
         <Typography.Text type="secondary">
-          {participants.length} actor(s)
+          {t("actorCount", { count: participants.length })}
         </Typography.Text>
       </div>
       <Alert
         description={identityCoverage.detail}
-        message={`Identity coverage: ${identityCoverage.summary}`}
+        message={t("identityCoverage", { summary: identityCoverage.summary })}
         showIcon
         type={diagnosisCollaborationIdentityCoverageAlertType(
           identityCoverage.status,
@@ -6176,13 +6205,13 @@ function CollaborationParticipantsPanel({
                       <Tag key={tag}>{tag}</Tag>
                     ))}
                     {profile.active === false ? (
-                      <Tag color="warning">inactive</Tag>
+                      <Tag color="warning">{t("inactive")}</Tag>
                     ) : null}
                     {!participant.isSystem && !profile.matchedDirectoryUser ? (
-                      <Tag color="default">not synced</Tag>
+                      <Tag color="default">{t("notSynced")}</Tag>
                     ) : null}
                     {participant.isSystem ? (
-                      <Tag color="default">system</Tag>
+                      <Tag color="default">{t("system")}</Tag>
                     ) : null}
                   </Space>
                 }
@@ -6223,6 +6252,7 @@ function ConclusionApprovalPanel({
   mode: DiagnosisApprovalMode;
   pendingAuthorities: readonly DiagnosisApprovalAuthority[] | undefined;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const effectivePendingAuthorities =
     pendingAuthorities ??
     diagnosisPendingApprovalAuthorities({
@@ -6237,10 +6267,10 @@ function ConclusionApprovalPanel({
   });
   const statusLabel =
     status === "satisfied"
-      ? "Quorum satisfied"
+      ? t("quorumSatisfied")
       : status === "pending"
-        ? "Awaiting approval"
-        : "Not started";
+        ? t("awaitingApproval")
+        : t("notStarted");
   const statusColor =
     status === "satisfied"
       ? "success"
@@ -6249,35 +6279,40 @@ function ConclusionApprovalPanel({
         : "default";
 
   return (
-    <section aria-label="Conclusion approval" className="diagnosis-collaboration">
+    <section
+      aria-label={t("conclusionApprovalLabel")}
+      className="diagnosis-collaboration"
+    >
       <div className="diagnosis-collaboration-header">
-        <Typography.Title level={3}>Conclusion approval</Typography.Title>
+        <Typography.Title level={3}>{t("conclusionApproval")}</Typography.Title>
         <Space size={[6, 6]} wrap>
-          <Tag>{diagnosisApprovalModeLabel(mode)}</Tag>
+          <Tag>{mode === "single" ? t("singleOperator") : t("ownerAndLeader")}</Tag>
           <Tag color={statusColor}>{statusLabel}</Tag>
-          {approvalInFlight ? <Tag color="processing">Recording</Tag> : null}
+          {approvalInFlight ? <Tag color="processing">{t("recording")}</Tag> : null}
         </Space>
       </div>
       {conclusionDigest ? (
         <Typography.Paragraph type="secondary">
-          Bound conclusion: {" "}
+          {t("boundConclusion")} {" "}
           <Tooltip title={conclusionDigest}>
             <Typography.Text code>{conclusionDigest.slice(0, 12)}</Typography.Text>
           </Tooltip>
         </Typography.Paragraph>
       ) : (
         <Typography.Paragraph type="secondary">
-          Approval begins when a final conclusion is available.
+          {t("approvalStartsWithConclusion")}
         </Typography.Paragraph>
       )}
       {effectivePendingAuthorities.length > 0 ? (
         <Space size={[6, 6]} wrap>
-          <Typography.Text type="secondary">Pending:</Typography.Text>
+          <Typography.Text type="secondary">{t("pendingApprovals")}</Typography.Text>
 		  {effectivePendingAuthorities.map((authority) => (
 			<Tag color="warning" key={authority}>
 			  {mode === "single"
-				? "Operator"
-				: diagnosisApprovalAuthorityLabel(authority)}
+				? t("operator")
+				: authority === "owner"
+				  ? t("owner")
+				  : t("leader")}
 			</Tag>
 		  ))}
         </Space>
@@ -6306,7 +6341,9 @@ function ConclusionApprovalPanel({
                       subject={approval.actor_subject}
                     />
                     <Tag color="processing">
-                      {diagnosisApprovalAuthorityLabel(approval.authority)}
+                      {approval.authority === "owner"
+                        ? t("owner")
+                        : t("leader")}
                     </Tag>
                   </Space>
                 }
@@ -6352,6 +6389,7 @@ function DiagnosisWorkflowReadinessPanel({
   actions: DiagnosisWorkflowReadinessActions;
   items: DiagnosisWorkflowReadinessItem[];
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const readyCount = items.filter((item) => item.status === "ready").length;
   const percent =
     items.length === 0 ? 0 : Math.round((readyCount / items.length) * 100);
@@ -6364,18 +6402,18 @@ function DiagnosisWorkflowReadinessPanel({
   const summaryStatus = workflowReadinessSummaryStatus(items);
   return (
     <section
-      aria-label="Diagnosis workflow readiness"
+      aria-label={t("workflowReadinessLabel")}
       className="diagnosis-workflow-readiness"
     >
       <div className="diagnosis-workflow-readiness-header">
         <Space size={[8, 8]} wrap>
-          <Typography.Title level={3}>Operational Readiness</Typography.Title>
+          <Typography.Title level={3}>{t("operationalReadiness")}</Typography.Title>
           <Tag color={workflowReadinessStatusColor(summaryStatus)}>
             {workflowReadinessStatusLabel(summaryStatus)}
           </Tag>
         </Space>
         <Typography.Text type="secondary">
-          {readyCount}/{items.length} ready
+          {t("readyRatio", { ready: readyCount, total: items.length })}
         </Typography.Text>
       </div>
       <Progress
@@ -6458,21 +6496,22 @@ function DiagnosisRoomPermissionPanel({
   enforced: boolean;
   items: DiagnosisRoomRBACPermissionItem[];
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const hasDeniedPermission = items.some((item) => item.status === "denied");
   const hasCheckingPermission = items.some((item) => item.status === "checking");
   return (
     <section
-      aria-label="Diagnosis room permissions"
+      aria-label={t("permissionsLabel")}
       className="diagnosis-room-permissions"
     >
       <div className="diagnosis-room-permissions-header">
-        <Typography.Title level={3}>Permissions</Typography.Title>
+        <Typography.Title level={3}>{t("permissions")}</Typography.Title>
         <Space size={[6, 6]} wrap>
           <Tag color={enforced ? "green" : "blue"}>
-            {enforced ? "RBAC enforced" : "RBAC not enforced"}
+            {enforced ? t("rbacEnforced") : t("rbacNotEnforced")}
           </Tag>
-          {hasCheckingPermission ? <Tag color="processing">Checking</Tag> : null}
-          {hasDeniedPermission ? <Tag color="red">Denied actions</Tag> : null}
+          {hasCheckingPermission ? <Tag color="processing">{t("checking")}</Tag> : null}
+          {hasDeniedPermission ? <Tag color="red">{t("deniedActions")}</Tag> : null}
         </Space>
       </div>
       <Descriptions
@@ -6480,6 +6519,7 @@ function DiagnosisRoomPermissionPanel({
         items={diagnosisRoomAuthorizationDescriptionItems({
           authorization,
           enforced,
+          t,
         })}
         size="small"
       />
@@ -6591,26 +6631,28 @@ function workflowReadinessAlertType(
 function diagnosisRoomAuthorizationDescriptionItems({
   authorization,
   enforced,
+  t,
 }: {
   authorization: CurrentRBACAuthorizations;
   enforced: boolean;
+  t: DiagnosisWorkspaceTranslator;
 }): DescriptionsProps["items"] {
   if (!enforced) {
     return [
       {
         key: "subject",
-        label: "Subject",
-        children: "Direct credential flow",
+        label: t("subject"),
+        children: t("directCredentialFlow"),
       },
       {
         key: "directory",
-        label: "Directory profile",
-        children: <Tag color="blue">Not required</Tag>,
+        label: t("directoryProfile"),
+        children: <Tag color="blue">{t("notRequired")}</Tag>,
       },
       {
         key: "departments",
-        label: "Departments",
-        children: <Tag color="blue">Not required</Tag>,
+        label: t("departments"),
+        children: <Tag color="blue">{t("notRequired")}</Tag>,
       },
     ];
   }
@@ -6618,18 +6660,18 @@ function diagnosisRoomAuthorizationDescriptionItems({
     return [
       {
         key: "subject",
-        label: "Subject",
-        children: <Tag color="orange">Unavailable</Tag>,
+        label: t("subject"),
+        children: <Tag color="orange">{t("unavailable")}</Tag>,
       },
       {
         key: "directory",
-        label: "Directory profile",
-        children: <Tag color="orange">Unavailable</Tag>,
+        label: t("directoryProfile"),
+        children: <Tag color="orange">{t("unavailable")}</Tag>,
       },
       {
         key: "departments",
-        label: "Departments",
-        children: <Tag color="orange">Unavailable</Tag>,
+        label: t("departments"),
+        children: <Tag color="orange">{t("unavailable")}</Tag>,
       },
     ];
   }
@@ -6637,18 +6679,18 @@ function diagnosisRoomAuthorizationDescriptionItems({
     return [
       {
         key: "subject",
-        label: "Subject",
-        children: <Tag color="processing">Checking</Tag>,
+        label: t("subject"),
+        children: <Tag color="processing">{t("checking")}</Tag>,
       },
       {
         key: "directory",
-        label: "Directory profile",
-        children: <Tag color="processing">Checking</Tag>,
+        label: t("directoryProfile"),
+        children: <Tag color="processing">{t("checking")}</Tag>,
       },
       {
         key: "departments",
-        label: "Departments",
-        children: <Tag color="processing">Checking</Tag>,
+        label: t("departments"),
+        children: <Tag color="processing">{t("checking")}</Tag>,
       },
     ];
   }
@@ -6659,30 +6701,30 @@ function diagnosisRoomAuthorizationDescriptionItems({
   return [
     {
       key: "subject",
-      label: "Subject",
+      label: t("subject"),
       children: (
         <Typography.Text copyable>{authorization.state.subject}</Typography.Text>
       ),
     },
     {
       key: "directory",
-      label: "Directory profile",
+      label: t("directoryProfile"),
       children: primaryDirectoryUser ? (
         <Space size={[6, 6]} wrap>
           <Typography.Text>
             {directoryUserLabel(primaryDirectoryUser)}
           </Typography.Text>
           <Tag color={primaryDirectoryUser.active ? "green" : "orange"}>
-            {primaryDirectoryUser.active ? "Active" : "Inactive"}
+            {primaryDirectoryUser.active ? t("active") : t("inactive")}
           </Tag>
         </Space>
       ) : (
-        <Tag color="orange">Not synced</Tag>
+        <Tag color="orange">{t("notSynced")}</Tag>
       ),
     },
     {
       key: "departments",
-      label: "Departments",
+      label: t("departments"),
       children:
         authorization.state.departmentKeys.length > 0 ? (
           <Space size={[6, 6]} wrap>
@@ -6691,7 +6733,7 @@ function diagnosisRoomAuthorizationDescriptionItems({
             ))}
           </Space>
         ) : (
-          <Tag color="orange">None</Tag>
+          <Tag color="orange">{t("none")}</Tag>
         ),
     },
   ];
@@ -6829,6 +6871,7 @@ function OperatorEvidenceCollectionPanel({
   templates: DiagnosisToolTemplate[];
   templatesLoading: boolean;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const selectedTool = Form.useWatch("tool", form) ?? "active_alerts";
   const selectedTemplateID = Form.useWatch("selectedTemplateID", form) ?? null;
   const requiresMetricInput =
@@ -6853,21 +6896,21 @@ function OperatorEvidenceCollectionPanel({
 
   return (
     <section
-      aria-label="Operator evidence collection"
+      aria-label={t("operatorEvidenceLabel")}
       className="diagnosis-operator-evidence"
     >
       <div className="diagnosis-operator-evidence-header">
         <div>
           <Typography.Title level={3}>
-            Operator Evidence Collection
+            {t("operatorEvidence")}
           </Typography.Title>
           <Typography.Text type="secondary">
-            Direct evidence collection for the active diagnosis room.
+            {t("operatorEvidenceDetail")}
           </Typography.Text>
         </div>
         <Space size={[6, 6]} wrap>
           <Tag color={connected ? "processing" : "default"}>
-            {connected ? "ready" : "disconnected"}
+            {connected ? t("ready") : t("disconnected")}
           </Tag>
           <Button
             disabled={!clientReady || templatesLoading}
@@ -6876,21 +6919,21 @@ function OperatorEvidenceCollectionPanel({
             onClick={onRefreshTemplates}
             size="small"
           >
-            Refresh templates
+            {t("refreshTemplates")}
           </Button>
         </Space>
       </div>
       {templateError !== "" ? (
         <Alert
           description={templateError}
-          message="Tool templates unavailable"
+          message={t("toolTemplatesUnavailable")}
           showIcon
           type="warning"
         />
       ) : templates.length === 0 ? (
         <Alert
-          description="Create and enable diagnosis tool templates in Settings to use template-backed collection."
-          message="No enabled tool templates"
+          description={t("noEnabledTemplatesDetail")}
+          message={t("noEnabledTemplates")}
           showIcon
           type="info"
         />
@@ -6909,10 +6952,10 @@ function OperatorEvidenceCollectionPanel({
         layout="vertical"
         onFinish={onSubmit}
       >
-        <Form.Item label="Template" name="selectedTemplateID">
+        <Form.Item label={t("template")} name="selectedTemplateID">
           <Select
             allowClear
-            aria-label="Operator evidence template"
+            aria-label={t("operatorEvidenceTemplate")}
             disabled={!connected}
             loading={templatesLoading}
             onChange={(value: number | undefined) => {
@@ -6920,14 +6963,17 @@ function OperatorEvidenceCollectionPanel({
             }}
             optionFilterProp="label"
             options={operatorEvidenceTemplateOptions(templates)}
-            placeholder="Select enabled tool template"
+            placeholder={t("selectEnabledTemplate")}
             showSearch
           />
         </Form.Item>
         {selectedTemplate ? (
           <Alert
             description={operatorEvidenceTemplateSummary(selectedTemplate)}
-            message={`Template #${selectedTemplate.id}: ${selectedTemplate.name}`}
+            message={t("templateSummary", {
+              id: selectedTemplate.id,
+              name: selectedTemplate.name,
+            })}
             showIcon
             type={
               operatorEvidenceTemplateHasParameterizedQuery(selectedTemplate)
@@ -6938,12 +6984,12 @@ function OperatorEvidenceCollectionPanel({
         ) : null}
         <div className="diagnosis-operator-evidence-grid">
           <Form.Item
-            label="Tool"
+            label={t("tool")}
             name="tool"
-            rules={[{ required: true, message: "Tool is required." }]}
+            rules={[{ required: true, message: t("toolRequired") }]}
           >
             <Select
-              aria-label="Operator evidence tool"
+              aria-label={t("operatorEvidenceTool")}
               className="diagnosis-operator-evidence-tool-select"
               disabled={!connected}
               onChange={() => form.setFieldValue("selectedTemplateID", null)}
@@ -6955,25 +7001,25 @@ function OperatorEvidenceCollectionPanel({
             />
           </Form.Item>
           <Form.Item
-            label="Reason"
+            label={t("reason")}
             name="reason"
             rules={[
-              { required: true, message: "Reason is required." },
+              { required: true, message: t("reasonRequired") },
               {
                 validator: (_, value: unknown) =>
-                  operatorEvidenceSingleLine(value, "Reason", 500),
+                  operatorEvidenceSingleLine(value, t("reason"), 500),
               },
             ]}
           >
             <Input disabled={!connected} />
           </Form.Item>
           <Form.Item
-            label="Template ID"
+            label={t("templateID")}
             name="templateID"
             rules={[
               {
                 validator: (_, value: unknown) =>
-                  operatorEvidenceOptionalInteger(value, "Template ID"),
+                  operatorEvidenceOptionalInteger(value, t("templateID")),
               },
             ]}
           >
@@ -6985,14 +7031,14 @@ function OperatorEvidenceCollectionPanel({
             />
           </Form.Item>
           <Form.Item
-            label="Alert source profile"
+            label={t("alertSourceProfile")}
             name="alertSourceProfileID"
             rules={[
               {
                 validator: (_, value: unknown) =>
                   operatorEvidenceOptionalInteger(
                     value,
-                    "Alert source profile",
+                    t("alertSourceProfile"),
                   ),
               },
             ]}
@@ -7007,7 +7053,7 @@ function OperatorEvidenceCollectionPanel({
           {requiresMetricInput ? (
             <Form.Item
               dependencies={["selectedTemplateID", "templateID", "tool"]}
-              label="Query"
+              label={t("query")}
               name="query"
               preserve={false}
               rules={[
@@ -7024,7 +7070,7 @@ function OperatorEvidenceCollectionPanel({
                       (typeof value !== "string" || value.trim() === "")
                     ) {
                       return Promise.reject(
-                        new Error("Query is required without a template ID."),
+                        new Error(t("queryWithoutTemplate")),
                       );
                     }
                     if (
@@ -7033,13 +7079,13 @@ function OperatorEvidenceCollectionPanel({
                     ) {
                       return Promise.reject(
                         new Error(
-                          "Concrete query is required for this template.",
+                          t("concreteQueryRequired"),
                         ),
                       );
                     }
                     return operatorEvidenceOptionalSingleLine(
                       value,
-                      "Query",
+                      t("query"),
                       500,
                     );
                   },
@@ -7056,18 +7102,21 @@ function OperatorEvidenceCollectionPanel({
             <>
               <Form.Item
                 dependencies={["stepSeconds", "templateID"]}
-                label="Window seconds"
+                label={t("windowSeconds")}
                 name="windowSeconds"
                 preserve={false}
                 rules={[
                   ({ getFieldValue }) => ({
                     validator: (_, value: unknown) =>
-                      operatorEvidenceRangeSeconds(
+                      operatorEvidenceRangeSeconds({
+                        field: "window",
+                        label: t("windowSeconds"),
+                        peerLabel: t("stepSeconds"),
+                        peerValue: getFieldValue("stepSeconds"),
+                        templateID: getFieldValue("templateID"),
+                        templateLabel: t("templateID"),
                         value,
-                        getFieldValue("stepSeconds"),
-                        getFieldValue("templateID"),
-                        "Window seconds",
-                      ),
+                      }),
                   }),
                 ]}
               >
@@ -7080,18 +7129,21 @@ function OperatorEvidenceCollectionPanel({
               </Form.Item>
               <Form.Item
                 dependencies={["windowSeconds", "templateID"]}
-                label="Step seconds"
+                label={t("stepSeconds")}
                 name="stepSeconds"
                 preserve={false}
                 rules={[
                   ({ getFieldValue }) => ({
                     validator: (_, value: unknown) =>
-                      operatorEvidenceRangeSeconds(
+                      operatorEvidenceRangeSeconds({
+                        field: "step",
+                        label: t("stepSeconds"),
+                        peerLabel: t("windowSeconds"),
+                        peerValue: getFieldValue("windowSeconds"),
+                        templateID: getFieldValue("templateID"),
+                        templateLabel: t("templateID"),
                         value,
-                        getFieldValue("windowSeconds"),
-                        getFieldValue("templateID"),
-                        "Step seconds",
-                      ),
+                      }),
                   }),
                 ]}
               >
@@ -7105,12 +7157,12 @@ function OperatorEvidenceCollectionPanel({
             </>
           ) : null}
           <Form.Item
-            label="Limit"
+            label={t("limit")}
             name="limit"
             rules={[
               {
                 validator: (_, value: unknown) =>
-                  operatorEvidenceOptionalInteger(value, "Limit"),
+                  operatorEvidenceOptionalInteger(value, t("limit")),
               },
             ]}
           >
@@ -7128,7 +7180,7 @@ function OperatorEvidenceCollectionPanel({
           icon={<PlayCircleOutlined />}
           type="primary"
         >
-          Collect operator evidence
+          {t("collectOperatorEvidence")}
         </Button>
       </Form>
     </section>
@@ -7144,24 +7196,24 @@ function OperatorEvidenceRecommendationPanel({
   form: FormInstance<OperatorEvidenceFormValues>;
   recommendations: OperatorEvidenceRecommendation[];
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   if (recommendations.length === 0) {
     return null;
   }
 
   return (
     <section
-      aria-label="Recommended operator evidence"
+      aria-label={t("recommendedEvidenceLabel")}
       className="diagnosis-operator-recommendations"
     >
       <div className="diagnosis-operator-recommendations-header">
         <div>
-          <Typography.Title level={4}>Recommended Evidence</Typography.Title>
+          <Typography.Title level={4}>{t("recommendedEvidence")}</Typography.Title>
           <Typography.Text type="secondary">
-            Template-backed collection candidates prepared from the current
-            diagnosis context.
+            {t("recommendedEvidenceDetail")}
           </Typography.Text>
         </div>
-        <Tag color="processing">{recommendations.length} candidate(s)</Tag>
+        <Tag color="processing">{t("candidateCount", { count: recommendations.length })}</Tag>
       </div>
       <List
         className="diagnosis-review-list"
@@ -7174,19 +7226,19 @@ function OperatorEvidenceRecommendationPanel({
                 key="use-recommendation"
                 title={
                   item.ready
-                    ? "Prefill operator evidence collection."
+                    ? t("prefillEvidence")
                     : item.disabledReason
                 }
               >
                 <Button
-                  aria-label={`Use recommendation ${item.template.name}`}
+                  aria-label={t("useRecommendation", { name: item.template.name })}
                   disabled={!connected || !item.ready}
                   icon={<FormOutlined />}
                   onClick={() => form.setFieldsValue(item.formValues)}
                   size="small"
                   type="link"
                 >
-                  Use
+                  {t("use")}
                 </Button>
               </TooltipAction>,
             ]}
@@ -7206,10 +7258,10 @@ function OperatorEvidenceRecommendationPanel({
                 <Space size={[6, 6]} wrap>
                   <span>{item.title}</span>
                   <Tag color={item.ready ? "success" : "warning"}>
-                    {item.ready ? "ready" : "needs context"}
+                    {item.ready ? t("ready") : t("needsContext")}
                   </Tag>
                   {item.sourceMatches ? (
-                    <Tag color="blue">source match</Tag>
+                    <Tag color="blue">{t("sourceMatch")}</Tag>
                   ) : null}
                   <Tag>{item.tag}</Tag>
                 </Space>
@@ -7234,19 +7286,28 @@ function DiagnosisWorkQueuePanel({
   onFilterChange: (filter: DiagnosisWorkQueueFilter) => void;
   roomsResult?: ApiResult<DiagnosisRoomListResponse>;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
+  const labels: Record<DiagnosisWorkQueueFilter, string> = {
+    active: t("active"),
+    all: t("all"),
+    attention: t("attention"),
+    closed: t("closed"),
+    handoffs: t("needsRoom"),
+    ready: t("ready"),
+  };
   const options = diagnosisWorkQueueOptions(roomsResult, handoffsResult).map(
     (option) => ({
-      label: `${option.label} ${option.count}`,
+      label: `${labels[option.value]} ${option.count}`,
       value: option.value,
     }),
   );
   return (
     <Card
       className="diagnosis-room-panel diagnosis-work-queue-panel settings-overview-card"
-      title="Diagnosis Work Queue"
+      title={t("workQueue")}
     >
       <Segmented
-        aria-label="Diagnosis work queue filter"
+        aria-label={t("workQueueFilter")}
         onChange={(value) => onFilterChange(value as DiagnosisWorkQueueFilter)}
         options={options}
         value={filter}
@@ -7258,7 +7319,7 @@ function DiagnosisWorkQueuePanel({
 function diagnosisWorkQueueOptions(
   roomsResult?: ApiResult<DiagnosisRoomListResponse>,
   handoffsResult?: ApiResult<DiagnosisHandoffListResponse>,
-): Array<{ count: number; label: string; value: DiagnosisWorkQueueFilter }> {
+): Array<{ count: number; value: DiagnosisWorkQueueFilter }> {
   const rooms = roomsResult?.ok ? roomsResult.data.items : [];
   const handoffCount = handoffsResult?.ok
     ? handoffsResult.data.items.length
@@ -7269,18 +7330,16 @@ function diagnosisWorkQueueOptions(
   return [
     {
       count: handoffCount + roomOptionCount("all"),
-      label: "All",
       value: "all",
     },
-    { count: handoffCount, label: "Needs room", value: "handoffs" },
+    { count: handoffCount, value: "handoffs" },
     {
       count: roomOptionCount("attention"),
-      label: "Attention",
       value: "attention",
     },
-    { count: roomOptionCount("ready"), label: "Ready", value: "ready" },
-    { count: roomOptionCount("active"), label: "Active", value: "active" },
-    { count: roomOptionCount("closed"), label: "Closed", value: "closed" },
+    { count: roomOptionCount("ready"), value: "ready" },
+    { count: roomOptionCount("active"), value: "active" },
+    { count: roomOptionCount("closed"), value: "closed" },
   ];
 }
 
@@ -7313,6 +7372,7 @@ function DiagnosisHandoffBacklogPanel({
   result: ApiResult<DiagnosisHandoffListResponse>;
   selectedEvidenceSnapshotID?: number;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   return (
     <Card
       className="diagnosis-room-panel settings-overview-card"
@@ -7320,13 +7380,13 @@ function DiagnosisHandoffBacklogPanel({
         <Space size={8}>
           {result.ok ? (
             <Typography.Text type="secondary">
-              {result.data.items.length} handoff(s)
-              {isFetching ? " / refreshing" : ""}
+              {t("handoffCount", { count: result.data.items.length })}
+              {isFetching ? ` / ${t("refreshing")}` : ""}
             </Typography.Text>
           ) : null}
-          <Tooltip title="Refresh AI handoff backlog">
+          <Tooltip title={t("refreshHandoffs")}>
             <Button
-              aria-label="Refresh AI handoff backlog"
+              aria-label={t("refreshHandoffs")}
               icon={<ReloadOutlined />}
               loading={isFetching}
               onClick={onRefresh}
@@ -7335,7 +7395,7 @@ function DiagnosisHandoffBacklogPanel({
           </Tooltip>
         </Space>
       }
-      title="AI Handoff Backlog"
+      title={t("handoffBacklog")}
     >
       {!result.ok ? (
         <Alert
@@ -7343,19 +7403,19 @@ function DiagnosisHandoffBacklogPanel({
           message={
             result.error.status
               ? `HTTP ${result.error.status}`
-              : "Request failed"
+              : t("requestFailed")
           }
           showIcon
           type="warning"
         />
       ) : result.data.items.length === 0 ? (
         <Empty
-          description="No handoffs need a diagnosis room"
+          description={t("noHandoffs")}
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       ) : (
         <List
-          aria-label="AI handoff backlog"
+          aria-label={t("handoffBacklogLabel")}
           className="diagnosis-room-list"
           dataSource={result.data.items}
           renderItem={(item) => {
@@ -7370,17 +7430,17 @@ function DiagnosisHandoffBacklogPanel({
                   <TooltipAction
                     disabled={!clientReady}
                     key="prepare"
-                    title="Prefill the create form with this evidence snapshot."
+                    title={t("prefillSnapshot")}
                   >
                     <Button
-                      aria-label={`Prepare handoff snapshot ${snapshot.id}`}
+                      aria-label={t("prepareSnapshot", { id: snapshot.id })}
                       disabled={!clientReady}
                       icon={<PlusCircleOutlined />}
                       onClick={() => onPrepareRoom(item)}
                       size="small"
                       type="link"
                     >
-                      Prepare
+                      {t("prepare")}
                     </Button>
                   </TooltipAction>,
                 ]}
@@ -7459,6 +7519,7 @@ function RecentDiagnosisRoomsPanel({
   retryingNotificationKey: string;
   selectedSessionID: string;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const rooms = result.ok ? result.data.items : [];
   const filteredRooms = result.ok
     ? filterDiagnosisRoomsByQueue(rooms, filter)
@@ -7470,13 +7531,13 @@ function RecentDiagnosisRoomsPanel({
         <Space size={8}>
           {result.ok ? (
             <Typography.Text type="secondary">
-              {result.data.items.length} room(s)
-              {isFetching ? " / refreshing" : ""}
+              {t("roomCount", { count: result.data.items.length })}
+              {isFetching ? ` / ${t("refreshing")}` : ""}
             </Typography.Text>
           ) : null}
-          <Tooltip title="Refresh diagnosis rooms">
+          <Tooltip title={t("refreshRooms")}>
             <Button
-              aria-label="Refresh diagnosis rooms"
+              aria-label={t("refreshRooms")}
               icon={<ReloadOutlined />}
               loading={isFetching}
               onClick={onRefresh}
@@ -7485,7 +7546,7 @@ function RecentDiagnosisRoomsPanel({
           </Tooltip>
         </Space>
       }
-      title="Recent Diagnosis Rooms"
+      title={t("recentRooms")}
     >
       {!result.ok ? (
         <Alert
@@ -7493,26 +7554,26 @@ function RecentDiagnosisRoomsPanel({
           message={
             result.error.status
               ? `HTTP ${result.error.status}`
-              : "Request failed"
+              : t("requestFailed")
           }
           showIcon
           type="warning"
         />
       ) : result.data.items.length === 0 ? (
         <Empty
-          description="No diagnosis rooms available"
+          description={t("noRooms")}
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       ) : (
         <Space className="diagnosis-room-queue" direction="vertical" size={12}>
           {filteredRooms.length === 0 ? (
             <Empty
-              description="No diagnosis rooms in this queue"
+              description={t("noRoomsInQueue")}
               image={Empty.PRESENTED_IMAGE_SIMPLE}
             />
           ) : (
             <List
-              aria-label="Recent diagnosis rooms"
+              aria-label={t("recentRoomsLabel")}
               className="diagnosis-room-list"
               dataSource={filteredRooms}
               renderItem={(room) => {
@@ -7579,26 +7640,26 @@ function RecentDiagnosisRoomsPanel({
                   actions.push(
                     <Tooltip
                       key="notification-channel"
-                      title="Review the notification channel before relying on downstream handoff."
+                      title={t("reviewChannelHint")}
                     >
                       <Button
-                        aria-label={`Review notification channel for ${room.session_id}`}
+                        aria-label={t("reviewChannelFor", { session: room.session_id })}
                         href={notificationChannelReviewHref(failedNotification)}
                         size="small"
                         type="link"
                       >
-                        Review channel
+                        {t("reviewChannel")}
                       </Button>
                     </Tooltip>,
                     <Tooltip
                       key="notification-retry"
                       title={
                         retryDisabledReason ||
-                        "Retry the failed notification through the configured notification channel."
+                        t("retryNotificationHint")
                       }
                     >
                       <Button
-                        aria-label={`Retry notification for ${room.session_id}`}
+                        aria-label={t("retryNotificationFor", { session: room.session_id })}
                         disabled={!clientReady || retryDisabledReason !== ""}
                         icon={<ReloadOutlined />}
                         loading={retryingNotificationKey === retryKey}
@@ -7608,7 +7669,7 @@ function RecentDiagnosisRoomsPanel({
                         size="small"
                         type="link"
                       >
-                        Retry
+                        {t("retry")}
                       </Button>
                     </Tooltip>,
                   );
@@ -7626,11 +7687,11 @@ function RecentDiagnosisRoomsPanel({
                       key="notification-proof-retry"
                       title={
                         retryDisabledReason ||
-                        "Re-send the AI notification so the retained timeline includes output digest proof."
+                        t("retryProofHint")
                       }
                     >
                       <Button
-                        aria-label={`Retry notification proof for ${room.session_id}`}
+                        aria-label={t("retryProofFor", { session: room.session_id })}
                         disabled={!clientReady || retryDisabledReason !== ""}
                         icon={<ReloadOutlined />}
                         loading={retryingNotificationKey === retryKey}
@@ -7640,7 +7701,7 @@ function RecentDiagnosisRoomsPanel({
                         size="small"
                         type="link"
                       >
-                        Retry proof
+                        {t("retryProof")}
                       </Button>
                     </Tooltip>,
                   );
@@ -7649,10 +7710,10 @@ function RecentDiagnosisRoomsPanel({
                   actions.push(
                     <Tooltip
                       key="notification-proof"
-                      title="Review retained AI output proof before relying on downstream handoff."
+                      title={t("reviewProofHint")}
                     >
                       <Link
-                        aria-label={`Review notification proof for ${room.session_id}`}
+                        aria-label={t("reviewProofFor", { session: room.session_id })}
                         href={
                           diagnosisRoomAnchorHref({
                             anchorID: diagnosisNotificationTimelineAnchorID,
@@ -7661,7 +7722,7 @@ function RecentDiagnosisRoomsPanel({
                           }) as Route
                         }
                       >
-                        Review proof
+                        {t("reviewProof")}
                       </Link>
                     </Tooltip>,
                   );
@@ -7675,11 +7736,11 @@ function RecentDiagnosisRoomsPanel({
                       key="rebuild"
                       title={
                         rebuildDisabledReason ||
-                        "Prepare the create form with this evidence snapshot."
+                        t("rebuildHint")
                       }
                     >
                       <Button
-                        aria-label={`Prepare rebuild ${room.session_id}`}
+                        aria-label={t("prepareRebuild", { session: room.session_id })}
                         disabled={
                           closeUnavailableInFlight ||
                           rebuildDisabledReason !== ""
@@ -7690,7 +7751,7 @@ function RecentDiagnosisRoomsPanel({
                         size="small"
                         type="link"
                       >
-                        Close/Rebuild
+                        {t("closeRebuild")}
                       </Button>
                     </Tooltip>,
                   );
@@ -7741,7 +7802,7 @@ function RecentDiagnosisRoomsPanel({
                                 room.workflow_visibility.status,
                               )}
                             >
-                              workflow {room.workflow_visibility.status}
+                              {t("workflowStatus", { status: room.workflow_visibility.status })}
                             </Tag>
                           ) : null}
                           {latestNotification ? (
@@ -7779,14 +7840,14 @@ function RecentDiagnosisRoomsPanel({
                                 </Tag>
                               ) : null}
                               {room.latest_conclusion.requires_human_review ? (
-                                <Tag color="warning">review</Tag>
+                                <Tag color="warning">{t("review")}</Tag>
                               ) : null}
                             </>
                           ) : null}
                           {!room.latest_conclusion && room.latest_progress ? (
                             <RoomProgressTags progress={room.latest_progress} />
                           ) : null}
-                          <Tag>{room.turn_count} turn(s)</Tag>
+                          <Tag>{t("turnCount", { count: room.turn_count })}</Tag>
                         </Space>
                       }
                     />
@@ -7912,6 +7973,7 @@ function DiagnosisNotificationTimelineSection({
   retryingNotificationKey?: string;
   room?: DiagnosisRoomSummary;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const entries = room?.notification_timeline ?? [];
   const proofExpected =
     room !== undefined && diagnosisNotificationDeliveryProofExpected(room);
@@ -7927,15 +7989,15 @@ function DiagnosisNotificationTimelineSection({
 
   return (
     <section
-      aria-label="Notification timeline"
+      aria-label={t("notificationTimelineLabel")}
       className="diagnosis-notification-timeline"
       id={diagnosisNotificationTimelineAnchorID}
     >
       <div className="diagnosis-notification-timeline-header">
-        <Typography.Title level={3}>Notification Timeline</Typography.Title>
+        <Typography.Title level={3}>{t("notificationTimeline")}</Typography.Title>
         <Space size={[6, 6]} wrap>
           <Typography.Text type="secondary">
-            {entries.length} delivery event(s)
+            {t("deliveryEventCount", { count: entries.length })}
           </Typography.Text>
           {showProofSummary ? (
             <Tag color={proofSummary.color}>{proofSummary.label}</Tag>
@@ -7992,7 +8054,7 @@ function DiagnosisNotificationTimelineSection({
         />
       ) : (
         <Empty
-          description="No notification delivery events have been retained for this closed, operator-confirmed diagnosis room. There is no retained notification event to retry yet; check the close notification channel wiring, then refresh the room state."
+          description={t("noNotificationEvents")}
           image={Empty.PRESENTED_IMAGE_SIMPLE}
         />
       )}
@@ -8366,6 +8428,7 @@ function reviewQueueTaskProgressTimelineItems({
   onUseEvidencePlan,
   onUseFollowUp,
   taskProgress,
+  t,
 }: {
   actionDisabledReason: string;
   canConfirmConclusion: boolean;
@@ -8377,6 +8440,7 @@ function reviewQueueTaskProgressTimelineItems({
   onUseEvidencePlan: (item: DiagnosisEvidenceRequest) => void;
   onUseFollowUp: (item: DiagnosisConsultationEvidenceRequest) => void;
   taskProgress: ReturnType<typeof diagnosisReviewQueueTaskProgress>;
+  t: DiagnosisWorkspaceTranslator;
 }): TimelineProps["items"] {
   const itemByKey = new Map(items.map((item) => [item.key, item]));
   return taskProgress.phases.map((phase) => ({
@@ -8395,6 +8459,7 @@ function reviewQueueTaskProgressTimelineItems({
           onRequestReassessment,
           onUseEvidencePlan,
           onUseFollowUp,
+          t,
         })}
         detail={phase.detail}
         tags={[
@@ -8420,6 +8485,7 @@ function reviewQueueTaskPhaseActionButton({
   onRequestReassessment,
   onUseEvidencePlan,
   onUseFollowUp,
+  t,
 }: {
   action?: DiagnosisReviewQueueTaskPhaseAction;
   actionDisabledReason: string;
@@ -8431,6 +8497,7 @@ function reviewQueueTaskPhaseActionButton({
   onRequestReassessment: () => void;
   onUseEvidencePlan: (item: DiagnosisEvidenceRequest) => void;
   onUseFollowUp: (item: DiagnosisConsultationEvidenceRequest) => void;
+  t: DiagnosisWorkspaceTranslator;
 }): ReactNode {
   if (!action) {
     return null;
@@ -8452,9 +8519,9 @@ function reviewQueueTaskPhaseActionButton({
         disabled={disabled}
         title={
           canOpenConnection
-            ? "Open the live room connection, then return to ask AI for reassessment."
+            ? t("openThenReassess")
             : actionDisabledReason ||
-              "Ask AI to reassess retained evidence and update confidence."
+              t("reassessRetainedEvidence")
         }
       >
         <Button
@@ -8464,7 +8531,7 @@ function reviewQueueTaskPhaseActionButton({
           size="small"
           type="primary"
         >
-          {canOpenConnection ? "Open connection" : action.label}
+          {canOpenConnection ? t("openConnection") : action.label}
         </Button>
       </TooltipAction>
     );
@@ -8676,6 +8743,7 @@ function ConsultationProgressPanel({
   >;
   supplementalEvidence: DiagnosisSupplementalEvidenceRecord[];
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const confidence = confidencePercent(latestInsight.confidence);
   const collectedCount = latestInsight.collectionResults.filter(
     (item) => item.status === "collected",
@@ -8698,19 +8766,19 @@ function ConsultationProgressPanel({
 
   return (
     <section
-      aria-label="Diagnosis consultation progress"
+      aria-label={t("consultationProgress")}
       className="diagnosis-progress"
     >
       <div className="diagnosis-progress-summary">
         <div className="diagnosis-progress-confidence">
           <div className="diagnosis-progress-heading">
-            <Typography.Text strong>Confidence</Typography.Text>
+            <Typography.Text strong>{t("confidence")}</Typography.Text>
             <Tag color={confidenceColor(latestInsight.confidence)}>
               {latestInsight.confidence || "unknown"}
             </Tag>
           </div>
           <Progress
-            aria-label="Diagnosis confidence"
+            aria-label={t("diagnosisConfidence")}
             aria-valuetext={`${latestInsight.confidence || "unknown"} confidence`}
             percent={confidence}
             size="small"
@@ -8718,18 +8786,18 @@ function ConsultationProgressPanel({
           />
         </div>
         <div
-          aria-label="Evidence readiness"
+          aria-label={t("evidenceReadiness")}
           className="diagnosis-progress-metrics"
         >
           <ProgressMetric
-            label="Plan"
+            label={t("plan")}
             value={latestInsight.evidenceRequests.length}
           />
-          <ProgressMetric label="Collected" value={collectedCount} />
-          <ProgressMetric label="Missing" value={missingCount} />
-          <ProgressMetric label="Suggestions" value={suggestionCount} />
+          <ProgressMetric label={t("collected")} value={collectedCount} />
+          <ProgressMetric label={t("missing")} value={missingCount} />
+          <ProgressMetric label={t("suggestions")} value={suggestionCount} />
           <ProgressMetric
-            label="Next"
+            label={t("next")}
             value={nextDiagnosisAction(latestInsight, supplementalEvidence)}
             wide
           />
@@ -8751,6 +8819,7 @@ function ConsultationProgressPanel({
           supplementalEvidence,
           finalConclusion,
           notificationDeliveryCoverage,
+          t,
         )}
       />
     </section>
@@ -8762,18 +8831,19 @@ function ConfidenceTimelineSection({
 }: {
   items: DiagnosisConfidenceTimelineEntry[];
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   if (items.length === 0) {
     return null;
   }
   return (
     <section
-      aria-label="Confidence timeline"
+      aria-label={t("confidenceTimelineLabel")}
       className="diagnosis-confidence-timeline"
     >
       <div className="diagnosis-confidence-timeline-header">
-        <Typography.Title level={3}>Confidence Timeline</Typography.Title>
+        <Typography.Title level={3}>{t("confidenceTimeline")}</Typography.Title>
         <Typography.Text type="secondary">
-          {items.length} checkpoint(s)
+          {t("checkpointCount", { count: items.length })}
         </Typography.Text>
       </div>
       <Timeline
@@ -8799,6 +8869,7 @@ function ConfidenceTimelineCheckpoint({
 }: {
   item: DiagnosisConfidenceTimelineEntry;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const evidenceRequestCount = item.evidence_requests?.length ?? 0;
   const collectionResultCount = item.evidence_collection_results?.length ?? 0;
   const missingCount = item.missing_evidence_requests?.length ?? 0;
@@ -8808,7 +8879,7 @@ function ConfidenceTimelineCheckpoint({
     <div className="diagnosis-confidence-checkpoint">
       <Space size={[6, 6]} wrap>
         <Typography.Text strong>
-          Turn {item.turn_count} / {item.confidence || "unknown"} confidence
+          {t("turnConfidence", { turn: item.turn_count, confidence: item.confidence || t("unknown") })}
         </Typography.Text>
         {item.conclusion_status ? (
           <Tag color={conclusionStatusColor(item.conclusion_status)}>
@@ -8816,7 +8887,7 @@ function ConfidenceTimelineCheckpoint({
           </Tag>
         ) : null}
         <Tag color={item.requires_human_review ? "warning" : "success"}>
-          {item.requires_human_review ? "review required" : "review optional"}
+          {item.requires_human_review ? t("reviewRequired") : t("reviewOptional")}
         </Tag>
         {item.trigger ? <Tag>{item.trigger}</Tag> : null}
       </Space>
@@ -8870,10 +8941,11 @@ function ProgressMetric({
 function consultationTimelineItems(
   latestInsight: LatestConsultationInsight,
   supplementalEvidence: DiagnosisSupplementalEvidenceRecord[],
-  finalConclusion?: DiagnosisFinalConclusion,
-  notificationDeliveryCoverage?: ReturnType<
-    typeof diagnosisNotificationDeliveryCoverage
-  >,
+  finalConclusion: DiagnosisFinalConclusion | undefined,
+  notificationDeliveryCoverage:
+    | ReturnType<typeof diagnosisNotificationDeliveryCoverage>
+    | undefined,
+  t: DiagnosisWorkspaceTranslator,
 ): TimelineProps["items"] {
   const conclusionStatus = latestInsight.insight.conclusion_status || "unknown";
   const items: NonNullable<TimelineProps["items"]> = [
@@ -8883,7 +8955,7 @@ function consultationTimelineItems(
       children: (
         <TimelineStep
           detail={`Turn ${latestInsight.turnCount} produced a ${latestInsight.confidence || "unknown"} confidence diagnosis.`}
-          title="AI drafted diagnosis"
+          title={t("aiDraftedDiagnosis")}
         />
       ),
     },
@@ -8910,7 +8982,7 @@ function consultationTimelineItems(
             color: priorityColor(request.priority),
             label: request.label,
           }))}
-          title="Supplemental evidence requested"
+          title={t("supplementalEvidenceRequested")}
         />
       ),
     });
@@ -8938,7 +9010,7 @@ function consultationTimelineItems(
             color: collectionStatusColor(item.status),
             label: item.tool,
           }))}
-          title="Executable evidence collected"
+          title={t("executableEvidenceCollected")}
         />
       ),
     });
@@ -9066,6 +9138,7 @@ function EvidencePlanList({
   items?: DiagnosisEvidenceRequest[];
   title: string;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   return (
     <section aria-label={title} className="diagnosis-insight-section">
       <Typography.Title level={3}>{title}</Typography.Title>
@@ -9081,7 +9154,7 @@ function EvidencePlanList({
             <List.Item.Meta
               description={
                 <EvidenceRequestMetadata
-                  fallbackText="No additional parameters"
+                  fallbackText={t("noAdditionalParameters")}
                   request={item}
                 />
               }
@@ -9105,22 +9178,23 @@ function EvidenceCollectionResultList({
 }: {
   items?: DiagnosisEvidenceCollectionResult[];
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const results = items ?? [];
   const summary = evidenceCollectionSummary(results);
 
   return (
     <section
-      aria-label="Collection Results"
+      aria-label={t("collectionResultsLabel")}
       className="diagnosis-insight-section"
     >
-      <Typography.Title level={3}>Collection Results</Typography.Title>
+      <Typography.Title level={3}>{t("collectionResults")}</Typography.Title>
       {summary.total > 0 ? (
         <EvidenceCollectionSummaryBar summary={summary} />
       ) : null}
       <List
         className="diagnosis-evidence-list"
         dataSource={results}
-        locale={{ emptyText: "No evidence collected yet" }}
+        locale={{ emptyText: t("noEvidenceCollected") }}
         renderItem={(item, index) => (
           <List.Item
             className="diagnosis-evidence-item"
@@ -9139,7 +9213,7 @@ function EvidenceCollectionResultList({
                           </Tag>
                         ))}
                       {item.active_alerts.length > 3 ? (
-                        <Tag>+{item.active_alerts.length - 3} more</Tag>
+                        <Tag>{t("more", { count: item.active_alerts.length - 3 })}</Tag>
                       ) : null}
                     </div>
                   ) : null}
@@ -9174,6 +9248,7 @@ function EvidenceTimelineSection({
   directoryUsersBySubject: ReadonlyMap<string, DiagnosisCollaborationDirectoryUser>;
   items?: DiagnosisEvidenceTimelineEntry[];
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const entries = items ?? [];
   if (entries.length === 0) {
     return null;
@@ -9192,21 +9267,21 @@ function EvidenceTimelineSection({
             wrap
           >
             <Typography.Text strong>
-              Turn {entry.turn_count} evidence
+              {t("turnEvidence", { turn: entry.turn_count })}
             </Typography.Text>
             <ActorSubjectTags
               directoryUsersBySubject={directoryUsersBySubject}
               subject={entry.actor_subject}
             />
             {entry.trigger ? <Tag>{entry.trigger}</Tag> : null}
-            <Tag>{requests.length} planned</Tag>
+            <Tag>{t("plannedCount", { count: requests.length })}</Tag>
             <Tag color={results.length > 0 ? "success" : "default"}>
-              {results.length} collected
+              {t("collectedCount", { count: results.length })}
             </Tag>
           </Space>
           {requests.length > 0 ? (
             <div className="diagnosis-evidence-timeline-row">
-              <Typography.Text type="secondary">Plan</Typography.Text>
+              <Typography.Text type="secondary">{t("plan")}</Typography.Text>
               <div className="diagnosis-evidence-timeline-items">
                 {requests.map((request, requestIndex) => (
                   <div
@@ -9216,7 +9291,7 @@ function EvidenceTimelineSection({
                     <Space size={[6, 6]} wrap>
                       <Tag color="processing">{request.tool}</Tag>
                       <Typography.Text>
-                        {request.reason || "No request reason"}
+                        {request.reason || t("noRequestReason")}
                       </Typography.Text>
                     </Space>
                     <EvidenceRequestMetadata request={request} />
@@ -9227,7 +9302,7 @@ function EvidenceTimelineSection({
           ) : null}
           {results.length > 0 ? (
             <div className="diagnosis-evidence-timeline-row">
-              <Typography.Text type="secondary">Results</Typography.Text>
+              <Typography.Text type="secondary">{t("results")}</Typography.Text>
               <div className="diagnosis-evidence-timeline-items">
                 {results.map((result, resultIndex) => (
                   <div
@@ -9257,13 +9332,13 @@ function EvidenceTimelineSection({
 
   return (
     <section
-      aria-label="Evidence timeline"
+      aria-label={t("evidenceTimelineLabel")}
       className="diagnosis-evidence-timeline"
     >
       <div className="diagnosis-evidence-timeline-header">
-        <Typography.Title level={3}>Evidence Timeline</Typography.Title>
+        <Typography.Title level={3}>{t("evidenceTimeline")}</Typography.Title>
         <Typography.Text type="secondary">
-          {entries.length} collection cycle(s)
+          {t("collectionCycleCount", { count: entries.length })}
         </Typography.Text>
       </div>
       <Timeline
@@ -9279,29 +9354,30 @@ function EvidenceCollectionSummaryBar({
 }: {
   summary: EvidenceCollectionSummaryStats;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   return (
     <div
-      aria-label="Evidence collection summary"
+      aria-label={t("collectionSummary")}
       className="diagnosis-collection-summary"
     >
       <Tag color={summary.unresolved > 0 ? "warning" : "success"}>
-        {summary.collected}/{summary.total} collected
+        {t("collectedRatio", { collected: summary.collected, total: summary.total })}
       </Tag>
       {summary.unresolved > 0 ? (
-        <Tag color="warning">{summary.unresolved} unresolved</Tag>
+        <Tag color="warning">{t("unresolved", { count: summary.unresolved })}</Tag>
       ) : null}
       {summary.failed > 0 ? (
-        <Tag color="error">{summary.failed} failed</Tag>
+        <Tag color="error">{t("failed", { count: summary.failed })}</Tag>
       ) : null}
-      {summary.skipped > 0 ? <Tag>{summary.skipped} skipped</Tag> : null}
+      {summary.skipped > 0 ? <Tag>{t("skipped", { count: summary.skipped })}</Tag> : null}
       {summary.unsupported > 0 ? (
-        <Tag color="warning">{summary.unsupported} unsupported</Tag>
+        <Tag color="warning">{t("unsupported", { count: summary.unsupported })}</Tag>
       ) : null}
       {summary.observedAlerts > 0 ? (
-        <Tag>{summary.observedAlerts} alerts</Tag>
+        <Tag>{t("alertsCount", { count: summary.observedAlerts })}</Tag>
       ) : null}
       {summary.observedMetricSeries > 0 ? (
-        <Tag>{summary.observedMetricSeries} series</Tag>
+        <Tag>{t("seriesCount", { count: summary.observedMetricSeries })}</Tag>
       ) : null}
     </div>
   );
@@ -9312,6 +9388,7 @@ function MetricResultSummary({
 }: {
   item: DiagnosisEvidenceCollectionResult;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const result = item.metric_result;
   if (!result) {
     return null;
@@ -9324,7 +9401,7 @@ function MetricResultSummary({
           <Tag color="processing">{result.result_type}</Tag>
         ) : null}
         {item.observed_metric_series !== undefined ? (
-          <Tag>series: {item.observed_metric_series}</Tag>
+          <Tag>{t("seriesLabel", { count: item.observed_metric_series })}</Tag>
         ) : null}
         {result.warnings?.map((warning, index) => (
           <Tag color="warning" key={`${warning}-${index}`}>
@@ -9339,18 +9416,14 @@ function MetricResultSummary({
               {formatMetricSeries(entry)}
             </Tag>
           ))}
-          {series.length > 3 ? <Tag>+{series.length - 3} more</Tag> : null}
+          {series.length > 3 ? <Tag>{t("more", { count: series.length - 3 })}</Tag> : null}
         </div>
       ) : null}
       {result.scalar ? (
-        <div className="diagnosis-metric-value">
-          scalar: {result.scalar.value}
-        </div>
+        <div className="diagnosis-metric-value">{t("scalarLabel", { value: result.scalar.value })}</div>
       ) : null}
       {result.string ? (
-        <div className="diagnosis-metric-value">
-          string: {result.string.value}
-        </div>
+        <div className="diagnosis-metric-value">{t("stringLabel", { value: result.string.value })}</div>
       ) : null}
     </div>
   );
@@ -9363,13 +9436,14 @@ function EvidenceCollectionResultDetails({
   children?: ReactNode;
   item: DiagnosisEvidenceCollectionResult;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   return (
     <div className="diagnosis-evidence-result-details">
       <Space className="diagnosis-evidence-metadata" size={[6, 6]} wrap>
-        <Tag>alerts observed: {item.observed_alerts}</Tag>
-        <Tag>alerts visible: {item.active_alerts?.length ?? 0}</Tag>
+        <Tag>{t("alertsObserved", { count: item.observed_alerts })}</Tag>
+        <Tag>{t("alertsVisible", { count: item.active_alerts?.length ?? 0 })}</Tag>
         {item.observed_metric_series !== undefined ? (
-          <Tag>series observed: {item.observed_metric_series}</Tag>
+          <Tag>{t("seriesObserved", { count: item.observed_metric_series })}</Tag>
         ) : null}
       </Space>
       <EvidenceRequestMetadata
@@ -9390,26 +9464,27 @@ function EvidenceRequestMetadata({
   request: DiagnosisEvidenceRequest;
   sourceKind?: string;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const tags: ReactNode[] = [];
   if (request.template_id) {
-    tags.push(<Tag key="template">template #{request.template_id}</Tag>);
+    tags.push(<Tag key="template">{t("templateNumber", { id: request.template_id })}</Tag>);
   }
   if (request.alert_source_profile_id) {
     tags.push(
-      <Tag key="profile">profile #{request.alert_source_profile_id}</Tag>,
+      <Tag key="profile">{t("profileNumber", { id: request.alert_source_profile_id })}</Tag>,
     );
   }
   if (sourceKind) {
-    tags.push(<Tag key="source">source: {sourceKind}</Tag>);
+    tags.push(<Tag key="source">{t("sourceValue", { value: sourceKind })}</Tag>);
   }
   if (request.limit) {
-    tags.push(<Tag key="limit">limit: {request.limit}</Tag>);
+    tags.push(<Tag key="limit">{t("limitValue", { value: request.limit })}</Tag>);
   }
   if (request.window_seconds) {
-    tags.push(<Tag key="window">window: {request.window_seconds}s</Tag>);
+    tags.push(<Tag key="window">{t("windowValue", { value: request.window_seconds })}</Tag>);
   }
   if (request.step_seconds) {
-    tags.push(<Tag key="step">step: {request.step_seconds}s</Tag>);
+    tags.push(<Tag key="step">{t("stepValue", { value: request.step_seconds })}</Tag>);
   }
   if (request.query) {
     tags.push(
@@ -9461,6 +9536,7 @@ function EvidenceRequestList({
   onUseFollowUp?: (item: DiagnosisConsultationEvidenceRequest) => void;
   title: string;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   return (
     <section className="diagnosis-insight-section">
       <Typography.Title level={3}>{title}</Typography.Title>
@@ -9478,18 +9554,18 @@ function EvidenceRequestList({
                       key="use-follow-up"
                       title={
                         followUpDisabledReason ||
-                        `Prepare follow-up for ${item.label}.`
+                        t("prepareFollowUp", { label: item.label })
                       }
                     >
                       <Button
-                        aria-label={`Use follow-up for ${item.label}`}
+                        aria-label={t("useFollowUpFor", { label: item.label })}
                         disabled={followUpDisabled}
                         icon={<FormOutlined />}
                         onClick={() => onUseFollowUp(item)}
                         size="small"
                         type="link"
                       >
-                        Use follow-up
+                        {t("useFollowUp")}
                       </Button>
                     </TooltipAction>,
                   ]
@@ -10181,6 +10257,7 @@ function RetainedFinalConclusionSummary({
   refreshingDeliveryProof: boolean;
   room: DiagnosisRoomSummary;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const conclusion = room.latest_conclusion;
   if (!conclusion) {
     return null;
@@ -10205,17 +10282,19 @@ function RetainedFinalConclusionSummary({
   const items: DescriptionsProps["items"] = [
     {
       key: "confidence",
-      label: "Confidence",
+      label: t("confidence"),
       children: <Tag color={confidenceColor(confidence)}>{confidence}</Tag>,
     },
     {
       key: "human-review",
-      label: "Human review",
-      children: conclusion.requires_human_review ? "required" : "not required",
+      label: t("humanReview"),
+      children: conclusion.requires_human_review
+        ? t("required")
+        : t("notRequired"),
     },
     {
       key: "confirmed-by",
-      label: "Confirmed by",
+      label: t("confirmedBy"),
       children: conclusion.confirmed_by ? (
         <ActorSubjectTags
           directoryUsersBySubject={directoryUsersBySubject}
@@ -10227,17 +10306,17 @@ function RetainedFinalConclusionSummary({
     },
     {
       key: "recorded",
-      label: "Recorded",
+      label: t("recorded"),
       children: formatDateTime(conclusion.recorded_at),
     },
     {
       key: "version",
-      label: "Conclusion version",
+      label: t("conclusionVersion"),
       children: conclusion.conclusion_version || "-",
     },
     {
       key: "delivery",
-      label: "Delivery",
+      label: t("delivery"),
       children: (
         <Tag
           color={notificationDeliveryCoverageStatusColor(
@@ -10258,7 +10337,7 @@ function RetainedFinalConclusionSummary({
             onClick={onReviewDelivery}
             size="small"
           >
-            Review delivery
+            {t("reviewDelivery")}
           </Button>
           <Button
             icon={<ReloadOutlined />}
@@ -10267,7 +10346,7 @@ function RetainedFinalConclusionSummary({
             size="small"
             type={proofActionType}
           >
-            Refresh proof
+            {t("refreshProof")}
           </Button>
         </Space>
       }
@@ -10311,7 +10390,7 @@ function RetainedFinalConclusionSummary({
           ) : null}
         </div>
       }
-      message="Retained final conclusion"
+      message={t("retainedFinalConclusion")}
       showIcon
       type={finalConclusionTraceabilityAlertType(traceability.status)}
     />
@@ -10323,30 +10402,31 @@ function ConversationSummaryDetails({
 }: {
   summary: DiagnosisConversationSummary;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const content = summary.content;
   const sourceRange =
     summary.source_turn_count === 0
-      ? "Empty transcript"
+      ? t("emptyTranscript")
       : `${summary.source_first_sequence}-${summary.source_last_sequence}`;
   const items: DescriptionsProps["items"] = [
     {
       key: "version",
-      label: "Summary version",
+      label: t("summaryVersion"),
       children: `${summary.schema_version} / ${summary.version}`,
     },
     {
       key: "source",
-      label: "Source turns",
+      label: t("sourceTurns"),
       children: `${sourceRange} (${summary.source_turn_count})`,
     },
     {
       key: "generated",
-      label: "Generated",
+      label: t("generated"),
       children: formatDateTime(summary.generated_at),
     },
     {
       key: "digest",
-      label: "Source digest",
+      label: t("sourceDigest"),
       children: <Typography.Text code>{summary.source_digest}</Typography.Text>,
     },
   ];
@@ -10359,21 +10439,21 @@ function ConversationSummaryDetails({
       ) : null}
       <Descriptions column={{ xs: 1, md: 2 }} items={items} size="small" />
       {content.opening_request ? (
-        <section aria-label="Opening request">
-          <Typography.Text strong>Opening request</Typography.Text>
+        <section aria-label={t("openingRequestLabel")}>
+          <Typography.Text strong>{t("openingRequest")}</Typography.Text>
           <Typography.Paragraph>{content.opening_request}</Typography.Paragraph>
         </section>
       ) : null}
       {content.latest_request &&
       content.latest_request !== content.opening_request ? (
-        <section aria-label="Latest request">
-          <Typography.Text strong>Latest request</Typography.Text>
+        <section aria-label={t("latestRequestLabel")}>
+          <Typography.Text strong>{t("latestRequestHeading")}</Typography.Text>
           <Typography.Paragraph>{content.latest_request}</Typography.Paragraph>
         </section>
       ) : null}
       {content.assistant_highlights?.length ? (
-        <section aria-label="Assistant highlights">
-          <Typography.Text strong>Assistant highlights</Typography.Text>
+        <section aria-label={t("assistantHighlightsLabel")}>
+          <Typography.Text strong>{t("assistantHighlights")}</Typography.Text>
           <List
             dataSource={content.assistant_highlights}
             renderItem={(item) => (
@@ -10387,7 +10467,9 @@ function ConversationSummaryDetails({
       ) : null}
       {content.truncated_fields?.length ? (
         <Typography.Text type="secondary">
-          Bounded fields: {content.truncated_fields.join(", ")}
+          {t("boundedFields", {
+            fields: content.truncated_fields.join(", "),
+          })}
         </Typography.Text>
       ) : null}
     </div>
@@ -10413,6 +10495,7 @@ function FinalConclusionDetails({
   onUseFollowUp: (item: DiagnosisConsultationEvidenceRequest) => void;
   state: DiagnosisStateFrame;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const conclusion = state.final_conclusion;
   if (!conclusion) {
     return null;
@@ -10436,10 +10519,12 @@ function FinalConclusionDetails({
   const actionDisabled = !connected || actionDisabledReason !== "";
   const traceabilityReviewLabel =
     traceability.reviewOpenCount > 0
-      ? `${traceability.reviewOpenCount} blocking review item(s)`
+      ? t("blockingReviewCount", { count: traceability.reviewOpenCount })
       : traceability.reviewResidualCount > 0
-        ? `${traceability.reviewResidualCount} residual review item(s)`
-        : "Review clear";
+        ? t("residualReviewCount", {
+            count: traceability.reviewResidualCount,
+          })
+        : t("reviewClear");
 
   return (
     <Space
@@ -10464,9 +10549,9 @@ function FinalConclusionDetails({
         </Typography.Text>
       </Space>
       {notificationDeliveryCoverage !== undefined ? (
-        <section aria-label="Final conclusion delivery proof">
+        <section aria-label={t("finalDeliveryProofLabel")}>
           <Space direction="vertical" size={4}>
-            <Typography.Text strong>Closure delivery proof</Typography.Text>
+            <Typography.Text strong>{t("closureDeliveryProof")}</Typography.Text>
             <Space size={[6, 6]} wrap>
               {notificationDeliveryCoverage.phases.map((phase) => (
                 <Tag
@@ -10507,7 +10592,7 @@ function FinalConclusionDetails({
       <Typography.Paragraph>{finalConclusionText(state)}</Typography.Paragraph>
       <ActorSubjectTags
         directoryUsersBySubject={directoryUsersBySubject}
-        label="Confirmed by"
+        label={t("confirmedBy")}
         subject={conclusion.confirmed_by}
       />
       {conclusion.confidence_rationale ? (
@@ -10516,30 +10601,30 @@ function FinalConclusionDetails({
         </Typography.Text>
       ) : null}
       <FinalConclusionReviewChecklist items={reviewItems} />
-      <FinalConclusionStringList items={findings} title="Findings" />
+      <FinalConclusionStringList items={findings} title={t("findings")} />
       <FinalConclusionStringList
         items={recommendedActions}
-        title="Recommended actions"
+        title={t("recommendedActions")}
       />
       <FinalConclusionEvidenceList
         items={missingEvidence}
         onUseFollowUp={onUseFollowUp}
         actionDisabledReason={actionDisabledReason}
         connected={connected}
-        actionLabel="Add evidence"
-        title="Missing evidence"
+        actionLabel={t("addEvidence")}
+        title={t("missingEvidence")}
       />
       <FinalConclusionEvidenceList
         items={collectionSuggestions}
         onUseFollowUp={onUseFollowUp}
         actionDisabledReason={actionDisabledReason}
         connected={connected}
-        actionLabel="Prepare follow-up"
-        title="Evidence collection suggestions"
+        actionLabel={t("prepareFollowUpAction")}
+        title={t("evidenceCollectionSuggestions")}
       />
       {evidenceRequests.length > 0 ? (
-        <section aria-label="Final conclusion executable evidence requests">
-          <Typography.Text strong>Executable evidence requests</Typography.Text>
+        <section aria-label={t("executableEvidenceRequestsLabel")}>
+          <Typography.Text strong>{t("executableEvidenceRequests")}</Typography.Text>
           <List
             dataSource={evidenceRequests}
             renderItem={(item, index) => (
@@ -10549,18 +10634,19 @@ function FinalConclusionDetails({
                     disabled={actionDisabled}
                     key="collect-evidence"
                     title={
-                      actionDisabledReason || `Collect ${item.tool} evidence.`
+                      actionDisabledReason ||
+                      t("collectEvidenceFor", { tool: item.tool })
                     }
                   >
                     <Button
-                      aria-label={`Collect evidence for ${item.tool}`}
+                      aria-label={t("collectEvidenceFor", { tool: item.tool })}
                       disabled={actionDisabled}
                       icon={<PlayCircleOutlined />}
                       onClick={() => onUseEvidencePlan(item)}
                       size="small"
                       type="link"
                     >
-                      Collect evidence
+                      {t("collectEvidence")}
                     </Button>
                   </TooltipAction>,
                 ]}
@@ -10574,7 +10660,7 @@ function FinalConclusionDetails({
                     ) : null}
                   </Space>
                   <EvidenceRequestMetadata
-                    fallbackText="No additional parameters"
+                    fallbackText={t("noAdditionalParameters")}
                     request={item}
                   />
                 </Space>
@@ -10595,6 +10681,7 @@ function FinalConclusionStringList({
   items: string[];
   title: string;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   const visibleItems = items
     .map((item) => item.trim())
     .filter((item) => item !== "");
@@ -10602,7 +10689,7 @@ function FinalConclusionStringList({
     return null;
   }
   return (
-    <section aria-label={`Final conclusion ${title.toLowerCase()}`}>
+    <section aria-label={t("finalSectionLabel", { title })}>
       <Typography.Text strong>{title}</Typography.Text>
       <List
         dataSource={visibleItems}
@@ -10620,12 +10707,13 @@ function FinalConclusionReviewChecklist({
 }: {
   items: ReturnType<typeof diagnosisFinalConclusionReviewItems>;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   if (items.length === 0) {
     return null;
   }
   return (
-    <section aria-label="Final conclusion review checklist">
-      <Typography.Text strong>Review checklist</Typography.Text>
+    <section aria-label={t("finalReviewChecklistLabel")}>
+      <Typography.Text strong>{t("reviewChecklist")}</Typography.Text>
       <List
         dataSource={items}
         renderItem={(item) => (
@@ -10730,12 +10818,13 @@ function FinalConclusionEvidenceList({
   onUseFollowUp: (item: DiagnosisConsultationEvidenceRequest) => void;
   title: string;
 }) {
+  const t = useTranslations("DiagnosisRoom.workspace");
   if (items.length === 0) {
     return null;
   }
   const actionDisabled = !connected || actionDisabledReason !== "";
   return (
-    <section aria-label={`Final conclusion ${title.toLowerCase()}`}>
+    <section aria-label={t("finalSectionLabel", { title })}>
       <Typography.Text strong>{title}</Typography.Text>
       <List
         dataSource={items}
@@ -10746,11 +10835,11 @@ function FinalConclusionEvidenceList({
                 disabled={actionDisabled}
                 key="use-follow-up"
                 title={
-                  actionDisabledReason || `Prepare follow-up for ${item.label}.`
+                  actionDisabledReason || t("prepareFollowUp", { label: item.label })
                 }
               >
                 <Button
-                  aria-label={`${actionLabel} for ${item.label}`}
+                  aria-label={t("actionFor", { action: actionLabel, label: item.label })}
                   disabled={actionDisabled}
                   icon={<FormOutlined />}
                   onClick={() => onUseFollowUp(item)}
@@ -12115,20 +12204,28 @@ function operatorEvidenceOptionalInteger(
   }
 }
 
-function operatorEvidenceRangeSeconds(
-  value: unknown,
-  peerValue: unknown,
-  templateID: unknown,
-  label: string,
-): Promise<void> {
+function operatorEvidenceRangeSeconds({
+  field,
+  label,
+  peerLabel,
+  peerValue,
+  templateID,
+  templateLabel,
+  value,
+}: {
+  field: OperatorEvidenceRangeField;
+  label: string;
+  peerLabel: string;
+  peerValue: unknown;
+  templateID: unknown;
+  templateLabel: string;
+  value: unknown;
+}): Promise<void> {
   try {
     const current = optionalOperatorEvidenceInteger(value, label);
-    const peer = optionalOperatorEvidenceInteger(
-      peerValue,
-      label === "Window seconds" ? "Step seconds" : "Window seconds",
-    );
+    const peer = optionalOperatorEvidenceInteger(peerValue, peerLabel);
     const hasTemplateID =
-      optionalOperatorEvidenceInteger(templateID, "Template ID") !== undefined;
+      optionalOperatorEvidenceInteger(templateID, templateLabel) !== undefined;
     if (!hasTemplateID && current === undefined) {
       throw new Error(`${label} is required without a template ID.`);
     }
@@ -12136,11 +12233,8 @@ function operatorEvidenceRangeSeconds(
       throw new Error(`${label} must be set with its paired range field.`);
     }
     if (current !== undefined && peer !== undefined) {
-      if (label === "Window seconds") {
-        validateOperatorEvidenceRange(current, peer);
-      } else {
-        validateOperatorEvidenceRange(peer, current);
-      }
+      const range = operatorEvidenceRangeValues(field, current, peer);
+      validateOperatorEvidenceRange(range.windowSeconds, range.stepSeconds);
     }
     return Promise.resolve();
   } catch (error) {

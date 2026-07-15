@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  operatorEvidenceRangeValues,
   operatorEvidenceTemplateHasParameterizedQuery,
   operatorEvidenceTemplateQuery,
   operatorEvidenceTemplateSourceDisabledReason,
@@ -9,6 +10,17 @@ import {
 import type { DiagnosisToolKind, DiagnosisToolTemplate } from "@/features/settings/diagnosis-tool-templates/types";
 
 describe("operator evidence template query", () => {
+  it("orders range values by stable field kind instead of display labels", () => {
+    expect(operatorEvidenceRangeValues("window", 120, 60)).toEqual({
+      stepSeconds: 60,
+      windowSeconds: 120,
+    });
+    expect(operatorEvidenceRangeValues("step", 60, 120)).toEqual({
+      stepSeconds: 60,
+      windowSeconds: 120,
+    });
+  });
+
   it("expands safe alert labels and annotations into parameterized templates", () => {
     const result = operatorEvidenceTemplateQuery(
       diagnosisToolTemplate({
