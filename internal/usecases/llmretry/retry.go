@@ -11,7 +11,9 @@ import (
 	"github.com/openclarion/openclarion/internal/usecases/ports"
 )
 
-const defaultMaxAttempts = 3
+// DefaultMaxAttempts is the production validation-attempt cap. Sandbox
+// launchers use the same value when reserving container timeout budget.
+const DefaultMaxAttempts = 3
 
 // Validator accepts or rejects one provider response. The default is
 // llmoutput.Validate; callers can supply a stricter validator for
@@ -78,7 +80,7 @@ func GenerateValidated(ctx context.Context, req Request) (Result, error) {
 	}
 	maxAttempts := req.MaxAttempts
 	if maxAttempts == 0 {
-		maxAttempts = defaultMaxAttempts
+		maxAttempts = DefaultMaxAttempts
 	}
 	if maxAttempts < 0 {
 		return Result{}, fmt.Errorf("llm retry: max_attempts must be >= 0 (got %d)", req.MaxAttempts)

@@ -64,6 +64,7 @@
 #   make sandbox-m4-baseline-audit OUT=...
 #   make sandbox-quality-compare-test # M4 offline sandbox/direct SubReport comparison tests
 #   make sandbox-m4-subreport-generate SNAPSHOT_ID=... SCENARIO=... CANDIDATE_ID=... OUT=...
+#   make report-enhancer-runner-build # build bundled M4 report runtime image
 #   make sandbox-m4-quality-sample-export SELECTION=... ROOT=...
 #   make sandbox-m4-quality-manifest-prepare ROOT=... SAMPLE_BASIS=... OUT=...
 #   make sandbox-m4-quality-compare QUALITY_MANIFEST=... OUT=...
@@ -485,11 +486,11 @@ sandbox-m4-baseline-audit: ## Manual M4 baseline audit retention: OUT=...
 	@go run ./scripts/sandbox_baseline_audit --out "$(OUT)"
 
 sandbox-quality-compare-test: ## Run focused M4 sandbox/direct SubReport comparison tests
-	@go test -race -count=1 ./scripts/sandbox_quality_compare ./scripts/sandbox_quality_manifest_prepare ./scripts/sandbox_quality_sample_export ./scripts/sandbox_m4_subreport_generate
+	@go test -race -count=1 ./scripts/sandbox_quality_compare ./scripts/sandbox_quality_manifest_prepare ./scripts/sandbox_quality_sample_export ./scripts/sandbox_m4_subreport_generate ./scripts/report_enhancer_runner
 
 sandbox-m4-subreport-generate: ## Manual M4 sandbox SubReport generation: SNAPSHOT_ID=... SCENARIO=... CANDIDATE_ID=... OUT=...
 	@if [[ -z "$(SNAPSHOT_ID)" || -z "$(SCENARIO)" || -z "$(CANDIDATE_ID)" || -z "$(OUT)" ]]; then \
-		echo "[sandbox-m4-subreport-generate] usage: DATABASE_URL=<postgres-url> OPENCLARION_M4_SANDBOX_IMAGE_REF=<image@sha256:...> OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=<dir> [OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=<host:port> OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL=<proxy-url>] make sandbox-m4-subreport-generate SNAPSHOT_ID=<id> SCENARIO=<single_alert|cascade|alert_storm> CANDIDATE_ID=<stable-id> [GROUP_INDEX=<n>] OUT=<summary.json>"; \
+		echo "[sandbox-m4-subreport-generate] usage: DATABASE_URL=<postgres-url> OPENCLARION_M4_SANDBOX_IMAGE_REF=<image@sha256:...> OPENCLARION_M4_SANDBOX_AGENT_CONFIG_ROOT=<dir> [OPENCLARION_M4_SANDBOX_EGRESS_ALLOWED=<host:port> OPENCLARION_M4_SANDBOX_EGRESS_PROXY_URL=<proxy-url> OPENCLARION_M4_REPORT_LLM_BASE_URL=<url> OPENCLARION_M4_REPORT_LLM_API_KEY=<secret> OPENCLARION_M4_REPORT_LLM_MODEL=<model>] make sandbox-m4-subreport-generate SNAPSHOT_ID=<id> SCENARIO=<single_alert|cascade|alert_storm> CANDIDATE_ID=<stable-id> [GROUP_INDEX=<n>] OUT=<summary.json>"; \
 		exit 2; \
 	fi
 	@go run ./scripts/sandbox_m4_subreport_generate \
@@ -691,7 +692,7 @@ frontend-checks: frontend-install ci-frontend-typecheck ci-frontend-lint ci-fron
 # See ADR-0001 (PostgreSQL single source of truth) and
 # docs/design/database/migrations.md.
 
-.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke atlas-apply manual-evidence-readiness alert-consultation-setup diagnosis-auth-live-smoke notification-channel-live-smoke alertmanager-auto-diagnosis-live-smoke report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke local-egress-proxy-build sandbox-m4-runtime-smoke-artifacts diagnosis-assistant-runner-build diagnosis-dev-oidc-issuer stage5-local-worker-check stage5-local-worker local-product-check local-product
+.PHONY: ent-generate ent-fresh atlas-migrate-diff atlas-drift atlas-smoke atlas-apply manual-evidence-readiness alert-consultation-setup diagnosis-auth-live-smoke notification-channel-live-smoke alertmanager-auto-diagnosis-live-smoke report-live-smoke report-policy-live-smoke report-schedule-live-smoke agent-runtime-smoke custom-thin-runner-smoke container-provider-smoke container-provider-timeout-smoke container-provider-output-cap-smoke egress-allowdeny-smoke local-egress-proxy-build sandbox-m4-runtime-smoke-artifacts report-enhancer-runner-build diagnosis-assistant-runner-build diagnosis-dev-oidc-issuer stage5-local-worker-check stage5-local-worker local-product-check local-product
 
 ent-generate: ## Regenerate ent client + entity code from schemas under internal/persistence/ent/schema
 	@go generate $(ENT_PKG)/...
@@ -754,6 +755,9 @@ report-schedule-live-smoke: ## Manual M3.1 scheduled-trigger proof: Temporal Sch
 
 agent-runtime-smoke: ## Manual M4 smoke: candidate sandbox image satisfies ADR-0013 file I/O and security posture
 	@bash scripts/run_agent_runtime_smoke.sh
+
+report-enhancer-runner-build: ## Build the bundled M4 report enhancer image and print its immutable ref
+	@bash scripts/build_report_enhancer_runner.sh
 
 diagnosis-assistant-runner-build: ## Build the local Eino diagnosis runner image and print its immutable ref
 	@bash scripts/build_diagnosis_assistant_runner.sh
