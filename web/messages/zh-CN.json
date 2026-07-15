@@ -1253,7 +1253,15 @@
     "finalNotification": {
       "ready": "最终通知已就绪",
       "blocked": "最终通知已阻塞",
-      "fallback": "最终通知就绪状态不可用；请完成诊断审核后再重试最终交付。"
+      "fallback": "最终通知就绪状态不可用；请完成诊断审核后再重试最终交付。",
+      "readyDetail": "所有关联子报告均已有操作员确认的 AI 结论，可以发送最终通知。",
+      "noLinkedSubreports": "最终报告 {reportID} 没有关联子报告。",
+      "missingEvidenceSnapshot": "{subReport} 尚未关联证据快照。",
+      "unconfirmedConclusion": "{subReport} 尚无操作员确认的 AI 结论。",
+      "newerDiagnosisProgress": "{subReport} 在已确认结论后产生了更新的诊断进展。",
+      "blockedDetail": "所有关联子报告均有操作员确认的 AI 结论后，才能发送最终通知。",
+      "subReport": "子报告 {id}",
+      "linkedSubReport": "关联子报告"
     },
     "returnNotice": {
       "reviewedTitle": "已返回诊断证据审核",

@@ -253,14 +253,8 @@ export function localizeFinalNotificationReadiness(
   readiness: ReportFinalNotificationReadiness,
   t: ReportDetailTranslator,
 ): LabelDetail {
-  if (readiness.source === "fallback") {
-    return {
-      detail: t("finalNotification.fallback"),
-      label: t("finalNotification.blocked"),
-    };
-  }
   return {
-    detail: readiness.detail,
+    detail: finalNotificationReadinessDetail(readiness, t),
     label:
       readiness.status === "ready"
         ? t("finalNotification.ready")
@@ -405,7 +399,7 @@ export function localizeReportDecisionRecord(
   } as const satisfies Record<ReportDecisionRecord["status"], string>;
   return {
     detail: decisionRecordDetail(record, locale, t),
-    notificationDetail: decisionNotificationDetail(record, locale, t, tStatus),
+    notificationDetail: decisionNotificationDetail(record, locale, t),
     notificationLabel: decisionNotificationLabel(record.notificationEventKind, t),
     roomCloseDetail: decisionRoomCloseDetail(record, locale, t),
     roomStatus: record.roomLinked
@@ -413,6 +407,48 @@ export function localizeReportDecisionRecord(
       : t("decision.notLinked"),
     statusLabel: t(statusLabelKeys[record.status]),
   };
+}
+
+function finalNotificationReadinessDetail(
+  readiness: ReportFinalNotificationReadiness,
+  t: ReportDetailTranslator,
+): string {
+  switch (readiness.reason.kind) {
+    case "fallback":
+      return t("finalNotification.fallback");
+    case "ready":
+      return t("finalNotification.readyDetail");
+    case "no_linked_subreports":
+      return t("finalNotification.noLinkedSubreports", {
+        reportID: readiness.reason.reportID,
+      });
+    case "missing_evidence_snapshot":
+      return t("finalNotification.missingEvidenceSnapshot", {
+        subReport: finalNotificationSubReportLabel(readiness.reason, t),
+      });
+    case "unconfirmed_conclusion":
+      return t("finalNotification.unconfirmedConclusion", {
+        subReport: finalNotificationSubReportLabel(readiness.reason, t),
+      });
+    case "newer_diagnosis_progress":
+      return t("finalNotification.newerDiagnosisProgress", {
+        subReport: finalNotificationSubReportLabel(readiness.reason, t),
+      });
+    case "blocked":
+      return t("finalNotification.blockedDetail");
+  }
+}
+
+function finalNotificationSubReportLabel(
+  reference: { subReportID: number; subReportTitle: string },
+  t: ReportDetailTranslator,
+): string {
+  if (reference.subReportTitle.trim() !== "") {
+    return reference.subReportTitle;
+  }
+  return reference.subReportID !== 0
+    ? t("finalNotification.subReport", { id: reference.subReportID })
+    : t("finalNotification.linkedSubReport");
 }
 
 export function localizeDecisionRecordDiagnosisAction(
@@ -841,7 +877,6 @@ function decisionNotificationDetail(
   record: ReportDecisionRecord,
   locale: string,
   t: ReportDetailTranslator,
-  tStatus: DiagnosisRoomStatusTranslator,
 ): string {
   if (!record.sessionID) {
     return t("decision.noSession");
@@ -853,7 +888,7 @@ function decisionNotificationDetail(
     return t("decision.noNotification");
   }
   return [
-    localizeDiagnosisRoomStatus(record.notificationProviderStatus, tStatus),
+    record.notificationProviderStatus,
     record.notificationProviderMessageID
       ? t("decision.providerMessage", {
           message: record.notificationProviderMessageID,

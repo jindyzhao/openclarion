@@ -270,9 +270,67 @@ describe("diagnosis readiness", () => {
     });
 
     expect(reportFinalNotificationReadiness(reportDetail([], readiness))).toEqual({
-      ...readiness,
+      notification_purpose: "final",
+      ready: true,
+      reason: { kind: "ready" },
       source: "api",
+      status: "ready",
     });
+  });
+
+  it("derives final notification detail reasons without retaining backend prose", () => {
+    expect(reportFinalNotificationReadiness(reportDetail([])).reason).toEqual({
+      kind: "no_linked_subreports",
+      reportID: 101,
+    });
+    expect(
+      reportFinalNotificationReadiness(
+        reportDetail([linkedSubReport({ evidence_snapshot_id: 0, title: "" })]),
+      ).reason,
+    ).toEqual({
+      kind: "missing_evidence_snapshot",
+      subReportID: 501,
+      subReportTitle: "",
+    });
+    expect(
+      reportFinalNotificationReadiness(
+        reportDetail([
+          linkedSubReport({
+            diagnosis_conclusion: diagnosisConclusion(),
+            title: "Vendor checkout latency",
+          }),
+        ]),
+      ).reason,
+    ).toEqual({
+      kind: "unconfirmed_conclusion",
+      subReportID: 501,
+      subReportTitle: "Vendor checkout latency",
+    });
+    expect(
+      reportFinalNotificationReadiness(
+        reportDetail([
+          linkedSubReport({
+            diagnosis_conclusion: diagnosisConclusion({ confirmed_by: "operator:alice" }),
+            diagnosis_progress: diagnosisProgress({
+              recorded_at: "2026-06-18T08:07:00Z",
+            }),
+          }),
+        ]),
+      ).reason,
+    ).toEqual({
+      kind: "newer_diagnosis_progress",
+      subReportID: 501,
+      subReportTitle: "Checkout API latency",
+    });
+    expect(
+      reportFinalNotificationReadiness(
+        reportDetail([
+          linkedSubReport({
+            diagnosis_conclusion: diagnosisConclusion({ confirmed_by: "operator:alice" }),
+          }),
+        ]),
+      ).reason,
+    ).toEqual({ kind: "blocked" });
   });
 
   it("falls back safely when final report notification readiness is absent", () => {
@@ -284,6 +342,7 @@ describe("diagnosis readiness", () => {
     expect(reportFinalNotificationReadiness(report)).toEqual({
       notification_purpose: "final",
       ready: false,
+      reason: { kind: "fallback" },
       source: "fallback",
       status: "blocked",
     });

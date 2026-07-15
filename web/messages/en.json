@@ -1253,7 +1253,15 @@
     "finalNotification": {
       "ready": "Final notification ready",
       "blocked": "Final notification blocked",
-      "fallback": "Final notification readiness is unavailable; complete diagnosis review before retrying final delivery."
+      "fallback": "Final notification readiness is unavailable; complete diagnosis review before retrying final delivery.",
+      "readyDetail": "All linked subreports have operator-confirmed AI conclusions; final notification can be sent.",
+      "noLinkedSubreports": "Final report {reportID} has no linked subreports.",
+      "missingEvidenceSnapshot": "{subReport} has no linked evidence snapshot.",
+      "unconfirmedConclusion": "{subReport} has no operator-confirmed AI conclusion yet.",
+      "newerDiagnosisProgress": "{subReport} has newer diagnosis progress after the confirmed conclusion.",
+      "blockedDetail": "Final notification remains blocked until all linked subreports have operator-confirmed AI conclusions.",
+      "subReport": "Subreport {id}",
+      "linkedSubReport": "Linked subreport"
     },
     "returnNotice": {
       "reviewedTitle": "Diagnosis evidence review returned",

@@ -192,12 +192,39 @@ describe("report detail presentation copy", () => {
     const fallback: ReportFinalNotificationReadiness = {
       notification_purpose: "final",
       ready: false,
+      reason: { kind: "fallback" },
       source: "fallback",
       status: "blocked",
     };
     expect(localizeFinalNotificationReadiness(fallback, tZhCN)).toEqual({
       detail:
         "最终通知就绪状态不可用；请完成诊断审核后再重试最终交付。",
+      label: "最终通知已阻塞",
+    });
+    const ready: ReportFinalNotificationReadiness = {
+      notification_purpose: "final",
+      ready: true,
+      reason: { kind: "ready" },
+      source: "api",
+      status: "ready",
+    };
+    expect(localizeFinalNotificationReadiness(ready, tZhCN)).toEqual({
+      detail: "所有关联子报告均已有操作员确认的 AI 结论，可以发送最终通知。",
+      label: "最终通知已就绪",
+    });
+    const blocked: ReportFinalNotificationReadiness = {
+      notification_purpose: "handoff",
+      ready: false,
+      reason: {
+        kind: "unconfirmed_conclusion",
+        subReportID: 501,
+        subReportTitle: "Checkout API latency",
+      },
+      source: "api",
+      status: "blocked",
+    };
+    expect(localizeFinalNotificationReadiness(blocked, tZhCN)).toEqual({
+      detail: "Checkout API latency 尚无操作员确认的 AI 结论。",
       label: "最终通知已阻塞",
     });
     expect(
@@ -268,7 +295,7 @@ describe("report detail presentation copy", () => {
   it("localizes decision records while preserving external proof values", () => {
     const record = decisionRecord({
       notificationEventKind: "vendor.notification.sent",
-      notificationProviderStatus: "vendor-ok",
+      notificationProviderStatus: "delivered",
       roomCloseReason: "operator_confirmed_vendor_case",
       roomStatus: "vendor-room-state",
       status: "room_closed",
@@ -282,7 +309,8 @@ describe("report detail presentation copy", () => {
     expect(copy.statusLabel).toBe("诊断室已关闭");
     expect(copy.detail).toContain("operator_confirmed_vendor_case");
     expect(copy.notificationLabel).toBe("vendor.notification.sent");
-    expect(copy.notificationDetail).toContain("vendor-ok");
+    expect(copy.notificationDetail).toContain("delivered");
+    expect(copy.notificationDetail).not.toContain("已交付");
     expect(copy.roomStatus).toBe("vendor-room-state");
   });
 

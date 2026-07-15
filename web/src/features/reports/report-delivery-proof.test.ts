@@ -283,12 +283,15 @@ function finalNotificationReadiness(
   > = {},
 ): ReportFinalNotificationReadiness {
   return {
-    detail: "Checkout API latency has no operator-confirmed AI conclusion yet.",
     notification_purpose: "handoff",
     ready: false,
+    reason: {
+      kind: "unconfirmed_conclusion",
+      subReportID: 501,
+      subReportTitle: "Checkout API latency",
+    },
     source: "api",
     status: "blocked",
-    status_label: "Final notification blocked",
     ...overrides,
   };
 }

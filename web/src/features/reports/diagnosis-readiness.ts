@@ -141,14 +141,43 @@ export type ReportConsultationAuditItem = {
 type APIReportFinalNotificationReadiness =
   FinalReportDetail["final_notification_readiness"];
 
-export type ReportFinalNotificationReadiness =
-  | (APIReportFinalNotificationReadiness & { source: "api" })
+type ReportFinalNotificationReadinessState = Pick<
+  APIReportFinalNotificationReadiness,
+  "notification_purpose" | "ready" | "status"
+>;
+
+type ReportFinalNotificationAPIReason =
+  | { kind: "blocked" }
   | {
+      kind: "missing_evidence_snapshot";
+      subReportID: number;
+      subReportTitle: string;
+    }
+  | {
+      kind: "newer_diagnosis_progress";
+      subReportID: number;
+      subReportTitle: string;
+    }
+  | { kind: "no_linked_subreports"; reportID: number }
+  | { kind: "ready" }
+  | {
+      kind: "unconfirmed_conclusion";
+      subReportID: number;
+      subReportTitle: string;
+    };
+
+export type ReportFinalNotificationReadiness =
+  | (ReportFinalNotificationReadinessState & {
+      reason: ReportFinalNotificationAPIReason;
+      source: "api";
+    })
+  | (ReportFinalNotificationReadinessState & {
       notification_purpose: "final";
       ready: false;
+      reason: { kind: "fallback" };
       source: "fallback";
       status: "blocked";
-    };
+    });
 
 export function diagnosisReadiness(
   report: FinalReportDetail,
@@ -382,17 +411,55 @@ export function reportFinalNotificationReadiness(
       final_notification_readiness?: APIReportFinalNotificationReadiness | null;
     }
   ).final_notification_readiness;
-  return readiness
-    ? { ...readiness, source: "api" }
-    : fallbackFinalNotificationReadiness;
+  if (!readiness) {
+    return fallbackFinalNotificationReadiness;
+  }
+  return {
+    notification_purpose: readiness.notification_purpose,
+    ready: readiness.ready,
+    reason: reportFinalNotificationReadinessReason(report, readiness.status),
+    source: "api",
+    status: readiness.status,
+  };
 }
 
 const fallbackFinalNotificationReadiness: ReportFinalNotificationReadiness = {
   notification_purpose: "final",
   ready: false,
+  reason: { kind: "fallback" },
   source: "fallback",
   status: "blocked",
 };
+
+function reportFinalNotificationReadinessReason(
+  report: FinalReportDetail,
+  status: APIReportFinalNotificationReadiness["status"],
+): ReportFinalNotificationAPIReason {
+  if (status === "ready") {
+    return { kind: "ready" };
+  }
+  if (report.linked_sub_reports.length === 0) {
+    return { kind: "no_linked_subreports", reportID: report.id };
+  }
+  for (const subReport of report.linked_sub_reports) {
+    const reference = {
+      subReportID: subReport.id,
+      subReportTitle: subReport.title,
+    };
+    if (subReport.evidence_snapshot_id === 0) {
+      return { kind: "missing_evidence_snapshot", ...reference };
+    }
+    const conclusion = subReport.diagnosis_conclusion;
+    if (!conclusion?.confirmed_by?.trim()) {
+      return { kind: "unconfirmed_conclusion", ...reference };
+    }
+    const progress = subReport.diagnosis_progress;
+    if (progress && diagnosisStateIsAfter(progress, conclusion)) {
+      return { kind: "newer_diagnosis_progress", ...reference };
+    }
+  }
+  return { kind: "blocked" };
+}
 
 function compareReportDiagnosisNextAction(
   left: {

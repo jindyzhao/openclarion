@@ -234,9 +234,7 @@ export function ReportDeliveryProofPanel({
           <ReportDeliveryProofDetail
             label={t("provider")}
             value={
-              latest.provider_status
-                ? localizeDiagnosisRoomStatus(latest.provider_status, tStatus)
-                : "-"
+              latest.provider_status ? latest.provider_status : "-"
             }
           />
           <ReportDeliveryProofDetail
@@ -271,10 +269,7 @@ export function ReportDeliveryProofPanel({
               <span className="muted">
                 {delivery.failure_reason ??
                   (delivery.provider_status
-                    ? localizeDiagnosisRoomStatus(
-                        delivery.provider_status,
-                        tStatus,
-                      )
+                    ? delivery.provider_status
                     : undefined) ??
                   (delivery.delivered_at
                     ? t("deliveredOn", {

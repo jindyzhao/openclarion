@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { reportDiagnosisReviewReturnNotice } from "./report-return-notice";
 import type { ReportFinalNotificationReadiness } from "./diagnosis-readiness";
-import type { FinalReportDetail } from "./types";
 
 describe("report diagnosis review return notice", () => {
   it("keeps reviewed returns focused on diagnosis readiness", () => {
@@ -16,12 +15,10 @@ describe("report diagnosis review return notice", () => {
       reportDiagnosisReviewReturnNotice(
         "confirmed",
         finalNotificationReadiness({
-          detail:
-            "All linked subreports have operator-confirmed AI conclusions; final notification can be sent.",
           notification_purpose: "final",
           ready: true,
+          reason: { kind: "ready" },
           status: "ready",
-          status_label: "Final notification ready",
         }),
       ),
     ).toBe("confirmed_ready");
@@ -32,8 +29,11 @@ describe("report diagnosis review return notice", () => {
       reportDiagnosisReviewReturnNotice(
         "confirmed",
         finalNotificationReadiness({
-          detail:
-            "Database capacity has no operator-confirmed AI conclusion yet.",
+          reason: {
+            kind: "unconfirmed_conclusion",
+            subReportID: 502,
+            subReportTitle: "Database capacity",
+          },
         }),
       ),
     ).toBe("confirmed_blocked");
@@ -41,15 +41,20 @@ describe("report diagnosis review return notice", () => {
 });
 
 function finalNotificationReadiness(
-  overrides: Partial<FinalReportDetail["final_notification_readiness"]> = {},
+  overrides: Partial<
+    Extract<ReportFinalNotificationReadiness, { source: "api" }>
+  > = {},
 ): ReportFinalNotificationReadiness {
   return {
-    detail: "Checkout API latency has no operator-confirmed AI conclusion yet.",
     notification_purpose: "handoff",
     ready: false,
+    reason: {
+      kind: "unconfirmed_conclusion",
+      subReportID: 501,
+      subReportTitle: "Checkout API latency",
+    },
     source: "api",
     status: "blocked",
-    status_label: "Final notification blocked",
     ...overrides,
   };
 }
