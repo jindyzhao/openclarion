@@ -24,8 +24,3 @@ export function severityClass(severity: FinalReportSummary["severity"]): string 
       return "pill pill-ok";
   }
 }
-
-export function displayStatus(result: { count: number; fetchedAt: Date }): string {
-  const noun = result.count === 1 ? "report" : "reports";
-  return `${result.count} ${noun} loaded at ${formatDateTime(result.fetchedAt.toISOString())}`;
-}
