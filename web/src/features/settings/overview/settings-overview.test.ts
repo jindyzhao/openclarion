@@ -2,6 +2,7 @@ import { createTranslator } from "next-intl";
 import { describe, expect, it } from "vitest";
 
 import en from "../../../../messages/en.json";
+import zhCN from "../../../../messages/zh-CN.json";
 
 import type { AlertEventSummary } from "@/features/alerts/api";
 import type { AlertSourceProfile } from "../alert-sources/types";
@@ -30,32 +31,45 @@ import {
   diagnosisBrowserSessionStatusDetail as diagnosisBrowserSessionStatusDetailWithTranslator,
   diagnosisBrowserSessionStateFromResult,
   defaultDiagnosisAuthLiveProof,
-  alertIngestionWebhookProofReadiness,
-  autoDiagnosisProofHistoriesForAlerts,
-  latestAutoDiagnosisProofHistory,
-  latestAutoDiagnosisProofHistoryForSource,
+  alertIngestionWebhookProofReadiness as alertIngestionWebhookProofReadinessWithTranslator,
+  autoDiagnosisProofHistoriesForAlerts as autoDiagnosisProofHistoriesForAlertsWithTranslator,
+  latestAutoDiagnosisProofHistory as latestAutoDiagnosisProofHistoryWithTranslator,
+  latestAutoDiagnosisProofHistoryForSource as latestAutoDiagnosisProofHistoryForSourceWithTranslator,
   metricEvidenceConfigurationHref,
-  settingsWeComAuthErrorDetail,
-  settingsWeComAppCallbackGuidance,
-  settingsWeComAppCallbackURL,
-  settingsWeComBrowserSessionReadiness,
-  settingsLDAPDirectorySearchGuidance,
+  settingsWeComAuthErrorDetail as settingsWeComAuthErrorDetailWithTranslator,
+  settingsWeComBrowserSessionReadiness as settingsWeComBrowserSessionReadinessWithTranslator,
+  settingsLDAPDirectorySearchGuidance as settingsLDAPDirectorySearchGuidanceWithTranslator,
   settingsOIDCBFFSetupReadiness as settingsOIDCBFFSetupReadinessWithTranslator,
-  settingsCurrentRBACAccessSummary,
-  settingsLocalAccessReadiness,
-  settingsLDAPRoleMappingGuidance,
-  settingsLDAPTransportGuidance,
+  settingsCurrentRBACAccessSummary as settingsCurrentRBACAccessSummaryWithTranslator,
+  settingsLocalAccessReadiness as settingsLocalAccessReadinessWithTranslator,
+  settingsLDAPRoleMappingGuidance as settingsLDAPRoleMappingGuidanceWithTranslator,
+  settingsLDAPTransportGuidance as settingsLDAPTransportGuidanceWithTranslator,
   type DiagnosisAuthLiveProof,
   workflowIntegrationReadiness as workflowIntegrationReadinessWithTranslator,
-  workflowLiveProofReadiness,
-  workflowProofTargets,
-  workflowTopologyActions,
+  workflowLiveProofReadiness as workflowLiveProofReadinessWithTranslator,
+  workflowProofTargets as workflowProofTargetsWithTranslator,
+  workflowTopologyActions as workflowTopologyActionsWithTranslator,
 } from "./settings-overview";
 
 const tEn = createTranslator({
   locale: "en",
   messages: en,
   namespace: "DiagnosisAuth",
+});
+const tZhCN = createTranslator({
+  locale: "zh-CN",
+  messages: zhCN,
+  namespace: "DiagnosisAuth",
+});
+const tOverviewEn = createTranslator({
+  locale: "en",
+  messages: en,
+  namespace: "SettingsOverview",
+});
+const tOverviewZhCN = createTranslator({
+  locale: "zh-CN",
+  messages: zhCN,
+  namespace: "SettingsOverview",
 });
 
 function bindAuthTranslator<TArgs extends unknown[], TResult>(
@@ -76,9 +90,87 @@ const diagnosisAuthReadinessSummary = bindAuthTranslator(
 const diagnosisBrowserSessionStatusDetail = bindAuthTranslator(
   diagnosisBrowserSessionStatusDetailWithTranslator,
 );
+const settingsWeComAuthErrorDetail = bindAuthTranslator(
+  settingsWeComAuthErrorDetailWithTranslator,
+);
+const settingsWeComBrowserSessionReadiness = (
+  state: Parameters<
+    typeof settingsWeComBrowserSessionReadinessWithTranslator
+  >[0],
+) => settingsWeComBrowserSessionReadinessWithTranslator(state, tEn, "en");
+const settingsLDAPDirectorySearchGuidance = () =>
+  settingsLDAPDirectorySearchGuidanceWithTranslator(tEn);
+const settingsLDAPRoleMappingGuidance = () =>
+  settingsLDAPRoleMappingGuidanceWithTranslator(tEn);
+const settingsLDAPTransportGuidance = () =>
+  settingsLDAPTransportGuidanceWithTranslator(tEn);
 const settingsOIDCBFFSetupReadiness = bindAuthTranslator(
   settingsOIDCBFFSetupReadinessWithTranslator,
 );
+const settingsLocalAccessReadiness = (
+  options: Parameters<typeof settingsLocalAccessReadinessWithTranslator>[0],
+) => settingsLocalAccessReadinessWithTranslator(options, tOverviewEn, "en");
+const settingsCurrentRBACAccessSummary = (
+  state: Parameters<typeof settingsCurrentRBACAccessSummaryWithTranslator>[0],
+  isChecking: boolean,
+) =>
+  settingsCurrentRBACAccessSummaryWithTranslator(
+    state,
+    isChecking,
+    tOverviewEn,
+    "en",
+  );
+const workflowTopologyActions = (
+  topology: Parameters<typeof workflowTopologyActionsWithTranslator>[0],
+) => workflowTopologyActionsWithTranslator(topology, tOverviewEn, "en");
+const workflowProofTargets = (
+  topology: Parameters<typeof workflowProofTargetsWithTranslator>[0],
+  history: Parameters<typeof workflowProofTargetsWithTranslator>[3] = null,
+) => workflowProofTargetsWithTranslator(topology, tOverviewEn, "en", history);
+const workflowLiveProofReadiness = (
+  topology: Parameters<typeof workflowLiveProofReadinessWithTranslator>[0],
+  proof?: Parameters<typeof workflowLiveProofReadinessWithTranslator>[3],
+) =>
+  workflowLiveProofReadinessWithTranslator(topology, tOverviewEn, "en", proof);
+const alertIngestionWebhookProofReadiness = (
+  topology: Parameters<
+    typeof alertIngestionWebhookProofReadinessWithTranslator
+  >[0],
+  history: Parameters<
+    typeof alertIngestionWebhookProofReadinessWithTranslator
+  >[3] = null,
+) =>
+  alertIngestionWebhookProofReadinessWithTranslator(
+    topology,
+    tOverviewEn,
+    "en",
+    history,
+  );
+const latestAutoDiagnosisProofHistory = (
+  alerts: Parameters<typeof latestAutoDiagnosisProofHistoryWithTranslator>[0],
+) => latestAutoDiagnosisProofHistoryWithTranslator(alerts, tOverviewEn);
+const latestAutoDiagnosisProofHistoryForSource = (
+  alerts: Parameters<
+    typeof latestAutoDiagnosisProofHistoryForSourceWithTranslator
+  >[0],
+  sourceID: number | null,
+) =>
+  latestAutoDiagnosisProofHistoryForSourceWithTranslator(
+    alerts,
+    sourceID,
+    tOverviewEn,
+  );
+const autoDiagnosisProofHistoriesForAlerts = (
+  alerts: Parameters<
+    typeof autoDiagnosisProofHistoriesForAlertsWithTranslator
+  >[0],
+  limit = 5,
+) =>
+  autoDiagnosisProofHistoriesForAlertsWithTranslator(
+    alerts,
+    tOverviewEn,
+    limit,
+  );
 const diagnosisAuthRoleMappingStatusDetail = (
   status: Parameters<
     typeof diagnosisAuthRoleMappingStatusDetailWithTranslator
@@ -96,17 +188,19 @@ const workflowIntegrationReadiness = (
   topology: Parameters<typeof workflowIntegrationReadinessWithTranslator>[0],
   diagnosisAuthProof?: Parameters<
     typeof workflowIntegrationReadinessWithTranslator
-  >[2],
+  >[4],
   localAccessReadiness?: Parameters<
     typeof workflowIntegrationReadinessWithTranslator
-  >[3],
+  >[5],
   currentRBACAccess?: Parameters<
     typeof workflowIntegrationReadinessWithTranslator
-  >[4],
+  >[6],
 ) =>
   workflowIntegrationReadinessWithTranslator(
     topology,
     tEn,
+    tOverviewEn,
+    "en",
     diagnosisAuthProof,
     localAccessReadiness,
     currentRBACAccess,
@@ -177,43 +271,6 @@ describe("settings overview diagnosis auth status", () => {
       status: "pending",
       subject: "",
     });
-  });
-
-  it("builds Enterprise WeChat app callback URL from the current console origin", () => {
-    expect(settingsWeComAppCallbackURL("https://console.example.com")).toBe(
-      "https://console.example.com/api/v1/diagnosis/wecom/app-callback",
-    );
-    expect(
-      settingsWeComAppCallbackURL(
-        "https://operator:secret@console.example.com",
-      ),
-    ).toBeNull();
-  });
-
-  it("documents Enterprise WeChat app message callback env guidance", () => {
-    expect(settingsWeComAppCallbackGuidance()).toEqual([
-      {
-        detail:
-          "Shared verification token configured on the Enterprise WeChat app message receiver. It is used with timestamp, nonce, and encrypted payload data to validate callback signatures.",
-        envVar: "OPENCLARION_WECOM_CALLBACK_TOKEN",
-        label: "Callback token",
-        value: "Signature verification",
-      },
-      {
-        detail:
-          "Base64 EncodingAESKey configured on the same Enterprise WeChat app message receiver. OpenClarion uses it to decrypt URL verification echoes and encrypted XML callbacks.",
-        envVar: "OPENCLARION_WECOM_CALLBACK_ENCODING_AES_KEY",
-        label: "Encoding AES key",
-        value: "Encrypted callback body",
-      },
-      {
-        detail:
-          "Receive ID checked after callback decryption. Leave unset only when the Enterprise WeChat Corp ID is the expected receive ID.",
-        envVar: "OPENCLARION_WECOM_CALLBACK_RECEIVE_ID",
-        label: "Receive ID",
-        value: "Corp or app receive ID",
-      },
-    ]);
   });
 
   it("documents LDAP transport env guidance", () => {
@@ -292,15 +349,13 @@ describe("settings overview diagnosis auth status", () => {
         value: "Directory role source",
       },
       {
-        detail:
-          "Role attribute values that grant OpenClarion owner access.",
+        detail: "Role attribute values that grant OpenClarion owner access.",
         envVar: "OPENCLARION_DIAGNOSIS_LDAP_OWNER_ROLE_VALUES",
         label: "Owner role values",
         value: "Owner mapping",
       },
       {
-        detail:
-          "Role attribute values that grant OpenClarion admin access.",
+        detail: "Role attribute values that grant OpenClarion admin access.",
         envVar: "OPENCLARION_DIAGNOSIS_LDAP_ADMIN_ROLE_VALUES",
         label: "Admin role values",
         value: "Admin mapping",
@@ -423,7 +478,9 @@ describe("settings overview diagnosis auth status", () => {
     expect(readiness.detail).toBe(
       "Enterprise WeChat browser login has been replaced by IAM OIDC. Use the active IAM browser session for OpenClarion authorization and keep Enterprise WeChat only for app messages and notifications.",
     );
-    expect(readiness.items.find((item) => item.key === "provider")).toMatchObject({
+    expect(
+      readiness.items.find((item) => item.key === "provider"),
+    ).toMatchObject({
       status: "blocked",
       value: "IAM OIDC",
     });
@@ -483,6 +540,46 @@ describe("settings overview diagnosis auth status", () => {
         "Enterprise WeChat identified the operator, but OpenClarion local RBAC did not grant diagnosis room access. OpenClarion cleared any previous browser session; assign the operator to the right local role, then sign in again.",
       message: "Enterprise WeChat identity is not authorized locally.",
     });
+  });
+
+  it("localizes bounded auth readiness text and preserves backend errors", () => {
+    const loading = settingsWeComBrowserSessionReadinessWithTranslator(
+      { loading: true, message: "", status: null },
+      tZhCN,
+      "zh-CN",
+    );
+    expect(loading).toMatchObject({
+      label: "企业微信会话检查中",
+      status: "loading",
+      items: [
+        { key: "session", label: "会话", value: "加载中" },
+        { key: "provider", label: "提供方", value: "加载中" },
+        { key: "role", label: "角色", value: "加载中" },
+        { key: "subject", label: "主体", value: "加载中" },
+      ],
+    });
+
+    const backendError = settingsWeComBrowserSessionReadinessWithTranslator(
+      { loading: false, message: "provider timeout", status: null },
+      tZhCN,
+      "zh-CN",
+    );
+    expect(backendError.detail).toBe("provider timeout");
+    expect(
+      settingsLDAPDirectorySearchGuidanceWithTranslator(tZhCN).find(
+        (item) => item.envVar === "OPENCLARION_DIAGNOSIS_LDAP_USER_FILTER",
+      ),
+    ).toMatchObject({
+      detail: "LDAP 过滤器模板。使用 {username} 表示转义后的登录名。",
+      label: "用户过滤器",
+      value: "用户查询",
+    });
+    expect(
+      settingsWeComAuthErrorDetailWithTranslator(
+        "wecom_role_unauthorized",
+        tZhCN,
+      ).message,
+    ).toBe("企业微信身份没有本地授权。");
   });
 
   it("uses browser-session probes for LDAP backends", () => {
@@ -1261,7 +1358,7 @@ describe("settings overview diagnosis auth status", () => {
         {
           key: "directory-departments",
           status: "ready",
-          value: "1 departments",
+          value: "1 department",
         },
         { key: "rbac-assignments", status: "ready", value: "1 enabled" },
       ],
@@ -1292,7 +1389,8 @@ describe("settings overview diagnosis auth status", () => {
         directorySyncRuns: [
           directorySyncRun({
             failure_code: "provider_unavailable",
-            failure_message: "Directory provider returned an unavailable status.",
+            failure_message:
+              "Directory provider returned an unavailable status.",
             status: "failed",
             synced_at: "2026-06-26T09:00:00Z",
           }),
@@ -1972,9 +2070,7 @@ describe("settings overview workflow topology", () => {
       workflowProofTargets(topology).find(
         (target) => target.key === "alertmanager-auto-diagnosis",
       )?.actionHref,
-    ).toBe(
-      "/settings/alert-sources?intent=alertmanager-source",
-    );
+    ).toBe("/settings/alert-sources?intent=alertmanager-source");
   });
 
   it("blocks auto-room topology when the report channel lacks diagnosis_close scope", () => {
@@ -2073,7 +2169,11 @@ describe("settings overview workflow topology", () => {
       items: [
         { key: "policy-replay", status: "blocked" },
         { key: "ai-diagnosis", status: "blocked" },
-        { key: "diagnosis-auth", status: "pending", value: "Browser session not checked" },
+        {
+          key: "diagnosis-auth",
+          status: "pending",
+          value: "Browser session not checked",
+        },
         { key: "notification", status: "blocked", value: "No channel" },
         { key: "scheduled-trigger", status: "blocked" },
       ],
@@ -2140,7 +2240,11 @@ describe("settings overview workflow topology", () => {
       items: [
         { key: "policy-replay", status: "blocked" },
         { key: "ai-diagnosis", status: "blocked" },
-        { key: "diagnosis-auth", status: "pending", value: "Browser session not checked" },
+        {
+          key: "diagnosis-auth",
+          status: "pending",
+          value: "Browser session not checked",
+        },
         { key: "notification", status: "blocked", value: "Operations webhook" },
         { key: "scheduled-trigger", status: "blocked" },
       ],
@@ -2210,9 +2314,9 @@ describe("settings overview workflow topology", () => {
         target.actionLabel,
       ]),
     ).toEqual([
-      ["policy-replay", "ready", "Run Replay"],
-      ["alertmanager-auto-diagnosis", "ready", "Open Proof Path"],
-      ["scheduled-trigger", "ready", "Review Schedule"],
+      ["policy-replay", "ready", "Run replay"],
+      ["alertmanager-auto-diagnosis", "ready", "Open proof path"],
+      ["scheduled-trigger", "ready", "Review schedule"],
     ]);
     expect(
       workflowProofTargets(topology).find(
@@ -2221,9 +2325,7 @@ describe("settings overview workflow topology", () => {
     ).toMatchObject({
       actionHref:
         "/settings/report-workflow-policies?intent=alertmanager-auto-diagnosis-proof&source_id=3",
-      detail: expect.stringContaining(
-        "retained Alertmanager webhook proof",
-      ),
+      detail: expect.stringContaining("retained Alertmanager webhook proof"),
       evidence: expect.arrayContaining([
         "Alertmanager webhook",
         "Assistant message",
@@ -2237,7 +2339,11 @@ describe("settings overview workflow topology", () => {
       items: [
         { key: "policy-replay", status: "ready" },
         { key: "ai-diagnosis", status: "ready", value: "Auto room" },
-        { key: "diagnosis-auth", status: "pending", value: "Browser session not checked" },
+        {
+          key: "diagnosis-auth",
+          status: "pending",
+          value: "Browser session not checked",
+        },
         { key: "notification", status: "ready", value: "Operations WeCom" },
         { key: "scheduled-trigger", status: "ready" },
       ],
@@ -2406,7 +2512,11 @@ describe("settings overview workflow topology", () => {
     ).toMatchObject({
       status: "ready",
       items: [
-        { key: "operator-auth", status: "ready", value: "operator@example.test" },
+        {
+          key: "operator-auth",
+          status: "ready",
+          value: "operator@example.test",
+        },
         { key: "enterprise-wechat", status: "ready" },
         { key: "alertmanager-auto-room", status: "ready" },
       ],
@@ -2482,7 +2592,7 @@ describe("settings overview workflow topology", () => {
         topology,
         verifiedDiagnosisAuthProof(),
       ).items.find((item) => item.key === "notification")?.detail,
-    ).toContain("AI diagnosis sample and Diagnosis close sample tests");
+    ).toContain("AI diagnosis sample test and diagnosis close sample test");
     expect(
       workflowProofTargets(topology).find(
         (target) => target.key === "alertmanager-auto-diagnosis",
@@ -2490,9 +2600,9 @@ describe("settings overview workflow topology", () => {
     ).toMatchObject({
       actionHref:
         "/settings/notification-channels?channel_id=3&workflow_return=auto-room-enable&workflow_source_id=3",
-      actionLabel: "Test Channel",
+      actionLabel: "Test channel",
       detail: expect.stringContaining(
-        "current AI diagnosis sample and diagnosis close sample tests",
+        "AI diagnosis sample test and diagnosis close sample test",
       ),
       status: "review",
     });
@@ -2511,6 +2621,61 @@ describe("settings overview workflow topology", () => {
         },
         { key: "alertmanager-auto-room", status: "ready" },
       ],
+    });
+    expect(
+      workflowIntegrationReadiness(
+        topology,
+        verifiedDiagnosisAuthProof(),
+      ).items.find((item) => item.key === "enterprise-wechat")?.detail,
+    ).toContain("AI diagnosis sample test and diagnosis close sample test");
+  });
+
+  it("reports channel credential blockers separately from missing test proof", () => {
+    const ready = readyAutoDiagnosisTopology();
+    if (ready.notificationChannel === null) {
+      throw new Error("expected a notification channel");
+    }
+    const topology = {
+      ...ready,
+      notificationChannel: {
+        ...ready.notificationChannel,
+        secret_ref: "",
+      },
+    };
+
+    expect(
+      workflowLiveProofReadiness(
+        topology,
+        verifiedDiagnosisAuthProof(),
+      ).items.find((item) => item.key === "notification"),
+    ).toMatchObject({
+      detail: expect.stringContaining(
+        "Fix the notification channel credential configuration",
+      ),
+      status: "blocked",
+    });
+    expect(
+      workflowProofTargets(topology).find(
+        (target) => target.key === "alertmanager-auto-diagnosis",
+      ),
+    ).toMatchObject({
+      actionLabel: "Fix channel",
+      detail: expect.stringContaining(
+        "Fix the notification channel credential configuration",
+      ),
+      status: "blocked",
+    });
+    expect(
+      workflowIntegrationReadiness(
+        topology,
+        verifiedDiagnosisAuthProof(),
+      ).items.find((item) => item.key === "enterprise-wechat"),
+    ).toMatchObject({
+      actionLabel: "Fix channel",
+      detail: expect.stringContaining(
+        "Fix the notification channel credential configuration",
+      ),
+      status: "blocked",
     });
   });
 
@@ -2578,7 +2743,7 @@ describe("settings overview workflow topology", () => {
     ).toMatchObject({
       actionHref:
         "/settings/notification-channels?channel_id=3&workflow_return=auto-room-enable&workflow_source_id=3",
-      actionLabel: "Review Scopes",
+      actionLabel: "Review scopes",
       status: "blocked",
     });
   });
@@ -2631,7 +2796,7 @@ describe("settings overview workflow topology", () => {
     ).toMatchObject({
       actionHref:
         "/diagnosis-room?evidence_snapshot_id=420&session_id=diagnosis-session-42#diagnosis-notification-timeline",
-      actionLabel: "Review Proof",
+      actionLabel: "Review proof",
       detail: expect.stringContaining("HighLatency"),
       evidence: expect.arrayContaining([
         "alert #42",
@@ -2702,7 +2867,7 @@ describe("settings overview workflow topology", () => {
         ),
       ).find((target) => target.key === "alertmanager-auto-diagnosis"),
     ).toMatchObject({
-      actionLabel: "Open Proof Path",
+      actionLabel: "Open proof path",
       actionHref:
         "/settings/report-workflow-policies?intent=alertmanager-auto-diagnosis-proof&source_id=3",
       status: "ready",
@@ -2718,7 +2883,7 @@ describe("settings overview workflow topology", () => {
     ).toMatchObject({
       href: "/settings/report-workflow-policies?intent=alertmanager-auto-diagnosis-proof&source_id=3",
       status: "review",
-      value: "missing",
+      value: "Missing",
     });
   });
 
@@ -2769,7 +2934,7 @@ describe("settings overview workflow topology", () => {
         (target) => target.key === "alertmanager-auto-diagnosis",
       ),
     ).toMatchObject({
-      actionLabel: "Review Delivery",
+      actionLabel: "Review delivery",
       status: "blocked",
     });
   });
@@ -2878,7 +3043,11 @@ describe("settings overview workflow topology", () => {
       items: [
         { key: "policy-replay", status: "review" },
         { key: "ai-diagnosis", status: "review", value: "Operator handoff" },
-        { key: "diagnosis-auth", status: "pending", value: "Browser session not checked" },
+        {
+          key: "diagnosis-auth",
+          status: "pending",
+          value: "Browser session not checked",
+        },
         { key: "notification", status: "ready" },
         { key: "scheduled-trigger", status: "pending" },
       ],
@@ -3368,7 +3537,7 @@ describe("settings overview workflow topology", () => {
     ).toMatchObject({
       actionHref:
         "/settings/report-workflow-schedules?intent=create-schedule&policy_id=1",
-      actionLabel: "Create Schedule",
+      actionLabel: "Create schedule",
       status: "pending",
     });
     expect(
@@ -3378,6 +3547,56 @@ describe("settings overview workflow topology", () => {
     ).toBe(
       "/settings/report-workflow-schedules?intent=create-schedule&policy_id=1",
     );
+  });
+
+  it("localizes bounded overview copy while preserving external values", () => {
+    const localAccess = settingsLocalAccessReadinessWithTranslator(
+      {
+        directoryDepartments: [directoryDepartment()],
+        directorySyncRuns: [directorySyncRun()],
+        directoryUsers: [directoryUser()],
+        rbacAssignments: [rbacAssignment()],
+      },
+      tOverviewZhCN,
+      "zh-CN",
+    );
+    expect(localAccess.label).toBe("本地访问已就绪");
+    expect(localAccess.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "directory-sync", label: "目录同步" }),
+        expect.objectContaining({
+          key: "directory-users",
+          value: "1 个活跃用户",
+        }),
+      ]),
+    );
+
+    expect(
+      settingsCurrentRBACAccessSummaryWithTranslator(
+        {
+          fingerprint: "current",
+          kind: "error",
+          message: "upstream identity timeout",
+          status: 503,
+        },
+        false,
+        tOverviewZhCN,
+        "zh-CN",
+      ),
+    ).toMatchObject({
+      detail: "upstream identity timeout",
+      label: "当前访问不可用",
+    });
+
+    expect(
+      workflowTopologyActionsWithTranslator(
+        readyAutoDiagnosisTopology(),
+        tOverviewZhCN,
+        "zh-CN",
+      ).find((action) => action.key === "impact-preview"),
+    ).toMatchObject({
+      title: "运行影响预览",
+    });
   });
 });
 
@@ -3649,7 +3868,9 @@ function directoryUser(
 }
 
 function directoryDepartment(
-  overrides: Partial<LocalAccessReadinessInput["directoryDepartments"][number]> = {},
+  overrides: Partial<
+    LocalAccessReadinessInput["directoryDepartments"][number]
+  > = {},
 ): LocalAccessReadinessInput["directoryDepartments"][number] {
   return {
     external_id: "dep-1",

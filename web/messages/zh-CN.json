@@ -86,6 +86,201 @@
       "and": "{items}和{last}",
       "or": "{items}或{last}"
     },
+    "panel": {
+      "ariaLabel": "诊断认证就绪状态",
+      "title": "诊断认证就绪状态",
+      "authentication": "认证方式",
+      "signInWithIAM": "通过 IAM 登录",
+      "weComMigratedDetail": "企业微信浏览器登录已迁移到 IAM OIDC。OpenClarion 使用 IAM 浏览器会话识别操作员，企业微信仅用于应用消息、通知投递和诊断室协作回调。",
+      "weComMigratedMessage": "企业微信浏览器登录已迁移",
+      "refreshSession": "刷新会话",
+      "signOut": "退出登录",
+      "browserSession": "OpenClarion 浏览器会话",
+      "weComBrowserSession": "企业微信浏览器会话",
+      "bearerToken": "Bearer 令牌",
+      "ldapUsername": "LDAP 用户名",
+      "ldapPassword": "LDAP 密码",
+      "checkAuth": "检查认证",
+      "reset": "重置",
+      "backendWiring": "后端诊断认证接线",
+      "credentialsTransient": "凭据仅用于此次后端检查请求，不会保存到 OpenClarion 设置中。"
+    },
+    "guidance": {
+      "ldap": {
+        "group": {
+          "transport": "传输环境变量",
+          "search": "目录搜索环境变量",
+          "roles": "角色映射环境变量"
+        },
+        "transport": {
+          "url": {
+            "detail": "目录端点。优先使用 ldaps://；除非仅为本地开发明确允许明文，否则 ldap:// 必须启用 StartTLS。",
+            "label": "LDAP URL",
+            "value": "目录端点"
+          },
+          "startTLS": {
+            "detail": "在服务账号绑定、搜索和用户绑定前升级 ldap:// 连接。",
+            "label": "StartTLS",
+            "value": "加密的 ldap:// 传输"
+          },
+          "plaintext": {
+            "detail": "仅限本地的显式明文许可。生产上线时请保持未设置。",
+            "label": "允许明文",
+            "value": "开发环境回退"
+          }
+        },
+        "search": {
+          "baseDN": {
+            "detail": "在用户绑定前用于定位操作员条目的搜索根。",
+            "label": "Base DN",
+            "value": "搜索根"
+          },
+          "bindDN": {
+            "detail": "初始目录搜索使用的可选服务账号 DN。",
+            "label": "Bind DN",
+            "value": "搜索账号"
+          },
+          "bindPassword": {
+            "detail": "可选的服务账号密码。只能与 Bind DN 一起配置。",
+            "label": "Bind 密码",
+            "value": "搜索凭据"
+          },
+          "userFilter": {
+            "detail": "LDAP 过滤器模板。使用 '{username}' 表示转义后的登录名。",
+            "label": "用户过滤器",
+            "value": "用户查询"
+          },
+          "subjectAttribute": {
+            "detail": "用作 OpenClarion 主体的可选属性。留空时使用条目 DN。",
+            "label": "主体属性",
+            "value": "主体标识"
+          }
+        },
+        "roles": {
+          "attribute": {
+            "detail": "从匹配的用户条目读取 LDAP 属性，用于计算 owner/admin 映射值。",
+            "label": "角色属性",
+            "value": "目录角色来源"
+          },
+          "ownerValues": {
+            "detail": "授予 OpenClarion owner 访问权限的角色属性值。",
+            "label": "Owner 角色值",
+            "value": "Owner 映射"
+          },
+          "adminValues": {
+            "detail": "授予 OpenClarion admin 访问权限的角色属性值。",
+            "label": "Admin 角色值",
+            "value": "Admin 映射"
+          },
+          "defaultRoles": {
+            "detail": "所有已认证 LDAP 用户的 OpenClarion 回退角色。仅用于受控试点或本地检查。",
+            "label": "默认角色",
+            "value": "回退角色映射"
+          }
+        }
+      }
+    },
+    "weComSession": {
+      "field": {
+        "session": "会话",
+        "provider": "提供方",
+        "role": "角色",
+        "subject": "主体"
+      },
+      "notAvailable": "不可用",
+      "loading": {
+        "detail": "接受企业微信上线凭证前，正在检查此浏览器是否已有 OpenClarion 会话。",
+        "sessionDetail": "OpenClarion 正在检查当前浏览器会话。",
+        "providerDetail": "浏览器会话检查完成后即可获取提供方来源。",
+        "roleDetail": "浏览器会话身份检查完成后即可评估本地 RBAC 授权。",
+        "subjectDetail": "浏览器会话检查完成后即可获取操作员主体。",
+        "label": "企业微信会话检查中"
+      },
+      "unavailable": {
+        "detail": "OpenClarion 浏览器会话状态不可用。",
+        "providerDetail": "浏览器会话端点响应前无法评估提供方来源。",
+        "roleDetail": "浏览器会话端点响应前无法评估本地 RBAC 授权。",
+        "subjectDetail": "浏览器会话端点响应前无法评估操作员主体。",
+        "label": "企业微信会话不可用"
+      },
+      "signedOut": {
+        "detail": "企业微信浏览器登录已迁移到 IAM OIDC。接受 OpenClarion 浏览器会话凭证前，请通过 IAM 登录。",
+        "sessionDetail": "当前没有活动的 OpenClarion 浏览器会话。",
+        "providerDetail": "企业微信上线凭证需要企业微信身份。",
+        "providerValue": "需要企业微信",
+        "roleDetail": "通过企业微信登录后检查本地 RBAC 授权。",
+        "roleValue": "RBAC 待检查",
+        "subjectDetail": "登录前没有可用的操作员主体。",
+        "label": "需要企业微信会话"
+      },
+      "authenticated": {
+        "detail": "企业微信浏览器登录已迁移到 IAM OIDC。请使用活动的 IAM 浏览器会话进行 OpenClarion 授权，企业微信仅用于应用消息和通知。",
+        "migratedSessionDetail": "OpenClarion 不再接受企业微信作为浏览器会话提供方。",
+        "migratedProviderDetail": "浏览器认证请使用 IAM OIDC 登录。企业微信仍可用于应用消息和通知投递。",
+        "roleDetail": "身份已验证。诊断室权限由 OpenClarion 本地 RBAC 分配，而不是提供方角色映射。",
+        "subjectDetail": "活动浏览器会话返回的主体。",
+        "label": "企业微信浏览器会话已被替代"
+      }
+    },
+    "probe": {
+      "field": {
+        "mode": "模式",
+        "backendCheck": "后端检查",
+        "subject": "主体",
+        "roles": "角色",
+        "providerRoleMetadata": "提供方角色元数据",
+        "checkedAt": "检查时间",
+        "requiredProvider": "所需提供方",
+        "backendProvider": "后端提供方",
+        "supportedModes": "支持的模式",
+        "checkedMode": "已检查模式",
+        "providerRoles": "提供方角色",
+        "backendMapping": "后端映射",
+        "roleMapping": "角色映射",
+        "rolloutDecision": "上线结论"
+      },
+      "mode": {
+        "ldap": "LDAP Basic 认证",
+        "bearer": "Bearer 令牌",
+        "session": "OpenClarion 浏览器会话",
+        "weCom": "企业微信认证"
+      },
+      "notChecked": "未检查",
+      "notAvailable": "不可用",
+      "success": "成功",
+      "reported": "已报告",
+      "notRequired": "不需要",
+      "optional": "可选",
+      "noSubjectChecked": "未检查主体",
+      "requiredProviderValue": "LDAP 或企业微信认证",
+      "checkedAtText": "检查时间：{checkedAt}"
+    },
+    "weComError": {
+      "entryUnavailable": {
+        "description": "企业微信浏览器登录已迁移到 IAM OIDC。请通过 IAM 登录，然后重试诊断室操作。",
+        "message": "企业微信登录入口不可用。"
+      },
+      "authFailed": {
+        "description": "企业微信已返回 OpenClarion，但后端无法建立诊断身份。请检查企业微信应用配置，然后重新执行认证检查。",
+        "message": "企业微信认证未被接受。"
+      },
+      "roleUnauthorized": {
+        "description": "企业微信已识别操作员，但 OpenClarion 本地 RBAC 未授予诊断室访问权限。OpenClarion 已清除旧浏览器会话；请为操作员分配正确的本地角色后重新登录。",
+        "message": "企业微信身份没有本地授权。"
+      },
+      "callbackFailed": {
+        "description": "OpenClarion 无法完成企业微信回调。请检查企业微信应用配置和回调端点。",
+        "message": "无法完成企业微信回调。"
+      },
+      "callbackMissing": {
+        "description": "企业微信浏览器登录已迁移到 IAM OIDC。请通过 IAM 登录，然后重试诊断室操作。",
+        "message": "企业微信回调不完整。"
+      },
+      "loginFailed": {
+        "description": "OpenClarion 无法发起企业微信登录。请检查企业微信应用凭据、重定向 URI 和提供方端点连通性。",
+        "message": "无法发起企业微信登录。"
+      }
+    },
     "input": {
       "weComMigratedDetail": "企业微信浏览器登录已迁移到 IAM OIDC。OpenClarion 授权请使用当前 IAM 浏览器会话；企业微信继续用于应用消息、通知和诊断室协作回调。",
       "weComMigratedLabel": "企业微信浏览器登录已迁移。",
@@ -2255,6 +2450,575 @@
       "resolved": "已恢复",
       "info": "信息",
       "warning": "警告"
+    }
+  },
+  "SettingsOverview": {
+    "stages": {
+      "profiles": "配置项",
+      "policies": "策略",
+      "templates": "模板",
+      "channels": "通道",
+      "schedules": "计划",
+      "alertSources": "告警源",
+      "grouping": "分组",
+      "diagnosisTools": "诊断工具",
+      "notifications": "通知",
+      "workflowPolicies": "工作流策略",
+      "schedulesTitle": "调度计划",
+      "proof": "验证",
+      "short": {
+        "source": "告警源",
+        "policy": "策略",
+        "channel": "通道",
+        "schedule": "调度"
+      }
+    },
+    "actions": {
+      "open": "打开",
+      "configure": "配置",
+      "signIn": "登录",
+      "signInWithIAM": "使用 IAM 登录",
+      "reviewAccess": "检查访问权限",
+      "fixAccess": "修复访问权限",
+      "reviewAuth": "检查认证",
+      "checkSSO": "检查单点登录",
+      "fixAuth": "修复认证",
+      "checkAuth": "检查认证",
+      "createPolicy": "创建策略",
+      "enablePolicy": "启用策略",
+      "bindChannel": "绑定通道",
+      "enableChannel": "启用通道",
+      "switchChannel": "切换通道",
+      "reviewScopes": "检查权限范围",
+    "useAutoRoom": "使用自动诊断室",
+    "fixChannel": "修复通道",
+    "testChannel": "测试通道",
+      "reviewChannel": "检查通道",
+      "reviewSource": "检查告警源",
+      "switchSource": "切换告警源",
+      "reviewTools": "检查工具",
+      "reviewWorkflow": "检查工作流",
+      "openProofPath": "打开验证链路",
+      "reviewProof": "检查验证证据",
+      "reviewDelivery": "检查投递",
+      "openWorkflow": "打开工作流",
+      "resolve": "处理",
+      "reviewReplay": "检查回放",
+      "runReplay": "运行回放",
+      "createSchedule": "创建调度计划",
+      "enableSchedule": "启用调度计划",
+      "reviewSchedule": "检查调度计划",
+      "reviewTimeline": "查看时间线"
+    },
+    "status": {
+      "ready": "就绪",
+      "readyToRun": "可运行",
+      "review": "需检查",
+      "pending": "待处理",
+      "blocked": "已阻塞",
+      "unavailable": "不可用",
+      "needsSetup": "需要配置",
+      "configurationPresent": "配置已具备",
+      "waitingForGraph": "等待配置链路",
+      "notChecked": "尚未检查",
+      "noPolicy": "无策略",
+      "noChannel": "无通道",
+      "noSource": "无告警源",
+      "missing": "缺失",
+      "missingSource": "缺少告警源",
+      "missingGrouping": "缺少分组策略",
+      "noWeComChannel": "无企业微信通道",
+      "noReportChannel": "无报告通道",
+      "missingWeComChannel": "缺少企业微信通道",
+      "manualReplay": "手动回放",
+      "none": "无",
+      "optional": "可选",
+      "enabled": "已启用",
+      "draft": "草稿"
+    },
+    "priority": {
+      "high": "高优先级",
+      "medium": "中优先级",
+      "low": "低优先级"
+    },
+    "priorityLabel": {
+      "high": "高",
+      "medium": "中",
+      "low": "低"
+    },
+    "configuration": {
+      "title": "配置链路",
+      "sequence": "告警运维配置顺序"
+    },
+    "nextSetup": {
+      "ariaLabel": "下一配置阶段",
+      "label": "下一步配置",
+      "retainedProofTitle": "留存在线验证",
+      "retainedProofDetail": "针对已配置的告警源、工作流、LLM 和通知链路运行并留存在线验证证据。",
+      "proofPending": "等待验证",
+      "configureDetail": "继续告警运维链路前，请创建或确认{stage}。"
+    },
+    "settingsSurfaces": "设置入口",
+    "access": {
+      "ariaLabel": "访问控制入口",
+      "title": "目录与 RBAC",
+      "rules": "规则",
+      "users": "{count, plural, other {# 个用户}}",
+      "departments": "{count, plural, other {# 个部门}}"
+    },
+    "boundaries": {
+      "ariaLabel": "设置操作边界",
+      "connectionTests": {
+        "title": "连接测试",
+        "status": "有界 I/O",
+        "detail": "告警源和通道测试均通过后端操作接口执行，并只返回脱敏结果。"
+      },
+      "previews": {
+        "title": "预览",
+        "status": "不启动工作流",
+        "detail": "分组和影响预览只读取有界的持久化样本，不调用提供方，也不启动工作流。"
+      },
+      "replay": {
+        "title": "回放与调度",
+        "status": "等待外部验证",
+        "detail": "策略回放和调度投递必须针对运维人员提供的服务留存在线验证证据。"
+      }
+    },
+    "gate": {
+      "liveProofTitle": "在线验证门槛",
+      "configurationTitle": "配置门槛",
+      "liveProofDetail": "策略回放、Alertmanager 自动诊断和调度触发验收仍需针对真实 PostgreSQL、Temporal、告警源、LLM 与通知投递输入留存证据。",
+      "configurationDetail": "只有告警源、分组、通知、工作流策略和调度对象已在服务端存在后，留存验证目标才会启用。"
+    },
+    "integration": {
+      "ariaLabel": "运维上线就绪度",
+      "title": "运维上线就绪度",
+      "detail": {
+        "ready": "运维人员认证、企业微信投递和 Alertmanager 自动诊断室交接均已具备，可验证助手消息和最终结论。",
+        "review": "核心链路已配置，但至少一项生产上线条件仍需检查，才能验证多阶段 AI 通知。",
+        "pending": "配置未被阻塞，但至少一项上线条件仍需在线检查。",
+        "blocked": "请先处理运维人员认证、企业微信或 Alertmanager 自动诊断室的阻塞条件。"
+      },
+      "localAccess": {
+        "title": "本地访问",
+        "readyDetail": "本地目录投影、RBAC 分配和当前运维人员访问权限均已满足诊断室授权要求。"
+      },
+      "operatorAuth": {
+        "title": "运维人员认证",
+        "readyDetail": "运维人员身份已由运行中的后端验证，诊断室权限由 OpenClarion 本地 RBAC 执行。",
+        "verified": "{mode}已验证"
+      },
+      "weCom": {
+        "title": "企业微信",
+        "noPolicyDetail": "绑定企业微信投递前，请先创建自动诊断室工作流策略。",
+        "noChannelDetail": "请绑定具备报告、诊断协作和诊断关闭权限范围的企业微信通道。",
+        "disabledDetail": "执行 AI 通知在线验证前，请启用已绑定的企业微信通道。",
+        "wrongKindDetail": "自动诊断上线需要企业微信，通用 Webhook 验证不足以完成验收。",
+      "missingScopesDetail": "接受企业微信上线前，请补充{scopes}。",
+      "followUpDetail": "企业微信已绑定，但工作流仍需使用自动诊断室后续动作才能自动发起 AI 协作。",
+      "readyDetail": "企业微信已具备所需权限范围，以及 AI 诊断和关闭通知样例证据。"
+      },
+      "autoRoom": {
+        "title": "Alertmanager 自动诊断室",
+        "noPolicyDetail": "Alertmanager 启动 AI 诊断前，请先创建自动诊断室工作流策略。",
+        "disabledPolicyDetail": "Alertmanager Webhook 投递启动 AI 诊断室前，请启用工作流策略。",
+        "followUpDetail": "请将诊断后续动作切换为自动诊断室，使 Alertmanager Webhook 告警自动启动 AI 协作。",
+        "noSourceDetail": "Webhook 告警启动 AI 诊断前，请绑定已启用且兼容 Alertmanager 的告警源。",
+        "wrongSourceDetail": "自动诊断室 Webhook 交接需要兼容 Alertmanager 的告警源，不能使用 Prometheus 指标源。",
+        "toolsDetail": "接受自动 AI 诊断上线前，请补充活动告警与指标证据工具。",
+        "toolCounts": "{alerts} 个告警工具 / {metrics} 个指标工具",
+        "readyDetail": "已启用的 Alertmanager 自动诊断室策略具备告警和指标证据工具，可验证助手消息与最终结论。"
+      }
+    },
+    "localAccess": {
+      "readyDetail": "本地目录投影和 RBAC 分配已满足诊断室授权要求。",
+      "reviewDetail": "请检查本地目录投影和 RBAC 就绪度。",
+      "status": {
+        "ready": "本地访问已就绪",
+        "review": "本地访问需检查",
+        "pending": "本地访问待处理",
+        "blocked": "本地访问已阻塞"
+      },
+      "users": {
+        "label": "目录用户",
+        "readyDetail": "本地 IAM 目录投影包含活跃运维人员，可用于归因、选择器和用户级 RBAC。",
+        "blockedDetail": "本地 IAM 目录投影没有活跃用户。接受诊断室授权就绪度前，请运行目录同步。",
+        "allActive": "{count, plural, other {# 个活跃用户}}",
+        "activeRatio": "{active}/{total} 个活跃用户"
+      },
+      "departments": {
+        "label": "部门",
+        "readyDetail": "本地 IAM 部门投影可用于部门级 RBAC 和协作上下文。",
+        "reviewDetail": "尚无本地部门投影。用户级 RBAC 仍可工作，但应检查部门级协作。",
+        "value": "{count, plural, other {# 个部门}}"
+      },
+      "assignments": {
+        "label": "RBAC 规则",
+        "readyDetail": "OpenClarion 已配置用于诊断室授权的本地 RBAC 分配。",
+        "blockedDetail": "没有已启用的本地 RBAC 分配。引导管理员只用于应急，上线前请持久化 RBAC 分配。",
+        "allEnabled": "{count, plural, other {# 条已启用}}",
+        "enabledRatio": "{enabled}/{total} 条已启用"
+      },
+      "sync": {
+        "label": "目录同步",
+        "noRuns": "无运行记录",
+        "noRunsDetail": "没有留存的 IAM 目录同步记录。接受本地访问就绪度前，请运行完整同步。",
+        "succeededDetail": "最近一次 IAM 目录同步成功，本地用户和部门投影已有留存同步记录。",
+        "succeededValue": "成功于 {date}",
+        "unknownFailure": "未知失败",
+        "failedDetail": "最近一次 IAM 目录同步失败：{reason}。接受本地访问就绪度前，请修复同步。",
+        "failedValue": "失败于 {date}",
+        "unknownDetail": "最近一次 IAM 目录同步状态未知。接受本地访问就绪度前，请检查同步历史。",
+        "unknownValue": "{status} {date}",
+        "notLoaded": "未加载同步状态"
+      }
+    },
+    "currentAccess": {
+      "checkingDetail": "正在通过浏览器会话检查当前登录运维人员的本地 RBAC 决策。",
+      "signInDetail": "检查本地目录和 RBAC 权限前，请使用 IAM 登录。",
+      "deniedDetail": "当前主体已登录，但本地 RBAC 拒绝了{permissions}。",
+      "profileReviewDetail": "当前主体已获授权，但尚未同步用于归因和部门级 RBAC 的活跃本地目录资料。",
+      "readyDetail": "当前主体具备设置总览所需权限，并拥有活跃的本地目录资料。",
+      "status": {
+        "pending": "当前访问待检查",
+        "signIn": "当前访问需要登录",
+        "unavailable": "当前访问不可用",
+        "limited": "当前访问受限",
+        "review": "当前访问需检查",
+        "ready": "当前访问已就绪"
+      },
+      "profile": {
+        "label": "资料",
+        "synced": "已同步",
+        "notSynced": "未同步"
+      },
+      "permissions": {
+        "directoryRead": "读取目录",
+        "directorySync": "同步目录",
+        "rbacManage": "管理 RBAC",
+        "operationsRead": "读取运维数据"
+      },
+      "allowed": "允许",
+      "denied": "拒绝"
+    },
+  "deliveryScopes": {
+    "report": "报告权限范围",
+    "consultation": "诊断协作权限范围",
+    "close": "诊断关闭权限范围"
+  },
+  "notificationProof": {
+    "blockedDetail": "运行投递测试前，请修复通知通道凭据配置。",
+    "reviewDetail": "接受投递前，请检查当前通知通道证据。",
+    "missingTestsDetail": "接受通知验证前，请在最近一次通道更新后运行{tests}。",
+    "tests": {
+      "transport": "传输样例测试",
+      "aiDiagnosis": "AI 诊断样例测试",
+      "diagnosisClose": "诊断关闭样例测试"
+    }
+  },
+    "sourceKinds": {
+      "alertmanager": "Alertmanager",
+      "prometheus": "Prometheus"
+    },
+    "followUp": {
+      "disabled": "已禁用",
+      "suggestRoom": "建议诊断室",
+      "autoRoom": "自动诊断室"
+    },
+    "authModes": {
+      "bearer": "Bearer 令牌",
+      "ldap": "LDAP",
+      "weCom": "企业微信",
+      "session": "浏览器会话"
+    },
+    "topology": {
+      "ariaLabel": "活动工作流拓扑",
+      "title": "活动工作流拓扑",
+      "sequence": "已选择的告警工作流拓扑",
+      "noPolicyTitle": "无工作流策略",
+      "noPolicyDetail": "配置告警源和分组策略后，请创建工作流策略。",
+      "readyTitle": "拓扑已就绪",
+      "readyDetail": "已选择的工作流链路可进行留存在线验证。",
+      "actionsAriaLabel": "下一步拓扑操作",
+      "actionsTitle": "下一步拓扑操作",
+      "openActions": "{count, plural, other {# 项待处理}}",
+      "status": {
+        "ready": "就绪",
+        "review": "需检查",
+        "blocked": "已阻塞"
+      },
+      "actions": {
+        "createPolicy": {
+          "title": "创建自动诊断工作流",
+          "detail": "回放告警窗口前，请绑定 Alertmanager 告警源、分组策略和企业微信投递配置。"
+        },
+        "enablePolicy": {
+          "title": "启用工作流策略",
+          "detail": "所选工作流策略仍是草稿，不会用于回放或调度验证。"
+        },
+        "alertSource": {
+          "title": "检查告警源",
+          "detail": "回放告警窗口前，所选工作流需要已启用的告警源。"
+        },
+        "grouping": {
+          "title": "检查分组策略",
+          "detail": "所选工作流需要已启用的分组策略来构建事件组。"
+        },
+        "roomFollowUp": {
+          "title": "启用 AI 诊断室后续动作",
+          "detail": "需要 Webhook 告警自动启动协作工作流时，请将诊断后续动作设为自动诊断室。"
+        },
+        "autoRoomFollowUp": {
+          "title": "使用自动诊断室完成 Webhook 交接",
+          "detail": "建议诊断室仍保留人工交接步骤；Alertmanager Webhook 告警要自动启动 AI 协作，必须使用自动诊断室。"
+        },
+        "alertmanagerSource": {
+          "title": "绑定 Alertmanager Webhook 告警源",
+          "detail": "自动启动诊断室需要已启用且兼容 Alertmanager 的 Webhook 告警源。Thanos Rule 用于活动告警证据，Webhook 接入应使用 Alertmanager。"
+        },
+        "activeAlertTool": {
+          "title": "启用活动告警工具",
+          "detail": "请在工作流告警源上启用 active_alerts 模板，使 AI 诊断室能够检查当前告警。"
+        },
+        "metricEvidence": {
+          "title": "启用指标证据",
+          "detail": "请启用兼容 Prometheus 的 metric_query 或 metric_range_query 模板来采集证据。"
+        },
+        "enableMetricSource": {
+          "title": "启用 Prometheus 指标源",
+          "detail": "已有兼容 Prometheus 的草稿告警源；添加指标证据工具前，请启用并测试它。"
+        },
+        "createMetricSource": {
+          "title": "创建 Thanos 指标源",
+          "detail": "配置区间或即时查询前，指标证据需要已启用的 Thanos Query 或兼容 Prometheus 的告警源。"
+        },
+        "enableChannel": {
+          "title": "启用 AI 投递通道",
+          "detail": "所选通知通道已绑定但未启用，因此无法完成 AI 更新和报告投递验证。"
+        },
+        "bindChannel": {
+          "title": "绑定企业微信 AI 投递",
+          "detail": "自动诊断室验证需要已启用且具备报告、诊断协作和诊断关闭权限范围的企业微信通道。"
+        },
+        "channelScopes": {
+          "title": "检查 AI 投递通道权限范围",
+          "detail": "所选通知通道缺少{scopes}，补齐后才能投递 AI 更新、关闭通知和报告。"
+        },
+        "channelKind": {
+          "title": "将 AI 投递切换到企业微信",
+          "detail": "自动诊断室验证需要企业微信通道；通用 Webhook 投递无法启动运维交接链路。"
+        },
+        "createSchedule": {
+          "title": "创建工作流调度计划",
+          "detail": "当工作流除了手动回放还需要留存调度验证时，请添加调度计划。"
+        },
+        "enableSchedule": {
+          "title": "启用工作流调度计划",
+          "detail": "调度计划仍是草稿；接受回放验证后再启用它。"
+        },
+        "impactPreview": {
+          "title": "运行影响预览",
+          "detail": "回放工作流窗口前，请预览近期告警分组。"
+        }
+      },
+      "steps": {
+        "source": {
+          "title": "告警源",
+          "notAlertmanager": "{source} 不是 Alertmanager 告警源"
+        },
+        "grouping": { "title": "分组" },
+        "evidence": {
+          "title": "证据",
+          "detail": "{alerts} 个活动告警工具 / {metrics} 个指标工具"
+        },
+        "aiRoom": { "title": "AI 诊断室" },
+        "delivery": {
+          "title": "投递",
+          "missingScopes": "{channel} 缺少{scopes}",
+          "notWeCom": "{channel} 不是企业微信通道"
+        },
+        "schedule": { "title": "调度" }
+      },
+      "descriptions": {
+        "policy": "策略",
+        "alertSource": "告警源",
+        "grouping": "分组",
+        "evidenceTools": "证据工具",
+        "noTools": "所选告警源没有已启用的工具",
+        "activeAlerts": "活动告警 {count}",
+        "metricEvidence": "指标证据 {count}",
+        "deliveryChannel": "投递通道",
+        "schedule": "调度计划"
+      }
+    },
+    "ingestion": {
+      "ariaLabel": "告警接入就绪度",
+      "title": "告警接入就绪度",
+      "sequence": "告警到 AI 诊断室的配置链路",
+      "countersAriaLabel": "告警接入计数",
+      "counters": {
+        "intake": "接入告警源",
+        "alertTools": "活动告警工具",
+        "metricEvidence": "指标证据",
+        "aiHandoff": "AI 交接",
+        "webhookProof": "Webhook 验证"
+      },
+      "steps": {
+        "intake": {
+          "title": "接入",
+          "requiresAlertmanager": "自动诊断室需要 Alertmanager",
+          "source": "{kind} 告警源"
+        },
+        "alerts": {
+          "title": "告警",
+          "detail": "{count, plural, other {# 个活动告警工具}}"
+        },
+        "metrics": {
+          "title": "指标",
+          "detail": "{count, plural, other {# 个指标工具}}"
+        },
+        "aiRoom": { "title": "AI 诊断室" },
+        "replay": {
+          "title": "回放",
+          "ready": "自动诊断已就绪",
+          "policyEnabled": "策略已启用",
+          "policyDraft": "策略为草稿"
+        }
+      }
+    },
+    "liveProof": {
+      "ariaLabel": "在线验证就绪度",
+      "title": "在线验证就绪度",
+      "sequence": "从回放到通知的验证链路",
+      "detail": {
+        "ready": "配置已可运行回放、AI 诊断、认证、通知和调度验证。",
+        "review": "配置可运行部分验证链路，但 AI 交接、认证或通知验证仍需检查。",
+        "pending": "配置没有阻塞项，但至少一个验证目标仍需创建或运行。",
+        "blocked": "尝试留存在线验证前，请先处理被阻塞的工作流绑定。"
+      },
+      "items": {
+        "replay": "回放",
+        "aiDiagnosis": "AI 诊断",
+        "auth": "认证",
+        "notification": "通知",
+        "schedule": "调度"
+      },
+      "auth": {
+        "acceptedDetail": "后端诊断认证已接受{mode}。",
+        "verified": "{mode}已验证",
+        "failedDetail": "在线验证前，请修复{mode}诊断认证。",
+        "failed": "{mode}失败",
+        "checkingDetail": "后端诊断认证检查仍在运行。",
+        "checking": "正在检查{mode}",
+        "notCheckedDetail": "接受在线验证前，请使用{mode}运行认证检查。",
+        "notChecked": "{mode}尚未检查"
+      },
+      "ai": {
+        "noPolicyDetail": "运行 AI 诊断验证前，请创建并启用自动诊断室工作流策略。",
+        "blockedDetail": "运行 AI 诊断验证前，请处理被阻塞的工作流拓扑。",
+        "disabledDetail": "回放启动 AI 诊断室前，请启用自动诊断室后续动作。",
+        "suggestRoomDetail": "建议诊断室保留人工交接；回放驱动的 AI 诊断验证应切换到自动诊断室。",
+        "operatorHandoff": "人工交接",
+        "toolsDetail": "回放前，AI 诊断验证需要活动告警和指标证据工具。",
+        "readyDetail": "自动诊断室回放可使用告警和指标证据工具启动 AI 诊断。"
+      },
+      "notification": {
+        "noPolicyDetail": "评估通知验证前，请创建工作流策略。",
+        "noAIChannelDetail": "接受 AI 更新通知验证前，请绑定企业微信通道。",
+        "noReportChannelDetail": "接受投递验证前，请绑定报告通知通道。",
+        "disabledDetail": "执行在线通知验证前，请启用已绑定的通知通道。",
+      "missingScopesDetail": "执行在线 AI 通知验证前，请补充{scopes}。",
+      "wrongKindDetail": "尝试运维交接验证前，请将已绑定通知通道切换为企业微信。",
+      "autoRoomReadyDetail": "企业微信通道权限范围已满足报告、AI 更新和关闭验证。",
+        "reportReadyDetail": "通知通道权限范围已满足报告投递验证。"
+      }
+    },
+    "proofTargets": {
+      "ariaLabel": "留存验证目标",
+      "evidenceAriaLabel": "{target}证据",
+      "evidence": {
+        "alertmanagerWebhook": "Alertmanager Webhook",
+        "assistantMessage": "助手消息",
+        "finalConclusion": "最终结论",
+        "enterpriseWeChat": "企业微信",
+        "alertSource": "告警源",
+        "toolTemplate": "工具模板",
+        "notification": "通知",
+        "enabledSchedule": "已启用调度",
+        "temporalAction": "Temporal 操作",
+        "launcherWorkflow": "启动器工作流",
+        "reportDelivery": "报告投递"
+      },
+      "autoDiagnosis": {
+        "title": "Alertmanager 自动诊断",
+        "noPolicyDetail": "留存 Alertmanager 自动诊断证据前，请创建并启用自动诊断室工作流策略。",
+        "disabledPolicyDetail": "Alertmanager Webhook 验证启动 AI 诊断前，请启用自动诊断室工作流策略。",
+        "followUpDetail": "验证 Alertmanager Webhook 到 AI 协作投递前，请将诊断后续动作切换为自动诊断室。",
+        "noSourceDetail": "Webhook 验证启动自动 AI 诊断前，请绑定已启用且兼容 Alertmanager 的告警源。",
+        "wrongSourceDetail": "自动诊断验证从兼容 Alertmanager 的 Webhook 告警源启动，不能使用 Prometheus 指标源。",
+        "toolsDetail": "验证自动 AI 诊断前，请添加活动告警和指标证据工具。",
+        "noChannelDetail": "验证 AI 诊断更新和最终结论投递前，请绑定企业微信通道。",
+        "disabledChannelDetail": "留存自动诊断通知验证前，请启用企业微信通道。",
+      "wrongChannelDetail": "自动 AI 诊断验证需要企业微信，通用 Webhook 投递无法证明运维交接。",
+      "missingScopesDetail": "留存自动 AI 通知验证前，请补充{scopes}。",
+      "readyDetail": "输入已满足 Alertmanager Webhook 留存验证。请打开匹配的自动诊断室工作流，运行有界回放留存证据，并使用在线 Webhook 冒烟目标验证真实 Alertmanager 接入。",
+        "historyDetail": "{alert}在诊断室 {room} 的最新自动诊断留存证据：{detail}"
+      },
+      "replay": {
+        "title": "策略回放",
+        "noPolicyDetail": "留存手动回放证据前，请创建并启用工作流策略。",
+        "blockedDetail": "运行回放验证前，请处理被阻塞的工作流绑定。",
+        "reviewDetail": "请检查工作流告警、运行影响预览，再留存有界策略回放证据。",
+        "readyDetail": "工作流绑定已可运行影响预览并留存策略回放证据。"
+      },
+      "schedule": {
+        "title": "调度触发",
+        "blockedDetail": "运行调度触发验证前，请处理工作流阻塞项。",
+        "noScheduleDetail": "接受策略回放验证后，请创建报告工作流调度计划。",
+        "disabledDetail": "所选调度计划仍是草稿；接受回放验证后再启用它。",
+        "reviewDetail": "调度元数据已启用，但留存调度验证前仍有工作流检查项。",
+        "readyDetail": "已启用的调度计划可进行留存调度触发验证。"
+      }
+    },
+    "history": {
+      "ariaLabel": "近期自动诊断验证历史",
+      "title": "近期自动诊断验证",
+      "detail": "近期由 AlertmanagerWebhookAutoDiagnosis 创建且留存企业微信 AI 通知覆盖的诊断室。",
+      "empty": "尚无自动诊断留存验证历史",
+      "retained": "{count, plural, other {已留存 # 条}}",
+      "alertFallback": "告警 #{id}",
+      "alertTag": "告警 #{id}",
+      "snapshotTag": "快照 #{id}",
+      "phaseCount": "{ready}/{required} 个阶段",
+      "columns": {
+        "alert": "告警",
+        "coverage": "覆盖度",
+        "phases": "AI 通知阶段",
+        "latest": "最近时间",
+        "action": "操作"
+      },
+      "coverage": {
+        "readyLabel": "AI 投递已完成",
+        "readyDetail": "企业微信时间线已覆盖 AI 更新、最终结论和关闭通知，并留存 AI 输出证据。",
+        "blockedLabel": "AI 投递失败",
+        "blockedDetail": "至少一个必需的 AI 通知阶段失败。将诊断室视为已投递前，请重试失败投递。",
+        "pendingLabel": "AI 投递尚未开始",
+        "pendingDetail": "尚未留存任何 AI 诊断通知阶段。",
+        "reviewLabel": "AI 投递不完整",
+        "reviewDetail": "{required} 个 AI 通知阶段中已有 {ready} 个完成。接受投递前，请留存助手更新、最终结论和关闭通知证据。"
+      },
+      "phases": {
+        "assistantUpdate": "AI 更新",
+        "finalConclusion": "最终结论",
+        "close": "关闭"
+      },
+      "phaseStatus": {
+        "delivered": "已投递",
+        "failed": "失败",
+        "missing": "缺失",
+        "pending": "待处理",
+        "unproven": "缺少证据"
+      }
     }
   }
 }

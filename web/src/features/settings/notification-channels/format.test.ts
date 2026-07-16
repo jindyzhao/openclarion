@@ -791,6 +791,26 @@ describe("notification channel form formatting", () => {
     });
 
     expect(
+      notificationChannelAIProofReadiness(
+        { ...aiRoom, secret_ref: "" },
+        {
+          ai_diagnosis_sample: channelTestResult({
+            checked_at: "2026-06-05T09:01:00Z",
+            content_kind: "ai_diagnosis_sample",
+          }),
+          diagnosis_close_sample: channelTestResult({
+            checked_at: "2026-06-05T09:02:00Z",
+            content_kind: "diagnosis_close_sample",
+          }),
+        },
+      ),
+    ).toMatchObject({
+      label: "Credential secret not selected.",
+      missingContentKinds: ["ai_diagnosis_sample", "diagnosis_close_sample"],
+      status: "review",
+    });
+
+    expect(
       notificationChannelAIProofReadiness(aiRoom, {
         ai_diagnosis_sample: channelTestResult({
           checked_at: "2026-06-05T08:59:00Z",
